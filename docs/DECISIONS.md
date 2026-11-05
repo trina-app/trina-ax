@@ -8210,6 +8210,25 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   - A `share_file` link counts its path like a name read. `edit_files` raises one card for the whole batch
     (`TurnToolSet.beforeBatch`), and the yes covers each file's edit.
   - Each viewer's access is loaded once per message list for the answer links, and the skill check caches by path.
+- **Third review fixes (2026-11-05, re-review of fcfbf3a7): allowlists instead of one fix per finding.**
+  - Instructions: the three prompt builders (`buildTurnPrompt`, `buildSubagentPrompt`, `buildTurnContext`) are made of
+    named sections, and a room session gets only those `ROOM_PROMPT_SECTIONS` allows: product and tool rules, the
+    person lines in their room form (display name and id, folders everyone in the room may read; no role, no groups),
+    the environment, team rules and company profile (recorded as read), skills everyone may read, the room section,
+    the session's own history. Memories, project, connected services and the browser are left out. The record has
+    every section id, so a new section needs a room answer to compile, and a test builds all three prompts with every
+    section filled and checks that only allowed ones are there.
+  - Tools: a room session gets only `ROOM_TOOLS` (file tools and the tools that work on team files, ask_user, skills,
+    web_fetch, save_url), and no connection at all: personal ones are the person's, and a team one's results are not
+    team files (its answers would be private anyway). Google Drive, schedules, video generation and box_shell are out.
+  - A room session never resumes an engine session: its instructions are made again for every question, so a member
+    who joined or lost access is never answered from instructions made for others. Its history holds only the
+    questions whose answers went to the room (posted, not deleted): no private preview, stopped or failed answer.
+  - Every team path a call names (file_path, path, output, paths, …) counts as a name read in a room, whatever the
+    call answers: a folder someone cannot see ("is a folder"), a path that does not exist ("not found") and a search
+    with no result there keep the answer private alike. share_file also records the path as the server resolved it
+    (actual case, NFC). The skill tool answers as if skills only the person may read did not exist when several share
+    the name. The edit_files card lists every file and the replacement.
 - **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
   the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the session's
   **cumulative** read scope, not only this answer's list: each ruled folder (or the team root) by the rules now; the
@@ -8240,6 +8259,35 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   mention. Under the messages: my question's block (name, "답하는 중" or its place, the last steps, cards, Stop), or for
   the others one line "트리나가 답하는 중". A preview is the answer plus a left-bordered note (no card in a card) and one
   primary button, 대화방에 올리기.
+- **UX review (2026-11-05, owner's decisions; supersedes the Web lines above where they differ).**
+  - A private preview says "나만 볼 수 있어요" (lock) where "○○ 님이 물어봄" was; above its button one sentence: "올리면
+    이 폴더를 못 여는 사람도 이 내용을 봐요: 마케팅팀" (the last part of each folder path, never `skills/`; 내 폴더 for the
+    person's own; else the one other reason). 대화방에 올리기 is an outline button: not posting is the default.
+  - The others: "트리나가 답하는 중" ends as "○○ 님에게만 답했어요" under the question when the answer stays private
+    (`room.ai.privateAnswer`: the question id and who asked, to the members who see the question, never to the asker;
+    nothing of the answer or why), and simply goes when it is posted. The room section no longer tells the AI where its
+    answer goes; one allowed sentence instead: it may also search folders only the asker can open (named nowhere), such
+    answers stay private and the screen says so, and it does not write about who can see the answer.
+  - My question's progress is one plain line ("파일 찾는 중", "'예산' 문서 읽는 중": a file by its name only, no search
+    patterns or paths). A stopped or failed question's line sits under that question. A refused send (409 the AI still
+    busy, any 4xx but 401/404) goes back to the message box with the reason as a toast, not a failed bubble.
+  - Phones (below 768 px, where the tab bar is): sign-in lands on the 대화 list; its top bar has no new-chat icon; the
+    drawer has no rooms group (the desktop sidebar keeps it); a long press opens a message's menu (reply, copy, edit and
+    delete my own) and there is no "…" per message (desktop keeps it on hover). The 나 tab opens Settings on the
+    profile with the tab bar kept (the way out; no ✕), the list without its search box, MCP, 앱 커넥터 and AI 연결 behind
+    one 더 보기 row. The room's one setting is the bell in its header (no menu of one item).
+  - The pinned AI row is "트리나" (rooms.aiName) where the product is named after its AI (`PRODUCT_NAMED_AFTER_AI`); the
+    core edition keeps the product's name. Room DMs and mentions still push and still count on the 대화 tab but are not
+    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id). The profile no
+    longer shows or asks for the one-line status (the column stays). Letter avatars are on a neutral tile; an AI answer
+    is one plain line in the rooms list; a muted room's badge is grey and not in the tab's count; a mention shows "@"
+    alone; an AI answer's unread number sits by its time.
+- **Fourth review fixes (2026-11-05).** Every path a room session names is recorded by its real spelling on disk (case
+  on a case-insensitive disk, Unicode form; a missing tail as typed, NFC) besides as typed, so another spelling of a
+  restricted folder no longer maps to a parent everyone may read. `to_folder` (move_files, copy_files) is a path
+  argument. grep, glob and search count the folder they start in and every ruled folder under it the asker may read
+  (the whole team folder without a path; the asker's own folder is left to what was found there), so a search that
+  found nothing stays private too.
 - **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.

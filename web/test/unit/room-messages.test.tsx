@@ -5,6 +5,8 @@ import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
+import { useRooms } from '../../src/store/rooms'
+import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { at, BEN, CY, ME, message } from './rooms-fixtures'
 import { uuidv7 } from '@mycel/shared/api'
 
@@ -59,19 +61,36 @@ test('an AI answer is shown like a chat answer without its steps: Markdown, who 
   expect(html).not.toContain('data-testid="room-ai-preview"')
 })
 
-test('a private preview says why only I see it, names the folders, and has exactly one action', () => {
-  const a = message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'mine only', preview: { folders: ['acme/finance', ''], personal: false, outside: true } })
+test('a private preview says at the top that only I see it, names the folders plainly in one sentence, and has one outline action', () => {
+  const a = message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'mine only', preview: { folders: ['acme/finance', '', 'skills/marketing', 'shared/teams/finance'], personal: true, outside: true } })
   const html = render([a])
   expect(count(html, 'data-testid="room-ai-preview"')).toBe(1)
+  // the top line: mine only, in place of "asked by"
+  expect(html).toContain('data-testid="room-ai-private"')
   expect(html).toContain(translate('en', 'rooms.aiPrivate'))
-  expect(html).toContain(translate('en', 'rooms.aiPrivateFolders', { folders: `acme/finance/, ${translate('en', 'rooms.aiRootFolder')}` }))
-  expect(html).toContain(translate('en', 'rooms.aiPrivateOutside'))
-  expect(html).not.toContain(translate('en', 'rooms.aiPrivatePersonal'))
-  // one action on the note itself; putting the preview away is in the "…" menu (delete only: no reply, no edit)
+  expect(html).not.toContain(translate('en', 'rooms.aiAskedBy', { name: 'Ada' }))
+  expect(html.indexOf('room-ai-private')).toBeLessThan(html.indexOf('mine only'))
+  // one sentence: last parts of the paths, once each, no skills folder, never a full path
+  const folders = ['finance', translate('en', 'rooms.aiRootFolder'), translate('en', 'rooms.aiMyFolder')].join(', ')
+  expect(html).toContain(translate('en', 'rooms.aiPrivateFolders', { folders }))
+  expect(html).not.toContain('acme/finance')
+  expect(html).not.toContain('marketing')
+  expect(html).not.toContain(translate('en', 'rooms.aiPrivateOutside'))
+  // one action on the note itself, an outline button; putting the preview away is in the "…" menu
   const note = html.slice(html.indexOf('data-testid="room-ai-preview"'))
-  expect(count(note.slice(0, note.indexOf('</div>')), '<button')).toBe(1)
+  const own = note.slice(0, note.indexOf('</div>'))
+  expect(count(own, '<button')).toBe(1)
+  expect(own).not.toContain('bg-accent')
+  expect(own).toContain('border-field-border')
   expect(html).toContain(translate('en', 'rooms.aiShare'))
   expect(count(html, 'data-testid="message-menu"')).toBe(1)
+})
+
+test('a private preview without a folder to name says the one other reason, or that everyone would see it', () => {
+  const reason = (preview: NonNullable<ReturnType<typeof message>['preview']>) => render([message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'x', preview })])
+  expect(reason({ folders: ['skills/marketing'], personal: false, outside: true })).toContain(translate('en', 'rooms.aiPrivateOutside'))
+  expect(reason({ folders: [], personal: false, outside: false, joinedLater: ['Cy Park'] })).toContain(translate('en', 'rooms.aiPrivateJoined', { names: 'Cy Park' }))
+  expect(reason({ folders: ['skills'], personal: false, outside: false })).toContain(translate('en', 'rooms.aiPrivateAll'))
 })
 
 test("an AI answer's team file links are chips only for files the viewer may open; the rest is plain text", () => {
@@ -84,4 +103,92 @@ test("an AI answer's team file links are chips only for files the viewer may ope
   expect(html).toContain('>notes<')
   // someone else's answer: no delete for a member
   expect(html).not.toContain('data-testid="message-delete"')
+})
+
+test("someone else's question answered privately says so under the question, naming only who asked", async () => {
+  const q = message({ roomId: R, seq: 1, author: BEN, body: '@Trina budget?' })
+  const later = message({ roomId: R, seq: 2, author: CY, body: 'meanwhile' })
+  installDom()
+  useRooms.setState({ ai: { [R]: { answering: 0, runs: [], privates: [{ questionId: q.id, askedBy: BEN }] } } })
+  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  try {
+    const html = m.html()
+    expect(count(html, 'data-testid="room-ai-private-for"')).toBe(1)
+    expect(m.get('room-ai-private-for').textContent).toBe(translate('en', 'rooms.aiAnsweredTo', { name: 'Ben' }))
+    // right under the question, not at the end of the room
+    expect(html.indexOf('room-ai-private-for')).toBeLessThan(html.indexOf('meanwhile'))
+  } finally {
+    await m.unmount()
+    useRooms.getState().reset()
+    removeDom()
+  }
+})
+
+test('touch screens: no "…" on every message; a long press opens its menu (reply, copy, edit and delete my own)', async () => {
+  const html = render([message({ roomId: R, seq: 1, author: ME, body: 'mine' })])
+  // the button stays for the mouse (on hover) and goes on phones and touch screens
+  expect(html).toMatch(/<button[^>]*class="[^"]*pointer-coarse:hidden max-sm:hidden[^"]*"[^>]*data-testid="message-menu"/)
+  installDom()
+  const m = await mount(<RoomMessages roomId={R} messages={[message({ roomId: R, seq: 1, author: ME, body: 'mine' })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  try {
+    const press = (type: string, o: Record<string, unknown> = {}) => {
+      const e = Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10, ...o })
+      m.get('room-message').dispatchEvent(e)
+    }
+    // a finger that moves (scrolling) opens nothing
+    press('pointerdown')
+    press('pointermove', { clientY: 60 })
+    await m.settle(700)
+    expect(m.find('message-reply')).toBeNull()
+    // held still: the menu
+    press('pointerdown')
+    await m.settle(700)
+    expect(['message-reply', 'message-copy', 'message-edit', 'message-delete'].map((id) => !!m.find(id))).toEqual([true, true, true, true])
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})
+
+test("an AI answer's unread number sits by its time, not on a line of its own under the answer", () => {
+  const a = message({ roomId: R, seq: 2, authorKind: 'ai', author: null, askedBy: BEN, body: 'long **answer**', unread: 2 })
+  const html = render([a])
+  expect(count(html, 'data-testid="message-unread"')).toBe(1)
+  expect(html.indexOf('data-testid="message-unread"')).toBeLessThan(html.indexOf('<strong>answer</strong>'))
+  expect(html).toMatch(/<\/time><span[^>]*data-testid="message-unread"/)
+})
+
+test('my stopped question says so under that question, not at the end of the room', async () => {
+  const q = message({ roomId: R, seq: 1, author: ME, body: '@Trina table please' })
+  const later = message({ roomId: R, seq: 2, author: BEN, body: 'meanwhile' })
+  installDom()
+  useRooms.setState({ ai: { [R]: { answering: 0, runs: [{ turnId: uuidv7(), roomId: R, questionId: q.id, state: 'stopped', position: 0, steps: [], error: null, createdAt: q.createdAt }] } } })
+  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  try {
+    const html = m.html()
+    expect(count(html, 'data-testid="room-ai-ended"')).toBe(1)
+    expect(m.get('room-ai-ended').textContent).toContain(translate('en', 'rooms.aiStopped'))
+    expect(html.indexOf('room-ai-ended')).toBeLessThan(html.indexOf('meanwhile'))
+  } finally {
+    await m.unmount()
+    useRooms.getState().reset()
+    removeDom()
+  }
+})
+
+test('a room badge: "@" alone when it mentions me, grey for a muted room; a letter avatar is neutral, not the accent', async () => {
+  const { UnreadBadge } = await import('../../src/components/rooms/SidebarRooms')
+  const { Avatar } = await import('../../src/components/Avatar')
+  const { room } = await import('./rooms-fixtures')
+  const loud = renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 2, mentioned: true })} testId="b" />)
+  expect(loud).toContain('<span aria-hidden="true">@</span>')
+  expect(loud).toContain('bg-accent')
+  const quiet = renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 3, muted: true })} testId="b" />)
+  expect(quiet).toContain('<span aria-hidden="true">3</span>')
+  expect(quiet).toContain('bg-hover text-muted')
+  expect(quiet).not.toContain('bg-accent')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0 })} testId="b" />)).toBe('')
+  const face = renderToStaticMarkup(<Avatar user={{ id: 'x', name: 'Ada' }} />)
+  expect(face).toContain('>A<')
+  expect(face).not.toContain('bg-accent')
 })

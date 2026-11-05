@@ -166,7 +166,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/onboarding/profile.ts': { why: 'company profile save refusals (ko next to en/id/ja/es)' },
   'server/src/onboarding/draft.ts': { why: 'company profile draft: the request message, chat title and refusals (ko next to en/id/ja/es)' },
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
-  'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^export const ROOM_AI_NAMES: readonly string\[\] = \[\.\.\.new Set\(\['트리나', / },
+  'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^const AI_OWN_NAMES = \['트리나', / },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
 }
 

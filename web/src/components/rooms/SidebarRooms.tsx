@@ -1,5 +1,6 @@
 // The "대화방" group in the sidebar, above the AI chats: my rooms (a group's rooms, 전체, DMs) by latest activity, one
-// count pill each for what I have not read ("@" in front when one of them mentions me), and "+" for a new 1:1 chat.
+// count pill each for what I have not read ("@" instead when one of them mentions me; grey in a muted room), and "+"
+// for a new 1:1 chat.
 // Folds like Recents (remembered in this browser). Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'
@@ -7,7 +8,7 @@ import { useId, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { badgeText } from '../../lib/rooms'
+import { roomBadge } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { PeoplePicker } from './PeoplePicker'
 import { RoomIcon, useRoomTitle } from './RoomIcon'
@@ -75,6 +76,22 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   )
 }
 
+/** A room's unread badge: the count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab
+ * does not count). */
+export function UnreadBadge({ room, className, testId }: { room: Room; className?: string; testId: string }) {
+  const t = useT()
+  if (room.unreadCount <= 0) return null
+  return (
+    <span className={clsx('shrink-0 rounded-full px-1.5 text-[11px] font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>
+      <span aria-hidden>{roomBadge(room)}</span>
+      <span className="sr-only">
+        {t('rooms.unread', { n: room.unreadCount })}
+        {room.mentioned && `, ${t('rooms.mentionedYou')}`}
+      </span>
+    </span>
+  )
+}
+
 function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
   const t = useT()
   const title = useRoomTitle()(room)
@@ -95,18 +112,7 @@ function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
             <span className="sr-only">{t('rooms.muted')}</span>
           </>
         )}
-        {unread > 0 && (
-          <span className="ml-auto shrink-0 rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="room-unread">
-            <span aria-hidden>
-              {room.mentioned && '@'}
-              {badgeText(unread)}
-            </span>
-            <span className="sr-only">
-              {t('rooms.unread', { n: unread })}
-              {room.mentioned && `, ${t('rooms.mentionedYou')}`}
-            </span>
-          </span>
-        )}
+        <UnreadBadge room={room} className="ml-auto" testId="room-unread" />
       </NavLink>
     </li>
   )

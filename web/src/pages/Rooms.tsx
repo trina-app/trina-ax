@@ -1,19 +1,20 @@
 // The rooms list (/rooms; the 대화 tab on phones): first a pinned row for the AI chat (like KakaoTalk's "나와의
-// 채팅"), then my rooms by latest activity, each with its last line, when, and my unread count. Rows are separated by
-// hairlines, no cards. "새 1:1 대화" opens the people list.
+// 채팅"; called like "@트리나" in the Trina edition), then my rooms by latest activity, each with its last line, when,
+// and my unread count. Rows are separated by hairlines, no cards. "새 1:1 대화" opens the people list.
 import { BellOff, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import type { Locale, Room } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type Locale, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { dateBucket, formatDate, intlTag } from '../lib/format'
-import { badgeText } from '../lib/rooms'
+import { plainLine } from '../lib/rooms'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
+import { UnreadBadge } from '../components/rooms/SidebarRooms'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 
 /** today: the time; yesterday: the word; before: the date */
@@ -48,7 +49,7 @@ export default function Rooms() {
             <Link to="/" className={row} data-testid="rooms-ai">
               <img src="/favicon.svg" alt="" aria-hidden className="size-10 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-ink">{PRODUCT.displayName}</span>
+                <span className="block truncate font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
                 <span className="block truncate text-sm text-muted">{t('rooms.ai.hint')}</span>
               </span>
             </Link>
@@ -78,7 +79,9 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const me = useMe()
   const title = useRoomTitle()(room)
   const m = room.lastMessage
-  const what = !m ? '' : m.deleted ? t('rooms.deleted') : m.excerpt.replace(/\s+/g, ' ').trim() || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
+  // an AI answer (no author) is Markdown: one plain line of it
+  const line = !m ? '' : m.author ? m.excerpt.replace(/\s+/g, ' ').trim() : plainLine(m.excerpt)
+  const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
   const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : (m.author?.name ?? null)
   const unread = room.unreadCount
   return (
@@ -99,18 +102,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
         {m && <span className="text-xs text-faint">{listTime(m.createdAt, locale, t('sidebar.yesterday'))}</span>}
-        {unread > 0 && (
-          <span className="rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="rooms-row-unread">
-            <span aria-hidden>
-              {room.mentioned && '@'}
-              {badgeText(unread)}
-            </span>
-            <span className="sr-only">
-              {t('rooms.unread', { n: unread })}
-              {room.mentioned && `, ${t('rooms.mentionedYou')}`}
-            </span>
-          </span>
-        )}
+        <UnreadBadge room={room} testId="rooms-row-unread" />
       </span>
     </Link>
   )

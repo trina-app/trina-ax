@@ -136,5 +136,7 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
       setPicked([])
       setClosedFor(null)
     },
+    /** the people picked for a text that comes back (a send the server refused) */
+    restore: (people: UserRef[]) => setPicked((p) => [...p, ...people.filter((x) => !p.some((y) => y.id === x.id))]),
   }
 }

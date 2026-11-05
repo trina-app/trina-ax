@@ -14,11 +14,17 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
 ])
 
-/** Tools a room session does not get: memories are not part of a room (none are loaded there, none are kept from one),
- * the session has no title, connecting a service needs a card the room does not show, and nothing runs on a person's
- * computer or in their signed-in browser from a room (box_shell; the in-app browser is off for room turns as a whole,
- * chat/turn.ts). */
-export const ROOM_OFF_TOOLS: ReadonlySet<string> = new Set(['remember', 'forget', 'set_title', 'connect_service', 'box_shell'])
+/**
+ * The only tools a room session gets (an allowlist: a tool added later is not offered in rooms until it is listed
+ * here). Left out: memories (none are loaded in a room, none are kept from one), the chat title, connecting a service
+ * and every connection's tools (personal ones are the person's own; a team one's results are not team files), the
+ * person's Google Drive, schedules, video generation, and anything that runs on a computer or in the person's
+ * signed-in browser (box_shell; the in-app browser is off for room turns as a whole, chat/turn.ts).
+ */
+export const ROOM_TOOLS: ReadonlySet<string> = new Set([
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'skill', 'find_skills', 'ask_user',
+  'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
+])
 
 /**
  * Tools that change nothing (they read, search, ask the person, or answer in the session's own chat). In a room every
@@ -27,6 +33,8 @@ export const ROOM_OFF_TOOLS: ReadonlySet<string> = new Set(['remember', 'forget'
  * people's words, and one of them may tell the AI to change something.
  */
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  'list', 'glob', 'grep', 'read', 'search', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact',
-  'web_fetch', 'drive_list', 'drive_read', 'drive_search', 'schedule_list',
+  'list', 'glob', 'grep', 'read', 'search', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
 ])
+
+/** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
+export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images']

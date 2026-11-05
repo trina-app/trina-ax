@@ -1,5 +1,5 @@
 // One room (/rooms/:roomId; the mobile app links here from a notice): a 48px header with the room's name, its member
-// count (opens the member list) and a menu with the mute switch; the messages (components/rooms/RoomMessages.tsx),
+// count (opens the member list) and the bell (mute, its only setting); the messages (components/rooms/RoomMessages.tsx),
 // older ones loaded on scrolling up; the message box at the bottom. What I see is marked read (POST
 // /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
@@ -15,12 +15,11 @@ import { useRooms, type PendingSend } from '../store/rooms'
 import { useMe } from '../store/session'
 import { toast } from '../store/ui'
 import { MembersDialog } from '../components/rooms/MembersDialog'
-import { MenuButton } from '../components/rooms/MenuButton'
 import { RoomComposer } from '../components/rooms/RoomComposer'
 import { RoomMessages } from '../components/rooms/RoomMessages'
 import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
-import { EmptyState, ErrorNote, Skeleton } from '../components/ui'
+import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 
 const NO_MESSAGES: RoomMessage[] = []
 const NO_PENDING: PendingSend[] = []
@@ -164,24 +163,16 @@ function RoomView({ roomId }: { roomId: string }) {
         <h1 className="min-w-0 truncate font-medium text-ink" data-testid="room-title">
           {room ? title(room) : ''}
         </h1>
-        {room?.muted && (
-          <>
-            <BellOff size={14} className="shrink-0 text-faint" aria-hidden />
-            <span className="sr-only">{t('rooms.muted')}</span>
-          </>
-        )}
         {room && room.kind !== 'dm' && (
           <button type="button" onClick={() => setShowMembers(true)} className="shrink-0 rounded px-1 py-1 text-xs text-faint hover:text-ink max-sm:py-2" data-testid="room-members-button">
             {t('rooms.members', { n: room.memberCount })}
           </button>
         )}
+        {/* the room's one setting, right here (a menu of one item is one tap too many): the bell shows how it is now */}
         {room && (
-          <MenuButton
-            label={t('rooms.menu')}
-            className="ml-auto"
-            testId="room-menu"
-            items={[{ label: room.muted ? t('rooms.unmute') : t('rooms.mute'), icon: room.muted ? <Bell size={14} aria-hidden /> : <BellOff size={14} aria-hidden />, onSelect: () => void toggleMute(), testId: 'room-mute' }]}
-          />
+          <IconButton label={room.muted ? t('rooms.unmute') : t('rooms.mute')} className="ml-auto" onClick={() => void toggleMute()} data-testid="room-mute">
+            {room.muted ? <BellOff size={16} aria-hidden /> : <Bell size={16} aria-hidden />}
+          </IconButton>
         )}
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
@@ -204,6 +195,8 @@ function RoomView({ roomId }: { roomId: string }) {
         meId={meId}
         reply={reply}
         onCancelReply={() => setReply(null)}
+        onReply={setReply}
+        empty={!!thread && !thread.loading && !thread.error && !messages.length && !pending.length}
         onSent={() => {
           stick.current = true
         }}

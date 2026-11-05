@@ -71,7 +71,7 @@ function PeopleDialog({ onClose }: { onClose: () => void }) {
                 <Avatar user={p} size={36} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-ink">{p.name}</span>
-                  {(p.title || p.status) && <span className="block truncate text-xs text-muted">{[p.title, p.status].filter(Boolean).join(' · ')}</span>}
+                  {p.title && <span className="block truncate text-xs text-muted">{p.title}</span>}
                 </span>
               </button>
             </li>

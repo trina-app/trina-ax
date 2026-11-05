@@ -2,7 +2,7 @@
 // of a sent text.
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
-import { aiMatches, aiMentionNames, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep } from '../../src/lib/rooms'
+import { aiMatches, aiMentionNames, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, plainLine, roomBadge, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -72,7 +72,23 @@ test('titles and the tab total', () => {
   expect(roomTitle(room({ kind: 'all', name: null, groupId: null }), words)).toBe('Everyone')
   expect(roomTitle(room({ kind: 'dm', name: null, groupId: null, peers: [BEN] }), words)).toBe('Ben')
   expect(roomTitle(room({ kind: 'dm', name: null, groupId: null, peers: [] }), words)).toBe('Unknown person')
-  expect(totalUnread([{ unreadCount: 2 }, { unreadCount: 0 }, { unreadCount: 5 }])).toBe(7)
+  expect(totalUnread([{ unreadCount: 2, muted: false }, { unreadCount: 0, muted: false }, { unreadCount: 5, muted: false }])).toBe(7)
+  // a muted room's badge is grey and stays out of the 대화 tab's count
+  expect(totalUnread([{ unreadCount: 2, muted: false }, { unreadCount: 5, muted: true }])).toBe(2)
+  // "@" alone when one of them mentions me ("@2" read like two mentions)
+  expect(roomBadge({ unreadCount: 2, mentioned: true })).toBe('@')
+  expect(roomBadge({ unreadCount: 120, mentioned: false })).toBe('99+')
+})
+
+test("an AI answer's Markdown is one plain line in the rooms list", () => {
+  expect(plainLine('## Changes\n\n- **one** and _two_\n- see [the plan](/files/view?path=a%2Fplan.md)')).toBe('Changes one and two see the plan')
+  expect(plainLine('1. `code` ~~old~~ new\n> quoted')).toBe('code old new quoted')
+  expect(plainLine('| a | b |\n|---|---|\n| 1 | 2 |')).toBe('a b 1 2')
+  // the excerpt may stop inside a link or bold
+  expect(plainLine('see [the plan](/files/view?path=a%2Fpl')).toBe('see the plan')
+  expect(plainLine('**광고비 합계는 3,0')).toBe('광고비 합계는 3,0')
+  // not Markdown: snake_case and 2*3 stay
+  expect(plainLine('file_name_here 2*3*4')).toBe('file_name_here 2*3*4')
 })
 
 // ---------------- the AI in a room ----------------
@@ -99,4 +115,16 @@ describe('the AI in a room', () => {
     expect(runs[0]).toMatchObject({ state: 'stopped', steps: [{ ...step, status: 'ok' }] })
     expect(runActive(runs[0]!)).toBe(false)
   })
+})
+
+test('what my question is doing, in plain words: no search pattern or path, a document by its name only', () => {
+  const s = (tool: string, label: string, kind: 'tool' | 'web_search' | 'thinking' = 'tool') => roomStepWords({ kind, tool, label })
+  expect(s('glob', 'Find files "**/*경쟁*"')).toEqual({ kind: 'find' })
+  expect(s('grep', 'Search "budget" · groups/marketing')).toEqual({ kind: 'find' })
+  expect(s('read', '파일 읽기 · groups/마케팅팀/경쟁사/경쟁사-동향.md')).toEqual({ kind: 'read', name: '경쟁사-동향' })
+  expect(s('read', 'Read · 예산.xlsx')).toEqual({ kind: 'read', name: '예산' })
+  expect(s('read', 'Read')).toEqual({ kind: 'find' })
+  expect(s('web_fetch', 'Fetch page · https://example.com/a')).toEqual({ kind: 'web' })
+  expect(s('', 'Web search: q', 'web_search')).toEqual({ kind: 'web' })
+  expect(s('make_file', 'Make file · users/a/x.docx')).toEqual({ kind: 'work' })
 })

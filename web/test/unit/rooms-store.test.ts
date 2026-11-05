@@ -178,6 +178,23 @@ describe('handleEvent', () => {
     expect(useRooms.getState().rooms.map((r) => r.id)).toEqual([dm.id, old.id])
   })
 
+  test('a send the server refuses (the AI still busy) goes back to the message box; a lost connection stays a bubble to retry', async () => {
+    const r = room()
+    useRooms.setState({ rooms: [r], loaded: true })
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { code: 'conflict', message: 'still answering', params: { reason: 'room_ai_busy' } } }), { status: 409, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
+    useRooms.getState().send(r.id, { body: '@Trina again', mentions: [BEN.id], replyTo: null, files: [] })
+    await new Promise((res) => setTimeout(res, 20))
+    expect(useRooms.getState().pending[r.id]).toBeUndefined()
+    expect(useRooms.getState().returned[r.id]).toMatchObject({ body: '@Trina again', mentions: [BEN.id] })
+    useRooms.getState().takeReturned(r.id)
+    expect(useRooms.getState().returned[r.id]).toBeUndefined()
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    useRooms.getState().send(r.id, { body: 'offline', mentions: [], replyTo: null, files: [] })
+    await new Promise((res) => setTimeout(res, 20))
+    expect(useRooms.getState().pending[r.id]).toMatchObject([{ body: 'offline', state: 'failed' }])
+    expect(useRooms.getState().returned[r.id]).toBeUndefined()
+  })
+
   test('a message for a room this window does not know yet reads that room', async () => {
     useRooms.setState({ rooms: [], loaded: true })
     const r = room({ unreadCount: 1, lastSeq: 1 })
@@ -207,6 +224,25 @@ describe('the AI in a room', () => {
     expect(useRooms.getState().ai[r.id]!.runs[0]).toMatchObject({ state: 'stopped', steps: [{ id: 's1' }] })
     store.dismissAi(r.id, run.turnId)
     expect(useRooms.getState().ai[r.id]!.runs).toEqual([])
+    store.reset()
+  })
+
+  test("someone else's answer that stayed private: one line per question, gone once it is posted", () => {
+    const r = room()
+    const q = message({ roomId: r.id, seq: 1, author: BEN, body: '@Trina budget?' })
+    const store = useRooms.getState()
+    store.reset()
+    store.handleEvent({ seq: 1, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 1 } })
+    store.handleEvent({ seq: 2, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0, privateAnswer: { questionId: q.id, askedBy: BEN } } })
+    store.handleEvent({ seq: 3, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0, privateAnswer: { questionId: q.id, askedBy: BEN } } })
+    expect(useRooms.getState().ai[r.id]).toMatchObject({ answering: 0, privates: [{ questionId: q.id, askedBy: BEN }] })
+    // a later count keeps it
+    store.handleEvent({ seq: 4, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 1 } })
+    expect(useRooms.getState().ai[r.id]!.privates).toHaveLength(1)
+    // Ben posts it: the answer comes to the room as a reply to the question, and the line goes
+    const posted = message({ roomId: r.id, seq: 3, authorKind: 'ai', author: null, askedBy: BEN, body: 'it is 30', replyTo: { id: q.id, author: BEN, excerpt: q.body, fileCount: 0, deleted: false } })
+    store.handleEvent({ seq: 5, at: 1, type: 'room.message', data: { roomId: r.id, message: posted } })
+    expect(useRooms.getState().ai[r.id]!.privates).toEqual([])
     store.reset()
   })
 })

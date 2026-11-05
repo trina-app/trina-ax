@@ -4,8 +4,8 @@
 // handleEvent; the pure with* functions below make the state changes (test/unit/rooms-store.test.ts), handleEvent adds
 // the requests they need. A reconnect the server could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
-import { uuidv7, type Room, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type ServerEvent } from '@mycel/shared/api'
-import { api, API, errorText, isApiError } from '../lib/api'
+import { uuidv7, type Room, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type ServerEvent, type UserRef } from '@mycel/shared/api'
+import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { withRun, withRunPosition, withRunStep } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
@@ -16,8 +16,9 @@ export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.mess
 
 /** The AI in a room (docs/DECISIONS.md "대화방의 트리나"): how many questions it answers there now (anyone's), and my own
  * questions: working ones with their steps, and ones that stopped or failed until I close them. A finished answer is a
- * room message, so its run goes. */
-export interface RoomAi { answering: number; runs: RoomAiRun[] }
+ * room message, so its run goes. privates: someone else's questions whose answer stayed theirs only ("○○ 님에게만
+ * 답했어요" under the question), while the room is open or until the answer is posted. */
+export interface RoomAi { answering: number; runs: RoomAiRun[]; privates?: { questionId: string; askedBy: UserRef }[] }
 const NO_AI: RoomAi = { answering: 0, runs: [] }
 
 export const ROOM_PAGE = 50
@@ -146,6 +147,21 @@ export function withAiRun(ai: Record<string, RoomAi>, roomId: string, run: RoomA
   return { ...ai, [roomId]: { ...cur, runs } }
 }
 
+/** The AI's count in a room, and an answer that just stayed private to someone else (once per question). */
+export function withAiCount(ai: Record<string, RoomAi>, roomId: string, answering: number, privateAnswer?: { questionId: string; askedBy: UserRef }): Record<string, RoomAi> {
+  const cur = ai[roomId] ?? NO_AI
+  const privates = privateAnswer && !cur.privates?.some((p) => p.questionId === privateAnswer.questionId) ? [...(cur.privates ?? []), privateAnswer] : cur.privates
+  return { ...ai, [roomId]: { ...cur, answering, ...(privates ? { privates } : {}) } }
+}
+
+/** An AI answer came to the room: the line saying it stayed private to the asker goes (they posted it). */
+export function withoutPrivate(ai: Record<string, RoomAi>, roomId: string, m: RoomMessage): Record<string, RoomAi> {
+  const cur = ai[roomId]
+  const q = m.authorKind === 'ai' && m.visibility === 'room' ? m.replyTo?.id : undefined
+  if (!q || !cur?.privates?.some((p) => p.questionId === q)) return ai
+  return { ...ai, [roomId]: { ...cur, privates: cur.privates.filter((p) => p.questionId !== q) } }
+}
+
 /** The read position the server answered: my badge for the room follows it. */
 export function withReadState(d: RoomsData, roomId: string, s: { lastReadSeq: number; unreadCount: number }): RoomsData {
   return { ...d, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastReadSeq: Math.max(r.lastReadSeq, s.lastReadSeq), unreadCount: s.unreadCount, mentioned: s.unreadCount > 0 && r.mentioned } : r)) }
@@ -162,6 +178,9 @@ interface RoomsState extends RoomsData {
   failed: unknown
   members: Record<string, RoomMember[]>
   pending: Record<string, PendingSend[]>
+  /** a send the server refused (the AI still busy with my question, a used-up budget, …): back in the room's message
+   * box with the reason as a toast, not a failed bubble to retry (components/rooms/RoomComposer.tsx takes it) */
+  returned: Record<string, PendingSend>
   ai: Record<string, RoomAi>
   loadRooms: () => Promise<void>
   /** null: not one of my rooms (gone from the list) */
@@ -185,6 +204,8 @@ interface RoomsState extends RoomsData {
   stopAi: (roomId: string, turnId: string) => Promise<void>
   /** close a run of mine that stopped or failed */
   dismissAi: (roomId: string, turnId: string) => void
+  /** the message box took back a refused send */
+  takeReturned: (roomId: string) => void
   /** post my private preview of an AI answer to the room */
   shareAi: (roomId: string, messageId: string) => Promise<void>
   resync: () => Promise<void>
@@ -192,7 +213,7 @@ interface RoomsState extends RoomsData {
   reset: () => void
 }
 
-const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'thread' | 'loaded' | 'failed' | 'members' | 'pending' | 'ai'> = { rooms: [], openRoomId: null, thread: null, loaded: false, failed: null, members: {}, pending: {}, ai: {} }
+const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'thread' | 'loaded' | 'failed' | 'members' | 'pending' | 'returned' | 'ai'> = { rooms: [], openRoomId: null, thread: null, loaded: false, failed: null, members: {}, pending: {}, returned: {}, ai: {} }
 
 /** what was typed in a room and not sent yet, while this page is open (components/rooms/RoomComposer.tsx); gone at
  * sign-out with the rest */
@@ -224,6 +245,14 @@ export const useRooms = create<RoomsState>((set, get) => {
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
     } catch (e) {
       const error = errorText(e, currentLocale(), t('error.network'))
+      // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
+      // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 404) {
+        setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
+        set((s) => ({ returned: { ...s.returned, [roomId]: p } }))
+        toast({ level: 'warn', text: error })
+        return
+      }
       setPending(roomId, (list) => list.map((x) => (x.clientMessageId === p.clientMessageId ? { ...x, state: 'failed', error } : x)))
     }
   }
@@ -384,6 +413,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       set((s) => (s.ai[roomId] ? { ai: { ...s.ai, [roomId]: { ...s.ai[roomId]!, runs: s.ai[roomId]!.runs.filter((r) => r.turnId !== turnId) } } } : {}))
     },
 
+    takeReturned(roomId) {
+      set((s) => ({ returned: omit(s.returned, roomId) }))
+    },
+
     async shareAi(roomId, messageId) {
       const m = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId } })
       set((s) => withMessage(s, roomId, m, myId()))
@@ -401,7 +434,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     handleEvent(ev) {
       switch (ev.type) {
         case 'room.ai':
-          set((s) => ({ ai: { ...s.ai, [ev.data.roomId]: { ...(s.ai[ev.data.roomId] ?? NO_AI), answering: ev.data.answering } } }))
+          set((s) => ({ ai: withAiCount(s.ai, ev.data.roomId, ev.data.answering, ev.data.privateAnswer) }))
           return
         case 'room.ai.run':
           set((s) => ({ ai: withAiRun(s.ai, ev.data.roomId, ev.data.run) }))
@@ -422,7 +455,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         case 'room.message': {
           const { roomId, message } = ev.data
           const known = get().rooms.some((r) => r.id === roomId)
-          set((s) => withMessage(s, roomId, message, myId()))
+          set((s) => ({ ...withMessage(s, roomId, message, myId()), ai: withoutPrivate(s.ai, roomId, message) }))
           // a room I was just added to whose "added" did not reach this window: its counts come from the server
           if (!known && get().loaded) void get().fetchRoom(roomId).catch(() => {})
           return

@@ -114,25 +114,31 @@ test('a Settings address opened directly shows the dialog over Home; ✕ closes 
   await expect(page.getByRole('dialog').getByRole('heading', { name: t['settings.profile'] })).toBeVisible()
 })
 
-test('on a phone Settings fills the screen: the list, then a section with a way back', async ({ page }) => {
+test('on a phone Settings is the 나 tab: the profile first, the tab bar stays, the list has no search or ✕ and keeps the rarer sections behind 더 보기', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 760 })
   await start(page)
-  await page.goto('/settings')
+  await page.goto('/rooms')
+  await page.getByTestId('tab-me').click()
+  await expect(page).toHaveURL(/\/settings\/profile$/)
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   const box = (await dialog.boundingBox())!
   expect(Math.round(box.width)).toBe(390)
-  await expect(dialog.getByTestId('settings-menu')).toBeVisible()
-  await expect(dialog.getByTestId('settings-content')).toBeHidden()
-  await dialog.getByTestId('settings-menu').getByRole('link', { name: t['settings.profile'] }).click()
-  await expect(page).toHaveURL(/\/settings\/profile$/)
-  await expect(dialog.getByTestId('settings-menu')).toBeHidden()
   await expect(dialog.getByRole('heading', { name: t['settings.profile'] })).toBeVisible()
+  await expect(dialog.getByTestId('bottom-tabs')).toBeVisible()
+  await expect(dialog.getByTestId('settings-close')).toBeHidden()
   await dialog.getByTestId('settings-back').click()
   await expect(page).toHaveURL(/\/settings$/)
   await expect(dialog.getByTestId('settings-menu')).toBeVisible()
+  await expect(dialog.getByTestId('settings-search')).toBeHidden()
+  const menu = dialog.getByTestId('settings-menu')
+  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toBeHidden()
+  await dialog.getByTestId('settings-more').click()
+  await expect(menu.getByRole('link', { name: t['integrations.title'] })).toBeVisible()
   await audit(page, 'settings list at phone width')
-  await page.getByTestId('settings-close').click()
+  // the tab bar is the way out
+  await dialog.getByTestId('tab-chats').click()
   await expect(dialog).toHaveCount(0)
+  await expect(page).toHaveURL(/\/rooms$/)
 })
 
 for (const scheme of ['light', 'dark'] as const) {

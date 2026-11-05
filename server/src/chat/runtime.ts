@@ -576,8 +576,19 @@ export class ChatRuntime {
     return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
-  history(leafId: string | null): { role: 'user' | 'assistant'; content: string }[] {
-    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+  history(leafId: string | null, room = false): { role: 'user' | 'assistant'; content: string }[] {
+    let rows = this.store.pathTo(leafId)
+    if (room) {
+      // a room's AI session (rooms/ai.ts) remembers only what went to the room: a question and its answer while that
+      // answer is a room message (posted, not deleted); a private preview, a stopped or failed answer is left out
+      const chatId = rows[0]?.chat_id
+      const posted = new Set(chatId ? (this.db.query(`SELECT a.turn_id FROM room_ai_turns a JOIN room_messages m ON m.id = a.answer_id
+        WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL`).all(chatId) as { turn_id: string }[]).map((r) => r.turn_id) : [])
+      const keep = new Set<string>()
+      for (const m of rows) if (m.role === 'assistant' && m.turn_id && posted.has(m.turn_id)) { keep.add(m.id); if (m.parent_id) keep.add(m.parent_id) }
+      rows = rows.filter((m) => keep.has(m.id))
+    }
+    return rows.filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
   }
 
   siteGranted(userId: string, host: string): boolean {

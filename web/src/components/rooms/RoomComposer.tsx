@@ -26,7 +26,7 @@ interface Upload {
 
 let uploadKey = 0
 
-export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onSent, gone }: { roomId: string; members: UserRef[]; meId: string | null; reply: RoomQuote | null; onCancelReply: () => void; onSent: () => void; gone: string }) {
+export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onReply, onSent, gone, empty = false }: { roomId: string; members: UserRef[]; meId: string | null; reply: RoomQuote | null; onCancelReply: () => void; onReply: (q: RoomQuote) => void; onSent: () => void; gone: string; empty?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const [text, setTextState] = useState(() => drafts.get(roomId) ?? '')
@@ -40,6 +40,19 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onSe
     else drafts.delete(roomId)
   }
   const mention = useMentionMenu({ text, setText, input, members, meId, ai: true })
+  // a send the server refused (the AI still answering my last question, …) comes back here, not as a failed bubble
+  const back = useRooms((s) => s.returned[roomId])
+  useEffect(() => {
+    if (!back) return
+    useRooms.getState().takeReturned(roomId)
+    const typed = drafts.get(roomId) ?? ''
+    setText(typed ? `${back.body}\n${typed}` : back.body)
+    mention.restore(members.filter((m) => back.mentions.includes(m.id)))
+    if (back.replyTo) onReply(back.replyTo)
+    if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController() })), ...list])
+    input.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [back])
 
   useLayoutEffect(() => {
     const ta = input.current
@@ -169,7 +182,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onSe
             rows={1}
             value={text}
             aria-label={t('composer.label')}
-            placeholder={t('rooms.placeholder')}
+            placeholder={empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')}
             maxLength={ROOM_MESSAGE_MAX}
             {...mention.inputProps}
             onChange={(e) => {
