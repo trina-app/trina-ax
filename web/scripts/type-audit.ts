@@ -3,7 +3,8 @@
 // font size, line height, weight, the nearest data-testid and its classes. Text under the phone floor is flagged:
 //   body or row text (primary colour) under 15px, a label (text-label) under 14px, meta (text-xs / text-micro, times,
 //   hints, secondary colours) and control text under 13px, code under 13px, and anything under 12px except a badge
-//   (text-nano, a count pill) at 11px. An avatar's initial (aria-hidden, beside the name) is not counted.
+//   (a count or tag: [data-badge], or a test id ending in -unread or -badge) at 11px. An avatar's initial (aria-hidden,
+//   beside the name) is not counted.
 // Writes <out>/audit.csv (one row per distinct text style per view) and <out>/summary.md (counts and the flagged
 // groups). Dev tool, not part of the build.
 //
@@ -11,16 +12,21 @@
 //     [--member mia --member-password-file ./mia-pw] [--out type-audit] [--width 390 --height 844] [--only drawer,admin]
 //     [--anon-only] [--file shared/a.txt]
 //
+// Passwords: --password-file / --member-password-file, or TYPE_AUDIT_PASSWORD / TYPE_AUDIT_MEMBER_PASSWORD in the
+// environment (never on the command line). --out defaults to a new folder under the OS temp directory.
+// Run it only against a test server: it saves the visible text of every screen to audit.csv, makes one failed sign-in
+// (the login error view) and marks the rooms it opens as read.
 // Content: the more the server has (rooms, a chat with an answer, files, a skill, a project, a schedule), the more
 // screens have something to measure. Views whose content is missing are listed as skipped in the summary.
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 const argv = process.argv.slice(2)
 const opt = (name: string, d = '') => { const i = argv.indexOf(`--${name}`); return i >= 0 && argv[i + 1] ? argv[i + 1]! : d }
 const BASE = opt('base', 'http://127.0.0.1:19100').replace(/\/$/, '')
-const OUT = path.resolve(opt('out', 'type-audit'))
+const OUT = path.resolve(opt('out', path.join(os.tmpdir(), `type-audit-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`)))
 const W = Number(opt('width', '390')), H = Number(opt('height', '844'))
 const ONLY = opt('only') ? new Set(opt('only').split(',')) : null
 const read = (f: string) => (f ? fs.readFileSync(f, 'utf8').trim() : '')
@@ -69,7 +75,8 @@ function collect(scope: string | null): Text[] {
     let kind = 'body'
     if (family === 'mono') kind = 'code'
     else if (el.closest('[aria-hidden="true"]') && text.length <= 2) kind = 'glyph'
-    else if (token === 'nano' || (text.length <= 4 && /^[\d+·,.]+$/.test(text) && /\brounded-(full|md)\b/.test(`${clsOf(el)} ${ctx[0] ?? ''}`) && /\bbg-/.test(`${clsOf(el)} ${ctx[0] ?? ''}`))) kind = 'badge'
+    // a badge is a known kind of element, never "any text-nano": [data-badge], or a count or tag by its test id
+    else if (el.closest('[data-badge], [data-testid$="-unread"], [data-testid$="-badge"], [data-testid="inbox-unread"], [data-testid="skills-pending"]')) kind = 'badge'
     else if (token === 'micro' || token === 'xs' || el.closest('time,kbd')) kind = 'meta'
     else if (token === 'label') kind = 'label'
     else if (el.closest('button,a,[role="tab"],[role="menuitem"],[role="option"],label,legend,summary,th,select')) kind = 'control'
@@ -151,6 +158,16 @@ async function ownerViews(browser: Browser) {
   await view(page, 'home', '/')
   await view(page, 'drawer', '/', { open: click('[data-testid="menu-open"]'), scope: '[data-drawer]' })
   await view(page, 'search', '/', { open: async (p) => { await p.keyboard.press('Control+k') }, scope: '[data-testid="search-palette"]' })
+  // a team file attached to the message box: its chip with the folder line
+  await view(page, 'home:team-attachment', '/', {
+    open: async (p) => {
+      await click('[data-testid="attach-button"]')(p)
+      await click('[data-testid="attach-team"]')(p)
+      await p.locator('[data-testid="picker-folder"]', { hasText: 'shared' }).first().click({ timeout: 8_000 })
+      await click('[data-testid="picker-file"]')(p)
+      await click('[data-testid="picker-attach"]')(p)
+    },
+  })
   await view(page, 'rooms', '/rooms')
   await view(page, 'rooms:new-dm', '/rooms?new=1', { scope: '[role="dialog"]' })
   for (const r of rooms) {
