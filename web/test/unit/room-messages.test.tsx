@@ -5,6 +5,8 @@ import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
+import { useRooms } from '../../src/store/rooms'
+import { installDom, mount, removeDom } from './dom-host'
 import { at, BEN, CY, ME, message } from './rooms-fixtures'
 import { uuidv7 } from '@mycel/shared/api'
 
@@ -101,4 +103,23 @@ test("an AI answer's team file links are chips only for files the viewer may ope
   expect(html).toContain('>notes<')
   // someone else's answer: no delete for a member
   expect(html).not.toContain('data-testid="message-delete"')
+})
+
+test("someone else's question answered privately says so under the question, naming only who asked", async () => {
+  const q = message({ roomId: R, seq: 1, author: BEN, body: '@Trina budget?' })
+  const later = message({ roomId: R, seq: 2, author: CY, body: 'meanwhile' })
+  installDom()
+  useRooms.setState({ ai: { [R]: { answering: 0, runs: [], privates: [{ questionId: q.id, askedBy: BEN }] } } })
+  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  try {
+    const html = m.html()
+    expect(count(html, 'data-testid="room-ai-private-for"')).toBe(1)
+    expect(m.get('room-ai-private-for').textContent).toBe(translate('en', 'rooms.aiAnsweredTo', { name: 'Ben' }))
+    // right under the question, not at the end of the room
+    expect(html.indexOf('room-ai-private-for')).toBeLessThan(html.indexOf('meanwhile'))
+  } finally {
+    await m.unmount()
+    useRooms.getState().reset()
+    removeDom()
+  }
 })

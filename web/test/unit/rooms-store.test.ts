@@ -209,4 +209,23 @@ describe('the AI in a room', () => {
     expect(useRooms.getState().ai[r.id]!.runs).toEqual([])
     store.reset()
   })
+
+  test("someone else's answer that stayed private: one line per question, gone once it is posted", () => {
+    const r = room()
+    const q = message({ roomId: r.id, seq: 1, author: BEN, body: '@Trina budget?' })
+    const store = useRooms.getState()
+    store.reset()
+    store.handleEvent({ seq: 1, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 1 } })
+    store.handleEvent({ seq: 2, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0, privateAnswer: { questionId: q.id, askedBy: BEN } } })
+    store.handleEvent({ seq: 3, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0, privateAnswer: { questionId: q.id, askedBy: BEN } } })
+    expect(useRooms.getState().ai[r.id]).toMatchObject({ answering: 0, privates: [{ questionId: q.id, askedBy: BEN }] })
+    // a later count keeps it
+    store.handleEvent({ seq: 4, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 1 } })
+    expect(useRooms.getState().ai[r.id]!.privates).toHaveLength(1)
+    // Ben posts it: the answer comes to the room as a reply to the question, and the line goes
+    const posted = message({ roomId: r.id, seq: 3, authorKind: 'ai', author: null, askedBy: BEN, body: 'it is 30', replyTo: { id: q.id, author: BEN, excerpt: q.body, fileCount: 0, deleted: false } })
+    store.handleEvent({ seq: 5, at: 1, type: 'room.message', data: { roomId: r.id, message: posted } })
+    expect(useRooms.getState().ai[r.id]!.privates).toEqual([])
+    store.reset()
+  })
 })

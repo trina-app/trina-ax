@@ -26,8 +26,10 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { Button, confirmDialog, inputCls } from '../ui'
 import { MenuButton } from './MenuButton'
+import { PrivateAnswered } from './RoomAiStatus'
 import { useMentionMenu } from './useMentionMenu'
 
+const NO_PRIVATES: { questionId: string; askedBy: UserRef }[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
 export const messageDomId = (id: string) => `room-msg-${id}`
@@ -60,6 +62,10 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
     setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600)
   }
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null
+  // what the AI did with a question, under that question: someone else's answer that stayed theirs only
+  const privates = useRooms((s) => s.ai[roomId]?.privates) ?? NO_PRIVATES
+  const after = (id: string) => privates.filter((p) => p.questionId === id).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />)
+  const orphans = privates.filter((p) => !loaded.has(p.questionId))
 
   return (
     <div data-testid="room-messages">
@@ -84,27 +90,36 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                   </time>
                 </p>
                 {run.messages.map((m) => (
-                  <MessageRow
-                    key={m.id}
-                    roomId={roomId}
-                    m={m}
-                    mine={!!meId && m.author?.id === meId}
-                    names={names}
-                    members={members}
-                    meId={meId}
-                    editing={editing === m.id}
-                    flash={flash === m.id}
-                    onEdit={() => setEditing(m.id)}
-                    onEditDone={() => setEditing(null)}
-                    onReply={() => onReply(quoteOf(m))}
-                    onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
-                  />
+                  <Fragment key={m.id}>
+                    <MessageRow
+                      roomId={roomId}
+                      m={m}
+                      mine={!!meId && m.author?.id === meId}
+                      names={names}
+                      members={members}
+                      meId={meId}
+                      editing={editing === m.id}
+                      flash={flash === m.id}
+                      onEdit={() => setEditing(m.id)}
+                      onEditDone={() => setEditing(null)}
+                      onReply={() => onReply(quoteOf(m))}
+                      onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
+                    />
+                    {after(m.id)}
+                  </Fragment>
                 ))}
               </div>
             </div>
           </Fragment>
         )
       })}
+      {orphans.length > 0 && (
+        <div className="pl-11">
+          {orphans.map((p) => (
+            <PrivateAnswered key={p.questionId} name={p.askedBy.name} />
+          ))}
+        </div>
+      )}
       {pending.length > 0 && (
         <div className={clsx('pl-11', !lastMine && 'pt-2')} data-testid="room-pending">
           {pending.map((p) => (

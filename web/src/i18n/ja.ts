@@ -2977,6 +2977,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.aiName": "トリナ",
   "rooms.aiAskedBy": "{name}さんの質問",
   "rooms.aiAnswering": "トリナが回答中",
+  "rooms.aiAnsweredTo": "{name}さんにだけ回答しました",
   "rooms.aiQueued": "順番待ち · {n}番目",
   "rooms.aiStop": "止める",
   "rooms.aiStopped": "回答を止めました。",

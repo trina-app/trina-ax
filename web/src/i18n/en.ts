@@ -3017,6 +3017,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.aiName": "Trina",
   "rooms.aiAskedBy": "Asked by {name}",
   "rooms.aiAnswering": "Trina is answering",
+  "rooms.aiAnsweredTo": "Answered to {name} only",
   "rooms.aiQueued": "Waiting for its turn · number {n}",
   "rooms.aiStop": "Stop",
   "rooms.aiStopped": "You stopped the answer.",

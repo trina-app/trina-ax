@@ -3016,6 +3016,7 @@ export const ko = {
   "rooms.aiName": "트리나",
   "rooms.aiAskedBy": "{name} 님이 물어봄",
   "rooms.aiAnswering": "트리나가 답하는 중",
+  "rooms.aiAnsweredTo": "{name} 님에게만 답했어요",
   "rooms.aiQueued": "차례를 기다리는 중 · {n}번째",
   "rooms.aiStop": "멈추기",
   "rooms.aiStopped": "답을 멈췄어요.",

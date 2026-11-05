@@ -3017,6 +3017,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.aiName": "Trina",
   "rooms.aiAskedBy": "Ditanya oleh {name}",
   "rooms.aiAnswering": "Trina sedang menjawab",
+  "rooms.aiAnsweredTo": "Dijawab hanya untuk {name}",
   "rooms.aiQueued": "Menunggu giliran · urutan {n}",
   "rooms.aiStop": "Hentikan",
   "rooms.aiStopped": "Anda menghentikan jawabannya.",

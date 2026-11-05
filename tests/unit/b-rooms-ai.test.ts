@@ -103,6 +103,8 @@ describe('the AI in a room', () => {
     const one = await ask('alice', roomId, `@트리나 brief?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { say: 'The Q4 brief is about upgrades.' })}`)
     const posted = await answerTo('erin', roomId, one.q)
     expect(posted).toMatchObject({ visibility: 'room', authorKind: 'ai', askedBy: { id: 'alice' }, body: 'The Q4 brief is about upgrades.', sourceCount: 1 })
+    // a posted answer: the "answering" line just goes, nobody is told it was private
+    expect(ws.erin!.frames.some((f) => f.type === 'room.ai' && f.data.roomId === roomId && !!f.data.privateAnswer)).toBe(false)
     expect(posted!.unread).toBeGreaterThan(0)
     const src = await h.api('erin').call(API.roomMessageSources, { params: { id: roomId, messageId: posted!.id } })
     expect(src).toMatchObject({ files: [{ path: BRIEF }], unavailable: 0 })
@@ -142,6 +144,12 @@ describe('the AI in a room', () => {
     const erinsView = await messages('erin', roomId)
     expect(erinsView.some((m) => m.authorKind === 'ai')).toBe(false)
     expect(JSON.stringify(erinsView)).not.toContain('Project Falcon plan')
+    // erin, who sees the question, is told only that it was answered to alice alone ("○○ 님에게만 답했어요"): who asked,
+    // nothing of the answer or why; alice gets no such line about her own question
+    const told = await ws.erin!.next('room.ai', (f) => f.data.roomId === roomId && !!f.data.privateAnswer)
+    expect(told.data).toEqual({ roomId, answering: 0, privateAnswer: { questionId: q.id, askedBy: { id: 'alice', name: expect.any(String) } } })
+    await ws.alice!.next('room.ai', (f) => f.data.roomId === roomId && f.data.answering === 0)
+    expect(ws.alice!.frames.some((f) => f.type === 'room.ai' && f.data.roomId === roomId && !!f.data.privateAnswer)).toBe(false)
     // other people's words taint the session (remember protection), and their link is not one alice typed
     const s = sessionOf(roomId, 'alice')!
     expect(s.session_tainted).toBe(1)
@@ -216,6 +224,10 @@ describe('the AI in a room', () => {
     // no personal memories in a room
     expect(second.body).not.toContain('ALICE-ROOM-MEMORY')
     expect(second.body).toContain('## Team chat room')
+    // the AI may look in the asker's other folders (named nowhere here) and never talks about who sees its answer
+    expect(second.body).toContain('You may also search folders that only Alice')
+    expect(second.body).toContain('Do not write about who can see your answer.')
+    expect(second.body).not.toMatch(/goes to the whole room only when|decides whether to post/)
     expect((h.ctx.db.query("SELECT COUNT(*) n FROM chats WHERE room_id = ? AND user_id = 'alice'").get(roomId) as { n: number }).n).toBe(1)
     const e = await ask('erin', roomId, `@트리나 mine\n${fake({ say: 'erin answer' })}`)
     expect((await answerTo('erin', roomId, e.q))?.body).toContain('erin answer')
