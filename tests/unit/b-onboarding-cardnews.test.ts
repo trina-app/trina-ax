@@ -154,6 +154,8 @@ describe('what a page offers (pure)', () => {
     ])
     // in main or an article, a header is the content's own; an aside is not
     expect(introText(about, base).split('\n')).toEqual(['회사 연혁', '1990년에 세웠어요.'])
+    // a page builder that wraps the whole page in one form (ASP.NET Web Forms) keeps its words
+    expect(introText('<body><form id="form1" method="post"><div id="content"><h1>회사 소개</h1><p>1990년에 세웠어요.</p><button>검색</button></div></form></body>', base).split('\n')).toEqual(['회사 소개', '1990년에 세웠어요.'])
   })
   test('page lines: links-only lines (a menu) dropped, links reduced to their words, repeats once, a sane length', () => {
     expect(pageLines('- [제품](https://a.example/p)\r\n\r\n\r\n- [뉴스](https://a.example/n) | [채용](https://a.example/c)\r\n# 소개\r\n[링크 글](https://a.example/x) 2019년에 세웠어요.\r\n›\r\n01\r\n# 소개')).toEqual(['소개', '링크 글 2019년에 세웠어요.'])

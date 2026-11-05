@@ -460,8 +460,9 @@ const closeTagRe = new Map<string, RegExp>()
 const closeTag = (name: string) => { let r = closeTagRe.get(name); if (!r) { r = new RegExp(`</${name}\\s*>`, 'gi'); closeTagRe.set(name, r) } return r }
 const isNameChar = (c: number) => (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c === 45 || c === 58
 
-/** Prose mode: the page's frame around its content (the site menu, the footer, side boxes, forms and buttons). */
-const FRAME_TAGS = new Set(['nav', 'footer', 'aside', 'form', 'button', 'dialog'])
+/** Prose mode: the page's frame around its content (the site menu, the footer, side boxes, buttons). Not a form: some
+ * site builders (ASP.NET Web Forms) put the whole page in one. */
+const FRAME_TAGS = new Set(['nav', 'footer', 'aside', 'button', 'dialog'])
 const FRAME_ROLE = /\brole\s{0,5}=\s{0,5}["']?(?:navigation|banner|contentinfo|search|menubar|menu)\b/i
 const CLASS_ID = /\b(?:class|id)\s{0,5}=\s{0,5}(?:"([^"]{0,500})"|'([^']{0,500})'|([^\s>"']{1,200}))/gi
 /** class or id words of a site's menus and frames (the "_gnb" of "site_gnb" too) */
@@ -479,7 +480,7 @@ const frameAttrs = (attrs: string): boolean => {
  * backtracking regex over a 5 MB page would stall the whole server (one process). Carriage returns are line breaks
  * (a page written with CRLF gave hundreds of blank lines).
  * `prose`: only the page's own content, for a company intro (onboarding/brand-assets.ts introText): the site's frame is
- * left out (nav, footer, aside, forms and buttons, a header outside main or article, menus by role, class or id), and
+ * left out (nav, footer, aside, buttons, a header outside main or article, menus by role, class or id), and
  * the markup's own line breaks and a <br> are spaces (a heading broken for the screen is one line).
  */
 export function htmlToText(html: string, base: URL, o: { prose?: boolean } = {}): { title?: string; text: string } {

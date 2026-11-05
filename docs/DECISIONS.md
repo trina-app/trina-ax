@@ -8587,8 +8587,8 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   the same for every page, and none of the page's words: the page row kept web_fetch's text cut at 4,000 characters,
   the site's markup is CRLF (htmlToText only collapsed `\n`, so every `\r` line stayed and became an empty quote line)
   and its first 4,000 characters were the menu. Now: htmlToText reads `\r\n` and `\r` as line breaks (the AI's
-  web_fetch too); the page row keeps `introText`, htmlToText's new `prose` mode (no nav, footer, aside, form, button or
-  dialog, no header outside main or article, no element whose role, class or id names a menu, breadcrumb, skip link or
+  web_fetch too); the page row keeps `introText`, htmlToText's new `prose` mode (no nav, footer, aside, button or
+  dialog, no header outside main or article (a form stays: ASP.NET Web Forms put the whole page in one), no element whose role, class or id names a menu, breadcrumb, skip link or
   cookie bar; markup line breaks and `<br>` are spaces), as lines (`pageLines`: links reduced to their words, a line of
   only links dropped, a phrase repeated in a row once (a heading's phone, tablet and computer versions), a line said
   already or inside one of the last three dropped, no line without two letters or digits). 회사 소개.md quotes each line
