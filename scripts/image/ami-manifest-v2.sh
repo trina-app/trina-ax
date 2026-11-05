@@ -161,7 +161,8 @@ if [[ ${#COPY_TO[@]} -gt 0 ]]; then
     fi
     if [[ $DRY != 1 ]]; then
       for i in $(seq 1 180); do
-        st="$(a "$r" ec2 describe-images --image-ids "$new" --owners self --query 'Images[0].State' --output text)"
+        # a new copy can answer NotFound for a short time (eventual consistency): an empty answer means "wait more"
+        st="$(a "$r" ec2 describe-images --image-ids "$new" --owners self --query 'Images[0].State' --output text 2>/dev/null || true)"
         [[ "$st" == available ]] && break
         [[ "$st" == failed || "$st" == error || "$st" == invalid ]] && die "copy $new in $r: state $st"
         [[ $i -lt 180 ]] || die "copy $new in $r not available after 90 minutes (run again later: the client token makes no second copy)"
