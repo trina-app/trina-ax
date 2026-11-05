@@ -10,6 +10,8 @@ import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
+import { useRooms } from './store/rooms'
+import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
 import { useSession } from './store/session'
 import Layout from './components/Layout'
@@ -34,6 +36,8 @@ const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ defa
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
 const Welcome = lazy(() => import('./pages/Welcome'))
+const Rooms = lazy(() => import('./pages/Rooms'))
+const RoomPage = lazy(() => import('./pages/Room'))
 
 function Splash() {
   const t = useT()
@@ -75,7 +79,8 @@ function useSettingsOverlay() {
 }
 
 /** The session's side effects (Gate): live updates while signed in; when signed out, nothing one person's window kept
- * stays for the next (chats, the messages waiting to be sent, the projects seen). Returns whether signed in. */
+ * stays for the next (chats, the messages waiting to be sent, the projects seen, rooms and people). Returns whether
+ * signed in. */
 export function useSessionLifecycle(): boolean {
   const status = useSession((s) => s.status)
   const signedIn = status.kind === 'signed-in' && !status.me.user.mustChangePassword
@@ -89,6 +94,8 @@ export function useSessionLifecycle(): boolean {
         useProjects.getState().reset()
         useAiAccess.getState().reset()
         useWelcome.getState().reset()
+        useRooms.getState().reset()
+        usePeople.getState().reset()
       }
     }
   }, [signedIn, status.kind])
@@ -170,6 +177,9 @@ function Gate() {
         <Route element={<Layout />}>
           <Route index element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
+          {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}
+          <Route path="rooms" element={<Rooms />} />
+          <Route path="rooms/:roomId" element={<RoomPage />} />
           <Route path="files" element={<Files />} />
           <Route path="files/view" element={<FileView />} />
           <Route path="projects" element={<ProjectList />} />

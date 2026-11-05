@@ -13,6 +13,7 @@ import { useChats } from './chats'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { useJobs } from './jobs'
+import { useRooms } from './rooms'
 import { useSession } from './session'
 import { toast, useUi } from './ui'
 
@@ -58,6 +59,13 @@ export function dispatch(ev: ServerEvent) {
       return
     case 'files.changed':
       filesChanged.emit(ev.data.changes)
+      return
+    case 'room.message':
+    case 'room.message.updated':
+    case 'room.read':
+    case 'room.updated':
+      // the team chat rooms (store/rooms.ts): only the room's members get these
+      useRooms.getState().handleEvent(ev)
       return
     case 'files.conflict': {
       // a save met a newer version (mine or someone else's): both people hear about the conflict copy
