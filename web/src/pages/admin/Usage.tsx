@@ -92,18 +92,19 @@ export default function Usage() {
     if (data) saveBlob(new Blob([usageCsv(data, groupBy)], { type: 'text/csv;charset=utf-8' }), `usage-${groupBy}-${from}-${to}.csv`)
   }
   const set = (k: keyof typeof filters) => (v: string) => setFilters((f) => ({ ...f, [k]: v }))
-  const engineName = (k: string) => ENGINE_LABEL[k as keyof typeof ENGINE_LABEL] ?? k
+  // known engines by their product name (Claude, Codex, API); anything else keeps the report's own label
+  const engineName = (k: string, label = k) => ENGINE_LABEL[k as keyof typeof ENGINE_LABEL] ?? label
   const modelName = (k: string, label: string) => (k === '' ? t('composer.defaultModel') : label)
   const credName = (k: string, label: string) => (k === TRIAL_CREDENTIAL_ID ? t('trialCredit.usageLabel') : label || t('usage.deletedCredential'))
   const rowLabel = (key: string, label: string) =>
-    groupBy === 'engine' ? engineName(key) : groupBy === 'model' ? modelName(key, label) : groupBy === 'credential' ? credName(key, label) : label
+    groupBy === 'engine' ? engineName(key, label) : groupBy === 'model' ? modelName(key, label) : groupBy === 'credential' ? credName(key, label) : label
   const all = (k: MessageKey) => ({ value: ALL, label: t(k) })
   const pills = facets && (
     <>
       <FilterPill label={t('usage.by.user')} value={filters.user} onChange={set('user')} testId="usage-filter-user"
         options={[all('usage.pill.all'), ...facets.users.map((u) => ({ value: u.key, label: u.label }))]} />
       <FilterPill label={t('usage.by.engine')} value={filters.engine} onChange={set('engine')} testId="usage-filter-engine"
-        options={[all('usage.pill.all'), ...facets.engines.map((e) => ({ value: e.key, label: engineName(e.key) }))]} />
+        options={[all('usage.pill.all'), ...facets.engines.map((e) => ({ value: e.key, label: engineName(e.key, e.label) }))]} />
       <FilterPill label={t('usage.by.model')} value={filters.model} onChange={set('model')} testId="usage-filter-model"
         options={[all('usage.pill.all'), ...facets.models.map((m) => ({ value: m.key, label: modelName(m.key, m.label) }))]} />
       {facets.credentials.length > 0 && (
