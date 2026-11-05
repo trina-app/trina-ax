@@ -61,7 +61,18 @@ image mode + the first-boot pieces (`mycel-enroll`).
   Oracle only on that platform; Proxmox gives the NoCloud drive), no users, no SSH keys, modules limited to what the
   first boot needs (`write_files`, `growpart`, `resizefs`, hostname, `runcmd`). `mycel-enroll` writes
   `/etc/cloud/cloud-init.disabled` after enrolling.
-- `/etc/ax-template.json` (template version, kit version, `production`), `/usr/lib/mycel/image-packages.txt`.
+- The dev environment on srt, image part (EC2 images: `build-ami.sh` stages `scripts/dev-env/srt` as `dev-env-srt/`;
+  `customize.sh --srt`): `install-srt.sh --image-mode` installs its packages (bubblewrap, socat, ripgrep, polkitd, jq,
+  python3, ffmpeg, chromium, build tools, CJK fonts), node 22 in `/opt/trina/node`, srt in `/opt/trina/srt/<version>`
+  and `/opt/trina/devenv/run-wrap`. A copy of the scripts stays in `/usr/lib/mycel/dev-env/srt`. It does **not** turn
+  the dev environment on: no polkit rule, no devenv slice, no server drop-in. `install-srt.sh` without `--image-mode` on
+  the team server does that (it needs `<base>/root/dev-env.json` on a hosted VM) and then downloads nothing.
+- With srt, also `mycel-devenv-boot` (`/usr/local/sbin`), `mycel-devenv-boot.service`, `mycel-devenv-plan.path` and the
+  server drop-in `20-devenv-boot.conf`. On a hosted server, at each server start and when `plan.json` changes, it writes
+  `dev-env.json` from the plan and runs `install-srt.sh --boot`. The team admin still turns the dev environment on.
+  Mapping, risks and roll back: `docs/research/srt-hosted-boot.md`.
+- `/etc/ax-template.json` (template version, kit version, `srt` present|none, `production`),
+  `/usr/lib/mycel/image-packages.txt`.
 - Cleanup: apt lists, ssh host keys, machine-id (empty → regenerated per clone), cloud-init state, logs.
 
 ## The kit contract (W1, `scripts/install-linux.sh`, being written on feat/cloud-linux-native)
