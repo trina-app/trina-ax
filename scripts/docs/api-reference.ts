@@ -36,6 +36,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   WELCOME: 'Onboarding: welcome steps',
   ONBOARDING_GOAL: 'Onboarding: the 7-day team goal',
   DEMO: 'Demo mode (development demo server only)',
+  SLACK: 'Slack connector',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

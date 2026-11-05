@@ -1,0 +1,578 @@
+// The Slack connector (docs/SLACK.md, docs/DECISIONS.md "Slack 커넥터"): one workspace per team server, its tokens
+// sealed in their own key directory, one Socket Mode connection, and for each question asked in Slack a normal chat
+// turn run as the Slack user's linked person.
+//
+//   unlinked asker   -> an ephemeral message (only they see it) with a one-time link: hashed, 10 minutes, used once,
+//                       bound to the enterprise / workspace / user of Slack's own event. Opening it needs a sign-in here
+//                       and an explicit confirm that shows both accounts (routes/slack.ts, web /slack/link).
+//   linked asker     -> the chat of that Slack thread for that person (a new one for a new thread), a turn exactly as if
+//                       they had typed it here (their permissions, engine, budget, usage). "Working…" to them only.
+//   answer, DM       -> in the DM's thread (the "working" message is replaced).
+//   answer, channel  -> ephemeral to the asker with one button, "Post to channel"; posting writes the answer alone to
+//                       the thread, "asked by <name>", without steps, sources or the link to the chat. Ephemeral messages
+//                       are not kept by Slack, so the answer stays in the chat here and the message links to it.
+// Envelopes are acknowledged by the socket before any of this runs; an event id or a message seen before is ignored.
+import crypto from 'node:crypto'
+import path from 'node:path'
+import { DEFAULT_LOCALE, type Locale, type MySlack, type SlackAdmin, type SlackErrorCode, type SlackLinkPreview, type SlackState } from '@mycel/shared/api'
+import type { AppContext } from '../../context'
+import { newId } from '../../db'
+import { audit } from '../../admin/audit'
+import { budgetBlock } from '../../admin/budgets'
+import { newChatEngine, turnEngine } from '../../admin/engine-choice'
+import { teamDefaultLocale } from '../../admin/settings'
+import { getChatRuntime } from '../../chat/runtime'
+import type { ChatRow } from '../../chat/store'
+import { HttpError } from '../../http/errors'
+import { resolveLayout } from '../../system/layout'
+import { SecretBox } from '../connections/store'
+import { redactorFor } from '../connections/redact'
+import { SlackApi, SlackApiError, type SlackDeps } from './api'
+import { AppMention, BlockActions, EventCallback, ImMessage, type Envelope } from './envelope'
+import { BOT_SCOPES, createAppUrl, slackManifest } from './manifest'
+import { SlackSocket, errorCode } from './socket'
+import { clip, questionText, say, sections, toMrkdwn } from './text'
+
+export const LINK_TTL_MS = 10 * 60_000
+const LINK_PER_HOUR = 10
+const LINK_AGAIN_MS = 60_000
+const ANSWER_WAIT_MS = 2 * 60 * 60_000
+const KEEP_MS = 7 * 86_400_000
+const AAD = 'slack:workspace'
+const ACTION_POST = 'trina_post'
+const ACTION_LINK = 'trina_link'
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+export class SlackError extends Error {
+  constructor(readonly reason: string, readonly code: HttpError['code'] = 'validation', readonly params: Record<string, string> = {}) { super(`slack_${reason}`) }
+}
+
+interface ConfigRow {
+  enabled: number; team_id: string | null; team_name: string | null; team_url: string | null; enterprise_id: string | null
+  bot_user_id: string | null; bot_name: string | null; secret_enc: string | null; key_version: number | null
+  link_origin: string | null; last_error: string | null
+}
+interface Tokens { bot: string; app: string }
+interface LinkRow { id: string; user_id: string; team_id: string; enterprise_id: string; slack_user_id: string; slack_name: string | null; created_at: string }
+interface RequestRow {
+  id: string; turn_id: string; user_id: string; chat_id: string; message_id: string; team_id: string; channel_id: string
+  channel_kind: 'im' | 'channel'; thread_ts: string; in_thread: number; slack_user_id: string; progress_ts: string | null
+  asked_notice: number; state: 'waiting' | 'delivered' | 'failed' | 'posted'; created_at: string
+}
+interface Question { team: string; enterprise: string; user: string; channel: string; kind: 'im' | 'channel'; ts: string; threadTs: string | null; text: string; userTeam: string | null }
+
+const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
+const cleanName = (s: unknown) => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, '').trim().slice(0, 80) || null : null
+const iso = (ms: number) => new Date(ms).toISOString()
+const BOT_TOKEN = /^xoxb-[A-Za-z0-9-]{10,250}$/
+const APP_TOKEN = /^xapp-[A-Za-z0-9-]{10,250}$/
+
+export class SlackConnector {
+  readonly api: SlackApi
+  readonly box: SecretBox
+  readonly now: () => number
+  private socket: SlackSocket | null = null
+  private poller: ReturnType<typeof setInterval> | null = null
+  private delivering = false
+  private closed = false
+
+  constructor(readonly ctx: AppContext, readonly deps: SlackDeps = {}) {
+    this.api = new SlackApi(deps)
+    this.now = deps.now ?? Date.now
+    this.box = new SecretBox(path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'slack'))
+    ctx.onClose(() => this.close())
+  }
+
+  get log() { return this.ctx.log.child({ c: 'slack' }) }
+  private get db() { return this.ctx.db }
+
+  close() {
+    this.closed = true
+    this.socket?.stop(); this.socket = null
+    if (this.poller) clearInterval(this.poller)
+    this.poller = null
+  }
+
+  // ---------------------------------------------------------------- configuration (the owner)
+  config(): ConfigRow | null { return this.db.query('SELECT * FROM slack_config WHERE id = 1').get() as ConfigRow | null }
+
+  private tokens(cfg = this.config()): Tokens | null {
+    if (!cfg?.secret_enc || cfg.key_version === null) return null
+    try { return this.box.open<Tokens>(AAD, cfg.secret_enc, cfg.key_version) } catch { return null }
+  }
+
+  /** Start or stop the connection as the configuration says (turned on, tokens saved). */
+  refresh() {
+    if (this.closed) return
+    const cfg = this.config()
+    const on = !!cfg?.enabled && !!cfg.secret_enc
+    if (!on) { this.socket?.stop(); this.socket = null; this.stopPoller(); return }
+    if (!this.socket) {
+      this.socket = new SlackSocket({
+        api: this.api, log: this.log, retryMs: this.deps.retryMs,
+        appToken: () => this.tokens()?.app ?? null,
+        onEnvelope: (e) => { void this.onEnvelope(e).catch((err) => this.log.error('slack event failed', { err: String(err) })) },
+        onState: (s, err) => this.noteState(s, err),
+      })
+      this.socket.start()
+    }
+    this.startPoller()
+  }
+
+  private noteState(_s: SlackState, err: SlackErrorCode | null) {
+    try { this.db.query('UPDATE slack_config SET last_error = ? WHERE id = 1 AND last_error IS NOT ?').run(err, err) } catch {}
+  }
+
+  private startPoller() {
+    if (this.poller) return
+    this.poller = setInterval(() => { void this.tick() }, this.deps.pollMs ?? 1000)
+    ;(this.poller as { unref?: () => void }).unref?.()
+  }
+  private stopPoller() { if (this.poller) clearInterval(this.poller); this.poller = null }
+
+  adminView(): SlackAdmin {
+    const cfg = this.config()
+    const manifest = slackManifest()
+    const linked = (this.db.query('SELECT count(*) n FROM slack_links').get() as { n: number }).n
+    const state: SlackState = !cfg?.enabled || !cfg.secret_enc ? 'off' : this.socket?.state ?? 'connecting'
+    const lastError = (cfg?.enabled ? (this.socket?.lastError ?? cfg.last_error) : null) as SlackErrorCode | null
+    return {
+      enabled: !!cfg?.enabled, tokens: !!cfg?.secret_enc,
+      workspace: cfg?.team_id ? { teamId: cfg.team_id, name: cfg.team_name ?? cfg.team_id, url: cfg.team_url } : null,
+      botName: cfg?.bot_name ?? null, state, lastError: state === 'connected' ? null : lastError,
+      linkOrigin: cfg?.link_origin ?? null, linked, manifest: JSON.stringify(manifest, null, 2), createUrl: createAppUrl(manifest),
+    }
+  }
+
+  /** Check both tokens with Slack, then keep them sealed. Another workspace than before drops every link. */
+  async saveTokens(actor: string, bot: string, app: string, origin: string): Promise<SlackAdmin> {
+    bot = bot.trim(); app = app.trim()
+    if (!BOT_TOKEN.test(bot)) throw new SlackError('not_bot_token', 'validation', { field: 'botToken' })
+    if (!APP_TOKEN.test(app)) throw new SlackError('not_app_token', 'validation', { field: 'appToken' })
+    let who: Record<string, unknown> & { scopes: string[] | null }
+    try { who = await this.api.call('auth.test', bot) } catch (e) { throw new SlackError(errorCode(e), 'validation', { field: 'botToken' }) }
+    if (who.is_enterprise_install === true) throw new SlackError('enterprise_install', 'validation', { field: 'botToken' })
+    const team = typeof who.team_id === 'string' && /^[A-Z0-9]{2,40}$/.test(who.team_id) ? who.team_id : null
+    const botUser = typeof who.user_id === 'string' && /^[A-Z0-9]{2,40}$/.test(who.user_id) ? who.user_id : null
+    if (!team || !botUser) throw new SlackError('not_bot_token', 'validation', { field: 'botToken' })
+    if (who.scopes) {
+      const missing = BOT_SCOPES.filter((s) => !who.scopes!.includes(s))
+      if (missing.length) throw new SlackError('missing_scope', 'validation', { field: 'botToken', scopes: missing.join(', ') })
+    }
+    try { await this.api.call('apps.connections.open', app) } catch (e) {
+      const code = errorCode(e)
+      throw new SlackError(code === 'invalid_auth' || code === 'unknown' ? 'not_app_token' : code, 'validation', { field: 'appToken' })
+    }
+    let sealed: { enc: string; keyVersion: number }
+    try { sealed = this.box.seal(AAD, { bot, app } satisfies Tokens) } catch { throw new SlackError('key_unsafe', 'unavailable') }
+    const before = this.config()
+    const changed = !!before?.team_id && before.team_id !== team
+    const now = iso(this.now())
+    const url = typeof who.url === 'string' && /^https:\/\/[a-z0-9.-]+\/?$/i.test(who.url) ? who.url : null
+    const enterprise = typeof who.enterprise_id === 'string' && /^[A-Z0-9]{2,40}$/.test(who.enterprise_id) ? who.enterprise_id : null
+    this.db.transaction(() => {
+      if (changed) this.forgetWorkspace()
+      this.db.query(`INSERT INTO slack_config (id, enabled, team_id, team_name, team_url, enterprise_id, bot_user_id, bot_name, secret_enc, key_version, link_origin, last_error, updated_by, updated_at)
+        VALUES (1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET team_id = excluded.team_id, team_name = excluded.team_name, team_url = excluded.team_url, enterprise_id = excluded.enterprise_id,
+          bot_user_id = excluded.bot_user_id, bot_name = excluded.bot_name, secret_enc = excluded.secret_enc, key_version = excluded.key_version,
+          link_origin = excluded.link_origin, last_error = NULL, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+        .run(team, cleanName(who.team) ?? team, url, enterprise, botUser, cleanName(who.user), sealed.enc, sealed.keyVersion, origin, actor, now)
+    })()
+    audit(this.db, { actor, action: 'slack.tokens', target: team, detail: { workspaceChanged: changed } })
+    // the new tokens: a fresh connection
+    this.socket?.stop(); this.socket = null
+    this.refresh()
+    return this.adminView()
+  }
+
+  setEnabled(actor: string, enabled: boolean): SlackAdmin {
+    const cfg = this.config()
+    if (enabled && !cfg?.secret_enc) throw new SlackError('no_tokens', 'conflict')
+    if (cfg) this.db.query('UPDATE slack_config SET enabled = ?, updated_by = ?, updated_at = ? WHERE id = 1').run(enabled ? 1 : 0, actor, iso(this.now()))
+    if (cfg && !!cfg.enabled !== enabled) audit(this.db, { actor, action: enabled ? 'slack.enabled' : 'slack.disabled', target: cfg.team_id })
+    this.refresh()
+    return this.adminView()
+  }
+
+  remove(actor: string): SlackAdmin {
+    const cfg = this.config()
+    this.db.transaction(() => { this.forgetWorkspace(); this.db.query('DELETE FROM slack_config').run() })()
+    if (cfg) audit(this.db, { actor, action: 'slack.removed', target: cfg.team_id })
+    this.refresh()
+    return this.adminView()
+  }
+
+  private forgetWorkspace() {
+    for (const t of ['slack_links', 'slack_link_tokens', 'slack_threads', 'slack_requests', 'slack_events']) this.db.query(`DELETE FROM ${t}`).run()
+  }
+
+  // ---------------------------------------------------------------- people (Settings, the link page)
+  private available(cfg = this.config()) { return !!cfg?.enabled && !!cfg.secret_enc && !!cfg.team_id }
+
+  mine(userId: string): MySlack {
+    const cfg = this.config()
+    const l = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
+    return {
+      available: this.available(cfg), workspace: cfg?.team_name ?? null,
+      link: l ? { slackUserId: l.slack_user_id, slackName: l.slack_name, linkedAt: l.created_at } : null,
+    }
+  }
+
+  unlink(userId: string): MySlack {
+    const l = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
+    if (l) {
+      this.db.transaction(() => {
+        this.db.query('DELETE FROM slack_links WHERE user_id = ?').run(userId)
+        this.db.query('DELETE FROM slack_threads WHERE user_id = ?').run(userId)
+      })()
+      audit(this.db, { actor: userId, action: 'slack.unlinked', target: userId, detail: { reason: 'self', slackUser: l.slack_user_id } })
+    }
+    return this.mine(userId)
+  }
+
+  private sweep() {
+    const now = this.now()
+    this.db.query('DELETE FROM slack_link_tokens WHERE expires_at < ?').run(iso(now - 86_400_000))
+    this.db.query('DELETE FROM slack_events WHERE seen_at < ?').run(iso(now - 86_400_000))
+    this.db.query("DELETE FROM slack_requests WHERE state != 'waiting' AND created_at < ?").run(iso(now - KEEP_MS))
+  }
+
+  private tokenRow(token: string) {
+    const r = this.db.query('SELECT * FROM slack_link_tokens WHERE token_hash = ?').get(sha(token)) as
+      { token_hash: string; team_id: string; enterprise_id: string; slack_user_id: string; slack_name: string | null; channel_id: string | null; thread_ts: string | null; expires_at: string; used_at: string | null } | null
+    const cfg = this.config()
+    // unknown, used, past its time, or of another workspace than the one connected now: the same "not found"
+    if (!r || r.used_at || r.expires_at <= iso(this.now()) || !this.available(cfg) || r.team_id !== cfg!.team_id) throw new SlackError('link_expired', 'not_found')
+    return { r, cfg: cfg! }
+  }
+
+  /** an account that is there (active, not deleted), whatever its password state */
+  private account(userId: string) {
+    return this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId) as { id: string } | null
+  }
+
+  /** an account that may use the app now (no password change pending) */
+  private person(userId: string) {
+    return this.db.query("SELECT id, name, username, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").get(userId) as { id: string; name: string; username: string; role: string } | null
+  }
+
+  preview(userId: string, token: string): SlackLinkPreview {
+    const { r, cfg } = this.tokenRow(token)
+    const me = this.person(userId)
+    if (!me) throw new SlackError('link_expired', 'not_found')
+    const mine = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
+    return {
+      workspace: cfg.team_name ?? cfg.team_id!, slack: { userId: r.slack_user_id, name: r.slack_name }, me: { name: me.name, username: me.username },
+      expiresAt: r.expires_at, linkedElsewhere: !!mine && !(mine.team_id === r.team_id && mine.enterprise_id === r.enterprise_id && mine.slack_user_id === r.slack_user_id),
+    }
+  }
+
+  async confirm(userId: string, token: string): Promise<MySlack> {
+    const { r } = this.tokenRow(token)
+    if (!this.person(userId)) throw new SlackError('link_expired', 'not_found')
+    const now = iso(this.now())
+    let made = false
+    this.db.transaction(() => {
+      const mine = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
+      const same = !!mine && mine.team_id === r.team_id && mine.enterprise_id === r.enterprise_id && mine.slack_user_id === r.slack_user_id
+      if (mine && !same) throw new SlackError('linked_elsewhere', 'conflict')
+      const taken = this.db.query('SELECT user_id FROM slack_links WHERE team_id = ? AND enterprise_id = ? AND slack_user_id = ?').get(r.team_id, r.enterprise_id, r.slack_user_id) as { user_id: string } | null
+      if (taken && taken.user_id !== userId) throw new SlackError('slack_taken', 'conflict')
+      // used once: a second confirm of the same link (another tab, another person) finds it gone
+      if (!this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?').run(now, r.token_hash, now).changes) throw new SlackError('link_expired', 'not_found')
+      // every other open link of this Slack account goes too
+      this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(now, r.team_id, r.slack_user_id)
+      if (!same) {
+        this.db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(newId(), userId, r.team_id, r.enterprise_id, r.slack_user_id, r.slack_name, now)
+        made = true
+      }
+    })()
+    if (made) {
+      audit(this.db, { actor: userId, action: 'slack.linked', target: userId, detail: { slackUser: r.slack_user_id, team: r.team_id } })
+      // tell the Slack account, where it asked (only it sees this)
+      const tk = this.tokens()
+      if (tk && r.channel_id) {
+        const locale = this.localeOf(userId)
+        void this.api.call('chat.postEphemeral', tk.bot, { channel: r.channel_id, user: r.slack_user_id, ...(r.thread_ts ? { thread_ts: r.thread_ts } : {}), text: say('linked', locale) }).catch(() => {})
+      }
+    }
+    return this.mine(userId)
+  }
+
+  cancel(userId: string, token: string) {
+    const { r } = this.tokenRow(token)
+    if (!this.person(userId)) throw new SlackError('link_expired', 'not_found')
+    this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL').run(iso(this.now()), r.token_hash)
+  }
+
+  private localeOf(userId: string | null): Locale {
+    if (userId) try { return getChatRuntime(this.ctx).userLocale(userId) } catch {}
+    try { return teamDefaultLocale(this.db) } catch { return DEFAULT_LOCALE }
+  }
+
+  // ---------------------------------------------------------------- events
+  /** One envelope (already acknowledged). Exported for tests through the instance. */
+  async onEnvelope(env: Envelope) {
+    const cfg = this.config()
+    if (!this.available(cfg)) return
+    const appId = this.socket?.appId ?? null
+    if (env.type === 'events_api') {
+      const cb = EventCallback.safeParse(env.payload)
+      if (!cb.success || cb.data.team_id !== cfg!.team_id || (appId && cb.data.api_app_id !== appId)) return
+      if (!this.seen(`e:${cb.data.event_id}`)) return
+      const enterprise = cb.data.enterprise_id ?? ''
+      const ev = cb.data.event
+      if (ev.type === 'app_mention') {
+        const m = AppMention.safeParse(ev)
+        if (!m.success || m.data.subtype || m.data.bot_id || m.data.user === cfg!.bot_user_id) return
+        // a DM is message.im; a channel id starting with D here is not ours to answer as a channel
+        if (m.data.channel.startsWith('D')) return
+        await this.question(cfg!, { team: cb.data.team_id, enterprise, user: m.data.user, channel: m.data.channel, kind: 'channel', ts: m.data.ts, threadTs: m.data.thread_ts ?? null, text: m.data.text, userTeam: m.data.user_team ?? null })
+      } else if (ev.type === 'message') {
+        const m = ImMessage.safeParse(ev)
+        if (!m.success || m.data.subtype || m.data.bot_id || m.data.user === cfg!.bot_user_id || !m.data.channel.startsWith('D')) return
+        await this.question(cfg!, { team: cb.data.team_id, enterprise, user: m.data.user, channel: m.data.channel, kind: 'im', ts: m.data.ts, threadTs: m.data.thread_ts ?? null, text: m.data.text, userTeam: m.data.user_team ?? null })
+      }
+      return
+    }
+    if (env.type === 'interactive') {
+      const p = BlockActions.safeParse(env.payload)
+      if (!p.success || (appId && p.data.api_app_id !== appId)) return
+      const team = p.data.team?.id ?? p.data.user.team_id
+      if (team !== cfg!.team_id) return
+      await this.action(cfg!, p.data, p.data.enterprise?.id ?? '')
+    }
+    // slash commands and anything else: acknowledged, nothing to do
+  }
+
+  /** true the first time a key is seen (event id or message), across restarts and processes */
+  private seen(key: string): boolean {
+    return this.db.query('INSERT OR IGNORE INTO slack_events (key, seen_at) VALUES (?, ?)').run(key, iso(this.now())).changes === 1
+  }
+
+  private linkOf(team: string, enterprise: string, user: string): LinkRow | null {
+    return this.db.query('SELECT * FROM slack_links WHERE team_id = ? AND enterprise_id = ? AND slack_user_id = ?').get(team, enterprise, user) as LinkRow | null
+  }
+
+  private async ephemeral(bot: string, q: Pick<Question, 'channel' | 'user' | 'threadTs'>, text: string, blocks?: unknown[]) {
+    try { await this.api.call('chat.postEphemeral', bot, { channel: q.channel, user: q.user, ...(q.threadTs ? { thread_ts: q.threadTs } : {}), text, ...(blocks ? { blocks } : {}) }) }
+    catch (e) { this.log.warn('slack ephemeral message failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
+  }
+
+  private async question(cfg: ConfigRow, q: Question) {
+    // the same message twice (as a mention and as a DM, or sent again): once
+    if (!this.seen(`m:${q.channel}:${q.ts}`)) return
+    const tk = this.tokens(cfg)
+    if (!tk) return
+    // a person of another workspace (Slack Connect): never linked, never answered
+    if (q.userTeam && q.userTeam !== q.team) { await this.ephemeral(tk.bot, q, say('outsider', this.localeOf(null))); return }
+    const link = this.linkOf(q.team, q.enterprise, q.user)
+    const account = link ? this.account(link.user_id) : null
+    if (!link || !account) { await this.offerLink(cfg, tk.bot, q, link); return }
+    const locale = this.localeOf(account.id)
+    // a password to change first (a temporary one): no turn until they did, the link stays
+    const who = this.person(account.id)
+    if (!who) { await this.ephemeral(tk.bot, q, say('signInFirst', locale)); return }
+    const text = questionText(q.text, cfg.bot_user_id)
+    if (!text) { await this.ephemeral(tk.bot, q, say('empty', locale)); return }
+    const rt = getChatRuntime(this.ctx)
+    const block = budgetBlock(this.db, who.id, locale)
+    if (block) { await this.ephemeral(tk.bot, q, say('cannotStart', locale, { reason: block.message })); return }
+    const root = q.threadTs ?? q.ts
+    const existing = this.db.query('SELECT c.* FROM slack_threads s JOIN chats c ON c.id = s.chat_id WHERE s.team_id = ? AND s.channel_id = ? AND s.thread_ts = ? AND s.user_id = ? AND c.user_id = s.user_id AND c.deleted_at IS NULL')
+      .get(q.team, q.channel, root, who.id) as ChatRow | null
+    const person = { id: who.id, role: who.role }
+    let started
+    try {
+      const fresh = existing ? null : newChatEngine(this.ctx, person, {}, locale)
+      const te = turnEngine(this.ctx, person, existing ?? { engine: fresh!.engine, model: fresh!.model }, {}, locale, (e) => rt.defaultModelFor(e))
+      const chatId = existing?.id ?? newId()
+      const chat = existing ?? (() => {
+        const ts = iso(this.now())
+        this.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?, ?, NULL, '', 'auto', ?, ?, ?, ?)")
+          .run(chatId, who.id, fresh!.engine, fresh!.model ?? null, ts, ts)
+        this.db.query('INSERT OR REPLACE INTO slack_threads (team_id, channel_id, thread_ts, user_id, chat_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(q.team, q.channel, root, who.id, chatId, ts)
+        return rt.store.chatRow(chatId)!
+      })
+      started = rt.createTurn({
+        chat, userId: who.id, locale, windowId: null, clientKind: 'slack', engine: te.engine, model: te.model, ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
+        user: { parentId: existing?.active_leaf_id ?? null, content: text, attachments: [], clientMessageId: `slack-${sha(`${q.team}:${q.channel}:${q.ts}`).slice(0, 40)}` },
+      })
+      if (!existing) rt.publishChat(who.id, chatId, 'created')
+    } catch (e) {
+      const why = e instanceof HttpError
+        ? e.code === 'conflict' ? say('busy', locale) : e.code === 'unavailable' || e.code === 'rate_limited' ? say('queueFull', locale) : say('cannotStart', locale, { reason: e.userMessage ?? e.code })
+        : say('cannotStart', locale, { reason: 'internal' })
+      if (!(e instanceof HttpError)) this.log.error('slack question could not start a turn', { err: String(e) })
+      await this.ephemeral(tk.bot, q, why)
+      return
+    }
+    const id = newId()
+    this.db.query(`INSERT INTO slack_requests (id, turn_id, user_id, chat_id, message_id, team_id, channel_id, channel_kind, thread_ts, in_thread, slack_user_id, state, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?)`)
+      .run(id, started.turnId, who.id, started.assistantMessage.chatId, started.assistantMessage.id, q.team, q.channel, q.kind, root, q.threadTs ? 1 : 0, q.user, iso(this.now()))
+    // "working…": to the asker only (in a DM a message of its own, replaced by the answer later)
+    const blocks = [{ type: 'context', elements: [{ type: 'mrkdwn', text: `${say('working', locale)}  ${this.chatLink(cfg, started.assistantMessage.chatId, locale)}` }] }]
+    if (q.kind === 'im') {
+      try {
+        const r = await this.api.call('chat.postMessage', tk.bot, { channel: q.channel, thread_ts: root, text: say('working', locale), blocks })
+        if (typeof r.ts === 'string' && /^\d{1,12}\.\d{1,9}$/.test(r.ts)) this.db.query('UPDATE slack_requests SET progress_ts = ? WHERE id = ?').run(r.ts, id)
+      } catch (e) { this.log.warn('slack working message failed', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
+    } else await this.ephemeral(tk.bot, q, say('working', locale), blocks)
+  }
+
+  private chatLink(cfg: ConfigRow, chatId: string, locale: Locale): string {
+    return cfg.link_origin ? `<${cfg.link_origin}/c/${chatId}|${say('open', locale)}>` : ''
+  }
+
+  /** The one-time link, to the asker only. A link still fresh is not made again; a person may get 10 an hour. */
+  private async offerLink(cfg: ConfigRow, bot: string, q: Question, stale: LinkRow | null) {
+    const locale = this.localeOf(null)
+    if (stale) this.db.query('DELETE FROM slack_links WHERE id = ?').run(stale.id)
+    if (!cfg.link_origin) return
+    const now = this.now()
+    const recent = this.db.query('SELECT count(*) n, max(created_at) last FROM slack_link_tokens WHERE team_id = ? AND slack_user_id = ? AND created_at > ?').get(q.team, q.user, iso(now - 3600_000)) as { n: number; last: string | null }
+    if (recent.n >= LINK_PER_HOUR || (recent.last && Date.parse(recent.last) > now - LINK_AGAIN_MS)) { await this.ephemeral(bot, q, say('linkWait', locale)); return }
+    // who this Slack account is, as Slack says: shown on the link page next to the person who confirms
+    let name: string | null = null
+    try {
+      const info = await this.api.call('users.info', bot, { user: q.user })
+      const u = (info.user ?? {}) as { team_id?: unknown; is_bot?: unknown; deleted?: unknown; name?: unknown; real_name?: unknown; profile?: { display_name?: unknown; real_name?: unknown } }
+      if (u.is_bot === true || u.deleted === true || (typeof u.team_id === 'string' && u.team_id !== q.team && !q.enterprise)) { await this.ephemeral(bot, q, say('outsider', locale)); return }
+      name = cleanName(u.profile?.display_name) ?? cleanName(u.profile?.real_name) ?? cleanName(u.real_name) ?? cleanName(u.name)
+    } catch (e) { this.log.info('slack user name unavailable', { reason: e instanceof SlackApiError ? e.code : 'unknown' }) }
+    const token = crypto.randomBytes(32).toString('base64url')
+    this.db.transaction(() => {
+      // only the newest link of this Slack account works
+      this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(iso(now), q.team, q.user)
+      this.db.query('INSERT INTO slack_link_tokens (token_hash, team_id, enterprise_id, slack_user_id, slack_name, channel_id, thread_ts, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(sha(token), q.team, q.enterprise, q.user, name, q.channel, q.threadTs, iso(now + LINK_TTL_MS), iso(now))
+    })()
+    const url = `${cfg.link_origin}/slack/link?t=${token}`
+    await this.ephemeral(bot, q, say('linkPrompt', locale), [
+      { type: 'section', text: { type: 'mrkdwn', text: say('linkPrompt', locale) } },
+      { type: 'actions', elements: [{ type: 'button', action_id: ACTION_LINK, style: 'primary', text: { type: 'plain_text', text: say('linkButton', locale).slice(0, 75) }, url }] },
+    ])
+  }
+
+  // ---------------------------------------------------------------- answers
+  private async tick() {
+    if (this.delivering || this.closed) return
+    this.delivering = true
+    try {
+      this.sweep()
+      const rows = this.db.query("SELECT r.*, t.status AS turn_status FROM slack_requests r LEFT JOIN turns t ON t.id = r.turn_id WHERE r.state = 'waiting' ORDER BY r.created_at LIMIT 20").all() as (RequestRow & { turn_status: string | null })[]
+      for (const r of rows) {
+        if (r.turn_status === 'queued' || r.turn_status === 'running') {
+          if (Date.parse(r.created_at) < this.now() - ANSWER_WAIT_MS) { this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id); continue }
+          if (!r.asked_notice) await this.noticeQuestion(r)
+          continue
+        }
+        await this.deliver(r)
+      }
+    } catch (e) { this.log.error('slack delivery failed', { err: String(e) }) }
+    finally { this.delivering = false }
+  }
+
+  /** The answer waits for a card in the app (a question of the AI, a confirmation): say so, once. */
+  private async noticeQuestion(r: RequestRow) {
+    let open = 0
+    try { open = getChatRuntime(this.ctx).execFor(r.turn_id)?.openRequests().length ?? 0 } catch {}
+    if (!open) return
+    this.db.query('UPDATE slack_requests SET asked_notice = 1 WHERE id = ?').run(r.id)
+    const cfg = this.config(), tk = this.tokens(cfg)
+    if (!cfg || !tk) return
+    const locale = this.localeOf(r.user_id)
+    const text = `${say('needsAnswer', locale)} ${this.chatLink(cfg, r.chat_id, locale)}`
+    await this.ephemeral(tk.bot, { channel: r.channel_id, user: r.slack_user_id, threadTs: r.channel_kind === 'im' || r.in_thread ? r.thread_ts : null }, say('needsAnswer', locale), [{ type: 'section', text: { type: 'mrkdwn', text } }])
+  }
+
+  private answerOf(r: Pick<RequestRow, 'message_id' | 'user_id'>, locale: Locale): { ok: boolean; text: string } {
+    const m = this.db.query('SELECT content, status, error FROM messages WHERE id = ?').get(r.message_id) as { content: string; status: string; error: string | null } | null
+    if (!m) return { ok: false, text: say('failed', locale, { reason: 'gone' }) }
+    if (m.status === 'stopped') return { ok: false, text: say('stopped', locale) }
+    if (m.status !== 'done' || !m.content.trim()) {
+      let reason = m.status
+      try { const e = m.error ? JSON.parse(m.error) as { message?: unknown } : null; if (typeof e?.message === 'string') reason = e.message } catch {}
+      return { ok: false, text: say('failed', locale, { reason: clip(reason, 300).text }) }
+    }
+    return { ok: true, text: redactorFor(this.ctx, r.user_id).hide(m.content) }
+  }
+
+  private async deliver(r: RequestRow) {
+    const cfg = this.config(), tk = this.tokens(cfg)
+    if (!cfg || !tk || !cfg.enabled) return
+    // claimed first: another tick or process never sends it twice
+    if (!this.db.query("UPDATE slack_requests SET state = 'delivered', delivered_at = ? WHERE id = ? AND state = 'waiting'").run(iso(this.now()), r.id).changes) return
+    const locale = this.localeOf(r.user_id)
+    const a = this.answerOf(r, locale)
+    const body = a.ok ? sections(toMrkdwn(a.text), 4) : { blocks: [{ type: 'section' as const, text: { type: 'mrkdwn' as const, text: toMrkdwn(a.text) } }], cut: false }
+    const notes = [a.ok && body.cut ? say('more', locale) : '', this.chatLink(cfg, r.chat_id, locale)].filter(Boolean).join('  ')
+    const fallback = clip(a.text, 300).text
+    try {
+      if (r.channel_kind === 'im') {
+        const blocks = [...body.blocks, ...(notes ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: notes }] }] : [])]
+        if (r.progress_ts) await this.api.call('chat.update', tk.bot, { channel: r.channel_id, ts: r.progress_ts, text: fallback, blocks })
+        else await this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: fallback, blocks, unfurl_links: false, unfurl_media: false })
+      } else {
+        const blocks = [
+          ...body.blocks,
+          { type: 'context', elements: [{ type: 'mrkdwn', text: [say('onlyYou', locale), notes].filter(Boolean).join('  ') }] },
+          ...(a.ok ? [{ type: 'actions', elements: [{ type: 'button', action_id: ACTION_POST, style: 'primary', value: r.id, text: { type: 'plain_text', text: say('post', locale).slice(0, 75) } }] }] : []),
+        ]
+        await this.api.call('chat.postEphemeral', tk.bot, { channel: r.channel_id, user: r.slack_user_id, ...(r.in_thread ? { thread_ts: r.thread_ts } : {}), text: fallback, blocks })
+      }
+      if (!a.ok) this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id)
+    } catch (e) {
+      const code = e instanceof SlackApiError ? e.code : 'unknown'
+      // Slack's limit or a network problem: tried again at the next tick; anything else: the answer stays in the chat
+      if (code === 'ratelimited' || code === 'unreachable') this.db.query("UPDATE slack_requests SET state = 'waiting', delivered_at = NULL WHERE id = ?").run(r.id)
+      else this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id)
+      this.log.warn('slack answer could not be delivered', { reason: code })
+    }
+  }
+
+  /** "Post to channel": the asker's answer alone, in the thread, once. */
+  private async action(cfg: ConfigRow, p: BlockActions, enterprise: string) {
+    const act = p.actions[0]!
+    if (act.action_id !== ACTION_POST) return // the link button opens a page; nothing to do here
+    const tk = this.tokens(cfg)
+    if (!tk) return
+    const reply = (text: string) => p.response_url ? this.api.respond(p.response_url, { replace_original: true, text }) : Promise.resolve(false)
+    const r = act.value && UUID.test(act.value) ? this.db.query('SELECT * FROM slack_requests WHERE id = ?').get(act.value) as RequestRow | null : null
+    const locale = this.localeOf(r?.user_id ?? null)
+    // only the asker's own answer (an ephemeral message is only theirs; the check holds even if a value is replayed)
+    if (!r || r.slack_user_id !== p.user.id || r.team_id !== cfg.team_id || r.channel_kind !== 'channel') { await reply(say('postGone', locale)); return }
+    if (r.state === 'posted') { await reply(say('postedAlready', locale)); return }
+    if (r.state !== 'delivered') { await reply(say('postGone', locale)); return }
+    const link = this.linkOf(r.team_id, enterprise, p.user.id)
+    if (!link || link.user_id !== r.user_id || !this.person(r.user_id)) { await reply(say('notLinked', locale)); return }
+    const a = this.answerOf(r, locale)
+    if (!a.ok) { await reply(say('postGone', locale)); return }
+    if (!this.db.query("UPDATE slack_requests SET state = 'posted', posted_at = ? WHERE id = ? AND state = 'delivered'").run(iso(this.now()), r.id).changes) { await reply(say('postedAlready', locale)); return }
+    const body = sections(toMrkdwn(a.text), 10)
+    const asker = link.slack_name ? toMrkdwn(link.slack_name) : `<@${p.user.id}>`
+    const blocks = [{ type: 'context', elements: [{ type: 'mrkdwn', text: say('askedBy', locale, { name: asker }) }] }, ...body.blocks]
+    try {
+      await this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: clip(a.text, 300).text, blocks, unfurl_links: false, unfurl_media: false })
+    } catch (e) {
+      this.db.query("UPDATE slack_requests SET state = 'delivered', posted_at = NULL WHERE id = ?").run(r.id)
+      this.log.warn('slack answer could not be posted', { reason: e instanceof SlackApiError ? e.code : 'unknown' })
+      await reply(say('postFailed', locale))
+      return
+    }
+    audit(this.db, { actor: r.user_id, action: 'slack.posted', target: r.chat_id, detail: { channel: r.channel_id } })
+    await reply(say('posted', locale))
+  }
+}
+
+const instances = new WeakMap<AppContext, SlackConnector>()
+/** The connector of this server. `deps` only from offline tests (a fake Slack): it replaces the one made at start,
+ * never from HTTP, a file or the environment. */
+export function slackOf(ctx: AppContext, deps?: SlackDeps): SlackConnector {
+  let s = instances.get(ctx)
+  if (!s || deps) { s?.close(); s = new SlackConnector(ctx, deps ?? {}); instances.set(ctx, s) }
+  return s
+}
