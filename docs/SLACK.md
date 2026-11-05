@@ -9,38 +9,43 @@ Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터".
 
 ## Setting it up (the owner)
 
-1. **Admin › Slack › Create the app in Slack.** Slack opens "Create an app" with our manifest filled in (or "Show the
-   manifest", then in Slack: *Create New App › From a manifest*). Choose your workspace. It makes an **internal** app of
-   your workspace only, with Socket Mode on.
-2. **Install it.** In Slack, *Install App › Install to Workspace*. Copy the **Bot User OAuth Token** (`xoxb-…`,
-   *OAuth & Permissions*).
-3. **Make the app-level token.** *Basic Information › App-Level Tokens › Generate Token and Scopes*, scope
-   `connections:write`. Copy it (`xapp-…`).
-4. **Paste both** in Admin › Slack and press *Check and save*. The server checks them with Slack (`auth.test`,
-   `apps.connections.open`, `bots.info`): the scopes the bot token has and that both tokens are of the same app; a wrong
-   token says why. Then **Turn on**.
-5. **Invite the app** to the channels where people may ask it: `/invite @trina-ax`. Without this Slack does not tell
-   the app about mentions there.
+Admin › Slack is a checklist of four steps; each step's title opens its page in Slack.
+
+1. **Create the app in Slack.** Slack opens "Create an app" with our manifest filled in. Choose your workspace and
+   create it. It makes an **internal** app of your workspace only, with Socket Mode on.
+2. **Install it in the workspace.** *Install App › Install to Workspace*, then copy the **Bot User OAuth Token**.
+3. **Make the app token.** The server connects to Slack directly with it (Socket Mode, so nothing has to reach the
+   server): *Basic Information › App-Level Tokens › Generate Token and Scopes*, scope `connections:write`. Copy it.
+4. **Paste both tokens and turn on** (*Check and turn on*). The server checks them with Slack (`auth.test`,
+   `apps.connections.open`, `bots.info`): the scopes the bot token has and that both tokens are of the same app. A
+   refused token is said under its own field, with the Slack page to fix it, until the next try.
+
+Then the page is one status line (Connected / Problem, the workspace, the bot) with one button (Turn off / Turn on), and
+while it is on: **invite the app** to the channels where people may ask it, `/invite @trina-ax` (Slack does not tell
+the app about mentions in a channel it is not in). A problem names the one place to fix it with its link: the app's own
+settings page in Slack (Socket Mode, OAuth & Permissions, Install App, Basic Information) or *Replace tokens* here.
 
 Save the tokens from the address people sign in at (the team's public address): the links the app sends in Slack open
-there. Admin › Slack shows it ("links open at …"). The server needs to reach `slack.com` and `wss-*.slack.com` on port
-443; nothing has to reach the server.
+there. The status line shows that address only when it is not the one the page is open at. The server needs to reach
+`slack.com` and `wss-*.slack.com` on port 443; nothing has to reach the server.
 
-Turn off closes the connection (links stay). Remove deletes the tokens and every person's link; delete the app itself in
-Slack. Saving tokens of another workspace removes every link of the old one.
+Turn off closes the connection (links stay). *Replace tokens* opens the four steps again; under them, Remove deletes the
+tokens and every person's link (delete the app itself in Slack). Saving tokens of another workspace removes every link
+of the old one.
 
 ## Using it (everyone)
 
 - **The first time**, the app answers only you ("Only visible to you") with *Connect account*. The link opens the app
-  (sign in if needed) and shows the Slack account and your account side by side. *Link* works only when the e-mail Slack
+  (sign in if needed) and shows two lines: the Slack account, and your account with its e-mail. *Link* works only when the e-mail Slack
   has for that Slack account is the e-mail of your account here (compared without case or surrounding spaces): that is
   the proof the Slack account is yours. Slack then says which account it is linked to, and every "working…" names the
   account it answers as. Then ask again.
-  The page shows the e-mail of your account that was compared.
 - **E-mails that differ** (or none on either side, or your e-mail was set by someone else in the last 7 days): the page
-  says why ("이 Slack 계정의 이메일이 … 계정과 달라요. 팀장에게 연결을 부탁하세요") and links nothing. The owner then
+  says why and what to ask ("…달라서 바로 연결할 수 없어요. 팀장에게 관리자 › Slack › 사람 연결에서 나에게 연결을
+  제안해 달라고 하세요") and links nothing. The owner then
   *proposes* the link in Admin › Slack › People (the workspace's people: no bots, no deactivated people, no one of another
-  workspace; *Propose link*, choose the member, check both names and e-mails). **Nothing is linked yet.** The proposal
+  workspace; tap the person, choose the member, check both names and e-mails; tapping a person with a waiting proposal
+  withdraws it). **Nothing is linked yet.** The proposal
   stands in for the e-mail check only; it needs both halves, in either order, within its 7 days: the member accepts it in
   Settings › App connectors (they get a notice), and the member opens the one-time link that Slack account gets in Slack
   (ask the app once; the Slack account gets a DM saying so) and presses *Link*. So the owner cannot take a colleague's
@@ -54,7 +59,11 @@ Slack. Saving tokens of another workspace removes every link of the old one.
 - **In a DM** the answer comes in the thread of your message (a new message, so Slack notifies you; "working…" goes).
 - **Follow-ups**: mention the app again in the same thread (or reply in the DM thread); they continue the same chat.
   A new thread is a new chat.
-- **Unlink** in Settings › App connectors › Slack. A disabled or deleted account is unlinked at once.
+- **Settings › App connectors** has a Slack line while the team uses Slack: the linked account with *Unlink*, how to
+  get a link, or the owner's proposal (*Link* / *Decline*; once accepted, the one next step: ask the app in Slack and
+  open the link it sends). A disabled or deleted account is unlinked at once.
+- **When an answer cannot start or fails**, Slack says why in plain words (the chat was deleted, a server problem, the
+  budget's own sentence), not a code.
 
 ## Scopes (bot token)
 
@@ -126,4 +135,4 @@ after 1, 2, 4 … seconds (at most a minute).
 contract `shared/src/api/slack.ts`, screens `web/src/pages/admin/Slack.tsx`, `web/src/pages/SlackLink.tsx`,
 `web/src/components/settings/SlackAccount.tsx`. Tests: `tests/unit/c-slack.test.ts` with the fake Slack
 `tests/lib/fake-slack.ts` (Web API, Socket Mode, response URLs; nothing reaches Slack), the permission matrix
-(`tests/security/lib/slack-cases.ts`) and `web/test/unit/slack-link.test.tsx`.
+(`tests/security/lib/slack-cases.ts`), `web/test/unit/slack-link.test.tsx` and `web/test/unit/slack-screens.test.tsx`.

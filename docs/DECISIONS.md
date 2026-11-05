@@ -8165,3 +8165,14 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   thread follow-up in the same chat; a DM; dedupe; other workspace or app and malformed events; a refresh; the tokens in
   no log, row or answer; unlink and a disabled account; off and remove), the permission matrix
   (`tests/security/lib/slack-cases.ts`, 63 cases) and `web/test/unit/slack-link.test.tsx`. Nothing reaches Slack.
+- **Screens after the UX review (2026-11-05).** Fewer elements, one main button per screen, no box in a box on phones.
+  Admin › Slack is four steps, each linking to its Slack page; the manifest viewer is gone (the "create app" link carries
+  it), and the last step saves the tokens and turns it on. A refused token is said under its field until the next try,
+  never in a toast. `SlackAdmin.appId` (not secret) lets a problem link to the app's own settings page in Slack
+  (`api.slack.com/apps/<id>/socket-mode`, `/oauth`, `/install-on-team`, `/general`); before the app id is known the link
+  is the list of the owner's apps. Remove is behind Replace tokens; People rows open one dialog (propose, or withdraw).
+  Settings › App connectors shows the Slack line instead of the "admin has to set up connectors" card while the team
+  uses Slack. The link page is two plain lines; the Slack user id is no longer shown there (the display name, full name
+  and @handle are; the e-mail proof decides). In Slack, reason codes in "could not start / could not answer" are
+  plain sentences. No security rule changed: the e-mail proof, the two halves of a proposal, ephemeral answers first
+  and no Post to channel in shared channels stay as above. Tests: `web/test/unit/slack-screens.test.tsx`.
