@@ -15,6 +15,14 @@ set -euo pipefail
 : "${ANDROID_KEYSTORE_PATH:?set ANDROID_KEYSTORE_PATH}" "${ANDROID_KEYSTORE_PASSWORD:?set ANDROID_KEYSTORE_PASSWORD}" \
   "${ANDROID_KEY_ALIAS:?set ANDROID_KEY_ALIAS}" "${ANDROID_KEY_PASSWORD:?set ANDROID_KEY_PASSWORD}" "${BUILD_NUMBER:?set BUILD_NUMBER}"
 [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]{0,8}$ ]] || { echo "BUILD_NUMBER must be a positive integer" >&2; exit 2; }
+[[ -z "${MYCEL_MOBILE_TEST_CA:-}" ]] || { echo "MYCEL_MOBILE_TEST_CA is for local tests only; unset it for a release" >&2; exit 2; }
+if [[ -n "${MYCEL_MOBILE_GOOGLE_SERVICES:-}" ]]; then
+  [[ -f "$MYCEL_MOBILE_GOOGLE_SERVICES" ]] || { echo "MYCEL_MOBILE_GOOGLE_SERVICES is not a file" >&2; exit 2; }
+  MYCEL_MOBILE_GOOGLE_SERVICES="$(cd "$(dirname "$MYCEL_MOBILE_GOOGLE_SERVICES")" && pwd -P)/$(basename "$MYCEL_MOBILE_GOOGLE_SERVICES")"
+  export MYCEL_MOBILE_GOOGLE_SERVICES
+else
+  echo "note: MYCEL_MOBILE_GOOGLE_SERVICES is not set: this bundle has no push on Android" >&2
+fi
 [[ -f "$ANDROID_KEYSTORE_PATH" ]] || { echo "ANDROID_KEYSTORE_PATH is not a file" >&2; exit 2; }
 here="$(cd "$(dirname "$0")/.." && pwd)"
 repo="$(cd "$here/.." && pwd -P)"
@@ -44,6 +52,13 @@ cp android/app/build/outputs/bundle/release/app-release.aab "$aab"
 # 1. The app reads the edition's config at runtime (name, package), not the neutral one.
 unzip -p "$aab" base/assets/app.config > "$out/app.config.json"
 node -e "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')),want=require(process.argv[2]);if(c.name!==want.name||c.extra?.teamAxEdition?.bundleId!==want.bundleId||c.android?.package!==want.bundleId||String(c.android?.versionCode)!==process.argv[3]){console.error('embedded app.config is not the edition build ('+c.name+', '+c.android?.package+', '+c.android?.versionCode+')');process.exit(1)}" "$out/app.config.json" "$edition_json" "$BUILD_NUMBER"
+# 1b. With Firebase: the bundle carries that project's config for this package (values are compared, never printed).
+if [[ -n "${MYCEL_MOBILE_GOOGLE_SERVICES:-}" ]]; then
+  unzip -p "$aab" base/resources.pb > "$out/resources.pb"
+  node -e "const fs=require('fs'),g=JSON.parse(fs.readFileSync(process.argv[1],'utf8')),pkg=require(process.argv[3]).bundleId,res=fs.readFileSync(process.argv[2]).toString('latin1');const c=(g.client||[]).find(x=>x.client_info?.android_client_info?.package_name===pkg);if(!c){console.error('google-services.json has no Android app '+pkg);process.exit(1)}for(const [what,v] of [['project id',g.project_info?.project_id],['app id',c.client_info.mobilesdk_app_id],['sender id',g.project_info?.project_number]])if(!v||!res.includes(v)){console.error('the bundle lacks the Firebase '+what+' of google-services.json');process.exit(1)}if(!res.includes('google_app_id')){console.error('the bundle has no google_app_id resource');process.exit(1)}" "$MYCEL_MOBILE_GOOGLE_SERVICES" "$out/resources.pb" "$edition_json"
+  rm -f "$out/resources.pb"
+  echo "Firebase config: present for the package"
+fi
 # 2. Signed, and by the upload key given (certificate SHA-256), not the debug key.
 # (no -strict: an upload key is self-signed, which -strict reports as a broken certificate chain)
 jarsigner -verify "$aab" > "$out/jarsigner.txt" 2>&1 || { tail -5 "$out/jarsigner.txt" >&2; echo "the bundle signature does not verify" >&2; exit 1; }

@@ -202,3 +202,17 @@ test('Android release signing comes from the environment only: no key, path or p
   expect(applyReleaseSigning(out)).toBe(out)
   expect(() => applyReleaseSigning('android {}')).toThrow()
 })
+
+test('with MYCEL_MOBILE_GOOGLE_SERVICES Android has push, and the file path stays out of the config the app embeds', () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'acme-fcm-'))
+  const file = path.join(dir, 'google-services.json'); fs.writeFileSync(file, '{"project_info":{"project_id":"acme-test"},"client":[]}')
+  try {
+    process.env.MYCEL_MOBILE_EDITION = 'trina'; process.env.MYCEL_MOBILE_GOOGLE_SERVICES = file
+    const c = appConfig({ config: {}, projectRoot: mobileRoot } as never)
+    expect(c.extra?.pushEnabled).toEqual({ ios: true, android: true })
+    expect(JSON.stringify(c)).not.toContain(dir)
+    expect(c.plugins).toContain('./plugins/google-services.js')
+    process.env.MYCEL_MOBILE_GOOGLE_SERVICES = path.join(dir, 'other.json')
+    expect(() => appConfig({ config: {}, projectRoot: mobileRoot } as never)).toThrow()
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
