@@ -187,7 +187,11 @@ class Logins {
         l.url = u; l.state = 'code'
         this.send(l)
       },
-      failed: (reason) => { failed = reason },
+      failed: (reason, detail) => {
+        failed = reason
+        // it could not start (before the address nothing secret is on its screen): why, for whoever runs the server
+        if (detail) cc.log.warn('Claude sign-in: setup-token ended before showing the address', { reason, detail })
+      },
       token: (t) => { token = t },
     })
     l.cancel = run.cancel

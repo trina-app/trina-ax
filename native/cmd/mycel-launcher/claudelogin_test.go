@@ -58,7 +58,7 @@ func TestPTYIsTheProgramsTerminal(t *testing.T) {
 // fakeClaude writes a stand-in for `claude setup-token` named claude: it refuses to run without a terminal, draws the
 // address and the paste prompt like 2.1.305 (column jumps, hyperlink), reads a pasted code and prints a token for
 // good#state, else the 401 error and waits for Enter. mode "slow" never prints the prompt; "linger" stays after the
-// token; "ignore" ignores SIGTERM; "evil" shows another site's address.
+// token; "ignore" ignores SIGTERM; "evil" shows another site's address; "die" ends before the prompt with a message.
 func fakeClaude(t *testing.T, mode string) string {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "claude")
@@ -69,6 +69,9 @@ func fakeClaude(t *testing.T, mode string) string {
 	prompt := `printf '\033[2GPaste\033[8Gcode\033[13Ghere\033[18G>\r\n'`
 	if mode == "slow" {
 		prompt = "sleep 60"
+	}
+	if mode == "die" {
+		prompt = `printf 'bwrap: Can\047t find source path /x: No such file or directory\r\n'; exit 1`
 	}
 	addr := fakeAuthorize
 	if mode == "evil" {
@@ -295,6 +298,21 @@ func TestClaudeLoginOnlyAnthropicsAddress(t *testing.T) {
 	}
 	if f := evOf(all, "claude_failed"); f == nil || f["reason"] != "unexpected_url" {
 		t.Fatalf("events %v", all)
+	}
+	<-s.done
+	folderGone(t)
+}
+
+func TestClaudeLoginSaysWhyWhenTheProgramCannotStart(t *testing.T) {
+	s := startSignIn(t, fakeClaude(t, "die"), "login-die-0000000001", 0)
+	s.next("started")
+	all := s.rest()
+	f := evOf(all, "claude_failed")
+	if f == nil || f["reason"] != "cli_exit" || !strings.Contains(f["detail"].(string), "Can't find source path /x") {
+		t.Fatalf("events %v", all)
+	}
+	if ex := all[len(all)-1]; ex["code"] != float64(1) {
+		t.Fatalf("exit %v", ex)
 	}
 	<-s.done
 	folderGone(t)

@@ -258,12 +258,13 @@ export function codexSignIn(sock: string, o: { cmd: string; proxy: string; login
  * official `claude setup-token` as the engine account in a fresh folder <agent root>/.claude-login/<loginId> on a
  * terminal of its own, through the model proxy with the one-time proxy token in `proxy`. It never forwards what the
  * program prints; it tells: started{pid} (bind the token to it now), url (the authorize address, once the paste prompt
- * is up), code{ok} (the pasted code was typed, or refused), failed{reason} (the program showed an error: bad_code,
- * exchange_failed, cli_error), token (only after our code, only here), then exit{code, signal?} or error{message}.
+ * is up), code{ok} (the pasted code was typed, or refused), failed{reason, detail?} (the program showed an error:
+ * bad_code, exchange_failed, cli_error, unexpected_url; cli_exit = it ended before the address, detail = the last lines
+ * of its screen, nothing secret yet), token (only after our code, only here), then exit{code, signal?} or error{message}.
  * sendCode() types the code once; cancel() closes the connection (the launcher stops the program and removes the
  * folder).
  */
-export function claudeSignIn(sock: string, o: { cmd: string; proxy: string; loginId: string; timeoutMs?: number }, on: { started?(pid: number): void; url?(url: string): void; code?(ok: boolean): void; failed?(reason: string): void; token?(token: string): void }): { done: Promise<{ code: number | null; message?: string }>; cancel(): void; sendCode(code: string): void } {
+export function claudeSignIn(sock: string, o: { cmd: string; proxy: string; loginId: string; timeoutMs?: number }, on: { started?(pid: number): void; url?(url: string): void; code?(ok: boolean): void; failed?(reason: string, detail?: string): void; token?(token: string): void }): { done: Promise<{ code: number | null; message?: string }>; cancel(): void; sendCode(code: string): void } {
   let c: net.Socket | null = null
   let cancelled = false
   const done = new Promise<{ code: number | null; message?: string }>((res) => {
@@ -284,7 +285,7 @@ export function claudeSignIn(sock: string, o: { cmd: string; proxy: string; logi
           if (e.ev === 'started') on.started?.(e.pid)
           else if (e.ev === 'claude_url' && typeof e.url === 'string') on.url?.(e.url)
           else if (e.ev === 'claude_code') on.code?.(e.ok === true)
-          else if (e.ev === 'claude_failed' && typeof e.reason === 'string') on.failed?.(e.reason)
+          else if (e.ev === 'claude_failed' && typeof e.reason === 'string') on.failed?.(e.reason, typeof e.detail === 'string' ? e.detail.slice(0, 400) : undefined)
           else if (e.ev === 'claude_token' && typeof e.b64 === 'string') on.token?.(Buffer.from(e.b64, 'base64').toString('utf8'))
           else if (e.ev === 'exit') { result = { code: e.code, ...(e.signal ? { message: e.signal } : {}) }; s.end() }
           else if (e.ev === 'error') { result = { code: null, message: e.message }; s.end() }

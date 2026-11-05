@@ -111,6 +111,21 @@ func claudeScreenFailure(text string, codeSent bool) string {
 	return "exchange_failed"
 }
 
+// claudeScreenTail: the last n lines with text, joined, at most max bytes (a diagnostic, before any code or token)
+func claudeScreenTail(lines []string, n, max int) string {
+	var out []string
+	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			out = append([]string{t}, out...)
+		}
+	}
+	s := strings.Join(out, " | ")
+	if len(s) > max {
+		s = s[:max]
+	}
+	return s
+}
+
 type claudeLoginRequest struct {
 	Op        string `json:"op"`
 	Cmd       string `json:"cmd"`
@@ -361,6 +376,12 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 	res.sig = te.finish(res.sig)
 	if ee, ok := werr.(*exec.ExitError); ok {
 		res.code = ee.ExitCode()
+	}
+	// the program ended on its own before it showed the address (it could not start: the sandbox, a missing library,
+	// a policy): the last lines of its screen say why. Nothing secret can be on it yet (no code was typed, no token),
+	// so they go to the server's log
+	if urlSent == "" && !codeSent && failed == "" && res.sig == "" {
+		o.send(map[string]any{"ev": "claude_failed", "reason": "cli_exit", "detail": claudeScreenTail(scr.lines(), 4, 400)})
 	}
 	// the token counts only when the program printed it after our code and was not stopped before (a cancel or the
 	// time limit wins over a token that came too late)
