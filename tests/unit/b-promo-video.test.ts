@@ -176,6 +176,9 @@ describe('the composition and the sound (pure)', () => {
     // a year rolls up through the years before it, never from 0
     const yearCss = composition(doc({ proof: { stats: [{ number: '1974년', label: '첫 발' }], headline: [], sub: '', picture: null } }), true).css
     expect(yearCss).toMatch(/\{0%\{--pvn:1944;[^}]*\}100%\{--pvn:1974\}/)
+    // a count with a thousands separator is not a year: it counts up from 0
+    const countCss = composition(doc({ proof: { stats: [{ number: '2,000명', label: '고객' }], headline: [], sub: '', picture: null } }), true).css
+    expect(countCss).toMatch(/\{0%\{--pvn:0;[^}]*\}100%\{--pvn:2000\}/)
   })
 
   test('sounds: three beds and six effects, the bed from frame 0, every effect peaking on a beat of the grid', () => {
@@ -325,13 +328,13 @@ describe('the promo_video tool and the MP4 (a real app, the fake engine)', () =>
   })
 
   test('without a brand colour from the AI, the saved profile\'s first colour (the website reading\'s) chooses the style', async () => {
-    await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'acme.example', oneLine: 'Factory energy', products: '', audience: '', tone: [], avoid: '', sources: [], colors: ['#1428a0', '#cad3fb'] } })
+    await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'acme.example', oneLine: 'Factory energy', products: '', audience: '', tone: [], avoid: '', sources: [], colors: ['#1f3a93', '#cad3fb'] } })
     const chat = await h.api('dana').call(API.createChat, { body: {} })
     const { brand_color: _, ...noColour } = slots()
     await send('dana', chat.id, fake({ tool: 'promo_video', args: noColour, sayResult: true }))
     const row = h.ctx.db.query('SELECT spec FROM promo_videos WHERE chat_id = ?').get(chat.id) as { spec: string }
     // a deep blue: its own hue becomes the ground
-    expect(JSON.parse(row.spec).doc).toMatchObject({ brand: '#1428a0', family: 'deep' })
+    expect(JSON.parse(row.spec).doc).toMatchObject({ brand: '#1f3a93', family: 'deep' })
   })
 
   test.if(process.platform === 'darwin' && !!Bun.which('node'))('the MP4 on a development Mac: the pinned CLI renders the checked slots (the pictures copied out with the owner\'s permissions); one download', async () => {

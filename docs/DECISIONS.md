@@ -8766,8 +8766,8 @@ environment image (another developer; handoff below).
   the server chose: ink twice (orange, violet), deep twice (green, navy), mono twice (a grey brand, no brand colour). Every
   number on screen was in the material; one site had no number worth a stat (a statement proof), one deck hook was
   "3–6개월 → 2주".
-- **After merging W3** (2026-11-06): the large semiconductor maker's site again. Its logo, point-sampled now, gave
-  #14299f instead of the blend #4b5696; the video came out in the deep family on the brand's own navy with a light blue
+- **After merging W3** (2026-11-06): the large manufacturer's site again. Its logo, point-sampled now, gave its own
+  dark blue instead of a washed-out blend; the video came out in the deep family on the brand's own navy with a light blue
   accent (artifact 24 s after the button, MP4 32 s). The new team-skill card skips the welcome's result chat
   (`resultChatId`), so it never shows under the video. The same run showed a founding year counting up from 0
   ("1083년"); a year now rolls up from 30 years before it.
