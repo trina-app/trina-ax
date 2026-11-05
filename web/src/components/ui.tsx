@@ -358,20 +358,39 @@ export function DialogHost() {
 
 // ---------------- toasts ----------------
 /** Phones: how far above the window's bottom edge the highest bottom bar starts (the tab bar, a message box: marked
- * data-bottom-bar), so toasts sit above it instead of over it. null on wider screens or with no bar on screen. Measured
- * again for every new toast. */
+ * data-bottom-bar), so toasts sit above it instead of over it. null on wider screens or with no bar on screen. While a
+ * toast shows it is measured again, one frame after anything that can move the bars has settled: a resize of the
+ * window or the visual viewport (the phone keyboard), a bar resizing, and the page changing under it (another route
+ * mounts another bar). */
 function useBottomBarLift(toasts: unknown[]) {
   const [lift, setLift] = useState<number | null>(null)
   useLayoutEffect(() => {
     if (!toasts.length) return
+    let frame = 0
+    const bars = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => later())
     const measure = () => {
+      frame = 0
       const phone = typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches
-      const tops = !phone ? [] : [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')].map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top)
+      const els = phone ? [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')] : []
+      bars?.disconnect()
+      for (const el of els) bars?.observe(el)
+      const tops = els.map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top)
       setLift(tops.length ? Math.max(0, window.innerHeight - Math.min(...tops)) : null)
     }
+    // after layout has settled: a resize or a route change is measured on the next frame, not in the middle of it
+    const later = () => { if (!frame) frame = requestAnimationFrame(measure) }
     measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    const page = typeof MutationObserver === 'undefined' ? null : new MutationObserver(later)
+    page?.observe(document.body, { childList: true, subtree: true })
+    window.addEventListener('resize', later)
+    window.visualViewport?.addEventListener('resize', later)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      bars?.disconnect()
+      page?.disconnect()
+      window.removeEventListener('resize', later)
+      window.visualViewport?.removeEventListener('resize', later)
+    }
   }, [toasts])
   return lift
 }
