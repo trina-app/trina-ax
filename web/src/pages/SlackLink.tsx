@@ -1,12 +1,20 @@
 // /slack/link?t=<token>: the one-time link a Slack user got in Slack (docs/SLACK.md). It opens only signed in (a
 // signed-out visitor signs in first and comes back here); it shows both accounts, the Slack one the link was sent to and
-// the person signed in here, and links them only on an explicit "Connect". The token goes in a POST body only.
+// the person signed in here, and links them only on an explicit "Connect" (Cancel throws the link away). The token goes
+// in a POST body only.
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { SLACK, type SlackLinkPreview } from '@mycel/shared/api'
 import { api, errorText } from '../lib/api'
 import { useLocale, useT } from '../i18n'
 import { Button, ErrorNote, Skeleton } from '../components/ui'
+
+/** The display name, with the full name and the user name when they say more */
+const slackName = (s: SlackLinkPreview['slack']) => {
+  const name = s.name ?? s.realName ?? s.handle ?? s.userId
+  const more = [s.realName && s.realName !== name ? s.realName : null, s.handle && s.handle !== name ? `@${s.handle}` : null].filter(Boolean).join(' · ')
+  return more ? `${name} (${more})` : name
+}
 
 export default function SlackLink() {
   const [params] = useSearchParams()
@@ -49,26 +57,17 @@ export default function SlackLink() {
       {done && <p className="text-sm" data-testid="slack-link-done">{t(done === 'linked' ? 'slack.link.linked' : done === 'half' ? 'slack.link.half' : 'slack.link.cancelled')}{done === 'half' && <> <Link to="/settings/connectors" className="text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link></>}</p>}
       {info && !done && (
         <>
-          <dl className="space-y-3 rounded-xl border border-line p-4 text-sm">
-            <div>
-              <dt className="text-muted">{t('slack.link.slackAccount', { workspace: info.workspace })}</dt>
-              <dd className="break-words" data-testid="slack-link-slack">
-                <span className="font-medium">{info.slack.name ?? info.slack.userId}</span>
-                {/* every name is the person's own choice: the full name, the user name and the id are shown with it */}
-                <span className="mt-0.5 block text-xs text-muted">{[info.slack.realName && info.slack.realName !== info.slack.name ? info.slack.realName : null, info.slack.handle ? `@${info.slack.handle}` : null, info.slack.userId].filter(Boolean).join(' · ')}</span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted">{t('slack.link.meAccount')}</dt>
-              <dd className="break-words font-medium" data-testid="slack-link-me">{info.me.name} <span className="text-xs text-faint">@{info.me.username}</span>
-                {/* the e-mail that was compared with the Slack account's (Slack's own is not shown) */}
-                <span className="mt-0.5 block text-xs font-normal text-muted" data-testid="slack-link-email-compared">{info.email ? t('slack.link.compared', { email: info.email }) : t('slack.people.noEmail')}</span></dd>
-            </div>
-          </dl>
+          {/* two plain lines: the Slack account the link was sent to (its names are the person's own choice: the full
+              name and the user name go with the display name) and the account here with the e-mail that was compared */}
+          <div className="space-y-1 text-sm">
+            <p className="break-words" data-testid="slack-link-slack">{t('slack.link.slackLine', { name: slackName(info.slack) })}</p>
+            <p className="break-words" data-testid="slack-link-me">{t('slack.link.meLine', { name: info.me.name, email: info.email ?? t('slack.people.noEmail') })}</p>
+          </div>
           {info.emailCheck === 'proposal' && !info.linkedElsewhere ? (
             <p className="text-sm text-warn" data-testid="slack-link-proposal">{t('slack.link.proposal')}</p>
           ) : info.emailCheck !== 'match' && !info.linkedElsewhere ? (
-            <p className="text-sm text-warn" data-testid="slack-link-email">{t(info.emailCheck === 'mismatch' ? 'slack.link.emailMismatch' : info.emailCheck === 'missing' ? 'slack.link.emailMissing' : info.emailCheck === 'recent' ? 'slack.link.emailRecent' : 'slack.link.emailUnavailable')}</p>
+            <p className="text-sm text-warn" data-testid="slack-link-email">{info.emailCheck === 'unavailable' ? t('slack.link.emailUnavailable')
+              : `${t(info.emailCheck === 'mismatch' ? 'slack.link.emailMismatch' : info.emailCheck === 'missing' ? 'slack.link.emailMissing' : 'slack.link.emailRecent')} ${t('slack.link.askOwner')}`}</p>
           ) : info.linkedElsewhere ? (
             <p className="text-sm text-warn" data-testid="slack-link-elsewhere">
               {t('slack.link.elsewhere')} <Link to="/settings/connectors" className="text-accent underline-offset-2 hover:underline">{t('slack.link.toSettings')}</Link>
@@ -76,9 +75,9 @@ export default function SlackLink() {
           ) : (
             <p className="text-sm text-warn">{t('slack.link.warning')}</p>
           )}
-          <div className="flex gap-3">
+          <div className="flex items-center gap-4">
             {!info.linkedElsewhere && (info.emailCheck === 'match' || info.emailCheck === 'proposal') && <Button variant="primary" busy={busy} disabled={busy} onClick={() => void decide(true)} data-testid="slack-link-confirm">{t('slack.link.confirm')}</Button>}
-            <Button disabled={busy} onClick={() => void decide(false)} data-testid="slack-link-cancel">{t('slack.link.cancel')}</Button>
+            <button type="button" className="text-sm text-muted underline-offset-2 hover:underline disabled:opacity-50" disabled={busy} onClick={() => void decide(false)} data-testid="slack-link-cancel">{t('slack.link.cancel')}</button>
           </div>
         </>
       )}

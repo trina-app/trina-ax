@@ -1,6 +1,6 @@
 // The Slack one-time link page (/slack/link?t=…, docs/SLACK.md): both accounts are on the page before anything is
-// linked, the token goes only in POST bodies, "Link" is the one way to link, and an account linked elsewhere gets no
-// "Link" button at all.
+// linked (two plain lines, no box in a box), the token goes only in POST bodies, "Link" is the one button and the one
+// way to link (Cancel is a text link), and an account linked elsewhere gets no "Link" button at all.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { MySlack, SlackLinkPreview } from '@mycel/shared/api'
@@ -38,12 +38,13 @@ describe('the Slack link page', () => {
   test('both accounts before anything is linked; the token only in POST bodies; Link links', async () => {
     const m = await page(`?t=${TOKEN}`)
     await m.until(() => m.find('slack-link-slack'), 'the accounts')
-    expect(m.get('slack-link-slack').textContent).toContain('alice.slack')
-    expect(m.get('slack-link-slack').textContent).toContain('U0ALICE')
-    expect(m.get('slack-link-slack').textContent).toContain('Alice in Slack · @alice')
-    expect(m.get('slack-link-me').textContent).toContain('Bob Lee')
-    expect(m.get('slack-link-me').textContent).toContain('@bob')
-    expect(m.get('slack-link-email-compared').textContent).toContain('bob@acme.example')
+    expect(m.get('slack-link-slack').textContent).toBe('Slack: alice.slack (Alice in Slack · @alice)')
+    // my account with the e-mail that was compared
+    expect(m.get('slack-link-me').textContent).toBe('Your account: Bob Lee · bob@acme.example')
+    expect(m.html()).not.toContain('rounded-xl border')
+    // one button; Cancel is a text link
+    expect(m.html().match(/<button/g)!.length).toBe(2)
+    expect(m.get('slack-link-cancel').getAttribute('class')).toContain('underline')
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /api/slack/link/preview'])
     await m.click('slack-link-confirm')
     await m.until(() => m.find('slack-link-done'), 'linked')
@@ -67,7 +68,8 @@ describe('the Slack link page', () => {
     preview = { ...preview, emailCheck: 'mismatch' }
     const m = await page(`?t=${TOKEN}`)
     await m.until(() => m.find('slack-link-email'), 'the reason')
-    expect(m.get('slack-link-email').textContent).toContain('Ask your team owner to link it.')
+    // what to ask the owner, and where they do it
+    expect(m.get('slack-link-email').textContent).toBe('The e-mail of this Slack account is not the one of your Trina AX account, so it cannot be linked here. Ask your team owner to propose the link to you in Admin › Slack › People.')
     expect(m.find('slack-link-confirm')).toBeNull()
     await m.unmount()
   })
