@@ -2,13 +2,13 @@
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
 import { Menu, MessageCirclePlus, MessageSquarePlus, ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { mayReloadNow } from '../lib/reload-guard'
 import { api, API } from '../lib/api'
 import { setNavigator } from '../lib/nav'
-import { closeSidePanel, openArtifact, setSidePanel, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, keepsFilePanel, openArtifact, setSidePanel, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
@@ -80,9 +80,23 @@ export default function Layout() {
     } else if (location.pathname.startsWith('/c/')) useChats.setState({ autoOpen: null })
   }, [autoOpen, location.pathname])
 
-  // a chat's artifact panel doesn't belong to another chat
+  // a file panel belongs to the page it was opened on (fileFrom: that page's address)
+  const fileFrom = useRef<{ key: number; path: string } | null>(null)
+  useEffect(() => {
+    if (panel?.kind !== 'file') fileFrom.current = null
+    else if (fileFrom.current?.key !== panel.key) fileFrom.current = { key: panel.key, path: location.pathname }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel])
+
+  // a chat's artifact panel doesn't belong to another chat; a file panel stays only on its own page, on the Files page
+  // (open in folder, a file link) and in the chat a new-chat page's first message opens: not in another or a new chat
   useEffect(() => {
     if (panel?.kind === 'artifact' && location.pathname !== `/c/${panel.chatId}`) setSidePanel(null)
+    const from = fileFrom.current
+    if (panel?.kind === 'file' && from && from.path !== location.pathname) {
+      if (keepsFilePanel(from.path, location.pathname)) from.path = location.pathname
+      else setSidePanel(null)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
@@ -157,8 +171,8 @@ export default function Layout() {
         {panel && (
           <div
             className={clsx(
-              'min-w-0 border-l border-line bg-surface',
-              // phones: a full-screen sheet over everything
+              'min-w-0 border-line bg-surface md:border-l',
+              // phones: a full-screen sheet over everything (no edge of its own)
               'max-md:fixed max-md:inset-0 max-md:z-40 max-md:pt-[var(--safe-top)] max-md:pb-[var(--safe-bottom)]',
               'md:w-[46%] md:max-w-[880px] md:min-w-[360px]',
             )}
