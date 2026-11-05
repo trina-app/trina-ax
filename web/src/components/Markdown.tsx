@@ -234,19 +234,21 @@ const OpenableFiles = createContext<ReadonlySet<string> | null>(null)
 const openableOk = (set: ReadonlySet<string> | null, path: string) => !set || set.has(path.replace(/^\/+|\/+$/g, ''))
 
 /** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
- *  too, which shows the "can't be previewed" notice and a download button. */
+ *  too, which shows the "can't be previewed" notice and a download button. It sits in the sentence like a word: no
+ *  taller than the text's line (no vertical margin or padding, a 20px line in a 28px one), so the line it is on keeps
+ *  the paragraph's spacing; a long name wraps inside it only when it cannot fit a line of its own. */
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
   if (!openableOk(useContext(OpenableFiles), path)) return <span data-testid="team-file-text">{children}</span>
   const canPreview = previewKind(path) !== null
   return (
-    <span className="not-prose my-1 inline-flex max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-surface align-middle text-sm font-medium text-ink shadow-sm">
-      <button type="button" onClick={() => openTeamFile(path, at)} className="inline-flex min-w-0 items-center gap-2 px-3 py-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}>
-        {canPreview ? <Eye size={15} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={15} className="shrink-0 text-accent-text" aria-hidden />}
-        <span className="break-all">{children}</span>
+    <span className="not-prose inline-flex max-w-full items-stretch overflow-hidden rounded-md border border-line bg-surface align-middle text-[0.9em] leading-5 font-medium text-ink" data-testid="team-file-chip">
+      <button type="button" onClick={() => openTeamFile(path, at)} className="inline-flex min-w-0 items-center gap-1 px-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}>
+        {canPreview ? <Eye size={13} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={13} className="shrink-0 text-accent-text" aria-hidden />}
+        <span className="min-w-0 [overflow-wrap:anywhere]">{children}</span>
       </button>
-      <button type="button" onClick={() => startDownload(fileUrl(path), baseName(path))} className="border-l border-line px-2.5 text-muted hover:bg-hover" aria-label={t('common.download')} title={t('common.download')}>
-        <Download size={14} aria-hidden />
+      <button type="button" onClick={() => startDownload(fileUrl(path), baseName(path))} className="border-l border-line px-1.5 text-muted hover:bg-hover" aria-label={t('common.download')} title={t('common.download')}>
+        <Download size={12} aria-hidden />
       </button>
     </span>
   )

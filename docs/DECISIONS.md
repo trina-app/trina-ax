@@ -8340,6 +8340,12 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     without a name to give: "방 사람 중 일부가 열 수 없는 폴더를 읽었어요."), "내 폴더를 읽었어요.", "○○ 님이 들어오기
     전 대화를 참고했어요.", "웹이나 연결된 서비스의 내용을 참고했어요."; an older preview without reasons keeps
     "올리면 대화방 모두가 이 내용을 봐요." (`previewWhy`, `rooms.aiWhy*` in the five languages).
+  - **A file chip sits in the sentence like a word** (AI chat and room answers, `TeamFileLink` in
+    `components/Markdown.tsx`): 0.9em text on a 20px line with a 1px border, no vertical margin or padding, so it is
+    22px in the answer's 28px line and the line it is on keeps the paragraph's spacing (it was 34px plus margins, a
+    visibly taller line). Checked at 1280px and 390px with a real answer. Not changed here: Chrome still wraps Korean
+    after a closing parenthesis ("…(473,000,000원)" / "입니다.") even with `word-break: keep-all`; that is the text's
+    own wrapping, not the chip's.
 - **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.
