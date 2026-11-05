@@ -8,14 +8,15 @@
 import clsx from 'clsx'
 import { Download, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import Papa from 'papaparse'
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, API, fetchFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
 import { useFrameScripts } from '../lib/confidential'
 import { formatSize } from '../lib/format'
+import { splitFrontMatter } from '../lib/markdown'
 import { parentPath } from '../lib/paths'
-import { decodePreviewText, languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
+import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
 import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
@@ -323,13 +324,27 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   const files = useFrameFiles(page, { folder: path === null ? null : parentPath(path), embedIn: path ?? undefined })
   if (text === null) return null
   const cut = blob.size > MAX_TEXT && <p className="px-4 pb-4 text-xs text-faint">{t('preview.truncated')}</p>
-  if (kind === 'markdown')
+  if (kind === 'markdown') {
+    // a leading YAML block (a SKILL.md's name and description): a quiet fields block above the page, not its first line
+    const { body: md, ...fields } = splitFrontMatter(text)
+    const shown = Object.entries(fields).filter(([, v]) => v)
     return (
       <div className="mx-auto min-h-full max-w-3xl bg-surface p-6">
-        <Markdown text={text} />
+        {shown.length > 0 && (
+          <dl className="mb-5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-b border-line pb-4 text-xs" data-testid="md-front-matter">
+            {shown.map(([k, v]) => (
+              <Fragment key={k}>
+                <dt className="font-mono text-faint">{k}</dt>
+                <dd className="min-w-0 text-muted">{v}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        )}
+        <Markdown text={md} />
         {cut}
       </div>
     )
+  }
   if (framed && scripts === null) return null
   if (framed && !files)
     return (
@@ -351,6 +366,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   }
   if (kind === 'csv') {
     const rows = Papa.parse<string[]>(text, { skipEmptyLines: true, delimiter: name.toLowerCase().endsWith('.tsv') ? '\t' : '' }).data.slice(0, 2000)
+    const numbers = numberColumns(rows)
     return (
       <div className="overflow-auto p-4">
         <table className="border-collapse bg-surface text-xs">
@@ -358,7 +374,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
             {rows.map((r, i) => (
               <tr key={i} className={i === 0 ? 'bg-subtle font-semibold' : ''}>
                 {r.map((c, j) => (
-                  <td key={j} className="border border-line px-2.5 py-1.5 whitespace-nowrap">
+                  <td key={j} className={clsx('border border-line px-2.5 py-1.5 whitespace-nowrap', numbers.has(j) && 'text-right tabular-nums')}>
                     {c}
                   </td>
                 ))}
