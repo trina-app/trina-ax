@@ -11,6 +11,8 @@ export interface SlackDeps {
   pollMs?: number
   /** the first wait before a new connection after a failed one (default 1 s; doubles up to a minute) */
   retryMs?: number
+  /** tests: a shorter time limit per request than 15 s */
+  timeoutMs?: number
   now?: () => number
 }
 
@@ -61,7 +63,7 @@ export class SlackApi {
       let r: Response
       try {
         r = await fetch(`${this.base}/api/${method}`, {
-          method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS),
+          method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(this.deps.timeoutMs ?? TIMEOUT_MS),
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
           body: form(body),
         })
@@ -97,7 +99,7 @@ export class SlackApi {
   async respond(url: string, body: Record<string, unknown>): Promise<boolean> {
     if (!this.responseUrlOk(url)) return false
     try {
-      const r = await fetch(url, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS), headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify(body) })
+      const r = await fetch(url, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(this.deps.timeoutMs ?? TIMEOUT_MS), headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify(body) })
       try { await r.body?.cancel() } catch {}
       return r.status === 200
     } catch { return false }

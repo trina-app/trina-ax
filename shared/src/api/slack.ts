@@ -55,6 +55,9 @@ export const SlackProposal = z.object({
   slack: z.object({ userId: z.string(), name: z.string().nullable(), realName: z.string().nullable(), handle: z.string().nullable(), email: z.string().nullable() }),
   proposedBy: z.string().nullable(),
   expiresAt: IsoTime,
+  /** the two halves, either order: accepted here, and the Slack person's one-time link (from Slack) confirmed here */
+  memberAccepted: z.boolean(),
+  slackConfirmed: z.boolean(),
 })
 export type SlackProposal = z.infer<typeof SlackProposal>
 export const MySlack = z.object({
@@ -64,6 +67,8 @@ export const MySlack = z.object({
   link: z.object({ slackUserId: z.string(), slackName: z.string().nullable(), linkedAt: IsoTime }).nullable(),
   /** a link the owner proposed, waiting for this person */
   proposal: SlackProposal.nullable(),
+  /** someone else set this account's e-mail in the last 7 days: the e-mail proves nothing until then */
+  emailSetByOther: z.boolean(),
 })
 export type MySlack = z.infer<typeof MySlack>
 
@@ -80,9 +85,10 @@ export const SlackLinkPreview = z.object({
   /** this account is linked to another Slack account already: unlink that one first (confirm answers 409) */
   linkedElsewhere: z.boolean(),
   /** the proof (docs/DECISIONS.md "Slack 커넥터"): the Slack account's e-mail, as Slack gives it, is this account's.
-   * mismatch / missing: confirm is refused and the team owner links it instead (Admin › Slack); unavailable: Slack did
-   * not answer now. The e-mails themselves are not shown here. */
-  emailCheck: z.enum(['match', 'mismatch', 'missing', 'recent', 'unavailable']),
+   * mismatch / missing / recent: confirm is refused and the team owner proposes the link instead (Admin › Slack);
+   * proposal: the owner proposed this Slack account for this person, so confirming is the Slack half of it;
+   * unavailable: Slack did not answer now. */
+  emailCheck: z.enum(['match', 'mismatch', 'missing', 'recent', 'unavailable', 'proposal']),
   /** the e-mail of this account that was compared (the person's own; Slack's is not shown) */
   email: z.string().nullable(),
 })

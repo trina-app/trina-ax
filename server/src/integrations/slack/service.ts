@@ -65,6 +65,7 @@ interface Question { team: string; enterprise: string; user: string; channel: st
 interface ProposalRow {
   id: string; user_id: string; team_id: string; enterprise_id: string; slack_user_id: string; slack_name: string | null; slack_real_name: string | null
   slack_handle: string | null; slack_email: string | null; proposed_by: string | null; state: string; created_at: string; expires_at: string
+  member_accepted_at: string | null; slack_confirmed_at: string | null
 }
 
 const ID = /^[A-Z0-9]{2,40}$/
@@ -103,6 +104,7 @@ export class SlackConnector {
   private poller: ReturnType<typeof setInterval> | null = null
   private delivering = false
   private swept = 0
+  private emailAuditSeen: number | null = null
   private closed = false
 
   constructor(readonly ctx: AppContext, readonly deps: SlackDeps = {}) {
@@ -260,7 +262,9 @@ export class SlackConnector {
       proposal: p && this.available(cfg) && p.team_id === cfg!.team_id ? {
         id: p.id, slack: { userId: p.slack_user_id, name: p.slack_name, realName: p.slack_real_name, handle: p.slack_handle, email: p.slack_email },
         proposedBy: (this.db.query('SELECT name FROM users WHERE id = ?').get(p.proposed_by) as { name: string } | null)?.name ?? null, expiresAt: p.expires_at,
+        memberAccepted: !!p.member_accepted_at, slackConfirmed: !!p.slack_confirmed_at,
       } : null,
+      emailSetByOther: this.emailSetByOther(userId),
     }
   }
 
@@ -349,10 +353,11 @@ export class SlackConnector {
     const mine = this.db.query('SELECT * FROM slack_links WHERE user_id = ?').get(userId) as LinkRow | null
     const tk = this.tokens(cfg)
     const proof = tk ? this.emailProof(await this.slackMember(tk.bot, r.slack_user_id, cfg), userId) : 'unavailable'
+    const proposed = proof !== 'match' && proof !== 'unavailable' && proof !== 'outsider' && !!this.proposalFor(userId, r.team_id, r.slack_user_id)
     return {
       workspace: cfg.team_name ?? cfg.team_id!, slack: { userId: r.slack_user_id, name: r.slack_name, realName: r.slack_real_name, handle: r.slack_handle }, me: { name: me.name, username: me.username },
       expiresAt: r.expires_at, linkedElsewhere: !!mine && !(mine.team_id === r.team_id && mine.enterprise_id === r.enterprise_id && mine.slack_user_id === r.slack_user_id),
-      emailCheck: proof === 'match' ? 'match' : proof === 'unavailable' ? 'unavailable' : proof === 'recent' ? 'recent' : proof === 'mismatch' || proof === 'shared' || proof === 'outsider' ? 'mismatch' : 'missing',
+      emailCheck: proof === 'match' ? 'match' : proposed ? 'proposal' : proof === 'unavailable' ? 'unavailable' : proof === 'recent' ? 'recent' : proof === 'mismatch' || proof === 'shared' || proof === 'outsider' ? 'mismatch' : 'missing',
       email: (this.db.query('SELECT email FROM users WHERE id = ?').get(userId) as { email: string | null } | null)?.email ?? null,
     }
   }
@@ -369,6 +374,19 @@ export class SlackConnector {
     // the proof: Slack's own e-mail of the Slack account this link was sent to is the confirming person's e-mail
     const proof = this.emailProof(await this.slackMember(tk.bot, r.slack_user_id, cfg), userId)
     if (proof === 'unavailable') throw new SlackError('unreachable', 'unavailable')
+    // the owner proposed this Slack account for this person: the link is the Slack half of the proposal (it stands in
+    // for the e-mail only); linked once the person has also accepted it in Settings
+    const proposal = proof !== 'match' && proof !== 'outsider' ? this.proposalFor(userId, r.team_id, r.slack_user_id) : null
+    if (proposal) {
+      const now = iso(this.now())
+      this.db.transaction(() => {
+        if (!this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?').run(now, r.token_hash, now).changes) throw new SlackError('link_expired', 'not_found')
+        if (!this.db.query("UPDATE slack_link_proposals SET slack_confirmed_at = ? WHERE id = ? AND state = 'pending' AND expires_at > ?").run(now, proposal.id, now).changes) throw new SlackError('proposal_gone', 'not_found')
+      })()
+      audit(this.db, { actor: userId, action: 'slack.proposal_confirmed', target: userId, detail: { slackUser: r.slack_user_id, proposal: proposal.id } })
+      await this.completeProposal(proposal.id, userId, r.channel_id ? { channel: r.channel_id, threadTs: r.thread_ts } : null)
+      return this.mine(userId)
+    }
     if (proof !== 'match') {
       audit(this.db, { actor: userId, action: 'slack.link_refused', target: userId, detail: { slackUser: r.slack_user_id, reason: `email_${proof}` } })
       throw new SlackError(proof === 'missing' ? 'email_missing' : proof === 'recent' ? 'email_recent' : 'email_mismatch', 'conflict')
@@ -478,29 +496,49 @@ export class SlackConnector {
     return p
   }
 
+  /** A waiting proposal of this Slack account for this person, within its 7 days. */
+  private proposalFor(userId: string, teamId: string, slackUserId: string): ProposalRow | null {
+    return this.db.query("SELECT * FROM slack_link_proposals WHERE user_id = ? AND team_id = ? AND slack_user_id = ? AND state = 'pending' AND expires_at > ?").get(userId, teamId, slackUserId, iso(this.now())) as ProposalRow | null
+  }
+
+  /** The member's half: accepted here with their own session. Linked once the Slack half is there too. */
   async acceptProposal(userId: string, id: string): Promise<MySlack> {
     const p = this.ownProposal(userId, id)
+    if (!this.person(userId)) throw new SlackError('proposal_gone', 'not_found')
+    const now = iso(this.now())
+    if (!this.db.query("UPDATE slack_link_proposals SET member_accepted_at = COALESCE(member_accepted_at, ?) WHERE id = ? AND state = 'pending' AND expires_at > ?").run(now, id, now).changes) throw new SlackError('proposal_gone', 'not_found')
+    audit(this.db, { actor: userId, action: 'slack.proposal_accepted', target: userId, detail: { slackUser: p.slack_user_id, proposal: id } })
+    await this.completeProposal(id, userId, null)
+    return this.mine(userId)
+  }
+
+  /** Both halves of a proposal there (accepted here, the Slack person's link confirmed here), still within its 7 days
+   * (checked again now): link. Otherwise nothing yet. */
+  private async completeProposal(id: string, userId: string, where: { channel: string; threadTs: string | null } | null) {
+    const p = this.db.query("SELECT * FROM slack_link_proposals WHERE id = ? AND user_id = ? AND state = 'pending'").get(id, userId) as (ProposalRow & { member_accepted_at: string | null; slack_confirmed_at: string | null }) | null
+    if (!p || !p.member_accepted_at || !p.slack_confirmed_at) return
     const me = this.person(userId)
-    if (!me) throw new SlackError('proposal_gone', 'not_found')
-    const cfg = this.config()!, tk = this.tokens(cfg)
-    if (!tk) throw new SlackError('unreachable', 'unavailable')
+    const cfg = this.config(), tk = this.tokens(cfg)
+    if (!me || !cfg || !tk) throw new SlackError('proposal_gone', 'not_found')
     // Slack is asked again: still a person of this workspace
     const slack = await this.slackMember(tk.bot, p.slack_user_id, cfg)
     if (!slack) throw new SlackError('unreachable', 'unavailable')
     if (!slack.ours) throw new SlackError('outsider', 'validation')
     const now = iso(this.now())
     this.db.transaction(() => {
+      // the 7 days hold at the last step too
+      if (!this.db.query("UPDATE slack_link_proposals SET state = 'accepted', decided_at = ? WHERE id = ? AND state = 'pending' AND expires_at > ? AND member_accepted_at IS NOT NULL AND slack_confirmed_at IS NOT NULL").run(now, id, now).changes) throw new SlackError('proposal_gone', 'not_found')
       if (this.db.query('SELECT 1 FROM slack_links WHERE user_id = ?').get(userId)) throw new SlackError('linked_elsewhere', 'conflict')
       if (this.db.query('SELECT 1 FROM slack_links WHERE team_id = ? AND slack_user_id = ?').get(p.team_id, p.slack_user_id)) throw new SlackError('slack_taken', 'conflict')
-      if (!this.db.query("UPDATE slack_link_proposals SET state = 'accepted', decided_at = ? WHERE id = ? AND state = 'pending'").run(now, id).changes) throw new SlackError('proposal_gone', 'not_found')
       this.db.query('UPDATE slack_link_tokens SET used_at = ? WHERE team_id = ? AND slack_user_id = ? AND used_at IS NULL').run(now, p.team_id, p.slack_user_id)
       this.db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(newId(), userId, p.team_id, p.enterprise_id, p.slack_user_id, slack.name ?? slack.realName ?? slack.handle, now)
     })()
     audit(this.db, { actor: userId, action: 'slack.linked', target: userId, detail: { slackUser: p.slack_user_id, team: p.team_id, proposal: id, proposedBy: p.proposed_by } })
+    const text = say('mapped', this.localeOf(userId), { name: plain(`${me.name} (@${me.username})`) })
+    if (where) void this.api.call('chat.postEphemeral', tk.bot, { channel: where.channel, user: p.slack_user_id, ...(where.threadTs ? { thread_ts: where.threadTs } : {}), text }).catch(() => {})
     // one DM to the Slack person: which account it now asks as, and how to undo it
-    await this.dm(tk.bot, p.slack_user_id, say('mapped', this.localeOf(userId), { name: plain(`${me.name} (@${me.username})`) }))
-    return this.mine(userId)
+    await this.dm(tk.bot, p.slack_user_id, text)
   }
 
   declineProposal(userId: string, id: string): MySlack {
@@ -691,6 +729,7 @@ export class SlackConnector {
     this.delivering = true
     try {
       if (this.now() - this.swept > 60_000) { this.swept = this.now(); this.sweep() }
+      this.emailNotices()
       // finished turns first, whatever waits before them
       const done = this.db.query("SELECT r.* FROM slack_requests r JOIN turns t ON t.id = r.turn_id WHERE r.state = 'waiting' AND t.status NOT IN ('queued', 'running') AND (r.not_before IS NULL OR r.not_before <= ?) ORDER BY r.created_at LIMIT 20").all(iso(this.now())) as RequestRow[]
       for (const r of done) await this.deliver(r)
@@ -701,6 +740,19 @@ export class SlackConnector {
       }
     } catch (e) { this.log.error('slack delivery failed', { err: String(e) }) }
     finally { this.delivering = false }
+  }
+
+  /** An admin changed someone's e-mail (Admin › Members): that person is told in the app, since for 7 days it is no
+   * proof for a Slack link. Only changes from after this server started are looked at. */
+  private emailNotices() {
+    if (this.emailAuditSeen === null) { this.emailAuditSeen = (this.db.query('SELECT COALESCE(max(id), 0) id FROM audit_log').get() as { id: number }).id; return }
+    const rows = this.db.query(`SELECT id, target FROM audit_log WHERE id > ? AND action = 'user.update' AND json_type(detail, '$.email') IS NOT NULL
+      AND actor_id IS NOT NULL AND actor_id != target ORDER BY id LIMIT 100`).all(this.emailAuditSeen) as { id: number; target: string }[]
+    const last = (this.db.query('SELECT COALESCE(max(id), 0) id FROM audit_log').get() as { id: number }).id
+    for (const r of rows) {
+      try { this.ctx.services.realtime.publish(r.target, { type: 'notice', data: { level: 'info', code: 'slack_email_changed', message: say('emailChangedNotice', this.localeOf(r.target)), link: '/settings/connectors' } }) } catch {}
+    }
+    this.emailAuditSeen = rows.length === 100 ? rows.at(-1)!.id : last
   }
 
   private where(r: RequestRow) { return { channel: r.channel_id, user: r.slack_user_id, threadTs: r.channel_kind === 'im' || r.in_thread ? r.thread_ts : null } }
@@ -762,7 +814,7 @@ export class SlackConnector {
         // a new message (Slack notifies for it, not for an edit); the "working…" one goes. A try that timed out may
         // have reached Slack: the thread is read first, so the answer is never there twice
         const blocks = [...body.blocks, ...(notes ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: notes }] }] : [])]
-        if (!(r.attempts > 0 && await this.alreadyInThread(tk.bot, cfg, r.channel_id, r.thread_ts, fallback)))
+        if (!(r.attempts > 0 && await this.alreadyInThread(tk.bot, cfg, r, fallback)))
           await this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: fallback, blocks, unfurl_links: false, unfurl_media: false })
         if (r.progress_ts) await this.api.call('chat.delete', tk.bot, { channel: r.channel_id, ts: r.progress_ts }).catch(() => {})
       } else {
@@ -789,12 +841,15 @@ export class SlackConnector {
     }
   }
 
-  /** Our answer is in that DM thread already (conversations.replies, scope im:history). Unknown: false (sent again). */
-  private async alreadyInThread(bot: string, cfg: ConfigRow, channel: string, threadTs: string, text: string): Promise<boolean> {
+  /** Our answer to this request is in its DM thread already (conversations.replies, scope im:history): a message of
+   * the app with this text, written after the request was made (an earlier answer with the same words does not count).
+   * Unknown: false (sent again). */
+  private async alreadyInThread(bot: string, cfg: ConfigRow, req: RequestRow, text: string): Promise<boolean> {
+    const since = Date.parse(req.created_at) / 1000
     try {
-      const r = await this.api.call('conversations.replies', bot, { channel, ts: threadTs, limit: 200 })
-      const msgs = Array.isArray(r.messages) ? r.messages as { user?: unknown; bot_id?: unknown; text?: unknown }[] : []
-      return msgs.some((m) => (m.user === cfg.bot_user_id || typeof m.bot_id === 'string') && m.text === text)
+      const r = await this.api.call('conversations.replies', bot, { channel: req.channel_id, ts: req.thread_ts, limit: 200 })
+      const msgs = Array.isArray(r.messages) ? r.messages as { user?: unknown; bot_id?: unknown; text?: unknown; ts?: unknown }[] : []
+      return msgs.some((m) => (m.user === cfg.bot_user_id || typeof m.bot_id === 'string') && m.text === text && typeof m.ts === 'string' && Number(m.ts) > since)
     } catch { return false }
   }
 
@@ -810,6 +865,14 @@ export class SlackConnector {
     // only the asker's own answer (an ephemeral message is only theirs; the check holds even if a value is replayed)
     if (!r || r.slack_user_id !== p.user.id || r.team_id !== cfg.team_id || r.enterprise_id !== enterprise || r.channel_kind !== 'channel') { await reply(say('postGone', locale)); return }
     if (r.ext_shared) { await reply(say('sharedChannel', locale)); return }
+    // asked again now (a channel can be shared after the question): Slack must say it is not shared outside
+    let shared: boolean | null = null
+    try {
+      const info = await this.api.call('conversations.info', tk.bot, { channel: r.channel_id })
+      const ch = info.channel as { is_ext_shared?: unknown; is_pending_ext_shared?: unknown } | undefined
+      if (typeof ch?.is_ext_shared === 'boolean') shared = ch.is_ext_shared || ch.is_pending_ext_shared === true
+    } catch {}
+    if (shared !== false) { await reply(say(shared ? 'sharedChannel' : 'postCheckFailed', locale)); return }
     if (r.state === 'posted') { await reply(say('postedAlready', locale)); return }
     if (r.state !== 'delivered') { await reply(say('postGone', locale)); return }
     if (!this.stillLinked(r)) { await reply(say('notLinked', locale)); return }

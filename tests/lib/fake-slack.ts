@@ -1,11 +1,11 @@
 // A stand-in for Slack (tests of the Slack connector, docs/SLACK.md): the Web API methods the connector calls
-// (auth.test, apps.connections.open, bots.info, users.info, users.list, conversations.open, chat.postMessage,
+// (auth.test, apps.connections.open, bots.info, users.info, users.list, conversations.open, .replies, .info, chat.postMessage,
 // chat.postEphemeral, chat.update, chat.delete), a Socket Mode
 // WebSocket that says hello and records every acknowledgement, and response URLs. Nothing reaches the real Slack.
 import type { ServerWebSocket } from 'bun'
 
-export interface Call { method: string; token: string | null; args: Record<string, string> }
-export interface FakeUser { name: string; team_id: string; real_name?: string; email?: string; is_bot?: boolean; deleted?: boolean }
+export interface Call { method: string; token: string | null; args: Record<string, string>; at: number }
+export interface FakeUser { name: string; team_id: string; real_name?: string; email?: string; is_bot?: boolean; deleted?: boolean; enterprise_id?: string }
 export interface FakeSlack {
   url: string
   botToken: string
@@ -21,8 +21,12 @@ export interface FakeSlack {
   responses: { path: string; body: Record<string, unknown> }[]
   scopes: string[]
   opens: number
-  /** the next call of a method fails like this */
-  failNext: Record<string, { error?: string; status?: number; retryAfter?: number }>
+  /** the next call of a method fails like this; hang: answer nothing for that long (the client times out), recorded
+   * as a call (it reached Slack) unless `lost` */
+  failNext: Record<string, { error?: string; status?: number; retryAfter?: number; hang?: number; lost?: boolean }>
+  /** channels conversations.info calls shared with another organization; `unknown`: no is_ext_shared in the answer */
+  sharedChannels: Set<string>
+  unknownChannels: Set<string>
   sockets(): number
   connected(): Promise<void>
   send(obj: unknown): void
@@ -40,7 +44,7 @@ export const nextTs = () => `${1_700_000_000 + Math.floor(Date.now() / 1000) % 1
 
 /** a Slack user object the way users.info and users.list give it (the e-mail only with users:read.email) */
 function userObject(id: string, x: FakeUser) {
-  return { id, team_id: x.team_id, name: x.name, real_name: x.real_name ?? x.name, deleted: !!x.deleted, is_bot: !!x.is_bot,
+  return { id, team_id: x.team_id, name: x.name, real_name: x.real_name ?? x.name, deleted: !!x.deleted, is_bot: !!x.is_bot, ...(x.enterprise_id ? { enterprise_user: { enterprise_id: x.enterprise_id, teams: [x.team_id] } } : {}),
     profile: { display_name: x.name, real_name: x.real_name ?? x.name, ...(x.email !== undefined ? { email: x.email } : {}) } }
 }
 
@@ -51,8 +55,8 @@ export function startFakeSlack(): FakeSlack {
   const fake: FakeSlack = {
     url: '', botToken: 'xoxb-111-222-' + 'b'.repeat(24), appToken: 'xapp-1-A0APP-333-' + 'a'.repeat(32),
     team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', appId: 'A0APP',
-    users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {},
-    scopes: ['app_mentions:read', 'chat:write', 'im:history', 'im:write', 'users:read', 'users:read.email'],
+    users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {}, sharedChannels: new Set(), unknownChannels: new Set(),
+    scopes: ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'],
     sockets: () => open.size,
     async connected() {
       const end = Date.now() + 10_000
@@ -93,10 +97,11 @@ export function startFakeSlack(): FakeSlack {
       const method = m[1]!
       const token = /^Bearer (.+)$/.exec(req.headers.get('authorization') ?? '')?.[1] ?? null
       const args = Object.fromEntries(new URLSearchParams(await req.text()))
-      fake.calls.push({ method, token, args })
       const f = fake.failNext[method]
+      if (!f?.lost) fake.calls.push({ method, token, args, at: Date.now() })
       if (f) {
         delete fake.failNext[method]
+        if (f.hang) { await Bun.sleep(f.hang); return json({ ok: true, channel: args.channel, ts: nextTs() }) }
         if (f.status === 429) return new Response('', { status: 429, headers: { 'retry-after': String(f.retryAfter ?? 1) } })
         return json({ ok: false, error: f.error ?? 'internal_error' })
       }
@@ -129,7 +134,12 @@ export function startFakeSlack(): FakeSlack {
         case 'conversations.replies': {
           if (!bot) return json({ ok: false, error: 'invalid_auth' })
           const ours = fake.calls.filter((c) => c.method === 'chat.postMessage' && c.args.channel === args.channel && c.args.thread_ts === args.ts)
-          return json({ ok: true, messages: ours.map((c) => ({ user: fake.botUserId, bot_id: 'B0BOT', text: c.args.text, ts: nextTs() })) })
+          return json({ ok: true, messages: ours.map((c) => ({ user: fake.botUserId, bot_id: 'B0BOT', text: c.args.text, ts: (c.at / 1000).toFixed(6) })) })
+        }
+        case 'conversations.info': {
+          if (!bot) return json({ ok: false, error: 'invalid_auth' })
+          const ch = args.channel ?? ''
+          return json({ ok: true, channel: { id: ch, ...(fake.unknownChannels.has(ch) ? {} : { is_ext_shared: fake.sharedChannels.has(ch), is_pending_ext_shared: false }) } })
         }
         case 'conversations.open': return bot && /^U[A-Z0-9]+$/.test(args.users ?? '') ? json({ ok: true, channel: { id: 'D' + args.users!.slice(1) } }) : json({ ok: false, error: 'invalid_arguments' })
         case 'chat.postMessage': return bot ? json({ ok: true, channel: args.channel, ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })

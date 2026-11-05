@@ -9,8 +9,9 @@
 --   slack_requests: a question asked in Slack whose answer is still to be delivered, or was delivered and may still be
 --     posted to the channel once.
 --   slack_events: event ids and message ids already handled (Slack sends an event again when it was not acknowledged).
---   slack_link_proposals: the owner proposes linking a Slack person to a member (their e-mails differ); nothing is linked
---     until that member accepts it in the app with their own session. 7 days.
+--   slack_link_proposals: the owner proposes linking a Slack person to a member (their e-mails differ). It stands in for
+--     the e-mail check only: it completes when the member accepts it in the app with their own session AND confirms the
+--     one-time link that Slack person got in Slack (either order), both within its 7 days.
 --   slack_email_changes: when each account's e-mail was last set (triggers below). Who set it is in the audit log for
 --     admins (user.create, user.update); a change with no admin entry is the person's own. The e-mail proof of a link
 --     is not trusted for 7 days after someone else set it.
@@ -101,6 +102,8 @@ CREATE TABLE slack_link_proposals (
   slack_email TEXT,
   proposed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
   state TEXT NOT NULL CHECK (state IN ('pending', 'accepted', 'declined', 'cancelled', 'expired')),
+  member_accepted_at TEXT,
+  slack_confirmed_at TEXT,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   decided_at TEXT
@@ -110,6 +113,13 @@ CREATE TABLE slack_email_changes (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   changed_at TEXT NOT NULL
 );
+-- e-mails an admin set before this migration (a new member, a change): their time, so the 7 days count from it. An
+-- e-mail the person changed back themselves before this migration counts as the admin's too, until they set it again.
+INSERT OR REPLACE INTO slack_email_changes (user_id, changed_at)
+  SELECT a.target, max(a.at) FROM audit_log a JOIN users u ON u.id = a.target
+  WHERE u.email IS NOT NULL AND a.actor_id IS NOT NULL AND a.actor_id != a.target
+    AND (a.action = 'user.create' OR (a.action = 'user.update' AND json_type(a.detail, '$.email') IS NOT NULL))
+  GROUP BY a.target;
 CREATE TRIGGER slack_email_set AFTER INSERT ON users WHEN NEW.email IS NOT NULL
 BEGIN
   INSERT OR REPLACE INTO slack_email_changes (user_id, changed_at) VALUES (NEW.id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));

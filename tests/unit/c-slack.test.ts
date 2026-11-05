@@ -19,6 +19,7 @@ setDefaultTimeout(60_000)
 let h: Harness
 let fake: FakeSlack
 const lines: string[] = []
+const notices: { userId: string; ev: { type: string; data: { code?: string } } }[] = []
 let skew = 0
 const C = 'C0GENERAL'
 
@@ -42,13 +43,19 @@ function mention(user: string, text: string, o: { ts?: string; thread?: string; 
   fake.event({ type: 'app_mention', user, text: `<@U0BOT> ${text}`, ts, channel: o.channel ?? C, event_ts: ts, ...(o.thread ? { thread_ts: o.thread } : {}), ...(o.userTeam ? { user_team: o.userTeam } : {}) }, o.eventId ? { eventId: o.eventId } : {})
   return ts
 }
-/** a new link prompt to this Slack user (one more than before) */
+/** a new link prompt to this Slack user (one more than before), asked a few minutes after the last one (past the
+ * "link sent a moment ago" wait), on the clock as it is then */
+let linkClock = 0
 async function newLink(user: string, text = 'hi') {
   const before = linksTo(user).length
-  mention(user, text)
-  const c = await waitFor(() => { const all = linksTo(user); return all.length > before ? all.at(-1) : null })
-  if (!c) throw new Error(`no link prompt for ${user}`)
-  return linkTokenFrom(c)!
+  const base = skew
+  skew = base + (linkClock += 3 * 60_000)
+  try {
+    mention(user, text)
+    const c = await waitFor(() => { const all = linksTo(user); return all.length > before ? all.at(-1) : null })
+    if (!c) throw new Error(`no link prompt for ${user}`)
+    return linkTokenFrom(c)!
+  } finally { skew = base }
 }
 
 beforeAll(async () => {
@@ -64,11 +71,17 @@ beforeAll(async () => {
     U0GUEST: { name: 'guest', team_id: 'T0OTHER', email: 'guest@other.example' },
     U0ROBOT: { name: 'robot', team_id: 'T0ACME', is_bot: true },
     U0GONE: { name: 'gone', team_id: 'T0ACME', email: 'gone@acme.example', deleted: true },
+    // another workspace of the same Enterprise Grid organization: not ours either
+    U0GRID: { name: 'grid', team_id: 'T0SISTER', email: 'grid@acme.example', enterprise_id: 'E0ORG' },
+    U0FRANK: { name: 'frank.slack', team_id: 'T0ACME', email: 'frank@acme.example' },
   }
   h = await startHarness({ name: 'c-slack', log: createLogger({ level: 'debug', sink: (l) => lines.push(l) }) })
   // the accounts' own e-mails (carol has none)
   for (const [id, email] of [['alice', 'alice@acme.example'], ['bob', 'bob@acme.example'], ['erin', 'erin@acme.example'], ['dana', 'dana@acme.example']]) h.ctx.db.query('UPDATE users SET email = ? WHERE id = ?').run(email, id)
-  slackOf(h.ctx, { base: fake.url, pollMs: 30, retryMs: 50, now: () => Date.now() + skew })
+  slackOf(h.ctx, { base: fake.url, pollMs: 30, retryMs: 50, timeoutMs: 400, now: () => Date.now() + skew })
+  // in-app notices, as published
+  const publish = h.ctx.services.realtime.publish.bind(h.ctx.services.realtime)
+  h.ctx.services.realtime.publish = (userId: string, ev: Parameters<typeof publish>[1]) => { notices.push({ userId, ev: ev as { type: string; data: { code?: string } } }); return publish(userId, ev) }
 })
 afterAll(async () => { await h?.close(); fake?.close() })
 
@@ -96,8 +109,8 @@ describe('setup (the owner)', () => {
     expect(revoked.json.error.params.reason).toBe('invalid_auth')
     fake.scopes = ['chat:write']
     const scopes = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken), appToken: await seal(fake.appToken) })
-    expect(scopes.json.error.params).toMatchObject({ reason: 'missing_scope', scopes: 'app_mentions:read, im:history, im:write, users:read, users:read.email' })
-    fake.scopes = ['app_mentions:read', 'chat:write', 'im:history', 'im:write', 'users:read', 'users:read.email']
+    expect(scopes.json.error.params).toMatchObject({ reason: 'missing_scope', scopes: 'app_mentions:read, channels:read, groups:read, im:history, im:write, users:read, users:read.email' })
+    fake.scopes = ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email']
     const other = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken, 'integration.secret'), appToken: await seal(fake.appToken) })
     expect(other.status).toBe(400)
     // the app-level token of another app than the bot token's
@@ -202,7 +215,7 @@ describe('linking', () => {
     expect(refused.status).toBe(409)
     expect(refused.json.error.params.reason).toBe('linked_elsewhere')
     // after 10 minutes the link is gone for everyone
-    skew = 11 * 60_000
+    skew = linkClock + 11 * 60_000
     expect((await call('bob', 'POST', '/api/slack/link/preview', { token: bobToken })).status).toBe(404)
     expect((await call('bob', 'POST', '/api/slack/link/confirm', { token: bobToken })).status).toBe(404)
     skew = 0
@@ -224,6 +237,18 @@ describe('linking', () => {
   })
 })
 
+describe('Enterprise Grid', () => {
+  test('a person of another workspace of the same organization is not ours: no link, not in the People list', async () => {
+    const n = ephemeralsTo('U0GRID').length
+    mention('U0GRID', 'hi')
+    await waitFor(() => ephemeralsTo('U0GRID').length > n)
+    expect(linkTokenFrom(ephemeralsTo('U0GRID').at(-1)!)).toBeNull()
+    expect(ephemeralsTo('U0GRID').at(-1)!.args.text).toContain('Only members of this workspace')
+    const list = await call('dana', 'GET', '/api/admin/slack/members')
+    expect((list.json.members as { slackUserId: string }[]).some((m) => m.slackUserId === 'U0GRID')).toBe(false)
+  })
+})
+
 describe('the owner proposes a link for e-mails that differ; only the member can accept it', () => {
   const propose = (who: string, slackUserId: string, userId: string) => call(who, 'POST', '/api/admin/slack/proposals', { slackUserId, userId })
   test('owner only; the workspace\'s people without bots, the deactivated or other workspaces', async () => {
@@ -233,7 +258,7 @@ describe('the owner proposes a link for e-mails that differ; only the member can
     const r = await call('dana', 'GET', '/api/admin/slack/members')
     expect(r.status).toBe(200)
     const ids = (r.json.members as { slackUserId: string }[]).map((m) => m.slackUserId).sort()
-    expect(ids).toEqual(['U0ALICE', 'U0BOB', 'U0CAROL', 'U0ERIN', 'U0MALLORY', 'U0NOMAIL'])
+    expect(ids).toEqual(['U0ALICE', 'U0BOB', 'U0CAROL', 'U0ERIN', 'U0FRANK', 'U0MALLORY', 'U0NOMAIL'])
     expect(r.json.members.find((m: { slackUserId: string }) => m.slackUserId === 'U0ALICE')).toMatchObject({ email: 'alice@acme.example', linkedTo: { id: 'alice', name: 'Alice Kim' }, pending: null })
     expect(r.json.members.find((m: { slackUserId: string }) => m.slackUserId === 'U0NOMAIL')).toMatchObject({ email: null, linkedTo: null, pending: null })
     // never someone of another workspace, a bot, a Slack account or an account already linked
@@ -245,46 +270,72 @@ describe('the owner proposes a link for e-mails that differ; only the member can
     expect((await propose('dana', 'U0NOMAIL', 'alice')).json.error.params.reason).toBe('linked_elsewhere')
   })
 
+  let nomailToken = ''
   test('a proposal links nothing: the owner\'s own Slack account proposed for carol gets no answer as carol', async () => {
     // say U0NOMAIL is the owner's own Slack account, proposed for carol
     expect((await propose('dana', 'U0NOMAIL', 'carol')).status).toBe(204)
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ n: 0 })
     expect((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.proposed'").get() as { detail: string }).detail).toContain('"slackUser":"U0NOMAIL"')
-    // the Slack person is told a link waits for the account's owner, naming no account
+    expect(notices.some((n) => n.userId === 'carol' && n.ev.data.code === 'slack_proposal')).toBe(true)
+    // the Slack person is told how to confirm it, naming no account
     const dm = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0NOMAIL'))
     expect(dm!.args.text).not.toContain('Carol')
     // asking from that Slack account: the link prompt, no turn as carol
     const turns = () => (h.ctx.db.query("SELECT count(*) n FROM turns WHERE user_id = 'carol'").get() as { n: number }).n
     const before = turns()
-    skew = 2 * 60_000 // past the "link sent a moment ago" wait of the earlier test
-    await newLink('U0NOMAIL', say('carol\'s secrets?'))
-    skew = 0
+    nomailToken = await newLink('U0NOMAIL', say('carol\'s secrets?'))
     await Bun.sleep(200)
     expect(turns()).toBe(before)
-    // the owner cannot accept it for carol; carol sees it in Settings
+    // the owner cannot accept it for carol, nor can anyone else; carol sees it in Settings
     const pid = (await call('dana', 'GET', '/api/admin/slack/members')).json.members.find((m: { slackUserId: string }) => m.slackUserId === 'U0NOMAIL').pending.proposalId as string
     expect((await call('dana', 'POST', `/api/slack/proposals/${pid}/accept`, {})).status).toBe(404)
     expect((await call('bob', 'POST', `/api/slack/proposals/${pid}/accept`, {})).status).toBe(404)
     const mine = await call('carol', 'GET', '/api/slack/me')
-    expect(mine.json.proposal).toMatchObject({ id: pid, slack: { userId: 'U0NOMAIL', name: 'no.mail' }, proposedBy: 'Dana Choi' })
+    expect(mine.json.proposal).toMatchObject({ id: pid, slack: { userId: 'U0NOMAIL', name: 'no.mail' }, proposedBy: 'Dana Choi', memberAccepted: false, slackConfirmed: false })
+    // carol accepting is half of it: still nothing linked
+    const half = await call('carol', 'POST', `/api/slack/proposals/${pid}/accept`, {})
+    expect(half.json).toMatchObject({ link: null, proposal: { memberAccepted: true, slackConfirmed: false } })
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'carol'").get()).toEqual({ n: 0 })
   })
 
-  test('the member accepts with their own session: linked, audited, the Slack person told which account', async () => {
-    const pid = (await call('carol', 'GET', '/api/slack/me')).json.proposal.id as string
-    const ok = await call('carol', 'POST', `/api/slack/proposals/${pid}/accept`, {})
+  test('the Slack half: the link that Slack account got, confirmed by the member; not by the owner', async () => {
+    // the owner holding the Slack link is not carol: an e-mail check like any other, refused
+    expect((await call('dana', 'POST', '/api/slack/link/preview', { token: nomailToken })).json.emailCheck).toBe('missing')
+    expect((await call('dana', 'POST', '/api/slack/link/confirm', { token: nomailToken })).json.error.params.reason).toBe('email_missing')
+    expect((await call('carol', 'POST', '/api/slack/link/preview', { token: nomailToken })).json.emailCheck).toBe('proposal')
+    const ok = await call('carol', 'POST', '/api/slack/link/confirm', { token: nomailToken })
     expect(ok.status).toBe(200)
     expect(ok.json).toMatchObject({ link: { slackUserId: 'U0NOMAIL' }, proposal: null })
     expect((h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'slack.linked' AND target = 'carol'").get() as { actor_id: string; detail: string })).toMatchObject({ actor_id: 'carol' })
     const told = await waitFor(() => fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0NOMAIL').find((c) => c.args.text?.includes('Carol Park (@carol)')))
     expect(told).toBeTruthy()
-    // accepted once: again is gone
-    expect((await call('carol', 'POST', `/api/slack/proposals/${pid}/accept`, {})).status).toBe(404)
     const list = await call('dana', 'GET', '/api/admin/slack/members')
     expect(list.json.members.find((m: { slackUserId: string }) => m.slackUserId === 'U0NOMAIL').linkedTo).toMatchObject({ id: 'carol' })
   })
 
-  test('the owner can withdraw a proposal, the member can decline one, and one expires after 7 days', async () => {
+  test('squatting: a colleague\'s Slack account proposed for the owner and accepted by the owner links nothing', async () => {
+    expect((await propose('dana', 'U0MALLORY', 'dana')).status).toBe(204)
+    const pid = (await call('dana', 'GET', '/api/slack/me')).json.proposal.id as string
+    expect((await call('dana', 'POST', `/api/slack/proposals/${pid}/accept`, {})).json).toMatchObject({ link: null, proposal: { memberAccepted: true, slackConfirmed: false } })
+    // the colleague asks: the link goes to the colleague only, and nothing runs as the owner
+    const turns = (h.ctx.db.query("SELECT count(*) n FROM turns WHERE user_id = 'dana'").get() as { n: number }).n
+    await newLink('U0MALLORY', say('my question'))
+    await Bun.sleep(200)
+    expect((h.ctx.db.query("SELECT count(*) n FROM turns WHERE user_id = 'dana'").get() as { n: number }).n).toBe(turns)
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'dana'").get()).toEqual({ n: 0 })
+    expect((await call('dana', 'DELETE', `/api/admin/slack/proposals/${pid}`)).status).toBe(204)
+  })
+
+  test('either order: the Slack half first, then the acceptance', async () => {
+    expect((await propose('dana', 'U0CAROL', 'erin')).status).toBe(204)
+    const pid = (await call('erin', 'GET', '/api/slack/me')).json.proposal.id as string
+    const t = await newLink('U0CAROL')
+    expect((await call('erin', 'POST', '/api/slack/link/confirm', { token: t })).json).toMatchObject({ link: null, proposal: { memberAccepted: false, slackConfirmed: true } })
+    expect((await call('erin', 'POST', `/api/slack/proposals/${pid}/accept`, {})).json).toMatchObject({ link: { slackUserId: 'U0CAROL' }, proposal: null })
+    expect((await call('erin', 'DELETE', '/api/slack/me')).json.link).toBeNull()
+  })
+
+  test('withdraw, decline, a replaced proposal, expiry at the last step, and a disabled member', async () => {
     expect((await propose('dana', 'U0CAROL', 'erin')).status).toBe(204)
     let pid = (await call('erin', 'GET', '/api/slack/me')).json.proposal.id as string
     expect((await call('carol', 'DELETE', `/api/admin/slack/proposals/${pid}`)).status).toBe(403)
@@ -294,33 +345,62 @@ describe('the owner proposes a link for e-mails that differ; only the member can
     expect((await propose('dana', 'U0CAROL', 'erin')).status).toBe(204)
     pid = (await call('erin', 'GET', '/api/slack/me')).json.proposal.id as string
     expect((await call('erin', 'POST', `/api/slack/proposals/${pid}/decline`, {})).json.proposal).toBeNull()
+    // a new proposal of the same Slack account for someone else replaces the one for erin
     expect((await propose('dana', 'U0CAROL', 'erin')).status).toBe(204)
     pid = (await call('erin', 'GET', '/api/slack/me')).json.proposal.id as string
+    expect((await propose('dana', 'U0CAROL', 'bob')).status).toBe(204)
+    expect((await call('erin', 'POST', `/api/slack/proposals/${pid}/accept`, {})).status).toBe(404)
+    // the Slack half done, the 7 days over before the acceptance: nothing
+    expect((await propose('dana', 'U0CAROL', 'erin')).status).toBe(204)
+    pid = (await call('erin', 'GET', '/api/slack/me')).json.proposal.id as string
+    const t = await newLink('U0CAROL')
+    expect((await call('erin', 'POST', '/api/slack/link/confirm', { token: t })).json.proposal).toMatchObject({ slackConfirmed: true })
     skew = 8 * 86_400_000
     expect((await call('erin', 'GET', '/api/slack/me')).json.proposal).toBeNull()
     expect((await call('erin', 'POST', `/api/slack/proposals/${pid}/accept`, {})).status).toBe(404)
     skew = 0
-    const acts = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'slack.proposal%' ORDER BY id").all() as { action: string }[]).map((r) => r.action)
-    expect(acts).toEqual(['slack.proposal_cancelled', 'slack.proposal_declined'])
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_links WHERE user_id = 'erin'").get()).toEqual({ n: 0 })
+    // a disabled member's proposals are cancelled
+    expect((await propose('dana', 'U0CAROL', 'erin')).status).toBe(204)
+    h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'erin'").run()
+    expect(h.ctx.db.query("SELECT count(*) n FROM slack_link_proposals WHERE user_id = 'erin' AND state = 'pending'").get()).toEqual({ n: 0 })
+    h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'erin'").run()
+    const acts = (h.ctx.db.query("SELECT action FROM audit_log WHERE action IN ('slack.proposal_cancelled', 'slack.proposal_declined') ORDER BY id").all() as { action: string }[]).map((r) => r.action)
+    expect(acts).toEqual(['slack.proposal_cancelled', 'slack.proposal_cancelled', 'slack.proposal_declined'])
   })
 })
 
 describe('an e-mail someone else set', () => {
-  test('is no proof for 7 days: shown on the page, refused, until the person sets it themselves', async () => {
+  test('is no proof for 7 days: the member is told, the page shows it, refused until they set it themselves', async () => {
     // an admin sets erin's e-mail through Admin › Members (the harness's group ids make the answer itself fail the
     // contract check, after the change was saved)
     await call('dana', 'PATCH', '/api/admin/users/erin', { email: 'erin@acme.example' })
     expect(h.ctx.db.query("SELECT actor_id FROM audit_log WHERE action = 'user.update' AND target = 'erin'").get()).toEqual({ actor_id: 'dana' })
+    expect(await waitFor(() => notices.some((n) => n.userId === 'erin' && n.ev.data.code === 'slack_email_changed'))).toBe(true)
+    expect((await call('erin', 'GET', '/api/slack/me')).json.emailSetByOther).toBe(true)
     const t1 = await newLink('U0ERIN')
     const p = await call('erin', 'POST', '/api/slack/link/preview', { token: t1 })
     expect(p.json).toMatchObject({ emailCheck: 'recent', email: 'erin@acme.example' })
     const refused = await call('erin', 'POST', '/api/slack/link/confirm', { token: t1 })
     expect(refused.json.error.params.reason).toBe('email_recent')
-    // erin changes it herself later (Settings › Profile writes no audit entry, like this): hers again
+    // erin sets it herself in Settings › Profile (PATCH /api/me; its answer needs a stored session the harness's test
+    // sessions do not have, so it says 401 after the change was saved): hers again
     await Bun.sleep(1100)
-    h.ctx.db.query("UPDATE users SET email = 'Erin@acme.example' WHERE id = 'erin'").run()
+    await call('erin', 'PATCH', '/api/me', { email: 'Erin@acme.example' })
+    expect((h.ctx.db.query("SELECT email FROM users WHERE id = 'erin'").get() as { email: string }).email).toBe('Erin@acme.example')
     expect((await call('erin', 'POST', '/api/slack/link/preview', { token: t1 })).json.emailCheck).toBe('match')
+    expect((await call('erin', 'GET', '/api/slack/me')).json.emailSetByOther).toBe(false)
+  })
+
+  test('an account an admin created with an e-mail: no proof for its first 7 days', async () => {
+    await call('dana', 'POST', '/api/admin/users', { username: 'frank', name: 'Frank Oh', email: 'frank@acme.example', role: 'member' })
+    const frank = h.ctx.db.query("SELECT id FROM users WHERE username = 'frank'").get() as { id: string }
+    expect(frank).toBeTruthy()
+    // (signed in once and the temporary password changed; the e-mail stays the admin's)
+    h.ctx.db.query('UPDATE users SET must_change_password = 0 WHERE id = ?').run(frank.id)
+    const t = await newLink('U0FRANK')
+    expect((await slackOf(h.ctx).preview(frank.id, t)).emailCheck).toBe('recent')
+    expect(slackOf(h.ctx).mine(frank.id).emailSetByOther).toBe(true)
   })
 })
 
@@ -399,6 +479,81 @@ describe('asking', () => {
     expect(fake.of('chat.postMessage').filter((c) => c.args.channel === 'C0SHARED')).toEqual([])
   })
 
+  test('"Post to channel" asks Slack again: a channel shared since, or one Slack says nothing about, gets nothing', async () => {
+    const ask = async (channel: string, text: string) => {
+      mention('U0ALICE', say(text), { channel })
+      const a = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => blocksOf(c).includes(text) && blocksOf(c).includes('trina_post')), { timeoutMs: 30_000 })
+      return (JSON.parse(a!.args.blocks!) as any[]).find((b) => b.type === 'actions').elements[0].value as string
+    }
+    const press = (channel: string, value: string, tag: string) => fake.action({ type: 'block_actions', api_app_id: 'A0APP', user: { id: 'U0ALICE', team_id: 'T0ACME' }, team: { id: 'T0ACME' },
+      container: { type: 'message', channel_id: channel, is_ephemeral: true }, actions: [{ action_id: 'trina_post', value, type: 'button' }], response_url: `${fake.url}/actions/${tag}` })
+    const v1 = await ask('C0LATER', 'Later shared.')
+    fake.sharedChannels.add('C0LATER')
+    press('C0LATER', v1, 'later')
+    await waitFor(() => fake.responses.some((r) => r.path === '/actions/later'))
+    expect(fake.responses.find((r) => r.path === '/actions/later')!.body.text).toContain('shared with another organization')
+    const v2 = await ask('C0UNKNOWN', 'Unknown channel.')
+    fake.unknownChannels.add('C0UNKNOWN')
+    press('C0UNKNOWN', v2, 'unknown')
+    await waitFor(() => fake.responses.some((r) => r.path === '/actions/unknown'))
+    expect(fake.responses.find((r) => r.path === '/actions/unknown')!.body.text).toContain('did not say whether')
+    expect(fake.of('chat.postMessage').filter((c) => c.args.channel === 'C0LATER' || c.args.channel === 'C0UNKNOWN')).toEqual([])
+  })
+
+  test('"Asked by" without a Slack name is "a teammate", never a mention', async () => {
+    mention('U0ALICE', say('Nameless answer.'), { channel: 'C0NONAME' })
+    const a = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => blocksOf(c).includes('Nameless answer.')), { timeoutMs: 30_000 })
+    const value = (JSON.parse(a!.args.blocks!) as any[]).find((b) => b.type === 'actions').elements[0].value as string
+    const name = (h.ctx.db.query("SELECT slack_name FROM slack_links WHERE user_id = 'alice'").get() as { slack_name: string }).slack_name
+    h.ctx.db.query("UPDATE slack_links SET slack_name = NULL WHERE user_id = 'alice'").run()
+    fake.action({ type: 'block_actions', api_app_id: 'A0APP', user: { id: 'U0ALICE', team_id: 'T0ACME' }, team: { id: 'T0ACME' },
+      container: { type: 'message', channel_id: 'C0NONAME', is_ephemeral: true }, actions: [{ action_id: 'trina_post', value, type: 'button' }], response_url: `${fake.url}/actions/noname` })
+    const post = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'C0NONAME'))
+    expect(blocksOf(post!)).toContain('Asked by a teammate')
+    expect(blocksOf(post!)).not.toContain('<@')
+    h.ctx.db.query("UPDATE slack_links SET slack_name = ? WHERE user_id = 'alice'").run(name)
+  })
+
+  test('Slack\'s Retry-After is kept per answer: not sent again before it', async () => {
+    const text = 'After the wait.'
+    mention('U0ALICE', `@fake ${JSON.stringify({ sleep: 600 })}\n${say(text)}`, { channel: 'C0RATE' })
+    await waitFor(() => ephemeralsTo('U0ALICE').some((c) => c.args.channel === 'C0RATE' && /Working/.test(c.args.text ?? '')))
+    fake.failNext['chat.postEphemeral'] = { status: 429, retryAfter: 40 }
+    const req = await waitFor(() => h.ctx.db.query("SELECT state, attempts, not_before FROM slack_requests WHERE channel_id = 'C0RATE' AND attempts > 0").get() as { state: string; attempts: number; not_before: string } | null, { timeoutMs: 30_000 })
+    expect(req!.state).toBe('waiting')
+    expect(Date.parse(req!.not_before) - Date.now()).toBeGreaterThan(35_000)
+    // the refused try is the only one so far
+    const tries = () => ephemeralsTo('U0ALICE').filter((c) => blocksOf(c).includes(text)).length
+    await Bun.sleep(300)
+    expect(tries()).toBe(1)
+    skew = 41_000
+    try { expect(await waitFor(() => tries() === 2, { timeoutMs: 10_000 })).toBe(true) } finally { skew = 0 }
+  })
+
+  test('a DM answer whose post timed out is not posted again when it reached Slack; an older answer with the same words does not count', async () => {
+    const ts = nextTs()
+    const dm = (text: string, thread?: string) => fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: `@fake ${JSON.stringify({ sleep: 600 })}\n${say(text)}`, ts: thread ? nextTs() : ts, channel: 'D0ALICE2', ...(thread ? { thread_ts: thread } : {}) })
+    const answers = () => fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0ALICE2' && blocksOf(c).includes('Same words.'))
+    dm('Same words.')
+    await waitFor(() => fake.of('chat.postMessage').some((c) => c.args.channel === 'D0ALICE2'))
+    // the answer's post reaches Slack, but the answer to it never comes back
+    fake.failNext['chat.postMessage'] = { hang: 1500 }
+    await waitFor(() => h.ctx.db.query("SELECT 1 FROM slack_requests WHERE channel_id = 'D0ALICE2' AND attempts > 0").get(), { timeoutMs: 30_000 })
+    skew = 16_000
+    await waitFor(() => (h.ctx.db.query("SELECT count(*) n FROM slack_requests WHERE channel_id = 'D0ALICE2' AND state = 'delivered'").get() as { n: number }).n === 1, { timeoutMs: 10_000 })
+    expect(answers().length).toBe(1)
+    expect(fake.of('conversations.replies').length).toBeGreaterThan(0)
+    // the same words again in the thread: this post is lost on the way, so it must be sent again
+    skew = 0
+    dm('Same words.', ts)
+    await waitFor(() => fake.of('chat.postMessage').filter((c) => c.args.channel === 'D0ALICE2').length >= 3)
+    fake.failNext['chat.postMessage'] = { hang: 1500, lost: true }
+    await waitFor(() => h.ctx.db.query("SELECT 1 FROM slack_requests WHERE channel_id = 'D0ALICE2' AND attempts > 0 AND state = 'waiting'").get(), { timeoutMs: 30_000 })
+    skew = 32_000
+    expect(await waitFor(() => answers().length === 2, { timeoutMs: 10_000 })).toBe(true)
+    skew = 0
+  })
+
   test('a follow-up in the thread continues the same chat', async () => {
     const n = slackTurns()
     mention('U0ALICE', say('And exchanges too.'), { thread: rootTs })
@@ -457,7 +612,7 @@ describe('asking', () => {
 
   test('an answer is not sent to a Slack account unlinked while it was being written', async () => {
     const n = fake.calls.length
-    mention('U0ALICE', `@fake ${JSON.stringify({ sleep: 1200 })} ${say('secret plans')}`)
+    mention('U0ALICE', `@fake ${JSON.stringify({ sleep: 1200 })}\n${say('secret plans')}`)
     const req = await waitFor(() => h.ctx.db.query("SELECT id FROM slack_requests WHERE state = 'waiting'").get() as { id: string } | null, { timeoutMs: 10_000 })
     const link = h.ctx.db.query("SELECT * FROM slack_links WHERE user_id = 'alice'").get() as Record<string, unknown>
     h.ctx.db.query("DELETE FROM slack_links WHERE user_id = 'alice'").run()
@@ -471,7 +626,7 @@ describe('asking', () => {
 
   test('no link when Slack cannot say who is asking', async () => {
     const before = linksTo('U0BOB').length
-    skew = 30 * 60_000
+    skew = linkClock + 30 * 60_000
     fake.failNext['users.info'] = { error: 'internal_error' }
     const n = ephemeralsTo('U0BOB').length
     mention('U0BOB', 'hi')
@@ -506,9 +661,7 @@ describe('secrets and accounts', () => {
 
   test('unlink from Settings; a disabled account is unlinked at once and gets a link prompt again', async () => {
     // erin links, then unlinks herself (past the "link sent a moment ago" wait of the test before)
-    skew = 2 * 60_000
     const et = await newLink('U0ERIN', 'hi again')
-    skew = 0
     expect((await call('erin', 'POST', '/api/slack/link/confirm', { token: et })).status).toBe(200)
     const off = await call('erin', 'DELETE', '/api/slack/me')
     expect(off.json.link).toBeNull()
@@ -519,9 +672,7 @@ describe('secrets and accounts', () => {
     expect(h.ctx.db.query("SELECT count(*) n FROM slack_threads WHERE user_id = 'alice'").get()).toEqual({ n: 0 })
     expect((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.unlinked' AND target = 'alice'").get() as { detail: string }).detail).toContain('account_disabled')
     const turns = (h.ctx.db.query("SELECT count(*) n FROM turns WHERE user_id = 'alice'").get() as { n: number }).n
-    skew = 10 * 60_000
     await newLink('U0ALICE', say('still me?'))
-    skew = 0
     expect((h.ctx.db.query("SELECT count(*) n FROM turns WHERE user_id = 'alice'").get() as { n: number }).n).toBe(turns)
     h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'alice'").run()
   })
