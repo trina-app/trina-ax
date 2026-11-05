@@ -58,7 +58,7 @@ func TestPTYIsTheProgramsTerminal(t *testing.T) {
 // fakeClaude writes a stand-in for `claude setup-token` named claude: it refuses to run without a terminal, draws the
 // address and the paste prompt like 2.1.305 (column jumps, hyperlink), reads a pasted code and prints a token for
 // good#state, else the 401 error and waits for Enter. mode "slow" never prints the prompt; "linger" stays after the
-// token; "ignore" ignores SIGTERM.
+// token; "ignore" ignores SIGTERM; "evil" shows another site's address.
 func fakeClaude(t *testing.T, mode string) string {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "claude")
@@ -70,6 +70,10 @@ func fakeClaude(t *testing.T, mode string) string {
 	if mode == "slow" {
 		prompt = "sleep 60"
 	}
+	addr := fakeAuthorize
+	if mode == "evil" {
+		addr = strings.Replace(fakeAuthorize, "claude.com", "claude.evil.example", 1)
+	}
 	after := "sleep 0.2; exit 0"
 	if mode == "linger" {
 		after = "sleep 60"
@@ -79,7 +83,7 @@ func fakeClaude(t *testing.T, mode string) string {
 [ -t 0 ] && [ -t 1 ] || { echo "fake claude: needs a terminal" >&2; exit 3; }
 [ "$BROWSER" = "true" ] || { echo "fake claude: would open a browser" >&2; exit 4; }
 stty -echo
-U='` + fakeAuthorize + `'
+U='` + addr + `'
 printf '\033[?2004h\033[38;5;174mWelcome\033[9Gto\033[12GClaude\033[19GCode\033[39m\r\n\r\n'
 printf '\033]8;id=1;%s\007\033[38;5;246m%s\033[39m\033]8;;\007\r\n\r\n' "$U" "$U"
 ` + prompt + `
@@ -279,6 +283,20 @@ func TestClaudeLoginCancelAndTimeout(t *testing.T) {
 		t.Fatalf("events %v", all)
 	}
 	<-s2.done
+	folderGone(t)
+}
+
+func TestClaudeLoginOnlyAnthropicsAddress(t *testing.T) {
+	s := startSignIn(t, fakeClaude(t, "evil"), "login-evil-000000001", 0)
+	s.next("started")
+	all := s.rest()
+	if evOf(all, "claude_url") != nil {
+		t.Fatalf("another site's address was passed on: %v", all)
+	}
+	if f := evOf(all, "claude_failed"); f == nil || f["reason"] != "unexpected_url" {
+		t.Fatalf("events %v", all)
+	}
+	<-s.done
 	folderGone(t)
 }
 

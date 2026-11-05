@@ -269,6 +269,7 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 		werr               error
 		enter, grace       <-chan time.Time
 		killHard, giveUp   <-chan time.Time
+		noURL              <-chan time.Time
 		deadline           = time.After(timeout)
 		stopChan, codeChan = ctl.stop, ctl.codes
 	)
@@ -286,8 +287,12 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 		text := strings.Join(lines, "\n")
 		if urlSent == "" && !codeSent && strings.Contains(text, "Paste code here") {
 			if u := claudeAuthorizeURL(scr.links, lines); u != "" {
-				urlSent = u
+				urlSent, noURL = u, nil
 				o.send(map[string]any{"ev": "claude_url", "url": u})
+			} else if noURL == nil && !stopping {
+				// the prompt without Anthropic's address (a changed CLI, another page): a moment for the rest of the
+				// screen, then the sign-in ends; another address is never shown to the person
+				noURL = time.After(2 * time.Second)
 			}
 		}
 		if codeSent && res.token == "" && failed == "" {
@@ -344,6 +349,13 @@ func runClaudeLogin(cmd *exec.Cmd, pt *ptyPair, te *turnEnv, o *out, ctl claudeC
 			giveUp = time.After(2 * time.Second)    // the rest of the screen (the token may be in it), then go on
 		case <-giveUp:
 			chunks = nil
+		case <-noURL:
+			noURL = nil
+			if urlSent == "" && failed == "" {
+				failed = "unexpected_url"
+				o.send(map[string]any{"ev": "claude_failed", "reason": failed})
+				stop("failed")
+			}
 		}
 	}
 	res.sig = te.finish(res.sig)
