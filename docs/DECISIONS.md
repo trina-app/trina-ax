@@ -8085,3 +8085,83 @@ the "3 proposals" step and the bar after sharing. Placement: Team AX core (skill
   the escaped material; the false positives; reading queues nothing, the rewrite on start, a failed draft not reused),
   `a-skill-maker` (trash and back, a new file of the same name, an older pack install, the mark), `welcome.test.tsx`
   (the rewrite asked by starting again, 다시 정리하기, a refusal's reason without it).
+
+## N — The first result is the company's card news (feat/onboarding-cardnews, 2026-11-05)
+
+The owner uploaded a 36-page company intro at the files step; the chat was titled "회의록 할 일 정리", ran the meeting
+tasks skill and answered "회의록이 아니라서 핵심만 정리했어요" with a dry list ("회의록이던 다른 거를 남기라고 해놓고 이게
+뭐야"). The first result must impress any company: five square promo cards of the company, made from its own intro
+or website, its own pictures and colours ("퀄리티 개 좋아야 해"). Placement: Team AX core (onboarding, files, skills,
+chat tools); the hosting side only hands over the image key.
+
+- **Step 1 also collects the brand** (`onboarding/brand-assets.ts`). The draft AI still only reads pages; web_fetch
+  keeps the markup of each page it opened in a draft turn (`keepHtml`, never shown to the AI), and the draft's page log
+  hands it to a collector in the background: the logo (JSON-LD or itemprop logo, an `<img>` named or labelled logo, an
+  apple-touch-icon as the last resort), the pictures the page shows (og:image / twitter:image, `<img>` with srcset or
+  lazy-load attributes, inline background images), and colours (theme-color, brand-named custom properties of the
+  page's style blocks and of at most two style sheets of the same scope, the logo's dominant colours, saturated colours
+  used often). Only addresses the page itself embeds are fetched, never one the AI wrote, with web_fetch's network
+  rules (public addresses, this server's exit address refused, pinned connection, every redirect hop checked, ports 80
+  and 443). **Deviation from "same site", on purpose:** a picture may sit on another host, since site builders keep
+  them on CDNs (imweb, Naver, Wix, Shopify: with the scope rule an imweb site gave no picture); a page link (`<a>`) is
+  never followed for pictures and style sheets stay on the scope. What is kept is decided by the bytes: PNG, JPEG or
+  WebP whose header gives a size (no SVG, so no script; no GIF), at most 6 MB, content pictures at least 300 px on the
+  short side and not a strip, logos at least 64 px; the same bytes once; at most 8 per draft and 24 tries; pictures
+  over 2,000 px or 1.5 MB become a 1,600 px JPEG (isolated ffmpeg). They wait in `<data>/onboarding-assets/<chat>/`
+  (rows in `onboarding_brand_assets`, migration 233, with each read page's text cut to 4,000 characters) until the
+  first result places them. The reading log says "로고와 이미지 n개 가져옴" (`ProfileDraftState.assets`).
+- **Colours on the profile**: `CompanyProfileInput.colors` (optional, at most 5 `#rrggbb`); the review shows them as
+  swatches the person can remove (no picker), Admin › Team settings shows them, the facts block says "Brand colours
+  (main first): …". The AI's JSON never sets them (dropped in `parseDraftAnswer`). Ranking: a colour group is as strong
+  as its strongest hit (theme-color 120, the logo 150, one to three brand-named variables 90, a palette of more 20,
+  colours the CSS repeats at most 30) and only groups of 30 or more count; white and greys never, a near-black only
+  from a strong source (a black-and-white brand keeps its black). First found on a real site: summing every hit made a
+  design system's red the brand colour of a purple brand, and an imweb theme's cyan that of a black one.
+- **Step 2** (`pages/Welcome.tsx`): "회사 소개서나 팀 소개 자료가 있으면 놓아 주세요 / 없으면 홈페이지에서 찾은 내용으로
+  만들게요", one [파일 고르기], the line about who sees the files, one link "자료 없이 만들게요". Files go into the team's
+  brand folder (`groups/<team>/브랜드/`, `TeamGroupRef.brandFolder`, made by the team's start). Then `POST
+  /api/onboarding/welcome/first-result` (owner; `onboarding/welcome-result.ts`): the team's start when missing,
+  "/card-news" (installed alone once for a row whose general pack was recorded before the skill: `general.cardNewsPath`),
+  the staged pictures into `브랜드/이미지/` as the owner's saves (each once), and without files `회사 소개.md` in the
+  brand folder: the confirmed profile and the text of the pages the server opened, each part under its source, no AI
+  and nothing invented; one already there is kept (someone may have edited it); neither profile nor pages: 409 with a
+  plain message. It makes the chat, titled "우리 회사 홍보 카드뉴스" (`title_source` user: the AI does not rename it)
+  and listed in `onboarding_result_chats`; the page attaches the files and sends "/card-news 우리 회사 홍보 카드뉴스 5장
+  만들어 줘" like any message. Removed from this step: the meeting tasks run, the ad copy alternative and `finish`.
+- **The skill** (`resources/skill-packs/general/{ko,en}/card-news`, title 카드뉴스 / Card news, form 주제 · 어디에
+  올릴까요 · 자료 파일): read all the material; look at every picture; five cards with fixed roles (cover with the
+  strongest line, the problem, what we do, one number written in the material, the next step with the logo), one
+  message each, headline and body two lines each with counted characters per line and chosen `<br>`; a fixed HTML
+  template of five layouts (photo-top, panel-top, split, number / fact, cta) in container units, `word-break:
+  keep-all`, text and page numbers only on solid panels, `object-position` chosen per photo, team pictures by path.
+  The rules came from the gate runs: no counted or rounded numbers (a run counted four shops from a list), the cover
+  shows the company's own product or place (a run put a customer's product on it), case portraits only on the case
+  card, no number twice, no full stop in a headline, a panel as tall as its text (the fixed 47% cramped four lines).
+  One `artifact` (the preview inlines team pictures, `lib/frame-files.ts`). **No PDF or PNG**: make_file turns
+  Markdown into documents (pandoc, typst) and cannot render this HTML; the artifact panel's download gives the HTML.
+- **Brand photos with Higgsfield, only here** (`onboarding/brand-image.ts`, tool `brand_image`): when fewer than three
+  usable pictures exist. Offered only in a chat of `onboarding_result_chats`, only to its owner, only with the key and
+  while the team has photos left: 4 per team for its whole life (rows not failed; the row is written in the same
+  synchronous step as the count, so two calls cannot both take the last; a failed job gives it back). Never for
+  sub-agents. The server adds "no people, faces, hands, text, numbers, logos, signs" to every prompt; nothing from the
+  team's files is sent. No confirm card (unlike generate_video, whose credits are the team's): the photos are Trina's
+  and capped, and a card would stop the first result. The result comes over https through the hardened download, is
+  made a 1,600 px JPEG and saved with `placeProduced` in the brand images folder. On the team-content list (S: the
+  photo is a team file the server made from the AI's words). **Model: `z_image` (Z Image), 0.15 credits a picture**:
+  in one test prompt Soul 2.0 (0.12) wrote words on a laptop screen and Soul Location (0.12) put a person in; Z Image
+  kept to the rules and looked as good as Seedream 5.0 Flash and Kling O1 (0.5 each).
+- **The API and the key.** Higgsfield's developer API that its CLI uses: `https://fnf-api-gw.higgsfield.ai/fnf`,
+  `POST /developer/v2alpha/images/<job type>/generations {params}` → `{id}`, `GET /developer/v2alpha/jobs/<id>` →
+  `status`, `result_url`; `Authorization: Bearer <access token>` and `hf-workspace-id`. A hosted team gets the key from
+  the hosting service like the speech key: tenant command `hosted-image-key-set` (`{ token, workspace }` or `{ token:
+  null }`; mycel-ctl → `admin.js hosted-image-key`), kept encrypted with the credentials vault
+  (`onboarding.hostedImageKey`), never in a response, log or audit row, dropped at start on a server that is not
+  hosted, left out of the team's export, kept across a restore, rekeyed with the vault. A development or own server
+  reads `<data>/secrets/higgsfield-onboarding.key` (`{"token","workspace"}`, 0600); the hosting key comes first.
+  **Handoff to the hosting console**: hold Trina's Higgsfield credential, send `hosted-image-key-set` to each hosted
+  team and `{ token: null }` to take it away. The token is an OAuth access token that expires within a day: the
+  console must refresh it and push the new one before it does; ask Higgsfield for a long-lived developer key limited
+  to image models with a spend limit.
+- **After the result**: S's bar now reads "마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요"
+  [팀 스킬로 저장]. The skill draft's instructions say that work made from the company's own material asks the topic
+  and the channel and names the brand images folder (the folder of several pictures, not each picture).

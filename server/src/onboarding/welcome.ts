@@ -17,7 +17,7 @@
 // in it, made once with the owner in it. Both are recorded in the row, so the steps never make them again by themselves.
 import { z } from 'zod'
 import {
-  GENERAL_BRIEF_SKILL, GENERAL_TASKS_SKILL, NOTES_FOLDER, TeamGroupRef, TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
+  BRAND_IMAGES_FOLDER, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_TASKS_SKILL, NOTES_FOLDER, PACK_FOLDERS, TeamGroupRef, TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
   type Locale, type WelcomePackResult, type WelcomeTeamResult, type WelcomeUpdate,
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -34,7 +34,7 @@ export const WELCOME_SETTING = 'onboarding.welcome'
 type Raw = Record<string, unknown>
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v)
 const PackShape = WelcomeProgress.shape.pack.unwrap()
-const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable() })
+const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable(), cardNewsPath: z.string().nullable().optional() })
 
 /** The stored row: none, an object, or something that is not an object (`raw` null with `row` true). */
 function stored(ctx: Pick<AppContext, 'db'>): { row: boolean; raw: Raw | null } {
@@ -196,6 +196,17 @@ function ensureNotesFolder(ctx: AppContext, userId: string, rel: string): void {
   if (!r.exists) componentC(ctx).files.mkdir(userId, rel)
 }
 
+/** The brand folder inside the team folder (groups/<team>/브랜드, localized) and its images folder, made when missing:
+ * the company intro, 회사 소개.md and the pictures of the first result go there (docs/DECISIONS.md "N"). */
+export function brandFoldersOf(ctx: AppContext, userId: string, folder: string): { brandFolder: string; imagesFolder: string } {
+  const locale = teamDefaultLocale(ctx.db)
+  const brandFolder = `${folder}/${PACK_FOLDERS.brand[locale]}`
+  const imagesFolder = `${brandFolder}/${BRAND_IMAGES_FOLDER[locale]}`
+  ensureNotesFolder(ctx, userId, brandFolder)
+  ensureNotesFolder(ctx, userId, imagesFolder)
+  return { brandFolder, imagesFolder }
+}
+
 /** The team's own group: the one these steps recorded while it is there, else a new one named after the team with the
  * owner in it. A group these steps did not make is never taken over, even with the team's name (an admin's group may
  * carry rules on other folders that the team link would hand to everyone who joins): a name already taken gets a
@@ -208,7 +219,7 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
     if (folder && name) {
       const notesFolder = recorded.folder === folder ? recorded.notesFolder : `${folder}/${notes}`
       ensureNotesFolder(ctx, userId, notesFolder)
-      return { id: recorded.id, name, folder, notesFolder }
+      return { id: recorded.id, name, folder, notesFolder, brandFolder: brandFoldersOf(ctx, userId, folder).brandFolder }
     }
   }
   const team = getTeamSettings(ctx.db).teamName.trim().slice(0, 100) || 'Team'
@@ -219,7 +230,7 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
   if (!folder) return fail('internal')
   const notesFolder = `${folder}/${notes}`
   ensureNotesFolder(ctx, userId, notesFolder)
-  return { id: g.id, name: g.name, folder, notesFolder }
+  return { id: g.id, name: g.name, folder, notesFolder, brandFolder: brandFoldersOf(ctx, userId, folder).brandFolder }
 }
 
 /**
@@ -247,13 +258,13 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
     // deleted there on purpose is not brought back)
     const tried = typeof raw.generalBlockedAt === 'string'
     if (!tried && skills.some((s) => s.path.startsWith('skills/general/'))) {
-      if (tasks) raw.general = { at: now, tasksPath: tasks, briefPath: generalPath(skills, GENERAL_BRIEF_SKILL, 'doc-brief') }
+      if (tasks) raw.general = { at: now, tasksPath: tasks, briefPath: generalPath(skills, GENERAL_BRIEF_SKILL, 'doc-brief'), ...(generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news') ? { cardNewsPath: generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news') } : {}) }
       else outcome = 'blocked'
     } else {
       install = installSkillPack(ctx, userId, 'general')
       const tasksPath = placed(install, GENERAL_TASKS_SKILL)
       if (tasksPath) {
-        raw.general = { at: now, tasksPath, briefPath: placed(install, GENERAL_BRIEF_SKILL) }
+        raw.general = { at: now, tasksPath, briefPath: placed(install, GENERAL_BRIEF_SKILL), cardNewsPath: placed(install, GENERAL_CARDNEWS_SKILL) }
         delete raw.generalBlockedAt
         outcome = 'installed'
       } else {
@@ -265,4 +276,21 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
   }
   raw.teamGroup = teamGroupFor(ctx, userId, p.teamGroup ?? null, locale)
   return { progress: save(ctx, raw, now), install, outcome }
+}
+
+/** "/card-news" for the first result (docs/DECISIONS.md "N"): the recorded path, or once, for a row whose general pack
+ * was recorded before the skill existed, the skill installed on its own and recorded (null when blocked). `install`
+ * runs only then. */
+export function cardNewsSkill(ctx: AppContext, userId: string, install: () => { path: string; status: string; sameNameAs?: string }): string | null {
+  const now = new Date().toISOString()
+  const raw = forWrite(ctx, now)
+  const general = isObj(raw.general) ? raw.general : null
+  if (!general) return null
+  if (typeof general.cardNewsPath === 'string') return general.cardNewsPath
+  if (general.cardNewsPath === null) return null
+  const r = install()
+  const path = r.status === 'blocked' ? (r.sameNameAs ?? null) : r.path
+  raw.general = { ...general, cardNewsPath: path }
+  save(ctx, raw, now)
+  return path
 }

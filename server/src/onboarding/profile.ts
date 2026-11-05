@@ -35,6 +35,19 @@ export function cleanTone(v: unknown): string[] {
   return out
 }
 
+/** Brand colours: "#rrggbb" (lower case; "#abc" widened), no repeats, at most PROFILE_LIMITS.colors. */
+export function cleanColors(v: unknown): string[] {
+  const out: string[] = []
+  for (const c of Array.isArray(v) ? v : []) {
+    if (typeof c !== 'string') continue
+    let s = c.trim().toLowerCase()
+    if (/^#[0-9a-f]{3}$/.test(s)) s = '#' + s.slice(1).split('').map((x) => x + x).join('')
+    if (/^#[0-9a-f]{6}$/.test(s) && !out.includes(s)) out.push(s)
+    if (out.length >= PROFILE_LIMITS.colors) break
+  }
+  return out
+}
+
 const isField = (f: unknown): f is ProfileField => typeof f === 'string' && (PROFILE_FIELDS as readonly string[]).includes(f)
 
 /**
@@ -55,6 +68,7 @@ export function cleanProfile(raw: unknown, sourceOk: (url: string) => boolean = 
     tone: cleanTone(r.tone),
     avoid: cleanText(r.avoid, PROFILE_LIMITS.avoid),
     sources: [],
+    ...(() => { const c = cleanColors(r.colors); return c.length ? { colors: c } : {} })(),
   }
   const seen = new Set<string>()
   for (const s of Array.isArray(r.sources) ? r.sources : []) {
@@ -72,7 +86,7 @@ export function cleanProfile(raw: unknown, sourceOk: (url: string) => boolean = 
 
 const filled = (p: CompanyProfileInput, f: ProfileField) => (f === 'tone' ? p.tone.length > 0 : (p[f] ?? '').length > 0)
 /** Nothing worth giving the AI (or keeping as a draft). */
-export const profileEmpty = (p: CompanyProfileInput) => !p.website && PROFILE_FIELDS.every((f) => !filled(p, f))
+export const profileEmpty = (p: CompanyProfileInput) => !p.website && PROFILE_FIELDS.every((f) => !filled(p, f)) && !p.colors?.length
 
 /** The facts as the AI reads them: fixed English labels, one line per field (line breaks inside a field become
  * " · "), empty fields left out, at most `max` characters in all (lines that do not fit are left out). The company
@@ -88,6 +102,7 @@ export function profileFactLines(p: CompanyProfileInput, max = PROFILE_BLOCK_MAX
     p.audience ? `Customers: ${one(p.audience)}` : '',
     p.tone.length ? `Tone of voice: ${p.tone.join(', ')}` : '',
     p.avoid ? `Expressions to avoid: ${one(p.avoid)}` : '',
+    p.colors?.length ? `Brand colours (main first): ${p.colors.join(', ')}` : '',
   ].filter(Boolean)
   const out: string[] = []
   let used = 0

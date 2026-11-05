@@ -23,6 +23,7 @@ import { exitAddressCheckOff, startEgressLearning } from './tools/egress'
 import { isHosted } from './system/deployment'
 import { dropHostedSpeechKey } from './credentials/speech-key'
 import { dropHostedChatKey } from './credentials/hosted-chat'
+import { dropHostedImageKey } from './credentials/hosted-image'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -82,6 +83,8 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   if (!isHosted(cfg) && dropHostedSpeechKey(db)) log.info('removed the hosting service\'s speech-to-text key: this server is not hosted')
   // the same for its trial AI credit
   if (!isHosted(cfg) && dropHostedChatKey(db)) log.info('removed the hosting service\'s trial AI key: this server is not hosted')
+  // and its Higgsfield credential for the welcome steps' brand photos
+  if (!isHosted(cfg) && dropHostedImageKey(db)) log.info('removed the hosting service\'s image key: this server is not hosted')
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
   guardOfficeClaudeJson(ctx, 'start') // office: no MCP servers in the Mac user's ~/.claude.json (an engine may write it)

@@ -39,6 +39,7 @@ import { ToolError } from '../policy/errors'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
 import type { EchoCheck } from './connection-urls'
+import type { ResolveOptions } from './web-fetch'
 
 /** ③: a query string this long always needs a person, wherever the URL came from */
 export const MAX_UNCONFIRMED_QUERY = 200
@@ -131,11 +132,13 @@ export interface TurnPerson {
 export type WebPageFailure = 'not_linked' | 'off_site' | 'unreachable'
 /** One web_fetch call as the server saw it: started with the address asked for, then ok or failed once. */
 export interface WebPageEntry {
-  ok(r: { url: string; title?: string; chars: number }): void
+  /** `text` / `html`: what was read (the markup when the log asked for it, `wantsHtml`); `fetch`: the network rules the
+   * call used, for anything the log fetches from the page itself (its pictures, onboarding/brand-assets.ts) */
+  ok(r: { url: string; title?: string; chars: number; text?: string; html?: string; fetch?: ResolveOptions & { insecureTlsForTests?: boolean } }): void
   /** `hop`: the redirect address that was refused (off_site) */
   failed(why: WebPageFailure, hop?: string): void
 }
-export interface WebPageLog { start(url: string): WebPageEntry }
+export interface WebPageLog { start(url: string): WebPageEntry; /** web_fetch keeps the page's markup for ok() */ wantsHtml?: boolean }
 
 /** Addresses written out in what the person typed in this chat (user messages the server did not send for them). A
  * scheduled turn's message counts as sent for them also without the mark: an older build run on this database (a

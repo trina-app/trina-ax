@@ -9,6 +9,9 @@
 //   hosted-speech-key < { key | null }   the hosting service's speech-to-text key, kept encrypted: { ok, set }
 //   hosted-chat-key < { key, capUsd, endsAt, enabled } | { key: null }
 //                                        the hosting service's trial AI credit, key kept encrypted: { ok, set, usedUsd }
+//   hosted-image-key < { token, workspace } | { token: null }
+//                                        the hosting service's Higgsfield credential (brand photos), kept encrypted:
+//                                        { ok, set }
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -21,11 +24,12 @@ import type { BackupMeta } from './backup'
 import { lastUploadedLocalId } from './cloud-admin'
 import { seatsUsed } from './limits'
 import { ageArmorTo } from './streams'
-import { HostedChatKeyInput, HostedSpeechKeyInput } from '@mycel/shared/cloud-protocol'
+import { HostedChatKeyInput, HostedImageKeyInput, HostedSpeechKeyInput } from '@mycel/shared/cloud-protocol'
 import { isHosted } from './deployment'
 import { makeCredCtx } from '../credentials/store'
 import { writeHostedSpeechKey } from '../credentials/speech-key'
 import { writeHostedChatKey } from '../credentials/hosted-chat'
+import { writeHostedImageKey } from '../credentials/hosted-image'
 import { audit } from '../admin/audit'
 import type { Logger } from '../log'
 import { tenantOnboarding } from '../onboarding/tenant-status'
@@ -134,4 +138,21 @@ export function setHostedChatKey(o: { db: Database; secretsDir: string; config: 
   const r = writeHostedChatKey(cc, grant)
   audit(o.db, { actor: null, action: 'ai.hosted_trial_key', target: null, detail: grant ? { key: 'set', capUsd: grant.capUsd, endsAt: grant.endsAt, enabled: grant.enabled } : { key: 'removed' } })
   return { ok: true, ...r }
+}
+
+/**
+ * hosted-image-key: the Higgsfield credential the hosting service gives this team for the welcome steps' brand photos
+ * (credentials/hosted-image.ts): a developer API access token and its workspace id, or { token: null } to take it
+ * away. Hosted servers only. The token comes on stdin (never in argv), is stored encrypted with the credentials vault
+ * and is in no output, error or audit row: the audit says "set" or "removed". The next photo request reads it (no
+ * restart).
+ */
+export function setHostedImageKey(o: { db: Database; secretsDir: string; config: AppConfig; log: Pick<Logger, 'info' | 'warn' | 'error'> }, input: unknown): { ok: true; set: boolean } {
+  if (!isHosted(o.config)) throw new CloudTenantError('hosted-image-key is for hosted servers only (server.json deployment "hosted")')
+  const p = HostedImageKeyInput.safeParse(input)
+  if (!p.success) throw new CloudTenantError('stdin must be { token: a Higgsfield access token, workspace: its workspace id } or { token: null }')
+  const cc = makeCredCtx({ db: o.db, secretsDir: o.secretsDir, config: o.config, log: o.log })
+  const set = writeHostedImageKey(cc, p.data.token === null ? null : p.data as Extract<HostedImageKeyInput, { workspace: string }>)
+  audit(o.db, { actor: null, action: 'onboarding.hosted_image_key', target: null, detail: { key: set ? 'set' : 'removed' } })
+  return { ok: true, set }
 }

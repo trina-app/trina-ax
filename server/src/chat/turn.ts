@@ -70,7 +70,8 @@ import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
 import type { QueueTiming } from './fair-queue'
 import { RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
-import { DraftPages, draftScopeOf, draftSystemPrompt, type DraftTurn } from '../onboarding/draft'
+import { DraftPages, draftScopeOf, draftSystemPrompt, inWebScope, type DraftTurn } from '../onboarding/draft'
+import { BrandCollector } from '../onboarding/brand-assets'
 import { skillDraftOf, skillDraftSystemPrompt, type SkillDraftScope } from '../onboarding/skill-draft'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
@@ -298,7 +299,10 @@ export class TurnExec {
     try {
       const draft = draftScopeOf(rt.db, spec.chatId)
       // the pages it opens or is refused are written down as they happen: the profile screen shows them line by line
-      this.profileDraft = draft ? { scope: draft, fetched: new Set(), pages: new DraftPages(rt.db, spec.assistantId, rt.log, () => this.content.length) } : null
+      // and a website's pages are also looked at for the brand's pictures, colours and text (docs/DECISIONS.md "N")
+      const web = draft?.web ?? null
+      const brand = web ? new BrandCollector(rt.db, spec.chatId, { dataDir: rt.ctx.engineConfig.dataDir, log: rt.log, inScope: (u) => inWebScope(web, u) }) : null
+      this.profileDraft = draft ? { scope: draft, fetched: new Set(), pages: new DraftPages(rt.db, spec.assistantId, rt.log, () => this.content.length, brand) } : null
       // a team skill draft chat runs with no tool at all (fails closed the same way)
       this.skillDraft = draft ? null : skillDraftOf(rt.db, spec.chatId)
     } catch (e) { rt.log.error('profile draft check failed', { err: e, turn: this.id }); this.error = engineError('crash', spec.locale); return }

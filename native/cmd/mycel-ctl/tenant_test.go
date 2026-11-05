@@ -286,6 +286,55 @@ func TestTenantHostedSpeechKeySet(t *testing.T) {
 	}
 }
 
+func TestTenantHostedImageKeySet(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{adminOut: map[string]string{"hosted-image-key": `{"ok":true,"set":true}`}}
+	f.install(t)
+	token := "hf-abc.DEF_ghi~jkl+mno/pqr=" + strings.Repeat("x", 20)
+	ws := "0a1b2c3d-4e5f-6789-abcd-ef0123456789"
+	good := `{"token":"` + token + `","workspace":"` + ws + `"}`
+	code, out, errs := tb.tctl(good, "hosted-image-key-set", "--json")
+	if code != 0 || len(f.adminCalls) != 1 || strings.Join(f.adminCalls[0], " ") != "hosted-image-key" {
+		t.Fatalf("%d %q %s %v", code, out, errs, f.adminCalls)
+	}
+	// the token goes on admin.js's stdin only: never in its argv, the answer or stderr
+	if f.adminStdin[0] != good || strings.Contains(out, token) || strings.Contains(errs, token) {
+		t.Fatalf("token handling: stdin %q out %q err %q", f.adminStdin[0], out, errs)
+	}
+	if m := jsonOf(t, out); m["ok"] != true || m["set"] != true || f.restarts != 0 {
+		t.Fatalf("answer %q, %d restarts", out, f.restarts)
+	}
+	// null takes it away
+	f.adminOut["hosted-image-key"] = `{"ok":true,"set":false}`
+	if code, out, _ := tb.tctl(`{"token":null}`, "hosted-image-key-set", "--json"); code != 0 || jsonOf(t, out)["set"] != false || f.adminStdin[1] != `{"token":null}` {
+		t.Fatalf("null: %d %q %v", code, out, f.adminStdin)
+	}
+	// refused before admin.js runs
+	f.adminCalls = nil
+	for _, bad := range []string{
+		``, `{}`, `[1]`, `{"token":null,"workspace":"` + ws + `"}`,
+		`{"token":"` + token + `"}`,
+		`{"token":"short","workspace":"` + ws + `"}`,
+		`{"token":"` + token + `","workspace":"nope"}`,
+		`{"token":"` + token + `","workspace":null}`,
+		`{"token":"` + token + `","workspace":"` + ws + `","x":1}`,
+		`{"token":1,"workspace":"` + ws + `"}`,
+		`{"token":"` + token + ` ; rm -rf /","workspace":"` + ws + `"}`,
+	} {
+		if code, out, errs := tb.tctl(bad, "hosted-image-key-set", "--json"); code == 0 || out != "" || strings.Contains(errs, token) {
+			t.Fatalf("accepted %q: %d %q %s", bad, code, out, errs)
+		}
+	}
+	if len(f.adminCalls) != 0 {
+		t.Fatalf("admin.js ran for refused stdin: %v", f.adminCalls)
+	}
+	// an admin.js answer without set is not passed on
+	f.adminOut["hosted-image-key"] = `{"ok":true}`
+	if code, out, _ := tb.tctl(`{"token":null}`, "hosted-image-key-set", "--json"); code == 0 || out != "" {
+		t.Fatalf("an answer without set got through: %d %q", code, out)
+	}
+}
+
 func TestTenantHostedChatKeySet(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	f := &fakeTenant{adminOut: map[string]string{"hosted-chat-key": `{"ok":true,"set":true,"usedUsd":1.25}`}}

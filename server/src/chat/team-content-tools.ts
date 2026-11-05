@@ -22,6 +22,9 @@ export function teamContentTools(): ReadonlySet<string> {
   'skill', 'find_skills', 'remember', 'forget', 'ask_user', 'connect_service', 'set_title', 'search',
   // a sub-task: its own steps are checked one by one
   'agent', 'Agent', 'Task',
+  // the welcome steps' brand photo (onboarding/brand-image.ts): a team file the server made from the AI's own words;
+  // nothing comes back from outside but the picture, saved in the team's brand folder
+  'brand_image',
   // steps the server writes itself
   'engine', 'attachment', 'refusal', DEMO_REPLAY_TOOL,
 ]))

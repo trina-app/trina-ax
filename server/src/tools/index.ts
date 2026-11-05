@@ -202,12 +202,12 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
           if (no) { why = 'off_site'; hop = next; throw new ToolError(`the page redirected outside what this chat may open: ${no}`) }
           await redirects.check(next)
         } : redirects.check
-        const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect })
+        const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect, ...(t.person?.pages?.wantsHtml ? { keepHtml: true } : {}) })
         ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
         // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result"),
         // within the link budget, unless one carries what the AI sent before (an echo: always a card)
         if (chatId) rememberUrls(ctx.db, chatId, [r.url, ...extractUrls(r.text)], 'fetched', webEcho(ctx.db, chatId, [a.url, r.url]))
-        page?.ok({ url: r.url, ...(r.title ? { title: r.title } : {}), chars: r.text.trim().length })
+        page?.ok({ url: r.url, ...(r.title ? { title: r.title } : {}), chars: r.text.trim().length, text: r.text, ...(r.html !== undefined ? { html: r.html } : {}), fetch: { ...o.fetch, blockedIps } })
         return { text: wrapExternal(r), summary: `web_fetch ${a.url} -> ${r.text.length} chars${r.truncated ? ' (cut)' : ''}${how === 'confirmed' ? ' (confirmed by the user)' : how === 'site' ? ' (site allowed in this chat)' : ''}${redirects.confirmed() ? ' (redirect confirmed by the user)' : ''}`.slice(0, 1000), structured: { url: r.url, ...(r.title ? { title: r.title } : {}), text: r.text, truncated: r.truncated } }
       } catch (e) {
         page?.failed(why, hop)

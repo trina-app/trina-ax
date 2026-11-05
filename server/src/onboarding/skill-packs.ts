@@ -41,6 +41,8 @@ import koMeetingTasks from '../../../resources/skill-packs/general/ko/meeting-ta
 import koDocBrief from '../../../resources/skill-packs/general/ko/doc-brief/SKILL.md' with { type: 'text' }
 import enMeetingTasks from '../../../resources/skill-packs/general/en/meeting-tasks/SKILL.md' with { type: 'text' }
 import enDocBrief from '../../../resources/skill-packs/general/en/doc-brief/SKILL.md' with { type: 'text' }
+import koCardNews from '../../../resources/skill-packs/general/ko/card-news/SKILL.md' with { type: 'text' }
+import enCardNews from '../../../resources/skill-packs/general/en/card-news/SKILL.md' with { type: 'text' }
 
 export interface SkillPack {
   /** skill name → its SKILL.md text, per language the pack is written in (English always) */
@@ -62,8 +64,8 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
   // team's files go into its own group folder (onboarding/welcome.ts setupWelcomeTeam)
   general: {
     skills: {
-      ko: { 'meeting-tasks': koMeetingTasks, 'doc-brief': koDocBrief },
-      en: { 'meeting-tasks': enMeetingTasks, 'doc-brief': enDocBrief },
+      ko: { 'meeting-tasks': koMeetingTasks, 'doc-brief': koDocBrief, 'card-news': koCardNews },
+      en: { 'meeting-tasks': enMeetingTasks, 'doc-brief': enDocBrief, 'card-news': enCardNews },
     },
     folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
   },
@@ -136,6 +138,20 @@ function placeFolder(ctx: AppContext, userId: string, rel: string): { path: stri
     if (refused(e)) return { path: rel, status: 'blocked' }
     throw e
   }
+}
+
+/** One skill of a pack, alone (the welcome steps' first result adds "카드뉴스" to a team whose general pack was recorded
+ * before the skill existed, once: docs/DECISIONS.md "N"). Like the pack install: never replaces a file, a team skill of
+ * the same name elsewhere blocks it, written as the person through the file layer. */
+export function installPackSkill(ctx: AppContext, userId: string, id: SkillPackId, name: string): { path: string; status: PackItemStatus; sameNameAs?: string } {
+  const pack = SKILL_PACKS[id]
+  const locale = packLocale(pack, teamDefaultLocale(ctx.db))
+  const text = pack.skills[locale]![name]
+  if (!text) throw new Error(`no skill ${name} in pack ${id}`)
+  const teamSkills = listTeamSkills(ctx.files, ctx.files.principal(userId)).map((s) => ({ path: s.path, name: s.name }))
+  const r = placeSkill(ctx, userId, `skills/${id}/${name}/SKILL.md`, name, text, teamSkills)
+  audit(ctx.db, { actor: userId, action: 'onboarding.pack_install', target: `skills/${id}/${name}`, detail: { pack: id, locale, skill: name, status: r.status } })
+  return r
 }
 
 /** Install pack `id` as `userId` (the route lets owners and admins only). Idempotent; never replaces a file. */

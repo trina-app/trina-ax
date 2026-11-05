@@ -27,7 +27,7 @@ import { diffManifest, toManifest, walkTree, type Manifest } from './manifest'
 import { readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { backupRetentionDays } from './limits'
-import { HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING } from '../admin/settings'
+import { HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, HOSTED_IMAGE_KEY_SETTING, HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING } from '../admin/settings'
 import { GRACE_KEY, GRACE_TOLD_KEY, planFreeBytes } from './storage'
 
 export const BACKUP_RETENTION_DAYS = 14
@@ -477,11 +477,12 @@ export function endSessions(file: string): void {
  * current ones (or that there are none), whatever the backup holds. The hosting service's speech-to-text key: an older
  * backup must not bring back a key the hosting service has replaced or taken away since. This month's count of its
  * free hours: restoring a backup must not give the month's hours back (credentials/hosted-speech.ts). The same for the
- * hosting service's trial AI credit and the dollars spent of it (credentials/hosted-chat.ts). The grace state
+ * hosting service's trial AI credit and the dollars spent of it (credentials/hosted-chat.ts), and for its Higgsfield
+ * credential for the welcome steps' brand photos (credentials/hosted-image.ts). The grace state
  * of the plan's storage limit: a restore must not give a new 7 days, and an old state must not cut a new period short
  * (system/storage.ts).
  */
-export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, GRACE_KEY, GRACE_TOLD_KEY] as const
+export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, HOSTED_IMAGE_KEY_SETTING, GRACE_KEY, GRACE_TOLD_KEY] as const
 const ownIn = SERVER_OWN_SETTINGS.map(() => '?').join(', ')
 
 /** Put the SERVER_OWN_SETTINGS rows of the database `live` (none when it is missing) into the copy `staged`. */
@@ -507,7 +508,7 @@ export function withoutHostingKey(file: string): void {
   const d = new Database(file)
   try {
     d.run('PRAGMA secure_delete = ON')
-    d.query('DELETE FROM settings WHERE key IN (?, ?)').run(HOSTED_SPEECH_KEY_SETTING, HOSTED_CHAT_KEY_SETTING)
+    d.query('DELETE FROM settings WHERE key IN (?, ?, ?)').run(HOSTED_SPEECH_KEY_SETTING, HOSTED_CHAT_KEY_SETTING, HOSTED_IMAGE_KEY_SETTING)
     d.run('PRAGMA wal_checkpoint(TRUNCATE)')
   } finally { d.close() }
 }

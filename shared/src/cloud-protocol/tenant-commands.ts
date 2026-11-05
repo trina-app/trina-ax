@@ -125,6 +125,21 @@ export const HostedChatKeyInput = z.union([
 ])
 export type HostedChatKeyInput = z.infer<typeof HostedChatKeyInput>
 
+/** A bearer access token (RFC 6750 b64token characters). It is only ever in hosted-image-key-set's stdin. */
+export const BearerToken = z.string().regex(/^[A-Za-z0-9._~+/=-]{16,4096}$/)
+/** a UUID in its 8-4-4-4-12 hex form (any version) */
+export const UuidString = z.string().regex(/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/)
+/** hosted-image-key-set's stdin: the Higgsfield credential the hosting service gives this team for the welcome steps'
+ * brand photos (at most 4 a team, image model z_image through Higgsfield's developer API): `token` the access token
+ * sent as `Authorization: Bearer`, `workspace` the Higgsfield workspace id sent as `hf-workspace-id`.
+ * `{ token: null }` takes it away. The token expires: send a new one before it does. The app keeps it encrypted with
+ * its credentials vault and never shows, logs or audits it. */
+export const HostedImageKeyInput = z.union([
+  z.strictObject({ token: BearerToken, workspace: UuidString }),
+  z.strictObject({ token: z.null() }),
+])
+export type HostedImageKeyInput = z.infer<typeof HostedImageKeyInput>
+
 export const BackupKindArg = z.enum(['daily', 'manual', 'pre-update', 'final'])
 
 /** backup-prepare's answer (admin.js cloud-backup prepare) */
@@ -205,6 +220,9 @@ export const TENANT_COMMANDS = {
   /** the hosting service's trial AI credit (HostedChatKeyInput); `set`: whether the server holds a key now, `usedUsd`:
    * what the team has spent of the credit so far (the app's count) */
   'hosted-chat-key-set': { args: NoArgs, stdin: HostedChatKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean(), usedUsd: z.number().nonnegative() }), timeoutSec: 30 },
+  /** the hosting service's Higgsfield credential for the welcome steps' brand photos (HostedImageKeyInput); `set`:
+   * whether the server holds one now */
+  'hosted-image-key-set': { args: NoArgs, stdin: HostedImageKeyInput, output: z.object({ ok: z.literal(true), set: z.boolean() }), timeoutSec: 30 },
   'setup-token-rotate': { args: NoArgs, stdin: null, output: z.object({ setupToken: z.string().regex(/^[A-Za-z0-9_-]{24,128}$/) }), timeoutSec: 120 },
   /** keyAge decrypts to the key file's line: "<base64 32 bytes>" for version 1, "credentials.key.<N> <base64>" for a
    * later version (after credentials-rekey). The control plane keeps it as is and hands it back in

@@ -82,6 +82,9 @@ export function buildVectors() {
         { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z', enabled: true } },
         { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: 12.5, endsAt: '2026-11-19T00:00:00+09:00', enabled: false } },
         { command: 'hosted-chat-key-set', args: {}, stdin: { key: null } },
+        // the hosting service's Higgsfield credential for the welcome steps' brand photos, and taking it away
+        { command: 'hosted-image-key-set', args: {}, stdin: { token: 'hf-test-vector.not-a-token_0123456789~+/=', workspace: '7b0e5c1a-3d2f-4a6b-9c8d-1e2f3a4b5c6d' } },
+        { command: 'hosted-image-key-set', args: {}, stdin: { token: null } },
       ],
       refused: [
         { command: 'sh', args: {}, stdin: null, why: 'not a command' },
@@ -102,6 +105,12 @@ export function buildVectors() {
         { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: -1, endsAt: '2026-11-18T15:00:00Z', enabled: true }, why: 'negative cap' },
         { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: 'next week', enabled: true }, why: 'not a time' },
         { command: 'hosted-chat-key-set', args: {}, stdin: { key: null, capUsd: 10 }, why: 'unknown field beside a null key' },
+        { command: 'hosted-image-key-set', args: {}, stdin: { token: 'short', workspace: '7b0e5c1a-3d2f-4a6b-9c8d-1e2f3a4b5c6d' }, why: 'token too short' },
+        { command: 'hosted-image-key-set', args: {}, stdin: { token: 'hf-test-vector not-a-token 0123456789', workspace: '7b0e5c1a-3d2f-4a6b-9c8d-1e2f3a4b5c6d' }, why: 'a space is not a token character' },
+        { command: 'hosted-image-key-set', args: {}, stdin: { token: 'hf-test-vector.not-a-token_0123456789', workspace: 'acme' }, why: 'workspace is not a UUID' },
+        { command: 'hosted-image-key-set', args: {}, stdin: { token: 'hf-test-vector.not-a-token_0123456789' }, why: 'workspace missing' },
+        { command: 'hosted-image-key-set', args: {}, stdin: { token: 'hf-test-vector.not-a-token_0123456789', workspace: '7b0e5c1a-3d2f-4a6b-9c8d-1e2f3a4b5c6d', model: 'z_image' }, why: 'unknown stdin field' },
+        { command: 'hosted-image-key-set', args: {}, stdin: { token: null, workspace: '7b0e5c1a-3d2f-4a6b-9c8d-1e2f3a4b5c6d' }, why: 'unknown field beside a null token' },
       ],
     },
     enroll: {

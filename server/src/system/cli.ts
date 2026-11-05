@@ -45,6 +45,9 @@
 //   hosted-speech-key < { key | null }           the hosting service's speech-to-text key (stdin only), JSON { ok, set }
 //   hosted-chat-key < { key, capUsd, endsAt, enabled } | { key: null }
 //                                                the hosting service's trial AI credit (stdin only), JSON { ok, set, usedUsd }
+//   hosted-image-key < { token, workspace } | { token: null }
+//                                                the hosting service's Higgsfield credential for brand photos (stdin
+//                                                only), JSON { ok, set }
 //
 // For the root update timer (`mycel-ctl update --scheduled`, native/cmd/mycel-ctl/schedule.go):
 //   update-window                                the team's update window and time zone, one JSON line
@@ -83,7 +86,7 @@ import { makeCredCtx } from '../credentials/store'
 import { DriveStore } from '../integrations/google-drive/store'
 import { rekeyDrive } from '../integrations/google-drive/rekey'
 import { rekeyCredentials } from '../credentials/rekey'
-import { cloudStatus, credentialsEscrowOut, resetLinkBase, setHostedChatKey, setHostedSpeechKey } from './cloud-tenant'
+import { cloudStatus, credentialsEscrowOut, resetLinkBase, setHostedChatKey, setHostedImageKey, setHostedSpeechKey } from './cloud-tenant'
 import { createResetLink } from '../auth/accounts'
 import { installAuth } from '../auth/service'
 
@@ -342,6 +345,12 @@ export async function main(argv: string[]): Promise<number> {
       try { out(setHostedChatKey({ db, secretsDir: layout.secretsDir, config: cfg, log }, input)) } finally { db.close() }
       return 0
     }
+    case 'hosted-image-key': {
+      const input = await stdinJson()
+      const db = openDb(dbFile)
+      try { out(setHostedImageKey({ db, secretsDir: layout.secretsDir, config: cfg, log }, input)) } finally { db.close() }
+      return 0
+    }
     // the root update timer's window (mycel-ctl update --scheduled): the same window and zone the app's own updater keeps
     case 'update-window': {
       // read only, no migration: root asks every 15 minutes, also right after a switch while the old server still runs
@@ -371,7 +380,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key|hosted-chat-key|update-window (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key|hosted-chat-key|hosted-image-key|update-window (see server/src/system/cli.ts)')
       return 2
   }
 }
