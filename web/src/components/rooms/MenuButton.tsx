@@ -111,7 +111,8 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
         <MoreHorizontal size={16} aria-hidden />
       </button>
       {/* phones: a sheet from the bottom with 48px rows over a scrim (a tap on it closes), not a small menu by the finger */}
-      {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => Date.now() - pressedAt.current > 400 && setOpen(null)} />}
+      {/* (a finger held on it must not reach the message's own long press, which would open the sheet again) */}
+      {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && setOpen(null)} />}
       {open && (
         <div
           ref={menu}

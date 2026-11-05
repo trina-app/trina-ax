@@ -315,6 +315,14 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
       setBusy(false)
     }
   }
+  // put away (deleted): only the lock line, nothing to post
+  if (m.deletedAt)
+    return (
+      <p className="mb-0.5 flex items-center gap-1 text-xs text-faint" data-testid="room-ai-private">
+        <Lock size={12} className="shrink-0" aria-hidden />
+        {t('rooms.aiPrivate')}
+      </p>
+    )
   return (
     <div className="mb-1 text-xs text-faint" role="note">
       <p className="flex flex-wrap items-center gap-x-1" data-testid="room-ai-private">

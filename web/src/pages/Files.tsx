@@ -1010,8 +1010,9 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
       data-drop={dropOk ? 'ok' : dropNo ? 'no' : undefined}
       data-testid="file-row"
     >
-      {/* phones: only while something is selected (a long press starts it) */}
-      <td className={clsx('w-0 py-1 pr-0 pl-1', !selecting && 'max-md:hidden')}>
+      {/* phones: seen only while something is selected (a long press starts it); until then the box is still there for
+          a screen reader, and shows when the keyboard reaches it */}
+      <td className={clsx('w-0 py-1 pr-0 pl-1', !selecting && 'max-md:sr-only max-md:focus-within:not-sr-only')}>
         <CheckBox checked={checked} disabled={dim} label={t('files.select', { name: e.name })} title={dim ? t('files.navigationOnly') : undefined} onCheck={onCheck} testId="file-check" />
       </td>
       {/* w-full + max-w-0: the name column takes the room that is left and a long name ends in "…" instead of
@@ -1019,11 +1020,11 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
       <td className="w-full max-w-0 px-2 py-1.5 max-md:py-0">
         <button
           type="button"
-          onClick={() => {
-            if (pressed.current) {
-              pressed.current = false
-              return
-            }
+          onClick={(ev) => {
+            // the click a long press ends with selected the row already; a keyboard's click (detail 0) never is one
+            const long = pressed.current
+            pressed.current = false
+            if (long && ev.detail !== 0) return
             if (selecting && !dim) onCheck(false)
             else onOpen()
           }}

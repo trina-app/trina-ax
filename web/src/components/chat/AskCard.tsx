@@ -90,6 +90,10 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   // question with more choices keeps its radios and [답하기].
   if (fromServer && !allowText && !r.multiple && options.length === 2) {
     const [yes, no] = options as [(typeof options)[number], (typeof options)[number]]
+    const pick = (v: string) => {
+      setPicked([v])
+      void run({ kind: 'ask_user', answer: v })
+    }
     return (
       <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-labelledby={`${name}-q`} data-testid="ask-card" data-origin="server" data-kind="confirm">
         <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
@@ -102,10 +106,10 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         {r.details?.length ? <Details items={r.details} plain /> : null}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'ask_user', answer: no.value })} data-testid="ask-no">
+          <Button size="sm" variant="ghost" disabled={busy} busy={busy && picked[0] === no.value} onClick={() => pick(no.value)} data-testid="ask-no">
             {no.label}
           </Button>
-          <Button size="sm" variant="primary" disabled={busy} busy={busy} onClick={() => run({ kind: 'ask_user', answer: yes.value })} data-testid="ask-yes">
+          <Button size="sm" variant="primary" disabled={busy} busy={busy && picked[0] === yes.value} onClick={() => pick(yes.value)} data-testid="ask-yes">
             {yes.label}
           </Button>
         </div>
@@ -246,14 +250,16 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
         {items.map((d, i) => (
           <div key={i} className="space-y-1.5 text-sm" data-testid="ask-detail">
             {d.fields?.length ? (
-              <dl className="space-y-1" role="group" aria-label={d.label} data-testid="ask-detail-fields">
-                {d.fields.map((f, j) => (
-                  <div key={j} className="flex gap-3">
-                    <dt className="w-14 shrink-0 text-faint">{f.name}</dt>
-                    <dd className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</dd>
-                  </div>
-                ))}
-              </dl>
+              <div role="group" aria-label={d.label} data-testid="ask-detail-fields">
+                <dl className="space-y-1">
+                  {d.fields.map((f, j) => (
+                    <div key={j} className="flex gap-3">
+                      <dt className="w-14 shrink-0 text-faint">{f.name}</dt>
+                      <dd className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
             ) : null}
             {d.text && (
               <div>
