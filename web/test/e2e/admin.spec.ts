@@ -72,8 +72,10 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   expect(copied).toMatch(/^주소: https:\/\/team\.example\.com\n아이디: carol\n임시 비밀번호: maple2026\n.+까지 로그인해서 새 비밀번호로 바꿔 주세요\.$/)
   await page.getByRole('dialog').getByRole('button', { name: '완료' }).click()
   await expect(page.getByTestId('members-table')).toContainText('비밀번호 변경 필요')
-  // reset is a labelled button in the row, not an icon only
+  // reset password is a labelled item in the row's "…" (not an icon only)
+  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Carol' }).getByTestId('member-more').click()
   await expect(page.getByTestId('reset-password-carol')).toHaveText(/비밀번호 재설정/)
+  await page.keyboard.press('Escape')
 
   // invite link with QR
   await page.getByTestId('invite-new').click()

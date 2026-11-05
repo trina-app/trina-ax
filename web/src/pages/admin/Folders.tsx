@@ -106,20 +106,27 @@ export default function Folders() {
   }
   return (
     <>
-      {/* the page title with the switch next to it, like AI engines; the switch is as wide as its two tabs */}
-      <AdminPageHeader title={t('admin.folders')} testId="folders-header" still>
-        <Tabs
-          segmented
-          value={view}
-          onChange={choose}
-          panels={panels}
-          items={[
-            { id: 'folders', label: t('accessView.byFolder') },
-            { id: 'people', label: t('accessView.byPerson') },
-          ]}
-          label={t('accessView.tabs')}
-        />
-      </AdminPageHeader>
+      {/* the same header as Members and Groups: title, one line, then the controls (here the by folder / by person
+          switch, as wide as its two tabs) */}
+      <AdminPageHeader
+        title={t('admin.folders')}
+        desc={t('folders.pageDesc')}
+        testId="folders-header"
+        still
+        controls={
+          <Tabs
+            segmented
+            value={view}
+            onChange={choose}
+            panels={panels}
+            items={[
+              { id: 'folders', label: t('accessView.byFolder') },
+              { id: 'people', label: t('accessView.byPerson') },
+            ]}
+            label={t('accessView.tabs')}
+          />
+        }
+      />
       <TabPanel base={panels} value={view}>
         <Suspense fallback={<Spinner />}>{view === 'people' ? <AccessPeople /> : <AccessTree />}</Suspense>
       </TabPanel>
