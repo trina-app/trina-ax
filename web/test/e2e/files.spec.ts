@@ -250,7 +250,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const savedDates = new Map<string, string>()
     for (const days of [30, 10]) {
       await page.goto('/admin/settings')
-      await page.getByLabel(t['teamSettings.trashDays'], { exact: true }).fill(String(days))
+      await page.getByLabel(t['teamSettings.row.trash'], { exact: true }).fill(String(days))
       await page.getByRole('button', { name: t['common.save'], exact: true }).click()
       await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
       await page.goto('/files?path=marketing')
