@@ -107,8 +107,9 @@ jobs:
 
   mobile:
     # The phone app (mobile/) has its own npm lockfile, and the root typecheck leaves it out. Its own job, so it never
-    # delays the main one. npm's download cache is keyed on mobile/package-lock.json; the install retries, and a
-    # registry that stays unreachable only warns (it says nothing about the code): a type error still fails the job.
+    # delays the main one. npm's download cache is keyed on mobile/package-lock.json; the install retries, and only a
+    # registry that stays unreachable warns and skips (mobile/scripts/ci-install.sh); a lockfile or integrity problem
+    # and a type error fail the job.
     name: Mobile app typecheck
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -123,16 +124,12 @@ jobs:
           node-version: 26.12.1
           cache: npm
           cache-dependency-path: mobile/package-lock.json
-      - name: Install (locked, no install scripts)
+      - name: Install (locked, no install scripts; only an unreachable registry skips the typecheck)
         id: install
-        continue-on-error: true
-        run: npm ci --prefix mobile --ignore-scripts --no-audit --no-fund --fetch-retries=4 --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=60000
+        run: bash mobile/scripts/ci-install.sh
       - name: Typecheck
-        if: steps.install.outcome == 'success'
+        if: steps.install.outputs.installed == 'true'
         run: npm --prefix mobile run typecheck
-      - name: Registry unreachable
-        if: steps.install.outcome != 'success'
-        run: echo "::warning::npm could not install mobile/ dependencies; the mobile typecheck did not run"
 
   linux-docker:
     name: Linux attack suite (T1, bwrap + nftables + cgroups in Docker)
