@@ -208,6 +208,26 @@ describe('a failed answer without AI', () => {
   })
 })
 
+describe('a failed answer with AI connected', () => {
+  test('the owner keeps the server\'s per-engine words and no button (another engine is connected)', async () => {
+    signIn('owner')
+    access = { usable: true, action: 'connect_team', requested: false }
+    useAiAccess.setState({ loaded: true, usable: true, requested: false, trial: null })
+    const error = { code: CHAT_ERROR_MESSAGES.no_credential.code, message: CHAT_ERROR_MESSAGES.no_credential.ko, params: { reason: 'no_credential' } }
+    const m = await mount(
+      <MemoryRouter>
+        <AssistantMessage m={msg({ role: 'assistant', content: '', status: 'error', error } as never)} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} />
+      </MemoryRouter>,
+    )
+    try {
+      await m.until(() => m.find('answer-error'), 'the error')
+      expect(m.get('answer-error').textContent).toContain(CHAT_ERROR_MESSAGES.no_credential.ko)
+      expect(m.get('answer-error').textContent).not.toContain(ko('aiConnect.error.no_credential'))
+      expect(m.find('ai-access-button')).toBeNull()
+    } finally { await m.unmount() }
+  })
+})
+
 describe('Home\'s one card without AI', () => {
   const card = async (s: Partial<ReturnType<typeof useAiAccess.getState>>) => {
     useAiAccess.setState({ loaded: true, usable: false, requested: false, trial: null, ...s })
