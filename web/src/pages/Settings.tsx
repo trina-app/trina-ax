@@ -10,7 +10,7 @@ import { Brain, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { EngineId, Me, Memory, Session, Theme } from '@mycel/shared/api'
-import { PROFILE_STATUS_MAX, PROFILE_TITLE_MAX, RELEASE_CHANNEL } from '@mycel/shared'
+import { PROFILE_TITLE_MAX, RELEASE_CHANNEL } from '@mycel/shared'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { deviceLabel } from '../lib/userAgent'
@@ -105,7 +105,6 @@ function Profile() {
   const setTheme = useSession((s) => s.setTheme)
   const [name, setName] = useState(me.user.name)
   const [title, setTitle] = useState(me.user.title ?? '')
-  const [status, setStatus] = useState(me.user.status ?? '')
   const [email, setEmail] = useState(me.user.email ?? '')
   // the photo: untouched (null), a new one waiting for Save, or taken away (also waiting for Save)
   const [photo, setPhoto] = useState<Photo | 'remove' | null>(null)
@@ -116,7 +115,8 @@ function Profile() {
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
   // Everything here is saved with the one Save button (the other tabs' settings save at once): it is off until
   // something changed
-  const profileChanged = name.trim() !== me.user.name || title.trim() !== (me.user.title ?? '') || status.trim() !== (me.user.status ?? '')
+  // the one-line status is no longer asked for here (kept on the account, shown nowhere)
+  const profileChanged = name.trim() !== me.user.name || title.trim() !== (me.user.title ?? '')
   const changed = profileChanged || (email.trim() || null) !== (me.user.email ?? null) || photo !== null
   const hasPhoto = photo === 'remove' ? false : !!(photo || me.user.avatarVersion)
   const choose = async (file: File | undefined) => {
@@ -131,7 +131,7 @@ function Profile() {
     if (!changed || !name.trim() || busy) return
     setBusy(true)
     try {
-      if (profileChanged) await api.call(API.updateMyProfile, { body: { name: name.trim(), title: title.trim(), status: status.trim() } })
+      if (profileChanged) await api.call(API.updateMyProfile, { body: { name: name.trim(), title: title.trim() } })
       if (photo === 'remove') await api.call(API.deleteMyAvatar)
       else if (photo) await api.call(API.putMyAvatar, { query: { type: photo.type }, body: photo.blob })
       // the email is the one field of the older call
@@ -176,9 +176,6 @@ function Profile() {
           </Row>
           <Row label={t('profile.title')} htmlFor={`${ids}-title`}>
             <input id={`${ids}-title`} className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={t('profile.titleHint')} />
-          </Row>
-          <Row label={t('profile.status')} htmlFor={`${ids}-status`}>
-            <input id={`${ids}-status`} className={inputCls} value={status} onChange={(e) => setStatus(e.target.value)} maxLength={PROFILE_STATUS_MAX} placeholder={t('profile.statusHint')} />
           </Row>
           <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`}>
             <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
