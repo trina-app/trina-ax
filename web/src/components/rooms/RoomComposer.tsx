@@ -39,7 +39,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onSe
     if (s) drafts.set(roomId, s)
     else drafts.delete(roomId)
   }
-  const mention = useMentionMenu({ text, setText, input, members, meId })
+  const mention = useMentionMenu({ text, setText, input, members, meId, ai: true })
 
   useLayoutEffect(() => {
     const ta = input.current

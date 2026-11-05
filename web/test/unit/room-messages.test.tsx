@@ -41,3 +41,34 @@ test('one name per run of one author', () => {
   expect(count(html, '>Ben<')).toBe(1)
   expect(count(html, 'data-testid="room-message"')).toBe(3)
 })
+
+// ---------------- the AI in a room (docs/DECISIONS.md "대화방의 트리나") ----------------
+test('an AI answer is shown like a chat answer without its steps: Markdown, who asked, the files it used', () => {
+  const q = message({ roomId: R, seq: 1, author: ME, body: '@Trina what changed?' })
+  const a = message({ roomId: R, seq: 2, authorKind: 'ai', author: null, askedBy: ME, body: '## Changes\n\n- **one**', replyTo: { id: q.id, author: ME, excerpt: q.body, fileCount: 0, deleted: false }, sourceCount: 2 })
+  const html = render([q, a])
+  expect(html).toContain('<h2')
+  expect(html).toContain('<strong>one</strong>')
+  expect(html).toContain(translate('en', 'rooms.aiAskedBy', { name: 'Ada' }))
+  expect(html).toContain(translate('en', 'rooms.aiName'))
+  expect(html).toContain(translate('en', 'sources.title', { n: 2 }))
+  expect(html).not.toContain('data-testid="steps"')
+  // "@Trina" in the question stands out like a person's name; the answer has no quote block of its own
+  expect(html).toMatch(/<span class="font-medium text-accent-text">@Trina<\/span>/)
+  expect(count(html, 'data-testid="message-quote"')).toBe(0)
+  expect(html).not.toContain('data-testid="room-ai-preview"')
+})
+
+test('a private preview says why only I see it, names the folders, and has exactly one action', () => {
+  const a = message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'mine only', preview: { folders: ['acme/finance', ''], personal: false, outside: true } })
+  const html = render([a])
+  expect(count(html, 'data-testid="room-ai-preview"')).toBe(1)
+  expect(html).toContain(translate('en', 'rooms.aiPrivate'))
+  expect(html).toContain(translate('en', 'rooms.aiPrivateFolders', { folders: `acme/finance/, ${translate('en', 'rooms.aiRootFolder')}` }))
+  expect(html).toContain(translate('en', 'rooms.aiPrivateOutside'))
+  expect(html).not.toContain(translate('en', 'rooms.aiPrivatePersonal'))
+  expect(count(html, '<button')).toBe(1)
+  expect(html).toContain(translate('en', 'rooms.aiShare'))
+  // no reply, edit or delete menu on a preview
+  expect(html).not.toContain('data-testid="message-menu"')
+})

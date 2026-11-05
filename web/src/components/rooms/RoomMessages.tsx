@@ -4,14 +4,19 @@
 // line breaks, never HTML or Markdown; the @names it mentions stand out. "…" on a message (always shown on touch
 // screens) answers it, and edits or deletes one's own. Images show as thumbnails that open in the side panel; other
 // files are chips that download.
+// The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
+// like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
+// click goes to the question). A private preview, seen only by the person who asked, says why it is private and has
+// one action: post it to the room.
 import clsx from 'clsx'
-import { CornerUpLeft, Download, FileText, Pencil, Sparkles, Trash2 } from 'lucide-react'
+import { CornerUpLeft, Download, FileText, Lock, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useMemo, useRef, useState } from 'react'
-import { PRODUCT } from '@mycel/shared'
 import type { Locale, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
-import { groupRuns, mentionParts } from '../../lib/rooms'
+import { aiMentionNames, groupRuns, mentionParts } from '../../lib/rooms'
+import { Markdown } from '../Markdown'
+import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, usePeople } from '../../store/people'
@@ -72,7 +77,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-2">
-                  <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? PRODUCT.displayName : (first.author?.name ?? t('rooms.goneUser'))}</span>
+                  <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (first.author?.name ?? t('rooms.goneUser'))}</span>
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className="shrink-0 text-xs text-faint">
                     {timeOf(first.createdAt, locale)}
                   </time>
@@ -125,8 +130,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
+  const ai = m.authorKind === 'ai'
   const mentioned = useMemo(() => m.mentions.map((id) => ({ id, name: names.get(id) ?? '' })), [m.mentions, names])
-  const parts = useMemo(() => mentionParts(m.body, mentioned), [m.body, mentioned])
+  // "@트리나" stands out like a person's name (the server asked the AI for it)
+  const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...aiMentionNames(m.body, mentioned)]), [m.body, mentioned, ai])
   const del = async () => {
     const ok = await confirmDialog({ title: t('rooms.deleteTitle'), body: t('rooms.deleteBody'), confirm: t('common.delete'), danger: true })
     if (!ok) return
@@ -147,9 +154,18 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
     </>
   )
   return (
-    <div id={messageDomId(m.id)} className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 pr-10 transition', flash ? 'bg-accent-soft' : 'hover:bg-subtle')} data-testid="room-message">
-      {m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
-      {editing ? (
+    <div id={messageDomId(m.id)} className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 pr-10 transition', flash ? 'bg-accent-soft' : 'hover:bg-subtle')} data-testid="room-message" data-ai={ai ? '' : undefined} data-visibility={m.visibility}>
+      {ai ? <AskedBy m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
+      {ai && !deleted ? (
+        <>
+          <Markdown text={m.body} className="min-w-0" />
+          {(m.unread > 0 || m.editedAt) && <p className="leading-5">{meta}</p>}
+          {!!m.sourceCount && (
+            <SourcesList chatId={roomId} messageId={m.id} count={m.sourceCount} load={(signal) => api.call(API.roomMessageSources, { params: { id: roomId, messageId: m.id }, signal })} />
+          )}
+          {m.visibility === 'private' && <PreviewNote roomId={roomId} m={m} />}
+        </>
+      ) : editing ? (
         <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} />
       ) : deleted ? (
         <p className="text-[15px] leading-6 text-faint">{t('rooms.deleted')}</p>
@@ -173,7 +189,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
           {!m.body && (m.unread > 0 || m.editedAt) && <p className="leading-5">{meta}</p>}
         </>
       )}
-      {!deleted && !editing && (
+      {!deleted && !editing && m.visibility === 'room' && (
         <MenuButton
           label={t('rooms.messageMenu')}
           className="absolute top-0 right-1"
@@ -190,6 +206,54 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
           ]}
         />
       )}
+    </div>
+  )
+}
+
+/** "○○ 님이 물어봄" above an AI answer; a click goes to the question when it is loaded. */
+function AskedBy({ m, onJump }: { m: RoomMessage; onJump?: () => void }) {
+  const t = useT()
+  const text = t('rooms.aiAskedBy', { name: m.askedBy?.name ?? t('rooms.goneUser') })
+  return onJump ? (
+    <button type="button" onClick={onJump} className="mb-0.5 block max-w-full truncate text-left text-xs text-faint hover:text-ink hover:underline" data-testid="room-ai-asked-by">
+      {text}
+    </button>
+  ) : (
+    <p className="mb-0.5 truncate text-xs text-faint" data-testid="room-ai-asked-by">
+      {text}
+    </p>
+  )
+}
+
+/** My private preview of an AI answer: why only I see it (the folders some member cannot open, named to me only), and
+ * its one action. Posting leaves out the sources some member cannot read; the server decides that again. */
+function PreviewNote({ roomId, m }: { roomId: string; m: RoomMessage }) {
+  const t = useT()
+  const locale = useLocale()
+  const [busy, setBusy] = useState(false)
+  const p = m.preview
+  const folders = p?.folders.length ? p.folders.map((f) => (f === '' ? t('rooms.aiRootFolder') : `${f}/`)).join(', ') : ''
+  const share = async () => {
+    setBusy(true)
+    try {
+      await useRooms.getState().shareAi(roomId, m.id)
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mt-2 mb-1 border-l-2 border-accent pl-3 text-sm" role="note" data-testid="room-ai-preview">
+      <p className="flex items-center gap-1.5 font-medium text-ink">
+        <Lock size={13} className="shrink-0 text-faint" aria-hidden />
+        {t('rooms.aiPrivate')}
+      </p>
+      {folders && <p className="mt-0.5 text-muted">{t('rooms.aiPrivateFolders', { folders })}</p>}
+      {p?.personal && <p className="mt-0.5 text-muted">{t('rooms.aiPrivatePersonal')}</p>}
+      {p?.outside && <p className="mt-0.5 text-muted">{t('rooms.aiPrivateOutside')}</p>}
+      <Button size="sm" variant="primary" className="mt-2" busy={busy} onClick={() => void share()} data-testid="room-ai-share">
+        {t('rooms.aiShare')}
+      </Button>
     </div>
   )
 }

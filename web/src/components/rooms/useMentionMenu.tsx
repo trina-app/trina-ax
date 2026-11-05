@@ -1,16 +1,19 @@
 // "@" in a room's message box (the composer and the edit form): typing "@" and the start of a name lists the room's
 // members that fit (lib/rooms.ts matchMembers); arrow keys move, Enter or Tab picks, Esc closes. Picking writes
 // "@name " and remembers the person; what is sent mentions the picked people whose "@name" is still in the text.
+// In the composer the AI comes first ("@트리나": the server asks it as the sender when the message goes; an edit never
+// asks it, so the edit form leaves it out).
 import clsx from 'clsx'
+import { Sparkles } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { UserRef } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { insertMention, keptMentions, matchMembers, mentionAt } from '../../lib/rooms'
+import { AI_MENTION_ID, aiMatches, insertMention, keptMentions, matchMembers, mentionAt } from '../../lib/rooms'
 import { scrollToShow } from '../chat/SkillMenu'
 import { usePeople } from '../../store/people'
 import { Avatar } from '../Avatar'
 
-export function useMentionMenu({ text, setText, input, members, meId, initial = [] }: { text: string; setText: (s: string) => void; input: RefObject<HTMLTextAreaElement | null>; members: UserRef[]; meId: string | null; initial?: UserRef[] }) {
+export function useMentionMenu({ text, setText, input, members, meId, initial = [], ai = false }: { text: string; setText: (s: string) => void; input: RefObject<HTMLTextAreaElement | null>; members: UserRef[]; meId: string | null; initial?: UserRef[]; ai?: boolean }) {
   const t = useT()
   const id = useId()
   const [caret, setCaret] = useState<number | null>(null)
@@ -20,7 +23,12 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
   const listRef = useRef<HTMLUListElement>(null)
   const byId = usePeople((s) => s.byId)
   const at = useMemo(() => (caret === null ? null : mentionAt(text, caret)), [text, caret])
-  const hits = useMemo(() => (at && closedFor !== text ? matchMembers(members, at.query, meId) : []), [at, members, meId, closedFor, text])
+  const aiName = t('rooms.aiName')
+  const hits = useMemo(() => {
+    if (!at || closedFor === text) return []
+    const people = matchMembers(members, at.query, meId)
+    return ai && aiMatches(at.query) ? [{ id: AI_MENTION_ID, name: aiName }, ...people] : people
+  }, [at, members, meId, closedFor, text, ai, aiName])
   const open = hits.length > 0
   useEffect(() => setActive(0), [at])
   useEffect(() => {
@@ -36,7 +44,8 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
     if (!at || caret === null) return
     const next = insertMention(text, at.start, caret, u.name)
     setText(next.text)
-    setPicked((p) => (p.some((x) => x.id === u.id) ? p : [...p, u]))
+    // the AI is no person: its name in the text is what calls it
+    if (u.id !== AI_MENTION_ID) setPicked((p) => (p.some((x) => x.id === u.id) ? p : [...p, u]))
     setCaret(next.caret)
     requestAnimationFrame(() => {
       input.current?.focus()
@@ -91,10 +100,23 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
               onMouseMove={() => i !== active && setActive(i)}
               className={clsx('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm', i === active && 'bg-accent-soft')}
               data-testid="mention-option"
+              data-ai={u.id === AI_MENTION_ID ? '' : undefined}
             >
-              <Avatar user={{ ...u, avatarVersion: byId[u.id]?.avatarVersion }} size={22} />
-              <span className="truncate font-medium text-ink">{u.name}</span>
-              {byId[u.id]?.title && <span className="truncate text-xs text-muted">{byId[u.id]!.title}</span>}
+              {u.id === AI_MENTION_ID ? (
+                <>
+                  <span aria-hidden className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
+                    <Sparkles size={12} />
+                  </span>
+                  <span className="truncate font-medium text-ink">{u.name}</span>
+                  <span className="truncate text-xs text-muted">{t('rooms.aiMention')}</span>
+                </>
+              ) : (
+                <>
+                  <Avatar user={{ ...u, avatarVersion: byId[u.id]?.avatarVersion }} size={22} />
+                  <span className="truncate font-medium text-ink">{u.name}</span>
+                  {byId[u.id]?.title && <span className="truncate text-xs text-muted">{byId[u.id]!.title}</span>}
+                </>
+              )}
             </button>
           </li>
         ))}

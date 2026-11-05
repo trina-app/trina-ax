@@ -18,6 +18,7 @@ import { MembersDialog } from '../components/rooms/MembersDialog'
 import { MenuButton } from '../components/rooms/MenuButton'
 import { RoomComposer } from '../components/rooms/RoomComposer'
 import { RoomMessages } from '../components/rooms/RoomMessages'
+import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { EmptyState, ErrorNote, Skeleton } from '../components/ui'
 
@@ -76,6 +77,8 @@ function RoomView({ roomId }: { roomId: string }) {
   const notFound = missing || (!!thread?.error && (isApiError(thread.error, 'not_found') || isApiError(thread.error, 'forbidden')))
 
   const messages = thread?.messages ?? NO_MESSAGES
+  // the AI at work here (components/rooms/RoomAiStatus.tsx): the bottom follows its steps too
+  const aiKey = useRooms((s) => { const a = s.ai[roomId]; return a ? `${a.answering}:${a.runs.map((r) => `${r.state}${r.steps.length}`).join(',')}` : '' })
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
@@ -85,7 +88,7 @@ function RoomView({ roomId }: { roomId: string }) {
   useLayoutEffect(() => {
     const el = scroller.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [last?.id, messages.length, pending.length])
+  }, [last?.id, messages.length, pending.length, aiKey])
   // thumbnails load after the text: stay at the bottom if we were there
   useEffect(() => {
     const el = content.current
@@ -192,6 +195,7 @@ function RoomView({ roomId }: { roomId: string }) {
           )}
           {thread && !thread.loading && !thread.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
           <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onReply={setReply} />
+          <RoomAiStatus roomId={roomId} />
         </div>
       </div>
       <RoomComposer
