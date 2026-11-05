@@ -173,6 +173,9 @@ describe('the composition and the sound (pure)', () => {
     const firstCount = (css: string) => /@keyframes m[0-9a-z]+\{0%\{--pvn:(\d+)/.exec(css)?.[1]
     expect(firstCount(hookOf('반나절', '14초'))).toBe('99')
     expect(firstCount(hookOf('3.7회', '81회'))).toBe('0')
+    // a year rolls up through the years before it, never from 0
+    const yearCss = composition(doc({ proof: { stats: [{ number: '1974년', label: '첫 발' }], headline: [], sub: '', picture: null } }), true).css
+    expect(yearCss).toMatch(/\{0%\{--pvn:1944;[^}]*\}100%\{--pvn:1974\}/)
   })
 
   test('sounds: three beds and six effects, the bed from frame 0, every effect peaking on a beat of the grid', () => {

@@ -8687,13 +8687,14 @@ environment image (another developer; handoff below).
   fire-bright accent and glow; first for a vivid colour), `deep` (a ground of the brand's own hue at night depth, a soft
   tint of it as the accent; first for a deep or muted colour), `mono` (graphite and white; the only one without a usable
   brand colour — grey, near-black or near-white). The AI may pick among the families that fit; another pick is replaced,
-  not refused. Accents reach 4.5:1 on their ground (the card news' contrast rule). Light grounds were left out: no
+  not refused; without a colour from the AI, the saved profile's first brand colour decides (the website reading's,
+  point-sampled from the logo since W3). Accents reach 4.5:1 on their ground (the card news' contrast rule). Light grounds were left out: no
   light family looked premium next to the references.
 - **Missing pictures**: the promise and the work beat each have a type-and-light version (light threads rising behind
   the words; glass rows for the points and a light sweep); never an empty frame or a made-up picture.
 - **The logo** is revealed whole (scale 0.62 → 1 and blur 26 → 0, locking on the grid with a bloom and a flare). How it
-  sits on the dark ground comes from its pixels (`logo.ts`, 32×32 RGBA by the isolated ffmpeg, like the website
-  reading's logo colour): a filled shape (at least 80 % opaque, an app icon with rounded corners) → a rounded tile; transparent and readable on the dark → as it is; dark and
+  sits on the dark ground comes from its pixels (`logo.ts`, 64×64 point-sampled RGBA by the isolated ffmpeg, like the
+  website reading's logo colour since W3): a filled shape (at least 80 % opaque, an app icon with rounded corners) → a rounded tile; transparent and readable on the dark → as it is; dark and
   without colour → drawn white; dark and in colour → on a light card. A logo wider than 2.2:1 is the wordmark and
   replaces the name.
 
@@ -8710,7 +8711,8 @@ environment image (another developer; handoff below).
   timeline stops per element into keyframes with an easing per segment; the root is the only `data-start`). HyperFrames'
   CSS adapter seeks them for the MP4; the chat's player seeks the same animations with `document.getAnimations()`. Counts
   are a registered integer property (`@property --pvn`) shown through CSS counters, so every frame shows whole digits;
-  when the count lands, the number exactly as written ("1,200곳") takes over.
+  when the count lands, the number exactly as written ("1,200곳") takes over. A count runs toward the new state (down
+  for "반나절 → 14초", up for "3.7회 → 81회"); a year rolls up from 30 years before it, never from 0.
 
 ### Sound
 - Three music beds (bright, calm, pulse), cut to 18.5 s on the 120 BPM grid with a downbeat on frame 0, and six effects
@@ -8732,7 +8734,8 @@ environment image (another developer; handoff below).
   code tab, copy or page download for it; the message card says "영상".
 - The first result (welcome step 3) runs the pack skill "/promo-video" with 회사 소개.md (or the owner's files) and the
   brand images folder with the website's pictures and logo; the video opens beside the chat by itself; the answer is one
-  line; [팀에 공유] invites with that pack skill, so the 7-day goal counts it. The card news skill stays installed.
+  line, plus one sentence naming scene 2 or 3 only when that scene had no fitting picture (the card news' W3 rule; the
+  hook, the proof and the end card have no picture by design); [팀에 공유] invites with that pack skill, so the 7-day goal counts it. The card news skill stays installed.
 
 ### The MP4
 - [영상 파일로 받기] in the panel header, only when `GET /api/promo-videos/:id` says `available` (a development server on
@@ -8763,6 +8766,11 @@ environment image (another developer; handoff below).
   the server chose: ink twice (orange, violet), deep twice (green, navy), mono twice (a grey brand, no brand colour). Every
   number on screen was in the material; one site had no number worth a stat (a statement proof), one deck hook was
   "3–6개월 → 2주".
+- **After merging W3** (2026-11-06): the large semiconductor maker's site again. Its logo, point-sampled now, gave
+  #14299f instead of the blend #4b5696; the video came out in the deep family on the brand's own navy with a light blue
+  accent (artifact 24 s after the button, MP4 32 s). The new team-skill card skips the welcome's result chat
+  (`resultChatId`), so it never shows under the video. The same run showed a founding year counting up from 0
+  ("1083년"); a year now rolls up from 30 years before it.
 - **A browser walk at 390 px** (a fresh team, AI on): setup → the website → "자료 없이 만들게요" → the video playing in the
   sheet 21 s later; the sound button loaded the bed and the effects from /vendor/promo-video/ (all 200); close →
   [팀에 공유] → the invite message for the "홍보 영상" skill.

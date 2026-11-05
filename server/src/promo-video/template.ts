@@ -80,7 +80,9 @@ function countingNumber(x: Ctx, n: string, at: number, dur: number, o: { down?: 
   const dot = core.indexOf('.')
   const frac = dot < 0 ? 0 : Math.min(core.length - dot - 1, 3)
   const target = Number(core.replace('.', '').slice(0, dot < 0 ? undefined : dot + frac)) || 0
-  const from = o.down ? Math.max(target, 10 ** String(Math.floor(target / 10 ** frac)).length * 10 ** frac - 1) : 0
+  // a year (founded in 1974) rolls up through the years before it, never from 0 ("1083년" reads as a fact)
+  const year = !frac && /^(1[89]|20)\d\d$/.test(core)
+  const from = o.down ? Math.max(target, 10 ** String(Math.floor(target / 10 ** frac)).length * 10 ** frac - 1) : year ? target - 30 : 0
   const land = at + dur
   const count = x.m.a([[at, `--pvn:${from}`, 'p2o'], [land, `--pvn:${target}`]])
   const swapOut = x.m.a([[at, op(1), 'lin'], [land - 0.001, op(1), 'lin'], [land, op(0)]])
