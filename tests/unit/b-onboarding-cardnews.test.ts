@@ -313,3 +313,32 @@ describe('the team skill made of a card news answer', () => {
     expect(draftFiles([{ path: 'groups/acme/Brand', latest: false }], used)).toEqual([{ path: 'groups/acme/Brand', latest: true }])
   })
 })
+
+describe('staged pictures', () => {
+  test('swept only when they can never be placed: not another owner\'s, not a draft still collecting', async () => {
+    const h = await startHarness({ name: 'b-onboarding-cardnews-sweep' })
+    try {
+      const { sweepStagedAssets } = await import('../../server/src/onboarding/welcome-result')
+      const root = path.join(h.dataDir, 'onboarding-assets')
+      const old = new Date(Date.now() - 3600_000).toISOString(), older = new Date(Date.now() - 7200_000).toISOString()
+      const draft = async (user: string, at: string, placed: boolean, recent = false) => {
+        const chat = await h.api(user).call(API.createChat, { body: {} })
+        h.ctx.db.query("INSERT INTO onboarding_profile_drafts (chat_id, user_id, source, website, site, created_at) VALUES (?, ?, 'website', 'https://acme.example/', 'acme.example', ?)").run(chat.id, user, at)
+        h.ctx.db.query("INSERT INTO onboarding_brand_assets (chat_id, seq, kind, url, file, weight, placed_path, created_at) VALUES (?, 1, 'image', 'https://acme.example/a.jpg', '1.jpg', 50, ?, ?)").run(chat.id, placed ? 'groups/x/a.jpg' : null, recent ? new Date().toISOString() : at)
+        fs.mkdirSync(path.join(root, chat.id), { recursive: true })
+        fs.writeFileSync(path.join(root, chat.id, '1.jpg'), 'x')
+        return chat.id
+      }
+      const danaOld = await draft('dana', older, false)
+      const carolWaiting = await draft('carol', older, false)
+      const danaPlaced = await draft('dana', old, true)
+      const danaCollecting = await draft('dana', older, false, true)
+      sweepStagedAssets(h.ctx)
+      const left = fs.readdirSync(root).sort()
+      // dana's older draft can never be placed; carol's still can; a draft still collecting is left alone; the placed one is done
+      expect(left).toEqual([carolWaiting, danaCollecting].sort())
+      expect(left).not.toContain(danaOld)
+      expect(left).not.toContain(danaPlaced)
+    } finally { await h.close() }
+  })
+})

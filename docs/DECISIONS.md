@@ -8202,7 +8202,8 @@ chat tools); the hosting side only hands over the image key.
   30-second timeout.
 - Pictures over 40 megapixels are not kept; the isolated ffmpeg gets a 768 MiB memory limit. The first result uses the
   recorded brand folder (the one the page uploads into), not one named after the team's current language. Staged
-  pictures of deleted chats and of drafts older than a placed one are removed at the next first result.
+  pictures of deleted chats and of the same person's drafts older than a placed one are removed at the next first
+  result (never another owner's, never a draft that wrote a row in the last ten minutes: its file may be on its way).
 - **Accepted, recorded**: 회사 소개.md quotes the website's text in a team file, so a card news chat that read it passes
   S's outside-content check although the words came from the web. They are the company's own public pages, read
   within the typed site's scope, saved by the owner after confirming the profile, each part under its address; the

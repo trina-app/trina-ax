@@ -157,9 +157,13 @@ export function sweepStagedAssets(ctx: AppContext): void {
     try {
       const chat = ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND deleted_at IS NULL').get(d)
       const pending = ctx.db.query("SELECT 1 FROM onboarding_brand_assets WHERE chat_id = ? AND file IS NOT NULL AND placed_path IS NULL LIMIT 1").get(d)
+      // a later draft of the same person whose pictures were placed (another owner's drafts are theirs to place)
       const placedLater = ctx.db.query(`SELECT 1 FROM onboarding_brand_assets a JOIN onboarding_profile_drafts p ON p.chat_id = a.chat_id
-        WHERE a.placed_path IS NOT NULL AND p.created_at > (SELECT created_at FROM onboarding_profile_drafts WHERE chat_id = ?) LIMIT 1`).get(d)
-      if (!chat || !pending || placedLater) fs.rmSync(path.join(root, d), { recursive: true, force: true })
+        JOIN onboarding_profile_drafts mine ON mine.chat_id = ?
+        WHERE a.placed_path IS NOT NULL AND p.user_id = mine.user_id AND p.created_at > mine.created_at LIMIT 1`).get(d)
+      // a draft still collecting (a row in the last ten minutes) is left alone: its file may be on its way
+      const busy = ctx.db.query('SELECT 1 FROM onboarding_brand_assets WHERE chat_id = ? AND created_at > ? LIMIT 1').get(d, new Date(Date.now() - 10 * 60_000).toISOString())
+      if (!busy && (!chat || !pending || placedLater)) fs.rmSync(path.join(root, d), { recursive: true, force: true })
     } catch (err) { ctx.log.warn('staged brand pictures not swept', { err }) }
   }
 }
