@@ -15,7 +15,7 @@ import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { zonedParts } from '../system/time-zone'
 import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
-import { profileFactLines, readCompanyProfile } from '../onboarding/profile'
+import { PROFILE_PATH, profileFactLines, readCompanyProfile } from '../onboarding/profile'
 import { getTeamSettings } from '../admin/settings'
 
 export const MEMORY_ITEM_MAX = MEMORY_TEXT_MAX
@@ -58,6 +58,8 @@ export interface PromptInput {
   skillChanges?: string
   /** a team chat room's AI session (rooms/ai.ts): where the person called the AI */
   room?: RoomPrompt | null
+  /** a room session: may every member read this folder (the folder lists name only those) */
+  roomReadable?: ((rel: string) => boolean) | null
   now?: Date
 }
 
@@ -89,14 +91,15 @@ export function writableFolders(files: FileService, user: Principal): { writable
 
 /** skills/*.md the person can read (team rules): the first SKILL_FILES_MAX by file name, and how many there are. Files
  * with a skill header are skills, not rules. */
-export function teamRuleFiles(files: FileService, user: Principal): { text: string; total: number; followed: number } {
+export function teamRuleFiles(files: FileService, user: Principal): { text: string; total: number; followed: number; paths: string[] } {
   let text = ''
   let total = 0, followed = 0
+  const paths: string[] = []
   // one synchronous scan: the rules and the folder listings are read once (policy/resolve.ts walk `dirs`)
   const rules = files.rules(), dirs = new Map<string, string[]>()
   try {
     const dir = authorize(files.fx, rules, user, 'skills', 'list', { dirs })
-    if (!dir.st?.isDirectory()) return { text, total, followed }
+    if (!dir.st?.isDirectory()) return { text, total, followed, paths }
     const names = dirs.get(dir.abs) ?? fs.readdirSync(dir.abs)
     dirs.set(dir.abs, names)
     for (const n of names.filter((n) => n.endsWith('.md')).sort()) {
@@ -107,11 +110,18 @@ export function teamRuleFiles(files: FileService, user: Principal): { text: stri
         total++
         if (followed >= SKILL_FILES_MAX) continue
         text += `\n### ${r.rel}\n` + body.slice(0, SKILL_FILE_MAX)
+        paths.push(r.rel)
         followed++
       } catch { continue }
     }
   } catch {}
-  return { text, total, followed }
+  return { text, total, followed, paths }
+}
+
+/** The team files whose text goes into the instructions for this person: the team rule files included and the company
+ * profile (a team chat room's session counts them as read, rooms/ai.ts: an answer may repeat them). */
+export function instructionFiles(files: FileService, user: Principal): string[] {
+  return [...teamRuleFiles(files, user).paths, ...(readCompanyProfile(files, user) ? [PROFILE_PATH] : [])]
 }
 
 /** The team rules for the instructions; when there are more than SKILL_FILES_MAX, a line says so (never a silent cut). */
@@ -275,7 +285,10 @@ export const SUBAGENT_LANGUAGE_RULE = 'Write your report in that language too, u
 /** Items 2-3 of the instructions: the person, their folders, the time and the answer language. */
 function personLines(files: FileService, i: PromptInput, subagent = false): string[] {
   const now = i.now ?? new Date()
-  const { writable, readable } = writableFolders(files, i.user)
+  // a room session names only the folders everyone in the room may read (the answer may repeat the names)
+  const shown = (l: string[]) => (i.roomReadable ? l.filter((f) => i.roomReadable!(f)) : l)
+  const folders = writableFolders(files, i.user)
+  const writable = shown(folders.writable), readable = shown(folders.readable)
   return [
     `User: ${i.user.name} (id ${i.user.id}, role ${i.user.role}${i.groupNames.length ? ', groups ' + i.groupNames.join(', ') : ''})`,
     `Personal folder: users/${i.user.id}`,
