@@ -102,6 +102,9 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       } catch { /* no reason shown */ }
     }
   }
+  // questions whose answer stayed private to their author (rooms/ai.ts): the others see that it was answered, no more
+  const asked = rows.filter((r) => r.author_kind === 'user' && !r.deleted_at && r.author_id !== viewer.user_id).map((r) => r.id)
+  const answeredPrivately = new Set(asked.length ? (db.query(`SELECT question_id FROM room_ai_turns WHERE status = 'private' AND question_id IN (${asked.map(() => '?').join(',')})`).all(...asked) as { question_id: string }[]).map((t) => t.question_id) : [])
   return rows.map((r) => {
     let replyTo: RoomQuote | null = null
     if (r.reply_to_id) {
@@ -124,6 +127,7 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0, openable: openableFor(opens, r.body) } : {}),
       // only the person it is private to ever gets this (canSee: nobody else is sent a private message at all)
       ...(r.author_kind === 'ai' && r.visibility === 'private' && r.visible_to === viewer.user_id && previews.has(r.id) ? { preview: previews.get(r.id)! } : {}),
+      ...(answeredPrivately.has(r.id) ? { answeredPrivately: true } : {}),
     }
   })
 }

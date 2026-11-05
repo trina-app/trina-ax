@@ -11,6 +11,7 @@ import path from 'node:path'
 import { chatUrls } from '../../server/src/tools/url-gate'
 import { roomAiOf } from '../../server/src/rooms/ai'
 import { loadPrincipal } from '../../server/src/policy/access'
+import { instructionLike, ROOM_CHANGE_FULL, roomChangeWrites } from '../../server/src/chat/turn'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, ROOM_PROMPT_SECTIONS, subagentPromptSections, turnContextSections, turnPromptSections, type PromptInput } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(60_000)
@@ -46,8 +47,20 @@ async function roomOf(memberIds: string[]): Promise<{ roomId: string; groupId: s
   if (!r) throw new Error('no team room')
   return { roomId: r.id, groupId: g.id }
 }
-const send = (user: string, roomId: string, body: string) =>
-  h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId: cm(), mentions: [], fileIds: [] } })
+/** a message to the room; sending is rate limited per person (a burst of 20, then one a second), and the fake engine
+ * answers faster than a person types: a 429 waits the seconds it names and sends again */
+const send = async (user: string, roomId: string, body: string): Promise<RoomMessage> => {
+  const clientMessageId = cm()
+  for (let i = 0; ; i++) {
+    try {
+      return await h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId, mentions: [], fileIds: [] } })
+    } catch (e) {
+      const err = e as { status?: number; body?: { retryAfter?: number } }
+      if (err.status !== 429 || i >= 5) throw e
+      await Bun.sleep(1000 * (err.body?.retryAfter ?? 1))
+    }
+  }
+}
 /** ask and wait for the end of the answer (the asker's room.ai.run) */
 async function ask(user: string, roomId: string, body: string): Promise<{ q: RoomMessage; run: RoomAiRun }> {
   const q = await send(user, roomId, body)
@@ -84,12 +97,12 @@ describe('the AI in a room', () => {
     // alice can read the marketing folder: her answer has it, and since bob cannot, it stays her private preview
     expect(forAlice?.body).toContain('Autumn Upgrade')
     expect(forAlice).toMatchObject({ visibility: 'private', askedBy: { id: 'alice' }, author: null, unread: 0, preview: { folders: ['groups/marketing'], personal: false, outside: false } })
-    // bob's turn ran with bob's access: the same read was refused. A refused path and a missing one answer alike, and
-    // either may name a folder someone cannot see, so that answer is bob's private preview too; it does not name the
-    // folder bob cannot open himself
+    // bob's turn ran with bob's access: the same read was refused, with the answer anyone who cannot open the folder
+    // gets (the same as for a path that does not exist), so it tells the room nothing: bob's answer goes to the room
     expect(forBob?.body).not.toContain('Autumn Upgrade')
     expect(forBob?.body).toContain('no access')
-    expect(forBob).toMatchObject({ visibility: 'private', askedBy: { id: 'bob' }, preview: { folders: [], otherFolders: true } })
+    expect(forBob).toMatchObject({ visibility: 'room', askedBy: { id: 'bob' } })
+    expect(forBob?.preview).toBeUndefined()
     // bob never sees alice's preview, nor anything from it
     const bobsView = await messages('bob', roomId)
     expect(bobsView.some((m) => m.id === forAlice!.id)).toBe(false)
@@ -105,7 +118,7 @@ describe('the AI in a room', () => {
     const posted = await answerTo('erin', roomId, one.q)
     expect(posted).toMatchObject({ visibility: 'room', authorKind: 'ai', askedBy: { id: 'alice' }, body: 'The Q4 brief is about upgrades.', sourceCount: 1 })
     // a posted answer: the "answering" line just goes, nobody is told it was private
-    expect(ws.erin!.frames.some((f) => f.type === 'room.ai' && f.data.roomId === roomId && !!f.data.privateAnswer)).toBe(false)
+    expect((await messages('erin', roomId)).find((m) => m.id === one.q.id)?.answeredPrivately).toBeUndefined()
     expect(posted!.unread).toBeGreaterThan(0)
     const src = await h.api('erin').call(API.roomMessageSources, { params: { id: roomId, messageId: posted!.id } })
     expect(src).toMatchObject({ files: [{ path: BRIEF }], unavailable: 0 })
@@ -145,12 +158,20 @@ describe('the AI in a room', () => {
     const erinsView = await messages('erin', roomId)
     expect(erinsView.some((m) => m.authorKind === 'ai')).toBe(false)
     expect(JSON.stringify(erinsView)).not.toContain('Project Falcon plan')
-    // erin, who sees the question, is told only that it was answered to alice alone ("○○ 님에게만 답했어요"): who asked,
-    // nothing of the answer or why; alice gets no such line about her own question
-    const told = await ws.erin!.next('room.ai', (f) => f.data.roomId === roomId && !!f.data.privateAnswer)
-    expect(told.data).toEqual({ roomId, answering: 0, privateAnswer: { questionId: q.id, askedBy: { id: 'alice', name: expect.any(String) } } })
-    await ws.alice!.next('room.ai', (f) => f.data.roomId === roomId && f.data.answering === 0)
-    expect(ws.alice!.frames.some((f) => f.type === 'room.ai' && f.data.roomId === roomId && !!f.data.privateAnswer)).toBe(false)
+    // erin, who sees the question, is told only that it was answered to alice alone ("○○ 님에게만 답했어요" under it):
+    // who asked, nothing of the answer or why, live and after a reload; alice gets no such line about her own question
+    const told = await ws.erin!.next('room.message.updated', (f) => f.data.roomId === roomId && f.data.message.id === q.id && !!f.data.message.answeredPrivately)
+    expect(told.data.message).toMatchObject({ id: q.id, author: { id: 'alice' }, answeredPrivately: true })
+    expect(JSON.stringify(told.data)).not.toContain('Project Falcon plan')
+    expect(erinsView.find((m) => m.id === q.id)).toMatchObject({ answeredPrivately: true })
+    expect((await messages('alice', roomId)).find((m) => m.id === q.id)?.answeredPrivately).toBeUndefined()
+    expect(ws.alice!.frames.some((f) => f.type === 'room.message.updated' && f.data.message.id === q.id && !!f.data.message.answeredPrivately)).toBe(false)
+    // once alice posts it, the line goes: the answer is there
+    const preview = (await answerTo('alice', roomId, q))!
+    await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+    const after = await messages('erin', roomId)
+    expect(after.find((m) => m.id === q.id)?.answeredPrivately).toBeUndefined()
+    expect(after.some((m) => m.id === preview.id && m.visibility === 'room')).toBe(true)
     // other people's words taint the session (remember protection), and their link is not one alice typed
     const s = sessionOf(roomId, 'alice')!
     expect(s.session_tainted).toBe(1)
@@ -364,10 +385,38 @@ describe('changes asked for in a room', () => {
     const q = await send('alice', roomId, `@트리나 note it\n${fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'written with a yes\n' } }, { say: 'saved' })}`)
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
+    // the card says it in words: what it does, the file, what it writes; never the call's JSON
+    const details = (card.data.request as { details?: { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number }[] }).details
+    expect(details).toEqual([{ label: 'What it would change', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: target }], text: 'written with a yes\n', collapsedAt: 400 }])
     await h.api('alice').call(API.answerTurn, { params: { id: card.data.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
     await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('written with a yes\n')
     fs.rmSync(abs(), { force: true })
+  })
+
+  test('the card shows the start of a long text with all of it one click away; for an instruction file all of it at once', async () => {
+    const roomId = await room(['alice', 'erin'])
+    // a planted instruction past the preview is still in the card: behind "Show all" for an ordinary file, open from the
+    // start for a team rule or skill file
+    const long = 'Lorem ipsum dolor sit amet. '.repeat(100) + 'PLANTED-PAST-THE-PREVIEW'
+    const card = async (file: string) => {
+      const q = await send('alice', roomId, `@트리나 note\n${fake({ tool: 'write', args: { file_path: file, content: long } }, { say: 'ok' })}`)
+      const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+      const c = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
+      await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'skip' } })
+      await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
+      expect(fs.existsSync(path.join(h.team, file))).toBe(false)
+      return (c.data.request as { details?: { text: string; fields?: { value: string }[]; collapsedAt?: number }[] }).details![0]!
+    }
+    const plain = await card('shared/room-ai-long.md')
+    expect(plain.fields?.map((f) => f.value)).toEqual(['Save', 'shared/room-ai-long.md'])
+    expect(plain).toMatchObject({ text: long, collapsedAt: 400 })
+    for (const file of ['skills/room-ai-rule.md', 'users/alice/skills/room-ai.md', 'shared/CLAUDE.md',
+      // other spellings of the same places (the file layer drops empty and "." names)
+      './users/alice/skills/notes.md', 'users/alice/./skills/notes.md', 'users/alice//skills/notes.md', 'shared/CLAUDE.md/', 'Skills/room-ai-rule.md']) {
+      const d = await card(file)
+      expect({ file, text: d.text === long, collapsedAt: d.collapsedAt }).toEqual({ file, text: true, collapsedAt: undefined })
+    }
   })
 })
 
@@ -515,9 +564,12 @@ describe('the instructions of a room session', () => {
   })
 
   test('share_file with another spelling of a restricted path (case, NFD) keeps the answer private', async () => {
-    const roomId = await room(['alice', 'erin'])
-    const one = await ask('alice', roomId, `@트리나 link\n${fake({ tool: 'share_file', args: { path: 'PROJECTS/FALCON/plan.md', mode: 'preview' }, sayResult: true })}`)
-    expect(await answerTo('erin', roomId, one.q)).toBeUndefined()
+    // on a case-sensitive disk "PROJECTS/FALCON" is another folder that does not exist: the AI learned nothing
+    if (h.ctx.files.fx.caseInsensitive) {
+      const roomId = await room(['alice', 'erin'])
+      const one = await ask('alice', roomId, `@트리나 link\n${fake({ tool: 'share_file', args: { path: 'PROJECTS/FALCON/plan.md', mode: 'preview' }, sayResult: true })}`)
+      expect(await answerTo('erin', roomId, one.q)).toBeUndefined()
+    }
     const nfc = 'projects/기밀'.normalize('NFC')
     fs.mkdirSync(path.join(h.team, nfc), { recursive: true })
     fs.writeFileSync(path.join(h.team, nfc, 'plan.md'), 'secret\n')
@@ -534,11 +586,26 @@ describe('the instructions of a room session', () => {
     for (const call of [
       { tool: 'read', args: { file_path: 'projects/falcon' }, sayResult: true },
       { tool: 'grep', args: { pattern: 'NO-SUCH-WORD-zzz', path: 'projects/falcon' }, sayResult: true },
-      { tool: 'read', args: { file_path: 'projects/nosuch' }, sayResult: true },
+      { tool: 'read', args: { file_path: 'projects/falcon/nosuch.md' }, sayResult: true },
     ]) {
       const roomId = await room(['alice', 'erin'])
       const { q } = await ask('alice', roomId, `@트리나 x\n${fake(call)}`)
       expect({ call: call.args, posted: !!(await answerTo('erin', roomId, q)) }).toEqual({ call: call.args, posted: false })
+    }
+  })
+
+  test('a path the asker cannot open themselves tells nothing: it does not keep the answer private', async () => {
+    // "not found or no access" for each: a folder of others (erin's group, for bob), one nobody in the room may open,
+    // a path that does not exist where alice may not look, someone else's personal folder
+    for (const [who, other, call] of [
+      ['bob', 'erin', { tool: 'read', args: { file_path: 'groups/marketing/campaign-brief.md' }, sayResult: true }],
+      ['alice', 'erin', { tool: 'read', args: { file_path: 'projects/atlas/notes.md' }, sayResult: true }],
+      ['alice', 'erin', { tool: 'list', args: { path: 'projects/nosuch' }, sayResult: true }],
+      ['alice', 'erin', { tool: 'grep', args: { pattern: 'x', path: 'users/bob' }, sayResult: true }],
+    ] as const) {
+      const roomId = await room([who, other])
+      const { q } = await ask(who, roomId, `@트리나 x\n${fake(call)}`)
+      expect({ call: call.args, posted: (await answerTo(other, roomId, q))?.visibility }).toEqual({ call: call.args, posted: 'room' })
     }
   })
 
@@ -710,16 +777,258 @@ describe('a search start in another spelling, and folders the asker cannot open'
     db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r5sealed-a', 'f_r5sealed', 'user', 'alice', 'none')").run()
     db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r5sealed-e', 'f_r5sealed', 'user', 'erin', 'none')").run()
     try {
+      // a folder alice may open (erin may not), and one neither may open: refused as "not found or no access", which a
+      // name that does not exist there gets too. The two must give the same answer: same place, same reasons
+      const preview = async (other: string) => {
+        const roomId = await room(['alice', 'erin'])
+        const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { tool: 'read', args: { file_path: other }, sayResult: true })}`)
+        expect(await answerTo('erin', roomId, q)).toBeUndefined()
+        return (await answerTo('alice', roomId, q))!.preview
+      }
+      const sealed = await preview('shared/r5-sealed/plan.md')
+      expect(sealed).toEqual(await preview('shared/r5-nosuch/plan.md'))
+      expect(sealed).toMatchObject({ folders: ['projects/falcon'] })
+      expect(JSON.stringify(sealed)).not.toContain('r5-sealed')
       const roomId = await room(['alice', 'erin'])
-      // a folder alice may open (erin may not) and one neither may open
-      const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { tool: 'read', args: { file_path: 'shared/r5-sealed/plan.md' }, sayResult: true })}`)
-      expect(await answerTo('erin', roomId, q)).toBeUndefined()
-      const mine = (await answerTo('alice', roomId, q))!
-      expect(mine.preview).toMatchObject({ folders: ['projects/falcon'], otherFolders: true })
-      expect(JSON.stringify(mine.preview)).not.toContain('r5-sealed')
+      await ask('alice', roomId, `@트리나 x\n${fake({ say: 'hi' })}`)
+      // content from a folder alice cannot open now (a rule changed after she read it): counted, never named to her
+      const scope = { sources: [{ type: 'folder' as const, id: 'f_groups_finance' }], outside: false }
+      expect(roomAiOf(h.ctx).decide(roomId, sessionOf(roomId, 'alice')!.id, scope)).toMatchObject({ post: false, folders: [], otherFolders: true })
     } finally {
       db.query("DELETE FROM folder_rules WHERE id IN ('r5sealed-a', 'r5sealed-e')").run()
       fs.rmSync(path.join(h.team, 'shared/r5-sealed'), { recursive: true, force: true })
     }
+  })
+})
+
+// ---------------- independent review of ae4c861c: where the answer goes must not tell hidden from missing ----------------
+describe('a hidden folder and a missing name give the same answer', () => {
+  /** alice's answer about one path, in a room of her own with bob (who cannot read groups/marketing) */
+  const outcome = async (file: string) => {
+    const roomId = await room(['alice', 'bob'])
+    const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'read', args: { file_path: file }, sayResult: true }, { say: 'done' })}`)
+    const mine = (await answerTo('alice', roomId, q))!
+    const bobs = await messages('bob', roomId)
+    return { body: mine.body, visibility: mine.visibility, preview: mine.preview, bobSeesNote: !!bobs.find((m) => m.id === q.id)?.answeredPrivately }
+  }
+
+  test('under a folder the asker reads and a member cannot: both private, the same reasons (no existence oracle)', async () => {
+    // groups/marketing/salaries is hidden from marketing members by a 'none' rule (fixtures); nosuch-zz does not exist
+    const hidden = await outcome('groups/marketing/salaries/2026.md')
+    const missing = await outcome('groups/marketing/nosuch-zz/2026.md')
+    expect(hidden.body).toContain('not found or no access')
+    expect(missing.body.replace('nosuch-zz', 'salaries')).toBe(hidden.body)
+    expect(hidden).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'] }, bobSeesNote: true })
+    expect({ ...missing, body: '' }).toEqual({ ...hidden, body: '' })
+  })
+
+  test('under a folder the asker may only list: both count for nothing, both go to the room', async () => {
+    // groups/finance is hidden from alice; groups/nosuch-zz does not exist; alice may list groups/ (her group is in it)
+    const hidden = await outcome('groups/finance/budget.md')
+    const missing = await outcome('groups/nosuch-zz/budget.md')
+    expect({ ...missing, body: '' }).toEqual({ ...hidden, body: '' })
+    expect(hidden.visibility).toBe('room')
+  })
+})
+
+describe("a room session's history is what the room holds", () => {
+  test("an answer longer than the room took comes back as the room's copy, never the part the room did not get", async () => {
+    const roomId = await room(['alice', 'erin'])
+    const one = await ask('alice', roomId, `@트리나 first\n${fake({ say: 'FIRST-ANSWER as posted' })}`)
+    expect((await answerTo('erin', roomId, one.q))?.visibility).toBe('room')
+    // the chat keeps the whole answer; the room got it cut (ROOM_AI_ANSWER_MAX): here, a tail only the chat has
+    const turn = (h.ctx.db.query('SELECT turn_id FROM room_ai_turns WHERE question_id = ?').get(one.q.id) as { turn_id: string }).turn_id
+    h.ctx.db.query("UPDATE messages SET content = content || '\n\nTAIL-THE-ROOM-NEVER-SAW' WHERE turn_id = ? AND role = 'assistant'").run(turn)
+    const two = await ask('alice', roomId, `@트리나 again\n${fake({ echo: 'system' })}`)
+    const body = (await answerTo('alice', roomId, two.q))!.body
+    expect(body).toMatch(/<previous_conversation>[\s\S]*FIRST-ANSWER as posted/)
+    expect(body).not.toContain('TAIL-THE-ROOM-NEVER-SAW')
+  })
+})
+
+describe('a preview from before each question kept its own scope', () => {
+  test("is never decided from the session (a later question's scope): its reasons stand; without any, it is not posted", async () => {
+    const roomId = await room(['alice', 'erin'])
+    const one = await ask('alice', roomId, `@트리나 falcon\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { say: 'plan' })}`)
+    const preview = (await answerTo('alice', roomId, one.q))!
+    expect(preview.preview).toMatchObject({ folders: ['projects/falcon'] })
+    // as a row written before migration 246: no scope of its own
+    h.ctx.db.query('UPDATE room_ai_turns SET scope = NULL WHERE answer_id = ?').run(preview.id)
+    const stored = (h.ctx.db.query('SELECT decision FROM room_ai_turns WHERE answer_id = ?').get(preview.id) as { decision: string }).decision
+    // a later question with other reasons (alice's own folder) is the session's scope now
+    const two = await ask('alice', roomId, `@트리나 todo\n${fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'todo' })}`)
+    expect((await answerTo('alice', roomId, two.q))?.preview).toMatchObject({ personal: true, folders: [] })
+    const shared = await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+    expect(shared.visibility).toBe('room')
+    expect((h.ctx.db.query('SELECT decision FROM room_ai_turns WHERE answer_id = ?').get(preview.id) as { decision: string }).decision).toBe(stored)
+    // no scope and no reasons kept: it cannot be checked, so it is not posted; the person is told to ask again
+    const second = (await answerTo('alice', roomId, two.q))!
+    h.ctx.db.query('UPDATE room_ai_turns SET scope = NULL, decision = NULL WHERE answer_id = ?').run(second.id)
+    const r = await h.req('alice', `/api/rooms/${roomId}/messages/${second.id}/share`, { method: 'POST' })
+    expect(r.status).toBe(409)
+    expect((await r.json()).error.params.reason).toBe('room_ai_ask_again')
+    expect(await answerTo('erin', roomId, two.q)).toBeUndefined()
+  })
+})
+
+describe('a skill or instruction file changes from a room only with all of its content on the card', () => {
+  /** alice's call in a room of her own with erin: the tool's answer to the AI, and whether a card came */
+  const call = async (step: unknown) => {
+    const roomId = await room(['alice', 'erin'])
+    const q = await send('alice', roomId, `@트리나 do it\n${fake(step, { say: 'ok' })}`)
+    const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+    // every card is answered "no"; the first one is kept
+    const got: { card: { details?: { text: string; collapsedAt?: number }[]; requestId: string } | null } = { card: null }
+    const answered = new Set<string>()
+    for (let waited = 0; ; waited += 100) {
+      if (waited > 30_000) throw new Error('the answer did not end')
+      for (const f of ws.alice!.frames) {
+        if (f.type !== 'turn.request' || f.data.turnId !== turnId || answered.has(f.data.request.requestId)) continue
+        answered.add(f.data.request.requestId)
+        got.card ??= f.data.request as NonNullable<typeof got.card>
+        await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: f.data.request.requestId, answer: 'skip' } })
+      }
+      if (ws.alice!.frames.some((f) => f.type === 'room.ai.run' && f.data.run.turnId === turnId && f.data.run.state === 'done')) break
+      await Bun.sleep(100)
+    }
+    const steps = (h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool <> '(connect)'").all(turnId) as { summary: string }[]).map((r) => r.summary)
+    return { card: got.card, steps }
+  }
+  const mine = (rel: string, body = 'x\n') => { const abs = path.join(h.team, rel); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, body); return abs }
+
+  test('moved, copied or renamed into one, made from a source or template, or saved from the web: not done, no card', async () => {
+    const files = [mine('users/alice/r6-notes.md'), mine('users/alice/r6-dir/CLAUDE.md'), mine('users/alice/r6-src.md')]
+    try {
+      for (const step of [
+        { tool: 'rename_file', args: { path: 'users/alice/r6-notes.md', new_name: 'CLAUDE.md' } },
+        { tool: 'move_files', args: { paths: ['users/alice/r6-notes.md'], to_folder: 'users/alice/skills' } },
+        { tool: 'copy_files', args: { paths: ['users/alice/r6-notes.md'], to_folder: './users/alice//skills' } },
+        // a folder that holds an instruction file
+        { tool: 'move_files', args: { paths: ['users/alice/r6-dir'], to_folder: 'shared' } },
+        { tool: 'make_file', args: { source: 'users/alice/r6-src.md', format: 'docx', output: 'users/alice/skills/r6.docx' } },
+        { tool: 'save_url', args: { url: 'https://example.com/a.md', save_as: 'users/alice/skills/r6.md' } },
+        // a folder (or none): the file is named after the address
+        { tool: 'save_url', args: { url: 'https://example.com/x/CLAUDE.md', save_as: 'projects/p/' } },
+        { tool: 'save_url', args: { url: 'https://example.com/x/SKILL.md' } },
+      ]) {
+        const r = await call(step)
+        expect({ step: step.tool, card: r.card, refused: r.steps.some((x) => x.includes('not allowed by the user (room)')) }).toEqual({ step: step.tool, card: null, refused: true })
+      }
+      expect(fs.existsSync(path.join(h.team, 'users/alice/CLAUDE.md'))).toBe(false)
+      expect(fs.existsSync(path.join(h.team, 'users/alice/r6-notes.md'))).toBe(true)
+      expect(fs.existsSync(path.join(h.team, 'shared/r6-dir'))).toBe(false)
+    } finally {
+      for (const f of files) fs.rmSync(f, { force: true })
+      fs.rmSync(path.join(h.team, 'users/alice/r6-dir'), { recursive: true, force: true })
+    }
+  })
+
+  test('a text longer than the card carries (ROOM_CHANGE_FULL) is not all shown: into an instruction file it is refused', () => {
+    // (a room message is at most 10,000 characters, so the fake engine cannot be told to write this much: checked here
+    // on the rule confirmRoomChange applies)
+    const none = () => []
+    const long = `${'x'.repeat(ROOM_CHANGE_FULL + 1)}\nPLANTED`
+    const refused = (tool: string, args: unknown) => { const w = roomChangeWrites(tool, args, none, 'alice'); return !w.shown && w.targets.some(instructionLike) }
+    for (const [tool, args] of [
+      ['write', { file_path: 'users/alice/skills/r6/SKILL.md', content: long }],
+      ['edit', { file_path: 'users/alice/skills/r6/SKILL.md', old_string: 'x', new_string: long }],
+      ['edit_files', { file_paths: ['shared/a.md', 'skills/r6.md'], old_string: long, new_string: 'y' }],
+      ['make_file', { content: long, format: 'docx', output: 'users/alice/skills/r6.docx' }],
+    ] as const) expect({ tool, refused: refused(tool, args) }).toEqual({ tool, refused: true })
+    // the same text elsewhere, and a short one into an instruction file, are not refused (the card shows them)
+    expect(refused('write', { file_path: 'shared/r6.md', content: long })).toBe(false)
+    expect(refused('write', { file_path: 'users/alice/skills/r6/SKILL.md', content: 'x'.repeat(ROOM_CHANGE_FULL) })).toBe(false)
+    // save_url into a folder or nowhere: the address names the file
+    expect(roomChangeWrites('save_url', { url: 'https://example.com/x/CLAUDE.md', save_as: 'projects/p/' }, none, 'alice').targets).toContain('projects/p/CLAUDE.md')
+    expect(roomChangeWrites('save_url', { url: 'https://example.com/x/SKILL.md' }, none, 'alice').targets).toEqual(['users/alice/downloads/SKILL.md'])
+  })
+
+  test('elsewhere such a call gets its card, which says plainly that its content is not on it', async () => {
+    const src = mine('users/alice/r6-src2.md')
+    try {
+      const made = await call({ tool: 'make_file', args: { source: 'users/alice/r6-src2.md', format: 'docx', output: 'shared/r6.docx' } })
+      expect(made.card?.details?.[0]?.text).toBe('Not all of what it saves is on this card: it comes from users/alice/r6-src2.md.')
+      const moved = await call({ tool: 'move_files', args: { paths: ['users/alice/r6-src2.md'], to_folder: 'shared' } })
+      expect(moved.card?.details?.[0]?.text).toBe('users/alice/r6-src2.md')
+    } finally { fs.rmSync(src, { force: true }) }
+  })
+})
+
+describe("a room session's history: the questions as the room holds them", () => {
+  test('an edited question comes back edited, a deleted one not at all', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const one = await ask('alice', roomId, `@트리나 ORIGINAL-QUESTION-TEXT\n${fake({ say: 'ONE-ANSWER' })}`)
+    await h.api('alice').call(API.editRoomMessage, { params: { id: roomId, messageId: one.q.id }, body: { body: '@트리나 EDITED-QUESTION-TEXT', mentions: [] } })
+    const two = await ask('alice', roomId, `@트리나 again\n${fake({ echo: 'system' })}`)
+    const seen = (await answerTo('alice', roomId, two.q))!.body
+    expect(seen).toMatch(/<previous_conversation>[\s\S]*EDITED-QUESTION-TEXT[\s\S]*ONE-ANSWER/)
+    expect(seen).not.toContain('ORIGINAL-QUESTION-TEXT')
+    await h.api('alice').call(API.deleteRoomMessage, { params: { id: roomId, messageId: one.q.id } })
+    const three = await ask('alice', roomId, `@트리나 and now\n${fake({ echo: 'system' })}`)
+    const later = (await answerTo('alice', roomId, three.q))!.body
+    // the history starts with the answer: its question is gone (the second answer, posted, quotes it as the room saw it)
+    expect(later).toMatch(/<previous_conversation>\nThe conversation so far[^\n]*\nAssistant: ONE-ANSWER\n/)
+    expect(later).not.toContain('ORIGINAL-QUESTION-TEXT')
+  })
+})
+
+// ---------------- the live test of 2026-11-05: a member with no group got only private previews ----------------
+describe('what makes an answer private: what some member could not see, per question', () => {
+  /** bob without his groups for the test (a member with no group, like the live test's Noah; the rooms of the tests
+   * above are groups too) */
+  const withoutGroup = async (run: () => Promise<void>) => {
+    const had = (h.ctx.db.query("SELECT group_id FROM group_members WHERE user_id = 'bob'").all() as { group_id: string }[]).map((r) => r.group_id)
+    h.ctx.db.query("DELETE FROM group_members WHERE user_id = 'bob'").run()
+    try { await run() } finally { for (const g of had) h.ctx.db.query("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, 'bob')").run(g) }
+  }
+  const allRoom = async () => (await h.api('bob').call(API.listRooms)).items.find((r) => r.kind === 'all')!.id
+
+  test('a member with no group asks a general question in the everyone room: it goes to the room, and so does the next', async () => {
+    await withoutGroup(async () => {
+      const roomId = await allRoom()
+      // another member's answer from a group folder, posted: the room now names a file bob cannot open
+      const a = await ask('alice', roomId, `@트리나 brief?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { say: `[brief](/files/view?path=${encodeURIComponent(BRIEF)}) says Autumn Upgrade` })}`)
+      const preview = (await answerTo('alice', roomId, a.q))!
+      expect(preview.visibility).toBe('private')
+      await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+      // bob's AI tries that file (refused), lists the top of the team folder (members may list it, not read it) and
+      // searches everything bob may read: all of it is what every member sees
+      const one = await ask('bob', roomId, `@트리나 what is the 2027 budget?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { tool: 'list', args: { path: '.' } }, { tool: 'grep', args: { pattern: 'NOAH-NOPE-zzz' } }, { say: 'I could not find it in the files you can open.' })}`)
+      expect(one.run.state).toBe('done')
+      // (the fake engine also follows the directives in the room's earlier messages: a real model would not)
+      const posted = await answerTo('erin', roomId, one.q)
+      expect(posted).toMatchObject({ visibility: 'room', askedBy: { id: 'bob' } })
+      expect(posted!.body).toContain('I could not find it in the files you can open.')
+      const scope = String((h.ctx.db.query('SELECT scope FROM room_ai_turns WHERE question_id = ?').get(one.q.id) as { scope: string }).scope)
+      expect(scope).not.toContain('f_groups_marketing')
+      expect(scope).toContain('"type":"name","path":""')
+      // his own folder: that answer is his preview (nobody else may open it) ...
+      const mine = await ask('bob', roomId, `@트리나 my notes?\n${fake({ tool: 'read', args: { file_path: 'users/bob/notes.md' } }, { say: 'Your notes have one line.' })}`)
+      expect(await answerTo('bob', roomId, mine.q)).toMatchObject({ visibility: 'private', preview: { personal: true, folders: [] } })
+      // ... and the next general question in the same session goes to the room again: nothing of it was carried
+      const two = await ask('bob', roomId, `@트리나 thanks, and the glossary?\n${fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: 'ARR is annual recurring revenue.' })}`)
+      expect((await answerTo('erin', roomId, two.q))?.visibility).toBe('room')
+      // the private preview, posted later, is decided on what its own question used
+      const p = (await answerTo('bob', roomId, mine.q))!
+      expect((await h.api('bob').call(API.shareRoomMessage, { params: { id: roomId, messageId: p.id } })).visibility).toBe('room')
+    })
+  })
+
+  test('a question that reads a group folder another member cannot read stays private', async () => {
+    const roomId = await allRoom()
+    const { q } = await ask('bob', roomId, `@트리나 budget?\n${fake({ tool: 'read', args: { file_path: 'groups/finance/budget.md' } }, { say: 'It is in the budget file.' })}`)
+    expect(await answerTo('erin', roomId, q)).toBeUndefined()
+    expect(await answerTo('bob', roomId, q)).toMatchObject({ visibility: 'private', preview: { folders: ['groups/finance'], personal: false } })
+  })
+
+  test('a listing shows names: a sub-folder some member cannot list keeps the answer private, the top of the team folder does not', async () => {
+    const roomId = await room(['alice', 'bob'])
+    // alice lists the top: "groups/" is there for her (her group is in it), bob (finance) sees it too; "projects/" both
+    const top = await ask('alice', roomId, `@트리나 top?\n${fake({ tool: 'list', args: { path: '' } }, { say: 'shared, skills, groups, projects, users' })}`)
+    expect((await answerTo('bob', roomId, top.q))?.visibility).toBe('room')
+    // alice lists groups/: "marketing/" is a folder bob cannot list
+    const groups = await ask('alice', roomId, `@트리나 groups?\n${fake({ tool: 'list', args: { path: 'groups' } }, { say: 'marketing' })}`)
+    expect(await answerTo('bob', roomId, groups.q)).toBeUndefined()
+    expect((await answerTo('alice', roomId, groups.q))?.preview).toMatchObject({ personal: false, outside: false })
   })
 })

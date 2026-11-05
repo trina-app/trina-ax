@@ -142,7 +142,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
               <span className="font-medium text-ink">{t('rooms.replyTo', { name: reply.author?.name ?? gone })}</span>
               {reply.excerpt && <span> · {reply.excerpt}</span>}
             </span>
-            <IconButton label={t('rooms.cancelReply')} onClick={onCancelReply} className="p-1">
+            <IconButton label={t('rooms.cancelReply')} onClick={onCancelReply} className="touch-hit p-1">
               <X size={14} />
             </IconButton>
           </div>
@@ -164,7 +164,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
           </ul>
         )}
         <div className="flex items-end gap-1 px-1.5 py-1.5">
-          <IconButton label={t('composer.attach')} onClick={() => picker.current?.click()} className="mb-0.5" data-testid="room-attach">
+          <IconButton label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit mb-0.5" data-testid="room-attach">
             <Paperclip size={18} />
           </IconButton>
           <input
@@ -205,7 +205,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
                 submit()
               }
             }}
-            className="block max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-[15px] leading-6 text-ink outline-none placeholder:text-faint"
+            className="block max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
             data-testid="room-input"
           />
           <button
@@ -214,7 +214,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
             disabled={!canSend}
             aria-label={t('chat.send')}
             title={t('chat.send')}
-            className={clsx('mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+            className={clsx('touch-hit mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
             data-testid="room-send"
           >
             <ArrowUp size={18} aria-hidden />

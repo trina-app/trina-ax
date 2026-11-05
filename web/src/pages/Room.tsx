@@ -155,8 +155,8 @@ function RoomView({ roomId }: { roomId: string }) {
 
   return (
     <div className="flex h-full flex-col" data-testid="room">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 sm:px-4">
-        <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-2 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4">
+        <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
           <ChevronLeft size={20} aria-hidden />
         </Link>
         {room && <RoomIcon room={room} size={24} />}
@@ -164,13 +164,13 @@ function RoomView({ roomId }: { roomId: string }) {
           {room ? title(room) : ''}
         </h1>
         {room && room.kind !== 'dm' && (
-          <button type="button" onClick={() => setShowMembers(true)} className="shrink-0 rounded px-1 py-1 text-xs text-faint hover:text-ink max-sm:py-2" data-testid="room-members-button">
+          <button type="button" onClick={() => setShowMembers(true)} className="touch-hit shrink-0 rounded px-1 py-1 text-xs text-faint hover:text-ink max-sm:py-2" data-testid="room-members-button">
             {t('rooms.members', { n: room.memberCount })}
           </button>
         )}
         {/* the room's one setting, right here (a menu of one item is one tap too many): the bell shows how it is now */}
         {room && (
-          <IconButton label={room.muted ? t('rooms.unmute') : t('rooms.mute')} className="ml-auto" onClick={() => void toggleMute()} data-testid="room-mute">
+          <IconButton label={room.muted ? t('rooms.unmute') : t('rooms.mute')} className="touch-hit ml-auto" onClick={() => void toggleMute()} data-testid="room-mute">
             {room.muted ? <BellOff size={16} aria-hidden /> : <Bell size={16} aria-hidden />}
           </IconButton>
         )}

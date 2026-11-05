@@ -153,8 +153,7 @@ test('the AI saving under skills/: the server card with the diff; 저장 saves a
   await expect(card).toHaveAttribute('data-origin', 'server')
   await expect(card).toContainText('팀 서버의 안전 확인')
   await expect(card).toContainText('팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따라요')
-  await card.getByLabel('저장하지 않기').check()
-  await card.getByRole('button', { name: '답하기' }).click()
+  await card.getByRole('button', { name: '저장하지 않기', exact: true }).click()
   await expect(lastAnswer(page)).toContainText('Not saved')
   // saved
   await page.getByTestId('composer-input').fill('skillsave again')
@@ -165,8 +164,7 @@ test('the AI saving under skills/: the server card with the diff; 저장 saves a
   await expect(preview).toContainText('새 파일')
   await expect(preview.getByTestId('skill-preview-count')).toHaveText('+6 −0줄')
   await expect(preview.getByTestId('skill-preview-diff')).toContainText('+name: 주간 보고서')
-  await card.getByLabel('저장', { exact: true }).check()
-  await card.getByRole('button', { name: '답하기' }).click()
+  await card.getByRole('button', { name: '저장', exact: true }).click()
   await expect(lastAnswer(page)).toContainText('Saved skills/weekly.md')
   // owner and admins hear about the change, with a link to the version history
   await page.getByRole('button', { name: '버전 기록 보기' }).last().click()

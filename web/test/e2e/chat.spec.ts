@@ -205,8 +205,7 @@ test('a safety check the server raised has its own header, never the "AI asks" o
   await expect(card).toHaveAttribute('data-origin', 'server')
   await expect(card).toContainText('팀 서버의 안전 확인')
   await expect(card).not.toContainText('AI가 확인하고 싶어 해요')
-  await card.getByLabel('열지 않기').check()
-  await card.getByRole('button', { name: '답하기' }).click()
+  await card.getByRole('button', { name: '열지 않기', exact: true }).click()
   await expect(card).toHaveCount(0)
 })
 

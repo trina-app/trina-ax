@@ -490,7 +490,7 @@ export default function Composer({
                     <span className="max-w-[180px] truncate font-medium">{f.name}</span>
                   )}
                   {/* the team folder it is in, visible without hovering (phones) */}
-                  {f.source === 'team' && <span className="max-w-[180px] truncate text-[10px] leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
+                  {f.source === 'team' && <span className="max-w-[180px] truncate text-nano leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
                 </span>
                 {/* both stay through the whole upload, so a screen reader hears each change */}
                 <span className="flex items-center">
@@ -592,26 +592,26 @@ export default function Composer({
                 }}
                 placeholder={hint}
                 disabled={transcribing}
-                className={clsx('block max-h-[240px] min-w-0 flex-1 resize-none bg-transparent pb-3 pl-5 text-[15px] leading-6 outline-none placeholder:text-faint', answering ? 'pt-1.5' : 'pt-3')}
+                className={clsx('block max-h-[240px] min-w-0 flex-1 resize-none bg-transparent pb-3 pl-5 text-reading leading-reading outline-none placeholder:text-faint', answering ? 'pt-1.5' : 'pt-3')}
                 data-testid="composer-input"
               />
               <div className="flex shrink-0 items-center gap-1 pb-2">
                 {answering
                   ? canSend && (
                       // the AI's question: also how phones (Enter makes a new line there) answer from the box
-                      <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} title={t('composer.sendAnswer')} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
+                      <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} title={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
                         {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
                       </button>
                     )
                   : running &&
                     canSend && (
                       // phones make a new line with Enter: this button is how a message waits for the answer there
-                      <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} title={t('outbox.sendLater')} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-later">
+                      <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} title={t('outbox.sendLater')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-later">
                         <Clock size={17} aria-hidden />
                       </button>
                     )}
                 {running ? (
-                  <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} title={t('composer.stop')} className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
+                  <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} title={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
                     {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
                   </button>
                 ) : (
@@ -622,7 +622,7 @@ export default function Composer({
                       disabled={!canSend}
                       aria-label={t('chat.send')}
                       title={t('chat.send')}
-                      className={clsx('flex h-8 w-8 items-center justify-center rounded-lg transition', canSend ? 'text-ink hover:bg-hover' : 'text-faint')}
+                      className={clsx('touch-hit flex h-8 w-8 items-center justify-center rounded-lg transition', canSend ? 'text-ink hover:bg-hover' : 'text-faint')}
                       data-testid="send"
                     >
                       {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
@@ -658,6 +658,7 @@ export default function Composer({
                   openMenu(true)
                 }
               }}
+              className="touch-hit"
               data-testid="attach-button"
             >
               <Plus size={19} />
@@ -746,17 +747,18 @@ export default function Composer({
             }}
           />
           {mic === 'on' && (
-            <IconButton label={t('voice.start')} onClick={startVoice} disabled={transcribing || sending || recorder.state === 'recording'}>
+            <IconButton label={t('voice.start')} onClick={startVoice} disabled={transcribing || sending || recorder.state === 'recording'} className="touch-hit">
               {transcribing ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
             </IconButton>
           )}
           {mic === 'adminHint' && (
-            <IconButton label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className="text-faint" data-testid="voice-off-hint">
+            <IconButton label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className="text-faint max-md:hidden" data-testid="voice-off-hint">
               <MicOff size={18} />
             </IconButton>
           )}
         </div>
-        {footer && <p className="hidden min-w-0 text-center text-[11px] text-faint sm:block">{footer}</p>}
+        {/* the note under the box: computers only (a phone keeps the bottom for the box and the keyboard) */}
+        {footer && <p className="hidden min-w-0 text-center text-micro text-faint md:block">{footer}</p>}
         <div className="flex flex-1 basis-0 items-center justify-end">
           {onEngine && (
             <div className="relative">
@@ -780,7 +782,6 @@ export default function Composer({
           )}
         </div>
       </div>
-      {footer && <p className="px-2 pt-1 text-center text-[11px] text-faint sm:hidden">{footer}</p>}
       {error && (
         <p role="alert" className="mt-2 px-2 text-sm text-danger">
           {error}

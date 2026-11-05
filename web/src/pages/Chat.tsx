@@ -5,9 +5,9 @@
 // message box answers that question instead (lib/askAnswer.ts).
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
-import { Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
+import { ChevronLeft, Globe, Loader2, MessageSquarePlus, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
@@ -43,6 +43,7 @@ function ChatView({ chatId }: { chatId: string }) {
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
   const announce = useAnnounce()
+  const navigate = useNavigate()
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId))
   const [chat, setChat] = useState<Chat | null>(chatFromList ?? null)
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
@@ -251,8 +252,12 @@ function ChatView({ chatId }: { chatId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
+      {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
+          it is the only bar (Layout drops its own here): back to the 대화 list, the name, and a new chat. */}
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1">
+        <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
+          <ChevronLeft size={20} aria-hidden />
+        </Link>
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
           <ChatProjectCrumb projectId={projectId} />
           {chat && !chat.deletedAt ? (
@@ -270,6 +275,9 @@ function ChatView({ chatId }: { chatId: string }) {
           )}
         </div>
         {isDesktop() && <BrowserToggle />}
+        <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} className="p-3! md:hidden" data-testid="chat-new">
+          <MessageSquarePlus size={20} />
+        </IconButton>
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
         <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8">
@@ -312,7 +320,7 @@ function ChatView({ chatId }: { chatId: string }) {
           />
           </>
         )}
-        {chat?.deletedAt && <p className="pt-2 text-center text-[11px] text-faint">{t('chat.footer')}</p>}
+        {chat?.deletedAt && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>}
       </div>
       {movingProject && chat && (
         <MoveToProjectDialog

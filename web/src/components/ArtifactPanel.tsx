@@ -124,7 +124,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
         <h2 className="min-w-0 truncate text-sm font-semibold" title={title}>
           {title}
         </h2>
-        {type && <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 text-[11px] text-muted">{t(TYPE_LABEL[type])}</span>}
+        {type && <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 text-micro text-muted">{t(TYPE_LABEL[type])}</span>}
         {writing && (
           <span className="flex shrink-0 items-center gap-1 text-xs text-accent-text">
             <Loader2 size={12} className="animate-spin" aria-hidden /> {t('artifact.writing')}

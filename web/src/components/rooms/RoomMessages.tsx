@@ -30,7 +30,6 @@ import { MenuButton, useLongPress } from './MenuButton'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { useMentionMenu } from './useMentionMenu'
 
-const NO_PRIVATES: { questionId: string; askedBy: UserRef }[] = []
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -65,17 +64,13 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
   }
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null
   // what the AI did with a question, under that question: my answer that stopped or failed, someone else's answer that
-  // stayed theirs only
+  // stayed theirs only (the question says so, also after a reload)
   const ended = useRooms(useShallow((s) => (s.ai[roomId]?.runs ?? NO_RUNS).filter((r) => !runActive(r))))
-  const privates = useRooms((s) => s.ai[roomId]?.privates) ?? NO_PRIVATES
-  const after = (id: string) => [
-    ...ended.filter((r) => r.questionId === id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...privates.filter((p) => p.questionId === id).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />),
+  const after = (m: RoomMessage) => [
+    ...ended.filter((r) => r.questionId === m.id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
+    ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={m.author?.name ?? t('rooms.goneUser')} />] : []),
   ]
-  const orphans = [
-    ...ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...privates.filter((p) => !loaded.has(p.questionId)).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />),
-  ]
+  const orphans = ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
 
   return (
     <div data-testid="room-messages">
@@ -84,7 +79,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
         return (
           <Fragment key={run.key}>
             {run.newDay && (
-              <div role="separator" className="flex items-center gap-3 py-3 text-[11px] font-medium text-faint">
+              <div role="separator" className="flex items-center gap-3 py-3 text-micro font-medium text-faint">
                 <span className="h-px flex-1 bg-line" aria-hidden />
                 {dayOf(first.createdAt, locale)}
                 <span className="h-px flex-1 bg-line" aria-hidden />
@@ -118,7 +113,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                       onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
                       headed={m === first}
                     />
-                    {after(m.id)}
+                    {after(m)}
                   </Fragment>
                 ))}
               </div>
@@ -149,12 +144,13 @@ function RunAvatar({ m }: { m: RoomMessage }) {
   return user ? <Avatar user={user} size={32} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
 
-/** How many members have not read a message yet (only above 0). */
+/** How many members have not read a message yet (only above 0), quiet like the time: orange is kept for mentions and
+ * actions. */
 function Unread({ n }: { n: number }) {
   const t = useT()
   if (n <= 0) return null
   return (
-    <span className="ml-1.5 text-[11px] font-medium text-accent-text tabular-nums" data-testid="message-unread">
+    <span className="ml-1.5 text-micro font-medium text-faint tabular-nums" data-testid="message-unread">
       <span aria-hidden>{n}</span>
       <span className="sr-only">{t('rooms.unreadBy', { n })}</span>
     </span>
@@ -206,7 +202,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
       data-visibility={m.visibility}
       {...(menuOn ? longPress : {})}
     >
-      {ai ? <AskedBy m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
+      {ai ? <AskedBy roomId={roomId} m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
       {ai && !deleted ? (
         <>
           <Markdown text={m.body} className="min-w-0" openable={openable} />
@@ -214,16 +210,15 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
           {!!m.sourceCount && (
             <SourcesList chatId={roomId} messageId={m.id} count={m.sourceCount} load={(signal) => api.call(API.roomMessageSources, { params: { id: roomId, messageId: m.id }, signal })} />
           )}
-          {m.visibility === 'private' && <PreviewNote roomId={roomId} m={m} />}
         </>
       ) : editing ? (
         <EditForm roomId={roomId} m={m} initial={mentioned.filter((x) => x.name)} members={members} meId={meId} onDone={onEditDone} />
       ) : deleted ? (
-        <p className="text-[15px] leading-6 text-faint">{t('rooms.deleted')}</p>
+        <p className="text-reading leading-reading text-faint">{t('rooms.deleted')}</p>
       ) : (
         <>
           {m.body && (
-            <p className="text-[15px] leading-6 break-words whitespace-pre-wrap text-ink">
+            <p className="text-reading leading-reading break-words whitespace-pre-wrap text-ink">
               {parts.map((p, i) =>
                 p.userId ? (
                   <span key={i} className={clsx('font-medium text-accent-text', p.userId === meId && 'rounded bg-accent-soft px-0.5')}>
@@ -262,16 +257,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
 }
 
 /** "○○ 님이 물어봄" above an AI answer; a click goes to the question when it is loaded. My private preview says
- * "나만 볼 수 있어요" there instead: whose question it answers is clear, who sees it is not. */
-function AskedBy({ m, onJump }: { m: RoomMessage; onJump?: () => void }) {
+ * "나만 볼 수 있어요" there instead: whose question it answers is clear, who sees it is not (PreviewLine). */
+function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump?: () => void }) {
   const t = useT()
-  if (m.visibility === 'private')
-    return (
-      <p className="mb-0.5 flex items-center gap-1 text-xs text-faint" data-testid="room-ai-private">
-        <Lock size={12} className="shrink-0" aria-hidden />
-        {t('rooms.aiPrivate')}
-      </p>
-    )
+  if (m.visibility === 'private') return <PreviewLine roomId={roomId} m={m} />
   const text = t('rooms.aiAskedBy', { name: m.askedBy?.name ?? t('rooms.goneUser') })
   return onJump ? (
     <button type="button" onClick={onJump} className="mb-0.5 block max-w-full truncate text-left text-xs text-faint hover:text-ink hover:underline" data-testid="room-ai-asked-by">
@@ -285,33 +274,38 @@ function AskedBy({ m, onJump }: { m: RoomMessage; onJump?: () => void }) {
 }
 
 /** The folders of a private preview as people know them: the last part of each path ("마케팅팀", not
- * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words, "내 폴더" for their own; never the skills
- * folders (the team rules and skills the AI was given: how it works, not what it found). */
-export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string; mine: string }): string[] {
+ * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words; never the skills folders (the team rules and
+ * skills the AI was given: how it works, not what it found). */
+export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string }): string[] {
   const names = p.folders.filter((f) => f !== 'skills' && !f.startsWith('skills/')).map((f) => (f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f))
-  if (p.personal) names.push(words.mine)
   return [...new Set(names)]
 }
 
-/** The one sentence above "대화방에 올리기": who would see it once posted. */
-export function previewWhy(p: RoomMessage['preview'], t: ReturnType<typeof useT>): string {
-  const folders = p ? previewFolderNames(p, { root: t('rooms.aiRootFolder'), mine: t('rooms.aiMyFolder') }) : []
-  // folders the person cannot open themselves are never named to them
-  if (p?.otherFolders) folders.push(t('rooms.aiOtherFolders'))
-  if (folders.length === 1 && p?.otherFolders) return t('rooms.aiPrivateOtherFolders')
-  if (folders.length) return t('rooms.aiPrivateFolders', { folders: folders.join(', ') })
-  if (p?.joinedLater?.length) return t('rooms.aiPrivateJoined', { names: p.joinedLater.join(', ') })
-  return p?.outside ? t('rooms.aiPrivateOutside') : t('rooms.aiPrivateAll')
+/** Why a private preview did not go to the room, one short sentence per reason (the folders it read that some members
+ * cannot open, named when the person may open them; their own folder; messages from before someone joined; the web or
+ * a connected service). Without a reason (an older preview): that everyone would see it. `dm`: a 1:1 room, where "some
+ * people in this room" is the other person. */
+export function previewWhy(p: RoomMessage['preview'], t: ReturnType<typeof useT>, dm = false): string {
+  if (!p) return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
+  const why: string[] = []
+  const folders = previewFolderNames(p, { root: t('rooms.aiRootFolder') })
+  // folders the person cannot open themselves, and the skills folders, are never named
+  if (folders.length) why.push(t(dm ? 'rooms.aiWhyFoldersDm' : 'rooms.aiWhyFolders', { folders: folders.join(', ') }))
+  else if (p.folders.length || p.otherFolders) why.push(t(dm ? 'rooms.aiWhySomeFoldersDm' : 'rooms.aiWhySomeFolders'))
+  if (p.personal) why.push(t('rooms.aiWhyMine'))
+  if (p.joinedLater?.length) why.push(t('rooms.aiWhyJoined', { names: p.joinedLater.join(', ') }))
+  if (p.outside) why.push(t('rooms.aiWhyOutside'))
+  return why.length ? why.join(' ') : t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
 }
 
-/** My private preview of an AI answer (the top says it is mine only): one sentence on who would see it once posted,
- * and the way to post it, an outline button (not posting is the default). Posting leaves out the sources some member
- * cannot read; the server decides that again. */
-function PreviewNote({ roomId, m }: { roomId: string; m: RoomMessage }) {
+/** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 올리기" (a text
+ * action: not posting is the default), and under it, small, why it stayed with me. Posting leaves out the sources some
+ * member cannot read; the server decides that again. Putting it away is in the message's "…" menu. */
+function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
+  const dm = useRooms((s) => s.rooms.find((r) => r.id === roomId)?.kind === 'dm')
   const [busy, setBusy] = useState(false)
-  const why = previewWhy(m.preview, t)
   const share = async () => {
     setBusy(true)
     try {
@@ -321,12 +315,25 @@ function PreviewNote({ roomId, m }: { roomId: string; m: RoomMessage }) {
       setBusy(false)
     }
   }
+  // put away (deleted): only the lock line, nothing to post
+  if (m.deletedAt)
+    return (
+      <p className="mb-0.5 flex items-center gap-1 text-xs text-faint" data-testid="room-ai-private">
+        <Lock size={12} className="shrink-0" aria-hidden />
+        {t('rooms.aiPrivate')}
+      </p>
+    )
   return (
-    <div className="mt-2 mb-1 text-sm" role="note" data-testid="room-ai-preview">
-      <p className="text-muted">{why}</p>
-      <Button size="sm" variant="secondary" className="mt-2" busy={busy} onClick={() => void share()} data-testid="room-ai-share">
-        {t('rooms.aiShare')}
-      </Button>
+    <div className="mb-1 text-xs text-faint" role="note">
+      <p className="flex flex-wrap items-center gap-x-1" data-testid="room-ai-private">
+        <Lock size={12} className="shrink-0" aria-hidden />
+        {t('rooms.aiPrivate')}
+        <span aria-hidden>·</span>
+        <button type="button" disabled={busy} onClick={() => void share()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
+          {t('rooms.aiPost')}
+        </button>
+      </p>
+      <p className="mt-0.5" data-testid="room-ai-preview">{previewWhy(m.preview, t, dm)}</p>
     </div>
   )
 }
@@ -452,7 +459,7 @@ function PendingRow({ roomId, p }: { roomId: string; p: PendingSend }) {
   const t = useT()
   return (
     <div className="py-0.5" data-testid="room-pending-message" data-state={p.state}>
-      {p.body && <p className="text-[15px] leading-6 break-words whitespace-pre-wrap text-muted">{p.body}</p>}
+      {p.body && <p className="text-reading leading-reading break-words whitespace-pre-wrap text-muted">{p.body}</p>}
       {p.files.length > 0 && <p className="truncate text-xs text-muted">{p.files.map((f) => f.name).join(', ')}</p>}
       {p.state === 'sending' ? (
         <p className="text-xs text-faint" role="status">

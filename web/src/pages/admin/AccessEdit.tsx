@@ -281,7 +281,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
       data-path={path}
     >
       {returnLabel && !narrow && (
-        <button type="button" onClick={() => void requestClose()} className="-mx-2 mb-2 inline-flex items-center gap-1.5 self-start rounded-lg px-2 py-1.5 text-[13px] font-medium text-muted transition hover:bg-hover hover:text-ink" data-testid="edit-return">
+        <button type="button" onClick={() => void requestClose()} className="-mx-2 mb-2 inline-flex items-center gap-1.5 self-start rounded-lg px-2 py-1.5 text-label font-medium text-muted transition hover:bg-hover hover:text-ink" data-testid="edit-return">
           <ArrowLeft size={15} aria-hidden /> {returnLabel}
         </button>
       )}
@@ -720,7 +720,7 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
   else {
     body = (
       <div className={clsx('transition-opacity', !ready && 'opacity-60')}>
-        <p className="mt-1 text-[13px] text-ink" data-testid="edit-next">
+        <p className="mt-1 text-label text-ink" data-testid="edit-next">
           {t('accessEdit.next', { who: whoSeesText(t, { who: data.next }, data.members) })}
         </p>
         {skills && (
@@ -802,7 +802,7 @@ function Changes({ title, changes, testId }: { title: string; changes: FolderEdi
                 <ArrowRight size={12} className="text-faint" aria-label={t('rules.becomes')} />
                 <span className={clsx('font-medium', c.direction === 'less' ? 'text-warn' : 'text-ink')}>{t(`access.${c.after}`)}</span>
               </p>
-              <p className="mt-0.5 text-[13px] [overflow-wrap:anywhere] text-ink">{rest > 0 ? t('accessEdit.names', { names, n: rest }) : names}</p>
+              <p className="mt-0.5 text-label [overflow-wrap:anywhere] text-ink">{rest > 0 ? t('accessEdit.names', { names, n: rest }) : names}</p>
               {c.chatsReset > 0 && <p className="mt-0.5 text-xs text-faint">{t('accessEdit.chats', { n: c.chatsReset })}</p>}
             </li>
           )
@@ -826,7 +826,7 @@ function Below({ data, path }: { data: FolderEditPreview; path: string }) {
           const rest = total - b.people.length
           return (
             <li key={b.path} className="px-3 py-2" data-testid="edit-below-folder" data-path={b.path}>
-              <p className="text-[13px] font-medium [overflow-wrap:anywhere] text-ink" title={b.path}>
+              <p className="text-label font-medium [overflow-wrap:anywhere] text-ink" title={b.path}>
                 {shortBelow(b.path, path)}
               </p>
               <p className="mt-0.5 text-xs [overflow-wrap:anywhere] text-muted">

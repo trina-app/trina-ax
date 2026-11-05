@@ -329,7 +329,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
             {c.connectedSince && <p className="text-xs text-faint">{t('system.since', { date: formatDateTime(c.connectedSince, locale) })}</p>}
             {c.detail && <p className="text-xs text-muted">{DETAIL_TEXT[c.detail] ? t(DETAIL_TEXT[c.detail]!) : c.detail}</p>}
             <p className="text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
-            {c.direct.fingerprintSha256 && <p className="font-mono text-[11px] break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
+            {c.direct.fingerprintSha256 && <p className="font-mono text-micro break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
           </div>
         )}
       </Loadable>
@@ -493,7 +493,7 @@ function ConnectedFolders() {
                 <input className={inputCls} value={source} onChange={(e) => setSource(e.target.value)} placeholder="/Volumes/…" data-testid="connected-source" />
               </Field>
               <div>
-                <span className="mb-1.5 hidden text-[13px] sm:block" aria-hidden>&nbsp;</span>
+                <span className="mb-1.5 hidden text-label sm:block" aria-hidden>&nbsp;</span>
                 <Button disabled={!name.trim() || !source.trim()} onClick={() => setAsking(true)}>{t('connected.add')}</Button>
               </div>
             </div>

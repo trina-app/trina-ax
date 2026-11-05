@@ -97,6 +97,8 @@ export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 export const ConfirmDetail = z.object({
   label: z.string(),
   text: z.string(),
+  /** show the first this many characters of `text` and the rest on request ("전체 보기"); absent: all of it */
+  collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
 })
@@ -209,9 +211,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * setting or the name changed; removed: I am no longer in it (room null: close it) */
   ev('room.updated', z.object({ roomId: Uuid7, change: z.enum(['added', 'updated', 'members', 'removed']), room: Room.nullable() })),
   /** the AI in a room: how many questions it is answering there now, to every member (nobody is named while it works).
-   * privateAnswer: an answer just ended as a private preview for the person who asked; sent to the members who see that
-   * question, the asker left out ("○○ 님에게만 답했어요" in place of "트리나가 답하는 중"); never what it said or why */
-  ev('room.ai', z.object({ roomId: Uuid7, answering: z.number().int().nonnegative(), privateAnswer: z.object({ questionId: Uuid7, askedBy: UserRef }).optional() })),
+   * An answer that stays private to the person who asked shows on the question itself (RoomMessage.answeredPrivately,
+   * through room.message.updated) */
+  ev('room.ai', z.object({ roomId: Uuid7, answering: z.number().int().nonnegative() })),
   /** my own question to the AI in a room started, waits, runs or ended (only to the person who asked) */
   ev('room.ai.run', z.object({ roomId: Uuid7, run: RoomAiRun })),
   /** a step of my own question's answer (only to the person who asked: labels name files and searches) */

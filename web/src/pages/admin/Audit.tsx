@@ -17,7 +17,7 @@ import { Badge, Button, ErrorNote, Skeleton, StickyHeader } from '../../componen
 import { useLoad } from './common'
 
 const KIND_ICON: Record<ActivityKind, LucideIcon> = { auth: LogIn, admin: ShieldCheck, file: FileText, tool: Wrench }
-const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-[13px] text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-sm:min-h-10'
+const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-label text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-sm:min-h-10'
 
 export default function Audit() {
   const t = useT()
@@ -106,7 +106,7 @@ export default function Audit() {
                 aria-pressed={f.kind === k}
                 onClick={() => set({ kind: k })}
                 className={clsx(
-                  'rounded-md px-3 py-1 text-[13px] font-medium whitespace-nowrap focus-visible:-outline-offset-2',
+                  'rounded-md px-3 py-1 text-label font-medium whitespace-nowrap focus-visible:-outline-offset-2',
                   f.kind === k ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink',
                 )}
               >
@@ -116,7 +116,7 @@ export default function Audit() {
           </div>
           <button type="button" className={clsx(ctl, 'inline-flex items-center gap-1.5 sm:hidden')} aria-expanded={more} onClick={() => setMore(!more)} data-testid="activity-more">
             <SlidersHorizontal size={14} aria-hidden /> {t('activity.filters')}
-            {extra > 0 && <span className="rounded-full bg-accent px-1.5 text-[11px] text-accent-ink tabular-nums">{extra}</span>}
+            {extra > 0 && <span className="rounded-full bg-accent px-1.5 text-micro text-accent-ink tabular-nums">{extra}</span>}
           </button>
           <div className={clsx('flex min-w-0 flex-wrap items-center gap-2 max-sm:w-full sm:flex-1', !more && 'max-sm:hidden')}>
             <select className={clsx(ctl, 'pr-8')} aria-label={t('audit.actor')} value={f.who} onChange={(e) => set({ who: e.target.value })} data-testid="activity-who">

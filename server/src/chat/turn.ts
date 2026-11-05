@@ -7,7 +7,7 @@ import { confidentialChat } from "../safe-ops/confidential"
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { CLAUDE_AGENT_TOOL_NAMES, FILE_TOOLS, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
+import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { normUrl, rememberUrls } from '../tools/url-gate'
 import type { ApiErrorBody, Attachment, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
@@ -25,6 +25,8 @@ import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
 import { atLeast, type Principal } from '../policy/access'
 import { parseInput, walk } from '../policy/resolve'
+import { nameFromUrl } from '../tools/save-url'
+import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
@@ -393,6 +395,11 @@ export class TurnExec {
     // Other people's words are outside content (remember protection) and the room is where they came from (tab 7)
     let roomCtx: RoomTurnContext | null = null
     if (this.room) {
+      // a room question is decided on what it used itself (rooms/ai.ts): its session never resumes, and what it carries
+      // from earlier questions is the room's own (the history of answers that went to the room, the room's messages),
+      // recorded as the room below. So the read scope and the outside mark start empty for every question
+      clearScope(rt.db, spec.chatId)
+      rt.db.query('UPDATE chats SET room_outside = 0 WHERE id = ?').run(spec.chatId)
       const r = rt.rooms!.prepare({ chatId: spec.chatId, roomId: this.room.roomId, userId: spec.userId, userMessageId: spec.userMessageId, continues: userMsg.parent_id !== null })
       if ('error' in r) { this.error = r.error; return }
       roomCtx = r
@@ -1204,24 +1211,47 @@ export class TurnExec {
   /**
    * A room's AI session (rooms/ai.ts): a tool outside the team-file tools (rooms/ai-tools.ts; the engine's web search,
    * a page, a connection, the browser, anything unknown) marks the session as having used something from outside, so
-   * its answers stay private to the person. A folder `list`ed (`ok`: the listing came back) joins the read scope like
-   * a read: its file names may go into the answer.
+   * its answers stay private to the person. The team paths a call names join the read scope by what the call could
+   * tell about them with the person's access (below); a listing records its own (files/service.ts list).
    */
   noteRoomTool(tool: string, input?: unknown) {
     if (!this.room) return
     if (!ROOM_FILE_TOOLS.has(tool)) { this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId); return }
-    // every team path a call names counts like a name read, whatever the call answers: a read of a folder some member
-    // cannot see ("is a folder") and of a path that does not exist ("not found") then keep the answer private alike, and
-    // so does a search with no result in such a folder
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+    const rules = this.rt.files.rules()
+    let me: Principal | null = null
+    try { me = this.livePrincipal() } catch { /* a disabled account: the call fails anyway */ }
+    // every team path a call names counts, whatever the call answers ("is a folder", "not found", a search with no
+    // result), by what that answer could tell (docs/DECISIONS.md "대화방의 트리나", what makes an answer private):
+    // - a path the person may read: its folder, like a read (what is there, or that nothing is)
+    // - a path they may only list (a folder on the way to theirs; users/ itself, which holds only the personal
+    //   folders): its name, which every member who may list it sees too (read-scope.ts {type:'name'})
+    // - a path they can neither read nor list: the call answered "not found or no access", the same for a folder
+    //   hidden from them and for a name that does not exist (policy/authorize.ts). Where that answer would count for a
+    //   missing name, it counts for a hidden one too, or where the answer goes would tell which it was: the nearest
+    //   folder above that they may list decides. One they may read: its content (only its readers can tell a name is
+    //   not there). One they may only list (the team root for a member, users/): nothing; anyone without access gets
+    //   that same answer, so it carries no more than the path the AI typed (a guess, or a name the room has seen)
+    const readable = (segs: string[]) => !!me && atLeast(rules.access(me, segs), 'read') && !(segs.length === 1 && segs[0] === 'users')
+    const note = (p: string) => {
+      const segs = p.split('/').filter(Boolean)
+      if (!me) { this.files.namePaths.add(p); return }
+      if (readable(segs)) { this.files.namePaths.add(p); return }
+      if (rules.canList(me, segs)) { this.files.listedNames.add(p); return }
+      for (let n = segs.length - 1; n >= 0; n--) {
+        const up = segs.slice(0, n)
+        if (readable(up)) { this.files.namePaths.add(up.join('/')); return }
+        if (rules.canList(me, up)) return
+      }
+    }
     for (const k of PATH_ARGS) {
       for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
         if (typeof v !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-        for (const p of this.roomNames(v)) this.files.namePaths.add(p)
+        for (const p of this.roomNames(v)) note(p)
       }
     }
     // a search looks in every folder under where it starts (the whole team folder without a path) that the person may
-    // read, so even "no match" says something about each of them: those folders count as name reads too
+    // read, so even "no match" says something about each of them: those folders count as read too
     // (the person's own folder is left to what the search found there: it is theirs, not a folder of the room)
     // (the engine's own start of a call comes without its input: only the server's call, chat/tools.ts, counts here)
     if (input !== undefined && (tool === 'grep' || tool === 'glob' || tool === 'search')) {
@@ -1230,9 +1260,6 @@ export class TurnExec {
       const fold = (p: string) => { const n = p.normalize('NFC'); return this.rt.files.fx.caseInsensitive ? n.toLowerCase() : n }
       const bases = typeof a.path === 'string' ? [...new Set(this.roomNames(a.path).map(fold))] : ['']
       const under = (f: string) => { const k = fold(f); return bases.some((b) => b === '' || k === b || k.startsWith(b + '/')) }
-      const rules = this.rt.files.rules()
-      let me: Principal | null = null
-      try { me = this.livePrincipal() } catch { /* a disabled account: the call fails anyway */ }
       for (const f of ['', ...rules.ruleFolders()]) {
         if (!under(f) || f.split('/')[0] === 'users') continue
         if (me && atLeast(rules.access(me, f ? f.split('/') : []), 'read')) this.files.namePaths.add(f)
@@ -1259,6 +1286,36 @@ export class TurnExec {
     return [...out]
   }
 
+  /** The names under a folder the person may see (as `list` shows them, relative to it), for a room change that would
+   * carry them along; [] for a file or a path they cannot open, null past ROOM_CHANGE_SCAN_MAX. A folder with something
+   * they cannot see does not move at all (team-files hiddenInside), so what they see is what would move. */
+  private visibleTree(p: string): string[] | null {
+    const fx = this.rt.files.fx, rules = this.rt.files.rules()
+    let me: Principal, root: { abs: string; segs: string[] }
+    try {
+      me = this.livePrincipal()
+      const r = authorize(fx, rules, me, p, 'list')
+      if (!r.st?.isDirectory()) return []
+      root = { abs: r.abs, segs: r.segs }
+    } catch { return [] }
+    const out: string[] = []
+    const todo: { abs: string; segs: string[]; rel: string[] }[] = [{ ...root, rel: [] }]
+    while (todo.length) {
+      const d = todo.pop()!
+      let ents: fs.Dirent[]
+      try { ents = fs.readdirSync(d.abs, { withFileTypes: true }) } catch { continue }
+      for (const e of ents) {
+        if (hiddenEntry(e.name, d.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+        const segs = [...d.segs, e.name], rel = [...d.rel, e.name]
+        if (e.isDirectory() ? !rules.canList(me, segs) : !atLeast(rules.access(me, segs), 'read')) continue
+        out.push(rel.join('/'))
+        if (out.length > ROOM_CHANGE_SCAN_MAX) return null
+        if (e.isDirectory()) todo.push({ abs: path.join(d.abs, e.name), segs, rel })
+      }
+    }
+    return out
+  }
+
   /**
    * A room's AI session: a call that may change something (any tool outside rooms/ai-tools.ts ROOM_READ_ONLY_TOOLS,
    * connections and later tools included) waits for the person who asked to allow it on a server card, whatever
@@ -1267,6 +1324,11 @@ export class TurnExec {
    */
   async confirmRoomChange(tool: string, input: unknown): Promise<string | null> {
     if (!this.room || ROOM_READ_ONLY_TOOLS.has(tool)) return null
+    // a skill, team rule or instruction file changes from a room only with all of its new content on the card
+    const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p), this.spec.userId)
+    if (!w.shown && w.targets.some(instructionLike)) {
+      return `Not done (${tool}): in a team chat room, a skill, team rule or instruction file (skills/, a person's skills, CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) is changed only when the user can see all of its new content on the confirmation card, and this call's content cannot be shown there (it comes from a file, a template or the web, or files are moved, copied or renamed into place). Nothing was changed. Tell the user so: they can do it in their own chat, or you can write the content out with write or edit.`
+    }
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
@@ -1276,7 +1338,7 @@ export class TurnExec {
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('roomAiConfirm', L, { what }),
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, { label: tr('roomAiConfirmNo', L), value: 'skip' }], multiple: false, allowText: false,
-      details: roomChangeDetails(tool, input, args, L).map((d) => ({ ...d, text: this.redact(d.text) })),
+      details: roomChangeDetails(tool, input, L).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) })),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     if (answer === 'allow' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'allow')) {
@@ -1333,13 +1395,17 @@ export class TurnExec {
   /** Folders whose content the model saw in this turn (read / grep) join the chat's read scope. */
   noteReads() {
     const paths = this.files.readPaths
-    // a room session: folders whose file names the AI saw (list, glob) count too, as the names may reach the room
+    // a room session: folders whose file names the AI saw (list, glob, searches) count too, as the names may reach the
+    // room, and so do the paths whose own name it saw or asked about (read-scope.ts {type:'name'})
     const names = this.room ? this.files.namePaths : null
-    if (!paths.size && !names?.size) return
+    const listed = this.room ? this.files.listedNames : null
+    if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
-    const add = [...paths, ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
+    const add: ReadSource[] = [...paths, ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
+    for (const p of listed ?? []) add.push({ type: 'name', path: p })
     paths.clear()
     names?.clear()
+    listed?.clear()
     addSources(this.rt.db, this.spec.chatId, add)
   }
 
@@ -1722,16 +1788,135 @@ function subtaskOf(st: AgentStats): NonNullable<Step['subtask']> {
   return { ...(st.toolUses !== undefined ? { toolUses: st.toolUses } : {}), ...(st.ms !== undefined ? { ms: Math.round(st.ms) } : {}) }
 }
 
-/** What a room's change card shows (TurnExec.confirmRoomChange): for edit_files every file and the replacement, for
- * anything else the call's input. Long texts are cut in the middle of their own field, never the list of files. */
-function roomChangeDetails(tool: string, input: unknown, args: string, L: Locale): { label: string; text: string }[] {
-  const cut = (t: string, n = 2000) => (t.length > n ? `${t.slice(0, n - 1)}…` : t)
-  const b = tool === 'edit_files' && input && typeof input === 'object' ? input as { file_paths?: unknown; old_string?: unknown; new_string?: unknown } : null
-  if (b && Array.isArray(b.file_paths)) {
-    return [
-      { label: tr('roomAiConfirmFiles', L), text: b.file_paths.map(String).join('\n') },
-      { label: tr('roomAiConfirmInput', L), text: `${cut(String(b.old_string ?? ''))}\n→\n${cut(String(b.new_string ?? ''))}` },
-    ]
+/** a room's change card shows this much of what a call writes at first; the rest is one click away (the card's "전체
+ * 보기"), and for skills, rule files and other instruction files all of it is shown from the start */
+export const ROOM_CHANGE_PREVIEW = 400
+/** at most this much of it is sent at all (with the whole length said): a card is read, not a file viewer */
+export const ROOM_CHANGE_FULL = 100_000
+
+/** A team path as the file layer reads it (policy/resolve.ts parseInput: no empty or "." names), NFC; null when it is
+ * not one (the tool refuses it). */
+function teamSegs(p: unknown): string[] | null {
+  try { return parseInput(p).map((x) => x.normalize('NFC')) } catch { return null }
+}
+
+/** Files that tell an AI what to do: team skills and rules (skills/), a person's skills, and instruction files by name,
+ * matched on the path as the file layer resolves it (any spelling: "./", "//", "a/./b", a trailing "/", letter case).
+ * What a call would write there is shown in full on a room's change card, or the call is not made from a room. */
+export function instructionLike(rel: string): boolean {
+  const segs = teamSegs(rel)
+  if (!segs?.length) return false
+  const p = segs.join('/')
+  return inSkills(p) || /^users\/[^/]+\/skills(\/|$)/i.test(p) || /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(segs.at(-1)!)
+}
+
+/** at most this many names of a folder a room change would carry are looked at (more: treated as unknown) */
+export const ROOM_CHANGE_SCAN_MAX = 2000
+
+/**
+ * Where a room change would put content, and whether its card can show all of that content. `shown` is false when the
+ * call carries content the card cannot show: a file made from a source or template, a page or file from the web, an
+ * edited copy saved as a new file, files moved, copied or renamed (their bytes stay as they are). A moved or renamed
+ * folder brings its files along (`tree`: the names the person sees under it, null past ROOM_CHANGE_SCAN_MAX).
+ */
+export function roomChangeWrites(tool: string, input: unknown, tree: (p: string) => string[] | null, me = '-'): { targets: string[]; shown: boolean } {
+  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : typeof v === 'string' ? [v] : [])
+  // what lands under `folder` when `from` goes there with the name `name` (a folder: everything in it too)
+  const landing = (from: string, folder: string[], name: string) => {
+    const at = [...folder, name].join('/')
+    const under = tree(from)
+    // too many names to look at: counted as holding an instruction file (it might)
+    return under === null ? [at, `${at}/SKILL.md`] : [at, ...under.map((r) => `${at}/${r}`)]
   }
-  return [{ label: tr('roomAiConfirmInput', L), text: cut(args, 4000) }]
+  // the card carries at most ROOM_CHANGE_FULL characters of a text (roomChangeDetails): a longer one is not all shown
+  const fits = (t: string) => t.length <= ROOM_CHANGE_FULL
+  const hwpLines = (v: unknown) => (Array.isArray(v) ? v as Record<string, unknown>[] : []).map((c) => (c && typeof c === 'object' && typeof c.find === 'string' ? `${c.find} → ${str(c.replace)}` : '')).join('\n')
+  switch (tool) {
+    case 'write': return { targets: [str(a.file_path)], shown: fits(str(a.content)) }
+    case 'edit': return { targets: [str(a.file_path)], shown: fits(`${str(a.old_string)}\n→\n${str(a.new_string)}`) }
+    case 'edit_files': return { targets: list(a.file_paths), shown: fits(`${str(a.old_string)}\n→\n${str(a.new_string)}`) }
+    case 'edit_hwp': return str(a.output) ? { targets: [str(a.output)], shown: false } : { targets: [str(a.file_path)], shown: fits(hwpLines(a.changes)) }
+    case 'make_file': return { targets: [str(a.output)], shown: !str(a.source) && !str(a.template) && !list(a.images).length && fits(str(a.content)) }
+    case 'save_url': {
+      // the file is named by save_as, or, for a folder ("…/") or none, by the address's last name (tools/save-url.ts)
+      const want = str(a.save_as).trim()
+      const folder = !want ? `users/${me}/downloads` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [want, `${folder.replace(/\/+$/, '')}/${nameFromUrl(str(a.url)) || 'download'}`].filter(Boolean), shown: false }
+    }
+    case 'move_files': case 'copy_files': {
+      const to = teamSegs(a.to_folder) ?? []
+      return { targets: list(a.paths).flatMap((p) => { const segs = teamSegs(p); return segs?.length ? landing(p, to, segs.at(-1)!) : [] }), shown: false }
+    }
+    case 'rename_file': {
+      const segs = teamSegs(a.path)
+      return { targets: segs?.length ? landing(str(a.path), segs.slice(0, -1), str(a.new_name)) : [], shown: false }
+    }
+  }
+  // any other change (a tool added later): every string it is given may be a place it writes
+  return { targets: Object.values(a).flatMap(list), shown: false }
+}
+
+/**
+ * What a room's change card shows (TurnExec.confirmRoomChange), in words, never the call's JSON: what it does, the
+ * file or folder, and what it writes: the first ROOM_CHANGE_PREVIEW characters with the rest behind "전체 보기"
+ * (`collapsedAt`), or all of it at once when it goes into an instruction file (a planted instruction must not hide
+ * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
+ * arguments one per line.
+ */
+function roomChangeDetails(tool: string, input: unknown, L: Locale): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number }[] {
+  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
+  const full = (t: string) => (t.length > ROOM_CHANGE_FULL ? `${t.slice(0, ROOM_CHANGE_FULL - 1).trimEnd()}…\n${tr('roomAiChangeCut', L, { n: String(t.length) })}` : t)
+  const verb = FILE_STEP_VERB[tool]?.[L] ?? tool
+  const field = (name: Parameters<typeof tr>[0], value: string) => ({ name: tr(name, L), value })
+  // targets: where it writes; an instruction file among them shows the text in full from the start
+  const detail = (fields: { name: string; value: string }[], text: string, targets: string[] = []) => [{
+    label: tr('roomAiConfirmInput', L), fields: [field('roomAiChangeAction', verb), ...fields], text: full(text),
+    ...(targets.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }),
+  }]
+  switch (tool) {
+    case 'edit_files': {
+      if (!Array.isArray(a.file_paths)) break
+      const files = a.file_paths.map(String)
+      return [
+        { label: tr('roomAiConfirmFiles', L), text: files.join('\n') },
+        { label: tr('roomAiConfirmInput', L), text: full(`${str(a.old_string)}\n→\n${str(a.new_string)}`), ...(files.some(instructionLike) ? {} : { collapsedAt: ROOM_CHANGE_PREVIEW }) },
+      ]
+    }
+    case 'write':
+      return detail([field('roomAiChangeFile', str(a.file_path))], str(a.content) || tr('roomAiChangeEmpty', L), [str(a.file_path)])
+    case 'edit':
+      return detail([field('roomAiChangeFile', str(a.file_path))], `${str(a.old_string)}\n→\n${str(a.new_string) || tr('roomAiChangeEmpty', L)}`, [str(a.file_path)])
+    case 'make_file': {
+      // made from a file (a source, a template, pictures): what those hold is not on the card, and the card says so
+      const from = [str(a.source), str(a.template), ...(Array.isArray(a.images) ? a.images.filter((x): x is string => typeof x === 'string') : [])].filter(Boolean)
+      const notShown = from.length ? tr('roomAiChangeNotShown', L, { from: from.join(', ') }) : ''
+      return detail([
+        field('roomAiChangeFile', str(a.output)),
+        ...(str(a.source) ? [field('roomAiChangeSource', str(a.source))] : []),
+        ...(str(a.template) ? [field('roomAiChangeTemplate', str(a.template))] : []),
+      ], [notShown, str(a.content)].filter(Boolean).join('\n\n'), [str(a.output)])
+    }
+    case 'edit_hwp': {
+      const changes = Array.isArray(a.changes) ? a.changes as Record<string, unknown>[] : []
+      const lines = changes.map((c) => (c && typeof c === 'object' && typeof c.find === 'string' ? `${c.find} → ${str(c.replace)}` : tr('roomAiChangeCell', L)))
+      // saved as a new file: the rest of the document it copies is not on the card
+      const notShown = str(a.output) ? tr('roomAiChangeNotShown', L, { from: str(a.file_path) }) : ''
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.output) ? [field('roomAiChangeSaveAs', str(a.output))] : [])], [notShown, lines.join('\n')].filter(Boolean).join('\n\n'), [str(a.file_path), str(a.output)])
+    }
+    case 'move_files':
+    case 'copy_files':
+      return detail([field('roomAiChangeFolder', str(a.to_folder))], paths(a.paths).join('\n'), [str(a.to_folder)])
+    case 'rename_file':
+      return detail([field('roomAiChangeFile', str(a.path)), field('roomAiChangeNewName', str(a.new_name))], '')
+    case 'save_url':
+      return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', str(a.save_as))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
+  }
+  // any other change (a tool added later): its arguments one per line
+  const plain = (v: unknown): string => (typeof v === 'string' ? v : Array.isArray(v) ? v.map(plain).join(', ') : v && typeof v === 'object' ? Object.entries(v).map(([k, x]) => `${k}: ${plain(x)}`).join(', ') : String(v))
+  const entries = Object.entries(a)
+  return detail([], entries.map(([k, v]) => `${k}: ${plain(v)}`).join('\n'), entries.flatMap(([, v]) => (typeof v === 'string' ? [v] : [])))
 }

@@ -4,7 +4,7 @@
 // handleEvent; the pure with* functions below make the state changes (test/unit/rooms-store.test.ts), handleEvent adds
 // the requests they need. A reconnect the server could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
-import { uuidv7, type Room, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type ServerEvent, type UserRef } from '@mycel/shared/api'
+import { uuidv7, type Room, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { withRun, withRunPosition, withRunStep } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
@@ -16,9 +16,9 @@ export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.mess
 
 /** The AI in a room (docs/DECISIONS.md "대화방의 트리나"): how many questions it answers there now (anyone's), and my own
  * questions: working ones with their steps, and ones that stopped or failed until I close them. A finished answer is a
- * room message, so its run goes. privates: someone else's questions whose answer stayed theirs only ("○○ 님에게만
- * 답했어요" under the question), while the room is open or until the answer is posted. */
-export interface RoomAi { answering: number; runs: RoomAiRun[]; privates?: { questionId: string; askedBy: UserRef }[] }
+ * room message, so its run goes. Someone else's question whose answer stayed theirs only says so itself
+ * (RoomMessage.answeredPrivately). */
+export interface RoomAi { answering: number; runs: RoomAiRun[] }
 const NO_AI: RoomAi = { answering: 0, runs: [] }
 
 export const ROOM_PAGE = 50
@@ -147,19 +147,10 @@ export function withAiRun(ai: Record<string, RoomAi>, roomId: string, run: RoomA
   return { ...ai, [roomId]: { ...cur, runs } }
 }
 
-/** The AI's count in a room, and an answer that just stayed private to someone else (once per question). */
-export function withAiCount(ai: Record<string, RoomAi>, roomId: string, answering: number, privateAnswer?: { questionId: string; askedBy: UserRef }): Record<string, RoomAi> {
+/** The AI's count in a room. */
+export function withAiCount(ai: Record<string, RoomAi>, roomId: string, answering: number): Record<string, RoomAi> {
   const cur = ai[roomId] ?? NO_AI
-  const privates = privateAnswer && !cur.privates?.some((p) => p.questionId === privateAnswer.questionId) ? [...(cur.privates ?? []), privateAnswer] : cur.privates
-  return { ...ai, [roomId]: { ...cur, answering, ...(privates ? { privates } : {}) } }
-}
-
-/** An AI answer came to the room: the line saying it stayed private to the asker goes (they posted it). */
-export function withoutPrivate(ai: Record<string, RoomAi>, roomId: string, m: RoomMessage): Record<string, RoomAi> {
-  const cur = ai[roomId]
-  const q = m.authorKind === 'ai' && m.visibility === 'room' ? m.replyTo?.id : undefined
-  if (!q || !cur?.privates?.some((p) => p.questionId === q)) return ai
-  return { ...ai, [roomId]: { ...cur, privates: cur.privates.filter((p) => p.questionId !== q) } }
+  return { ...ai, [roomId]: { ...cur, answering } }
 }
 
 /** The read position the server answered: my badge for the room follows it. */
@@ -434,7 +425,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     handleEvent(ev) {
       switch (ev.type) {
         case 'room.ai':
-          set((s) => ({ ai: withAiCount(s.ai, ev.data.roomId, ev.data.answering, ev.data.privateAnswer) }))
+          set((s) => ({ ai: withAiCount(s.ai, ev.data.roomId, ev.data.answering) }))
           return
         case 'room.ai.run':
           set((s) => ({ ai: withAiRun(s.ai, ev.data.roomId, ev.data.run) }))
@@ -455,7 +446,7 @@ export const useRooms = create<RoomsState>((set, get) => {
         case 'room.message': {
           const { roomId, message } = ev.data
           const known = get().rooms.some((r) => r.id === roomId)
-          set((s) => ({ ...withMessage(s, roomId, message, myId()), ai: withoutPrivate(s.ai, roomId, message) }))
+          set((s) => withMessage(s, roomId, message, myId()))
           // a room I was just added to whose "added" did not reach this window: its counts come from the server
           if (!known && get().loaded) void get().fetchRoom(roomId).catch(() => {})
           return

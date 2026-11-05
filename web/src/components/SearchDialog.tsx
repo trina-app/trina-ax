@@ -491,7 +491,7 @@ function Hint({ label, keys }: { label: string; keys: string[] }) {
     <span className="flex items-center gap-1.5">
       {label}
       {keys.map((k) => (
-        <kbd key={k} className="rounded border border-line px-1.5 py-px font-sans text-[11px] text-muted">{k}</kbd>
+        <kbd key={k} className="rounded border border-line px-1.5 py-px font-sans text-micro text-muted">{k}</kbd>
       ))}
     </span>
   )

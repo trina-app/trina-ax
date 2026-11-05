@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from '@playwright/test'
+import { expect, test, type Locator, type Page, type Request } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { reset, signIn } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
@@ -514,6 +514,14 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
 // ---------------- several items at once (checkboxes and the selection bar) ----------------
 const check = (page: Page, name: string) => row(page, name).getByTestId('file-check')
 const bar = (page: Page) => page.getByTestId('bulk-bar')
+
+/** A long press with a finger on a file row (Files.tsx, phones): it selects the row. */
+async function longPress(page: Page, target: Locator) {
+  const name = target.locator('button').first()
+  await name.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 10, clientY: 10 })
+  await page.waitForTimeout(800)
+  await name.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 10, clientY: 10 })
+}
 const moves = async (page: Page) => ((await (await page.request.post('/__test/log')).json()) as string[]).filter((l) => l === 'POST /api/files/move').length
 
 test('select several rows: Shift+click a range, the header selects all, Esc and another folder clear it', async ({ page }) => {
@@ -803,11 +811,16 @@ test('a file from disk through the browser\'s own drag input: refused folder row
 
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
-  test('phone: checkboxes and the selection bar fit the screen', async ({ page }) => {
+  test('phone: a long press selects, and the selection bar fits the screen', async ({ page }) => {
     await reset(page)
     await signIn(page)
     await page.goto('/files?path=marketing')
-    await page.getByTestId('select-all').tap()
+    // no checkboxes to see until something is selected: a long press on a row selects it
+    await longPress(page, row(page, 'notes.txt'))
+    await expect(bar(page)).toContainText('1개 선택됨')
+    // then the boxes are back: tap the rest
+    const unchecked = page.locator('[data-testid="file-check"]:not(:checked):not(:disabled)')
+    while (await unchecked.count()) await unchecked.first().tap()
     await expect(bar(page)).toContainText('5개 선택됨')
     for (const id of ['bulk-move', 'bulk-share', 'bulk-delete', 'bulk-clear']) await expect(page.getByTestId(id)).toBeInViewport({ ratio: 1 })
     const table = page.getByTestId('file-table')

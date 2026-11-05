@@ -75,10 +75,11 @@ function Section({ title, children, desc }: { title: string; children: React.Rea
 }
 
 /** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (on a
- * phone the control goes under its name). */
-function Row({ label, hint, htmlFor, hintId, hintError, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; children: React.ReactNode }) {
+ * phone the control goes under its name). `framed`: a field with its own frame (the profile form's), which needs no
+ * hairline under it on a phone. */
+function Row({ label, hint, htmlFor, hintId, hintError, framed, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; framed?: boolean; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-2 border-b border-line py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+    <div className={clsx('flex flex-col gap-2 border-b border-line py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6', framed && 'max-md:border-b-0')}>
       <div className="min-w-0">
         {htmlFor ? (
           <label htmlFor={htmlFor} className="text-sm text-ink">
@@ -116,8 +117,8 @@ function Profile() {
   const [busy, setBusy] = useState(false)
   const previewUrl = photo && photo !== 'remove' ? photo.url : null
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
-  // Everything here is saved with the one Save button (the other tabs' settings save at once): it is off until
-  // something changed
+  // Everything here is saved with the one Save button (the other tabs' settings save at once): it shows once something
+  // changed
   // the one-line status is no longer asked for here (kept on the account, shown nowhere)
   const profileChanged = name.trim() !== me.user.name || title.trim() !== (me.user.title ?? '')
   const changed = profileChanged || (email.trim() || null) !== (me.user.email ?? null) || photo !== null
@@ -154,7 +155,7 @@ function Profile() {
       <Section title={t('settings.profile')}>
         {/* noValidate: the server checks the email and its answer shows in the app's own style, not a browser popup */}
         <form onSubmit={save} noValidate data-testid="profile-form">
-          <Row label={t('profile.photo')} hint={photoNote ?? t('profile.photoHint')} hintId={`${ids}-photo-hint`} hintError={!!photoNote}>
+          <Row label={t('profile.photo')} hint={photoNote ?? t('profile.photoHint')} hintId={`${ids}-photo-hint`} hintError={!!photoNote} framed>
             <div className="flex items-center gap-3">
               {previewUrl ? (
                 <img src={previewUrl} alt="" width={56} height={56} className="size-14 shrink-0 rounded-full object-cover" data-testid="profile-photo-preview" />
@@ -174,21 +175,23 @@ function Profile() {
               <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
             </div>
           </Row>
-          <Row label={t('auth.name')} htmlFor={`${ids}-name`}>
+          <Row label={t('auth.name')} htmlFor={`${ids}-name`} framed>
             <input id={`${ids}-name`} className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
           </Row>
-          <Row label={t('profile.title')} htmlFor={`${ids}-title`}>
+          <Row label={t('profile.title')} htmlFor={`${ids}-title`} framed>
             <input id={`${ids}-title`} className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={t('profile.titleHint')} />
           </Row>
-          <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`}>
+          <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
             <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
           </Row>
           <p className="pt-3 text-xs text-muted">{t('profile.visible')}</p>
-          <div className="flex justify-end pt-3 max-sm:[&>button]:w-full">
-            <Button type="submit" variant="primary" busy={busy} disabled={!name.trim() || !changed}>
-              {t('common.save')}
-            </Button>
-          </div>
+          {changed && (
+            <div className="flex justify-end pt-3 max-sm:[&>button]:w-full">
+              <Button type="submit" variant="primary" busy={busy} disabled={!name.trim()} data-testid="profile-save">
+                {t('common.save')}
+              </Button>
+            </div>
+          )}
         </form>
         <div className="mt-2">
           <Row label={t('auth.username')}>

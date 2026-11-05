@@ -14,7 +14,7 @@ import type { PushEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { HttpError } from '../http/errors'
 import { loadOrCreateKey } from '../relay-client/registration'
-import { postPinned, type PushLookup } from './push-transport'
+import { errorCode, postPinned, PushSendError, type PushLookup } from './push-transport'
 
 /** The gateway address (AppConfig push.gatewayUrl: MYCEL_PUSH_GATEWAY or server.json push.gatewayUrl; unset = off). */
 export interface NativePushConfig { url: string }
@@ -73,7 +73,7 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
       ...(input.payload.tag && /^[A-Za-z0-9_-]{1,100}$/.test(input.payload.tag) ? { tag: input.payload.tag } : {}),
       ttlSeconds: Math.max(0, Math.min(PUSH_GATEWAY_MAX_TTL_SECONDS, Math.floor(input.ttlSeconds))),
     }
-    if (input.signal.aborted || !input.beforeSend()) throw new Error('push_cancelled')
+    if (input.signal.aborted || !input.beforeSend()) throw new PushSendError('push_cancelled')
     const { key, publicKey } = teamKey(o.dataDir)
     const { body, authorization } = signedGatewayRequest(send, key, publicKey, (o.now ?? Date.now)())
     const headers = { 'content-type': 'application/json', authorization, 'content-length': String(Buffer.byteLength(body)) }
@@ -89,18 +89,18 @@ export function createNativeTransport(o: { dataDir: string; lookup?: PushLookup;
 /** The configured gateway on this machine: no DNS (the host is a loopback literal or localhost, pinned to 127.0.0.1 /
  * ::1), no redirects, status only; the same last-moment beforeSend check and 10 s bound as the public path. */
 function postLoopback(u: URL, headers: Record<string, string>, body: Buffer, signal: AbortSignal, beforeSend: () => boolean, request: typeof http.request = http.request): Promise<{ statusCode: number }> {
-  if (signal.aborted || !beforeSend()) return Promise.reject(new Error('push_cancelled'))
+  if (signal.aborted || !beforeSend()) return Promise.reject(new PushSendError('push_cancelled'))
   const host = u.hostname === '[::1]' ? '::1' : '127.0.0.1'
   return new Promise((resolve, reject) => {
     let finished = false, req: ReturnType<typeof http.request> | undefined
     const finish = (error?: Error, statusCode?: number) => { if (finished) return; finished = true; clearTimeout(timer); signal.removeEventListener('abort', abort); req?.destroy(); error ? reject(error) : resolve({ statusCode: statusCode ?? 0 }) }
-    const abort = () => finish(new Error('push_cancelled'))
-    const timer = setTimeout(() => finish(new Error('push_timeout')), 10_000)
+    const abort = () => finish(new PushSendError('push_cancelled'))
+    const timer = setTimeout(() => finish(new PushSendError('push_timeout')), 10_000)
     signal.addEventListener('abort', abort, { once: true })
     try {
       req = request({ protocol: 'http:', host, port: Number(u.port), path: u.pathname, method: 'POST', headers: { ...headers, host: u.host }, agent: false }, res => { const statusCode = res.statusCode ?? 0; res.destroy(); finish(undefined, statusCode) })
-      req.once('error', () => finish(new Error('push_transport_failed')))
+      req.once('error', e => finish(new PushSendError('push_transport_failed', { code: errorCode(e) })))
       req.end(body)
-    } catch { finish(new Error('push_transport_failed')) }
+    } catch (e) { finish(new PushSendError('push_transport_failed', { code: errorCode(e) })) }
   })
 }
