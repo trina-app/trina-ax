@@ -8,6 +8,8 @@ import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetFileUploads } from '../lib/fileUploads'
 import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
+import { forgetStarters } from '../lib/starter'
+import { forgetSkillList } from '../lib/skillTitles'
 import { applyTeamIcon } from '../lib/team-icon'
 
 export type AuthStatus =
@@ -105,6 +107,8 @@ export const useSession = create<SessionState>((set, get) => ({
   signedOut(reason) {
     // the next person in this tab gets nothing of this one's composer chips, draft chats, last chat or uploads
     forgetTeamAttach()
+    forgetStarters()
+    forgetSkillList()
     forgetFileUploads()
     forgetFolderUploads()
     pendingPick = null

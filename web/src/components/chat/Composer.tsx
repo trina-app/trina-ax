@@ -37,6 +37,7 @@ import { IconButton } from '../ui'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
 import { SecretWarning, useSecretHold } from './SecretWarning'
+import { SkillChip } from './SkillChip'
 
 interface Pending {
   id: string
@@ -76,6 +77,7 @@ export default function Composer({
   autoFocus,
   placeholder,
   footer,
+  skill,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -103,6 +105,9 @@ export default function Composer({
   placeholder?: string
   /** a short note in the row under the box (the chat's "AI can make mistakes"); under the row on a phone */
   footer?: string
+  /** a skill chosen for the message (a member's first question from a team link): shown as a chip by its title, the
+   * box holding only the question; sending puts "/<name> " in front, so the skill runs as from the "/" menu */
+  skill?: { name: string; title: string } | null
 }) {
   const t = useT()
   const locale = useLocale()
@@ -115,6 +120,8 @@ export default function Composer({
   const voiceChatId = isUuid7(draftId) ? draftId : null
   const confidential = useConfidentialChat(voiceChatId)
   const [text, setText] = useState(() => initialText ?? readDraft(userId, draftId))
+  // the chosen skill's chip (taken out with its X: the question then goes without the skill)
+  const [chosen, setChosen] = useState(skill ?? null)
   const skillMenu = useSkillMenu(text, setText)
   // the chips live outside the component too (lib/teamAttach stash): leaving the page and coming back, or adding
   // files one at a time from the file screen, keeps what was attached for this draft until it is sent or removed
@@ -317,7 +324,7 @@ export default function Composer({
   // the AI's question is the text alone (an upload in progress does not hold it up).
   const canSend = answering
     ? !sending && !transcribing && recorder.state === 'idle' && text.trim().length > 0
-    : !sending && !uploading && !transcribing && recorder.state === 'idle' && (text.trim().length > 0 || ready.length > 0)
+    : !sending && !uploading && !transcribing && recorder.state === 'idle' && (text.trim().length > 0 || ready.length > 0 || !!chosen)
 
   // onClick hands submit the click event: "Send anyway" goes through send(true)
   const submit = () => send(false)
@@ -339,11 +346,13 @@ export default function Composer({
       }
       return
     }
-    const body = text
+    // the chip is the command: "/<name> question" (the space after the name keeps it a command, as the "/" menu writes it)
+    const body = chosen ? `/${chosen.name} ${text}`.trimEnd() : text
     const atts = ready.map((f) => f.attachment!)
     try {
       await onSend(body, atts)
       setText('')
+      setChosen(null)
       writeDraft(userId, draftId, '')
       setFiles((p) => p.filter((f) => f.status !== 'done'))
     } catch (e) {
@@ -547,6 +556,11 @@ export default function Composer({
                 <p id={`${answeringId}-secrets`} className="text-faint" data-testid="composer-no-secrets">
                   {t('ask.noSecrets')}
                 </p>
+              </div>
+            )}
+            {chosen && !answering && (
+              <div className="px-4 pt-3" data-testid="composer-skill">
+                <SkillChip title={chosen.title} name={chosen.name} onRemove={() => { setChosen(null); taRef.current?.focus() }} />
               </div>
             )}
             <div className="flex items-end gap-1 pr-2">

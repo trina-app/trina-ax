@@ -1,4 +1,5 @@
-// Recommended skill packs (docs/DECISIONS.md "C. Onboarding: marketing skill pack and skill forms"). A new team has
+// Recommended skill packs (docs/DECISIONS.md "C. Onboarding: marketing skill pack and skill forms", "M — One meeting
+// note, everyone's own tasks": the general pack every team gets). A new team has
 // no skills; an owner or admin installs a pack in one click (POST /api/onboarding/packs/:id/install): its skills as
 // plain files under skills/<pack>/<name>/SKILL.md in the team's language (English when the pack has none for it) and
 // the folders that kind of team works in under shared/ (named in the team's language).
@@ -36,6 +37,10 @@ import enSeoBrief from '../../../resources/skill-packs/marketing/en/seo-brief/SK
 import enCompetitorBrief from '../../../resources/skill-packs/marketing/en/competitor-brief/SKILL.md' with { type: 'text' }
 import enBrandReview from '../../../resources/skill-packs/marketing/en/brand-review/SKILL.md' with { type: 'text' }
 import enWeeklyReport from '../../../resources/skill-packs/marketing/en/weekly-report/SKILL.md' with { type: 'text' }
+import koMeetingTasks from '../../../resources/skill-packs/general/ko/meeting-tasks/SKILL.md' with { type: 'text' }
+import koDocBrief from '../../../resources/skill-packs/general/ko/doc-brief/SKILL.md' with { type: 'text' }
+import enMeetingTasks from '../../../resources/skill-packs/general/en/meeting-tasks/SKILL.md' with { type: 'text' }
+import enDocBrief from '../../../resources/skill-packs/general/en/doc-brief/SKILL.md' with { type: 'text' }
 
 export interface SkillPack {
   /** skill name → its SKILL.md text, per language the pack is written in (English always) */
@@ -52,6 +57,15 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
     },
     // 브랜드, 캠페인, 보고서, 경쟁사 (shared, so the Files screen can say what goes in each)
     folders: Object.fromEntries(Locale.options.map((l) => [l, PACK_FOLDER_KINDS.map((k) => PACK_FOLDERS[k][l])])) as Record<Locale, string[]>,
+  },
+  // every team's two skills (docs/DECISIONS.md "M — One meeting note, everyone's own tasks"): no shared/ folders, the
+  // team's files go into its own group folder (onboarding/welcome.ts setupWelcomeTeam)
+  general: {
+    skills: {
+      ko: { 'meeting-tasks': koMeetingTasks, 'doc-brief': koDocBrief },
+      en: { 'meeting-tasks': enMeetingTasks, 'doc-brief': enDocBrief },
+    },
+    folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
   },
 }
 

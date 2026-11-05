@@ -3,6 +3,7 @@
 // and "새 링크로 바꾸기" are folded under "링크 관리" (TeamLinkPanel `folded`). Skipping asks once, softly, whether to
 // invite one or two people first, because a team skill is only a team's once others use it.
 import { useState } from 'react'
+import type { TeamLinkStarter } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { Button, Modal } from '../ui'
 import { TeamLinkPanel } from './TeamLinkPanel'
@@ -14,12 +15,15 @@ export interface InviteStepProps {
   onSkip?: () => void
   /** the skill the first result used: people who join land on its form (skills/…). Omitted: none. */
   skillPath?: string | null
+  /** the lead's team files and what people who join get from them (needs `skillPath`): a new link carries it, and an
+   * open link is changed to carry it (TeamLinkPanel) */
+  starter?: TeamLinkStarter | null
   /** the heading in place of "팀원을 초대해요" (the welcome steps name the skill just used); null: none, the dialog
    * around it already names the step (one heading on a phone, not two) */
   title?: string | null
 }
 
-export function InviteStep({ onDone, onSkip, skillPath, title }: InviteStepProps) {
+export function InviteStep({ onDone, onSkip, skillPath, starter, title }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
   return (
@@ -29,7 +33,7 @@ export function InviteStep({ onDone, onSkip, skillPath, title }: InviteStepProps
         <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
-      <TeamLinkPanel skillPicker={false} skillPath={skillPath} folded />
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} starter={starter} folded />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">

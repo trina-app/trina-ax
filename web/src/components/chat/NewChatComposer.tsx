@@ -12,13 +12,17 @@ import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 
-export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocus, placeholder }: {
+export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill }: {
   projectId: string | null
   initialText?: string
   /** a new value starts the box again with `initialText` (a chosen example or question) */
   resetKey?: number
   autoFocus?: boolean
   placeholder?: string
+  /** the first message went out (its chat opens next) */
+  onSent?: (chatId: string) => void
+  /** a skill chosen for the first message, shown by its title (Composer `skill`) */
+  skill?: { name: string; title: string } | null
 }) {
   const me = useMeStrict()
   const navigate = useNavigate()
@@ -53,6 +57,7 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
     const chatId = pending ? await pending : null
     const r = await send({ chatId, content: text, attachments, author: { id: me.user.id, name: me.user.name }, projectId, engine: engine.engine, model: engine.model })
     forgetDraftChat(me.user.id, draftId)
+    onSent?.(r.chatId)
     // the current chat from now on, before the (lazily loaded) chat page mounts and says so itself: "Add to …" on the
     // file screen was missing when the person went there that quickly (e2e team-files, flaky)
     rememberChat(me.user.id, r.chatId)
@@ -74,6 +79,7 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
       engines={engines}
       models={models}
       initialText={initialText}
+      skill={skill}
       autoFocus={autoFocus}
       placeholder={placeholder}
     />

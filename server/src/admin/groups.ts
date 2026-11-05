@@ -56,8 +56,23 @@ function folderNameFor(ctx: AppContext, name: string, id: string): string {
 }
 
 export function createGroup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof GroupBody>): Group {
-  const auth = c.get('auth')!
-  const locale = c.get('locale')
+  return createGroupAs(ctx, c.get('auth')!.user.id, b, c.get('locale'))
+}
+
+/** The id of the group named `name` (any case), or null. */
+export function groupIdByName(ctx: AppContext, name: string): string | null {
+  return (ctx.db.query('SELECT id FROM groups WHERE lower(name) = lower(?)').get(name) as { id: string } | null)?.id ?? null
+}
+
+/** The folder of a group (its folders row's path), or null when it has none. */
+export function groupFolder(ctx: AppContext, id: string): string | null {
+  return (ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(id) as { path: string } | null)?.path ?? null
+}
+
+/** Make a group as `actorId` (Admin › Groups, and the welcome steps' team group): the group, its folder groups/<name>/
+ * with its folders row and the rule "this group writes", audited as group.create. */
+export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[] }, locale: Locale): Group {
+  const auth = { user: { id: actorId } }
   if (nameTaken(ctx, b.name)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
   const memberIds = checkMembers(ctx, b.memberIds, locale)
   const id = newId()

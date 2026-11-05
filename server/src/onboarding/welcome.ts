@@ -10,12 +10,23 @@
 // its default for display, and a write changes only the fields it sets, keeping everything else of the stored object
 // as it was (unknown fields too). A recorded pack counts as installed whatever its shape, so nothing resets it. A
 // row that is not a JSON object at all is refused for writes (never replaced by a fresh one).
+//
+// Every team's start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks", setupWelcomeTeam): the general
+// pack (할 일 정리, 핵심 정리) installed once like the marketing pack, and the team's own group named after the team, with
+// its folder groups/<name>/ (the group's members read and write it, as every group folder) and the meeting notes folder
+// in it, made once with the owner in it. Both are recorded in the row, so the steps never make them again by themselves.
 import { z } from 'zod'
-import { TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite, type WelcomePackResult, type WelcomeUpdate } from '@mycel/shared/api'
+import {
+  GENERAL_BRIEF_SKILL, GENERAL_TASKS_SKILL, NOTES_FOLDER, TeamGroupRef, TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
+  type Locale, type WelcomePackResult, type WelcomeTeamResult, type WelcomeUpdate,
+} from '@mycel/shared/api'
 import type { AppContext } from '../context'
-import { setSetting } from '../admin/settings'
+import { getTeamSettings, setSetting, teamDefaultLocale } from '../admin/settings'
+import { createGroupAs, groupFolder, groupIdByName } from '../admin/groups'
 import { fail } from '../http/errors'
+import { authorize } from '../policy/authorize'
 import { listTeamSkills, sameSkillName } from '../chat/skills'
+import { componentC } from '../team-files/component'
 import { installSkillPack } from './skill-packs'
 
 export const WELCOME_SETTING = 'onboarding.welcome'
@@ -23,6 +34,7 @@ export const WELCOME_SETTING = 'onboarding.welcome'
 type Raw = Record<string, unknown>
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v)
 const PackShape = WelcomeProgress.shape.pack.unwrap()
+const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable() })
 
 /** The stored row: none, an object, or something that is not an object (`raw` null with `row` true). */
 function stored(ctx: Pick<AppContext, 'db'>): { row: boolean; raw: Raw | null } {
@@ -65,6 +77,10 @@ function view(raw: Raw, now: string): WelcomeProgress {
     finishedAt: pick(opt, raw.finishedAt, null),
     // the three-step version's team step, put off and never answered since: the pack is not installed by itself
     ...(steps.team === 'skipped' && pick(TeamType.nullable(), raw.teamType, null) === null ? { teamSkipped: true } : {}),
+    // recorded in any shape: installed (as for the marketing pack), the paths falling back to the pack's own; absent
+    // until then, so rows from before read exactly as they did
+    ...(raw.general === null || raw.general === undefined ? {} : { general: pick(GeneralShape, raw.general, { at: '', tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL }) }),
+    ...(() => { const g = pick(TeamGroupRef.nullable(), raw.teamGroup ?? null, null); return g ? { teamGroup: g } : {} })(),
   }
 }
 
@@ -123,6 +139,11 @@ export function updateWelcome(ctx: Pick<AppContext, 'db'>, userId: string, u: We
     if (site) raw.site = site
   }
   if (u.dismissed !== undefined) raw.dismissedAt = u.dismissed ? (p.dismissedAt ?? now) : null
+  if (u.finish) {
+    // "자료 없이 해 볼게요" without the marketing pack: what is still open is put off, and the steps are over
+    for (const s of WELCOME_STEPS) if (p.steps[s] === null) steps[s] = 'skipped'
+    if (!p.finishedAt) raw.finishedAt = now
+  }
   return save(ctx, raw, now)
 }
 
@@ -155,4 +176,93 @@ export function installWelcomePack(ctx: AppContext, userId: string): WelcomePack
   if (!skillPath) return { progress: save(ctx, raw, now), install, outcome: 'blocked' }
   raw.pack = { id: 'marketing', at: now, skillPath }
   return { progress: save(ctx, raw, now), install, outcome: 'installed' }
+}
+
+/** The skill "/<name>" runs for the team: the pack's own file, else another team skill of that name. */
+function generalPath(skills: { path: string; name: string }[], own: string, name: string): string | null {
+  return skills.find((s) => s.path === own)?.path ?? skills.find((s) => sameSkillName(s.name, name))?.path ?? null
+}
+
+/** Where an install left one of its skills: the pack's file, another team skill of its name, or nowhere (blocked). */
+function placed(install: WelcomePackResult['install'], own: string): string | null {
+  const s = install?.skills.find((x) => x.path === own)
+  if (!s) return null
+  return s.status === 'blocked' ? (s.sameNameAs ?? null) : own
+}
+
+/** The meeting notes folder inside the team folder: made through the file screen's own "new folder" when missing. */
+function ensureNotesFolder(ctx: AppContext, userId: string, rel: string): void {
+  const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(userId), rel, 'write', { mustExist: false })
+  if (!r.exists) componentC(ctx).files.mkdir(userId, rel)
+}
+
+/** The team's own group: the one these steps recorded while it is there, else a new one named after the team with the
+ * owner in it. A group these steps did not make is never taken over, even with the team's name (an admin's group may
+ * carry rules on other folders that the team link would hand to everyone who joins): a name already taken gets a
+ * number ("Acme 2"). */
+function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | null, locale: Locale): TeamGroupRef {
+  const notes = NOTES_FOLDER[teamDefaultLocale(ctx.db)]
+  if (recorded) {
+    const folder = groupFolder(ctx, recorded.id)
+    const name = (ctx.db.query('SELECT name FROM groups WHERE id = ?').get(recorded.id) as { name: string } | null)?.name
+    if (folder && name) {
+      const notesFolder = recorded.folder === folder ? recorded.notesFolder : `${folder}/${notes}`
+      ensureNotesFolder(ctx, userId, notesFolder)
+      return { id: recorded.id, name, folder, notesFolder }
+    }
+  }
+  const team = getTeamSettings(ctx.db).teamName.trim().slice(0, 100) || 'Team'
+  const name = !groupIdByName(ctx, team) ? team
+    : [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${team.slice(0, 96)} ${n}`).find((n) => !groupIdByName(ctx, n)) ?? `${team.slice(0, 80)} ${Date.now()}`
+  const g = createGroupAs(ctx, userId, { name, memberIds: [userId] }, locale)
+  const folder = groupFolder(ctx, g.id)
+  if (!folder) return fail('internal')
+  const notesFolder = `${folder}/${notes}`
+  ensureNotesFolder(ctx, userId, notesFolder)
+  return { id: g.id, name: g.name, folder, notesFolder }
+}
+
+/**
+ * Every team's start, once (owner; the welcome steps call it when the first step is left, and the result step when an
+ * older row has none):
+ * - the general pack: recorded before → nothing runs; the team already has skills under skills/general/ → recorded
+ *   without installing (nothing deleted on purpose comes back); else installed, and recorded when "할 일 정리" is there
+ *   afterwards (written now, already there, or another team skill of its name), `blocked` (nothing recorded) otherwise;
+ * - the team group: the recorded one while it exists, else a new one named after the team ("Acme 2" when the name is
+ *   taken: a group these steps did not make is never taken over) with the owner in it; its folder and the meeting notes
+ *   folder in it (made when missing, through the file layer).
+ * The pack's record is saved before the group is made, so a failure there never installs the pack twice.
+ */
+export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale): WelcomeTeamResult {
+  const now = new Date().toISOString()
+  const raw = forWrite(ctx, now)
+  let p = view(raw, now)
+  let install: WelcomeTeamResult['install'] = null
+  let outcome: WelcomeTeamResult['outcome'] = 'already'
+  if (!p.general) {
+    const skills = listTeamSkills(ctx.files, ctx.files.principal(userId))
+    const tasks = generalPath(skills, GENERAL_TASKS_SKILL, 'meeting-tasks')
+    // an install of these steps that was blocked before may run again (it only adds what is missing); a team that has
+    // the pack's skills from the Skills page is recorded as it is, and without "할 일 정리" it stays blocked (a skill
+    // deleted there on purpose is not brought back)
+    const tried = typeof raw.generalBlockedAt === 'string'
+    if (!tried && skills.some((s) => s.path.startsWith('skills/general/'))) {
+      if (tasks) raw.general = { at: now, tasksPath: tasks, briefPath: generalPath(skills, GENERAL_BRIEF_SKILL, 'doc-brief') }
+      else outcome = 'blocked'
+    } else {
+      install = installSkillPack(ctx, userId, 'general')
+      const tasksPath = placed(install, GENERAL_TASKS_SKILL)
+      if (tasksPath) {
+        raw.general = { at: now, tasksPath, briefPath: placed(install, GENERAL_BRIEF_SKILL) }
+        delete raw.generalBlockedAt
+        outcome = 'installed'
+      } else {
+        raw.generalBlockedAt = now
+        outcome = 'blocked'
+      }
+    }
+    p = save(ctx, raw, now)
+  }
+  raw.teamGroup = teamGroupFor(ctx, userId, p.teamGroup ?? null, locale)
+  return { progress: save(ctx, raw, now), install, outcome }
 }

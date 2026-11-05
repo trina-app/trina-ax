@@ -1,30 +1,38 @@
 // The welcome steps for the owner who just made the team (docs/DECISIONS.md "W — Welcome steps", "X — Lean
-// onboarding"): 1/2 회사 소개 → 2/2 첫 결과, then the team invite. A first useful result in about ten minutes without
-// uploading a file or connecting an AI (a hosted trial answers on its credit): the marketing pack's ad copy, filled in
-// from the company profile. Running it opens the chat with the answer; that chat offers the invite (components/
-// onboarding/WelcomeInviteBar.tsx). Every step can be put off ("나중에 하기"); the progress is kept on the server
-// (store/welcome.ts), so the steps resume where they stopped, on any device, from the entry on Home.
+// onboarding", "M — One meeting note, everyone's own tasks"): 1/2 회사 소개 → 2/2 첫 결과, then the team invite. The
+// first result is the team's own: the lead drops this week's meeting notes (or any work files) into the team's folder,
+// and the general skill "/meeting-tasks" turns them into tasks per person in a new chat; that chat offers the invite
+// (components/onboarding/WelcomeInviteBar.tsx), so everyone gets their own tasks from the same files. Every step can be
+// put off; the progress is kept on the server (store/welcome.ts), so the steps resume where they stopped, on any
+// device, from the entry on Home.
 //
-// The team type is not a step of its own: above the first step one quiet line says "마케팅 스킬 7개를 넣어 둘게요 ·
-// 다른 팀이에요" (the other types open in place, with the honest "준비 중"), and leaving the first step installs the pack
-// once (server/src/onboarding/welcome.ts keeps every guarantee: once, never restoring deleted skills, blocked).
+// Above the first step one quiet line says "팀 스킬을 넣어 둘게요 · 마케팅팀이에요": leaving the first step sets up every
+// team once (the general pack and a group named after the team with its folder, POST /api/onboarding/welcome/team),
+// and adds the marketing pack only when the owner said so (its ad copy stays as the "자료 없이 해 볼게요" path). The
+// server keeps every guarantee: once, never restoring deleted skills, blocked.
 import clsx from 'clsx'
-import { ArrowLeft } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeft, Check, CircleAlert, Loader2, Upload } from 'lucide-react'
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { TEAM_TYPE_PACK, TEAM_TYPES, WELCOME_COUNTED, WELCOME_PACK_SKILLS, WELCOME_STEPS, type CompanyProfile, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { uuidv7, WELCOME_COUNTED, WELCOME_PACK_SKILLS, WELCOME_STEPS, type CompanyProfile, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
+import { markBusy } from '../lib/busy'
+import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
-import { nextStep, prevStep, resumeStep, stepTotal, wantsPack } from '../lib/welcome'
+import { rememberChat } from '../lib/teamAttach'
+import { uploadFile, type UploadProgress } from '../lib/upload'
+import { nextStep, packsRecorded, prevStep, resumeStep, skillNameOf, stepTotal, teamReach, wantsPack, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
-import { isOwner, useMeStrict } from '../store/session'
+import { useChats } from '../store/chats'
+import { canChooseEngine, isOwner, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { useWelcome } from '../store/welcome'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { InviteStep } from '../components/onboarding/InviteStep'
 import ProfileStep from '../components/onboarding/ProfileStep'
 import { SkillForm } from '../components/skills/SkillForm'
+import { UploadLabel } from '../components/UploadLabel'
 import { Button, ErrorNote, Skeleton } from '../components/ui'
 
 export default function Welcome() {
@@ -36,8 +44,11 @@ export default function Welcome() {
 
 const STEP_LABEL: Record<(typeof WELCOME_COUNTED)[number], MessageKey> = { profile: 'welcome.progress.profile', result: 'welcome.progress.result' }
 
-/** Install the pack and say what happened: "마케팅 스킬 7개와 팀 폴더를 넣었어요"; nothing when it was there already;
- * `blocked` when the folder rules kept the first-result skill out (nothing is recorded then). */
+/** At most this many files in one go: a few meeting notes are enough, and each goes up on its own. */
+export const WELCOME_FILES_MAX = 10
+
+/** Install the marketing pack and say what happened: "마케팅 스킬 7개와 팀 폴더를 넣었어요"; nothing when it was there
+ * already; `blocked` when the folder rules kept the ad copy out (nothing is recorded then). */
 async function installPack(t: ReturnType<typeof useT>): Promise<'ok' | 'blocked'> {
   const r = await useWelcome.getState().installPack()
   if (r.outcome === 'blocked') return 'blocked'
@@ -94,16 +105,19 @@ function WelcomeSteps() {
     navigate('/')
   }
   const mark = (id: WelcomeStep, state: WelcomeStepState) => run(async () => go(await useWelcome.getState().update({ step: { id, state } }), id))
-  /** the line above the first step: another team type (no pack), or marketing again */
+  /** the line above the first step: "마케팅팀이에요" (the marketing pack too), or "취소" */
   const chooseTeam = (type: TeamType) => run(async () => { await useWelcome.getState().update({ teamType: type }) })
-  /** Leaving the first step (saved or put off): the pack the line promised, once, then the next step. When the folder
-   * rules kept it out, nothing is recorded and the result step offers it again, with the reason under it. */
+  /** Leaving the first step (saved or put off): every team's start (the general pack, the team's group and folders),
+   * then the marketing pack when the owner asked for it, each once; then the next step. When the folder rules kept a
+   * pack out, nothing of it is recorded and the step says so; the first result tries the team's start again. */
   const leaveProfile = (state: WelcomeStepState) => run(async () => {
     const w = useWelcome.getState()
-    // the pack once: these steps never install it again by themselves (the server keeps that record as well)
-    const blocked = wantsPack(w.progress) && (await installPack(t)) === 'blocked'
-    // no type yet reads as marketing, except a team question put off before (that "later" stands)
-    go(await w.update({ ...(w.progress?.teamType || w.progress?.teamSkipped ? {} : { teamType: 'marketing' }), step: { id: 'profile', state } }), 'profile')
+    let blocked = false
+    // a failure here does not hold the owner on this step: picking files asks again and shows why
+    if (wantsTeam(w.progress)) blocked = (await w.setupTeam().catch(() => null))?.outcome === 'blocked'
+    // the marketing pack once: these steps never install it again by themselves (the server keeps that record as well)
+    if (wantsPack(useWelcome.getState().progress)) blocked = (await installPack(t)) === 'blocked' || blocked
+    go(await w.update({ step: { id: 'profile', state } }), 'profile')
     if (blocked) setError(t('welcome.packBlocked'))
   })
   const installForResult = () => run(async () => { if ((await installPack(t)) === 'blocked') throw new Error(t('welcome.packBlocked')) })
@@ -111,6 +125,13 @@ function WelcomeSteps() {
     // the chat opens either way; without the record it only lacks the invite bar
     await useWelcome.getState().update({ step: { id: 'result', state: 'done' }, resultChatId: chatId }).catch(() => {})
     navigate(`/c/${chatId}`)
+  })
+  /** "자료 없이 해 볼게요" without the marketing pack: the steps end here, and Home says where meeting notes go */
+  const finish = () => run(async () => {
+    const w = useWelcome.getState()
+    if (wantsTeam(w.progress)) await w.setupTeam().catch(() => null)
+    const g = (await w.update({ finish: true })).teamGroup
+    navigate('/', g ? { state: { welcomeNotes: { folder: g.folder, team: g.name } } } : undefined)
   })
 
   if (loadError)
@@ -140,11 +161,11 @@ function WelcomeSteps() {
       <div ref={region} tabIndex={-1} className={back ? 'mt-2 outline-none' : 'mt-8 outline-none'} data-step={step}>
         {step === 'profile' && (
           <>
-            {!progress.pack && <PackLine progress={progress} busy={busy} onChoose={(type) => void chooseTeam(type)} />}
+            {!packsRecorded(progress) && <PackLine progress={progress} busy={busy} onChoose={(type) => void chooseTeam(type)} />}
             <ProfileWizardStep progress={progress} onDone={() => void leaveProfile('done')} onSkip={() => void leaveProfile('skipped')} />
           </>
         )}
-        {step === 'result' && <ResultStep progress={progress} busy={busy} onRan={(id) => void ran(id)} onInstall={() => void installForResult()} onSkip={() => void mark('result', 'skipped')} />}
+        {step === 'result' && <ResultStep progress={progress} busy={busy} onRan={(id) => void ran(id)} onInstall={() => void installForResult()} onSkip={() => void mark('result', 'skipped')} onFinish={() => void finish()} />}
         {step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
@@ -201,51 +222,27 @@ function Later({ onClick, disabled }: { onClick: () => void; disabled?: boolean 
   )
 }
 
-/** Above the first step, one quiet line: "마케팅 스킬 7개를 넣어 둘게요 · 다른 팀이에요". The other team types open in place,
- * with the honest note that their pack is being prepared; a type without a pack stays open (it says what happens). */
+const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
+
+/** Above the first step, one quiet line: "팀 스킬을 넣어 둘게요 · 마케팅팀이에요". The tap adds the marketing pack to the
+ * promise ("팀 스킬과 마케팅 스킬 7개를 넣어 둘게요 · 취소"); 취소 takes it back. No team chooser: every team gets the
+ * general pack, and only marketing has a pack of its own. */
 function PackLine({ progress, busy, onChoose }: { progress: WelcomeProgress; busy: boolean; onChoose: (t: TeamType) => void }) {
   const t = useT()
-  // a team question put off in the three-step version: nothing chosen, no promise; picking a type answers it
-  const chosen: TeamType | null = progress.teamType ?? (progress.teamSkipped ? null : 'marketing')
-  const [open, setOpen] = useState(!chosen || !TEAM_TYPE_PACK[chosen])
-  const noPack = !!chosen && !TEAM_TYPE_PACK[chosen]
-  if (!open)
-    return (
-      <p className="mb-5 text-sm text-muted" data-testid="welcome-pack-line">
-        {t('welcome.pack.line', { n: WELCOME_PACK_SKILLS })}
-        <span aria-hidden> · </span>
-        <button type="button" className="font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink" aria-expanded={false} onClick={() => setOpen(true)} data-testid="welcome-other-team">
-          {t('welcome.pack.other')}
-        </button>
-      </p>
-    )
+  // a marketing pack already in (an earlier version of these steps): nothing to choose
+  const marketing = progress.teamType === 'marketing' && !progress.pack
   return (
-    <div className="mb-6 space-y-2" data-testid="welcome-team">
-      <div role="radiogroup" aria-label={t('welcome.pack.typeLabel')} className="flex flex-wrap gap-2">
-        {TEAM_TYPES.map((type) => {
-          const on = chosen === type
-          return (
-            <button
-              key={type}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              disabled={busy}
-              onClick={() => !on && onChoose(type)}
-              className={clsx('inline-flex min-h-9 items-center rounded-full border px-3.5 text-sm transition', on ? 'border-accent bg-accent-soft font-medium text-accent-text' : 'border-line text-ink hover:bg-hover')}
-              data-testid={`welcome-team-${type}`}
-            >
-              {t(`welcome.team.${type}`)}
-            </button>
-          )
-        })}
-      </div>
-      {chosen && (
-        <p role="status" className="text-sm text-muted" data-testid={noPack ? 'welcome-team-no-pack' : 'welcome-team-pack'}>
-          {noPack ? t('welcome.team.noPack') : t('welcome.pack.line', { n: WELCOME_PACK_SKILLS })}
-        </p>
+    <p className="mb-5 text-sm text-muted" aria-live="polite" data-testid="welcome-pack-line">
+      {marketing ? t('welcome.packLine.withMarketing', { n: WELCOME_PACK_SKILLS }) : t('welcome.packLine.team')}
+      {!progress.pack && (
+        <>
+          <span aria-hidden> · </span>
+          <button type="button" className={quietLink} disabled={busy} onClick={() => onChoose(marketing ? 'other' : 'marketing')} data-testid={marketing ? 'welcome-marketing-cancel' : 'welcome-marketing'}>
+            {t(marketing ? 'welcome.packLine.cancel' : 'welcome.packLine.marketing')}
+          </button>
+        </>
       )}
-    </div>
+    </p>
   )
 }
 
@@ -266,51 +263,250 @@ function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProg
   )
 }
 
-/** 2/2 the first result: the ad copy form, filled in from the profile; short (the channel as chips, the rest folded),
- * so its one button is on screen on a phone. Without a usable AI: A's way to connect one. */
-function ResultStep({ progress, busy, onRan, onInstall, onSkip }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void; onInstall: () => void; onSkip: () => void }) {
+/** 2/2 the first result, for every team: the team's own files into its folder, then "할 일 정리" on them. "자료 없이 해
+ * 볼게요": the ad copy when the marketing pack is in (or its install offer, when the folder rules kept it out), else the
+ * steps end and Home says where meeting notes go. Without a usable AI: A's way to connect one. */
+function ResultStep({ progress, busy, onRan, onInstall, onSkip, onFinish }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void; onInstall: () => void; onSkip: () => void; onFinish: () => void }) {
   const t = useT()
   const ai = useAiAccess()
+  const [noFiles, setNoFiles] = useState(false)
   // asked again here: a run without AI would only fail in the chat
   useEffect(() => { void ai.load(true) }, [ai.load])
-  let body: ReactNode
-  if (!ai.loaded) body = <Skeleton lines={4} />
-  else if (!ai.usable)
-    body = (
-      <div className="space-y-3" data-testid="welcome-result-no-ai">
-        <p className="text-sm text-muted">{t('welcome.result.noAi')}</p>
-        <AiAccessBanner />
-        <div className="flex justify-end"><Later onClick={onSkip} disabled={busy} /></div>
-      </div>
-    )
-  else if (!progress.pack)
-    body = (
-      <div className="space-y-3" data-testid="welcome-result-no-pack">
-        <p className="text-sm text-muted">{t(progress.teamType && !TEAM_TYPE_PACK[progress.teamType] ? 'welcome.result.noPackOther' : 'welcome.result.noPack')}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" busy={busy} onClick={onInstall} data-testid="welcome-result-install">{t('welcome.result.install')}</Button>
-          <span className="ml-auto"><Later onClick={onSkip} disabled={busy} /></span>
+  if (!ai.loaded) return <Skeleton lines={4} />
+  if (!ai.usable)
+    return (
+      <div className="space-y-5" data-testid="welcome-result">
+        <StepHead title={t('welcome.files.title')} />
+        <div className="space-y-3" data-testid="welcome-result-no-ai">
+          <p className="text-sm text-muted">{t('welcome.result.noAi')}</p>
+          <AiAccessBanner />
+          <div className="flex justify-end"><Later onClick={onSkip} disabled={busy} /></div>
         </div>
       </div>
     )
-  // the heading says what the skill does: no second description above the fields
-  else body = <SkillForm path={progress.pack.skillPath} onDone={onRan} onSkip={onSkip} skipLabel={t('welcome.later')} description={false} runLabel={t('welcome.result.run')} />
+  if (noFiles && (progress.pack || progress.teamType === 'marketing'))
+    return (
+      <div className="space-y-5" data-testid="welcome-result">
+        <StepHead title={t('welcome.result.title')} desc={t('welcome.result.desc')} />
+        {progress.pack ? (
+          // the heading says what the skill does: no second description above the fields
+          <SkillForm path={progress.pack.skillPath} onDone={onRan} onSkip={onSkip} skipLabel={t('welcome.later')} description={false} runLabel={t('welcome.result.run')} />
+        ) : (
+          <div className="space-y-3" data-testid="welcome-result-no-pack">
+            <p className="text-sm text-muted">{t('welcome.result.noPack')}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="primary" busy={busy} onClick={onInstall} data-testid="welcome-result-install">{t('welcome.result.install')}</Button>
+              <span className="ml-auto"><Later onClick={onSkip} disabled={busy} /></span>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  return <FilesStep progress={progress} busy={busy} onRan={onRan} onNone={() => (progress.pack || progress.teamType === 'marketing' ? setNoFiles(true) : onFinish())} />
+}
+
+/** "여기 올린 파일은 {팀} n명만 봐요 · 채팅은 각자만 봐요", with the real count (the group's members and the owners and
+ * admins), and, when members of the team are not in its group yet, one quiet "지금 있는 팀원 n명도 넣기" that adds them
+ * (the owner's choice: nobody is added by itself). Until the count is known, or when it cannot be read, the line
+ * without a number. */
+function TeamReach({ team, groupId }: { team: string; groupId: string | null }) {
+  const t = useT()
+  const locale = useLocale()
+  const [reach, setReach] = useState<{ viewers: number; outside: string[]; memberIds: string[] } | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const load = async (id: string) => {
+    const [users, groups] = await Promise.all([api.call(API.listUsers), api.call(API.listGroups)])
+    const group = groups.items.find((g) => g.id === id)
+    if (!group) return setReach(null)
+    setReach({ ...teamReach(users.items, group.memberIds), memberIds: group.memberIds })
+  }
+  useEffect(() => {
+    if (!groupId) return
+    void load(groupId).catch(() => setReach(null))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId])
+  const add = async () => {
+    if (!groupId || !reach) return
+    setAdding(true)
+    setError(null)
+    try {
+      await api.call(API.updateGroup, { params: { id: groupId }, body: { memberIds: [...new Set([...reach.memberIds, ...reach.outside])] } })
+      await load(groupId)
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    } finally {
+      setAdding(false)
+    }
+  }
   return (
-    <div className="space-y-5" data-testid="welcome-result">
-      <StepHead title={t('welcome.result.title')} desc={t('welcome.result.desc')} />
-      {body}
+    <div className="space-y-1">
+      <p className="text-[13px] leading-5 text-muted" data-testid="welcome-files-who">
+        {reach ? t('welcome.files.whoCount', { team, n: reach.viewers }) : t('welcome.files.who', { team })}
+      </p>
+      {reach && reach.outside.length > 0 && (
+        <p className="text-[13px]">
+          <button type="button" className={quietLink} disabled={adding} onClick={() => void add()} data-testid="welcome-files-add-members">
+            {t('welcome.files.addMembers', { n: reach.outside.length })}
+          </button>
+        </p>
+      )}
+      {error && <ErrorNote>{error}</ErrorNote>}
     </div>
   )
 }
 
-/** Then the invite (stream E's step): with the first result's skill, so people who join land on its form. */
+interface Picked {
+  id: string
+  file: File
+  status: 'waiting' | 'uploading' | 'done' | 'failed'
+  progress: UploadProgress | null
+  /** where it went (a name already there gets a new one) */
+  path: string | null
+  error?: string
+}
+
+/** The files only this team sees (groups/<team>/회의록/), then a new chat: the files attached by reference and
+ * "/meeting-tasks 이 회의록으로 이번 주 할 일, 사람별로 정리해 줘". One primary action (pick files; a drop works too on a
+ * computer), one quiet line on who sees what, one text link without files. */
+function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void; onNone: () => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const me = useMeStrict()
+  const input = useRef<HTMLInputElement>(null)
+  const [items, setItemsState] = useState<Picked[]>([])
+  const itemsRef = useRef(items)
+  const setItems = (next: Picked[]) => { itemsRef.current = next; setItemsState(next) }
+  const patch = (id: string, p: Partial<Picked>) => setItems(itemsRef.current.map((x) => (x.id === id ? { ...x, ...p } : x)))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [cut, setCut] = useState(false)
+  const [over, setOver] = useState(false)
+  // the chat made for these files: a retry after a failure later on sends into the same one
+  const chat = useRef<string | null>(null)
+  const team = progress.teamGroup?.name ?? me.team.name
+
+  /** Up (the ones not up yet), then the chat with them. A failure keeps the files on screen for "다시 시도". */
+  const run = async () => {
+    setBusy(true)
+    setError(null)
+    // a reload would lose the picked files: the page does not reload by itself meanwhile
+    const release = markBusy('upload')
+    try {
+      const w = useWelcome.getState()
+      let p = w.progress ?? progress
+      // an older row, or a start that failed when the first step was left: the team's folder and skills first
+      if (wantsTeam(p)) p = (await w.setupTeam()).progress
+      const tasksPath = p.general?.tasksPath
+      if (!p.teamGroup || !tasksPath) throw new Error(t('welcome.packBlocked'))
+      const notes = p.teamGroup.notesFolder
+      const results = await Promise.allSettled(itemsRef.current.filter((x) => x.status !== 'done').map(async (x) => {
+        patch(x.id, { status: 'uploading', progress: null, error: undefined })
+        try {
+          const r = await uploadFile(x.file, { kind: 'path', path: joinPath(notes, x.file.name), onExists: 'rename' }, { client: api, onProgress: (progress) => patch(x.id, { progress }) })
+          if (r.kind !== 'path') throw new Error('unexpected upload result')
+          patch(x.id, { status: 'done', path: r.entry.path, progress: null })
+        } catch (e) {
+          patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')) })
+          throw e
+        }
+      }))
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+      if (failed) throw failed.reason
+      // like a skill form's run: the engine of the person's own choice when they may pick one, else the team's
+      const choose = canChooseEngine(me)
+      const engine = choose ? me.user.prefs.engine : undefined
+      const model = choose ? (me.user.prefs.model ?? null) : undefined
+      if (!chat.current) {
+        const c = await api.call(API.createChat, { body: { projectId: null, engine, model: model ?? undefined } })
+        useChats.getState().upsertChat(c)
+        chat.current = c.id
+      }
+      const chatId = chat.current
+      const attachments = await Promise.all(itemsRef.current.map((x) => api.call(API.attachTeamFile, { body: { chatId, path: x.path! } })))
+      await useChats.getState().send({ chatId, content: `/${skillNameOf(tasksPath)} ${t('welcome.files.question')}`, attachments, author: { id: me.user.id, name: me.user.name }, projectId: null, engine, model })
+      rememberChat(me.user.id, chatId)
+      onRan(chatId)
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    } finally {
+      release()
+      setBusy(false)
+    }
+  }
+  const pick = (list: File[]) => {
+    if (!list.length || busy) return
+    setCut(list.length > WELCOME_FILES_MAX)
+    setItems(list.slice(0, WELCOME_FILES_MAX).map((file) => ({ id: uuidv7(), file, status: 'waiting', progress: null, path: null })))
+    void run()
+  }
+  const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
+  const drop = (e: DragEvent) => {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    setOver(false)
+    // read now (the browser empties the lists when the event ends); a folder is a false file here: files only
+    const entries = [...(e.dataTransfer.items ?? [])].map((i) => (i.kind === 'file' ? i.webkitGetAsEntry?.() : null))
+    pick([...e.dataTransfer.files].filter((_, i) => !entries[i]?.isDirectory))
+  }
+
+  return (
+    <div
+      className={clsx('space-y-5 rounded-xl', over && 'ring-2 ring-accent/30')}
+      onDragOver={(e) => { if (hasFiles(e) && !busy) { e.preventDefault(); setOver(true) } }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
+      onDrop={drop}
+      data-testid="welcome-result"
+    >
+      <StepHead title={t('welcome.files.title')} desc={t('welcome.files.desc')} />
+      <div className="space-y-3" data-testid="welcome-files">
+        {/* phones pick files, not folders (no webkitdirectory) */}
+        <input ref={input} type="file" multiple className="hidden" onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; pick(list) }} data-testid="welcome-files-input" />
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="primary" className="max-sm:w-full" busy={busy} disabled={stepBusy} onClick={() => input.current?.click()} data-testid="welcome-files-pick">
+            <Upload size={14} aria-hidden /> {t('welcome.files.pick')}
+          </Button>
+          <span className="text-sm text-faint max-sm:hidden">{t('welcome.files.dropHint')}</span>
+        </div>
+        <TeamReach team={team} groupId={progress.teamGroup?.id ?? null} />
+        {items.length > 0 && (
+          <ul className="space-y-1 text-sm" aria-label={t('welcome.files.title')} data-testid="welcome-files-list">
+            {items.map((x) => (
+              <li key={x.id} className="flex min-w-0 items-center gap-2" data-testid="welcome-file" data-status={x.status}>
+                {x.status === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : x.status === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
+                <span className="min-w-0 truncate text-ink">{x.file.name}</span>
+                {x.status === 'uploading' && (
+                  <span className="shrink-0 text-xs text-faint tabular-nums">
+                    <UploadLabel progress={x.progress} busy={t('files.uploadingName', { name: x.file.name })} />
+                  </span>
+                )}
+                {x.status === 'done' && <span className="sr-only">{t('files.uploadedName', { name: x.file.name })}</span>}
+                {x.status === 'failed' && <span className="min-w-0 truncate text-xs text-danger">{x.error}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+        {cut && <p className="text-[13px] text-muted" data-testid="welcome-files-cut">{t('welcome.files.max', { n: WELCOME_FILES_MAX })}</p>}
+        {error && <ErrorNote onRetry={busy ? undefined : () => void run()}>{error}</ErrorNote>}
+      </div>
+      <p className="text-sm">
+        <button type="button" className={quietLink} disabled={busy || stepBusy} onClick={onNone} data-testid="welcome-files-none">
+          {t('welcome.files.none')}
+        </button>
+      </p>
+    </div>
+  )
+}
+
+/** Then the invite (stream E's step), when the first result was put off: people who join land on the ad copy when
+ * the marketing pack is in, else on "할 일 정리" (no files yet, so no starter). */
 function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void }) {
   const t = useT()
   useEffect(() => {
     if (!progress.inviteShownAt) void useWelcome.getState().update({ inviteShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const skillPath = progress.pack?.skillPath ?? null
-  const title = progress.steps.result === 'done' && skillPath ? t('welcome.invite.title', { skill: t('welcome.skillName') }) : undefined
+  const skillPath = progress.pack?.skillPath ?? progress.general?.tasksPath ?? null
+  const title = progress.steps.result === 'done' && progress.pack ? t('welcome.invite.title', { skill: t('welcome.skillName') }) : undefined
   return <InviteStep title={title} skillPath={skillPath} onDone={onDone} onSkip={onSkip} />
 }

@@ -7,9 +7,19 @@ import { z } from 'zod'
 import { Locale } from './common'
 import { endpoint } from './endpoint'
 
-export const SKILL_PACK_IDS = ['marketing'] as const
+/** marketing: seven marketing skills and four team folders · general: every team's two skills (meeting notes → tasks,
+ * a document's brief), no folders (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") */
+export const SKILL_PACK_IDS = ['marketing', 'general'] as const
 export const SkillPackId = z.enum(SKILL_PACK_IDS)
 export type SkillPackId = z.infer<typeof SkillPackId>
+
+/** The general pack's skills, installed for every team by the welcome steps: "할 일 정리" (meeting notes → tasks per
+ * person, or the asking person's own) and "핵심 정리" (a document's brief, or what the asking person needs to know). */
+export const GENERAL_TASKS_SKILL = 'skills/general/meeting-tasks/SKILL.md'
+export const GENERAL_BRIEF_SKILL = 'skills/general/doc-brief/SKILL.md'
+
+/** The meeting notes folder inside the team's own group folder (groups/<team>/회의록/), named in the team language. */
+export const NOTES_FOLDER = { ko: '회의록', en: 'Meeting notes', id: 'Notulen rapat', ja: '議事録', es: 'Actas de reuniones' } as const satisfies Record<Locale, string>
 
 /** The marketing pack's team folders under shared/, named in each language (installed in the team's language). The
  * Files screen tells what goes in each when it is empty (packFolderKind). */
@@ -50,5 +60,5 @@ export const SkillPackInstallResult = z.object({
 export type SkillPackInstallResult = z.infer<typeof SkillPackInstallResult>
 
 export const ONBOARDING_PACKS = {
-  installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', response: SkillPackInstallResult, summary: 'Install a recommended skill pack (id: marketing) as the caller: its skills under skills/<id>/ and its team folders under shared/, in the team language. Adds only what is missing; never replaces a file.' }),
+  installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', response: SkillPackInstallResult, summary: 'Install a recommended skill pack (id: marketing or general) as the caller: its skills under skills/<id>/ and its team folders under shared/, in the team language. Adds only what is missing; never replaces a file.' }),
 } as const

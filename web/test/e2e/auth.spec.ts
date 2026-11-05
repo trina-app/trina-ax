@@ -26,8 +26,8 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
     // the new team's owner goes to the welcome steps first (pages/Welcome.tsx); Home then offers to continue them
     await expect(page).toHaveURL(/\/welcome$/)
-    // two steps; the team type is one quiet line above the first (docs/DECISIONS.md "X — Lean onboarding")
-    await expect(page.getByTestId('welcome-pack-line')).toContainText('마케팅 스킬 7개를 넣어 둘게요')
+    // two steps; one quiet line above the first: the team skills, marketing only when asked for (docs/DECISIONS.md "M")
+    await expect(page.getByTestId('welcome-pack-line')).toHaveText('팀 스킬을 넣어 둘게요 · 마케팅팀이에요')
     await expect(page.getByTestId('welcome-progress')).toContainText('1/2 회사 소개')
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
@@ -53,7 +53,7 @@ test.describe('first-run setup in an English browser', () => {
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByLabel('Confirm password').fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
-    await expect(page.getByTestId('welcome-pack-line')).toContainText("We'll add 7 marketing skills")
+    await expect(page.getByTestId('welcome-pack-line')).toContainText("We'll add the team skills")
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
     // the sidebar under the Settings dialog speaks English too
@@ -73,7 +73,7 @@ test.describe('first-run setup in a browser in Jakarta', () => {
     await page.getByLabel('Password', { exact: true }).fill('a long password 1')
     await page.getByLabel('Confirm password').fill('a long password 1')
     await page.getByRole('button', { name: 'Create team and start' }).click()
-    await expect(page.getByTestId('welcome-pack-line')).toContainText("We'll add 7 marketing skills")
+    await expect(page.getByTestId('welcome-pack-line')).toContainText("We'll add the team skills")
     await page.goto('/admin/settings')
     await expect(page.getByTestId('team-time-zone')).toHaveValue('Asia/Jakarta')
   })

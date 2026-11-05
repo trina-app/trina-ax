@@ -6,11 +6,15 @@
 // next to the label ("Paused here", "Stopped here"), for sighted readers as well as screen readers (QA 0.2.12 N3).
 // A sub-task (Claude Code's Agent tool, docs/DECISIONS.md "Sub-agents") is one row like Claude Code's "Agent(...)": its
 // sub-agent's steps (Step.parentId) open under it, and while it works its latest step shows beneath it.
+// An answer that ran a team skill on team files (Message.receipt) says so in place of "작업 N단계": "팀 스킬 '할 일 정리'
+// · 팀 파일 2개" (docs/DECISIONS.md "M — One meeting note, everyone's own tasks"), the receipt of a shared skill on shared
+// files; it still opens the step list.
 import clsx from 'clsx'
 import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import { localizeStep, mediaStepKind } from '@mycel/shared'
-import type { Step } from '@mycel/shared/api'
+import type { Message, Step } from '@mycel/shared/api'
+import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
 import { safeHref } from '../../lib/safeLinks'
 import { TeamImage } from '../Markdown'
@@ -125,10 +129,14 @@ export function groupSteps(steps: Step[]): { top: Step[]; kids: Map<string, Step
   return { top, kids }
 }
 
-export default function Steps({ steps, streaming }: { steps: Step[]; streaming: boolean }) {
+export default function Steps({ steps, streaming, receipt }: { steps: Step[]; streaming: boolean; receipt?: Message['receipt'] }) {
   const t = useT()
   const [open, setOpen] = useState(false)
-  if (!steps.length) return null
+  // a team skill on team files, once the answer is done
+  const rec = !streaming && receipt && receipt.teamFiles > 0 ? receipt : null
+  const skill = useSkillTitle(rec?.skill.path ?? null, rec?.skill.name ?? '')
+  const receiptText = rec ? t('steps.receipt', { skill, n: rec.teamFiles }) : null
+  if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-[13px] text-faint" data-testid="steps-receipt">{receiptText}</p> : null
   const { top, kids } = groupSteps(steps)
   // images the AI chose to show (shared browser screenshots) stay visible even when the list is folded
   const shown = steps.flatMap((s) => (s.kind === 'browser' ? s.images ?? [] : []))
@@ -147,7 +155,7 @@ export default function Steps({ steps, streaming }: { steps: Step[]; streaming: 
     <div className="mb-3" data-testid="steps">
       <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] text-faint hover:bg-hover hover:text-ink">
         {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
-        {t('steps.summary', { n: top.length })}
+        {receiptText ? <span data-testid="steps-receipt">{receiptText}</span> : t('steps.summary', { n: top.length })}
         {steps.some((s) => s.status === 'error' && !s.paused && !s.stopped) && <CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" />}
       </button>
       {open && (

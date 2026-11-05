@@ -13,18 +13,22 @@ import { cleanProfile, PROFILE_PATH, profileEmpty } from './profile'
 const DAY_MS = 86_400_000
 /** a profile file larger than this is not read (as onboarding/profile.ts) */
 const PROFILE_MAX_BYTES = 64 * 1024
-/** where the marketing pack puts its skills (onboarding/skill-packs.ts: skills/<pack>/<name>/SKILL.md) */
-const PACK_DIR = 'skills/marketing'
+/** where the packs put their skills (onboarding/skill-packs.ts: skills/<pack>/<name>/SKILL.md): the marketing pack, and
+ * the general pack every team gets from the welcome steps (docs/DECISIONS.md "M — One meeting note") */
+const PACK_DIRS = ['skills/marketing', 'skills/general']
 
 const regularFile = (p: string) => { try { return fs.lstatSync(p).isFile() } catch { return false } }
 
-/** skills/marketing/ holds a skill (a plain SKILL.md one folder down): the pack, or part of it, is installed. */
+/** skills/marketing/ or skills/general/ holds a skill (a plain SKILL.md one folder down): a pack, or part of one, is
+ * installed. */
 export function packInstalled(teamRoot: string): boolean {
-  const dir = path.join(teamRoot, PACK_DIR)
-  try {
-    if (!fs.lstatSync(dir).isDirectory()) return false
-    return fs.readdirSync(dir, { withFileTypes: true }).some((e) => e.isDirectory() && regularFile(path.join(dir, e.name, 'SKILL.md')))
-  } catch { return false }
+  return PACK_DIRS.some((d) => {
+    const dir = path.join(teamRoot, d)
+    try {
+      if (!fs.lstatSync(dir).isDirectory()) return false
+      return fs.readdirSync(dir, { withFileTypes: true }).some((e) => e.isDirectory() && regularFile(path.join(dir, e.name, 'SKILL.md')))
+    } catch { return false }
+  })
 }
 
 /** A company profile is saved: the file is there, small, JSON, and has a field filled in (as the AI would get it). */
