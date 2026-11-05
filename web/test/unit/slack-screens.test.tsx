@@ -1,11 +1,11 @@
 // Admin › Slack and Settings › App connectors › Slack (docs/SLACK.md): the setup is four steps, each with its Slack page,
 // and no manifest on the page; a refused token is said under its own field until the next try, never in a toast; once
 // set up, one status line with one button, a problem names the one place to fix it, "Remove" waits behind "Replace
-// tokens"; people rows carry no buttons. Settings: the Slack line replaces the empty card; after accepting a proposal,
-// one next step and no warning.
+// tokens"; without an https address one line says "Sign in with Slack" needs it. Settings: the Slack line replaces the
+// empty card; "Sign in with Slack" goes to Slack and its outcome is said when it comes back.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import type { MySlack, SlackAdmin, SlackMembers } from '@mycel/shared/api'
+import type { MySlack, SlackAdmin } from '@mycel/shared/api'
 import AdminSlack from '../../src/pages/admin/Slack'
 import ConnectorConnections from '../../src/pages/ConnectorConnections'
 import { useLocaleStore } from '../../src/i18n'
@@ -16,16 +16,17 @@ const realFetch = globalThis.fetch
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } })
 let admin: SlackAdmin
 let me: MySlack
-let members: SlackMembers
+let assigned: string[] = []
 let saveAnswer: () => Response
 let calls: string[] = []
 let sealingKey: unknown
 
 const base = (o: Partial<SlackAdmin> = {}): SlackAdmin => ({
   enabled: false, tokens: false, workspace: null, botName: null, appId: null, state: 'off', lastError: null, linkOrigin: null, linked: 0,
-  manifest: '{"display_information":{"name":"Trina AX"}}', createUrl: 'https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D', ...o,
+  manifest: '{"display_information":{"name":"Trina AX"}}', createUrl: 'https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D',
+  signIn: false, redirectUrl: 'https://team.example/api/integrations/slack/oauth/callback', ...o,
 })
-const on = (o: Partial<SlackAdmin> = {}) => base({ enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: null }, botName: 'trina-ax', appId: 'A0APP', state: 'connected', linked: 2, ...o })
+const on = (o: Partial<SlackAdmin> = {}) => base({ enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: null }, botName: 'trina-ax', appId: 'A0APP', state: 'connected', linked: 2, signIn: true, ...o })
 
 const realResizeObserver = (globalThis as { ResizeObserver?: unknown }).ResizeObserver
 beforeAll(async () => {
@@ -33,7 +34,7 @@ beforeAll(async () => {
   // the admin pages' one-line explanations measure themselves (no layout here)
   ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
   // the page's own address (links of the app open there unless the server says another)
-  Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: { origin: 'http://team.localhost', href: 'http://team.localhost/admin/slack' } })
+  Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: { origin: 'http://team.localhost', href: 'http://team.localhost/admin/slack', assign(u: string) { assigned.push(u) } } })
   const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']) as CryptoKeyPair
   const jwk = await crypto.subtle.exportKey('jwk', pair.publicKey)
   sealingKey = { kid: 'k1', alg: 'ECDH-ES+P256+HKDF-SHA256+A256GCM', publicJwk: { kty: 'EC', crv: 'P-256', x: jwk.x, y: jwk.y } }
@@ -41,13 +42,10 @@ beforeAll(async () => {
 afterAll(() => { removeDom(); (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realResizeObserver; delete (globalThis as { location?: unknown }).location })
 beforeEach(() => {
   calls = []
+  assigned = []
   useUi.setState({ toasts: [] })
   admin = base()
-  me = { available: true, workspace: 'Acme', link: null, proposal: null, emailSetByOther: false }
-  members = { available: true, truncated: false, members: [
-    { slackUserId: 'U0ALICE', name: 'alice.slack', realName: 'Alice', handle: 'alice', email: 'alice@acme.example', linkedTo: { id: 'alice', name: 'Alice Kim', username: 'alice' }, pending: null },
-    { slackUserId: 'U0BOB', name: 'bob.slack', realName: 'Bob', handle: 'bob', email: 'bob@other.example', linkedTo: null, pending: null },
-  ] }
+  me = { available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }
   saveAnswer = () => json(on({ enabled: false, state: 'off' }))
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
@@ -57,8 +55,7 @@ beforeEach(() => {
     if (what === 'GET /api/credentials/sealing-key') return json(sealingKey)
     if (what === 'PUT /api/admin/slack/tokens') return saveAnswer()
     if (what === 'POST /api/admin/slack/enabled') return json(on())
-    if (what === 'GET /api/admin/slack/members') return json(members)
-    if (what === 'GET /api/admin/users') return json({ items: [] })
+    if (what === 'POST /api/slack/signin') return json({ authorizationUrl: 'https://slack.com/openid/connect/authorize?state=s' })
     if (what === 'GET /api/slack/me') return json(me)
     if (what === 'GET /api/connectors/remote') return json({ configured: false, resource: null, items: [] })
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
@@ -68,6 +65,12 @@ afterEach(() => { globalThis.fetch = realFetch })
 
 const page = () => mount(<MemoryRouter><AdminSlack /></MemoryRouter>)
 const BOT = 'xoxb-111-222-' + 'b'.repeat(24), APP = 'xapp-1-A0APP-333-' + 'a'.repeat(32)
+const fill = async (m: Awaited<ReturnType<typeof page>>) => {
+  await m.type('slack-bot-token', BOT)
+  await m.type('slack-app-token', APP)
+  await m.type('slack-client-id', '1234567890.1234567890')
+  await m.type('slack-client-secret', 'c'.repeat(32))
+}
 
 describe('Admin › Slack', () => {
   test('not set up: four steps with their Slack pages, no manifest; saving turns it on', async () => {
@@ -78,8 +81,7 @@ describe('Admin › Slack', () => {
     expect(m.html()).toContain('href="https://api.slack.com/apps"')
     expect(m.html()).not.toContain('display_information')
     expect(m.html()).not.toContain('It starts with xoxb-')
-    await m.type('slack-bot-token', BOT)
-    await m.type('slack-app-token', APP)
+    await fill(m)
     await m.click('slack-save')
     await m.until(() => m.find('slack-status'), 'the status line')
     expect(calls).toContain('POST /api/admin/slack/enabled')
@@ -91,8 +93,7 @@ describe('Admin › Slack', () => {
     saveAnswer = () => json({ error: { code: 'validation', message: 'server words', fields: { 'body.appToken': 'socket_mode_off' }, params: { reason: 'socket_mode_off' } } }, 400)
     const m = await page()
     await m.until(() => m.find('slack-setup'), 'the steps')
-    await m.type('slack-bot-token', BOT)
-    await m.type('slack-app-token', APP)
+    await fill(m)
     await m.click('slack-save')
     const alert = await m.until(() => m.container.querySelector('[role="alert"]'), 'the error')
     expect(alert.textContent).toBe('Turn on Slack app settings › Socket Mode.')
@@ -124,11 +125,28 @@ describe('Admin › Slack', () => {
     await m.click('slack-replace')
     expect(m.find('slack-remove')).not.toBeNull()
     expect(m.html()).toContain('href="https://api.slack.com/apps/A0APP/install-on-team"')
-    await m.until(() => m.find('slack-person-open'), 'the people')
-    // the linked row is plain text; the other row is the one control (no buttons inside rows)
-    expect(m.get('slack-people').querySelectorAll('button').length).toBe(1)
-    await m.click('slack-person-open')
-    await m.until(() => m.find('slack-link-member-confirm'), 'the dialog')
+    // no list of people to link by hand: each person links their own account
+    expect(m.find('slack-people')).toBeNull()
+    expect(m.find('slack-https-needed')).toBeNull()
+    await m.unmount()
+  })
+
+  test('the client secret goes sealed with the tokens; without an https address one line says Sign in with Slack needs it', async () => {
+    admin = base({ redirectUrl: null })
+    let body = ''
+    saveAnswer = () => json(on({ enabled: false, state: 'off', redirectUrl: null }))
+    const f = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => { if (String(input).endsWith('/api/admin/slack/tokens')) body = String(init?.body ?? ''); return f(input, init) }) as typeof fetch
+    const m = await page()
+    await m.until(() => m.find('slack-setup'), 'the steps')
+    expect(m.get('slack-https-needed').textContent).toContain('needs the team\'s https address')
+    await fill(m)
+    await m.click('slack-save')
+    await m.until(() => m.find('slack-status'), 'saved')
+    const sent = JSON.parse(body)
+    expect(sent.clientId).toBe('1234567890.1234567890')
+    expect(sent.clientSecret.ct).toBeTruthy()
+    expect(body).not.toContain('c'.repeat(32))
     await m.unmount()
   })
 
@@ -174,22 +192,25 @@ describe('Settings › App connectors', () => {
     await m.unmount()
   })
 
-  test('a proposal: the warning before accepting; after, one next step and no warning', async () => {
-    const proposal = { id: 'p1', slack: { userId: 'U0BOB', name: 'bob.slack', realName: null, handle: 'bob', email: null }, proposedBy: 'Dana', expiresAt: new Date(Date.now() + 86_400_000).toISOString(), memberAccepted: false, slackConfirmed: false }
-    me = { ...me, proposal, emailSetByOther: true }
+  test('Sign in with Slack: the button goes to Slack; the outcome is said when it comes back', async () => {
+    me = { ...me, signIn: true }
     let m = await settings()
-    await m.until(() => m.find('slack-proposal'), 'the proposal')
-    expect(m.get('slack-proposal').textContent).toContain('Link it only if this Slack account is yours')
-    // the e-mail note and "how to link" are not repeated under a proposal
-    expect(m.find('slack-email-set-by-other')).toBeNull()
-    expect(m.find('slack-proposal-accept')).not.toBeNull()
+    await m.until(() => m.find('slack-signin'), 'the button')
+    expect(m.get('slack-account').textContent).toContain('Sign in with your Slack account of Acme')
+    await m.click('slack-signin')
+    await m.until(() => assigned.length > 0, 'went to Slack')
+    expect(calls).toContain('POST /api/slack/signin')
+    expect(assigned[0]).toStartWith('https://slack.com/openid/connect/authorize')
     await m.unmount()
-    me = { ...me, proposal: { ...proposal, memberAccepted: true } }
-    m = await settings()
-    await m.until(() => m.find('slack-proposal-slack-half'), 'the next step')
-    expect(m.get('slack-proposal-slack-half').textContent).toBe('Next: ask Trina AX something in Slack once, then open the link Trina AX sends you there.')
-    expect(m.get('slack-proposal').textContent).not.toContain('Link it only if')
-    expect(m.find('slack-proposal-accept')).toBeNull()
+    me = { ...me, link: { slackUserId: 'U0ME', slackName: 'me.slack', linkedAt: new Date().toISOString() } }
+    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=linked']}><ConnectorConnections /></MemoryRouter>)
+    await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
+    expect(m.get('slack-signin-outcome').textContent).toBe('Your Slack account is linked. You can ask in Slack now.')
+    expect(m.find('slack-unlink')).not.toBeNull()
+    await m.unmount()
+    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=signin_other_session']}><ConnectorConnections /></MemoryRouter>)
+    await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
+    expect(m.get('slack-signin-outcome').textContent).toContain('only be finished in the browser and account that started it')
     await m.unmount()
   })
 })

@@ -19,14 +19,15 @@ beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => removeDom())
 beforeEach(() => {
   calls = []
-  confirmAnswer = { available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, proposal: null, emailSetByOther: false }
-  preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false, emailCheck: 'match', email: 'bob@acme.example' }
+  confirmAnswer = { available: true, workspace: 'Acme', link: { slackUserId: 'U0ALICE', slackName: 'alice.slack', linkedAt: new Date().toISOString() }, signIn: true, emailSetByOther: false }
+  preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false, emailCheck: 'match', email: 'bob@acme.example', signIn: true }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     calls.push({ method: init?.method ?? 'GET', path: url.pathname, url: url.href, raw: typeof init?.body === 'string' ? init.body : '' })
     if (url.pathname === '/api/slack/link/preview') return json(preview)
     if (url.pathname === '/api/slack/link/confirm') return json(confirmAnswer)
     if (url.pathname === '/api/slack/link/cancel') return new Response(null, { status: 204 })
+    if (url.pathname === '/api/slack/signin') return json({ authorizationUrl: 'https://slack.com/openid/connect/authorize?state=s' })
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
   }) as typeof fetch
 })
@@ -64,25 +65,28 @@ describe('the Slack link page', () => {
     await m.unmount()
   })
 
-  test('another person\'s Slack account (its e-mail is not mine): no Link button, the reason and who to ask', async () => {
-    preview = { ...preview, emailCheck: 'mismatch' }
+  test('another person\'s Slack account (its e-mail is not mine), Sign in with Slack off: no button, the reason and who to ask', async () => {
+    preview = { ...preview, emailCheck: 'mismatch', signIn: false }
     const m = await page(`?t=${TOKEN}`)
     await m.until(() => m.find('slack-link-email'), 'the reason')
-    // what to ask the owner, and where they do it
-    expect(m.get('slack-link-email').textContent).toBe('The e-mail of this Slack account is not the one of your Trina AX account, so it cannot be linked here. Ask your team owner to propose the link to you in Admin › Slack › People.')
+    expect(m.get('slack-link-email').textContent).toBe('The e-mail of this Slack account is not the one of your Trina AX account, so it cannot be linked here. "Sign in with Slack" cannot be used now. Ask your team owner to check Admin › Slack.')
     expect(m.find('slack-link-confirm')).toBeNull()
+    expect(m.find('slack-signin')).toBeNull()
     await m.unmount()
   })
 
-  test('the Slack half of an owner\'s proposal: Link confirms it and points to Settings to finish', async () => {
-    preview = { ...preview, emailCheck: 'proposal' }
-    confirmAnswer = { available: true, workspace: 'Acme', link: null, emailSetByOther: false,
-      proposal: { id: 'p1', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: null, handle: null, email: null }, proposedBy: 'Dana', expiresAt: new Date(Date.now() + 86_400_000).toISOString(), memberAccepted: false, slackConfirmed: true } }
+  test('e-mails that differ: no Link button; Sign in with Slack instead, which goes to Slack', async () => {
+    preview = { ...preview, emailCheck: 'mismatch' }
+    const assigned: string[] = []
+    Object.defineProperty(globalThis, 'location', { configurable: true, writable: true, value: { origin: 'http://team.localhost', href: 'http://team.localhost/slack/link', assign(u: string) { assigned.push(u) } } })
     const m = await page(`?t=${TOKEN}`)
-    await m.until(() => m.find('slack-link-proposal'), 'the note')
-    await m.click('slack-link-confirm')
-    await m.until(() => m.find('slack-link-done'), 'half done')
-    expect(m.get('slack-link-done').textContent).toContain('accept the proposal in Settings')
+    await m.until(() => m.find('slack-signin'), 'the sign-in button')
+    expect(m.find('slack-link-confirm')).toBeNull()
+    expect(m.get('slack-link-email').textContent).toContain('Sign in with Slack below')
+    await m.click('slack-signin')
+    await m.until(() => assigned.length > 0, 'went to Slack')
+    expect(calls.at(-1)!.path).toBe('/api/slack/signin')
+    delete (globalThis as { location?: unknown }).location
     await m.unmount()
   })
 
