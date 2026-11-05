@@ -63,11 +63,12 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', h)
   }, [navigate, setSearchOpen, setDrawer])
 
-  // the AI started writing an artifact in the chat on screen, or saved a card news: open it (Claude parity). A new
-  // chat's first answer can start before its page is on screen (the chat page loads lazily and the route changes in a
-  // transition), so the request waits for the chat to show and is used once; moving to another chat drops it. Checking
-  // only when the event arrived lost it on slower machines (e2e on a 2-vCPU Linux server). On a phone the panel is a
-  // full-screen sheet (closed by its ✕ or Esc): it never covers a draft being written; the card under the answer opens it.
+  // the AI started writing an artifact in the chat on screen, or saved a promo video or a card news: open it (Claude
+  // parity). A new chat's first answer can start before its page is on screen (the chat page loads lazily and the route
+  // changes in a transition), so the request waits for the chat to show and is used once; moving to another chat drops
+  // it. Checking only when the event arrived lost it on slower machines (e2e on a 2-vCPU Linux server). On a phone the
+  // panel is a full-screen sheet (closed by its ✕ or Esc): it never covers a draft being written; the card under the
+  // answer opens it.
   useEffect(() => {
     if (!autoOpen) return
     if (location.pathname === `/c/${autoOpen.chatId}`) {

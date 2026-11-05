@@ -83,8 +83,9 @@ export async function makePromoVideo(ctx: AppContext, a: PromoVideoInput, t: Too
   const typeOnly = doc.scenes.filter((x) => !x.picture).map((x) => x.kind)
   return {
     text: `Made the promo video "${a.title}" (${duration} s, the "${STYLE_NAME[lang][a.style]}" style; scenes with a photo: ${withPhoto.join(', ') || 'none'}; type-only: ${typeOnly.join(', ') || 'none'}). ` +
-      `It plays next to the chat. In your answer: one or two short lines on what the video says and why the "${STYLE_NAME[lang][a.style]}" style (call it by that name; no style ids, colour codes or other technical words); if some scenes are type-only, one line that photos added to the brand images folder can go in next time. ` +
-      'Never paste HTML or the slots, and do not list the scenes again.',
+      'It opens by itself next to the chat. Your answer is one short line in the person\'s language: that the video is made and that they can say which scene or words to change; ' +
+      'if some scenes are type-only, one more sentence that photos added to the brand images folder can go in next time. ' +
+      'Nothing else: no tool, skill or slot names, no style ids, colour codes or file paths, no list of the scenes, no HTML.',
     summary: `${PROMO_TOOL} ${a.style} -> artifact ${s.key} v${s.version}`,
     structured: { key: s.key, version: s.version, artifactId: s.id },
   }

@@ -48,14 +48,14 @@ Make a 14-second promo video (1080×1350, five scenes) that looks like an agency
 - `bold` (Bold): brand-colored panels and heavy type. Consumer brands, shops, strong brand colors.
 - `editorial` (Editorial): paper and a calm magazine feel. B2B, professional services, craft, cafés with a story.
 - `night` (Cinematic): dark with a brand-colored glow. Tech and premium products.
-- Choose one from the company's character and its brand color. In the answer, call the style by the name in brackets (never a color code).
+- Choose one from the company's character and its brand color. When the person asks about the style, call it by the name in brackets (never its id or a color code).
 
 ## 6. Make it
 - Call `promo_video` once: `title` "(company name) promo video", `company` as the material writes it, `sources` the paths of the files you read, `logo` the logo file in the images folder (if there is one), and the five scenes.
 - If the tool returns problems, fix all of them and call it once more. If it fails again, do not call it again; say in one line why the video could not be made.
 
 ## 7. The answer
-- The video shows next to the chat. Keep the answer short: one or two lines on what the video says, one line on where the number comes from (the page or sentence of the material).
-- If some scenes have no photo, one line: "Add photos to the brand images folder and ask me to make it again to put them in."
-- End with one line: "Tell me which scene or words to change."
-- Never paste HTML or the tool's slots into the answer. Do nothing else with the video (posting, sending) and never say you did.
+- The video opens by itself beside the chat, so the answer is one line, written after the video is made: "I made a promo video for (Company name). Tell me which scene or words you would like changed."
+- Scenes made without a photo: add one sentence, "Add photos to the brand images folder and ask me again to put them in."
+- Nothing else in the answer: no skill or tool name, no slot names, no style names, no color codes, no file path or file name, no line per scene, no number sources, no list of the photos you used or left out. Never paste HTML or the tool's slots, and write nothing before the video either.
+- Make the video only: never post, send or share it, and never say you did.

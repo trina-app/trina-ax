@@ -17,7 +17,7 @@
 // in it, made once with the owner in it. Both are recorded in the row, so the steps never make them again by themselves.
 import { z } from 'zod'
 import {
-  BRAND_IMAGES_FOLDER, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_TASKS_SKILL, NOTES_FOLDER, PACK_FOLDERS, TeamGroupRef, TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
+  BRAND_IMAGES_FOLDER, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_PROMO_SKILL, GENERAL_TASKS_SKILL, NOTES_FOLDER, PACK_FOLDERS, TeamGroupRef, TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
   type Locale, type WelcomePackResult, type WelcomeTeamResult, type WelcomeUpdate,
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -34,7 +34,7 @@ export const WELCOME_SETTING = 'onboarding.welcome'
 type Raw = Record<string, unknown>
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v)
 const PackShape = WelcomeProgress.shape.pack.unwrap()
-const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable(), cardNewsPath: z.string().nullable().optional() })
+const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable(), cardNewsPath: z.string().nullable().optional(), promoVideoPath: z.string().nullable().optional() })
 
 /** The stored row: none, an object, or something that is not an object (`raw` null with `row` true). */
 function stored(ctx: Pick<AppContext, 'db'>): { row: boolean; raw: Raw | null } {
@@ -262,13 +262,18 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
     // deleted there on purpose is not brought back)
     const tried = typeof raw.generalBlockedAt === 'string'
     if (!tried && skills.some((s) => s.path.startsWith('skills/general/'))) {
-      if (tasks) raw.general = { at: now, tasksPath: tasks, briefPath: generalPath(skills, GENERAL_BRIEF_SKILL, 'doc-brief'), ...(generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news') ? { cardNewsPath: generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news') } : {}) }
+      if (tasks) {
+        // the promo video not there yet stays unrecorded: the first result adds it on its own once (promoVideoSkill)
+        const cardNewsPath = generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news')
+        const promoVideoPath = generalPath(skills, GENERAL_PROMO_SKILL, 'promo-video')
+        raw.general = { at: now, tasksPath: tasks, briefPath: generalPath(skills, GENERAL_BRIEF_SKILL, 'doc-brief'), ...(cardNewsPath ? { cardNewsPath } : {}), ...(promoVideoPath ? { promoVideoPath } : {}) }
+      }
       else outcome = 'blocked'
     } else {
       install = installSkillPack(ctx, userId, 'general')
       const tasksPath = placed(install, GENERAL_TASKS_SKILL)
       if (tasksPath) {
-        raw.general = { at: now, tasksPath, briefPath: placed(install, GENERAL_BRIEF_SKILL), cardNewsPath: placed(install, GENERAL_CARDNEWS_SKILL) }
+        raw.general = { at: now, tasksPath, briefPath: placed(install, GENERAL_BRIEF_SKILL), cardNewsPath: placed(install, GENERAL_CARDNEWS_SKILL), promoVideoPath: placed(install, GENERAL_PROMO_SKILL) }
         delete raw.generalBlockedAt
         outcome = 'installed'
       } else {
@@ -282,19 +287,20 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
   return { progress: save(ctx, raw, now), install, outcome }
 }
 
-/** "/card-news" for the first result (docs/DECISIONS.md "N"): the recorded path, or once, for a row whose general pack
- * was recorded before the skill existed, the skill installed on its own and recorded (null when blocked). `install`
- * runs only then. */
-export function cardNewsSkill(ctx: AppContext, userId: string, install: () => { path: string; status: string; sameNameAs?: string }): string | null {
+/** "/promo-video" for the first result (docs/DECISIONS.md "V"; the card news of "N" before it, still installed with the
+ * pack): the recorded path, or once, for a row whose general pack was recorded before the skill existed, the skill
+ * installed on its own and recorded (null when blocked). `install` runs only then; a skill recorded and deleted on
+ * purpose afterwards is not brought back. */
+export function promoVideoSkill(ctx: AppContext, userId: string, install: () => { path: string; status: string; sameNameAs?: string }): string | null {
   const now = new Date().toISOString()
   const raw = forWrite(ctx, now)
   const general = isObj(raw.general) ? raw.general : null
   if (!general) return null
-  if (typeof general.cardNewsPath === 'string') return general.cardNewsPath
-  if (general.cardNewsPath === null) return null
+  if (typeof general.promoVideoPath === 'string') return general.promoVideoPath
+  if (general.promoVideoPath === null) return null
   const r = install()
   const path = r.status === 'blocked' ? (r.sameNameAs ?? null) : r.path
-  raw.general = { ...general, cardNewsPath: path }
+  raw.general = { ...general, promoVideoPath: path }
   save(ctx, raw, now)
   return path
 }

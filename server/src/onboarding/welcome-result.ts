@@ -1,20 +1,21 @@
-// The welcome steps' first result: the company's card news (docs/DECISIONS.md "N — The first result is the company's
-// card news"). POST /api/onboarding/welcome/first-result (the owner, who walks the steps):
+// The welcome steps' first result: the company's promo video (docs/DECISIONS.md "V"; the card news of "N — The first
+// result is the company's card news" before it, still installed with the general pack).
+// POST /api/onboarding/welcome/first-result (the owner, who walks the steps):
 //   1. the team's start if it is missing (the general pack and the team's group with its brand folder, welcome.ts);
-//   2. "/card-news": the pack's skill, added on its own once for a row recorded before the skill existed;
+//   2. "/promo-video": the pack's skill, added on its own once for a row recorded before the skill existed;
 //   3. the pictures the website reading collected (brand-assets.ts) go into the brand images folder, as the owner's
 //      saves (versions, file events, the folder rules), each once;
 //   4. no file from the owner: 회사 소개.md in the brand folder, written from the saved company profile and the text of
 //      the pages the server opened, each part under its source (no AI here: nothing is invented); one already there is
 //      kept as it is (someone may have edited it);
-//   5. a new chat of the owner titled after the result ("우리 회사 홍보 카드뉴스", a title the AI does not rename).
-// No picture is made here or in that chat: with too few pictures the skill uses its type-only cards (docs/DECISIONS.md
-// "N", Higgsfield taken out).
-// The page then attaches the files and sends "/card-news …" like any message of the owner's (pages/Welcome.tsx), so
-// the turn is an ordinary skill run (the goal, the receipt and the transcript need nothing new).
+//   5. a new chat of the owner titled after the result ("우리 회사 홍보 영상", a title the AI does not rename).
+// No picture is made here or in that chat: a scene without a fitting picture is made type-only.
+// The page then attaches the files and sends "/promo-video …" like any message of the owner's (pages/Welcome.tsx), so
+// the turn is an ordinary skill run (the goal, the receipt and the transcript need nothing new); the video opens beside
+// the chat by itself (its artifact key, web/src/store/chats.ts).
 import fs from 'node:fs'
 import path from 'node:path'
-import { GENERAL_CARDNEWS_SKILL, profileName, type FirstResultStarted, type Locale, type StartFirstResult } from '@mycel/shared/api'
+import { GENERAL_PROMO_SKILL, profileName, type FirstResultStarted, type Locale, type StartFirstResult } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
 import type { ChatRuntime } from '../chat/runtime'
@@ -28,19 +29,19 @@ import { freeName } from '../team-files/place'
 import { assetDir, stagedAssets, type BrandAssetRow } from './brand-assets'
 import { readCompanyProfile } from './profile'
 import { installPackSkill } from './skill-packs'
-import { brandFoldersOf, cardNewsSkill, readWelcome, setupWelcomeTeam } from './welcome'
+import { brandFoldersOf, promoVideoSkill, readWelcome, setupWelcomeTeam } from './welcome'
 
 const TEXT = {
-  title: { ko: '우리 회사 홍보 카드뉴스', en: 'Promo cards for our company', id: 'Kartu berita perusahaan kami', ja: '会社紹介カードニュース', es: 'Tarjetas de presentación de la empresa' },
+  title: { ko: '우리 회사 홍보 영상', en: 'Promo video for our company', id: 'Video promosi perusahaan kami', ja: '会社のプロモーション動画', es: 'Vídeo promocional de la empresa' },
   intro: { ko: '회사 소개.md', en: 'Company intro.md', id: 'Profil perusahaan.md', ja: '会社紹介.md', es: 'Presentación de la empresa.md' },
   logo: { ko: '로고', en: 'logo', id: 'logo', ja: 'ロゴ', es: 'logotipo' },
   image: { ko: '홈페이지', en: 'website', id: 'situs', ja: 'サイト', es: 'sitio' },
   blocked: {
-    ko: '카드뉴스 스킬을 넣지 못했어요. 폴더 권한을 확인해 주세요.',
-    en: 'The promo cards skill could not be added. Check the folder permissions.',
-    id: 'Skill kartu berita tidak bisa ditambahkan. Periksa izin folder.',
-    ja: 'カードニュースのスキルを追加できませんでした。フォルダーの権限を確認してください。',
-    es: 'No se pudo añadir la habilidad de tarjetas. Revise los permisos de la carpeta.',
+    ko: '홍보 영상 스킬을 넣지 못했어요. 폴더 권한을 확인해 주세요.',
+    en: 'The promo video skill could not be added. Check the folder permissions.',
+    id: 'Skill video promosi tidak bisa ditambahkan. Periksa izin folder.',
+    ja: 'プロモーション動画のスキルを追加できませんでした。フォルダーの権限を確認してください。',
+    es: 'No se pudo añadir la habilidad de vídeo promocional. Revise los permisos de la carpeta.',
   },
   noMaterial: {
     ko: '아직 회사 소개가 없어요. 앞 단계에서 홈페이지를 읽거나 회사 소개 자료를 올려 주세요.',
@@ -185,7 +186,7 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
   if (!p?.general || !p.teamGroup?.brandFolder) p = setupWelcomeTeam(ctx, userId, locale).progress
   const group = p.teamGroup
   if (!group || !p.general) throw new HttpError('conflict', TEXT.blocked[locale])
-  const skillPath = cardNewsSkill(ctx, userId, () => installPackSkill(ctx, userId, 'general', 'card-news'))
+  const skillPath = promoVideoSkill(ctx, userId, () => installPackSkill(ctx, userId, 'general', 'promo-video'))
   if (!skillPath) throw new HttpError('conflict', TEXT.blocked[locale])
   const team = teamDefaultLocale(ctx.db)
   const { brandFolder, imagesFolder } = brandFoldersOf(ctx, userId, group.folder, group.brandFolder)
@@ -215,5 +216,5 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
     .run(id, userId, TEXT.title[locale], engine, model ?? null, now, now)
   audit(ctx.db, { actor: userId, action: 'onboarding.first_result', target: id, detail: { files: files.length, intro: !!intro, images: images.length } })
   rt.publishChat(userId, id, 'created')
-  return { chatId: id, title: TEXT.title[locale], skillPath: skillPath ?? GENERAL_CARDNEWS_SKILL, files, intro, imagesFolder, images }
+  return { chatId: id, title: TEXT.title[locale], skillPath: skillPath ?? GENERAL_PROMO_SKILL, files, intro, imagesFolder, images }
 }

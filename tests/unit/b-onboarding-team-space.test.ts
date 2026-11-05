@@ -40,7 +40,8 @@ test('the general pack and the team group with its folders, once; the owner in i
   expect(r.install.skills.map((s: any) => [s.path, s.status])).toEqual([[GENERAL_TASKS_SKILL, 'created'], [GENERAL_BRIEF_SKILL, 'created'], [GENERAL_CARDNEWS_SKILL, 'created'], [GENERAL_PROMO_SKILL, 'created']])
   expect(r.install.folders).toEqual([])
   expect(fs.readFileSync(path.join(root, GENERAL_TASKS_SKILL), 'utf8')).toBe(SKILL_PACKS.general.skills.ko!['meeting-tasks']!)
-  expect(r.progress.general).toMatchObject({ tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL })
+  // the first result's promo video and the card news (still installed) are recorded with the pack
+  expect(r.progress.general).toMatchObject({ tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL })
   // the group is named after the team; its folder and the meeting notes folder (in the team language) are there
   const g = r.progress.teamGroup
   expect(g).toMatchObject({ name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록' })

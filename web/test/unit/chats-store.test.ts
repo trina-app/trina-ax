@@ -1,6 +1,6 @@
 // The chat store against a fake REST server (global fetch) and hand-made WebSocket events.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { CARD_NEWS_ARTIFACT_KEY, Chat, uuidv7, type TurnStarted } from '@mycel/shared/api'
+import { CARD_NEWS_ARTIFACT_KEY, Chat, PROMO_ARTIFACT_KEY, uuidv7, type TurnStarted } from '@mycel/shared/api'
 import { typingOnPhone } from '../../src/lib/sidePanel'
 import { PENDING_EVENTS_MAX, SEND_RETRY_MS, useChats } from '../../src/store/chats'
 import { CHAT, msg } from './fixtures'
@@ -204,6 +204,16 @@ describe('events', () => {
     // used once (Layout clears it); the next version in the same session does not open it again over the person
     useChats.setState({ autoOpen: null })
     saved(CARD_NEWS_ARTIFACT_KEY, 2, 3)
+    expect(useChats.getState().autoOpen).toBeNull()
+  })
+
+  test('a saved promo video (the welcome steps\' first result, docs/DECISIONS.md "V") opens the panel by itself too, once', () => {
+    const h = useChats.getState().handleEvent
+    const saved = (version: number, seq: number) => h({ type: 'artifact.updated', seq, at: 0, data: { chatId: CHAT, messageId: null, key: PROMO_ARTIFACT_KEY, type: 'html', title: 'Acme 홍보 영상', status: 'done', artifact: { id: uuidv7(), chatId: CHAT, messageId: null, key: PROMO_ARTIFACT_KEY, version, type: 'html', title: 'Acme 홍보 영상', language: null, createdAt: '2026-11-05T00:00:00.000Z', size: 10 } } })
+    saved(1, 1)
+    expect(useChats.getState().autoOpen).toMatchObject({ chatId: CHAT, key: 'promo-video' })
+    useChats.setState({ autoOpen: null })
+    saved(2, 2)
     expect(useChats.getState().autoOpen).toBeNull()
   })
 

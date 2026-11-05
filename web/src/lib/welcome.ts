@@ -75,20 +75,22 @@ export const showInviteBar = (p: WelcomeProgress | null, chatId: string) => !!p 
 /**
  * The skill that made the first result, to share as it is (docs/DECISIONS.md "W2 — AI connection first"): the run the
  * server recorded for the answer (`receipt`: the path the 7-day goal counts), else the first question's "/name" among
- * the skills these steps recorded (the card news, the meeting notes skills, the ad copy); null when neither says.
+ * the skills these steps recorded (the promo video, the card news, the meeting notes skills, the ad copy); null when
+ * neither says.
  */
 export function resultSkill(messages: Pick<Message, 'role' | 'content' | 'receipt'>[], p: WelcomeProgress | null): string | null {
   const ran = messages.find((m) => m.role === 'assistant' && m.receipt)?.receipt?.skill.path
   if (ran) return ran
   const name = /^\/([^\s/]+)/.exec(messages.find((m) => m.role === 'user')?.content.trim() ?? '')?.[1]
   if (!name || !p) return null
-  const recorded = [p.general?.cardNewsPath, p.general?.tasksPath, p.general?.briefPath, p.pack?.skillPath]
+  const recorded = [p.general?.promoVideoPath, p.general?.cardNewsPath, p.general?.tasksPath, p.general?.briefPath, p.pack?.skillPath]
   return recorded.find((path): path is string => !!path && skillNameOf(path) === name) ?? null
 }
 
-/** The skill the welcome steps' own invite step carries (no chat to read it from): the first result's, the card news;
- * else the marketing pack's ad copy, else the meeting notes skill (rows from before the card news). */
-export const inviteSkill = (p: WelcomeProgress): string | null => p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
+/** The skill the welcome steps' own invite step carries (no chat to read it from): the first result's, the promo video
+ * (docs/DECISIONS.md "V"), so a teammate's run counts for the 7-day goal; else the card news (a row whose first result
+ * ran it), the marketing pack's ad copy, the meeting notes skill (rows from before them). */
+export const inviteSkill = (p: WelcomeProgress): string | null => p.general?.promoVideoPath ?? p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
 
 /** Home's one line after "자료 없이 해 볼게요" (router state): where meeting notes go. */
 export interface NotesHint { folder: string; team: string }
