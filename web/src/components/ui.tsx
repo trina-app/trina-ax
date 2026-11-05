@@ -367,15 +367,23 @@ function useBottomBarLift(toasts: unknown[]) {
   useLayoutEffect(() => {
     if (!toasts.length) return
     let frame = 0
+    let watched: HTMLElement[] = []
+    let last: number | null | undefined
     const bars = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => later())
     const measure = () => {
       frame = 0
       const phone = typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches
       const els = phone ? [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')] : []
-      bars?.disconnect()
-      for (const el of els) bars?.observe(el)
+      // watch the bars only when they are other elements than before: observing again makes the observer report again,
+      // which would measure again every frame
+      if (els.length !== watched.length || els.some((el, i) => el !== watched[i])) {
+        bars?.disconnect()
+        for (const el of els) bars?.observe(el)
+        watched = els
+      }
       const tops = els.map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top)
-      setLift(tops.length ? Math.max(0, window.innerHeight - Math.min(...tops)) : null)
+      const next = tops.length ? Math.max(0, window.innerHeight - Math.min(...tops)) : null
+      if (next !== last) setLift((last = next))
     }
     // after layout has settled: a resize or a route change is measured on the next frame, not in the middle of it
     const later = () => { if (!frame) frame = requestAnimationFrame(measure) }
