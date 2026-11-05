@@ -273,7 +273,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
 // ---------------- confirm / prompt dialogs (promise based) ----------------
 type DialogReq = { returnTo: HTMLElement | null } & (
   | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; danger?: boolean; resolve: (ok: boolean) => void }
-  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
+  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
 )
 
 const useDialogs = create<{ req: DialogReq | null; set: (r: DialogReq | null) => void }>((set) => ({ req: null, set: (req) => set({ req }) }))
@@ -290,7 +290,8 @@ export function confirmDialog(o: { title: string; body?: ReactNode; confirm: str
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
 }
-export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
+/** `select`: the first characters of `initial` that start selected (a file name without its extension). */
+export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; select?: number; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'prompt', initial: '', ...o, returnTo, resolve }))
 }
@@ -299,11 +300,19 @@ export function DialogHost() {
   const t = useT()
   const req = useDialogs((s) => s.req)
   const setReq = useDialogs((s) => s.set)
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => (req?.kind === 'prompt' ? req.initial : ''))
   const [touched, setTouched] = useState(false)
-  useEffect(() => {
+  // a new dialog starts from its own text in the first frame, so the field is focused (Modal) with it in place
+  const [shownReq, setShownReq] = useState(req)
+  if (shownReq !== req) {
+    setShownReq(req)
     if (req?.kind === 'prompt') setValue(req.initial)
     setTouched(false)
+  }
+  const input = useRef<HTMLInputElement>(null)
+  // after Modal focused the field (a child's layout effect runs first)
+  useLayoutEffect(() => {
+    if (req?.kind === 'prompt' && req.select !== undefined) input.current?.setSelectionRange(0, req.select)
   }, [req])
   if (!req) return null
   const close = (ok: boolean) => {
@@ -339,7 +348,7 @@ export function DialogHost() {
           }}
         >
           <Field label={req.label} error={value || touched ? problem : null}>
-            <input data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
+            <input ref={input} data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
           </Field>
         </form>
       )}
@@ -348,12 +357,36 @@ export function DialogHost() {
 }
 
 // ---------------- toasts ----------------
+/** Phones: how far above the window's bottom edge the highest bottom bar starts (the tab bar, a message box: marked
+ * data-bottom-bar), so toasts sit above it instead of over it. null on wider screens or with no bar on screen. Measured
+ * again for every new toast. */
+function useBottomBarLift(toasts: unknown[]) {
+  const [lift, setLift] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    if (!toasts.length) return
+    const measure = () => {
+      const phone = typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches
+      const tops = !phone ? [] : [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')].map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top)
+      setLift(tops.length ? Math.max(0, window.innerHeight - Math.min(...tops)) : null)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [toasts])
+  return lift
+}
+
 export function Toaster() {
   const t = useT()
   const toasts = useUi((s) => s.toasts)
   const dismiss = useUi((s) => s.dismiss)
+  const lift = useBottomBarLift(toasts)
   return (
-    <div className="pointer-events-none fixed right-3 bottom-[calc(0.75rem+var(--safe-bottom))] left-3 z-[60] flex flex-col items-end gap-2 sm:left-auto sm:w-96" aria-live="polite">
+    <div
+      className="pointer-events-none fixed right-3 bottom-[calc(0.75rem+var(--safe-bottom))] left-3 z-[60] flex flex-col items-end gap-2 sm:left-auto sm:w-96"
+      style={lift === null ? undefined : { bottom: `calc(${lift}px + 0.5rem)` }}
+      aria-live="polite"
+    >
       {toasts.map((x) => (
         <div
           key={x.id}
