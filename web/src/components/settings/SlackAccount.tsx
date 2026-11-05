@@ -65,7 +65,7 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
         </div>
         {me.link
           ? <Button variant="danger" size="sm" busy={busy} disabled={busy} onClick={() => void unlink()} data-testid="slack-unlink">{t('slack.mine.unlink')}</Button>
-          : me.signIn && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void signIn()} data-testid="slack-signin">{t('slack.signin.button')}</Button>}
+          : me.signIn && <Button variant="primary" size="sm" busy={busy} disabled={busy} onClick={() => void signIn()} title={t('slack.signin.button')} data-testid="slack-signin">{t('slack.signin.short')}</Button>}
       </div>
     </div>
   )
