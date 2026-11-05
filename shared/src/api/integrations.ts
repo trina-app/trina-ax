@@ -268,6 +268,8 @@ export type IntegrationTemplatePatch = z.infer<typeof IntegrationTemplatePatch>
 /** A template shared with me, and my connection made from it (null: not connected yet). */
 export const MyIntegrationTemplate = z.object({
   id: z.string(),
+  /** sent back when connecting: a template that changed since (its address above all) is refused with 409 */
+  version: z.number().int().positive(),
   kind: IntegrationKind,
   name: z.string(),
   /** the address without its query (where my key or sign-in will go) */
@@ -281,9 +283,10 @@ export const MyIntegrationTemplate = z.object({
 export type MyIntegrationTemplate = z.infer<typeof MyIntegrationTemplate>
 
 /** Connecting a template: my key (auth bearer / header; write-only), or nothing for a sign-in (the app signs in next),
- * and what the AI may change there (ask or refuse). */
-export const IntegrationTemplateAnswer = IntegrationRequestAnswer
-export type IntegrationTemplateAnswer = IntegrationRequestAnswer
+ * what the AI may change there (ask or refuse), and the template's version as I saw it: 409 when it changed since, so
+ * a key goes only where I agreed to send it. */
+export const IntegrationTemplateAnswer = IntegrationRequestAnswer.extend({ version: z.number().int().positive() }).strict()
+export type IntegrationTemplateAnswer = z.infer<typeof IntegrationTemplateAnswer>
 
 export const INTEGRATIONS = {
   listIntegrations: endpoint({ method: 'GET', path: '/api/integrations', auth: 'user', owner: 'C', response: IntegrationList, summary: 'My personal connections and the team connections I may use. Never a key or token.' }),
@@ -303,10 +306,10 @@ export const INTEGRATIONS = {
   listTeamIntegrationRequests: endpoint({ method: 'GET', path: '/api/admin/integration-requests', auth: 'admin', owner: 'C', response: RequestList, summary: 'Requests admins sent to members, with their state. Never a key.' }),
   createIntegrationRequest: endpoint({ method: 'POST', path: '/api/admin/integration-requests', auth: 'admin', owner: 'C', status: 201, body: IntegrationRequestInput, response: IntegrationRequest, summary: 'Ask a member to connect a service as their own connection (a notice and a link for them; waits 7 days).' }),
   listIntegrationTemplates: endpoint({ method: 'GET', path: '/api/integration-templates', auth: 'user', owner: 'C', response: z.object({ items: z.array(MyIntegrationTemplate) }), summary: 'Templates an admin shared with me, each with my connection made from it (or null). Never a key.' }),
-  connectIntegrationTemplate: endpoint({ method: 'POST', path: '/api/integration-templates/:id/connect', auth: 'user', owner: 'C', body: IntegrationTemplateAnswer, response: Integration, summary: 'Connect a template shared with me as my own connection, with my key, or made for signing in next (MCP OAuth). Again with a key: replaces my key. 404 when it is not shared with me.' }),
+  connectIntegrationTemplate: endpoint({ method: 'POST', path: '/api/integration-templates/:id/connect', auth: 'user', owner: 'C', body: IntegrationTemplateAnswer, response: Integration, summary: 'Connect a template shared with me as my own connection, with my key, or made for signing in next (MCP OAuth). Again with a key: replaces my key. 404 when it is not shared with me; 409 when it changed since the version I send.' }),
   listTeamIntegrationTemplates: endpoint({ method: 'GET', path: '/api/admin/integration-templates', auth: 'admin', owner: 'C', response: z.object({ items: z.array(IntegrationTemplate) }), summary: 'Every template, with who it is for and how many members connected it. Never a key.' }),
   createIntegrationTemplate: endpoint({ method: 'POST', path: '/api/admin/integration-templates', auth: 'admin', owner: 'C', status: 201, body: IntegrationTemplateInput, response: IntegrationTemplate, summary: 'Register a service once for the team; each member it is for connects it with their own key or sign-in.' }),
-  updateIntegrationTemplate: endpoint({ method: 'PATCH', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', body: IntegrationTemplatePatch, response: IntegrationTemplate, summary: 'Change a template. A new address, sign-in method or header deletes every member\'s connection made from it (and its key); they connect again.' }),
+  updateIntegrationTemplate: endpoint({ method: 'PATCH', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', body: IntegrationTemplatePatch, response: IntegrationTemplate, summary: 'Change a template. A new address, sign-in method or header deletes every member\'s connection made from it (and its key); they connect again. The address may not have a query (a key there would reach every member).' }),
   deleteIntegrationTemplate: endpoint({ method: 'DELETE', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a template and every member\'s connection made from it (OAuth: revocation is tried, the local tokens go first).' }),
   withdrawIntegrationRequest: endpoint({ method: 'POST', path: '/api/admin/integration-requests/:id/withdraw', auth: 'admin', owner: 'C', body: z.object({}), response: IntegrationRequest, summary: 'Withdraw a waiting request.' }),
 } as const

@@ -10,6 +10,7 @@
 // A new address, sign-in method or header on the template, or deleting the template, deletes the members' connections
 // (and so their keys; OAuth sign-ins are revoked); a change of who it is for deletes the connections of members it no
 // longer covers. Nothing here holds, returns or logs a key.
+import { addressHasSecret } from '@mycel/shared'
 import { INTEGRATION_TEMPLATES_MAX, type Integration, type IntegrationAccess, type IntegrationTemplate, type IntegrationTemplateAnswer, type IntegrationTemplateInput, type IntegrationTemplatePatch, type Locale, type MyIntegrationTemplate } from '@mycel/shared/api'
 import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../../context'
@@ -41,6 +42,14 @@ function setTemplateAccess(db: Database, id: string, a: IntegrationAccess): void
   for (const g of new Set(a.groups)) ins.run(id, 'group', g)
   for (const u of new Set(a.users)) ins.run(id, 'user', u)
 }
+/** Why an address may not be shared with many members (a template's, a request's): a key in it, or any query or
+ * fragment. Null: fine. */
+export function sharedAddressProblem(url: string): 'secret' | 'query' | null {
+  if (addressHasSecret(url)) return 'secret'
+  let u: URL
+  try { u = new URL(url) } catch { return null }
+  return u.search || u.hash ? 'query' : null
+}
 /** the members' connections made from a template */
 const madeFrom = (db: Database, id: string) => db.query(`${selectRows(db)} WHERE template_id = ?`).all(id) as Row[]
 const auditDetail = (t: Pick<TemplateRow, 'kind' | 'name' | 'url' | 'auth'>, more: Record<string, unknown> = {}) => ({ kind: t.kind, name: t.name, host: new URL(t.url).host, auth: t.auth, ...more })
@@ -62,12 +71,20 @@ export class ConnectionTemplates {
     }
   }
 
-  /** Members' connections whose member the template no longer covers (a rule or a group changed) go, with their keys.
-   * Using one is refused before this runs (store.ts mayUse); this keeps no key for someone who may not use it. */
+  /** Members' connections whose member the template no longer covers (a rule or a group changed) go, with their keys,
+   * and so do ones whose address, sign-in method or header is not the template's any more (a row an older build let
+   * change). Using one is refused before this runs (store.ts mayUse); this keeps no key for someone who may not use it.
+   * It runs while people load a list, so the services are told about the sign-ins afterwards, not waited for. */
   async sweep(templateId?: string): Promise<void> {
-    const rows = (templateId ? madeFrom(this.db, templateId) : this.db.query(`${selectRows(this.db)} WHERE template_id IS NOT NULL`).all() as Row[])
-      .filter((r) => !getTemplate(this.db, r.template_id!) || !templateCovers(this.db, r.template_id!, r.owner_user_id!))
-    if (rows.length) await this.svc.dropFromTemplate(rows, null, 'not_covered')
+    const rows = templateId ? madeFrom(this.db, templateId) : this.db.query(`${selectRows(this.db)} WHERE template_id IS NOT NULL`).all() as Row[]
+    const gone: Row[] = [], moved: Row[] = []
+    for (const r of rows) {
+      const t = getTemplate(this.db, r.template_id!)
+      if (!t || !templateCovers(this.db, r.template_id!, r.owner_user_id!)) gone.push(r)
+      else if (r.url !== t.url || r.auth !== t.auth || (r.auth_header ?? null) !== (t.auth_header ?? null)) moved.push(r)
+    }
+    if (gone.length) await this.svc.dropFromTemplate(gone, null, 'not_covered', false)
+    if (moved.length) await this.svc.dropFromTemplate(moved, null, 'template_moved', false)
   }
 
   // ---------------- admins ----------------
@@ -82,6 +99,9 @@ export class ConnectionTemplates {
     if (!SHOWS.test(oneLine(v.name))) fieldError(L, 'name', 'requestNoName')
     if (v.auth === 'oauth' && v.kind !== 'mcp') fieldError(L, 'auth', 'oauthMcpOnly')
     if (obviouslyPrivate(normUrl(v.url))) fieldError(L, 'url', 'private_address')
+    // the address goes with every member's key: a key in it (or any query, where one hides easily) would reach and be
+    // used by every member, and the service would log their calls under its owner
+    if (sharedAddressProblem(v.url)) fieldError(L, 'url', 'addressNoQuery')
     if (v.access) {
       const groups = new Set((this.db.query('SELECT id FROM groups').all() as { id: string }[]).map((g) => g.id))
       const users = new Set((this.db.query('SELECT id FROM users WHERE deleted_at IS NULL').all() as { id: string }[]).map((u) => u.id))
@@ -131,9 +151,11 @@ export class ConnectionTemplates {
         .run(next.name, next.url, next.auth, next.auth_header, next.notes, at, id, t.version)
       if (!r.changes) fail('conflict')
       if (patch.access) setTemplateAccess(this.db, id, patch.access)
-      // the members' connections follow the template's name and note (the slug, their tools and keys stay)
+      // the members' connections follow the template's name and note (the slug, their tools and keys stay). Their
+      // version stays: it guards where and how a key is sent, so a sign-in, a token refresh or a write waiting for a
+      // person's yes is not thrown away by a new name
       if (!moved && (next.name !== t.name || next.notes !== t.notes)) {
-        this.db.query('UPDATE integrations SET name=?, notes=?, version=version+1, updated_at=? WHERE template_id=?').run(next.name, next.notes, at, id)
+        this.db.query('UPDATE integrations SET name=?, notes=?, updated_at=? WHERE template_id=?').run(next.name, next.notes, at, id)
       }
     })()
     const after = templateAccess(this.db, id)
@@ -164,7 +186,7 @@ export class ConnectionTemplates {
     return rows.map((t) => {
       const mine = this.db.query(`${selectRows(this.db)} WHERE template_id = ? AND owner_user_id = ?`).get(t.id, viewer.id) as Row | null
       return {
-        id: t.id, kind: t.kind, name: t.name, url: bareUrl(t.url), auth: t.auth, authHeader: t.auth_header, notes: t.notes,
+        id: t.id, version: t.version, kind: t.kind, name: t.name, url: bareUrl(t.url), auth: t.auth, authHeader: t.auth_header, notes: t.notes,
         createdBy: this.person(t.created_by), connection: mine ? view(this.db, mine, viewer, L) : null,
       }
     })
@@ -177,6 +199,8 @@ export class ConnectionTemplates {
     const t = getTemplate(this.db, id)
     // not shared with this member (admins included) is the same as no such template
     if (!t || !activeUser(this.db, viewer.id) || !templateCovers(this.db, id, viewer.id)) return fail('not_found', say('templateNotForYou', L))
+    // the member agreed to what they saw: the template as it was then (its address, sign-in method and header above all)
+    if (answer.version !== t.version) return fail('conflict', say('templateChanged', L))
     if (t.auth !== 'oauth' && answer.secret === undefined) fieldError(L, 'secret', 'no_secret')
     if (t.auth === 'oauth' && answer.secret !== undefined) fieldError(L, 'secret', 'keyNeedsKeyAuth')
     const mine = this.db.query(`${selectRows(this.db)} WHERE template_id = ? AND owner_user_id = ?`).get(id, viewer.id) as Row | null
@@ -188,13 +212,14 @@ export class ConnectionTemplates {
       kind: t.kind, name: t.name, url: t.url, auth: t.auth, authHeader: t.auth_header, notes: t.notes, writePolicy: answer.writePolicy ?? 'ask',
       ...(answer.secret !== undefined ? { secret: answer.secret } : {}),
     }, 'personal', L, id)
-    audit(this.db, { actor: viewer.id, action: 'integration_template.connect', target: id, detail: auditDetail(t, { connection: made.id }) })
-    // the template changed or went while this ran: the connection does not stay with the old address or rule
+    // no entry of its own: as for any member's own connection, the activity log never says which service a member
+    // connected (service.ts create logs that one was made, without its name or address)
+    // the template changed or went while this ran (also there and back again): the connection does not stay
     const now = getTemplate(this.db, id)
-    if (!now || now.url !== t.url || now.auth !== t.auth || now.auth_header !== t.auth_header || !templateCovers(this.db, id, viewer.id)) {
+    if (!now || now.version !== t.version || !templateCovers(this.db, id, viewer.id)) {
       const row = getRow(this.db, made.id)
       if (row) await this.svc.dropFromTemplate([row], null, now ? 'template_moved' : 'template_deleted')
-      return fail('conflict')
+      return fail('conflict', say('templateChanged', L))
     }
     return made
   }

@@ -217,7 +217,8 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
   const manage = row.scope === 'personal' ? row.owner_user_id === viewer.id : isAdmin(viewer.role)
   const creator = row.created_by ? db.query('SELECT id, name FROM users WHERE id = ?').get(row.created_by) as { id: string; name: string } | null : null
   return {
-    id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
+    // made from an admin's template: the bare address even to its member (a query there is the admin's, never theirs)
+    id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage && !row.template_id ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
     lastError: reasonText(row.last_error, locale),
     tools: ((off) => savedTools(db, row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),

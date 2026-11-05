@@ -205,7 +205,7 @@ export class MockServer {
   /** an admin's requests to members to connect a service as their own (like server/src/integrations/connections/requests.ts) */
   integrationRequests: (IntegrationRequest & { integrationId: string | null })[] = []
   /** an admin's templates each member connects with their own key (like server/src/integrations/connections/templates.ts) */
-  integrationTemplates: Omit<IntegrationTemplate, 'connected'>[] = []
+  integrationTemplates: (Omit<IntegrationTemplate, 'connected'> & { version: number })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
   /** the 7-day team goal Home shows owners and admins (onboarding G): none unless /__test/team-goal sets one */
@@ -2233,6 +2233,8 @@ export class MockServer {
     }),
     connectIntegrationTemplate: (c) => {
       const t = this.integrationTemplates.find((x) => x.id === c.params.id && this.templateCovers(x, c.user)) ?? fail('not_found', 404, '이 템플릿은 나에게 공유되지 않았어요.')
+      // the template as the member saw it: changed since, 409 (templates.ts connect)
+      if (c.body.version !== t.version) fail('conflict', 409, '이 템플릿이 바뀌었어요. 다시 확인하고 연결해 주세요.')
       if (t.auth !== 'oauth' && !c.body.secret) fail('validation', 400, '키가 아직 없어요. 키를 넣어 주세요.', { 'body.secret': 'required' })
       const mine = this.integrations.find((x) => x.templateId === t.id && x.ownerId === c.user.id)
       if (mine) {
@@ -2247,7 +2249,7 @@ export class MockServer {
       if (privateHost(new URL(c.body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
       const t = {
         id: uuidv7(), kind: c.body.kind, name: c.body.name, url: c.body.url, auth: c.body.auth, authHeader: c.body.auth === 'header' ? c.body.authHeader ?? null : null,
-        notes: c.body.notes ?? null, access: c.body.access, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), updatedAt: now(),
+        notes: c.body.notes ?? null, access: c.body.access, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), updatedAt: now(), version: 1,
       }
       this.integrationTemplates.push(t)
       return { status: 201, body: this.templateView(t) }
@@ -2257,7 +2259,7 @@ export class MockServer {
       const auth = c.body.auth ?? t.auth
       const authHeader = auth === 'header' ? (c.body.authHeader !== undefined ? c.body.authHeader : t.authHeader) : null
       const moved = (c.body.url !== undefined && c.body.url !== t.url) || auth !== t.auth || authHeader !== t.authHeader
-      Object.assign(t, { ...(c.body.name !== undefined ? { name: c.body.name } : {}), ...(c.body.url !== undefined ? { url: c.body.url } : {}), auth, authHeader, ...(c.body.notes !== undefined ? { notes: c.body.notes } : {}), ...(c.body.access ? { access: c.body.access } : {}), updatedAt: now() })
+      Object.assign(t, { ...(c.body.name !== undefined ? { name: c.body.name } : {}), ...(c.body.url !== undefined ? { url: c.body.url } : {}), auth, authHeader, ...(c.body.notes !== undefined ? { notes: c.body.notes } : {}), ...(c.body.access ? { access: c.body.access } : {}), updatedAt: now(), version: t.version + 1 })
       // a new address or sign-in method drops every member's key; a member it no longer covers loses theirs
       for (const x of this.integrations.filter((y) => y.templateId === t.id)) {
         if (moved || !this.templateCovers(t, this.users.find((u) => u.id === x.ownerId)!)) { this.integrations = this.integrations.filter((y) => y.id !== x.id); this.integrationSecrets.delete(x.id) }
@@ -2481,8 +2483,9 @@ export class MockServer {
   templateCovers(t: { access: IntegrationAccess }, u: User): boolean {
     return t.access.everyone || t.access.users.includes(u.id) || t.access.groups.some((g) => u.groupIds.includes(g))
   }
-  templateView(t: Omit<IntegrationTemplate, 'connected'>): IntegrationTemplate {
-    return { ...t, connected: this.integrations.filter((x) => x.templateId === t.id && this.integrationSecrets.has(x.id)).length }
+  templateView(t: Omit<IntegrationTemplate, 'connected'> & { version: number }): IntegrationTemplate {
+    const { version: _v, ...rest } = t
+    return { ...rest, connected: this.integrations.filter((x) => x.templateId === t.id && this.integrationSecrets.has(x.id)).length }
   }
   integrationAllows(x: MockIntegration, u: User): boolean {
     if (x.scope === 'personal' && x.templateId) {

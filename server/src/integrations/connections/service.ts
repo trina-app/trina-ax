@@ -193,7 +193,9 @@ export class Integrations {
           row.account, row.notes, row.write_policy, row.status, row.last_error, row.tools_updated_at, row.last_used_at, row.version, row.created_at, row.updated_at, row.template_id ?? null)
       if (scope === 'team') setAccess(this.db, id, input.access ?? { everyone: false, groups: [], users: [] })
     })()
-    audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined, ...(templateId ? { template: templateId } : {}) }) })
+    // made from a template: logged like any member's own connection, without which template (that would say which
+    // service, and that this member connected it: admins see only how many did)
+    audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined }) })
     const checked = await this.check(getRow(this.db, id)!)
     return view(this.db, checked, viewer, L)
   }
@@ -305,9 +307,11 @@ export class Integrations {
   }
 
   /** Delete connections made from an admin's template (templates.ts: the template moved to another address or sign-in,
-   * was deleted, or no longer covers their member). Local first, then each OAuth sign-in is revoked at its service.
-   * `actor`: who caused it (null: nobody, e.g. a group change); `why` goes into the activity log. */
-  async dropFromTemplate(rows: Row[], actor: string | null, why: 'template_moved' | 'template_deleted' | 'not_covered'): Promise<void> {
+   * was deleted, or no longer covers their member). Local first, then each OAuth sign-in is revoked at its service:
+   * waited for when an admin's change caused it (`wait`), only started when a list someone loads found it (sweep).
+   * `actor`: who caused it (null: nobody, e.g. a group change); `why` goes into the activity log, as for any member's
+   * own connection without its name, address, template or member. */
+  async dropFromTemplate(rows: Row[], actor: string | null, why: 'template_moved' | 'template_deleted' | 'not_covered', wait = true): Promise<void> {
     const olds: Secret[] = []
     for (const row of rows) {
       if (!row.template_id) continue
@@ -316,10 +320,19 @@ export class Integrations {
       this.dropClient(row.id)
       this.recent.delete(row.id)
       toolListsOf(this.db).drop(row.id)
-      audit(this.db, { actor, action: 'integration.delete', target: row.id, detail: { ...auditDetail(row), template: row.template_id, user: row.owner_user_id, why } })
+      audit(this.db, { actor, action: 'integration.delete', target: row.id, detail: { ...auditDetail(row), why } })
       if (old?.type === 'oauth') olds.push(old)
     }
-    await Promise.all(olds.map((o) => this.revokeTokens(o).catch(() => false)))
+    const revoking = Promise.all(olds.map((o) => this.revokeTokens(o).catch(() => false)))
+    if (wait) await revoking
+  }
+
+  /** A member's sign-ins at services made from templates, read before their account goes (admin/users.ts deleteUser
+   * deletes the rows): what tells those services, run after the local delete and not waited for. */
+  signInsToRevoke(userId: string): () => void {
+    const rows = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NOT NULL AND auth = 'oauth' AND secret_enc IS NOT NULL`).all(userId) as Row[]
+    const olds = rows.map((r) => this.tryOpen(r)).filter((s): s is Secret => s?.type === 'oauth')
+    return () => { for (const o of olds) void this.revokeTokens(o).catch(() => false) }
   }
 
   async refresh(viewer: Viewer, id: string, locale: Locale): Promise<Integration> {

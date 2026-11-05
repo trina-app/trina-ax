@@ -17,12 +17,24 @@ import { getTeamSettings } from '../admin/settings'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
 import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
-import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, view, type Row, type Viewer } from '../integrations/connections/store'
+import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
+import type { Database } from 'bun:sqlite'
 import { say } from '../integrations/connections/text'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
+
+/** The connections connect_service checks a new one against, as this person may use them now, and how many count
+ * toward the limit of `scope`. A member's connection made from an admin's template counts for neither: service.ts
+ * create does not count it toward the limit, and one the template no longer covers is not "already theirs". */
+export function connectRows(db: Database, userId: string, scope: 'personal' | 'team'): { rows: Row[]; count: number } {
+  const rows = scope === 'personal'
+    ? [...(db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ?`).all(userId) as Row[]).filter((r) => !r.template_id || templateCovers(db, r.template_id, userId)),
+      ...(db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]).filter((r) => mayUse(db, r, userId))]
+    : db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]
+  return { rows, count: rows.filter((r) => r.scope === scope && !r.template_id).length }
+}
 
 export const CONNECT_TOOL = 'connect_service'
 /** tool names the result lists at most (the AI gets them all as tools from the next message), and each one's length */
@@ -130,11 +142,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
       return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : 'Tell the person to ask an admin.'}`, 'personal connections off')
     }
-    const rows = scope === 'personal'
-      ? [...db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ?`).all(viewer.id) as Row[], ...(db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]).filter((r) => mayUse(db, r, viewer.id))]
-      : db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]
+    const { rows, count } = connectRows(db, viewer.id, scope)
     const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-    if (rows.filter((r) => r.scope === scope).length >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? 'Settings' : 'Admin'} > MCP first.`, 'limit')
+    if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? 'Settings' : 'Admin'} > MCP first.`, 'limit')
     const dup = rows.find((r) => sameAddress(r.url, address))
     if (dup) {
       const fix = dup.status === 'connected'

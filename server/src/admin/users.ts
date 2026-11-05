@@ -21,6 +21,7 @@ import { afterAccessChange, captureState, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { revokeTeamLinksBy } from '../auth/team-links'
+import { integrationsOf } from '../integrations/connections/service'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -198,6 +199,9 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
   guard(c, target)
   const before = captureState(ctx.db)
   const now = new Date(authOf(ctx).now()).toISOString()
+  // their sign-ins at services through connections made from templates: read now, the services told after the delete
+  let revokeSignIns = () => {}
+  try { revokeSignIns = integrationsOf(ctx).signInsToRevoke(id) } catch (e) { c.get('log').warn('sign-ins of a deleted member could not be read for revoking', { err: e, userId: id }) }
   ctx.db.transaction(() => {
     // tombstone: the username is freed for reuse, the id (personal folder name, usage, audit) is never reused
     ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ?, username = ?, password_hash = NULL, email = NULL WHERE id = ?")
@@ -209,7 +213,10 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     // external-service connections: their own go with them (keys included), and they leave team connections' rules
     ctx.db.query("DELETE FROM integrations WHERE scope = 'personal' AND owner_user_id = ?").run(id)
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    // and templates' rules (an id nobody can see any more would block every later change of that rule)
+    ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
   })()
+  revokeSignIns()
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)

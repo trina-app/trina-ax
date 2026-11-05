@@ -8,7 +8,7 @@
 import { Globe, Pencil, Plug, Trash2, Waypoints } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Group, Integration, IntegrationTemplate, MyIntegrationTemplate, User } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useLocale, useT } from '../../i18n'
@@ -40,13 +40,29 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
   const [items, setItems] = useState<MyIntegrationTemplate[]>([])
   const [open, setOpen] = useState<MyIntegrationTemplate | null>(null)
   const gen = useRef(0)
-  const load = async () => {
+  const load = async (): Promise<MyIntegrationTemplate[] | null> => {
     const g = ++gen.current
     try {
       const r = await api.call(API.listIntegrationTemplates)
       if (g === gen.current) setItems(r.items)
+      return r.items
     } catch {
       // an older server has no templates; the rest of the page works without them
+      return null
+    }
+  }
+  /** Connect as the member saw the template (its version): changed since, the server says so (409) and the dialog
+   * shows the template as it is now, for the member to check and connect again. */
+  const connect = async (tpl: MyIntegrationTemplate, body: { secret?: string; writePolicy: Integration['writePolicy'] }) => {
+    try {
+      return await api.call(API.connectIntegrationTemplate, { params: { id: tpl.id }, body: { ...body, version: tpl.version } })
+    } catch (e) {
+      if (isApiError(e, 'conflict')) {
+        const fresh = (await load())?.find((x) => x.id === tpl.id)
+        if (fresh) setOpen(fresh)
+        else setOpen(null)
+      }
+      throw e
     }
   }
   useEffect(() => {
@@ -83,7 +99,7 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
           src={open}
           title={t('integrations.template.connectTitle', { name: open.name })}
           intro={t('integrations.template.connectIntro', { by: open.createdBy?.name ?? t('integrations.template.yourTeam') })}
-          submit={(body) => api.call(API.connectIntegrationTemplate, { params: { id: open.id }, body })}
+          submit={(body) => connect(open, body)}
           onClose={() => setOpen(null)}
           onConnected={(i, signIn) => {
             setOpen(null)

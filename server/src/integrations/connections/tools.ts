@@ -441,7 +441,8 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
   for (const [key, r] of byKey) {
     let line = `- "${key}": ${r.name} (${r.scope === 'personal' ? 'personal' : 'team'} connection), ${bareUrl(r.url)}`
     const notes = r.notes ? clip(r.notes.replace(/\s+/g, ' '), 1000) : ''
-    if (notes && budget - line.length - notes.length > 0) line += `\n  How to use it (from whoever connected it): ${notes}`
+    // a template's note is the admin's (templates.ts), not the person's who connected it with their own key
+    if (notes && budget - line.length - notes.length > 0) line += `\n  ${r.template_id ? 'Note from your team admin' : 'How to use it (from whoever connected it)'}: ${notes}`
     budget -= line.length
     lines.push(line)
   }
