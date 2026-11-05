@@ -90,7 +90,17 @@ export const plain = (s: string) => escape(s.replace(/\u0000/g, ''))
 const looksLikeAddress = (s: string) => /:\/\/|^www\.|[a-z0-9-]\.[a-z]{2,}(\/|$|\s)/i.test(s.trim())
 
 /** The AI's Markdown answer in Slack's mrkdwn (https://docs.slack.dev/messaging/formatting-message-text). */
-export function toMrkdwn(md: string): string {
+/** The team's address for the app's own links, an http(s) origin and nothing else; null otherwise */
+const originOf = (o: string | null | undefined): string | null => {
+  if (!o) return null
+  try { const u = new URL(o); return (u.protocol === 'https:' || u.protocol === 'http:') && u.origin === o.replace(/\/$/, '') ? u.origin : null } catch { return null }
+}
+
+/** `origin`: the team's address (where people sign in). The app's own links in an answer (`[shared](/files/view?…)`)
+ * open there; without it, only their text is kept. Links of another kind than http(s) or the app's own stay as written
+ * (plain text, no link). Code spans and code blocks are left as they are. */
+export function toMrkdwn(md: string, origin: string | null = null): string {
+  const home = originOf(origin)
   md = md.replace(/\u0000/g, '')
   const out: string[] = []
   // code blocks stay as they are (without the language after ```), everything else is converted
@@ -103,10 +113,13 @@ export function toMrkdwn(md: string): string {
       l = escape(l)
       l = l.replace(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/, (_m, h: string) => `*${h.replace(/\*\*/g, '')}*`)
       l = l.replace(/^(\s*)[-*+]\s+/, '$1• ')
-      l = l.replace(/\[([^\]\n]{1,500})\]\((https?:\/\/[^\s)]{1,2000})\)/g, (_m, text: string, url: string) => {
+      const link = (text: string, url: string) => {
         const u = url.replace(/\|/g, '%7C')
         return looksLikeAddress(text) && text.trim() !== url ? `${text} (<${u}>)` : `<${u}|${text.replace(/\|/g, '/')}>`
-      })
+      }
+      l = l.replace(/\[([^\]\n]{1,500})\]\((https?:\/\/[^\s)]{1,2000})\)/g, (_m, text: string, url: string) => link(text, url))
+      // the app's own pages (a path from the root, not //host): at the team's address, or the text alone
+      l = l.replace(/\[([^\]\n]{1,500})\]\((\/(?!\/)[^\s)]{0,2000})\)/g, (_m, text: string, path: string) => home ? link(text, home + path) : text)
       l = l.replace(/\*\*(?=\S)([^*\n]+?)\*\*/g, '*$1*').replace(/__(?=\S)([^_\n]+?)__/g, '*$1*').replace(/~~(?=\S)([^~\n]+?)~~/g, '~$1~')
       return l.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => '`' + escape(codes[Number(i)]!) + '`')
     })

@@ -614,6 +614,13 @@ describe('asking', () => {
     } finally { skew = 0; delete fake.failNext['chat.postMessage'] }
   })
 
+  test('an answer\'s link to a page of the app opens at the team\'s address in Slack', async () => {
+    mention('U0ALICE', say('[shared](/files/view?path=shared) 폴더는 지금 비어 있어요.'), { channel: 'C0LINKS' })
+    const a = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => c.args.channel === 'C0LINKS' && blocksOf(c).includes('폴더는')), { timeoutMs: 30_000 })
+    expect(blocksOf(a!)).toContain(`<${h.url}/files/view?path=shared|shared> 폴더는 지금 비어 있어요.`)
+    expect(blocksOf(a!)).not.toContain('[shared](')
+  })
+
   test('a follow-up in the thread continues the same chat', async () => {
     const n = slackTurns()
     mention('U0ALICE', say('And exchanges too.'), { thread: rootTs })
@@ -792,6 +799,21 @@ describe('text', () => {
     expect(normEmail('')).toBeNull()
     expect(normEmail('no-at-sign')).toBeNull()
     expect(normEmail(null)).toBeNull()
+  })
+
+  test('the app\'s own links open at the team\'s address; other kinds stay text; code is left alone', () => {
+    const o = 'https://team.acme.example'
+    expect(toMrkdwn('[shared](/files/view?path=shared) 폴더는 지금 비어 있어요.', o)).toBe('<https://team.acme.example/files/view?path=shared|shared> 폴더는 지금 비어 있어요.')
+    expect(toMrkdwn('[docs](https://acme.example/a?b=1&c=2)', o)).toBe('<https://acme.example/a?b=1&amp;c=2|docs>')
+    // & < > in the label, the address and the text around
+    expect(toMrkdwn('a < b & [x<y & z>](/files/view?path=a&b=c) >', o)).toBe('a &lt; b &amp; <https://team.acme.example/files/view?path=a&amp;b=c|x&lt;y &amp; z&gt;> &gt;')
+    // no team address: the text alone; a protocol-relative or another scheme: as written, no link
+    expect(toMrkdwn('[shared](/files/view?path=shared) 폴더', null)).toBe('shared 폴더')
+    expect(toMrkdwn('[x](//evil.example/p) [m](mailto:a@acme.example) [j](javascript:alert(1))', o)).toBe('[x](//evil.example/p) [m](mailto:a@acme.example) [j](javascript:alert(1))')
+    // code spans and blocks stay as they are (only Slack's &, <, > escaped)
+    expect(toMrkdwn('`[shared](/files/view?path=shared)` and\n```md\n[shared](/files/view?path=shared) <b>\n```', o)).toBe('`[shared](/files/view?path=shared)` and\n```\n[shared](/files/view?path=shared) &lt;b&gt;\n```')
+    // an origin that is not one is not used
+    expect(toMrkdwn('[shared](/x)', 'javascript:alert(1)')).toBe('shared')
   })
 
   test('Slack markup to the question; the answer to mrkdwn without mentions or hidden links', () => {

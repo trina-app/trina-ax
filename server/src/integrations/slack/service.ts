@@ -783,7 +783,7 @@ export class SlackConnector {
       if (!this.stillLinked(r)) { this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id); return }
       const locale = this.localeOf(r.user_id)
       const a = this.answerOf(r, locale)
-      const body = a.ok ? sections(toMrkdwn(a.text), 4) : { blocks: [{ type: 'section' as const, text: { type: 'mrkdwn' as const, text: toMrkdwn(a.text) } }], cut: false }
+      const body = a.ok ? sections(toMrkdwn(a.text, cfg.link_origin), 4) : { blocks: [{ type: 'section' as const, text: { type: 'mrkdwn' as const, text: toMrkdwn(a.text, cfg.link_origin) } }], cut: false }
       const notes = [a.ok && body.cut ? say('more', locale) : '', this.chatLink(cfg, r.chat_id, locale)].filter(Boolean).join('  ')
       const fallback = plain(clip(a.text, 300).text)
       if (r.channel_kind === 'im') {
@@ -859,7 +859,7 @@ export class SlackConnector {
     const a = this.answerOf(r, locale)
     if (!a.ok) { await reply(say('postGone', locale)); return }
     const link = this.ownerOf(r.team_id, r.slack_user_id)!
-    const body = sections(toMrkdwn(a.text), 10)
+    const body = sections(toMrkdwn(a.text, cfg.link_origin), 10)
     // a name as text, never a mention (no ping)
     const asker = link.slack_name ? plain(link.slack_name) : say('teammate', locale)
     const blocks = [{ type: 'context', elements: [{ type: 'mrkdwn', text: say('askedBy', locale, { name: asker }) }] }, ...body.blocks]
