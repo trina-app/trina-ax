@@ -8159,10 +8159,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   queue or an engine they may not use refuse the send (403 / 409 / 429), so the person keeps the text. A question that
   fails to start after that (a race) tells the asker through `room.ai.run` with the error.
 - **One session per person and room.** The next question of the same person continues it; another person's question is
-  in their own. A session not asked in for 12 hours (`ROOM_SESSION_IDLE_MS`) starts anew: no history, and with it the
-  read scope and the outside mark are cleared (the chat's own rule for a session without history). Without this, one
-  read of a private folder would keep every later answer of that person in that room private for good. The 12 hours
-  are a guess the owner may change.
+  in their own. A session not asked in for 12 hours (`ROOM_SESSION_IDLE_MS`) starts a new conversation (no history).
+  The 12 hours are a guess the owner may change. (Until the live test fixes below, the read scope and the outside mark
+  were the session's, cumulative, and only this reset cleared them; now every question starts with both empty.)
 - **Context: other people's words, labelled.** In front of the question (never in the stored user message) goes
   `<room_context>` with up to 30 messages / 12,000 characters before the question that the asker may see (from their
   join on; private ones only their own), each a `<room_message from=… who="another member" | "the person asking you
@@ -8226,14 +8225,16 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     questions whose answers went to the room (posted, not deleted): no private preview, stopped or failed answer.
   - Every team path a call names (file_path, path, output, paths, …) counts as a name read in a room, whatever the
     call answers: a folder someone cannot see ("is a folder"), a path that does not exist ("not found") and a search
-    with no result there keep the answer private alike. share_file also records the path as the server resolved it
+    with no result there keep the answer private alike (a path the asker cannot open themselves no longer counts:
+    live test fixes below). share_file also records the path as the server resolved it
     (actual case, NFC). The skill tool answers as if skills only the person may read did not exist when several share
     the name. The edit_files card lists every file and the replacement.
 - **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
-  the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the session's
-  **cumulative** read scope, not only this answer's list: each ruled folder (or the team root) by the rules now; the
+  the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the question's
+  read scope (not only this answer's list; the live test fixes below say what a source is and that the scope is per
+  question): each ruled folder (or the team root) by the rules now; the
   person's own folder (also what the browser or a personal connection showed) only if nobody else is in the room; a team
-  connection never; the room itself always. And the session used nothing outside the team files: any tool outside
+  connection never; the room itself always. And the question used nothing outside the team files: any tool outside
   `ROOM_FILE_TOOLS` (`server/src/rooms/ai-tools.ts`: file tools, search, skills, ask_user, sub-tasks, make_file and the
   other team-file tools), the engine's web search included, and any tool added later, sets `chats.room_outside`.
   Folders listed with `list` also join the read scope in a room session (their names may go into the answer).
@@ -8288,6 +8289,40 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   argument. grep, glob and search count the folder they start in and every ruled folder under it the asker may read
   (the whole team folder without a path; the asker's own folder is left to what was found there), so a search that
   found nothing stays private too.
+- **Live test fixes (2026-11-05, fix/room-ai-ux): what makes an answer private.** In the live test a member with no
+  group (Noah) got only private previews, in the everyone room and in a DM, saying "내 폴더, 다른 사람이 못 여는
+  폴더". The copied database showed why. Everyone room: Mia's posted answer linked `groups/재무/budget-2027.txt`; Noah's
+  AI tried to read that path (refused: "not found or no access"), and the path rule above recorded its folder
+  `groups/재무`, which Noah cannot open (decision `otherFolders: true`). His next question ("make shared/메모.txt")
+  stayed private only because the scope was cumulative. DM: `list .`, `list users` and the refused `list groups`
+  recorded the team root (`users/` and `groups` have no ruled folder above them, so they mapped to the root, which a
+  member may list but not read), and `users/noah` recorded his own folder (`personal`; that one was right: he asked about
+  his folder). Rule files and the company profile were not the cause (`skills/` is everyone's in that team).
+  - **The rule.** A source keeps an answer private only when some member of the room now could not see what the
+    answer could reveal from it, and what it can reveal is bounded by what the asker's own tools answered:
+    - *content* (a file read, a grep hit, a listing that showed files, a search's folders, a path the asker may read
+      that a call named): every member must be able to read its folder, as before;
+    - *a name* (a sub-folder a listing showed; a path a call named that the asker may only list, such as the team
+      root for a member, `users/`, or a folder on the way to theirs): every member must be able to list it
+      (`RuleSet.canList`), because then they would see the same name. New source `{type:'name', path}` in
+      `chat/read-scope.ts`, recorded only in room sessions (`TurnFiles.listedNames`);
+    - *a path the asker cannot list*: nothing. The tools answer it "not found or no access", the same as a path that
+      does not exist and the same as for anyone else without access (`policy/authorize.ts` checks access before it
+      looks at the disk), so the answer can hold nothing but the path as the AI typed it: a guess, or a name from the
+      room's messages or the question, which the room has already seen.
+    This only stops over-counting: content still needs read for everyone, a missing path in a folder the asker may
+    read still counts (only readers can tell it is missing), a search still counts every folder it looked in, and a
+    folder the asker read and can no longer open (a rule changed since) still counts, unnamed to them.
+  - **Per question, not per session.** A room session never resumes an engine session (third review) and its history
+    holds only questions whose answers went to the room; private previews never return as context. So a later
+    question carries nothing private from an earlier one: what it carries is the room's (the posted answers, the
+    room's messages). The read scope and the outside mark are emptied when each room question starts
+    (`chat/turn.ts`), and the history counts as the room from its oldest question (`{type:'room', fromSeq}`), so
+    someone who joined after it still keeps the answer private ("들어오기 전 대화"). The 12-hour rule now only starts a
+    new conversation. What a question used is kept on its row (`room_ai_turns.scope`, migration 246) so that posting
+    its preview later decides again on that question, not the latest one; a row from before has none and is decided
+    on the session's scope. Kept as they were: previews never return as context, the pre-join check, the card for
+    every change, the room prompt and tool allowlists.
 - **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.

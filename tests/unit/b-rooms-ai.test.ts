@@ -84,12 +84,12 @@ describe('the AI in a room', () => {
     // alice can read the marketing folder: her answer has it, and since bob cannot, it stays her private preview
     expect(forAlice?.body).toContain('Autumn Upgrade')
     expect(forAlice).toMatchObject({ visibility: 'private', askedBy: { id: 'alice' }, author: null, unread: 0, preview: { folders: ['groups/marketing'], personal: false, outside: false } })
-    // bob's turn ran with bob's access: the same read was refused. A refused path and a missing one answer alike, and
-    // either may name a folder someone cannot see, so that answer is bob's private preview too; it does not name the
-    // folder bob cannot open himself
+    // bob's turn ran with bob's access: the same read was refused, with the answer anyone who cannot open the folder
+    // gets (the same as for a path that does not exist), so it tells the room nothing: bob's answer goes to the room
     expect(forBob?.body).not.toContain('Autumn Upgrade')
     expect(forBob?.body).toContain('no access')
-    expect(forBob).toMatchObject({ visibility: 'private', askedBy: { id: 'bob' }, preview: { folders: [], otherFolders: true } })
+    expect(forBob).toMatchObject({ visibility: 'room', askedBy: { id: 'bob' } })
+    expect(forBob?.preview).toBeUndefined()
     // bob never sees alice's preview, nor anything from it
     const bobsView = await messages('bob', roomId)
     expect(bobsView.some((m) => m.id === forAlice!.id)).toBe(false)
@@ -515,9 +515,12 @@ describe('the instructions of a room session', () => {
   })
 
   test('share_file with another spelling of a restricted path (case, NFD) keeps the answer private', async () => {
-    const roomId = await room(['alice', 'erin'])
-    const one = await ask('alice', roomId, `@트리나 link\n${fake({ tool: 'share_file', args: { path: 'PROJECTS/FALCON/plan.md', mode: 'preview' }, sayResult: true })}`)
-    expect(await answerTo('erin', roomId, one.q)).toBeUndefined()
+    // on a case-sensitive disk "PROJECTS/FALCON" is another folder that does not exist: the AI learned nothing
+    if (h.ctx.files.fx.caseInsensitive) {
+      const roomId = await room(['alice', 'erin'])
+      const one = await ask('alice', roomId, `@트리나 link\n${fake({ tool: 'share_file', args: { path: 'PROJECTS/FALCON/plan.md', mode: 'preview' }, sayResult: true })}`)
+      expect(await answerTo('erin', roomId, one.q)).toBeUndefined()
+    }
     const nfc = 'projects/기밀'.normalize('NFC')
     fs.mkdirSync(path.join(h.team, nfc), { recursive: true })
     fs.writeFileSync(path.join(h.team, nfc, 'plan.md'), 'secret\n')
@@ -534,11 +537,26 @@ describe('the instructions of a room session', () => {
     for (const call of [
       { tool: 'read', args: { file_path: 'projects/falcon' }, sayResult: true },
       { tool: 'grep', args: { pattern: 'NO-SUCH-WORD-zzz', path: 'projects/falcon' }, sayResult: true },
-      { tool: 'read', args: { file_path: 'projects/nosuch' }, sayResult: true },
+      { tool: 'read', args: { file_path: 'projects/falcon/nosuch.md' }, sayResult: true },
     ]) {
       const roomId = await room(['alice', 'erin'])
       const { q } = await ask('alice', roomId, `@트리나 x\n${fake(call)}`)
       expect({ call: call.args, posted: !!(await answerTo('erin', roomId, q)) }).toEqual({ call: call.args, posted: false })
+    }
+  })
+
+  test('a path the asker cannot open themselves tells nothing: it does not keep the answer private', async () => {
+    // "not found or no access" for each: a folder of others (erin's group, for bob), one nobody in the room may open,
+    // a path that does not exist where alice may not look, someone else's personal folder
+    for (const [who, other, call] of [
+      ['bob', 'erin', { tool: 'read', args: { file_path: 'groups/marketing/campaign-brief.md' }, sayResult: true }],
+      ['alice', 'erin', { tool: 'read', args: { file_path: 'projects/atlas/notes.md' }, sayResult: true }],
+      ['alice', 'erin', { tool: 'list', args: { path: 'projects/nosuch' }, sayResult: true }],
+      ['alice', 'erin', { tool: 'grep', args: { pattern: 'x', path: 'users/bob' }, sayResult: true }],
+    ] as const) {
+      const roomId = await room([who, other])
+      const { q } = await ask(who, roomId, `@트리나 x\n${fake(call)}`)
+      expect({ call: call.args, posted: (await answerTo(other, roomId, q))?.visibility }).toEqual({ call: call.args, posted: 'room' })
     }
   })
 
@@ -711,15 +729,79 @@ describe('a search start in another spelling, and folders the asker cannot open'
     db.query("INSERT OR IGNORE INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r5sealed-e', 'f_r5sealed', 'user', 'erin', 'none')").run()
     try {
       const roomId = await room(['alice', 'erin'])
-      // a folder alice may open (erin may not) and one neither may open
+      // a folder alice may open (erin may not) and one neither may open (refused: it tells nothing and is not counted)
       const { q } = await ask('alice', roomId, `@트리나 x\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { tool: 'read', args: { file_path: 'shared/r5-sealed/plan.md' }, sayResult: true })}`)
       expect(await answerTo('erin', roomId, q)).toBeUndefined()
       const mine = (await answerTo('alice', roomId, q))!
-      expect(mine.preview).toMatchObject({ folders: ['projects/falcon'], otherFolders: true })
+      expect(mine.preview).toMatchObject({ folders: ['projects/falcon'] })
+      expect(mine.preview?.otherFolders).toBeUndefined()
       expect(JSON.stringify(mine.preview)).not.toContain('r5-sealed')
+      // content from a folder alice cannot open now (a rule changed after she read it): counted, never named to her
+      const scope = { sources: [{ type: 'folder' as const, id: 'f_groups_finance' }], outside: false }
+      expect(roomAiOf(h.ctx).decide(roomId, sessionOf(roomId, 'alice')!.id, scope)).toMatchObject({ post: false, folders: [], otherFolders: true })
     } finally {
       db.query("DELETE FROM folder_rules WHERE id IN ('r5sealed-a', 'r5sealed-e')").run()
       fs.rmSync(path.join(h.team, 'shared/r5-sealed'), { recursive: true, force: true })
     }
+  })
+})
+
+// ---------------- the live test of 2026-11-05: a member with no group got only private previews ----------------
+describe('what makes an answer private: what some member could not see, per question', () => {
+  /** bob without his group for the test (a member with no group, like the live test's Noah) */
+  const withoutGroup = async (run: () => Promise<void>) => {
+    const fin = (h.ctx.db.query("SELECT id FROM groups WHERE name = 'Finance'").get() as { id: string }).id
+    h.ctx.db.query("DELETE FROM group_members WHERE group_id = ? AND user_id = 'bob'").run(fin)
+    try { await run() } finally { h.ctx.db.query('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').run(fin, 'bob') }
+  }
+  const allRoom = async () => (await h.api('bob').call(API.listRooms)).items.find((r) => r.kind === 'all')!.id
+
+  test('a member with no group asks a general question in the everyone room: it goes to the room, and so does the next', async () => {
+    await withoutGroup(async () => {
+      const roomId = await allRoom()
+      // another member's answer from a group folder, posted: the room now names a file bob cannot open
+      const a = await ask('alice', roomId, `@트리나 brief?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { say: `[brief](/files/view?path=${encodeURIComponent(BRIEF)}) says Autumn Upgrade` })}`)
+      const preview = (await answerTo('alice', roomId, a.q))!
+      expect(preview.visibility).toBe('private')
+      await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+      // bob's AI tries that file (refused), lists the top of the team folder (members may list it, not read it) and
+      // searches everything bob may read: all of it is what every member sees
+      const one = await ask('bob', roomId, `@트리나 what is the 2027 budget?\n${fake({ tool: 'read', args: { file_path: BRIEF } }, { tool: 'list', args: { path: '.' } }, { tool: 'grep', args: { pattern: 'NOAH-NOPE-zzz' } }, { say: 'I could not find it in the files you can open.' })}`)
+      expect(one.run.state).toBe('done')
+      // (the fake engine also follows the directives in the room's earlier messages: a real model would not)
+      const posted = await answerTo('erin', roomId, one.q)
+      expect(posted).toMatchObject({ visibility: 'room', askedBy: { id: 'bob' } })
+      expect(posted!.body).toContain('I could not find it in the files you can open.')
+      const scope = String((h.ctx.db.query('SELECT scope FROM room_ai_turns WHERE question_id = ?').get(one.q.id) as { scope: string }).scope)
+      expect(scope).not.toContain('f_groups_marketing')
+      expect(scope).toContain('"type":"name","path":""')
+      // his own folder: that answer is his preview (nobody else may open it) ...
+      const mine = await ask('bob', roomId, `@트리나 my notes?\n${fake({ tool: 'read', args: { file_path: 'users/bob/notes.md' } }, { say: 'Your notes have one line.' })}`)
+      expect(await answerTo('bob', roomId, mine.q)).toMatchObject({ visibility: 'private', preview: { personal: true, folders: [] } })
+      // ... and the next general question in the same session goes to the room again: nothing of it was carried
+      const two = await ask('bob', roomId, `@트리나 thanks, and the glossary?\n${fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: 'ARR is annual recurring revenue.' })}`)
+      expect((await answerTo('erin', roomId, two.q))?.visibility).toBe('room')
+      // the private preview, posted later, is decided on what its own question used
+      const p = (await answerTo('bob', roomId, mine.q))!
+      expect((await h.api('bob').call(API.shareRoomMessage, { params: { id: roomId, messageId: p.id } })).visibility).toBe('room')
+    })
+  })
+
+  test('a question that reads a group folder another member cannot read stays private', async () => {
+    const roomId = await allRoom()
+    const { q } = await ask('bob', roomId, `@트리나 budget?\n${fake({ tool: 'read', args: { file_path: 'groups/finance/budget.md' } }, { say: 'It is in the budget file.' })}`)
+    expect(await answerTo('erin', roomId, q)).toBeUndefined()
+    expect(await answerTo('bob', roomId, q)).toMatchObject({ visibility: 'private', preview: { folders: ['groups/finance'], personal: false } })
+  })
+
+  test('a listing shows names: a sub-folder some member cannot list keeps the answer private, the top of the team folder does not', async () => {
+    const roomId = await room(['alice', 'bob'])
+    // alice lists the top: "groups/" is there for her (her group is in it), bob (finance) sees it too; "projects/" both
+    const top = await ask('alice', roomId, `@트리나 top?\n${fake({ tool: 'list', args: { path: '' } }, { say: 'shared, skills, groups, projects, users' })}`)
+    expect((await answerTo('bob', roomId, top.q))?.visibility).toBe('room')
+    // alice lists groups/: "marketing/" is a folder bob cannot list
+    const groups = await ask('alice', roomId, `@트리나 groups?\n${fake({ tool: 'list', args: { path: 'groups' } }, { say: 'marketing' })}`)
+    expect(await answerTo('bob', roomId, groups.q)).toBeUndefined()
+    expect((await answerTo('alice', roomId, groups.q))?.preview).toMatchObject({ personal: false, outside: false })
   })
 })

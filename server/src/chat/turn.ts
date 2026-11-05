@@ -393,6 +393,11 @@ export class TurnExec {
     // Other people's words are outside content (remember protection) and the room is where they came from (tab 7)
     let roomCtx: RoomTurnContext | null = null
     if (this.room) {
+      // a room question is decided on what it used itself (rooms/ai.ts): its session never resumes, and what it carries
+      // from earlier questions is the room's own (the history of answers that went to the room, the room's messages),
+      // recorded as the room below. So the read scope and the outside mark start empty for every question
+      clearScope(rt.db, spec.chatId)
+      rt.db.query('UPDATE chats SET room_outside = 0 WHERE id = ?').run(spec.chatId)
       const r = rt.rooms!.prepare({ chatId: spec.chatId, roomId: this.room.roomId, userId: spec.userId, userMessageId: spec.userMessageId, continues: userMsg.parent_id !== null })
       if ('error' in r) { this.error = r.error; return }
       roomCtx = r
@@ -1204,24 +1209,38 @@ export class TurnExec {
   /**
    * A room's AI session (rooms/ai.ts): a tool outside the team-file tools (rooms/ai-tools.ts; the engine's web search,
    * a page, a connection, the browser, anything unknown) marks the session as having used something from outside, so
-   * its answers stay private to the person. A folder `list`ed (`ok`: the listing came back) joins the read scope like
-   * a read: its file names may go into the answer.
+   * its answers stay private to the person. The team paths a call names join the read scope by what the call could
+   * tell about them with the person's access (below); a listing records its own (files/service.ts list).
    */
   noteRoomTool(tool: string, input?: unknown) {
     if (!this.room) return
     if (!ROOM_FILE_TOOLS.has(tool)) { this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId); return }
-    // every team path a call names counts like a name read, whatever the call answers: a read of a folder some member
-    // cannot see ("is a folder") and of a path that does not exist ("not found") then keep the answer private alike, and
-    // so does a search with no result in such a folder
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+    const rules = this.rt.files.rules()
+    let me: Principal | null = null
+    try { me = this.livePrincipal() } catch { /* a disabled account: the call fails anyway */ }
+    // every team path a call names counts, whatever the call answers ("is a folder", "not found", a search with no
+    // result), by what that answer could tell (docs/DECISIONS.md "대화방의 트리나", what makes an answer private):
+    // - a path the person may read: its folder, like a read (what is there, or that nothing is)
+    // - a path they may only list (a folder on the way to theirs; users/ itself, which holds only the personal
+    //   folders): its name, which every member who may list it sees too (read-scope.ts {type:'name'})
+    // - a path they cannot list: nothing. The call answered "not found or no access", the same as for a path that does
+    //   not exist and as for anyone else who cannot open it (policy/authorize.ts), so the answer can carry no more than
+    //   the path as the AI typed it (a guess, or a name from the room's messages, which the room has seen)
+    const note = (p: string) => {
+      const segs = p.split('/').filter(Boolean)
+      if (!me) { this.files.namePaths.add(p); return }
+      if (atLeast(rules.access(me, segs), 'read') && !(segs.length === 1 && segs[0] === 'users')) this.files.namePaths.add(p)
+      else if (rules.canList(me, segs)) this.files.listedNames.add(p)
+    }
     for (const k of PATH_ARGS) {
       for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
         if (typeof v !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-        for (const p of this.roomNames(v)) this.files.namePaths.add(p)
+        for (const p of this.roomNames(v)) note(p)
       }
     }
     // a search looks in every folder under where it starts (the whole team folder without a path) that the person may
-    // read, so even "no match" says something about each of them: those folders count as name reads too
+    // read, so even "no match" says something about each of them: those folders count as read too
     // (the person's own folder is left to what the search found there: it is theirs, not a folder of the room)
     // (the engine's own start of a call comes without its input: only the server's call, chat/tools.ts, counts here)
     if (input !== undefined && (tool === 'grep' || tool === 'glob' || tool === 'search')) {
@@ -1230,9 +1249,6 @@ export class TurnExec {
       const fold = (p: string) => { const n = p.normalize('NFC'); return this.rt.files.fx.caseInsensitive ? n.toLowerCase() : n }
       const bases = typeof a.path === 'string' ? [...new Set(this.roomNames(a.path).map(fold))] : ['']
       const under = (f: string) => { const k = fold(f); return bases.some((b) => b === '' || k === b || k.startsWith(b + '/')) }
-      const rules = this.rt.files.rules()
-      let me: Principal | null = null
-      try { me = this.livePrincipal() } catch { /* a disabled account: the call fails anyway */ }
       for (const f of ['', ...rules.ruleFolders()]) {
         if (!under(f) || f.split('/')[0] === 'users') continue
         if (me && atLeast(rules.access(me, f ? f.split('/') : []), 'read')) this.files.namePaths.add(f)
@@ -1333,13 +1349,17 @@ export class TurnExec {
   /** Folders whose content the model saw in this turn (read / grep) join the chat's read scope. */
   noteReads() {
     const paths = this.files.readPaths
-    // a room session: folders whose file names the AI saw (list, glob) count too, as the names may reach the room
+    // a room session: folders whose file names the AI saw (list, glob, searches) count too, as the names may reach the
+    // room, and so do the paths whose own name it saw or asked about (read-scope.ts {type:'name'})
     const names = this.room ? this.files.namePaths : null
-    if (!paths.size && !names?.size) return
+    const listed = this.room ? this.files.listedNames : null
+    if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
-    const add = [...paths, ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
+    const add: ReadSource[] = [...paths, ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
+    for (const p of listed ?? []) add.push({ type: 'name', path: p })
     paths.clear()
     names?.clear()
+    listed?.clear()
     addSources(this.rt.db, this.spec.chatId, add)
   }
 
