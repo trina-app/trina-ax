@@ -8107,6 +8107,25 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   - A `share_file` link counts its path like a name read. `edit_files` raises one card for the whole batch
     (`TurnToolSet.beforeBatch`), and the yes covers each file's edit.
   - Each viewer's access is loaded once per message list for the answer links, and the skill check caches by path.
+- **Third review fixes (2026-11-05, re-review of fcfbf3a7): allowlists instead of one fix per finding.**
+  - Instructions: the three prompt builders (`buildTurnPrompt`, `buildSubagentPrompt`, `buildTurnContext`) are made of
+    named sections, and a room session gets only those `ROOM_PROMPT_SECTIONS` allows: product and tool rules, the
+    person lines in their room form (display name and id, folders everyone in the room may read; no role, no groups),
+    the environment, team rules and company profile (recorded as read), skills everyone may read, the room section,
+    the session's own history. Memories, project, connected services and the browser are left out. The record has
+    every section id, so a new section needs a room answer to compile, and a test builds all three prompts with every
+    section filled and checks that only allowed ones are there.
+  - Tools: a room session gets only `ROOM_TOOLS` (file tools and the tools that work on team files, ask_user, skills,
+    web_fetch, save_url), and no connection at all: personal ones are the person's, and a team one's results are not
+    team files (its answers would be private anyway). Google Drive, schedules, video generation and box_shell are out.
+  - A room session never resumes an engine session: its instructions are made again for every question, so a member
+    who joined or lost access is never answered from instructions made for others. Its history holds only the
+    questions whose answers went to the room (posted, not deleted): no private preview, stopped or failed answer.
+  - Every team path a call names (file_path, path, output, paths, …) counts as a name read in a room, whatever the
+    call answers: a folder someone cannot see ("is a folder"), a path that does not exist ("not found") and a search
+    with no result there keep the answer private alike. share_file also records the path as the server resolved it
+    (actual case, NFC). The skill tool answers as if skills only the person may read did not exist when several share
+    the name. The edit_files card lists every file and the replacement.
 - **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
   the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the session's
   **cumulative** read scope, not only this answer's list: each ruled folder (or the team root) by the rules now; the
