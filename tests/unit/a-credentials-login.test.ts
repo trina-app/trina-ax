@@ -116,7 +116,7 @@ describe('ChatGPT sign-in for the team', () => {
     let busy: unknown = null
     try { await logins().start({ userId: 'dana', locale: 'en', personal: false, label: 'second', assignments: [], priority: 100 }) } catch (e) { busy = e }
     expect((busy as { code?: string }).code).toBe('busy')
-    logins().cancel(s.loginId, 'dana')
+    logins().cancel(s.loginId, 'dana', 'en')
     expect(await final(dana, s.loginId)).toMatchObject({ state: 'cancelled' })
     expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
     expect(listRows(h.ctx.db).some((r) => r.label === 'slow')).toBe(false)

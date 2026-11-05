@@ -8,7 +8,9 @@
 // token. A code other than the good one ends like a 401 (the error and "Press Enter to retry"), and it waits.
 // Settings (a wrapper script may export them): FAKE_CLAUDE_GOOD_CODE (good-code#good-state), FAKE_CLAUDE_TOKEN,
 // FAKE_CLAUDE_URL (the authorize address), FAKE_CLAUDE_PROMPT_MS (0: how long before the prompt), FAKE_CLAUDE_LINGER=1
-// (does not exit after the token), FAKE_CLAUDE_NO_EXCHANGE=1 (prints the token without the CONNECT).
+// (does not exit after the token), FAKE_CLAUDE_NO_EXCHANGE=1 (prints the token without the CONNECT), FAKE_CLAUDE_HANG=1
+// (shows nothing after the code). The success screen is the whole frame again (header art and all, about 3 KB) in one
+// write, as Ink draws it: the terminal hands it to the reader in pieces (macOS: 1024 bytes), often inside the token.
 import net from 'node:net'
 import tty from 'node:tty'
 
@@ -64,6 +66,7 @@ export async function fakeSetupToken(argv = process.argv.slice(2)): Promise<numb
     out(`\r\r\n${ESC}[31m${jumps('OAuth error: Authentication failed: Invalid authorization code')}${ESC}[39m\r\r\n\r\r\n${ESC}[35m${jumps('Press Enter to retry.')}${ESC}[39m\r\r\n`)
     await new Promise(() => {}) // waits for Enter, like the real one
   }
+  if (process.env.FAKE_CLAUDE_HANG) await new Promise(() => {})
   if (code !== good) { await refused(); return 1 }
   if (!process.env.FAKE_CLAUDE_NO_EXCHANGE) {
     const st = await connect('platform.claude.com:443')
@@ -73,11 +76,13 @@ export async function fakeSetupToken(argv = process.argv.slice(2)): Promise<numb
     }
     await connect('api.anthropic.com:443') // the profile lookup: refused, which the real CLI only logs
   }
-  // the success screen redraws the region above (cursor up, erase), like Ink
-  out(`${ESC}[3A${ESC}[J${ESC}[32m✓ ${jumps('Long-lived authentication token created successfully!', 4)}${ESC}[39m\r\r\n\r\r\n`)
-  out(`${jumps('Your OAuth token (valid for 1 year):')}\r\r\n\r\r\n${ESC}[2G${ESC}[33m${token}${ESC}[39m\r\r\n\r\r\n`)
-  out(`${ESC}[2m${jumps("Store this token securely. You won't be able to see it again.")}${ESC}[22m\r\r\n`)
-  out(`${ESC}[2m${jumps('Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>')}${ESC}[22m\r\r\n`)
+  // the success frame redraws the region above (cursor up, erase) with the header art again, like Ink, in one write
+  const art = Array.from({ length: 16 }, (_, k) => `${ESC}[${4 + k}G${ESC}[38;5;174m${'\u2588\u2593\u2591'.repeat(18)}${ESC}[39m\r\r\n`).join('')
+  out(`${ESC}[3A${ESC}[J${ESC}[38;5;174m${jumps('Welcome to Claude Code', 1)}${ESC}[39m\r\r\n${art}\r\r\n`
+    + `${ESC}[32m\u2713 ${jumps('Long-lived authentication token created successfully!', 4)}${ESC}[39m\r\r\n\r\r\n`
+    + `${jumps('Your OAuth token (valid for 1 year):')}\r\r\n\r\r\n${ESC}[2G${ESC}[33m${token}${ESC}[39m\r\r\n\r\r\n`
+    + `${ESC}[2m${jumps("Store this token securely. You won't be able to see it again.")}${ESC}[22m\r\r\n`
+    + `${ESC}[2m${jumps('Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>')}${ESC}[22m\r\r\n`)
   if (process.env.FAKE_CLAUDE_LINGER) await new Promise(() => {})
   await Bun.sleep(500)
   out(`${ESC}[?2004l${ESC}[?25h`)

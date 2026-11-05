@@ -85,7 +85,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   }
   kit.handle(API.startCredentialLogin, ({ c, body, auth }) => logins().start({ userId: auth.user.id, locale: loc(c), personal: false, kind: body.kind, label: body.label, assignments: body.assignments, priority: body.priority, reconnectId: body.reconnectId }))
   kit.handle(API.getCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id))
-  kit.handle(API.cancelCredentialLogin, ({ params, auth }) => logins().cancel(params.id, auth.user.id))
+  kit.handle(API.cancelCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c)))
   kit.handle(API.submitCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c)))
 
   // ---------------- one's own connections ----------------
@@ -122,6 +122,6 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     return logins().start({ userId: auth.user.id, locale: loc(c), personal: true, kind: body.kind, label: body.label, assignments: [], priority: 100, reconnectId: body.reconnectId })
   })
   kit.handle(API.getMyCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id))
-  kit.handle(API.cancelMyCredentialLogin, ({ params, auth }) => logins().cancel(params.id, auth.user.id))
+  kit.handle(API.cancelMyCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c)))
   kit.handle(API.submitMyCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c)))
 }

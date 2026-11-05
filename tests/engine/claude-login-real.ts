@@ -29,7 +29,7 @@ const tls = argv.includes('--tls-handshake')
 // as configured (the launcher allows the file named claude; ~/.local/bin/claude is a link to versions/<v>)
 const claude = path.resolve(opt('--claude') ?? Bun.which('claude') ?? 'claude')
 const real = fs.realpathSync(claude)
-const nativeBin = path.join(ROOT, 'native', 'bin', `${process.platform === 'darwin' ? 'darwin' : 'linux'}-${process.arch === 'arm64' ? 'arm64' : 'amd64'}`)
+const nativeBin = process.env.MYCEL_NATIVE_BIN ?? path.join(ROOT, 'native', 'bin', `${process.platform === 'darwin' ? 'darwin' : 'linux'}-${process.arch === 'arm64' ? 'arm64' : 'amd64'}`)
 const profile = path.join(ROOT, 'scripts', 'macos', 'engine.sb')
 if (process.platform === 'darwin' && (!fs.existsSync(profile) || !fs.existsSync('/usr/bin/sandbox-exec'))) { console.error('needs the macOS engine sandbox'); process.exit(2) }
 if (process.platform !== 'darwin') { console.error('macOS only (Linux: the bwrap path is the Linux job, tests/linux/driver.ts)'); process.exit(2) }

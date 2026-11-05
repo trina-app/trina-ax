@@ -33,6 +33,8 @@ export const LOGIN_TIMEOUT_MS = 16 * 60_000
 const KEEP_FINISHED_MS = 30 * 60_000
 /** the code the Claude page shows after approval: <authorization code>#<state> (the launcher checks the same) */
 export const CLAUDE_LOGIN_CODE_RE = /^[A-Za-z0-9._~-]{1,512}#[A-Za-z0-9._~-]{1,512}$/
+/** never anything token-shaped is typed into the program (the launcher refuses it too) */
+export const claudeLoginCodeOk = (c: string) => CLAUDE_LOGIN_CODE_RE.test(c) && !/sk-ant-/i.test(c)
 
 /** Anthropic's own authorize page with the manual redirect (the page that shows the code to paste), nothing else */
 export function isClaudeAuthorizeUrl(s: string): boolean {
@@ -62,6 +64,8 @@ export interface LoginDeps {
   launcher(kind: CredentialLoginKind): Promise<{ sock: string; bin: string; proxyPort: number } | null>
   /** how long a sign-in may take (default LOGIN_TIMEOUT_MS; tests) */
   timeoutMs?: number
+  /** Claude: how long after the code the token may take (default: the launcher's 90 s; tests) */
+  exchangeTimeoutMs?: number
 }
 
 /** Where the launcher, the CLI and the proxy are, for a running server. */
@@ -178,7 +182,7 @@ class Logins {
     const proxyToken = issueProxyToken(cc.db, pending, l.userId, { ttlMs: this.timeout() + 60_000 })
     let token: string | null = null
     let failed: string | null = null
-    const run = claudeSignIn(where.sock, { cmd: where.bin, proxy: turnProxyUrl(where.proxyPort, proxyToken), loginId: l.loginId, timeoutMs: this.timeout() }, {
+    const run = claudeSignIn(where.sock, { cmd: where.bin, proxy: turnProxyUrl(where.proxyPort, proxyToken), loginId: l.loginId, timeoutMs: this.timeout(), exchangeTimeoutMs: this.deps.exchangeTimeoutMs }, {
       started: (pid) => { bound = CLAUDE_LOGIN_BOUND + pid; cc.db.query('UPDATE proxy_tokens SET turn_id = ? WHERE turn_id = ?').run(bound, pending) },
       url: (u) => {
         if (l.endedAt !== null || l.state !== 'starting') return
@@ -187,6 +191,8 @@ class Logins {
         l.url = u; l.state = 'code'
         this.send(l)
       },
+      // the launcher did not type the code (it was not waiting for one any more): say so instead of "checking" on
+      code: (ok) => { if (!ok && l.endedAt === null && !l.storing) { l.cancel(); this.end(l, 'failed', 'code_refused') } },
       failed: (reason, detail) => {
         failed = reason
         // it could not start (before the address nothing secret is on its screen): why, for whoever runs the server
@@ -253,6 +259,8 @@ class Logins {
    * secret of the connection being reconnected. Its errors become the sign-in's reason, never a message with the token. */
   private async storeClaude(l: Login, token: string): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
     const { cc } = this
+    // the policies again, now (as storeChatgpt): a reconnect goes through replaceSecret, which does not check them
+    if (!cc.allowedKinds.has('anthropic-oauth') || (l.personal ? !memberOwnAllowed(cc.db) : !sharedSubscriptionsAllowed(cc.db))) return { ok: false, reason: 'policy_changed' }
     try {
       if (l.reconnectId) return { ok: true, id: (await replaceSecret(cc, l.reconnectId, token, l.userId, l.locale)).id }
       const c = await createCredential(cc, {
@@ -277,7 +285,7 @@ class Logins {
     if (!l || l.userId !== userId) return fail('not_found')
     if (l.kind !== 'anthropic-oauth' || l.endedAt !== null || l.state !== 'code') return fail('conflict', ct('loginNotWaiting', locale))
     const c = code.trim()
-    if (!CLAUDE_LOGIN_CODE_RE.test(c)) return fail('validation', ct('badLoginCode', locale), { fields: { 'body.sealed': 'not the code Claude shows' } })
+    if (!claudeLoginCodeOk(c)) return fail('validation', ct('badLoginCode', locale), { fields: { 'body.sealed': 'not the code Claude shows' } })
     l.state = 'checking'
     l.sendCode(c)
     this.send(l)
@@ -291,11 +299,13 @@ class Logins {
     return this.api(l)
   }
 
-  cancel(loginId: string, userId: string): void {
+  cancel(loginId: string, userId: string, locale: Locale): void {
     const l = this.all.get(loginId)
     if (!l || l.userId !== userId) return fail('not_found')
-    // a token that is being checked and stored right now finishes (the result comes in a moment)
-    if (l.endedAt === null && !l.storing) { l.cancel(); this.end(l, 'cancelled', null) }
+    // a token that is being checked and stored right now finishes: 409, the result comes in a moment (the screen keeps
+    // the dialog and says so, instead of closing it and the connection appearing later)
+    if (l.storing) return fail('conflict', ct('loginStoring', locale))
+    if (l.endedAt === null) { l.cancel(); this.end(l, 'cancelled', null) }
   }
 }
 

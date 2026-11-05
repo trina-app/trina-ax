@@ -264,7 +264,7 @@ export function codexSignIn(sock: string, o: { cmd: string; proxy: string; login
  * sendCode() types the code once; cancel() closes the connection (the launcher stops the program and removes the
  * folder).
  */
-export function claudeSignIn(sock: string, o: { cmd: string; proxy: string; loginId: string; timeoutMs?: number }, on: { started?(pid: number): void; url?(url: string): void; code?(ok: boolean): void; failed?(reason: string, detail?: string): void; token?(token: string): void }): { done: Promise<{ code: number | null; message?: string }>; cancel(): void; sendCode(code: string): void } {
+export function claudeSignIn(sock: string, o: { cmd: string; proxy: string; loginId: string; timeoutMs?: number; exchangeTimeoutMs?: number }, on: { started?(pid: number): void; url?(url: string): void; code?(ok: boolean): void; failed?(reason: string, detail?: string): void; token?(token: string): void }): { done: Promise<{ code: number | null; message?: string }>; cancel(): void; sendCode(code: string): void } {
   let c: net.Socket | null = null
   let cancelled = false
   const done = new Promise<{ code: number | null; message?: string }>((res) => {
@@ -274,7 +274,7 @@ export function claudeSignIn(sock: string, o: { cmd: string; proxy: string; logi
       c = s
       if (cancelled) { s.destroy(); res({ code: null, message: 'cancelled' }); return }
       s.setEncoding('utf8')
-      s.on('connect', () => s.write(JSON.stringify({ op: 'claude-login', cmd: o.cmd, proxy: o.proxy, loginId: o.loginId, timeoutMs: o.timeoutMs ?? 0 }) + '\n'))
+      s.on('connect', () => s.write(JSON.stringify({ op: 'claude-login', cmd: o.cmd, proxy: o.proxy, loginId: o.loginId, timeoutMs: o.timeoutMs ?? 0, exchangeTimeoutMs: o.exchangeTimeoutMs ?? 0 }) + '\n'))
       s.on('data', (d: string) => {
         b += d
         let i

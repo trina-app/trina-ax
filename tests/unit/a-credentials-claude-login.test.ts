@@ -31,9 +31,11 @@ const dialed: string[] = []
 const dial = (host: string, port: number) => { dialed.push(`${host}:${port}`); return net.connect((echo.address() as net.AddressInfo).port, '127.0.0.1') }
 // the Anthropic the token is checked against (count_tokens), with its answer per test
 let answer = 200
+let answerDelayMs = 0
 const checks: string[] = []
-const anthropic = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
+const anthropic = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
   checks.push(`${new URL(req.url).pathname} ${req.headers.get('authorization') === `Bearer ${tokenNow}` ? 'token' : 'other'}`)
+  if (answerDelayMs) await Bun.sleep(answerDelayMs)
   return Response.json({ input_tokens: 1 }, { status: answer })
 } })
 let tokenNow = FAKE_CLAUDE_TOKEN
@@ -144,8 +146,8 @@ describe('Claude sign-in for the team', () => {
   test('the code: the right shape, sealed for this purpose, only once, only from its starter', async () => {
     const s = await team('Code rules')
     await waiting(dana, s.loginId)
-    // not a code (no #, a space, a control key): 400, and the sign-in still waits
-    for (const bad of ['no-hash-here', 'a b#c', 'abc#d\u001b[A']) {
+    // not a code (no #, a space, a control key, anything token-shaped): 400, and the sign-in still waits
+    for (const bad of ['no-hash-here', 'a b#c', 'abc#d\u001b[A', 'sk-ant-oat01-AAAAAAAAAAAAAAAAAAAAAAAA#x']) {
       const r = await postCode('dana', 'admin', s.loginId, bad)
       expect(r.status).toBe(400)
     }
@@ -231,6 +233,43 @@ describe('Claude sign-in for the team', () => {
     } finally { delete deps.timeoutMs }
   })
 
+  test('no token and no known error after the code: exchange_failed after the wait, not "checking" for 16 minutes', async () => {
+    setFake({ FAKE_CLAUDE_HANG: '1' })
+    deps.exchangeTimeoutMs = 1500
+    try {
+      const s = await team('hangs')
+      await waiting(dana, s.loginId)
+      const t0 = Date.now()
+      expect((await postCode('dana', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(200)
+      expect(await final(dana, s.loginId)).toMatchObject({ state: 'failed', reason: 'exchange_failed' })
+      expect(Date.now() - t0).toBeLessThan(10_000)
+      expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+    } finally { delete deps.exchangeTimeoutMs; setFake({}) }
+  })
+
+  test('a code the launcher does not type ends the sign-in (code_refused), never "checking"', async () => {
+    const s = await team('refused code')
+    await waiting(dana, s.loginId)
+    logins().all.get(s.loginId)!.sendCode('not a code') // past the server's own check: the launcher refuses it
+    expect(await final(dana, s.loginId)).toMatchObject({ state: 'failed', reason: 'code_refused' })
+    expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+  })
+
+  test('a cancel while the token is being checked and saved: 409, and the connection is made', async () => {
+    setFake({ FAKE_CLAUDE_TOKEN: 'sk-ant-oat01-' + 'storingToken'.repeat(8) })
+    answerDelayMs = 2500
+    try {
+      const s = await team('Stored anyway')
+      await waiting(dana, s.loginId)
+      await postCode('dana', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)
+      expect(await waitFor(() => logins().all.get(s.loginId)?.storing === true, { timeoutMs: 15_000 })).toBe(true)
+      const r = await h.req('dana', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })
+      expect(r.status).toBe(409)
+      expect(((await r.json()) as { error: { message: string } }).error.message).toContain('저장하는 중') // dana reads Korean
+      expect(await final(dana, s.loginId)).toMatchObject({ state: 'done', credential: { label: 'Stored anyway' } })
+    } finally { answerDelayMs = 0; setFake({}) }
+  })
+
   test('another site\'s address is never shown: the sign-in fails', async () => {
     setFake({ FAKE_CLAUDE_URL: FAKE_CLAUDE_URL.replace('https://claude.com/', 'https://claude.com.evil.example/') })
     const s = await team('evil')
@@ -280,6 +319,19 @@ describe('a member\'s own Claude sign-in over HTTP', () => {
     expect(bob.frames.some((f) => f.type === 'credential.login')).toBe(false)
     expect(everything()).not.toContain(tokenNow)
     setFake({})
+  })
+  test('the team turns personal connections off during a member\'s reconnect: nothing stored', async () => {
+    const own = listRows(h.ctx.db).find((r) => r.owner_user_id === 'alice' && r.kind === 'anthropic-oauth')!
+    const before = secretOf(credentialsOf(h.ctx), own as never)
+    setFake({ FAKE_CLAUDE_TOKEN: 'sk-ant-oat01-' + 'aliceNewerToken'.repeat(6) })
+    const r = await h.api('alice').call(API.startMyCredentialLogin, { body: { kind: 'anthropic-oauth', label: 'x', reconnectId: own.id, acknowledgedPlanNotice: true } })
+    await waiting(alice, r.loginId)
+    setSetting(h.ctx.db, MEMBER_OWN_KEY, false)
+    try {
+      expect((await postCode('alice', 'me', r.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(200)
+      expect(await final(alice, r.loginId)).toMatchObject({ state: 'failed', reason: 'policy_changed' })
+      expect(secretOf(credentialsOf(h.ctx), getRow(h.ctx.db, own.id) as never)).toEqual(before)
+    } finally { setSetting(h.ctx.db, MEMBER_OWN_KEY, true); setFake({}) }
   })
 })
 
