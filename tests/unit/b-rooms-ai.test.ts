@@ -105,7 +105,7 @@ describe('the AI in a room', () => {
     const posted = await answerTo('erin', roomId, one.q)
     expect(posted).toMatchObject({ visibility: 'room', authorKind: 'ai', askedBy: { id: 'alice' }, body: 'The Q4 brief is about upgrades.', sourceCount: 1 })
     // a posted answer: the "answering" line just goes, nobody is told it was private
-    expect(ws.erin!.frames.some((f) => f.type === 'room.ai' && f.data.roomId === roomId && !!f.data.privateAnswer)).toBe(false)
+    expect((await messages('erin', roomId)).find((m) => m.id === one.q.id)?.answeredPrivately).toBeUndefined()
     expect(posted!.unread).toBeGreaterThan(0)
     const src = await h.api('erin').call(API.roomMessageSources, { params: { id: roomId, messageId: posted!.id } })
     expect(src).toMatchObject({ files: [{ path: BRIEF }], unavailable: 0 })
@@ -145,12 +145,20 @@ describe('the AI in a room', () => {
     const erinsView = await messages('erin', roomId)
     expect(erinsView.some((m) => m.authorKind === 'ai')).toBe(false)
     expect(JSON.stringify(erinsView)).not.toContain('Project Falcon plan')
-    // erin, who sees the question, is told only that it was answered to alice alone ("○○ 님에게만 답했어요"): who asked,
-    // nothing of the answer or why; alice gets no such line about her own question
-    const told = await ws.erin!.next('room.ai', (f) => f.data.roomId === roomId && !!f.data.privateAnswer)
-    expect(told.data).toEqual({ roomId, answering: 0, privateAnswer: { questionId: q.id, askedBy: { id: 'alice', name: expect.any(String) } } })
-    await ws.alice!.next('room.ai', (f) => f.data.roomId === roomId && f.data.answering === 0)
-    expect(ws.alice!.frames.some((f) => f.type === 'room.ai' && f.data.roomId === roomId && !!f.data.privateAnswer)).toBe(false)
+    // erin, who sees the question, is told only that it was answered to alice alone ("○○ 님에게만 답했어요" under it):
+    // who asked, nothing of the answer or why, live and after a reload; alice gets no such line about her own question
+    const told = await ws.erin!.next('room.message.updated', (f) => f.data.roomId === roomId && f.data.message.id === q.id && !!f.data.message.answeredPrivately)
+    expect(told.data.message).toMatchObject({ id: q.id, author: { id: 'alice' }, answeredPrivately: true })
+    expect(JSON.stringify(told.data)).not.toContain('Project Falcon plan')
+    expect(erinsView.find((m) => m.id === q.id)).toMatchObject({ answeredPrivately: true })
+    expect((await messages('alice', roomId)).find((m) => m.id === q.id)?.answeredPrivately).toBeUndefined()
+    expect(ws.alice!.frames.some((f) => f.type === 'room.message.updated' && f.data.message.id === q.id && !!f.data.message.answeredPrivately)).toBe(false)
+    // once alice posts it, the line goes: the answer is there
+    const preview = (await answerTo('alice', roomId, q))!
+    await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: preview.id } })
+    const after = await messages('erin', roomId)
+    expect(after.find((m) => m.id === q.id)?.answeredPrivately).toBeUndefined()
+    expect(after.some((m) => m.id === preview.id && m.visibility === 'room')).toBe(true)
     // other people's words taint the session (remember protection), and their link is not one alice typed
     const s = sessionOf(roomId, 'alice')!
     expect(s.session_tainted).toBe(1)
@@ -748,11 +756,12 @@ describe('a search start in another spelling, and folders the asker cannot open'
 
 // ---------------- the live test of 2026-11-05: a member with no group got only private previews ----------------
 describe('what makes an answer private: what some member could not see, per question', () => {
-  /** bob without his group for the test (a member with no group, like the live test's Noah) */
+  /** bob without his groups for the test (a member with no group, like the live test's Noah; the rooms of the tests
+   * above are groups too) */
   const withoutGroup = async (run: () => Promise<void>) => {
-    const fin = (h.ctx.db.query("SELECT id FROM groups WHERE name = 'Finance'").get() as { id: string }).id
-    h.ctx.db.query("DELETE FROM group_members WHERE group_id = ? AND user_id = 'bob'").run(fin)
-    try { await run() } finally { h.ctx.db.query('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').run(fin, 'bob') }
+    const had = (h.ctx.db.query("SELECT group_id FROM group_members WHERE user_id = 'bob'").all() as { group_id: string }[]).map((r) => r.group_id)
+    h.ctx.db.query("DELETE FROM group_members WHERE user_id = 'bob'").run()
+    try { await run() } finally { for (const g of had) h.ctx.db.query("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, 'bob')").run(g) }
   }
   const allRoom = async () => (await h.api('bob').call(API.listRooms)).items.find((r) => r.kind === 'all')!.id
 

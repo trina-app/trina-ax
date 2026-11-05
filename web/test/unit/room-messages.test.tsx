@@ -106,10 +106,10 @@ test("an AI answer's team file links are chips only for files the viewer may ope
 })
 
 test("someone else's question answered privately says so under the question, naming only who asked", async () => {
-  const q = message({ roomId: R, seq: 1, author: BEN, body: '@Trina budget?' })
+  // the server marks the question (RoomMessage.answeredPrivately): after a reload as well as live
+  const q = message({ roomId: R, seq: 1, author: BEN, body: '@Trina budget?', answeredPrivately: true })
   const later = message({ roomId: R, seq: 2, author: CY, body: 'meanwhile' })
   installDom()
-  useRooms.setState({ ai: { [R]: { answering: 0, runs: [], privates: [{ questionId: q.id, askedBy: BEN }] } } })
   const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
   try {
     const html = m.html()

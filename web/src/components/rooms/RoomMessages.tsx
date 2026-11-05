@@ -30,7 +30,6 @@ import { MenuButton, useLongPress } from './MenuButton'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { useMentionMenu } from './useMentionMenu'
 
-const NO_PRIVATES: { questionId: string; askedBy: UserRef }[] = []
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -65,17 +64,13 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
   }
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null
   // what the AI did with a question, under that question: my answer that stopped or failed, someone else's answer that
-  // stayed theirs only
+  // stayed theirs only (the question says so, also after a reload)
   const ended = useRooms(useShallow((s) => (s.ai[roomId]?.runs ?? NO_RUNS).filter((r) => !runActive(r))))
-  const privates = useRooms((s) => s.ai[roomId]?.privates) ?? NO_PRIVATES
-  const after = (id: string) => [
-    ...ended.filter((r) => r.questionId === id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...privates.filter((p) => p.questionId === id).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />),
+  const after = (m: RoomMessage) => [
+    ...ended.filter((r) => r.questionId === m.id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
+    ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={m.author?.name ?? t('rooms.goneUser')} />] : []),
   ]
-  const orphans = [
-    ...ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...privates.filter((p) => !loaded.has(p.questionId)).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />),
-  ]
+  const orphans = ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
 
   return (
     <div data-testid="room-messages">
@@ -118,7 +113,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                       onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
                       headed={m === first}
                     />
-                    {after(m.id)}
+                    {after(m)}
                   </Fragment>
                 ))}
               </div>

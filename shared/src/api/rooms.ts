@@ -126,6 +126,10 @@ export const RoomMessage = z.object({
   /** an AI answer: the team files it links to or shows that the viewer may open now; the app shows the others as plain
    * text (no link, no picture loaded) */
   openable: z.array(z.string()).optional(),
+  /** a question to the AI whose answer went to its author only (a private preview not posted): true for the other
+   * members who see the question ("○○ 님에게만 답했어요" under it), never for the author; nothing of the answer or why.
+   * Gone once the author posts the answer */
+  answeredPrivately: z.boolean().optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
 

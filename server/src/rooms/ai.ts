@@ -12,8 +12,9 @@
 //             reads typed links from stored user messages), and they taint the session and join its read scope as
 //             the room (chat/read-scope.ts {type:'room'}) like any outside content.
 //   while     only the person gets the steps (room.ai.step) and may stop it; every member gets the count of questions
-//             being answered (room.ai), nobody is named. An answer that stays private ends with room.ai.privateAnswer
-//             to the others who see the question (who asked it, nothing of the answer): "○○ 님에게만 답했어요".
+//             being answered (room.ai), nobody is named. An answer that stays private marks its question for the
+//             others who see it (RoomMessage.answeredPrivately, kept with the question's turn row: who asked it,
+//             nothing of the answer): "○○ 님에게만 답했어요", also after a reload, until the person posts it.
 //   the end   the answer is an 'ai' message asked by the person (asked_by) that answers the question (reply_to_id).
 //             It goes to the room only when no current member could miss something it could reveal from what the
 //             question used (decide: the folders whose content it read, the names it saw, the room's messages; not
@@ -264,9 +265,10 @@ export class RoomAi implements RoomTurns {
     rooms.messageEvent('room.message', row)
     if (d.post) rooms.notify(row)
     this.publishRun(this.turnRow(turnId)!)
+    this.publishCount(t.room_id)
     // a private preview: the others who see the question learn that it was answered to the asker only (the question
-    // already names them), never what or why
-    this.publishCount(t.room_id, !d.post && q && !q.deleted_at ? q : null)
+    // already names them), never what or why: the question now says so (store.ts messagesOut)
+    if (!d.post && q && !q.deleted_at) rooms.messageEvent('room.message.updated', q)
   }
 
   private close(t: TurnRow, status: 'stopped' | 'error', error: ApiErrorBody | null) {
@@ -386,6 +388,9 @@ export class RoomAi implements RoomTurns {
     const row = messageRow(db, roomId, m.id)!
     rooms.messageEvent('room.message', row)
     rooms.notify(row)
+    // the question no longer says "answered to … only": the answer is there
+    const q = t ? messageRow(db, roomId, t.question_id) : null
+    if (q && !q.deleted_at) rooms.messageEvent('room.message.updated', q)
     return messagesOut(db, [row], memberRow(db, roomId, userId)!)[0]!
   }
 
@@ -429,15 +434,9 @@ export class RoomAi implements RoomTurns {
   count(roomId: string): number {
     return (this.db.query("SELECT COUNT(*) n FROM room_ai_turns WHERE room_id = ? AND status = 'active'").get(roomId) as { n: number }).n
   }
-  /** `privately`: the question whose answer just stayed a private preview (to the members who see it, its asker left out) */
-  private publishCount(roomId: string, privately: MessageRow | null = null) {
+  private publishCount(roomId: string) {
     const answering = this.count(roomId)
-    const by = privately?.author_id ? this.names([privately.author_id]).get(privately.author_id) : undefined
-    const privateAnswer = privately?.author_id && by !== undefined ? { questionId: privately.id, askedBy: { id: privately.author_id, name: by } } : null
-    roomsOf(this.ctx).fanout(roomId, (m) => ({
-      type: 'room.ai',
-      data: { roomId, answering, ...(privateAnswer && privately && m.user_id !== privateAnswer.askedBy.id && canSee(privately, m) ? { privateAnswer } : {}) },
-    }))
+    roomsOf(this.ctx).fanout(roomId, () => ({ type: 'room.ai', data: { roomId, answering } }))
   }
   private publishRun(t: TurnRow) {
     this.ctx.services.realtime.publish(t.user_id, { type: 'room.ai.run', data: { roomId: t.room_id, run: this.runOf(t) } })

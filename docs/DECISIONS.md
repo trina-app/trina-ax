@@ -8265,8 +8265,11 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     이 폴더를 못 여는 사람도 이 내용을 봐요: 마케팅팀" (the last part of each folder path, never `skills/`; 내 폴더 for the
     person's own; else the one other reason). 대화방에 올리기 is an outline button: not posting is the default.
   - The others: "트리나가 답하는 중" ends as "○○ 님에게만 답했어요" under the question when the answer stays private
-    (`room.ai.privateAnswer`: the question id and who asked, to the members who see the question, never to the asker;
-    nothing of the answer or why), and simply goes when it is posted. The room section no longer tells the AI where its
+    (the question's `RoomMessage.answeredPrivately`, from its `room_ai_turns` row with status `private`: for the
+    members who see the question, never for the asker; nothing of the answer or why; sent live as
+    `room.message.updated` of the question and listed with it after a reload; first it was a live-only
+    `room.ai.privateAnswer`, so after a reload the question looked ignored), and goes when it is posted (the question
+    is sent again without it). The room section no longer tells the AI where its
     answer goes; one allowed sentence instead: it may also search folders only the asker can open (named nowhere), such
     answers stay private and the screen says so, and it does not write about who can see the answer.
   - My question's progress is one plain line ("파일 찾는 중", "'예산' 문서 읽는 중": a file by its name only, no search
