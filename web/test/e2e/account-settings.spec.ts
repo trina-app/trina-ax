@@ -114,18 +114,21 @@ test('a Settings address opened directly shows the dialog over Home; ✕ closes 
   await expect(page.getByRole('dialog').getByRole('heading', { name: t['settings.profile'] })).toBeVisible()
 })
 
-test('on a phone Settings is the 나 tab: the profile first, the tab bar stays, the list has no search or ✕ and keeps the rarer sections behind 더 보기', async ({ page }) => {
+test('on a phone Settings is the 나 tab: the list first with my photo row on top, the profile one step down, the tab bar stays, no search or ✕, the rarer sections behind 더 보기, and sign-out at the end', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 760 })
   await start(page)
   await page.goto('/rooms')
   await page.getByTestId('tab-me').click()
-  await expect(page).toHaveURL(/\/settings\/profile$/)
+  await expect(page).toHaveURL(/\/settings$/)
   const dialog = page.getByRole('dialog', { name: t['settings.title'] })
   const box = (await dialog.boundingBox())!
   expect(Math.round(box.width)).toBe(390)
-  await expect(dialog.getByRole('heading', { name: t['settings.profile'] })).toBeVisible()
   await expect(dialog.getByTestId('bottom-tabs')).toBeVisible()
   await expect(dialog.getByTestId('settings-close')).toBeHidden()
+  await expect(dialog.getByTestId('settings-logout')).toBeVisible()
+  await dialog.getByTestId('settings-me').click()
+  await expect(page).toHaveURL(/\/settings\/profile$/)
+  await expect(dialog.getByRole('heading', { name: t['settings.profile'] })).toBeVisible()
   await dialog.getByTestId('settings-back').click()
   await expect(page).toHaveURL(/\/settings$/)
   await expect(dialog.getByTestId('settings-menu')).toBeVisible()
@@ -154,19 +157,25 @@ for (const scheme of ['light', 'dark'] as const) {
   })
 }
 
-test('Deleted chats is in the account menu, not in the sidebar, on a wide screen and on a phone', async ({ page }) => {
+test('Deleted chats: in the account menu on a wide screen; on a phone a row of the drawer, which has no 파일 row or account menu (sign-out is in the 나 tab)', async ({ page }) => {
   await start(page)
-  for (const size of [{ width: 1360, height: 820 }, { width: 390, height: 760 }]) {
-    await page.setViewportSize(size)
-    await page.goto('/')
-    if (size.width < 768) await page.getByRole('button', { name: t['sidebar.open'] }).click()
-    const side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
-    await expect(side.getByRole('link', { name: t['sidebar.trash'] })).toHaveCount(0)
-    await side.getByTestId('account-menu').click()
-    await side.getByTestId('account-trash').click()
-    await expect(page).toHaveURL(/\/trash$/)
-    await expect(page.getByRole('heading', { level: 1, name: t['trash.title'] })).toBeVisible()
-  }
+  await page.setViewportSize({ width: 1360, height: 820 })
+  await page.goto('/')
+  let side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
+  await expect(side.getByRole('link', { name: t['sidebar.trash'] })).toHaveCount(0)
+  await side.getByTestId('account-menu').click()
+  await side.getByTestId('account-trash').click()
+  await expect(page).toHaveURL(/\/trash$/)
+  await expect(page.getByRole('heading', { level: 1, name: t['trash.title'] })).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 760 })
+  await page.goto('/')
+  await page.getByRole('button', { name: t['sidebar.open'] }).click()
+  side = page.getByRole('navigation', { name: t['sidebar.label'] }).last()
+  await expect(side.getByTestId('account-menu')).toBeHidden()
+  await expect(side.getByRole('link', { name: t['sidebar.files'] })).toHaveCount(0)
+  await side.getByRole('link', { name: t['sidebar.trash'] }).click()
+  await expect(page).toHaveURL(/\/trash$/)
+  await expect(page.getByRole('heading', { level: 1, name: t['trash.title'] })).toBeVisible()
 })
 
 test('on a wide window a page\'s column is centred beside the sidebar; on a phone it is full width', async ({ page }) => {
