@@ -8753,8 +8753,10 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   when Slack refuses them (`invalid_blocks`, `msg_blocks_too_long`, …) the answer goes again once as plain text in one
   block. Marker pairing finds each closing run by a binary search in the line's runs, so a line costs its length once
   (it was a scan to the line's end for each unpaired marker: 54 s for 200,000 characters; now about 15 ms).
-  Admin › Slack names the bot by its display name from the manifest (`/invite @trina-ax`); `auth.test` gives the
-  user name (`trinaax`), which Slack's `@` and `/invite` do not find.
+  Admin › Slack names the bot as Slack shows it (`/invite @trina-ax`): `users.info` of the bot user, its display name
+  or else its full name, read when the tokens are saved and at each connection (a rename in Slack shows up), with the
+  manifest's name when Slack does not say. `auth.test` gives the user name (`trinaax`), which `@` and `/invite` do not
+  find.
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 

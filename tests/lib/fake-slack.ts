@@ -5,7 +5,9 @@
 import type { ServerWebSocket } from 'bun'
 import { createHash } from 'node:crypto'
 
-export interface Call { method: string; token: string | null; args: Record<string, string>; at: number }
+/** `refused`: the error Slack answered with (the call did nothing: a refused post is not in the thread) */
+export interface Call { method: string; token: string | null; args: Record<string, string>; at: number; refused?: string }
+export type Fail = { error?: string; status?: number; retryAfter?: number; hang?: boolean; lost?: boolean; match?: (args: Record<string, string>) => boolean }
 export interface FakeUser { name: string; team_id: string; real_name?: string; email?: string; is_bot?: boolean; deleted?: boolean; enterprise_id?: string }
 export interface FakeSlack {
   url: string
@@ -13,6 +15,8 @@ export interface FakeSlack {
   appToken: string
   team: { id: string; name: string }
   botUserId: string
+  /** the bot user's display name in Slack (users.info of botUserId); renamed in the app's settings, it changes */
+  botDisplayName: string
   appId: string
   /** the app's credentials for "Sign in with Slack" */
   clientId: string
@@ -30,8 +34,8 @@ export interface FakeSlack {
   scopes: string[]
   opens: number
   /** the next call of a method (the next one `match` accepts) fails like this; hang: no answer until the client gives up
-   * (recorded as a call, it reached Slack, unless `lost`: it never arrived) */
-  failNext: Record<string, { error?: string; status?: number; retryAfter?: number; hang?: boolean; lost?: boolean; match?: (args: Record<string, string>) => boolean }>
+   * (recorded as a call, it reached Slack, unless `lost`: it never arrived). A list: the next calls, one each, in order. */
+  failNext: Record<string, Fail | Fail[]>
   /** channels conversations.info calls shared with another organization; `unknown`: no is_ext_shared in the answer */
   sharedChannels: Set<string>
   unknownChannels: Set<string>
@@ -62,7 +66,7 @@ export function startFakeSlack(): FakeSlack {
   let envelopes = 0
   const fake: FakeSlack = {
     url: '', botToken: 'xoxb-111-222-' + 'b'.repeat(24), appToken: 'xapp-1-A0APP-333-' + 'a'.repeat(32),
-    team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', appId: 'A0APP', clientId: '1111111111.2222222222', clientSecret: 'f'.repeat(32), codes: {},
+    team: { id: 'T0ACME', name: 'Acme' }, botUserId: 'U0BOT', botDisplayName: 'trina-ax', appId: 'A0APP', clientId: '1111111111.2222222222', clientSecret: 'f'.repeat(32), codes: {},
     users: {}, calls: [], acks: [], responses: [], opens: 0, failNext: {}, otherAppTokens: [], sharedChannels: new Set(), unknownChannels: new Set(),
     scopes: ['app_mentions:read', 'channels:read', 'chat:write', 'groups:read', 'im:history', 'im:write', 'users:read', 'users:read.email'],
     sockets: () => open.size,
@@ -105,13 +109,17 @@ export function startFakeSlack(): FakeSlack {
       const method = m[1]!
       const token = /^Bearer (.+)$/.exec(req.headers.get('authorization') ?? '')?.[1] ?? null
       const args = Object.fromEntries(new URLSearchParams(await req.text()))
-      const armed = fake.failNext[method]
+      const queue = fake.failNext[method]
+      const armed = Array.isArray(queue) ? queue[0] : queue
       const f = armed && (!armed.match || armed.match(args)) ? armed : undefined
-      if (!f?.lost) fake.calls.push({ method, token, args, at: Date.now() })
+      const call: Call = { method, token, args, at: Date.now() }
+      if (!f?.lost) fake.calls.push(call)
       if (f) {
-        delete fake.failNext[method]
+        if (Array.isArray(queue) && queue.length > 1) queue.shift()
+        else delete fake.failNext[method]
         // held until the client gives up (its own time limit), then nothing is answered
         if (f.hang) { await new Promise<void>((done) => { req.signal.addEventListener('abort', () => done()); setTimeout(done, 60_000) }); return new Response('', { status: 504 }) }
+        call.refused = f.status === 429 ? 'ratelimited' : f.error ?? 'internal_error'
         if (f.status === 429) return new Response('', { status: 429, headers: { 'retry-after': String(f.retryAfter ?? 1) } })
         return json({ ok: false, error: f.error ?? 'internal_error' })
       }
@@ -132,6 +140,8 @@ export function startFakeSlack(): FakeSlack {
           return json({ ok: true, bot: { id: args.bot, app_id: fake.appId, user_id: fake.botUserId, name: 'trina-ax' } })
         case 'users.info': {
           if (!bot) return json({ ok: false, error: 'invalid_auth' })
+          // the bot user: its user name and the display name people see (real Slack: `trinaax` and `trina-ax`)
+          if (args.user === fake.botUserId) return json({ ok: true, user: { id: fake.botUserId, team_id: fake.team.id, name: 'trinaax', real_name: fake.botDisplayName, deleted: false, is_bot: true, profile: { display_name: fake.botDisplayName, real_name: fake.botDisplayName, bot_id: 'B0BOT' } } })
           const x = fake.users[args.user ?? '']
           if (!x) return json({ ok: false, error: 'user_not_found' })
           return json({ ok: true, user: userObject(args.user!, x) })
@@ -145,7 +155,7 @@ export function startFakeSlack(): FakeSlack {
         }
         case 'conversations.replies': {
           if (!bot) return json({ ok: false, error: 'invalid_auth' })
-          const ours = fake.calls.filter((c) => c.method === 'chat.postMessage' && c.args.channel === args.channel && c.args.thread_ts === args.ts)
+          const ours = fake.calls.filter((c) => c.method === 'chat.postMessage' && !c.refused && c.args.channel === args.channel && c.args.thread_ts === args.ts)
           return json({ ok: true, messages: ours.map((c) => ({ user: fake.botUserId, bot_id: 'B0BOT', text: c.args.text, ts: (c.at / 1000).toFixed(6) })) })
         }
         case 'conversations.info': {

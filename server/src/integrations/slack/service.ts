@@ -164,8 +164,29 @@ export class SlackConnector {
     this.startPoller()
   }
 
-  private noteState(_s: SlackState, err: SlackErrorCode | null) {
+  private noteState(s: SlackState, err: SlackErrorCode | null) {
     try { this.db.query('UPDATE slack_config SET last_error = ? WHERE id = 1 AND last_error IS NOT ?').run(err, err) } catch {}
+    // each new connection reads the bot's name again: it may have been renamed in Slack's app settings
+    if (s === 'connected') void this.readBotName()
+  }
+
+  /** The bot's name as people find it in Slack (`@`, `/invite`): users.info of the bot user, its display name or else
+   * its full name. null: Slack did not say (Admin › Slack then shows the manifest's). Not auth.test's `user`: that is
+   * the user name (`trinaax`), which Slack's `@` does not find. */
+  private async botNameOf(bot: string, botUserId: string): Promise<string | null> {
+    try {
+      const info = await this.api.call('users.info', bot, { user: botUserId })
+      const u = info.user as { real_name?: unknown; profile?: { display_name?: unknown; real_name?: unknown } } | undefined
+      return cleanName(u?.profile?.display_name) ?? cleanName(u?.real_name) ?? cleanName(u?.profile?.real_name)
+    } catch { return null }
+  }
+
+  private async readBotName() {
+    const cfg = this.config(), tk = this.tokens(cfg)
+    if (!cfg?.bot_user_id || !tk) return
+    const name = await this.botNameOf(tk.bot, cfg.bot_user_id)
+    // the same bot still (tokens of another app may have been saved meanwhile)
+    if (name) this.db.query('UPDATE slack_config SET bot_name = ? WHERE id = 1 AND bot_user_id = ? AND bot_name IS NOT ?').run(name, cfg.bot_user_id, name)
   }
 
   private startPoller() {
@@ -186,7 +207,7 @@ export class SlackConnector {
     return {
       enabled: !!cfg?.enabled, tokens: !!cfg?.secret_enc,
       workspace: cfg?.team_id ? { teamId: cfg.team_id, name: cfg.team_name ?? cfg.team_id, url: cfg.team_url } : null,
-      botName: cfg?.secret_enc ? manifest.features.bot_user.display_name : null, appId: cfg?.app_id ?? null, state, lastError: state === 'connected' ? null : lastError,
+      botName: cfg?.secret_enc ? (cfg.bot_name ?? manifest.features.bot_user.display_name) : null, appId: cfg?.app_id ?? null, state, lastError: state === 'connected' ? null : lastError,
       linkOrigin: cfg?.link_origin ?? null, linked, manifest: JSON.stringify(manifest, null, 2), createUrl: createAppUrl(manifest),
       signIn: !!cfg?.client_id && !!this.tokens(cfg)?.clientSecret, redirectUrl: redirect,
     }
@@ -226,6 +247,7 @@ export class SlackConnector {
     // either one unknown: no check here (the connection's hello names the app, and envelopes must carry it)
     if (appId && tokenApp && tokenApp !== appId) throw new SlackError('app_mismatch', 'validation', { field: 'appToken' })
     appId = appId ?? tokenApp
+    const botName = await this.botNameOf(bot, botUser)
     let sealed: { enc: string; keyVersion: number }
     try { sealed = this.box.seal(AAD, { bot, app, clientSecret } satisfies Tokens) } catch { throw new SlackError('key_unsafe', 'unavailable') }
     const before = this.config()
@@ -240,7 +262,7 @@ export class SlackConnector {
         ON CONFLICT(id) DO UPDATE SET team_id = excluded.team_id, team_name = excluded.team_name, team_url = excluded.team_url, enterprise_id = excluded.enterprise_id,
           bot_user_id = excluded.bot_user_id, bot_name = excluded.bot_name, app_id = excluded.app_id, client_id = excluded.client_id, secret_enc = excluded.secret_enc, key_version = excluded.key_version,
           link_origin = excluded.link_origin, last_error = NULL, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
-        .run(team, cleanName(who.team) ?? team, url, enterprise, botUser, cleanName(who.user), appId, clientId, sealed.enc, sealed.keyVersion, origin, actor, now)
+        .run(team, cleanName(who.team) ?? team, url, enterprise, botUser, botName, appId, clientId, sealed.enc, sealed.keyVersion, origin, actor, now)
     })()
     audit(this.db, { actor, action: 'slack.tokens', target: team, detail: { workspaceChanged: changed } })
     // the new tokens: a fresh connection

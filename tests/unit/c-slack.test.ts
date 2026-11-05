@@ -135,16 +135,21 @@ describe('setup (the owner)', () => {
   })
 
   test('saved and turned on: one Socket Mode connection, connected', async () => {
+    // Slack does not say the bot's name while the tokens are saved
+    fake.failNext['users.info'] = { error: 'internal_error', match: (a) => a.user === fake.botUserId }
     const saved = await call('dana', 'PUT', '/api/admin/slack/tokens', await tokens())
     expect(saved.status).toBe(200)
     // both tokens of one app (bots.info and the app token's prefix agree): the app id kept is that app's A… id
     expect(saved.json.appId).toBe('A0APP')
-    // the bot's name as people find it in Slack (the manifest's display name), not auth.test's user name `trinaax`
+    // the bot's name as people find it in Slack: here the manifest's display name, never auth.test's user name `trinaax`
     expect(saved.json).toMatchObject({ enabled: false, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme' }, botName: 'trina-ax', linkOrigin: h.url, state: 'off' })
+    // renamed in Slack's app settings: the connection reads the name Slack has now
+    fake.botDisplayName = 'acme-helper'
     const on = await call('dana', 'POST', '/api/admin/slack/enabled', { enabled: true })
     expect(on.json.enabled).toBe(true)
     await fake.connected()
     expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.state === 'connected')).toBe(true)
+    expect(await waitFor(async () => (await call('dana', 'GET', '/api/admin/slack')).json.botName === 'acme-helper')).toBe(true)
     expect(fake.sockets()).toBe(1)
     const acts = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'slack.%' ORDER BY id").all() as { action: string }[]).map((r) => r.action)
     expect(acts).toEqual(['slack.tokens', 'slack.enabled'])
@@ -509,6 +514,38 @@ describe('asking', () => {
     expect(h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE action = 'slack.posted'").get()).toEqual({ n: 1 })
   })
 
+  test('blocks Slack refuses: the ephemeral answer and "Post to channel" go again as plain text, with the button and "Asked by"', async () => {
+    const isAnswer = (a: Record<string, string>) => a.channel === 'C0REFUSE' && (a.blocks ?? '').includes('once, then plain')
+    fake.failNext['chat.postEphemeral'] = { error: 'invalid_blocks', match: isAnswer }
+    const root = mention('U0ALICE', say('**Refused** once, then plain.'), { channel: 'C0REFUSE' })
+    const tries = await waitFor(() => { const all = ephemeralsTo('U0ALICE').filter((c) => isAnswer(c.args)); return all.length >= 2 ? all : null }, { timeoutMs: 30_000 })
+    const [refused, again] = tries!
+    expect(refused!.refused).toBe('invalid_blocks')
+    expect((JSON.parse(refused!.args.blocks!) as any[])[0].elements[0].elements[0]).toEqual({ type: 'text', text: 'Refused', style: { bold: true } })
+    const blocks = JSON.parse(again!.args.blocks!) as any[]
+    expect(blocks[0]).toEqual({ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: 'Refused once, then plain.' }] }] })
+    expect(blocks.map((b) => b.type)).toEqual(['rich_text', 'context', 'actions'])
+    expect(again!.args.text).toBe('Refused once, then plain.')
+    const value = blocks.find((b) => b.type === 'actions').elements[0].value as string
+    // "Post to channel": refused once too, then posted as plain text under "Asked by", in the thread
+    fake.failNext['chat.postMessage'] = { error: 'msg_blocks_too_long', match: isAnswer }
+    const seen = fake.responses.length
+    fake.action({
+      type: 'block_actions', api_app_id: 'A0APP', user: { id: 'U0ALICE', team_id: 'T0ACME' }, team: { id: 'T0ACME' },
+      container: { type: 'message', channel_id: 'C0REFUSE', is_ephemeral: true }, channel: { id: 'C0REFUSE' },
+      actions: [{ action_id: 'trina_post', block_id: 'b', value, type: 'button', action_ts: '1' }], response_url: `${fake.url}/actions/U0ALICE/${seen}`,
+    })
+    const posts = await waitFor(() => { const all = fake.of('chat.postMessage').filter((c) => isAnswer(c.args)); return all.length >= 2 ? all : null }, { timeoutMs: 10_000 })
+    expect(posts![0]!.refused).toBe('msg_blocks_too_long')
+    const posted = JSON.parse(posts![1]!.args.blocks!) as any[]
+    expect(posted.map((b) => b.type)).toEqual(['context', 'rich_text'])
+    expect(posted[0].elements[0].text).toContain('Asked by alice.slack')
+    expect(posted[1].elements[0].elements).toEqual([{ type: 'text', text: 'Refused once, then plain.' }])
+    expect(posts![1]!.args.thread_ts).toBe(root)
+    expect(await waitFor(() => fake.responses.slice(seen).some((r) => r.body.text === 'Posted to the thread.'))).toBe(true)
+    expect(h.ctx.db.query('SELECT state FROM slack_requests WHERE id = ?').get(value)).toEqual({ state: 'posted' })
+  })
+
   test('a channel shared with another organization: the answer to the asker, with no button and the reason', async () => {
     const ts = nextTs()
     fake.event({ type: 'app_mention', user: 'U0ALICE', text: `<@U0BOT> ${say('Shared channel answer.')}`, ts, channel: 'C0SHARED', event_ts: ts }, { extShared: true })
@@ -613,6 +650,35 @@ describe('asking', () => {
       expect(await waitFor(() => (row(1)?.attempts ?? 0) > 0 && row(1)?.state === 'waiting', { timeoutMs: 30_000 })).toBe(true)
       expect(answers().length).toBe(1)
       expect(await retryUntil(1, () => answers().length === 2)).toBe(true)
+    } finally { skew = 0; delete fake.failNext['chat.postMessage'] }
+  })
+
+  test('a DM answer refused for its blocks goes again as plain text; that one timing out after reaching Slack is found by the retry, not posted twice', async () => {
+    const ts = nextTs()
+    const isAnswer = (a: Record<string, string>) => a.channel === 'D0ALICE4' && (a.blocks ?? '').includes('after a refusal')
+    const answers = () => fake.of('chat.postMessage').filter((c) => isAnswer(c.args))
+    const row = () => h.ctx.db.query("SELECT * FROM slack_requests WHERE channel_id = 'D0ALICE4'").get() as { attempts: number; state: string; not_before: string | null; progress_ts: string | null } | null
+    const retryUntil = async (done: () => boolean) => {
+      const end = Date.now() + 60_000
+      while (!done() && Date.now() < end) {
+        const nb = row()?.not_before
+        if (nb && Date.parse(nb) > Date.now() + skew) skew = Date.parse(nb) - Date.now() + 1000
+        await waitFor(done, { timeoutMs: 1000 })
+      }
+      return done()
+    }
+    try {
+      // the blocks are refused; the plain one reaches Slack, but Slack's answer to it never comes back
+      fake.failNext['chat.postMessage'] = [{ error: 'msg_blocks_too_long', match: isAnswer }, { hang: true, match: isAnswer }]
+      fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: say('**Plain** after a refusal.'), ts, channel: 'D0ALICE4', event_ts: ts })
+      expect(await waitFor(() => (row()?.attempts ?? 0) > 0 && row()?.state === 'waiting', { timeoutMs: 30_000 })).toBe(true)
+      expect(answers().map((c) => c.refused ?? 'reached')).toEqual(['msg_blocks_too_long', 'reached'])
+      expect((JSON.parse(answers()[1]!.args.blocks!) as any[])[0].elements[0].elements).toEqual([{ type: 'text', text: 'Plain after a refusal.' }])
+      const progress = row()!.progress_ts
+      // tried again: the thread has it (the same notification text), so the working message goes and nothing is posted
+      expect(await retryUntil(() => fake.of('chat.delete').some((c) => c.args.ts === progress))).toBe(true)
+      expect(answers().length).toBe(2)
+      expect(row()!.state).toBe('delivered')
     } finally { skew = 0; delete fake.failNext['chat.postMessage'] }
   })
 

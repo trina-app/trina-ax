@@ -27,8 +27,8 @@ export const SlackAdmin = z.object({
   /** both tokens are saved */
   tokens: z.boolean(),
   workspace: SlackWorkspace.nullable(),
-  /** the app's name as people find it in Slack (`@` and `/invite` go by it): the bot's display name in the manifest,
-   * not its user name (`auth.test` gives `trinaax` for `trina-ax`) */
+  /** the app's name as people find it in Slack (`@` and `/invite` go by it): the bot user's display name as Slack says
+   * it (read when the tokens are saved and at each connection), else the manifest's; never its user name (`trinaax`) */
   botName: z.string().nullable(),
   /** the Slack app's id (A…), for links to its settings pages in Slack; null until known */
   appId: z.string().nullable(),
