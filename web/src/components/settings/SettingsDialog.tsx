@@ -91,8 +91,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
               <ArrowLeft size={18} />
             </IconButton>
           )}
-          {/* a phone has no search box to start in: the dialog starts on its title (no ring on a ← it was not asked to
-              show; a computer starts in the search box) */}
+          {/* a phone starts on the title, not on its ← (focus put there showed a ring nobody asked for) or on a hidden
+              ✕; a computer still starts on its first button */}
           <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 font-semibold outline-none">
             {t('settings.title')}
           </h2>

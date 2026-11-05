@@ -1,7 +1,7 @@
 // Two phone screens (below 768 px), rendered and pressed:
 // - the 나 tab opens the Settings list (/settings), which starts with the person's photo, name and title (or role)
 //   linking to the profile, leaves out its own 프로필 row there and starts on its title (no ring on a ←); a computer
-//   starts in the search box;
+//   keeps its start;
 // - the profile's Save shows only once something changed;
 // - Files: a long press on a row selects it (the click that ends it does not open the folder), a tap while something
 //   is selected adds or takes a row away, and on a computer a click opens the folder as before.
@@ -99,7 +99,7 @@ describe('Settings on a phone', () => {
     }
   })
 
-  test('a computer starts in the search box, as before', async () => {
+  test('a computer keeps its start (the first button) and has no photo row', async () => {
     phone = false
     const m = await dialog('/settings')
     try {
