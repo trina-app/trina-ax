@@ -94,6 +94,8 @@ jobs:
         with:
           # the production relay's runtime (versions.json node-relay; relay/deploy/install-node.sh pins the tarball)
           node-version: 26.12.1
+      - name: Mobile app typecheck (mobile/ has its own npm lockfile; the root typecheck leaves it out)
+        run: bun run typecheck:mobile
       - name: Relay conformance and hardening (real Node 26 relay)
         run: bun run test:relay
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

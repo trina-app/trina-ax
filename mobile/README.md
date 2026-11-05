@@ -6,7 +6,7 @@ An independent Expo SDK 58 wrapper around a team's HTTPS web app. The neutral ap
 
 Install from this directory with `npm ci --ignore-scripts --no-audit --no-fund`. This package has its own `package-lock.json` and `node_modules`; do not add its React Native dependencies to the root workspace. Use Node `^22.18.0 || ^24.3.0 || >=26.0.0`, within React Native 0.88's supported range. Expo's dynamic config imports a TypeScript helper and requires Node's default type stripping; do not disable it. Node 22.22.0 is verified. Node 25 is outside the supported range.
 
-Run `npm run typecheck` and `npm start` from this directory. The repository's sanitized test runner can execute the pure bridge tests without starting Expo, contacting a team, or using a provider:
+Run `npm run typecheck` and `npm start` from this directory; from the repository root `bun run typecheck:mobile` installs this package's locked dependencies and typechecks it (CI runs it too; the root `bun run typecheck` leaves `mobile/` out). The repository's sanitized test runner can execute the pure bridge tests without starting Expo, contacting a team, or using a provider:
 
 ```sh
 python3 .validation/run.py mobile-bridge --fixture-id mobile-bridge --timeout 60 bun test tests/unit/mobile-bridge.test.ts tests/unit/mobile-security.test.ts tests/unit/mobile-push.test.ts web/test/unit/mobile.test.ts
