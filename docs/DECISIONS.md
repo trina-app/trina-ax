@@ -7930,3 +7930,14 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
   No released server ever had our 222.
 
+
+## 프로필과 사람 목록 (feat/profile, 2026-11-05)
+
+팀 채팅이 "누가 말했는지"를 보여 주려면 사람 목록과 프로필이 먼저 있어야 해서, 둘을 코어에 먼저 넣었다.
+
+- **사람 목록** `GET /api/people`은 로그인한 모든 구성원이 부른다. 줄 수 있는 것은 `id`, 이름, 직함, 한 줄 상태, 사진 버전뿐이다. 이메일·역할·그룹·아이디(username)는 넣지 않는다(이메일은 지금처럼 관리자만). 비활성화·삭제된 사람은 빠진다. 사진 주소는 `/api/people/:id/avatar?v=<버전>`이고 구성원만 받는다. 현재 버전이 주소에 있으면 1년 캐시(`immutable`), 아니면 매번 확인한다. 사진이 없으면 404이고 웹은 첫 글자 아바타를 그린다.
+- **이름은 본인이 바꿀 수 있다.** 지금도 `PATCH /api/me`로 본인 이름을 바꿀 수 있어서(관리자만 바꾸는 규칙이 없었다) 그 규칙을 그대로 두고, 같은 일을 `PATCH /api/me/profile`(`name`, `title`, `status`)에서도 한다. 직함은 60자, 상태는 80자까지. 비워서 보내면 지워진다. 아무도 다른 사람의 프로필을 바꿀 수 없다: 대상은 항상 세션의 사람이고 요청에 아이디를 받지 않는다.
+- **저장 위치.** 새 테이블 `user_profiles`(마이그레이션 115): 사람마다 한 줄, 직함·상태·사진 바이트·사진 종류·사진 버전. `users`는 건드리지 않는다. 사진을 파일이 아니라 DB에 두는 이유는 256KB 이하의 작은 정사각형이라 백업·복원과 사람 삭제가 따로 챙길 것 없이 함께 가기 때문이다. 사진 버전은 밀리초 시계로 올라가기만 해서(지웠다가 다시 올려도 같은 주소가 다른 사진을 가리키지 않는다) 긴 캐시가 안전하다.
+- **사진 규칙은 팀 로고와 같은 생각, 더 엄격하게.** PNG·JPEG·WebP만, 파일 머리글이 말한 종류와 같아야 하고, SVG와 그 밖의 것은 거절한다. 정사각형이고 64~512px, 256KB 이하. 움직이는 WebP는 거절한다. 올릴 때 브라우저가 가운데 정사각형으로 잘라 256px로 줄여 다시 그려서(카메라 정보·촬영 위치가 빠진다) 보낸다. 서버는 이를 믿지 않고 한 번 더 메타데이터 블록(JPEG의 EXIF·XMP·주석, PNG의 텍스트·EXIF·시간 청크, WebP의 EXIF·XMP·색 프로필)을 잘라 낸다. 이미지 라이브러리 없이 컨테이너만 읽는다. 사진은 팀 로고처럼 이미지 전용 헤더(`nosniff`, `default-src 'none'; sandbox`, `inline`)로만 내보낸다. 팀 로고와 달리 로그인 전에는 받을 수 없다.
+- **감사 기록.** `profile.update`(바뀐 항목 이름, 이름이 바뀌면 이전·이후), `profile.avatar_set`(크기·이전 버전), `profile.avatar_remove`. 아무것도 바뀌지 않으면 기록하지 않는다. 바뀌면 실시간 알림 `profile_changed`가 가서 열린 창이 `/api/me`와 사람 목록을 다시 읽는다.
+- **웹.** `components/Avatar.tsx`(`<Avatar user size />`: 사진, 없거나 못 불러오면 첫 글자)를 사이드바 하단 본인 줄에 썼다. `store/people.ts`가 사람 목록을 들고 있어 채팅이 가져다 쓴다. 프로필은 설정의 기존 "프로필" 탭에 있다(나중에 하단 탭 "나"가 같은 화면을 연다). 사진 고르기·미리 보기·지우기와 이름·직함·상태·이메일을 한 번의 저장 버튼으로 저장한다. 안쪽 카드 테두리는 없앴다(구분선만).
