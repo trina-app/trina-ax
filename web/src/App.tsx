@@ -34,6 +34,8 @@ const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ defa
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
 const SlackLink = lazy(() => import('./pages/SlackLink'))
+const SlackSignInReturn = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackSignInReturn })))
+const SlackDone = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackDone })))
 const Welcome = lazy(() => import('./pages/Welcome'))
 
 function Splash() {
@@ -149,6 +151,7 @@ function Gate() {
         {/* the team invite link: the token is after # (never in a path or a log) */}
         <Route path="/join" element={<TeamJoin />} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
+        <Route path="/slack/done" element={<Suspense fallback={<Splash />}><SlackDone signedIn={false} /></Suspense>} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
     )
@@ -186,6 +189,9 @@ function Gate() {
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
           {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
           <Route path="slack/link" element={<SlackLink key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* "Sign in with Slack" back in a browser that had to sign in first, and its end page outside the app */}
+          <Route path="slack/signin-return" element={<SlackSignInReturn />} />
+          <Route path="slack/done" element={<SlackDone signedIn />} />
           {/* an unknown address: say so (with a way home) instead of opening Home without a word */}
           <Route path="*" element={<NotFound />} />
         </Route>

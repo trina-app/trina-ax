@@ -3006,7 +3006,6 @@ export const es: Record<MessageKey, string> = {
   "slack.signin.button": "Iniciar sesión con Slack para vincular",
   "slack.signin.linked": "Su cuenta de Slack está vinculada. Ya puede preguntar en Slack.",
   "slack.signin.expired": "El inicio de sesión caducó o ya se usó. Inténtelo de nuevo.",
-  "slack.signin.otherSession": "Solo se puede terminar en el navegador y la cuenta que lo iniciaron. Inténtelo de nuevo en el mismo navegador.",
   "slack.signin.cancelled": "No se terminó el inicio de sesión en Slack.",
   "slack.signin.outsider": "No es una cuenta de Slack de este espacio de trabajo. Inicie sesión en el que usa su equipo.",
   "slack.signin.taken": "Esta cuenta de Slack ya está vinculada a la cuenta de otra persona.",
@@ -3014,4 +3013,8 @@ export const es: Record<MessageKey, string> = {
   "slack.signin.failed": "No se pudo vincular con el inicio de sesión de Slack. Inténtelo de nuevo en un momento.",
   "slack.mine.signInHow": "Inicie sesión con su cuenta de Slack de {workspace} para vincularla.",
   "slack.link.useSignIn": "Inicie sesión con Slack abajo para vincularla.",
+  "slack.signin.otherUser": "Ha iniciado sesión con otra cuenta. Inicie sesión con la cuenta que empezó el vínculo e inténtelo de nuevo.",
+  "slack.signin.doneApp": "Su cuenta de Slack está vinculada. Puede cerrar esta ventana y volver a la aplicación.",
+  "slack.signin.resuming": "Terminando el vínculo…",
+  "slack.signin.returnBad": "Esta dirección no puede continuar el vínculo. Empiece de nuevo el vínculo de Slack en la aplicación.",
 }

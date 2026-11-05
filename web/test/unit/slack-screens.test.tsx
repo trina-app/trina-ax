@@ -4,7 +4,7 @@
 // tokens"; without an https address one line says "Sign in with Slack" needs it. Settings: the Slack line replaces the
 // empty card; "Sign in with Slack" goes to Slack and its outcome is said when it comes back.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { MySlack, SlackAdmin } from '@mycel/shared/api'
 import AdminSlack from '../../src/pages/admin/Slack'
 import ConnectorConnections from '../../src/pages/ConnectorConnections'
@@ -17,6 +17,7 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 let admin: SlackAdmin
 let me: MySlack
 let assigned: string[] = []
+let adminQueries: string[] = []
 let saveAnswer: () => Response
 let calls: string[] = []
 let sealingKey: unknown
@@ -43,6 +44,7 @@ afterAll(() => { removeDom(); (globalThis as { ResizeObserver?: unknown }).Resiz
 beforeEach(() => {
   calls = []
   assigned = []
+  adminQueries = []
   useUi.setState({ toasts: [] })
   admin = base()
   me = { available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }
@@ -51,6 +53,7 @@ beforeEach(() => {
     const url = new URL(String(input), 'http://team.localhost')
     const what = `${init?.method ?? 'GET'} ${url.pathname}`
     calls.push(what)
+    if (what === 'GET /api/admin/slack') adminQueries.push(url.search)
     if (what === 'GET /api/admin/slack') return json(admin)
     if (what === 'GET /api/credentials/sealing-key') return json(sealingKey)
     if (what === 'PUT /api/admin/slack/tokens') return saveAnswer()
@@ -144,6 +147,9 @@ describe('Admin › Slack', () => {
     await m.click('slack-save')
     await m.until(() => m.find('slack-status'), 'saved')
     const sent = JSON.parse(body)
+    // one address for the manifest shown and for where links open: the page's own, sent with both
+    expect(adminQueries[0]).toBe(`?origin=${encodeURIComponent('http://team.localhost')}`)
+    expect(sent.origin).toBe('http://team.localhost')
     expect(sent.clientId).toBe('1234567890.1234567890')
     expect(sent.clientSecret.ct).toBeTruthy()
     expect(body).not.toContain('c'.repeat(32))
@@ -208,9 +214,32 @@ describe('Settings › App connectors', () => {
     expect(m.get('slack-signin-outcome').textContent).toBe('Your Slack account is linked. You can ask in Slack now.')
     expect(m.find('slack-unlink')).not.toBeNull()
     await m.unmount()
-    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=signin_other_session']}><ConnectorConnections /></MemoryRouter>)
+    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=signin_other_user']}><ConnectorConnections /></MemoryRouter>)
     await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
-    expect(m.get('slack-signin-outcome').textContent).toContain('only be finished in the browser and account that started it')
+    expect(m.get('slack-signin-outcome').textContent).toContain('signed in to a different account')
+    await m.unmount()
+    // an outcome that is not one (a name every object has): the general failure, no crash
+    m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=constructor']}><ConnectorConnections /></MemoryRouter>)
+    await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
+    expect(m.get('slack-signin-outcome').textContent).toBe('Could not link with the Slack sign-in. Try again in a moment.')
+    await m.unmount()
+  })
+
+  test('the outcome is said once and taken out of the address; the line reads the link again when the app is used again', async () => {
+    let path = ''
+    const Where = () => { path = useLocation().pathname + useLocation().search; return null }
+    me = { ...me, signIn: true }
+    const m = await mount(<MemoryRouter initialEntries={['/settings/connectors?slack=signin_cancelled&tab=x']}><ConnectorConnections /><Where /></MemoryRouter>)
+    await m.until(() => m.find('slack-signin-outcome'), 'the outcome')
+    await m.until(() => !path.includes('slack='), 'the address without it')
+    expect(path).toBe('/settings/connectors?tab=x')
+    expect(m.find('slack-signin-outcome')).not.toBeNull()
+    // linked in another browser meanwhile: shown when the window is focused again
+    me = { ...me, link: { slackUserId: 'U0ME', slackName: 'me.slack', linkedAt: new Date().toISOString() } }
+    const reads = calls.filter((c) => c === 'GET /api/slack/me').length
+    window.dispatchEvent(new Event('focus'))
+    await m.until(() => m.find('slack-unlink'), 'the linked line')
+    expect(calls.filter((c) => c === 'GET /api/slack/me').length).toBeGreaterThan(reads)
     await m.unmount()
   })
 })

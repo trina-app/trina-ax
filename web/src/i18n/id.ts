@@ -3046,7 +3046,6 @@ export const id: Record<MessageKey, string> = {
   "slack.signin.button": "Masuk dengan Slack untuk menautkan",
   "slack.signin.linked": "Akun Slack Anda tertaut. Sekarang Anda bisa bertanya di Slack.",
   "slack.signin.expired": "Proses masuk kedaluwarsa atau sudah dipakai. Coba lagi.",
-  "slack.signin.otherSession": "Hanya bisa diselesaikan di peramban dan akun yang memulainya. Coba lagi di peramban yang sama.",
   "slack.signin.cancelled": "Masuk ke Slack tidak diselesaikan.",
   "slack.signin.outsider": "Itu bukan akun Slack di workspace ini. Masuklah ke workspace yang dipakai tim Anda.",
   "slack.signin.taken": "Akun Slack ini sudah tertaut ke akun orang lain.",
@@ -3054,4 +3053,8 @@ export const id: Record<MessageKey, string> = {
   "slack.signin.failed": "Tidak bisa menautkan lewat masuk Slack. Coba lagi sebentar lagi.",
   "slack.mine.signInHow": "Masuk dengan akun Slack Anda di {workspace} untuk menautkannya.",
   "slack.link.useSignIn": "Masuk dengan Slack di bawah untuk menautkannya.",
+  "slack.signin.otherUser": "Anda masuk dengan akun lain. Masuk ke akun yang memulai tautan lalu coba lagi.",
+  "slack.signin.doneApp": "Akun Slack Anda tertaut. Anda bisa menutup jendela ini dan kembali ke aplikasi.",
+  "slack.signin.resuming": "Menyelesaikan tautan…",
+  "slack.signin.returnBad": "Alamat ini tidak bisa melanjutkan tautan. Mulai lagi tautan Slack di aplikasi.",
 }

@@ -3046,7 +3046,6 @@ export const en: Record<MessageKey, string> = {
   "slack.signin.button": "Sign in with Slack to link",
   "slack.signin.linked": "Your Slack account is linked. You can ask in Slack now.",
   "slack.signin.expired": "The sign-in expired or was already used. Try again.",
-  "slack.signin.otherSession": "It can only be finished in the browser and account that started it. Try again in the same browser.",
   "slack.signin.cancelled": "The Slack sign-in was not finished.",
   "slack.signin.outsider": "That is not a Slack account of this workspace. Sign in to the workspace your team uses.",
   "slack.signin.taken": "This Slack account is already linked to someone else's account.",
@@ -3054,4 +3053,8 @@ export const en: Record<MessageKey, string> = {
   "slack.signin.failed": "Could not link with the Slack sign-in. Try again in a moment.",
   "slack.mine.signInHow": "Sign in with your Slack account of {workspace} to link it.",
   "slack.link.useSignIn": "Sign in with Slack below to link it.",
+  "slack.signin.otherUser": "You are signed in to a different account. Sign in to the account that started the link and try again.",
+  "slack.signin.doneApp": "Your Slack account is linked. You can close this window and go back to the app.",
+  "slack.signin.resuming": "Finishing the link…",
+  "slack.signin.returnBad": "This address cannot continue the link. Start the Slack link again in the app.",
 }

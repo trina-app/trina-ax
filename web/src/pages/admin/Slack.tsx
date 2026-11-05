@@ -72,7 +72,8 @@ function CodeText({ text }: { text: string }) {
 
 export default function AdminSlack() {
   const t = useT()
-  const state = useLoad(() => api.call(SLACK.slackAdmin))
+  // the page's own address: the manifest's redirect URL and where links open both come from it (and are the same)
+  const state = useLoad(() => api.call(SLACK.slackAdmin, { query: { origin: window.location.origin } }))
   const act = useAction()
   const [replacing, setReplacing] = useState(false)
   const set = (v: SlackAdmin | undefined) => { if (v) state.setData(v) }
@@ -182,7 +183,7 @@ function TokenForm({ appId, enabled, onSaved }: { appId: string | null; enabled:
     try {
       const key = await api.call(API.sealingKey)
       const body = { botToken: await sealSecret(key, bot.trim(), 'slack.token'), appToken: await sealSecret(key, app.trim(), 'slack.token'),
-        clientId: clientId.trim(), clientSecret: await sealSecret(key, clientSecret.trim(), 'slack.token') }
+        clientId: clientId.trim(), clientSecret: await sealSecret(key, clientSecret.trim(), 'slack.token'), origin: window.location.origin }
       const saved = await api.call(SLACK.saveSlackTokens, { body })
       setBot(''); setApp(''); setClientId(''); setClientSecret('')
       // step 4 turns it on too (already on: it stays on with the new tokens)

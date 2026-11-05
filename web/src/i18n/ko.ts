@@ -3045,7 +3045,6 @@ export const ko = {
   "slack.signin.button": "Slack으로 로그인해서 연결",
   "slack.signin.linked": "Slack 계정을 연결했어요. 이제 Slack에서 물어볼 수 있어요.",
   "slack.signin.expired": "로그인 시간이 지났거나 이미 썼어요. 다시 눌러 주세요.",
-  "slack.signin.otherSession": "시작한 브라우저와 계정에서만 끝낼 수 있어요. 같은 브라우저에서 다시 해 주세요.",
   "slack.signin.cancelled": "Slack 로그인을 끝내지 않았어요.",
   "slack.signin.outsider": "이 워크스페이스의 Slack 계정이 아니에요. 팀이 쓰는 워크스페이스로 로그인해 주세요.",
   "slack.signin.taken": "이 Slack 계정은 이미 다른 사람의 계정과 연결되어 있어요.",
@@ -3053,6 +3052,10 @@ export const ko = {
   "slack.signin.failed": "Slack 로그인으로 연결하지 못했어요. 잠시 뒤 다시 해 주세요.",
   "slack.mine.signInHow": "{workspace}의 Slack 계정으로 로그인하면 연결돼요.",
   "slack.link.useSignIn": "아래에서 Slack으로 로그인하면 연결할 수 있어요.",
+  "slack.signin.otherUser": "다른 계정으로 로그인돼 있어요. 연결을 시작한 계정으로 로그인한 뒤 다시 해 주세요.",
+  "slack.signin.doneApp": "Slack 계정을 연결했어요. 이 창을 닫고 앱으로 돌아가도 돼요.",
+  "slack.signin.resuming": "연결을 마무리하고 있어요…",
+  "slack.signin.returnBad": "이 주소로는 이어서 할 수 없어요. 앱에서 Slack 연결을 다시 시작해 주세요.",
 } as const
 
 export type MessageKey = keyof typeof ko

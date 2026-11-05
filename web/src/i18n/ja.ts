@@ -3006,7 +3006,6 @@ export const ja: Record<MessageKey, string> = {
   "slack.signin.button": "Slackでサインインして連携",
   "slack.signin.linked": "Slackアカウントを連携しました。Slackで質問できます。",
   "slack.signin.expired": "サインインの期限が切れたか、すでに使われています。もう一度お試しください。",
-  "slack.signin.otherSession": "開始したブラウザーとアカウントでのみ完了できます。同じブラウザーでもう一度お試しください。",
   "slack.signin.cancelled": "Slackのサインインが完了しませんでした。",
   "slack.signin.outsider": "このワークスペースのSlackアカウントではありません。チームが使うワークスペースでサインインしてください。",
   "slack.signin.taken": "このSlackアカウントはすでに別の人のアカウントと連携しています。",
@@ -3014,4 +3013,8 @@ export const ja: Record<MessageKey, string> = {
   "slack.signin.failed": "Slackのサインインで連携できませんでした。しばらくしてからもう一度お試しください。",
   "slack.mine.signInHow": "{workspace}のSlackアカウントでサインインすると連携されます。",
   "slack.link.useSignIn": "下の「Slackでサインイン」で連携できます。",
+  "slack.signin.otherUser": "別のアカウントでサインインしています。連携を始めたアカウントでサインインしてから、もう一度お試しください。",
+  "slack.signin.doneApp": "Slackアカウントを連携しました。このウィンドウを閉じてアプリに戻って大丈夫です。",
+  "slack.signin.resuming": "連携を完了しています…",
+  "slack.signin.returnBad": "このアドレスでは連携を続けられません。アプリでSlack連携をもう一度始めてください。",
 }

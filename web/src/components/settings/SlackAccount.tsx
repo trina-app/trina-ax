@@ -2,33 +2,34 @@
 // linked to me with Unlink, or "Sign in with Slack" to link the Slack account I sign in to (or, without it, how to get a
 // link in Slack). The outcome of a sign-in comes back in the address (?slack=…). Hidden when the team does not use Slack
 // and nothing is linked. `onShown` tells the page whether it shows.
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SLACK, type MySlack } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
-import { useLocale, useT, type MessageKey } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
+import { outcomeText } from '../../lib/slackSignIn'
 import { Button, ErrorNote, confirmDialog } from '../ui'
-
-/** what a finished "Sign in with Slack" says (the callback's ?slack=…); anything else is the general failure */
-const OUTCOME: Record<string, MessageKey> = {
-  linked: 'slack.signin.linked', signin_expired: 'slack.signin.expired', signin_other_session: 'slack.signin.otherSession',
-  signin_cancelled: 'slack.signin.cancelled', outsider: 'slack.signin.outsider', linked_elsewhere: 'slack.link.elsewhere',
-  slack_taken: 'slack.signin.taken', signin_off: 'slack.signin.off',
-}
 
 export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }) {
   const t = useT(), locale = useLocale()
-  const [params] = useSearchParams()
-  const outcome = params.get('slack')
+  const [params, setParams] = useSearchParams()
+  // the outcome of a sign-in, said once: taken out of the address so a reload or a shared link does not say it again
+  const [outcome] = useState(() => params.get('slack'))
+  useEffect(() => { if (params.has('slack')) setParams((p) => { p.delete('slack'); return p }, { replace: true }) }, [params, setParams])
   const [me, setMe] = useState<MySlack | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const load = useCallback(() => { api.call(SLACK.mySlack).then(setMe, () => {}) }, [])
   useEffect(() => {
-    let live = true
-    api.call(SLACK.mySlack).then((v) => { if (live) setMe(v) }, () => {})
-    return () => { live = false }
-  }, [])
+    load()
+    // a sign-in finished in another browser (the desktop app's system browser, the phone app's in-app browser): the
+    // line shows it when the app is used again
+    const again = () => { if (document.visibilityState !== 'hidden') load() }
+    window.addEventListener('focus', again)
+    document.addEventListener('visibilitychange', again)
+    return () => { window.removeEventListener('focus', again); document.removeEventListener('visibilitychange', again) }
+  }, [load])
   const shown = !!me && (me.available || !!me.link)
   useEffect(() => { onShown?.(shown) }, [shown, onShown])
   if (!me || !shown) return null
@@ -46,7 +47,7 @@ export function SlackAccount({ onShown }: { onShown?: (shown: boolean) => void }
   return (
     <div className="space-y-2 border-t border-line pt-4" data-testid="slack-account">
       {error && <ErrorNote>{error}</ErrorNote>}
-      {outcome && <p className={`text-sm ${outcome === 'linked' ? '' : 'text-warn'}`} role="status" data-testid="slack-signin-outcome">{t(OUTCOME[outcome] ?? 'slack.signin.failed')}</p>}
+      {outcome && <p className={`text-sm ${outcome === 'linked' ? '' : 'text-warn'}`} role="status" data-testid="slack-signin-outcome">{t(outcomeText(outcome))}</p>}
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium">Slack</p>
