@@ -1,11 +1,19 @@
 // The company profile step (docs/DECISIONS.md "D — Company profile from the company website"): the review shows every
 // field with its source page and excerpt and a way to remove it; only http(s) sources become links; tone stays at
-// four chips; what is saved is trimmed and keeps sources only for fields that still have a value.
-import { expect, test } from 'bun:test'
+// four chips; what is saved is trimmed and keeps sources only for fields that still have a value. The reading lines
+// ("R"), and what the server collected while reading ("N"): the images line, the brand colours as swatches that can
+// only be removed, saved with the profile, and shown in Admin › Team settings.
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { profilePrefill, type CompanyProfile, type ProfileDraftPage } from '@mycel/shared/api'
-import ProfileStep, { DraftActivity, pagesUsed, shortUrl, tidyProfile, toneChips } from '../../src/components/onboarding/ProfileStep'
+import ProfileStep, { brandColors, DraftActivity, pagesUsed, shortUrl, tidyProfile, toneChips } from '../../src/components/onboarding/ProfileStep'
+import CompanyProfileCard from '../../src/components/onboarding/CompanyProfileCard'
+import { useLocaleStore } from '../../src/i18n'
+import { useAiAccess } from '../../src/store/aiAccess'
+import { chatActivity } from '../../src/store/live'
+import { useSession } from '../../src/store/session'
+import { installDom, mount, removeDom } from './dom-host'
 
 const noop = () => {}
 const PROFILE: CompanyProfile = {
@@ -147,4 +155,153 @@ test('addresses as shown: no scheme, www. or trailing slash, cut when long', () 
   expect(shortUrl('http://shop.acme.example/p?id=1')).toBe('shop.acme.example/p?id=1')
   expect(shortUrl(`https://acme.example/${'a'.repeat(80)}`)).toHaveLength(48)
   expect(shortUrl('not a url')).toBe('not a url')
+})
+
+test('brand colours: "#rrggbb" in lower case, each once, at most five; saved only when some are left', () => {
+  expect(brandColors(['#37EE6A', '#37ee6a', ' #0b140d ', 'red', '#fff', 'url(x)', '#123456', '#abcdef', '#000000', '#ffffff'])).toEqual(['#37ee6a', '#0b140d', '#123456', '#abcdef', '#000000'])
+  expect(brandColors(undefined)).toEqual([])
+  expect(tidyProfile({ ...PROFILE, colors: ['#37EE6A', 'nope'] }).colors).toEqual(['#37ee6a'])
+  // none left (or a profile from before them): no key at all
+  expect('colors' in tidyProfile({ ...PROFILE, colors: [] })).toBe(false)
+  expect('colors' in tidyProfile(PROFILE)).toBe(false)
+})
+
+test('the review: the brand colours as round swatches, the hex as their name, each with its own remove button; none: no field', () => {
+  const html = render(<ProfileStep initial={{ ...PROFILE, colors: ['#37ee6a', '#0b140d'] }} onDone={noop} />)
+  expect(html).toContain('data-testid="profile-colors"')
+  expect(html).toContain('>Brand colours<')
+  expect(html).toContain('role="img" aria-label="#37ee6a" title="#37ee6a"')
+  expect(html).toContain('background-color:#37ee6a')
+  expect(html).toContain('aria-label="Remove #37ee6a"')
+  expect(html).toContain('aria-label="Remove #0b140d"')
+  // no picker and no way to add one
+  expect(html).not.toContain('type="color"')
+  expect(render(<ProfileStep initial={PROFILE} onDone={noop} />)).not.toContain('profile-colors')
+})
+
+// A DOM and a small fake of the server for what a person does: remove a colour and save, a draft's colours, the card.
+describe('colours and images, clicked', () => {
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+  const CHAT = '01900000-0000-7000-8000-0000000000c9'
+  let calls: { key: string; body: any }[] = []
+  let draftState: unknown = null
+  let saved: CompanyProfile | null = null
+  const routes: Record<string, (body: any) => Response> = {
+    'GET /api/me/ai-access': () => json(200, { usable: true, action: 'connect_team', requested: false }),
+    'GET /api/onboarding/profile': () => json(200, { profile: saved }),
+    'PUT /api/onboarding/profile': (b) => json(200, { ...b, updatedAt: '2026-11-05T00:00:00.000Z' }),
+    'POST /api/onboarding/profile/draft': () => json(201, { chatId: CHAT, website: 'https://acme.example/', site: 'acme.example' }),
+    [`GET /api/onboarding/profile/draft/${CHAT}`]: () => json(200, draftState),
+  }
+  const realFetch = globalThis.fetch
+  const localeBefore = useLocaleStore.getState().locale
+  const sessionBefore = useSession.getState().status
+  const g = globalThis as Record<string, unknown>
+  const resizeBefore = Object.getOwnPropertyDescriptor(g, 'ResizeObserver')
+  beforeAll(() => {
+    installDom()
+    // the admin Card measures its description (nothing to measure in this small DOM)
+    Object.defineProperty(g, 'ResizeObserver', { configurable: true, writable: true, value: class { observe() {} unobserve() {} disconnect() {} } })
+    useLocaleStore.setState({ locale: 'ko' })
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'olga', role: 'owner', prefs: {} }, team: { name: 'Acme', defaultLocale: 'ko' } } } } as never)
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+      calls.push({ key, body })
+      return routes[key]?.(body) ?? json(404, { error: { code: 'not_found', message: `no route ${key}` } })
+    }) as unknown as typeof fetch
+  })
+  afterAll(() => {
+    globalThis.fetch = realFetch
+    if (resizeBefore) Object.defineProperty(g, 'ResizeObserver', resizeBefore)
+    else delete g.ResizeObserver
+    useAiAccess.getState().reset()
+    useSession.setState({ status: sessionBefore } as never)
+    useLocaleStore.setState({ locale: localeBefore })
+    removeDom()
+  })
+  const puts = () => calls.filter((c) => c.key === 'PUT /api/onboarding/profile').map((c) => c.body)
+  const saveButton = () => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === '저장')
+
+  test('the images line: after the pages, before "정리 중"; the logo named when it is among them', async () => {
+    const steps = [page({ url: 'https://acme.example/', status: 'ok', title: 'Acme' })]
+    const lines = async (assets: { images: number; logo: boolean } | null, writing = true) => {
+      const m = await mount(<DraftActivity source="website" site="acme.example" steps={steps} writing={writing} assets={assets} />)
+      try { return { images: m.find('profile-activity-images')?.textContent ?? null, html: m.html() } } finally { await m.unmount() }
+    }
+    expect((await lines({ images: 4, logo: false })).images).toBe('이미지 4개 가져옴')
+    expect((await lines({ images: 4, logo: true })).images).toBe('로고와 이미지 3개 가져옴')
+    expect((await lines({ images: 2, logo: true })).images).toBe('로고와 이미지 1개 가져옴')
+    expect((await lines({ images: 1, logo: true })).images).toBe('로고 가져옴')
+    expect((await lines({ images: 1, logo: false })).images).toBe('이미지 1개 가져옴')
+    // nothing collected (or a server from before it): no line
+    expect((await lines({ images: 0, logo: false })).images).toBeNull()
+    expect((await lines(null)).images).toBeNull()
+    const { html } = await lines({ images: 3, logo: false })
+    expect(html.indexOf('읽음 · Acme')).toBeLessThan(html.indexOf('이미지 3개 가져옴'))
+    expect(html.indexOf('이미지 3개 가져옴')).toBeLessThan(html.indexOf('회사 소개 정리 중'))
+    // pasted text: never
+    const m = await mount(<DraftActivity source="text" site={null} steps={[]} writing assets={{ images: 3, logo: true }} />)
+    try { expect(m.find('profile-activity-images')).toBeNull() } finally { await m.unmount() }
+  })
+
+  test('a saved profile\'s colours: one removed, the rest saved; all removed, no colours in the body', async () => {
+    calls = []
+    let done: CompanyProfile | null = null
+    const m = await mount(<MemoryRouter><ProfileStep initial={{ ...PROFILE, colors: ['#37ee6a', '#0b140d'] }} onDone={(p) => { done = p }} /></MemoryRouter>)
+    try {
+      expect(m.get('profile-colors').textContent).toContain('브랜드 색')
+      expect(m.container.querySelectorAll('[data-testid="profile-color"]').map((e) => e.getAttribute('data-color'))).toEqual(['#37ee6a', '#0b140d'])
+      await m.click(m.container.querySelector('button[aria-label="#37ee6a 지우기"]')!)
+      expect(m.container.querySelectorAll('[data-testid="profile-color"]').map((e) => e.getAttribute('data-color'))).toEqual(['#0b140d'])
+      await m.click(saveButton())
+      await m.until(() => done, 'saved')
+      expect(puts()[0].colors).toEqual(['#0b140d'])
+      // the last one too: the field goes, the body has no colours
+      await m.click(m.container.querySelector('button[aria-label="#0b140d 지우기"]')!)
+      expect(m.find('profile-colors')).toBeNull()
+      await m.click(saveButton())
+      await m.until(() => puts().length === 2, 'saved again')
+      expect('colors' in puts()[1]).toBe(false)
+    } finally { await m.unmount() }
+  })
+
+  test('a new draft from the website: the images line while it reads, then the colours the server found, saved with the profile', async () => {
+    calls = []
+    draftState = { status: 'running', website: 'https://acme.example/', draft: null, error: null, steps: [page({ url: 'https://acme.example/', status: 'ok', title: 'Acme' })], writing: true, assets: { images: 3, logo: true, colors: ['#37ee6a', '#f5f9f2'] } }
+    const m = await mount(<MemoryRouter><ProfileStep onDone={noop} initialWebsite="https://acme.example/" /></MemoryRouter>)
+    try {
+      await m.until(() => !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-activity-images'), 'the images line')
+      expect(m.get('profile-activity-images').textContent).toBe('로고와 이미지 2개 가져옴')
+      // the draft itself carries no colours: the ones the server collected fill the field
+      draftState = { status: 'done', website: 'https://acme.example/', draft: { website: 'https://acme.example/', name: 'Acme', oneLine: 'Quiet desk fans', products: 'Desk fans', audience: '', tone: [], avoid: '', sources: [] }, error: null, steps: [], assets: { images: 3, logo: true, colors: ['#37ee6a', '#f5f9f2'] } }
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-step-review'), 'the review')
+      expect(m.container.querySelectorAll('[data-testid="profile-color"]').map((e) => e.getAttribute('data-color'))).toEqual(['#37ee6a', '#f5f9f2'])
+      await m.click(saveButton())
+      await m.until(() => puts().length, 'saved')
+      expect(puts()[0].colors).toEqual(['#37ee6a', '#f5f9f2'])
+    } finally { await m.unmount() }
+  })
+
+  test('Admin › Team settings: the saved colours as a row of swatches; none, no row', async () => {
+    saved = { ...PROFILE, colors: ['#37ee6a', '#0b140d'] }
+    let m = await mount(<MemoryRouter><CompanyProfileCard /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('company-profile-colors'), 'the colours')
+      expect(m.get('company-profile-colors').querySelectorAll('[data-testid="profile-color-swatch"]').map((e) => e.getAttribute('aria-label'))).toEqual(['#37ee6a', '#0b140d'])
+      expect(m.html()).toContain('브랜드 색')
+    } finally { await m.unmount() }
+    saved = PROFILE
+    m = await mount(<MemoryRouter><CompanyProfileCard /></MemoryRouter>)
+    try {
+      await m.until(() => m.html().includes('Acme makes quiet desk fans.'), 'the profile')
+      expect(m.find('company-profile-colors')).toBeNull()
+      expect(m.html()).not.toContain('브랜드 색')
+    } finally { await m.unmount(); saved = null }
+  })
 })

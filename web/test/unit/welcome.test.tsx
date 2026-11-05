@@ -1,21 +1,22 @@
 // The welcome steps (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting note, everyone's
-// own tasks"), rendered and clicked against a small fake of the server's rules (tests/unit/b-onboarding-welcome.test.ts
-// checks the server itself):
+// own tasks", "N — The first result is the company's card news"), rendered and clicked against a small fake of the
+// server's rules (tests/unit/b-onboarding-welcome.test.ts checks the server itself):
 // - /welcome is the owner's: members and admins are sent Home; right after /setup the owner lands there;
 // - two steps (회사 소개 → 첫 결과); one quiet line above the first: "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" (the tap adds
 //   the marketing pack, 취소 takes it back); leaving the first step sets the team up once (the general pack, the team's
 //   group and folders) and installs the marketing pack once, only when asked; resuming never installs again;
-// - the first result for every team: files into the team's meeting notes folder, then "/meeting-tasks …" with them in
-//   a new chat; "자료 없이 해 볼게요": the ad copy form with the marketing pack, else the steps end and Home says where
-//   meeting notes go; without a usable AI, A's connect button instead;
-// - the chat of the first result: with the lead's team files, "팀원 AI도 이 방식대로 하게 할까요?" and the team skill card
-//   (docs/DECISIONS.md "S"), then the invite with that skill; with the ad copy, the invite;
+// - the first result for every team, the company card news: files into the team's brand folder, the server starts the
+//   result (its chat, the files to attach), then "/card-news …" with them in that chat; "자료 없이 만들게요": the same
+//   without files (the server's 회사 소개.md attached); the server's refusal in its own words; without a usable AI, A's
+//   connect button instead;
+// - the chat of the first result: with the lead's team files, "마음에 드시나요? 팀 스킬로 저장하면 …" and the team skill
+//   card (docs/DECISIONS.md "S"), then the invite with that skill; with the ad copy, the invite;
 //   Home offers to continue until finished or hidden;
 // - the company profile step (D) shows A's connect button instead of starting a draft that cannot run.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { GENERAL_BRIEF_SKILL, GENERAL_TASKS_SKILL, uuidv7, WELCOME_RESULT_SKILL, type Attachment, type SkillInfo, type TeamGroupRef, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
+import { GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_TASKS_SKILL, uuidv7, WELCOME_RESULT_SKILL, type Attachment, type SkillInfo, type TeamGroupRef, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
 import { useChats } from '../../src/store/chats'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Welcome from '../../src/pages/Welcome'
@@ -52,8 +53,10 @@ const fresh = (): WelcomeProgress => ({
   steps: { profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
 })
 const PACK = { id: 'marketing' as const, at: '2026-11-04T00:00:00.000Z', skillPath: WELCOME_RESULT_SKILL }
-const GENERAL = { at: '2026-11-04T00:00:00.000Z', tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL }
-const TEAM: TeamGroupRef = { id: '01900000-0000-7000-8000-0000000000e1', name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록' }
+const GENERAL = { at: '2026-11-04T00:00:00.000Z', tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL }
+const TEAM: TeamGroupRef = { id: '01900000-0000-7000-8000-0000000000e1', name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록', brandFolder: 'groups/Acme/브랜드' }
+const INTRO = 'groups/Acme/브랜드/회사 소개.md'
+const QUESTION = '/card-news 우리 회사 홍보 카드뉴스 5장 만들어 줘'
 /** the team set up and the first step behind: the files step */
 const atResult = (over: Partial<WelcomeProgress> = {}): WelcomeProgress => ({ ...fresh(), general: GENERAL, teamGroup: TEAM, steps: { profile: 'done', result: null, invite: null }, ...over })
 
@@ -65,6 +68,10 @@ let packStatus: 'created' | 'blocked' = 'created'
 let teamBlocked = false
 /** uploads that fail before one works (a retry then goes through) */
 let failUploads = 0
+/** the first result refused (no profile and no website yet, say), in the server's words */
+let firstResultRefusal: string | null = null
+/** attaching that fails before one works */
+let failAttach = 0
 function apply(u: WelcomeUpdate): WelcomeProgress {
   const p = progress ?? fresh()
   if (u.teamType) p.teamType = u.teamType
@@ -97,17 +104,23 @@ const routes: Record<string, (body: any) => Response> = {
   },
   'POST /api/onboarding/welcome/team': () => {
     const p = apply({})
-    if (p.general && p.teamGroup) return json(200, { progress: p, install: null, outcome: 'already' })
+    if (p.general && p.teamGroup?.brandFolder) return json(200, { progress: p, install: null, outcome: 'already' })
     const install = { pack: 'general', locale: 'ko', skills: [{ name: 'meeting-tasks', path: GENERAL_TASKS_SKILL, status: teamBlocked ? 'blocked' : 'created' }], folders: [] }
-    progress = { ...p, teamGroup: TEAM, general: teamBlocked ? null : GENERAL }
+    // a group recorded before the brand folder keeps its folders and gets the brand folder
+    progress = { ...p, teamGroup: { ...(p.teamGroup ?? TEAM), brandFolder: TEAM.brandFolder }, general: teamBlocked ? null : GENERAL }
     return json(200, { progress, install, outcome: teamBlocked ? 'blocked' : 'installed' })
   },
+  'POST /api/onboarding/welcome/first-result': (b) => {
+    if (firstResultRefusal) return json(409, { error: { code: 'conflict', message: firstResultRefusal } })
+    return json(201, { chatId: CHAT, title: '우리 회사 홍보 카드뉴스', skillPath: GENERAL_CARDNEWS_SKILL, files: b.files.length ? b.files : [INTRO], intro: b.files.length ? null : INTRO, imagesFolder: 'groups/Acme/브랜드/이미지', images: [] })
+  },
+  [`GET /api/chats/${CHAT}`]: () => json(200, { id: CHAT, projectId: null, title: '우리 회사 홍보 카드뉴스', engine: 'claude-code', model: null, createdAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', deletedAt: null, runState: 'idle' }),
   'POST /api/files/upload': (b) => {
     if (failUploads > 0) { failUploads--; return json(500, { error: { code: 'internal', message: '저장하지 못했어요' } }) }
     const path = `${b.folder}/${b.name}`
     return json(201, { name: b.name, path, type: 'file', size: Number(b.size), mtime: '2026-11-04T00:00:00.000Z', mime: 'text/markdown', access: 'write' })
   },
-  'POST /api/attachments/team-file': (b) => json(201, { id: uuidv7(), name: b.path.slice(b.path.lastIndexOf('/') + 1), path: b.path, size: 10, mime: 'text/markdown', kind: 'text', source: 'team' } satisfies Attachment),
+  'POST /api/attachments/team-file': (b) => failAttach-- > 0 ? json(500, { error: { code: 'internal', message: '붙이지 못했어요' } }) : json(201, { id: uuidv7(), name: b.path.slice(b.path.lastIndexOf('/') + 1), path: b.path, size: 10, mime: 'text/markdown', kind: 'text', source: 'team' } satisfies Attachment),
   'GET /api/me/ai-access': () => json(200, ai),
   'GET /api/onboarding/profile': () => json(200, { profile: null }),
   'GET /api/skills': () => json(200, { items: [adCopy] }),
@@ -182,6 +195,8 @@ afterEach(() => {
   packStatus = 'created'
   teamBlocked = false
   failUploads = 0
+  firstResultRefusal = null
+  failAttach = 0
   useWelcome.getState().reset()
   useAiAccess.getState().reset()
   // a first-result message this file sent stays "sending" in the chats store: the files after this one (the reload
@@ -216,7 +231,7 @@ async function choose(m: Mounted, files: File[]) {
   Object.defineProperty(input, 'files', { configurable: true, value: files })
   await act(async () => { input.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
 }
-const note = (name: string, text = '# 주간 회의\n- 민지: 시안 금요일까지\n') => new File([text], name, { type: 'text/markdown' })
+const note = (name: string, text = '# Acme 회사 소개\n- 조용한 책상 선풍기\n') => new File([text], name, { type: 'text/markdown' })
 
 describe('where the steps go', () => {
   test('resume: the first open step, then a put-off one; after a step, only open steps ahead of it', () => {
@@ -261,6 +276,8 @@ describe('where the steps go', () => {
     expect(wantsTeam({ ...fresh(), general: GENERAL })).toBe(true)
     expect(wantsTeam({ ...fresh(), teamGroup: TEAM })).toBe(true)
     expect(wantsTeam({ ...fresh(), general: GENERAL, teamGroup: TEAM })).toBe(false)
+    // a group recorded before the brand folder existed: the start runs again (and adds it)
+    expect(wantsTeam({ ...fresh(), general: GENERAL, teamGroup: { ...TEAM, brandFolder: undefined } })).toBe(true)
     expect(wantsTeam(null)).toBe(false)
     // the line above the first step goes once what it promised is recorded
     expect(packsRecorded(fresh())).toBe(false)
@@ -269,6 +286,7 @@ describe('where the steps go', () => {
     expect(packsRecorded({ ...fresh(), general: GENERAL, teamType: 'marketing', pack: PACK })).toBe(true)
     // the name a skill runs by
     expect(skillNameOf(GENERAL_TASKS_SKILL)).toBe('meeting-tasks')
+    expect(skillNameOf(GENERAL_CARDNEWS_SKILL)).toBe('card-news')
     expect(skillNameOf('skills/할-일.md')).toBe('할-일')
     expect(skillNameOf(null)).toBe('meeting-tasks')
   })
@@ -418,42 +436,48 @@ describe('/welcome', () => {
     }
   })
 
-  test('the first result: the files go into the team\'s meeting notes folder, then "/meeting-tasks …" with them in a new chat, recorded', async () => {
+  test('the first result: the files go into the team\'s brand folder, the server starts the card news, "/card-news …" goes into its chat with the files, recorded', async () => {
     signIn('owner')
     progress = atResult()
     failUploads = 1
     const m = await app()
     try {
       await m.until(() => m.find('welcome-files-pick'), 'the files step')
-      expect(m.html()).toContain('평소 일에 쓰는 파일을 놓아 주세요')
-      expect(m.html()).toContain('회의록, 견적서, 보고서 · 몇 개면 충분해요')
+      expect(m.html()).toContain('회사 소개서나 팀 소개 자료가 있으면 놓아 주세요')
+      expect(m.html()).toContain('없으면 홈페이지에서 찾은 내용으로 만들게요')
       // one primary: pick files; who sees what in one quiet line; a text link without files
       expect(m.get('welcome-files-pick').textContent).toContain('파일 고르기')
       expect(m.get('welcome-files-who').textContent).toBe('여기 올린 파일은 Acme만 봐요 · 채팅은 각자만 봐요')
-      expect(m.get('welcome-files-none').textContent).toBe('자료 없이 해 볼게요')
+      expect(m.get('welcome-files-none').textContent).toBe('자료 없이 만들게요')
       expect(m.container.querySelectorAll('button').filter((b) => (b.getAttribute('class') ?? '').includes('bg-accent ')).length).toBe(1)
+      // no meeting notes, no ad copy here any more
+      expect(m.html()).not.toContain('회의록')
+      expect(m.find('skill-form')).toBeNull()
       // files only, several at once (phones pick files, not folders)
       expect(m.get('welcome-files-input').getAttribute('type')).toBe('file')
       // (React sets it as a property)
       expect((m.get('welcome-files-input') as unknown as { multiple: boolean }).multiple).toBe(true)
       expect(m.get('welcome-files-input').hasAttribute('webkitdirectory')).toBe(false)
-      await choose(m, [note('11월 1주 회의.md'), note('11월 2주 회의.md')])
+      await choose(m, [note('회사 소개서.md'), note('팀 소개.md')])
       // the first upload fails: the files stay, "다시 시도" goes on with them
       await m.until(() => m.find('welcome-files-list') && m.html().includes('role="alert"'), 'the failure')
       expect(m.container.querySelectorAll('[data-testid="welcome-file"]').length).toBe(2)
-      expect(called('POST /api/chats')).toEqual([])
+      expect(called('POST /api/onboarding/welcome/first-result')).toEqual([])
       const retry = (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'common.retry'))
       await m.click(retry)
       await m.until(() => at(m) === `/c/${CHAT}`, 'the chat')
-      // into groups/<team>/회의록/, each once (the one that went up first is not sent again)
+      // into groups/<team>/브랜드/, each once (the one that went up first is not sent again)
       const ups = called('POST /api/files/upload').map((c) => `${c.body.folder}/${c.body.name}`)
-      expect(ups.filter((u) => u === 'groups/Acme/회의록/11월 1주 회의.md').length + ups.filter((u) => u === 'groups/Acme/회의록/11월 2주 회의.md').length).toBe(3)
+      expect(ups.filter((u) => u === 'groups/Acme/브랜드/회사 소개서.md').length + ups.filter((u) => u === 'groups/Acme/브랜드/팀 소개.md').length).toBe(3)
       expect(called('POST /api/files/upload').every((c) => c.body.onExists === 'rename')).toBe(true)
-      // a new chat, the files attached by reference, the general skill with the lead's question
-      expect(called('POST /api/chats')).toHaveLength(1)
-      expect(called('POST /api/attachments/team-file').map((c) => c.body)).toEqual([{ chatId: CHAT, path: 'groups/Acme/회의록/11월 1주 회의.md' }, { chatId: CHAT, path: 'groups/Acme/회의록/11월 2주 회의.md' }])
+      // the server starts the result with the uploaded paths and makes the chat (the page makes none)
+      expect(called('POST /api/onboarding/welcome/first-result').map((c) => c.body)).toEqual([{ files: ['groups/Acme/브랜드/회사 소개서.md', 'groups/Acme/브랜드/팀 소개.md'] }])
+      expect(called('POST /api/chats')).toEqual([])
+      expect(useChats.getState().chats.find((c) => c.id === CHAT)?.title).toBe('우리 회사 홍보 카드뉴스')
+      // the files it named, attached by reference, and the card news skill with the lead's question
+      expect(called('POST /api/attachments/team-file').map((c) => c.body)).toEqual([{ chatId: CHAT, path: 'groups/Acme/브랜드/회사 소개서.md' }, { chatId: CHAT, path: 'groups/Acme/브랜드/팀 소개.md' }])
       const sent = called(`POST /api/chats/${CHAT}/messages`)[0]?.body as { content: string; attachmentIds: string[] } | undefined
-      expect(sent?.content).toBe('/meeting-tasks 이 파일로 정리해 줘')
+      expect(sent?.content).toBe(QUESTION)
       expect(sent?.attachmentIds).toHaveLength(2)
       expect(progress!.steps.result).toBe('done')
       expect(progress!.resultChatId).toBe(CHAT)
@@ -488,69 +512,78 @@ describe('/welcome', () => {
     }
   })
 
-  test('up to ten files go up; an older row without the team\'s start sets it up first', async () => {
-    signIn('owner')
-    progress = { ...fresh(), steps: { profile: 'done', result: null, invite: null } }
-    const m = await app()
-    try {
-      await m.until(() => m.find('welcome-files-pick'), 'the files step')
-      // no team group yet: the line names the team
-      expect(m.get('welcome-files-who').textContent).toContain('Acme만 봐요')
-      await choose(m, Array.from({ length: 12 }, (_, i) => note(`회의 ${i + 1}.md`)))
-      await m.until(() => at(m) === `/c/${CHAT}`, 'the chat')
-      expect(called('POST /api/onboarding/welcome/team')).toHaveLength(1)
-      expect(called('POST /api/files/upload')).toHaveLength(10)
-      expect(called('POST /api/attachments/team-file')).toHaveLength(10)
-    } finally { await m.unmount() }
+  test('up to ten files go up; an older row without the team\'s start, or whose group has no brand folder yet, sets it up first', async () => {
+    for (const start of [{ ...fresh(), steps: { profile: 'done' as const, result: null, invite: null } }, atResult({ teamGroup: { ...TEAM, brandFolder: undefined } })]) {
+      signIn('owner')
+      progress = start
+      const m = await app()
+      try {
+        await m.until(() => m.find('welcome-files-pick'), 'the files step')
+        // the line names the team
+        expect(m.get('welcome-files-who').textContent).toContain('Acme만 봐요')
+        await choose(m, Array.from({ length: 12 }, (_, i) => note(`소개 ${i + 1}.md`)))
+        await m.until(() => at(m) === `/c/${CHAT}`, 'the chat')
+        expect(called('POST /api/onboarding/welcome/team')).toHaveLength(1)
+        expect(called('POST /api/files/upload')).toHaveLength(10)
+        expect(called('POST /api/files/upload').every((c) => c.body.folder === 'groups/Acme/브랜드')).toBe(true)
+        expect(called('POST /api/onboarding/welcome/first-result')[0]!.body.files).toHaveLength(10)
+        expect(called('POST /api/attachments/team-file')).toHaveLength(10)
+      } finally { await m.unmount() }
+      useWelcome.getState().reset()
+      calls = []
+    }
   })
 
-  test('"자료 없이 해 볼게요" without marketing: the steps end, Home gets the team folder to point at', async () => {
+  test('"자료 없이 만들게요": the same without files (the server\'s 회사 소개.md attached), with or without the marketing pack; nothing uploaded, the steps go on', async () => {
+    for (const start of [atResult(), atResult({ teamType: 'marketing', pack: PACK })]) {
+      signIn('owner')
+      progress = start
+      const m = await app()
+      try {
+        await m.until(() => m.find('welcome-files-none'), 'the text link')
+        await m.click('welcome-files-none')
+        await m.until(() => at(m) === `/c/${CHAT}`, 'the chat')
+        expect(called('POST /api/onboarding/welcome/first-result').map((c) => c.body)).toEqual([{ files: [] }])
+        expect(called('POST /api/files/upload')).toEqual([])
+        expect(called('POST /api/attachments/team-file').map((c) => c.body)).toEqual([{ chatId: CHAT, path: INTRO }])
+        expect((called(`POST /api/chats/${CHAT}/messages`)[0]?.body as { content: string }).content).toBe(QUESTION)
+        // no ad copy form, and the steps are not ended by it
+        expect(called('PATCH /api/onboarding/welcome').some((c) => c.body.finish)).toBe(false)
+        expect(progress!.steps.result).toBe('done')
+        expect(progress!.finishedAt).toBeNull()
+      } finally { await m.unmount() }
+      useWelcome.getState().reset()
+      useChats.setState({ threads: {} })
+      calls = []
+    }
+  })
+
+  test('the server refuses (no profile and no website yet): its words in a note, nothing sent; 다시 시도 goes on, a later failure keeps the same chat', async () => {
     signIn('owner')
     progress = atResult()
+    firstResultRefusal = '홈페이지나 회사 소개가 아직 없어요. 회사 소개를 먼저 해 주세요.'
     const m = await app()
     try {
       await m.until(() => m.find('welcome-files-none'), 'the text link')
       await m.click('welcome-files-none')
-      await m.until(() => at(m) === '/', 'Home')
-      expect(called('PATCH /api/onboarding/welcome').at(-1)!.body).toEqual({ finish: true })
-      expect(progress!.finishedAt).not.toBeNull()
-      expect(JSON.parse(m.get('where').getAttribute('data-state')!)).toEqual({ welcomeNotes: { folder: 'groups/Acme', team: 'Acme' } })
-      expect(called('POST /api/files/upload')).toEqual([])
-    } finally { await m.unmount() }
-  })
-
-  test('"자료 없이 해 볼게요" with the marketing pack: the short ad copy form (product, channel chips, the rest folded) opens its chat and records it', async () => {
-    signIn('owner')
-    progress = atResult({ teamType: 'marketing', pack: PACK })
-    const m = await app()
-    try {
-      await m.until(() => m.find('welcome-files-none'), 'the files step first')
-      expect(m.find('skill-form')).toBeNull()
-      await m.click('welcome-files-none')
-      await m.until(() => m.find('skill-form'), 'the ad copy form')
-      expect(m.html()).toContain(translate('ko', 'welcome.result.title'))
-      expect(m.get('skill-form').getAttribute('data-path')).toBe(WELCOME_RESULT_SKILL)
-      // the heading says what it does: the skill's description is not shown a second time
-      expect(m.get('skill-form').textContent).not.toContain('알릴 제품과 실을 곳을 받아')
-      // the channel as chips, Instagram picked; the other fields folded
-      await m.until(() => m.find('skill-choice-channel-instagram')?.getAttribute('data-on') === 'true', 'the default chip')
-      expect(m.find('skill-input-audience')).toBeNull()
-      expect(m.get('skill-form-more').getAttribute('aria-expanded')).toBe('false')
-      expect(m.get('skill-form-run').textContent).toContain('광고 문구 만들기')
-      await m.until(() => !m.get('skill-form-run').hasAttribute('disabled'), 'Run on')
-      await m.type('skill-input-product', '종이 플래너')
-      // a browser checks the radio before the click's listeners run, past React's value tracker (this small DOM does not)
-      const sms = m.get('skill-choice-channel-sms').querySelector('input')!
-      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sms), 'checked')!.set!.call(sms, true)
-      await m.click(sms)
-      expect(m.get('skill-choice-channel-sms').getAttribute('data-on')).toBe('true')
-      await m.click('skill-form-run')
+      await m.until(() => m.html().includes(firstResultRefusal!), 'the refusal')
+      expect(called(`POST /api/chats/${CHAT}/messages`)).toEqual([])
+      expect(called('POST /api/attachments/team-file')).toEqual([])
+      expect(stepOf(m)).toBe('result')
+      expect(progress!.steps.result).toBeNull()
+      // a refusal later on: attaching fails once
+      firstResultRefusal = null
+      failAttach = 1
+      const retry = () => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'common.retry'))
+      await m.click(retry())
+      await m.until(() => m.html().includes('붙이지 못했어요'), 'the attach failure')
+      expect(called('POST /api/onboarding/welcome/first-result')).toHaveLength(2)
+      await m.click(retry())
       await m.until(() => at(m) === `/c/${CHAT}`, 'the chat')
-      expect(progress!.steps.result).toBe('done')
-      expect(progress!.resultChatId).toBe(CHAT)
-      const sent = calls.find((c) => c.key === `POST /api/chats/${CHAT}/messages`)?.body as { content: string } | undefined
-      expect(sent?.content).toBe('/ad-copy\n알릴 제품·서비스: 종이 플래너\n\n어디에 실을까요: 문자')
-      expect(called('PATCH /api/onboarding/welcome').some((c) => c.body.finish)).toBe(false)
+      // the chat the server made is used again: no third start
+      expect(called('POST /api/onboarding/welcome/first-result')).toHaveLength(2)
+      expect(called('POST /api/onboarding/welcome/first-result').every((c) => c.body.files.length === 0)).toBe(true)
+      expect(called(`POST /api/chats/${CHAT}/messages`)).toHaveLength(1)
     } finally { await m.unmount() }
   })
 
@@ -561,10 +594,12 @@ describe('/welcome', () => {
     const m = await app()
     try {
       await m.until(() => m.find('welcome-result-no-ai'), 'the no-AI step')
+      expect(m.html()).toContain(translate('ko', 'welcome.cardnews.title'))
       expect(m.get('ai-access-button').getAttribute('data-action')).toBe('connect_team')
       expect(m.get('ai-access-button').textContent).toBe(translate('ko', 'aiAccess.connectTeam'))
       expect(m.find('welcome-files-pick')).toBeNull()
       expect(m.find('skill-form')).toBeNull()
+      expect(called('POST /api/onboarding/welcome/first-result')).toEqual([])
       await m.click('welcome-later')
       await m.until(() => stepOf(m) === 'invite', 'on to the invite')
       expect(progress!.steps.result).toBe('skipped')
@@ -573,7 +608,7 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
-  test('the marketing pack blocked by folder rules: the step says so; "자료 없이" offers it again (installed once, on the click)', async () => {
+  test('the marketing pack blocked by folder rules: the step says so; the card news still works', async () => {
     signIn('owner')
     packStatus = 'blocked'
     progress = { ...fresh(), teamType: 'marketing' }
@@ -585,15 +620,11 @@ describe('/welcome', () => {
       expect(stepOf(m)).toBe('result')
       expect(progress!.pack).toBeNull()
       expect(called('POST /api/onboarding/welcome/pack')).toHaveLength(1)
-      // the files still work; without them, the pack is offered on a click
+      // no install offer here: the card news does not need the marketing pack
       await m.until(() => m.find('welcome-files-none'), 'the files step')
       await m.click('welcome-files-none')
-      await m.until(() => m.find('welcome-result-install'), 'the offer')
-      expect(m.html()).toContain(translate('ko', 'welcome.result.noPack'))
-      packStatus = 'created'
-      await m.click('welcome-result-install')
-      await m.until(() => m.find('skill-form'), 'the form after the install')
-      expect(called('POST /api/onboarding/welcome/pack')).toHaveLength(2)
+      await m.until(() => at(m) === `/c/${CHAT}`, 'the chat')
+      expect(called('POST /api/onboarding/welcome/pack')).toHaveLength(1)
     } finally { await m.unmount() }
   })
 
@@ -604,10 +635,10 @@ describe('/welcome', () => {
     const m = await app()
     try {
       await m.until(() => m.find('welcome-files-pick'), 'the files step')
-      await choose(m, [note('회의.md')])
+      await choose(m, [note('회사 소개서.md')])
       await m.until(() => m.html().includes(translate('ko', 'welcome.packBlocked')), 'the message')
       expect(called('POST /api/files/upload')).toEqual([])
-      expect(called('POST /api/chats')).toEqual([])
+      expect(called('POST /api/onboarding/welcome/first-result')).toEqual([])
       expect(stepOf(m)).toBe('result')
     } finally { await m.unmount() }
   })
@@ -643,18 +674,19 @@ describe('after the first result', () => {
     routes['GET /api/admin/team-link'] = () => json(200, { link: null, seats: { used: 1, limit: null } })
   })
 
-  test('the lead\'s files: "팀원 AI도 이 방식대로 하게 할까요?"; the card: six things, the title changed by a tap; shared, then the invite with that skill', async () => {
+  test('the lead\'s files (the card news): "마음에 드시나요? 팀 스킬로 저장하면 …"; the card: six things, the title changed by a tap; shared, then the invite with that skill', async () => {
     signIn('owner')
     progress = ran()
     withGroup()
     drafting({ status: 'done', draft: CARD })
-    const messages = [ask(FILES), { role: 'assistant' as const, content: '## 민지\n- 시안 금요일까지', attachments: [] }]
+    // the card news question with the intro the server wrote attached
+    const messages = [{ ...ask([INTRO]), content: QUESTION }, { role: 'assistant' as const, content: '카드뉴스 5장을 만들었어요', attachments: [] }]
     const m = await mount(<MemoryRouter><WelcomeInviteBar chatId={CHAT} answered messages={messages} /></MemoryRouter>)
     try {
       await m.until(() => m.find('welcome-invite-bar'), 'the bar')
       // the bar asks about the lead's way, not about inviting: one button and its X
-      expect(m.get('welcome-invite-text').textContent).toBe('팀원 AI도 이 방식대로 하게 할까요?')
-      expect(m.get('skill-share-open').textContent).toBe('팀 스킬로 만들기')
+      expect(m.get('welcome-invite-text').textContent).toBe('마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요')
+      expect(m.get('skill-share-open').textContent).toBe('팀 스킬로 저장')
       expect(m.find('welcome-invite-open')).toBeNull()
       await m.click('skill-share-open')
       expect(called('POST /api/onboarding/skill-draft').map((c) => c.body)).toEqual([{ chatId: CHAT }])

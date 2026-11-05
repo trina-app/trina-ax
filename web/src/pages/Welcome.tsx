@@ -1,20 +1,22 @@
 // The welcome steps for the owner who just made the team (docs/DECISIONS.md "W — Welcome steps", "X — Lean
-// onboarding", "M — One meeting note, everyone's own tasks"): 1/2 회사 소개 → 2/2 첫 결과, then the team invite. The
-// first result is the team's own: the lead drops this week's meeting notes (or any work files) into the team's folder,
-// and the general skill "/meeting-tasks" turns them into tasks per person in a new chat; that chat offers the invite
-// (components/onboarding/WelcomeInviteBar.tsx), so everyone gets their own tasks from the same files. Every step can be
-// put off; the progress is kept on the server (store/welcome.ts), so the steps resume where they stopped, on any
-// device, from the entry on Home.
+// onboarding", "M — One meeting note, everyone's own tasks", "N — The first result is the company's card news"):
+// 1/2 회사 소개 → 2/2 첫 결과, then the team invite. The first result is the company's own card news: the lead drops a
+// company intro or a team deck into the team's brand folder (groups/<team>/브랜드/), or goes on without one ("자료 없이
+// 만들게요": the server writes 회사 소개.md there from the website reading); POST /api/onboarding/welcome/first-result
+// makes the chat and says which team files to attach, and the general skill "/card-news" makes five cards from them in
+// that chat. The chat offers to keep the way as a team skill (components/onboarding/WelcomeInviteBar.tsx), then the
+// invite. Every step can be put off; the progress is kept on the server (store/welcome.ts), so the steps resume where
+// they stopped, on any device, from the entry on Home.
 //
 // Above the first step one quiet line says "팀 스킬을 넣어 둘게요 · 마케팅팀이에요": leaving the first step sets up every
-// team once (the general pack and a group named after the team with its folder, POST /api/onboarding/welcome/team),
-// and adds the marketing pack only when the owner said so (its ad copy stays as the "자료 없이 해 볼게요" path). The
-// server keeps every guarantee: once, never restoring deleted skills, blocked.
+// team once (the general pack and a group named after the team with its folders, POST /api/onboarding/welcome/team),
+// and adds the marketing pack only when the owner said so. The server keeps every guarantee: once, never restoring
+// deleted skills, blocked.
 import clsx from 'clsx'
 import { ArrowLeft, Check, CircleAlert, Loader2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { uuidv7, WELCOME_COUNTED, WELCOME_PACK_SKILLS, WELCOME_STEPS, type CompanyProfile, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { FIRST_RESULT_FILES_MAX, uuidv7, WELCOME_COUNTED, WELCOME_PACK_SKILLS, WELCOME_STEPS, type CompanyProfile, type FirstResultStarted, type TeamType, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { markBusy } from '../lib/busy'
 import { joinPath } from '../lib/paths'
@@ -31,7 +33,6 @@ import { useWelcome } from '../store/welcome'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { InviteStep } from '../components/onboarding/InviteStep'
 import ProfileStep from '../components/onboarding/ProfileStep'
-import { SkillForm } from '../components/skills/SkillForm'
 import { UploadLabel } from '../components/UploadLabel'
 import { Button, ErrorNote, Skeleton } from '../components/ui'
 
@@ -44,8 +45,9 @@ export default function Welcome() {
 
 const STEP_LABEL: Record<(typeof WELCOME_COUNTED)[number], MessageKey> = { profile: 'welcome.progress.profile', result: 'welcome.progress.result' }
 
-/** At most this many files in one go: a few meeting notes are enough, and each goes up on its own. */
-export const WELCOME_FILES_MAX = 10
+/** At most this many files in one go: a company intro or a deck is enough, and each goes up on its own (the server
+ * takes as many: FIRST_RESULT_FILES_MAX). */
+export const WELCOME_FILES_MAX = FIRST_RESULT_FILES_MAX
 
 /** Install the marketing pack and say what happened: "마케팅 스킬 7개와 팀 폴더를 넣었어요"; nothing when it was there
  * already; `blocked` when the folder rules kept the ad copy out (nothing is recorded then). */
@@ -120,18 +122,10 @@ function WelcomeSteps() {
     go(await w.update({ step: { id: 'profile', state } }), 'profile')
     if (blocked) setError(t('welcome.packBlocked'))
   })
-  const installForResult = () => run(async () => { if ((await installPack(t)) === 'blocked') throw new Error(t('welcome.packBlocked')) })
   const ran = (chatId: string) => run(async () => {
-    // the chat opens either way; without the record it only lacks the invite bar
+    // the chat opens either way; without the record it only lacks the bar under the answer
     await useWelcome.getState().update({ step: { id: 'result', state: 'done' }, resultChatId: chatId }).catch(() => {})
     navigate(`/c/${chatId}`)
-  })
-  /** "자료 없이 해 볼게요" without the marketing pack: the steps end here, and Home says where meeting notes go */
-  const finish = () => run(async () => {
-    const w = useWelcome.getState()
-    if (wantsTeam(w.progress)) await w.setupTeam().catch(() => null)
-    const g = (await w.update({ finish: true })).teamGroup
-    navigate('/', g ? { state: { welcomeNotes: { folder: g.folder, team: g.name } } } : undefined)
   })
 
   if (loadError)
@@ -165,7 +159,7 @@ function WelcomeSteps() {
             <ProfileWizardStep progress={progress} onDone={() => void leaveProfile('done')} onSkip={() => void leaveProfile('skipped')} />
           </>
         )}
-        {step === 'result' && <ResultStep progress={progress} busy={busy} onRan={(id) => void ran(id)} onInstall={() => void installForResult()} onSkip={() => void mark('result', 'skipped')} onFinish={() => void finish()} />}
+        {step === 'result' && <ResultStep progress={progress} busy={busy} onRan={(id) => void ran(id)} onSkip={() => void mark('result', 'skipped')} />}
         {step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
@@ -263,20 +257,18 @@ function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProg
   )
 }
 
-/** 2/2 the first result, for every team: the team's own files into its folder, then "할 일 정리" on them. "자료 없이 해
- * 볼게요": the ad copy when the marketing pack is in (or its install offer, when the folder rules kept it out), else the
- * steps end and Home says where meeting notes go. Without a usable AI: A's way to connect one. */
-function ResultStep({ progress, busy, onRan, onInstall, onSkip, onFinish }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void; onInstall: () => void; onSkip: () => void; onFinish: () => void }) {
+/** 2/2 the first result, for every team: the company's card news, from the files the lead drops into the team's
+ * brand folder or, without any, from the website reading. Without a usable AI: A's way to connect one. */
+function ResultStep({ progress, busy, onRan, onSkip }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void; onSkip: () => void }) {
   const t = useT()
   const ai = useAiAccess()
-  const [noFiles, setNoFiles] = useState(false)
   // asked again here: a run without AI would only fail in the chat
   useEffect(() => { void ai.load(true) }, [ai.load])
   if (!ai.loaded) return <Skeleton lines={4} />
   if (!ai.usable)
     return (
       <div className="space-y-5" data-testid="welcome-result">
-        <StepHead title={t('welcome.files.title')} />
+        <StepHead title={t('welcome.cardnews.title')} />
         <div className="space-y-3" data-testid="welcome-result-no-ai">
           <p className="text-sm text-muted">{t('welcome.result.noAi')}</p>
           <AiAccessBanner />
@@ -284,25 +276,7 @@ function ResultStep({ progress, busy, onRan, onInstall, onSkip, onFinish }: { pr
         </div>
       </div>
     )
-  if (noFiles && (progress.pack || progress.teamType === 'marketing'))
-    return (
-      <div className="space-y-5" data-testid="welcome-result">
-        <StepHead title={t('welcome.result.title')} desc={t('welcome.result.desc')} />
-        {progress.pack ? (
-          // the heading says what the skill does: no second description above the fields
-          <SkillForm path={progress.pack.skillPath} onDone={onRan} onSkip={onSkip} skipLabel={t('welcome.later')} description={false} runLabel={t('welcome.result.run')} />
-        ) : (
-          <div className="space-y-3" data-testid="welcome-result-no-pack">
-            <p className="text-sm text-muted">{t('welcome.result.noPack')}</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="primary" busy={busy} onClick={onInstall} data-testid="welcome-result-install">{t('welcome.result.install')}</Button>
-              <span className="ml-auto"><Later onClick={onSkip} disabled={busy} /></span>
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  return <FilesStep progress={progress} busy={busy} onRan={onRan} onNone={() => (progress.pack || progress.teamType === 'marketing' ? setNoFiles(true) : onFinish())} />
+  return <FilesStep progress={progress} busy={busy} onRan={onRan} />
 }
 
 /** "여기 올린 파일은 {팀} n명만 봐요 · 채팅은 각자만 봐요", with the real count (the group's members and the owners and
@@ -366,10 +340,13 @@ interface Picked {
   error?: string
 }
 
-/** The files only this team sees (groups/<team>/회의록/), then a new chat: the files attached by reference and
- * "/meeting-tasks 이 회의록으로 이번 주 할 일, 사람별로 정리해 줘". One primary action (pick files; a drop works too on a
- * computer), one quiet line on who sees what, one text link without files. */
-function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void; onNone: () => void }) {
+/** The company's card news (docs/DECISIONS.md "N"): the files the lead picks go into the team's brand folder
+ * (groups/<team>/브랜드/, only this team sees it), then the server starts the first result (POST
+ * /api/onboarding/welcome/first-result: its chat, the team files to attach, the skill) and "/card-news 우리 회사 홍보
+ * 카드뉴스 5장 만들어 줘" goes into that chat with the files attached by reference. "자료 없이 만들게요" is the same
+ * without files: the server writes 회사 소개.md from the website reading and gives that to attach. One primary action
+ * (pick files; a drop works too on a computer), one quiet line on who sees what, one text link without files. */
+function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -382,11 +359,13 @@ function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: Welc
   const [error, setError] = useState<string | null>(null)
   const [cut, setCut] = useState(false)
   const [over, setOver] = useState(false)
-  // the chat made for these files: a retry after a failure later on sends into the same one
-  const chat = useRef<string | null>(null)
+  // the first result the server started for these files: a retry after a later failure sends into the same chat
+  const started = useRef<{ key: string; r: FirstResultStarted } | null>(null)
+  // what "다시 시도" repeats: with the picked files, or without any
+  const withFiles = useRef(true)
   const team = progress.teamGroup?.name ?? me.team.name
 
-  /** Up (the ones not up yet), then the chat with them. A failure keeps the files on screen for "다시 시도". */
+  /** Up (the ones not up yet), then the first result with them. A failure keeps the files on screen for "다시 시도". */
   const run = async () => {
     setBusy(true)
     setError(null)
@@ -395,36 +374,39 @@ function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: Welc
     try {
       const w = useWelcome.getState()
       let p = w.progress ?? progress
-      // an older row, or a start that failed when the first step was left: the team's folder and skills first
+      // an older row, or a start that failed when the first step was left: the team's folders and skills first
       if (wantsTeam(p)) p = (await w.setupTeam()).progress
-      const tasksPath = p.general?.tasksPath
-      if (!p.teamGroup || !tasksPath) throw new Error(t('welcome.packBlocked'))
-      const notes = p.teamGroup.notesFolder
-      const results = await Promise.allSettled(itemsRef.current.filter((x) => x.status !== 'done').map(async (x) => {
-        patch(x.id, { status: 'uploading', progress: null, error: undefined })
-        try {
-          const r = await uploadFile(x.file, { kind: 'path', path: joinPath(notes, x.file.name), onExists: 'rename' }, { client: api, onProgress: (progress) => patch(x.id, { progress }) })
-          if (r.kind !== 'path') throw new Error('unexpected upload result')
-          patch(x.id, { status: 'done', path: r.entry.path, progress: null })
-        } catch (e) {
-          patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')) })
-          throw e
-        }
-      }))
-      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
-      if (failed) throw failed.reason
+      const brand = p.teamGroup?.brandFolder
+      if (!brand || !p.general) throw new Error(t('welcome.packBlocked'))
+      if (withFiles.current) {
+        const results = await Promise.allSettled(itemsRef.current.filter((x) => x.status !== 'done').map(async (x) => {
+          patch(x.id, { status: 'uploading', progress: null, error: undefined })
+          try {
+            const r = await uploadFile(x.file, { kind: 'path', path: joinPath(brand, x.file.name), onExists: 'rename' }, { client: api, onProgress: (progress) => patch(x.id, { progress }) })
+            if (r.kind !== 'path') throw new Error('unexpected upload result')
+            patch(x.id, { status: 'done', path: r.entry.path, progress: null })
+          } catch (e) {
+            patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')) })
+            throw e
+          }
+        }))
+        const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+        if (failed) throw failed.reason
+      }
+      const files = withFiles.current ? itemsRef.current.map((x) => x.path!) : []
+      const key = files.join('\n')
+      // the server makes the chat (the brand photo tool may run there), the intro when there is no file, and says what
+      // to attach; it may refuse with its own words (no profile and no website yet, the skill kept out)
+      if (started.current?.key !== key) started.current = { key, r: await api.call(API.startFirstResult, { body: { files } }) }
+      const r = started.current.r
+      const chatId = r.chatId
+      useChats.getState().upsertChat(await api.call(API.getChat, { params: { id: chatId } }))
       // like a skill form's run: the engine of the person's own choice when they may pick one, else the team's
       const choose = canChooseEngine(me)
       const engine = choose ? me.user.prefs.engine : undefined
       const model = choose ? (me.user.prefs.model ?? null) : undefined
-      if (!chat.current) {
-        const c = await api.call(API.createChat, { body: { projectId: null, engine, model: model ?? undefined } })
-        useChats.getState().upsertChat(c)
-        chat.current = c.id
-      }
-      const chatId = chat.current
-      const attachments = await Promise.all(itemsRef.current.map((x) => api.call(API.attachTeamFile, { body: { chatId, path: x.path! } })))
-      await useChats.getState().send({ chatId, content: `/${skillNameOf(tasksPath)} ${t('welcome.files.question')}`, attachments, author: { id: me.user.id, name: me.user.name }, projectId: null, engine, model })
+      const attachments = await Promise.all(r.files.map((path) => api.call(API.attachTeamFile, { body: { chatId, path } })))
+      await useChats.getState().send({ chatId, content: `/${skillNameOf(r.skillPath)} ${t('welcome.cardnews.question')}`, attachments, author: { id: me.user.id, name: me.user.name }, projectId: null, engine, model })
       rememberChat(me.user.id, chatId)
       onRan(chatId)
     } catch (e) {
@@ -436,8 +418,17 @@ function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: Welc
   }
   const pick = (list: File[]) => {
     if (!list.length || busy) return
+    withFiles.current = true
     setCut(list.length > WELCOME_FILES_MAX)
     setItems(list.slice(0, WELCOME_FILES_MAX).map((file) => ({ id: uuidv7(), file, status: 'waiting', progress: null, path: null })))
+    void run()
+  }
+  /** "자료 없이 만들게요": files picked before (one that failed, say) are left aside */
+  const none = () => {
+    if (busy) return
+    withFiles.current = false
+    setCut(false)
+    setItems([])
     void run()
   }
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
@@ -458,7 +449,7 @@ function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: Welc
       onDrop={drop}
       data-testid="welcome-result"
     >
-      <StepHead title={t('welcome.files.title')} desc={t('welcome.files.desc')} />
+      <StepHead title={t('welcome.cardnews.title')} desc={t('welcome.cardnews.desc')} />
       <div className="space-y-3" data-testid="welcome-files">
         {/* phones pick files, not folders (no webkitdirectory) */}
         <input ref={input} type="file" multiple className="hidden" onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; pick(list) }} data-testid="welcome-files-input" />
@@ -470,7 +461,7 @@ function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: Welc
         </div>
         <TeamReach team={team} groupId={progress.teamGroup?.id ?? null} />
         {items.length > 0 && (
-          <ul className="space-y-1 text-sm" aria-label={t('welcome.files.title')} data-testid="welcome-files-list">
+          <ul className="space-y-1 text-sm" aria-label={t('welcome.cardnews.title')} data-testid="welcome-files-list">
             {items.map((x) => (
               <li key={x.id} className="flex min-w-0 items-center gap-2" data-testid="welcome-file" data-status={x.status}>
                 {x.status === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : x.status === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
@@ -490,8 +481,8 @@ function FilesStep({ progress, busy: stepBusy, onRan, onNone }: { progress: Welc
         {error && <ErrorNote onRetry={busy ? undefined : () => void run()}>{error}</ErrorNote>}
       </div>
       <p className="text-sm">
-        <button type="button" className={quietLink} disabled={busy || stepBusy} onClick={onNone} data-testid="welcome-files-none">
-          {t('welcome.files.none')}
+        <button type="button" className={quietLink} disabled={busy || stepBusy} onClick={none} data-testid="welcome-files-none">
+          {t('welcome.cardnews.none')}
         </button>
       </p>
     </div>

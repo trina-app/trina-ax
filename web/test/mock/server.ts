@@ -33,7 +33,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, NOTES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
+  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
@@ -563,9 +563,20 @@ export class MockServer {
       seats: { used, limit: null },
     }
   }
-  /** the card the mock's draft shows for a source chat: meeting notes in a team notes folder, else a template */
+  /** a name of the team's language from a table of names per language (English for a language it lacks) */
+  localized(names: Record<Locale, string>): string {
+    return names[this.settings.defaultLocale as Locale] ?? names.en
+  }
+  /** the card the mock's draft shows for a source chat: meeting notes in a team notes folder, the company card news
+   * from the team's brand folder, else a template */
   skillCard(chatId: string): { title: string; description: string; inputs: SkillInput[]; files: { path: string; latest: boolean }[]; recurring: boolean } {
     const asked = this.messages.filter((m) => m.chatId === chatId && m.role === 'user').flatMap((m) => m.attachments.map((a) => a.path ?? ''))
+    const brand = asked.find((p) => /^groups\/[^/]+\/(브랜드|Brand)\//.test(p))
+    if (brand) return {
+      title: '홍보 카드뉴스', description: '회사 소개 자료로 카드뉴스 5장을 만들어요', recurring: false,
+      inputs: [{ name: 'channel', label: '어디에 올릴까요', type: 'choice', default: 'instagram', options: [{ value: 'instagram', label: '인스타그램' }, { value: 'linkedin', label: '링크드인' }] }],
+      files: [{ path: brand, latest: false }],
+    }
     const notes = asked.find((p) => /\/(회의록|Meeting notes)\//.test(p))
     if (notes) return {
       title: '주간회의 할 일', description: '팀 회의록에서 사람마다 할 일을 정리해요', recurring: true,
@@ -1663,18 +1674,18 @@ export class MockServer {
       return { progress: p, install: { pack: 'marketing', locale: this.settings.defaultLocale, skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' }], folders: [] }, outcome: 'installed' }
     },
     // every team's start (server/src/onboarding/welcome.ts): the general pack once, and the team's group (named after
-    // the team, the owner in it) with groups/<name>/ and its meeting notes folder, once
+    // the team, the owner in it) with groups/<name>/, its meeting notes folder and its brand folder, once
     setupWelcomeTeam: (c) => {
       const at = now()
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
       let install = null
       if (!p.general) {
-        const skills = [['meeting-tasks', GENERAL_TASKS_SKILL, '할 일 정리'], ['doc-brief', GENERAL_BRIEF_SKILL, '핵심 정리']] as const
+        const skills = [['meeting-tasks', GENERAL_TASKS_SKILL, '할 일 정리'], ['doc-brief', GENERAL_BRIEF_SKILL, '핵심 정리'], ['card-news', GENERAL_CARDNEWS_SKILL, '카드뉴스']] as const
         for (const [name, path, title] of skills) {
           for (const d of ['skills/general', `skills/general/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
           if (!this.files.has(path)) this.putFile(path, `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
         }
-        p.general = { at, tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL }
+        p.general = { at, tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL }
         install = { pack: 'general' as const, locale: this.settings.defaultLocale, skills: skills.map(([name, path]) => ({ name, path, status: 'created' as const })), folders: [] }
       }
       if (!p.teamGroup) {
@@ -1688,8 +1699,40 @@ export class MockServer {
         for (const d of ['groups', folder, notesFolder]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
         p.teamGroup = { id: g.id, name: g.name, folder, notesFolder }
       }
+      // the brand folder (docs/DECISIONS.md "N"), also for a group recorded before it
+      if (!p.teamGroup.brandFolder) {
+        const brandFolder = `${p.teamGroup.folder}/${this.localized(PACK_FOLDERS.brand)}`
+        this.files.set(brandFolder, this.files.get(brandFolder) ?? { type: 'folder', mtime: at })
+        p.teamGroup = { ...p.teamGroup, brandFolder }
+      }
       p.updatedAt = at
       return { progress: p, install, outcome: install ? 'installed' : 'already' }
+    },
+    // the first result, the company card news (server/src/onboarding/welcome.ts, short): the owner's files in the brand
+    // folder, or a 회사 소개.md written there; a new chat of the owner's; the card news skill once for an older row.
+    // The mock collects no website images (images: []).
+    startFirstResult: (c) => {
+      const at = now()
+      const p = this.welcome
+      const g = p?.teamGroup
+      if (!p || !p.general || !g?.brandFolder) fail('conflict', 409, '팀 폴더가 아직 없어요. 시작 설정을 다시 열어 주세요.')
+      const files = (c.body as import('@mycel/shared/api').StartFirstResult).files
+      for (const f of files) if (this.files.get(f)?.type !== 'file' || !f.startsWith(g!.brandFolder! + '/')) fail('not_found', 404)
+      if (!p!.general!.cardNewsPath) {
+        for (const d of ['skills/general', 'skills/general/card-news']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
+        if (!this.files.has(GENERAL_CARDNEWS_SKILL)) this.putFile(GENERAL_CARDNEWS_SKILL, '---\nname: card-news\ndescription: 카드뉴스\nmetadata:\n  title: 카드뉴스\n---\n# 카드뉴스\n')
+        p!.general = { ...p!.general!, cardNewsPath: GENERAL_CARDNEWS_SKILL }
+      }
+      const imagesFolder = `${g!.brandFolder}/${this.localized(BRAND_IMAGES_FOLDER)}`
+      this.files.set(imagesFolder, this.files.get(imagesFolder) ?? { type: 'folder', mtime: at })
+      let intro: string | null = null
+      if (!files.length) {
+        intro = `${g!.brandFolder}/회사 소개.md`
+        this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p!.site ? ` · ${p!.site}` : ''}\n`)
+      }
+      const chat = (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 홍보 카드뉴스' } }) as { body: Chat }).body
+      p!.updatedAt = at
+      return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.cardNewsPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
     },
     // the one suggestion under a result (server/src/onboarding/suggestions.ts): none unless a test sets one
     // (/__test/result-suggestion); closing one keeps it closed

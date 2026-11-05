@@ -1,6 +1,7 @@
 // On the chat the welcome steps' first result ran in (pages/Welcome.tsx), once its answer is in, one slim bar with one
-// button. With the lead's team files in that chat (docs/DECISIONS.md "S — The lead's way becomes a team skill"): "팀원
-// AI도 이 방식대로 하게 할까요?" [팀 스킬로 만들기]; the skill card (SkillShareCard) drafts a team skill from that answer
+// button. With the lead's team files in that chat (docs/DECISIONS.md "S — The lead's way becomes a team skill"; the
+// company card news of "N" always has them): "마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수
+// 있어요" [팀 스킬로 저장]; the skill card (SkillShareCard) drafts a team skill from that answer
 // and its files, the lead shares it, and the invite step follows with that skill: people who join land on its form, or
 // on a new chat with its title when it asks nothing. Its X puts the invite off. With the ad copy (no files, our own
 // skill: making a team skill of it would only copy ours): "팀원도 이 스킬을 바로 써 볼 수 있어요" [팀원 초대], people land
