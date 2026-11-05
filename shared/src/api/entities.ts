@@ -307,6 +307,10 @@ export const Message = z.object({
   /** finished answers only: how many team files the AI read or saw passages of while writing it ("참고한 파일 N개");
    * the list itself, checked against the viewer's access, comes from GET .../messages/:messageId/sources. Absent: none */
   sourceCount: z.number().int().positive().optional(),
+  /** finished answers that ran a team skill ("/name", a form or the skill tool): the skill as recorded, and how many
+   * team files went into it (team-file references of the question and files read, outside personal folders and
+   * skills/). The step summary then reads "팀 스킬 '할 일 정리' · 팀 파일 2개". Absent: no team skill ran */
+  receipt: z.object({ skill: z.object({ path: z.string(), name: z.string() }), teamFiles: z.number().int().nonnegative() }).optional(),
 })
 export type Message = z.infer<typeof Message>
 

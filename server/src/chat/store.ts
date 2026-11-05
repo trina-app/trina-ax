@@ -4,7 +4,7 @@ import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChange
 import { STEP_TEXT } from '@mycel/shared'
 import { newId } from '../db'
 import { isConfidentialChat } from '../safe-ops/confidential'
-import { sourceCount } from '../files/sources'
+import { isTeamFilePath, sourceCount, teamSourcePaths } from '../files/sources'
 
 export interface ChatRow {
   id: string; user_id: string; project_id: string | null; title: string; engine: string; model: string | null
@@ -173,7 +173,20 @@ export class ChatStore {
       ...(r.role === 'assistant' && r.history_trimmed === 1 ? { historyTrimmed: true } : {}),
       // a finished answer's "참고한 파일" count; the list itself is checked for the viewer when it is opened
       ...(() => { const n = r.role === 'assistant' && r.status !== 'streaming' && !live ? sourceCount(this.db, r.id) : 0; return n ? { sourceCount: n } : {} })(),
+      // a finished answer that ran a team skill: "팀 스킬 '할 일 정리' · 팀 파일 2개" (docs/DECISIONS.md "M — One meeting note")
+      ...(r.role === 'assistant' && r.status !== 'streaming' && !live && r.turn_id ? this.receiptOf(r) : {}),
     }
+  }
+  /** The skill a finished answer ran (a command first, else the skill tool's first) and how many team files went into
+   * it: the question's team-file references and the files it read, outside personal folders and skills/. Counts only:
+   * the names stay behind the sources list, which checks the viewer's access. */
+  receiptOf(r: MessageRow): { receipt?: { skill: { path: string; name: string }; teamFiles: number } } {
+    const run = this.db.query(`SELECT skill_path AS path, skill_name AS name FROM turn_skill_runs WHERE turn_id = ?
+      ORDER BY CASE source WHEN 'command' THEN 0 ELSE 1 END, recorded_at LIMIT 1`).get(r.turn_id) as { path: string; name: string } | null
+    if (!run) return {}
+    const asked = r.parent_id ? (this.db.query('SELECT attachments FROM messages WHERE id = ?').get(r.parent_id) as { attachments: string } | null) : null
+    const refs = json<Attachment[]>(asked?.attachments ?? '[]', []).filter((a) => a.source === 'team' && isTeamFilePath(a.path)).map((a) => a.path)
+    return { receipt: { skill: { path: run.path, name: run.name }, teamFiles: new Set([...refs, ...teamSourcePaths(this.db, r.id)]).size } }
   }
   turnUsage(turnId: string): Usage | null {
     const t = this.db.query('SELECT input_tokens, output_tokens, cost_usd, status FROM turns WHERE id = ?').get(turnId) as { input_tokens: number; output_tokens: number; cost_usd: number; status: string } | null

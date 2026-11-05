@@ -1,5 +1,7 @@
-// The welcome steps after a team is made (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"): 회사 소개 →
-// 첫 결과, then the team invite. Route module: server/src/routes/onboarding-welcome.ts. The progress is one settings
+// The welcome steps after a team is made (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One
+// meeting note, everyone's own tasks"): 회사 소개 → 첫 결과, then the team invite. The first result is the team's own
+// meeting notes put into the team's folder and turned into tasks per person; every team gets the general skill pack
+// and a group named after the team with its folder (groups/<team>/), once. Route module: server/src/routes/onboarding-welcome.ts. The progress is one settings
 // row of the team (`onboarding.welcome`), so the steps resume where they stopped on any device; owners and admins read
 // it, only the owner (who walks through the steps) writes it. The team type is no longer a step: the first step says
 // "마케팅 스킬 7개를 넣어 둘게요 · 다른 팀이에요", and leaving it installs the marketing skill pack once (unless another
@@ -20,17 +22,22 @@ export const WELCOME_COUNTED = ['profile', 'result'] as const satisfies readonly
 export const WelcomeStepState = z.enum(['done', 'skipped'])
 export type WelcomeStepState = z.infer<typeof WelcomeStepState>
 
-/** 마케팅 / 영업 / 경영지원 / 기타. Only marketing has a skill pack today (the default: null reads as marketing). */
+/** 마케팅 / 영업 / 경영지원 / 기타. Only marketing has a skill pack, an addition to the general pack: the first step's
+ * line "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" sets `marketing`; null (no answer) is the general pack only. Rows from
+ * before (X) may hold the other types; they read as "not marketing". */
 export const TEAM_TYPES = ['marketing', 'sales', 'operations', 'other'] as const
 export const TeamType = z.enum(TEAM_TYPES)
 export type TeamType = z.infer<typeof TeamType>
 export const TEAM_TYPE_PACK: Partial<Record<TeamType, SkillPackId>> = { marketing: 'marketing' }
 
-/** How many skills the marketing pack puts in ("마케팅 스킬 7개를 넣어 둘게요"; a test holds it to the pack). */
+/** How many skills the marketing pack puts in ("마케팅 스킬 7개"; a test holds it to the pack). */
 export const WELCOME_PACK_SKILLS = 7
 
 /** The first-result skill: the marketing pack's ad copy ("우리 회사 광고 문구 3개"). */
 export const WELCOME_RESULT_SKILL = 'skills/marketing/ad-copy/SKILL.md'
+
+export const TeamGroupRef = z.object({ id: z.string(), name: z.string(), folder: z.string(), notesFolder: z.string() })
+export type TeamGroupRef = z.infer<typeof TeamGroupRef>
 
 /** A field added later must be optional or have a default: the server reads the stored row field by field (a field
  * that does not read falls back to its default; a recorded pack always counts as installed). */
@@ -52,8 +59,16 @@ export const WelcomeProgress = z.object({
   /** a row from the three-step version whose team step was put off ("나중에") and no team type picked since: the
    * marketing pack is not installed by itself when the first step is left (the earlier choice stands); absent = no */
   teamSkipped: z.boolean().optional(),
-  /** profile and result done, and the invite done or skipped */
+  /** profile and result done, and the invite done or skipped; or the owner finished without files ("자료 없이") */
   finishedAt: z.string().nullable(),
+  /** the general pack (할 일 정리, 핵심 정리) these steps installed, once; absent or null: not yet. `tasksPath` /
+   * `briefPath`: the skills "/meeting-tasks" and "/doc-brief" run for the team (the pack's own files, or another team
+   * skill of that name already there); null when neither is there */
+  general: z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable() }).nullable().optional(),
+  /** the team's own group (named after the team), its folder groups/<name>/ (its members read and write) and the
+   * meeting notes folder in it; made once by these steps, the owner in it, the team link's default group. Absent or
+   * null: not yet */
+  teamGroup: TeamGroupRef.nullable().optional(),
 })
 export type WelcomeProgress = z.infer<typeof WelcomeProgress>
 
@@ -70,6 +85,9 @@ export const WelcomeUpdate = z.object({
   inviteShown: z.literal(true).optional(),
   site: z.string().max(300).optional(),
   dismissed: z.boolean().optional(),
+  /** "자료 없이 해 볼게요" without the marketing pack: the steps end here (the result and the invite are put off, and the
+   * steps count as finished); Home says where meeting notes go */
+  finish: z.literal(true).optional(),
 }).strict()
 export type WelcomeUpdate = z.infer<typeof WelcomeUpdate>
 
@@ -83,6 +101,16 @@ export const WelcomePackResult = z.object({
   outcome: z.enum(['installed', 'already', 'blocked']),
 })
 export type WelcomePackResult = z.infer<typeof WelcomePackResult>
+
+/** POST /api/onboarding/welcome/team: the general pack (once) and the team's own group and folders (once). */
+export const WelcomeTeamResult = z.object({
+  progress: WelcomeProgress,
+  /** what the general pack's install did; null when nothing ran now */
+  install: SkillPackInstallResult.nullable(),
+  /** installed / already: as for the marketing pack · blocked: the folder rules kept "할 일 정리" out (nothing recorded) */
+  outcome: z.enum(['installed', 'already', 'blocked']),
+})
+export type WelcomeTeamResult = z.infer<typeof WelcomeTeamResult>
 
 /**
  * One suggestion under a result (docs/DECISIONS.md "X — Lean onboarding"), at most one line, chosen by state (the
@@ -110,6 +138,8 @@ export const WELCOME = {
     summary: 'Record a welcome step (owner): start, the team type, a step done or skipped, the first-result chat, the invite shown, hide the Home entry.' }),
   installWelcomePack: endpoint({ method: 'POST', path: '/api/onboarding/welcome/pack', auth: 'owner', owner: 'B', response: WelcomePackResult,
     summary: 'Install the marketing skill pack for the welcome steps, once: nothing runs when these steps installed it before or the team already has its skills.' }),
+  setupWelcomeTeam: endpoint({ method: 'POST', path: '/api/onboarding/welcome/team', auth: 'owner', owner: 'B', response: WelcomeTeamResult,
+    summary: 'Every team\'s start, once: the general skill pack (meeting notes → tasks, a document\'s brief) and a group named after the team with its folder groups/<name>/ and a meeting notes folder in it, the owner in it.' }),
   getResultSuggestion: endpoint({ method: 'GET', path: '/api/onboarding/suggestion', auth: 'user', owner: 'B',
     query: z.object({ chatId: z.string().min(1).max(64), messageId: z.string().min(1).max(64) }), response: z.object({ suggestion: ResultSuggestion.nullable() }),
     summary: 'The one suggestion under an answer of the caller\'s own chat (schedule a skill run for the 2nd time, or a report as a PPT), or null; none the caller closed.' }),

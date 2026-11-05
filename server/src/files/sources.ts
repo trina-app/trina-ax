@@ -68,6 +68,15 @@ export function sourceCount(db: Database, messageId: string): number {
   return (db.query('SELECT COUNT(*) AS n FROM message_sources WHERE message_id = ?').get(messageId) as { n: number }).n
 }
 
+/** A team path that is the team's (not a person's own folder, not skills/ or a server folder): what the answer's
+ * receipt counts as "팀 파일". */
+export const isTeamFilePath = (p: string): boolean => !!p && !/^(users|skills|\.system)(\/|$)/.test(p)
+
+/** The team files of an answer's list (isTeamFilePath), as recorded. */
+export function teamSourcePaths(db: Database, messageId: string): string[] {
+  return (db.query('SELECT path FROM message_sources WHERE message_id = ? ORDER BY ord').all(messageId) as { path: string }[]).map((r) => r.path).filter(isTeamFilePath)
+}
+
 const VIA = new Set<SourceVia>(['read', 'search', 'grep'])
 
 /**
