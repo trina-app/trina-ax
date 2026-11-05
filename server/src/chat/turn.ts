@@ -1887,9 +1887,10 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale): { label: st
       ]
     }
     case 'write':
-      return detail([field('roomAiChangeFile', str(a.file_path))], str(a.content) || tr('roomAiChangeEmpty', L), [str(a.file_path)])
+      // an empty file: said as a field, so the card's size (of the text) is not that of the words "(빈 내용)"
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.content) ? [] : [field('roomAiChangeContent', tr('roomAiChangeEmpty', L))])], str(a.content), [str(a.file_path)])
     case 'edit':
-      return detail([field('roomAiChangeFile', str(a.file_path))], `${str(a.old_string)}\n→\n${str(a.new_string) || tr('roomAiChangeEmpty', L)}`, [str(a.file_path)])
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.new_string) ? [] : [field('roomAiChangeNewText', tr('roomAiChangeEmpty', L))])], `${str(a.old_string)}\n→\n${str(a.new_string)}`, [str(a.file_path)])
     case 'make_file': {
       // made from a file (a source, a template, pictures): what those hold is not on the card, and the card says so
       const from = [str(a.source), str(a.template), ...(Array.isArray(a.images) ? a.images.filter((x): x is string => typeof x === 'string') : [])].filter(Boolean)
