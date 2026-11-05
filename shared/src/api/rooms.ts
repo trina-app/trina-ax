@@ -114,7 +114,12 @@ export const RoomMessage = z.object({
   /** a private preview of an AI answer, to the person who asked only: why it did not go to the room. folders: team
    * folders some member cannot read ('' = the top of the team folder); personal: their own folder (or what only they
    * see: the in-app browser, a personal connection); outside: web pages, connected services or other tools */
-  preview: z.object({ folders: z.array(z.string()), personal: z.boolean(), outside: z.boolean() }).optional(),
+  preview: z.object({ folders: z.array(z.string()), personal: z.boolean(), outside: z.boolean(),
+    /** members who were not in the room yet when a message the AI was given was written (their names) */
+    joinedLater: z.array(z.string()).optional() }).optional(),
+  /** an AI answer: the team files it links to or shows that the viewer may open now; the app shows the others as plain
+   * text (no link, no picture loaded) */
+  openable: z.array(z.string()).optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
 
@@ -226,3 +231,17 @@ export const ROOMS = {
   shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', response: RoomMessage, summary: 'Post my private preview of an AI answer to the room: sources some member cannot read are left out; it notifies like a new message and is audited.' }),
   roomMessageSources: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files an AI answer in a room I am in used, each checked against my access now (no name or path for the others).' }),
 } as const
+
+/** The team files an answer links to or shows (/api/files/download?path=… and the file view's ?path=…), as the app's
+ * links name them (no slashes around): what RoomMessage.openable is checked from. */
+export function answerFilePaths(body: string, max = 100): string[] {
+  const out = new Set<string>()
+  for (const m of body.matchAll(/(?:\/api\/files\/download|\/files\/view)\?([^\s)"'<>\]]+)/g)) {
+    let p: string | null = null
+    try { p = new URLSearchParams(m[1]!.replace(/&amp;/g, '&')).get('path') } catch { /* not a query */ }
+    const clean = p?.replace(/^\/+|\/+$/g, '')
+    if (clean) out.add(clean)
+    if (out.size >= max) break
+  }
+  return [...out]
+}

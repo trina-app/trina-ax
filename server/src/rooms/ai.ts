@@ -37,7 +37,7 @@ import { atLeast, loadPrincipal, type Principal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { canSee, memberRow, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, type MessageRow, type RoomRow } from './store'
+import { canSee, memberRow, members, messageRow, messagesOut, MSG_COLS, roomRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
 
 /** room messages before the question that go in front of it, at most */
@@ -53,8 +53,11 @@ export interface AskOptions { windowId?: string | null; clientKind?: string | nu
 /** What precheck found before the message is written. */
 export interface Prepared extends AskOptions { chatId: string | null; engine: EngineModel }
 
-/** Where an answer may go (decide). folders: team folders some member cannot read ('' = the top of the team folder). */
-export interface Decision { post: boolean; folders: string[]; personal: boolean; outside: boolean }
+/** Where an answer may go (decide). folders: team folders some member cannot read ('' = the top of the team folder);
+ * joinedLater: members who were not in the room yet when a message given to the AI was written. */
+export interface Decision { post: boolean; folders: string[]; personal: boolean; outside: boolean; joinedLater: string[] }
+/** A member as decide() sees them: null = an account that cannot read anything now (disabled, deleted). */
+type Reader = { member: MemberRow; who: Principal | null }
 
 interface TurnRow { turn_id: string; room_id: string; user_id: string; chat_id: string; question_id: string; status: 'active' | 'posted' | 'private' | 'stopped' | 'error'; answer_id: string | null; decision: string | null; error: string | null; created_at: string; ended_at: string | null }
 
@@ -144,14 +147,16 @@ export class RoomAi implements RoomTurns {
     const qid = asked?.client_message_id?.startsWith('room-') ? asked.client_message_id.slice(5) : null
     const q = qid ? messageRow(db, o.roomId, qid) : null
     const before = q ? q.seq : room.last_seq + 1
-    const rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.seq < ? AND ${SEE_SQL} AND m.deleted_at IS NULL ORDER BY m.seq DESC LIMIT ?`)
-      .all(o.roomId, before, me.visible_from_seq, o.userId, ROOM_CONTEXT_MESSAGES) as MessageRow[]
+    // messages for the whole room only: a private preview (anyone's, the person's own too) never goes back to the AI,
+    // where a later answer could carry it into the room
+    const rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.seq < ? AND m.seq > ? AND m.visibility = 'room' AND m.deleted_at IS NULL ORDER BY m.seq DESC LIMIT ?`)
+      .all(o.roomId, before, me.visible_from_seq, ROOM_CONTEXT_MESSAGES) as MessageRow[]
     // the person's own questions and the answers to them are in the session already (or in the history a fresh one gets)
     const own = o.continues ? new Set((db.query('SELECT question_id FROM room_ai_turns WHERE room_id = ? AND user_id = ?').all(o.roomId, o.userId) as { question_id: string }[]).map((r) => r.question_id)) : new Set<string>()
     const names = this.names([o.userId, ...rows.flatMap((m) => [m.author_id, m.asked_by])])
     const asker = names.get(o.userId) ?? o.userId
     const parts: string[] = []
-    let total = 0, others = false
+    let total = 0, others = false, fromSeq: number | null = null
     for (const m of rows) {
       if (o.continues && ((m.author_kind === 'user' && m.author_id === o.userId && own.has(m.id)) || (m.author_kind === 'ai' && m.asked_by === o.userId))) continue
       const files = (db.query('SELECT name FROM room_files WHERE message_id = ? ORDER BY created_at, id').all(m.id) as { name: string }[]).map((f) => f.name)
@@ -163,6 +168,7 @@ export class RoomAi implements RoomTurns {
       if (total + item.length > ROOM_CONTEXT_CHARS) break
       parts.push(item)
       total += item.length
+      fromSeq = m.seq // rows are newest first: the last one kept is the oldest
       if (m.author_kind === 'ai' || m.author_id !== o.userId) others = true
     }
     parts.reverse()
@@ -177,7 +183,11 @@ export class RoomAi implements RoomTurns {
       `${attr(asker)}'s message:`,
     ].join('\n')
     const prompt: RoomPrompt = { name: label, kind: room.kind === 'dm' || room.kind === 'all' ? room.kind : 'team', members: members(db, o.roomId).length, asker }
-    return { block, others, prompt }
+    // the members now, by the folder rules (no file system): which skills the AI may be shown here
+    const readers = this.readers(o.roomId)
+    const rules = this.ctx.files.rules()
+    const readable = (rel: string) => { const segs = rel.split('/').filter(Boolean); return readers.every((r) => !!r.who && atLeast(rules.access(r.who, segs), 'read')) }
+    return { block, others, fromSeq, prompt, readable }
   }
 
   step(o: { roomId: string; turnId: string; userId: string }, step: Step) {
@@ -209,7 +219,7 @@ export class RoomAi implements RoomTurns {
         VALUES (?, ?, ?, 'ai', NULL, ?, ?, ?, ?, ?, '[]', NULL, ?)`).run(id, t.room_id, seq, t.user_id, d.post ? 'room' : 'private', d.post ? null : t.user_id, body, q && !q.deleted_at ? q.id : null, now)
       db.query('INSERT INTO room_message_sources (message_id, ord, path, sha256, locs, via, by_main, by_subagent) SELECT ?, ord, path, sha256, locs, via, by_main, by_subagent FROM message_sources WHERE message_id = ?').run(id, msg.id)
       db.query('UPDATE room_ai_turns SET status = ?, answer_id = ?, decision = ?, ended_at = ? WHERE turn_id = ?')
-        .run(d.post ? 'posted' : 'private', id, d.post ? null : JSON.stringify({ folders: d.folders, personal: d.personal, outside: d.outside }), now, turnId)
+        .run(d.post ? 'posted' : 'private', id, d.post ? null : decisionJson(d), now, turnId)
     })()
     const row = messageRow(db, t.room_id, id)!
     const rooms = roomsOf(this.ctx)
@@ -233,17 +243,22 @@ export class RoomAi implements RoomTurns {
    */
   decide(roomId: string, chatId: string): Decision {
     const db = this.db, rules = this.ctx.files.rules()
-    const people = this.memberPrincipals(roomId)
+    // an account that cannot be loaded (disabled, deleted, still listed) reads nothing: it fails every check
+    const readers = this.readers(roomId)
+    const people = readers.map((r) => r.who)
     let outside = !!(db.query('SELECT room_outside FROM chats WHERE id = ?').get(chatId) as { room_outside: number } | null)?.room_outside
     let personal = false
     const folders = new Set<string>()
+    const joined = new Set<string>()
     for (const s of readScope(db, chatId) ?? []) {
       if (s.type === 'integration') { outside = true; continue }
       if (s.type === 'room') {
-        if (s.id !== roomId) { const v = roomViewers(db, s.id); if (!people.every((p) => v.has(p.id))) outside = true }
+        if (s.id !== roomId) { const v = roomViewers(db, s.id, undefined, s.fromSeq); if (!people.every((p) => !!p && v.has(p.id))) outside = true; continue }
+        // messages written before someone joined: they never saw them, and the answer may repeat them
+        if (s.fromSeq !== undefined) for (const r of readers) if (r.member.visible_from_seq >= s.fromSeq) joined.add(r.member.user_id)
         continue
       }
-      if (s.type === 'user') { if (!people.every((p) => p.id === s.id)) personal = true; continue }
+      if (s.type === 'user') { if (!people.every((p) => !!p && p.id === s.id)) personal = true; continue }
       let path = ''
       if (s.type === 'folder') {
         const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
@@ -251,9 +266,10 @@ export class RoomAi implements RoomTurns {
         path = row.path
       }
       const segs = path === '' ? [] : path.split('/')
-      if (!people.every((p) => atLeast(rules.access(p, segs), 'read'))) folders.add(path)
+      if (!people.every((p) => !!p && atLeast(rules.access(p, segs), 'read'))) folders.add(path)
     }
-    return { post: !outside && !personal && folders.size === 0, folders: [...folders].sort(), personal, outside }
+    const joinedLater = [...this.names([...joined]).values()].sort()
+    return { post: !outside && !personal && folders.size === 0 && joined.size === 0, folders: [...folders].sort(), personal, outside, joinedLater }
   }
 
   // ---------------- the person's actions ----------------
@@ -266,9 +282,21 @@ export class RoomAi implements RoomTurns {
     // does not exist, also once it is in the room
     if (!m || m.author_kind !== 'ai' || m.asked_by !== userId || m.deleted_at || !canSee(m, me)) return fail('not_found')
     if (m.visibility === 'room') return messagesOut(db, [m], me)[0]!
-    const people = this.memberPrincipals(roomId)
+    // why it is private is decided again now (members and rules may have changed): new reasons are shown to the person
+    // first, and they post it with those in sight (the same call again)
+    const t = db.query('SELECT * FROM room_ai_turns WHERE answer_id = ?').get(m.id) as TurnRow | null
+    if (t) {
+      const d = this.decide(roomId, t.chat_id)
+      const now = d.post ? null : decisionJson(d)
+      if (now && now !== t.decision) {
+        db.query('UPDATE room_ai_turns SET decision = ? WHERE turn_id = ?').run(now, t.turn_id)
+        rooms.messageEvent('room.message.updated', m)
+        return fail('conflict', tr('roomAiReasonsChanged', this.rt().userLocale(userId)), { params: { reason: 'room_ai_reasons_changed' } })
+      }
+    }
+    const people = this.readers(roomId).map((r) => r.who)
     const rules = this.ctx.files.rules(), fx = this.ctx.files.fx
-    const readable = (p: Principal, rel: string) => { try { const a = authorize(fx, rules, p, rel, 'read'); return !a.st?.isDirectory() && !!visiblePath(fx, rules, p, a.rel) } catch { return false } }
+    const readable = (p: Principal | null, rel: string) => { if (!p) return false; try { const a = authorize(fx, rules, p, rel, 'read'); return !a.st?.isDirectory() && !!visiblePath(fx, rules, p, a.rel) } catch { return false } }
     const rows = db.query('SELECT ord, path FROM room_message_sources WHERE message_id = ?').all(m.id) as { ord: number; path: string }[]
     const drop = rows.filter((r) => !people.every((p) => readable(p, r.path)))
     const now = nowIso()
@@ -354,8 +382,9 @@ export class RoomAi implements RoomTurns {
     return { turnId: t.turn_id, roomId: t.room_id, questionId: t.question_id, state, position, steps, error, createdAt: t.created_at }
   }
 
-  private memberPrincipals(roomId: string): Principal[] {
-    return members(this.db, roomId).map((m) => loadPrincipal(this.db, m.user_id)).filter((p): p is Principal => !!p)
+  /** The room's members now, each with what they may read (null: nothing). */
+  private readers(roomId: string): Reader[] {
+    return members(this.db, roomId).map((member) => ({ member, who: loadPrincipal(this.db, member.user_id) }))
   }
   private names(ids: (string | null)[]): Map<string, string> {
     const want = [...new Set(ids.filter((x): x is string => !!x))]
@@ -370,6 +399,9 @@ export class RoomAi implements RoomTurns {
     return other?.name ?? 'direct message'
   }
 }
+
+/** The reasons of a private preview as stored (and compared when it is posted). */
+const decisionJson = (d: Decision) => JSON.stringify({ folders: d.folders, personal: d.personal, outside: d.outside, joinedLater: d.joinedLater })
 
 export function roomAiOf(ctx: AppContext): RoomAi {
   let s = services.get(ctx)

@@ -9,18 +9,19 @@
 //                        personal external-service connection returned
 //   {type:'integration', id}  what a team external-service connection returned: its viewers are the active people its
 //                        access rules allow today (integrations/connections/store.ts)
-//   {type:'room', id}    messages other members wrote in a team chat room, which the AI got as context there
-//                        (rooms/ai.ts): its viewers are the room's members today
+//   {type:'room', id, fromSeq}  messages of a team chat room the AI got as context there (rooms/ai.ts), the oldest of
+//                        them at seq fromSeq: its viewers are the room's members today who could see that message
+//                        (they were in the room before it)
 // null (no sources yet) = no limit. read and grep results count; list / glob (names only), skills, memories and the
 // person's own messages do not.
 import type { Database } from 'bun:sqlite'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { getRow, usersOf } from '../integrations/connections/store'
 
-export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'room'; id: string }
+export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'room'; id: string; fromSeq?: number }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
-export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : `${s.type}:${s.id}`)
+export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : `${s.type}:${s.id}`)
 const key = sourceKey
 
 /** The source of a team-folder file (relative path with actual names). */
@@ -71,7 +72,7 @@ function activePeople(db: Database): Principal[] {
 function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principal[]): Set<string> {
   if (s.type === 'user') return new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
   if (s.type === 'integration') return usersOf(db, s.id)
-  if (s.type === 'room') return roomViewers(db, s.id, people)
+  if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq)
   let segs: string[] = []
   if (s.type === 'folder') {
     const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
@@ -81,9 +82,11 @@ function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principa
   return new Set(people.filter((p) => atLeast(rules.access(p, segs), 'read')).map((p) => p.id))
 }
 
-/** The active people in a room now (an archived room: nobody). */
-export function roomViewers(db: Database, roomId: string, people?: Principal[]): Set<string> {
-  const ids = (db.query('SELECT m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ? AND r.archived_at IS NULL').all(roomId) as { user_id: string }[]).map((r) => r.user_id)
+/** The active people in a room now (an archived room: nobody); with `fromSeq`, only those who can see the room's
+ * message at that seq (who were in the room before it). */
+export function roomViewers(db: Database, roomId: string, people?: Principal[], fromSeq?: number): Set<string> {
+  const ids = (db.query('SELECT m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ? AND r.archived_at IS NULL AND m.visible_from_seq < ?')
+    .all(roomId, fromSeq ?? Number.MAX_SAFE_INTEGER) as { user_id: string }[]).map((r) => r.user_id)
   const active = new Set((people ?? activePeople(db)).map((p) => p.id))
   return new Set(ids.filter((id) => active.has(id)))
 }

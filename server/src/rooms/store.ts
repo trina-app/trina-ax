@@ -4,7 +4,7 @@
 // What a member sees: messages with seq > their visible_from_seq (a later member sees from their join on), and of those
 // the ones for the whole room or private to them (visibility 'private', visible_to: reserved for the AI step).
 import type { Database } from 'bun:sqlite'
-import type { Room, RoomFile, RoomKind, RoomLastMessage, RoomMember, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
+import { answerFilePaths, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = 200
@@ -30,6 +30,11 @@ export const isRoomMember = (db: Database, roomId: string, userId: string): bool
 export const members = (db: Database, roomId: string): MemberRow[] => db.query('SELECT * FROM room_members WHERE room_id = ?').all(roomId) as MemberRow[]
 export const messageRow = (db: Database, roomId: string, id: string): MessageRow | null =>
   db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE id = ? AND room_id = ?`).get(id, roomId) as MessageRow | null
+
+/** Who may open which team file now (rooms/service.ts sets it for the server's database): an AI answer's file links
+ * are shown as links only for files the viewer may open. Without one, none are (fails closed). */
+const pathChecks = new WeakMap<Database, (userId: string, rel: string) => boolean>()
+export function setRoomPathCheck(db: Database, check: (userId: string, rel: string) => boolean) { pathChecks.set(db, check) }
 
 /** May this member see this message? */
 export function canSee(m: Pick<MessageRow, 'seq' | 'visibility' | 'visible_to'>, member: Pick<MemberRow, 'user_id' | 'visible_from_seq'>): boolean {
@@ -88,7 +93,11 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
     const marks = ai.map(() => '?').join(',')
     for (const c of db.query(`SELECT message_id, COUNT(*) n FROM room_message_sources WHERE message_id IN (${marks}) GROUP BY message_id`).all(...ai) as { message_id: string; n: number }[]) sourceCounts.set(c.message_id, c.n)
     for (const t of db.query(`SELECT answer_id, decision FROM room_ai_turns WHERE answer_id IN (${marks})`).all(...ai) as { answer_id: string; decision: string | null }[]) {
-      try { const d = JSON.parse(t.decision ?? 'null'); if (d) previews.set(t.answer_id, { folders: Array.isArray(d.folders) ? d.folders.filter((x: unknown): x is string => typeof x === 'string') : [], personal: !!d.personal, outside: !!d.outside }) } catch { /* no reason shown */ }
+      try {
+        const d = JSON.parse(t.decision ?? 'null')
+        const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x: unknown): x is string => typeof x === 'string') : [])
+        if (d) previews.set(t.answer_id, { folders: strings(d.folders), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater) })
+      } catch { /* no reason shown */ }
     }
   }
   return rows.map((r) => {
@@ -110,11 +119,18 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       files: r.deleted_at ? [] : files.get(r.id) ?? [],
       unread: unreadOf(r, all),
       createdAt: r.created_at, editedAt: r.edited_at, deletedAt: r.deleted_at,
-      ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0 } : {}),
+      ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0, openable: openableFor(db, viewer.user_id, r.body) } : {}),
       // only the person it is private to ever gets this (canSee: nobody else is sent a private message at all)
       ...(r.author_kind === 'ai' && r.visibility === 'private' && r.visible_to === viewer.user_id && previews.has(r.id) ? { preview: previews.get(r.id)! } : {}),
     }
   })
+}
+
+/** The team files an AI answer names that this viewer may open now. */
+function openableFor(db: Database, userId: string, body: string): string[] {
+  const check = pathChecks.get(db)
+  if (!check) return []
+  return answerFilePaths(body).filter((p) => { try { return check(userId, p) } catch { return false } })
 }
 
 /** The rooms list line: the newest message `viewer` can see. */
