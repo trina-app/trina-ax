@@ -11,10 +11,11 @@
 import clsx from 'clsx'
 import { Copy, CornerUpLeft, Download, FileText, Lock, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useMemo, useRef, useState } from 'react'
-import type { Locale, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
+import { useShallow } from 'zustand/react/shallow'
+import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
-import { aiMentionNames, groupRuns, mentionParts } from '../../lib/rooms'
+import { aiMentionNames, groupRuns, mentionParts, runActive } from '../../lib/rooms'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
@@ -26,10 +27,11 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
 import { MenuButton, useLongPress } from './MenuButton'
-import { PrivateAnswered } from './RoomAiStatus'
+import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { useMentionMenu } from './useMentionMenu'
 
 const NO_PRIVATES: { questionId: string; askedBy: UserRef }[] = []
+const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
 export const messageDomId = (id: string) => `room-msg-${id}`
@@ -62,10 +64,18 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
     setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600)
   }
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null
-  // what the AI did with a question, under that question: someone else's answer that stayed theirs only
+  // what the AI did with a question, under that question: my answer that stopped or failed, someone else's answer that
+  // stayed theirs only
+  const ended = useRooms(useShallow((s) => (s.ai[roomId]?.runs ?? NO_RUNS).filter((r) => !runActive(r))))
   const privates = useRooms((s) => s.ai[roomId]?.privates) ?? NO_PRIVATES
-  const after = (id: string) => privates.filter((p) => p.questionId === id).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />)
-  const orphans = privates.filter((p) => !loaded.has(p.questionId))
+  const after = (id: string) => [
+    ...ended.filter((r) => r.questionId === id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
+    ...privates.filter((p) => p.questionId === id).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />),
+  ]
+  const orphans = [
+    ...ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
+    ...privates.filter((p) => !loaded.has(p.questionId)).map((p) => <PrivateAnswered key={p.questionId} name={p.askedBy.name} />),
+  ]
 
   return (
     <div data-testid="room-messages">
@@ -88,6 +98,8 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className="shrink-0 text-xs text-faint">
                     {timeOf(first.createdAt, locale)}
                   </time>
+                  {/* an AI answer is long Markdown: its unread number sits by the time, not on a line of its own */}
+                  {first.authorKind === 'ai' && !first.deletedAt && <Unread n={first.unread} />}
                 </p>
                 {run.messages.map((m) => (
                   <Fragment key={m.id}>
@@ -104,6 +116,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                       onEditDone={() => setEditing(null)}
                       onReply={() => onReply(quoteOf(m))}
                       onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
+                      headed={m === first}
                     />
                     {after(m.id)}
                   </Fragment>
@@ -113,13 +126,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
           </Fragment>
         )
       })}
-      {orphans.length > 0 && (
-        <div className="pl-11">
-          {orphans.map((p) => (
-            <PrivateAnswered key={p.questionId} name={p.askedBy.name} />
-          ))}
-        </div>
-      )}
+      {orphans.length > 0 && <div className="pl-11">{orphans}</div>}
       {pending.length > 0 && (
         <div className={clsx('pl-11', !lastMine && 'pt-2')} data-testid="room-pending">
           {pending.map((p) => (
@@ -142,7 +149,20 @@ function RunAvatar({ m }: { m: RoomMessage }) {
   return user ? <Avatar user={user} size={32} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onEdit, onEditDone, onReply, onJump }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; onEdit: () => void; onEditDone: () => void; onReply: () => void; onJump?: () => void }) {
+/** How many members have not read a message yet (only above 0). */
+function Unread({ n }: { n: number }) {
+  const t = useT()
+  if (n <= 0) return null
+  return (
+    <span className="ml-1.5 text-[11px] font-medium text-accent-text tabular-nums" data-testid="message-unread">
+      <span aria-hidden>{n}</span>
+      <span className="sr-only">{t('rooms.unreadBy', { n })}</span>
+    </span>
+  )
+}
+
+/** `headed`: the first message of its run (the run's name and time are above it) */
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onEdit, onEditDone, onReply, onJump, headed = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; onEdit: () => void; onEditDone: () => void; onReply: () => void; onJump?: () => void; headed?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -174,12 +194,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   const meta = (
     <>
       {m.editedAt && !deleted && <span className="ml-1 text-xs text-faint">{t('rooms.edited')}</span>}
-      {m.unread > 0 && !deleted && (
-        <span className="ml-1.5 text-[11px] font-medium text-accent-text tabular-nums" data-testid="message-unread">
-          <span aria-hidden>{m.unread}</span>
-          <span className="sr-only">{t('rooms.unreadBy', { n: m.unread })}</span>
-        </span>
-      )}
+      {!deleted && <Unread n={m.unread} />}
     </>
   )
   return (
@@ -195,7 +210,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
       {ai && !deleted ? (
         <>
           <Markdown text={m.body} className="min-w-0" openable={openable} />
-          {(m.unread > 0 || m.editedAt) && <p className="leading-5">{meta}</p>}
+          {!headed && m.unread > 0 && <p className="leading-5">{meta}</p>}
           {!!m.sourceCount && (
             <SourcesList chatId={roomId} messageId={m.id} count={m.sourceCount} load={(signal) => api.call(API.roomMessageSources, { params: { id: roomId, messageId: m.id }, signal })} />
           )}

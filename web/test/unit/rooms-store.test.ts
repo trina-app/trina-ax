@@ -178,6 +178,23 @@ describe('handleEvent', () => {
     expect(useRooms.getState().rooms.map((r) => r.id)).toEqual([dm.id, old.id])
   })
 
+  test('a send the server refuses (the AI still busy) goes back to the message box; a lost connection stays a bubble to retry', async () => {
+    const r = room()
+    useRooms.setState({ rooms: [r], loaded: true })
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { code: 'conflict', message: 'still answering', params: { reason: 'room_ai_busy' } } }), { status: 409, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
+    useRooms.getState().send(r.id, { body: '@Trina again', mentions: [BEN.id], replyTo: null, files: [] })
+    await new Promise((res) => setTimeout(res, 20))
+    expect(useRooms.getState().pending[r.id]).toBeUndefined()
+    expect(useRooms.getState().returned[r.id]).toMatchObject({ body: '@Trina again', mentions: [BEN.id] })
+    useRooms.getState().takeReturned(r.id)
+    expect(useRooms.getState().returned[r.id]).toBeUndefined()
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    useRooms.getState().send(r.id, { body: 'offline', mentions: [], replyTo: null, files: [] })
+    await new Promise((res) => setTimeout(res, 20))
+    expect(useRooms.getState().pending[r.id]).toMatchObject([{ body: 'offline', state: 'failed' }])
+    expect(useRooms.getState().returned[r.id]).toBeUndefined()
+  })
+
   test('a message for a room this window does not know yet reads that room', async () => {
     useRooms.setState({ rooms: [], loaded: true })
     const r = room({ unreadCount: 1, lastSeq: 1 })

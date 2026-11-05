@@ -149,3 +149,46 @@ test('touch screens: no "…" on every message; a long press opens its menu (rep
     removeDom()
   }
 })
+
+test("an AI answer's unread number sits by its time, not on a line of its own under the answer", () => {
+  const a = message({ roomId: R, seq: 2, authorKind: 'ai', author: null, askedBy: BEN, body: 'long **answer**', unread: 2 })
+  const html = render([a])
+  expect(count(html, 'data-testid="message-unread"')).toBe(1)
+  expect(html.indexOf('data-testid="message-unread"')).toBeLessThan(html.indexOf('<strong>answer</strong>'))
+  expect(html).toMatch(/<\/time><span[^>]*data-testid="message-unread"/)
+})
+
+test('my stopped question says so under that question, not at the end of the room', async () => {
+  const q = message({ roomId: R, seq: 1, author: ME, body: '@Trina table please' })
+  const later = message({ roomId: R, seq: 2, author: BEN, body: 'meanwhile' })
+  installDom()
+  useRooms.setState({ ai: { [R]: { answering: 0, runs: [{ turnId: uuidv7(), roomId: R, questionId: q.id, state: 'stopped', position: 0, steps: [], error: null, createdAt: q.createdAt }] } } })
+  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  try {
+    const html = m.html()
+    expect(count(html, 'data-testid="room-ai-ended"')).toBe(1)
+    expect(m.get('room-ai-ended').textContent).toContain(translate('en', 'rooms.aiStopped'))
+    expect(html.indexOf('room-ai-ended')).toBeLessThan(html.indexOf('meanwhile'))
+  } finally {
+    await m.unmount()
+    useRooms.getState().reset()
+    removeDom()
+  }
+})
+
+test('a room badge: "@" alone when it mentions me, grey for a muted room; a letter avatar is neutral, not the accent', async () => {
+  const { UnreadBadge } = await import('../../src/components/rooms/SidebarRooms')
+  const { Avatar } = await import('../../src/components/Avatar')
+  const { room } = await import('./rooms-fixtures')
+  const loud = renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 2, mentioned: true })} testId="b" />)
+  expect(loud).toContain('<span aria-hidden="true">@</span>')
+  expect(loud).toContain('bg-accent')
+  const quiet = renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 3, muted: true })} testId="b" />)
+  expect(quiet).toContain('<span aria-hidden="true">3</span>')
+  expect(quiet).toContain('bg-hover text-muted')
+  expect(quiet).not.toContain('bg-accent')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0 })} testId="b" />)).toBe('')
+  const face = renderToStaticMarkup(<Avatar user={{ id: 'x', name: 'Ada' }} />)
+  expect(face).toContain('>A<')
+  expect(face).not.toContain('bg-accent')
+})

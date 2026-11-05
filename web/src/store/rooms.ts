@@ -5,7 +5,7 @@
 // the requests they need. A reconnect the server could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
 import { uuidv7, type Room, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type ServerEvent, type UserRef } from '@mycel/shared/api'
-import { api, API, errorText, isApiError } from '../lib/api'
+import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { withRun, withRunPosition, withRunStep } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
@@ -178,6 +178,9 @@ interface RoomsState extends RoomsData {
   failed: unknown
   members: Record<string, RoomMember[]>
   pending: Record<string, PendingSend[]>
+  /** a send the server refused (the AI still busy with my question, a used-up budget, …): back in the room's message
+   * box with the reason as a toast, not a failed bubble to retry (components/rooms/RoomComposer.tsx takes it) */
+  returned: Record<string, PendingSend>
   ai: Record<string, RoomAi>
   loadRooms: () => Promise<void>
   /** null: not one of my rooms (gone from the list) */
@@ -201,6 +204,8 @@ interface RoomsState extends RoomsData {
   stopAi: (roomId: string, turnId: string) => Promise<void>
   /** close a run of mine that stopped or failed */
   dismissAi: (roomId: string, turnId: string) => void
+  /** the message box took back a refused send */
+  takeReturned: (roomId: string) => void
   /** post my private preview of an AI answer to the room */
   shareAi: (roomId: string, messageId: string) => Promise<void>
   resync: () => Promise<void>
@@ -208,7 +213,7 @@ interface RoomsState extends RoomsData {
   reset: () => void
 }
 
-const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'thread' | 'loaded' | 'failed' | 'members' | 'pending' | 'ai'> = { rooms: [], openRoomId: null, thread: null, loaded: false, failed: null, members: {}, pending: {}, ai: {} }
+const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'thread' | 'loaded' | 'failed' | 'members' | 'pending' | 'returned' | 'ai'> = { rooms: [], openRoomId: null, thread: null, loaded: false, failed: null, members: {}, pending: {}, returned: {}, ai: {} }
 
 /** what was typed in a room and not sent yet, while this page is open (components/rooms/RoomComposer.tsx); gone at
  * sign-out with the rest */
@@ -240,6 +245,14 @@ export const useRooms = create<RoomsState>((set, get) => {
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
     } catch (e) {
       const error = errorText(e, currentLocale(), t('error.network'))
+      // the server said no (not a lost connection): sending it again would get the same answer, so the text goes back
+      // to the box to send later; a room that is gone (404) or a lost sign-in (401) keeps the failed bubble
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 404) {
+        setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
+        set((s) => ({ returned: { ...s.returned, [roomId]: p } }))
+        toast({ level: 'warn', text: error })
+        return
+      }
       setPending(roomId, (list) => list.map((x) => (x.clientMessageId === p.clientMessageId ? { ...x, state: 'failed', error } : x)))
     }
   }
@@ -398,6 +411,10 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     dismissAi(roomId, turnId) {
       set((s) => (s.ai[roomId] ? { ai: { ...s.ai, [roomId]: { ...s.ai[roomId]!, runs: s.ai[roomId]!.runs.filter((r) => r.turnId !== turnId) } } } : {}))
+    },
+
+    takeReturned(roomId) {
+      set((s) => ({ returned: omit(s.returned, roomId) }))
     },
 
     async shareAi(roomId, messageId) {

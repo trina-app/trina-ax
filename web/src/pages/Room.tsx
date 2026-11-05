@@ -195,6 +195,8 @@ function RoomView({ roomId }: { roomId: string }) {
         meId={meId}
         reply={reply}
         onCancelReply={() => setReply(null)}
+        onReply={setReply}
+        empty={!!thread && !thread.loading && !thread.error && !messages.length && !pending.length}
         onSent={() => {
           stick.current = true
         }}
