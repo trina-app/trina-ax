@@ -1,6 +1,7 @@
 // Every route module, registered in this order (web last: its catch-all GET serves the app shell).
 // Owners never edit this file: each owns its module file (docs/WORKPLAN.md).
 import { adminRoutes } from './admin'
+import { peopleRoutes } from './people'
 import { artifactsRoutes } from './artifacts'
 import { authRoutes } from './auth'
 import { browserRoutes } from './browser'
@@ -29,6 +30,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   officeUpdateRoutes, // G (office mode automatic updates)
   authRoutes, // A
   adminRoutes, // A
+  peopleRoutes, // A (profiles and the people directory)
   chatsRoutes, // B
   memoriesRoutes, // B
   wsRoutes, // B

@@ -15,6 +15,7 @@ import type { AuthInfo, RealtimeHub, RequestInfo, SessionService } from '../serv
 import { getTeamSettings } from '../admin/settings'
 import { voiceInputOn, voiceInputOutside } from '../credentials/speech-key'
 import { audit } from '../admin/audit'
+import { profileOf } from './profiles'
 import { hashToken, newToken, verifyPassword } from './passwords'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
@@ -239,6 +240,7 @@ export class AuthService implements SessionService {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,
         canChooseEngine: choose,
+        ...profileOf(this.db, u.id),
       },
       groups,
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays },
