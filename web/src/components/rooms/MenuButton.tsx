@@ -1,8 +1,9 @@
-// A "…" button with a small menu (the room header's settings, a message's reply / edit / delete): arrow keys move,
-// Esc closes and gives the keyboard back, a click outside closes. Opens upward when it would run off the bottom.
+// A "…" button with a small menu (a message's reply / copy / edit / delete): arrow keys move, Esc closes and gives the
+// keyboard back, a click or a touch outside closes. Opens upward when it would run off the bottom. On a touch screen
+// the button is hidden and a long press on the message opens the same menu (`openSignal`, useLongPress).
 import clsx from 'clsx'
 import { MoreHorizontal } from 'lucide-react'
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 
 export interface MenuItem {
   label: string
@@ -12,23 +13,65 @@ export interface MenuItem {
   testId?: string
 }
 
-export function MenuButton({ label, items, className, buttonClassName, testId }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string }) {
+/** A long press with a finger (not a mouse): `onLong` after `ms` without moving; scrolling or lifting cancels it. The
+ * phone's own long-press menu (text selection, Android's context menu) stays away while it is used. */
+export function useLongPress(onLong: () => void, ms = 500) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const start = useRef<{ x: number; y: number } | null>(null)
+  const touchedAt = useRef(0)
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    start.current = null
+  }
+  useEffect(() => cancel, [])
+  return {
+    onPointerDown: (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return
+      touchedAt.current = Date.now()
+      start.current = { x: e.clientX, y: e.clientY }
+      timer.current = setTimeout(() => {
+        timer.current = null
+        onLong()
+      }, ms)
+    },
+    onPointerMove: (e: PointerEvent) => {
+      if (start.current && Math.hypot(e.clientX - start.current.x, e.clientY - start.current.y) > 10) cancel()
+    },
+    onPointerUp: cancel,
+    onPointerCancel: cancel,
+    onContextMenu: (e: MouseEvent) => {
+      if (Date.now() - touchedAt.current < 1500) e.preventDefault()
+    },
+  }
+}
+
+export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0 }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number }) {
   const [open, setOpen] = useState<null | 'down' | 'up'>(null)
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
+  /** when a long press opened it: the finger lifting right after is no choice of an item */
+  const pressedAt = useRef(0)
   useEffect(() => {
     if (!open) return
-    menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
-    const h = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(null)
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
+    menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true })
+    const h = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(null)
+    document.addEventListener('pointerdown', h)
+    return () => document.removeEventListener('pointerdown', h)
   }, [open])
-  const toggle = () => {
-    if (open) return setOpen(null)
-    const r = button.current?.getBoundingClientRect()
-    setOpen(r && typeof window !== 'undefined' && r.bottom + 40 * items.length + 16 > window.innerHeight ? 'up' : 'down')
+  const place = () => {
+    const r = (button.current?.offsetParent ? button.current : box.current)?.getBoundingClientRect()
+    return r && typeof window !== 'undefined' && r.bottom + 40 * items.length + 16 > window.innerHeight ? 'up' : 'down'
   }
+  const toggle = () => setOpen(open ? null : place())
+  useEffect(() => {
+    if (!openSignal) return
+    pressedAt.current = Date.now()
+    setOpen(place())
+    navigator.vibrate?.(10)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal])
   const onKey = (e: KeyboardEvent) => {
     if (!open) return
     if (e.key === 'Escape') {
@@ -73,6 +116,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId }:
               role="menuitem"
               type="button"
               onClick={() => {
+                if (Date.now() - pressedAt.current < 400) return
                 setOpen(null)
                 it.onSelect()
               }}

@@ -1,15 +1,15 @@
 // The messages of a room, oldest first: one author's messages close together share one avatar, name and time
 // (lib/rooms.ts groupRuns), a date line starts each day, and each message shows how many members have not read it yet
 // (only when some have not, like KakaoTalk's number). A message's text is another member's words: plain text with its
-// line breaks, never HTML or Markdown; the @names it mentions stand out. "…" on a message (always shown on touch
-// screens) answers it, and edits or deletes one's own. Images show as thumbnails that open in the side panel; other
+// line breaks, never HTML or Markdown; the @names it mentions stand out. "…" on a message (on hover; a long press on
+// touch screens) answers or copies it, and edits or deletes one's own. Images show as thumbnails that open in the side panel; other
 // files are chips that download.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
 // 있어요"), and above its one action (post it to the room, an outline button) who would see it then.
 import clsx from 'clsx'
-import { CornerUpLeft, Download, FileText, Lock, Pencil, Sparkles, Trash2 } from 'lucide-react'
+import { Copy, CornerUpLeft, Download, FileText, Lock, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useMemo, useRef, useState } from 'react'
 import type { Locale, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
@@ -24,8 +24,8 @@ import { useMe } from '../../store/session'
 import { quoteOf, useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
-import { Button, confirmDialog, inputCls } from '../ui'
-import { MenuButton } from './MenuButton'
+import { Button, confirmDialog, inputCls, useCopy } from '../ui'
+import { MenuButton, useLongPress } from './MenuButton'
 import { PrivateAnswered } from './RoomAiStatus'
 import { useMentionMenu } from './useMentionMenu'
 
@@ -154,6 +154,15 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   const mentioned = useMemo(() => m.mentions.map((id) => ({ id, name: names.get(id) ?? '' })), [m.mentions, names])
   // "@트리나" stands out like a person's name (the server asked the AI for it)
   const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...aiMentionNames(m.body, mentioned)]), [m.body, mentioned, ai])
+  const [press, setPress] = useState(0)
+  const menuOn = !deleted && !editing && (m.visibility === 'room' || removable)
+  // a touch screen: no "…" on every message; a long press opens its menu
+  const longPress = useLongPress(() => setPress((n) => n + 1))
+  const { copy } = useCopy()
+  const copyText = async () => {
+    await copy(m.body)
+    toast({ level: 'success', text: t('rooms.copied') })
+  }
   const del = async () => {
     const ok = await confirmDialog({ title: t('rooms.deleteTitle'), body: t('rooms.deleteBody'), confirm: t('common.delete'), danger: true })
     if (!ok) return
@@ -174,7 +183,14 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
     </>
   )
   return (
-    <div id={messageDomId(m.id)} className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 pr-10 transition', flash ? 'bg-accent-soft' : 'hover:bg-subtle')} data-testid="room-message" data-ai={ai ? '' : undefined} data-visibility={m.visibility}>
+    <div
+      id={messageDomId(m.id)}
+      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 pr-10 transition pointer-coarse:pr-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] max-sm:pr-2', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle')}
+      data-testid="room-message"
+      data-ai={ai ? '' : undefined}
+      data-visibility={m.visibility}
+      {...(menuOn ? longPress : {})}
+    >
       {ai ? <AskedBy m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
       {ai && !deleted ? (
         <>
@@ -209,15 +225,18 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
           {!m.body && (m.unread > 0 || m.editedAt) && <p className="leading-5">{meta}</p>}
         </>
       )}
-      {!deleted && !editing && (m.visibility === 'room' || removable) && (
+      {menuOn && (
         <MenuButton
           label={t('rooms.messageMenu')}
           className="absolute top-0 right-1"
-          buttonClassName="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 max-sm:opacity-100 aria-expanded:opacity-100"
+          // desktop: shown on hover; touch screens and phones: hidden, a long press opens the menu
+          buttonClassName="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:hidden max-sm:hidden"
           testId="message-menu"
+          openSignal={press}
           items={[
             // a private preview has one action on it (post it); putting it away is in this menu, like any message
             ...(m.visibility === 'room' ? [{ label: t('rooms.reply'), icon: <CornerUpLeft size={14} aria-hidden />, onSelect: onReply, testId: 'message-reply' }] : []),
+            ...(m.body ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copyText(), testId: 'message-copy' }] : []),
             ...(mine && !ai ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
             ...(removable ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' }] : []),
           ]}

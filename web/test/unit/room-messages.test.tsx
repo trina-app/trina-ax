@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { useRooms } from '../../src/store/rooms'
-import { installDom, mount, removeDom } from './dom-host'
+import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { at, BEN, CY, ME, message } from './rooms-fixtures'
 import { uuidv7 } from '@mycel/shared/api'
 
@@ -120,6 +120,32 @@ test("someone else's question answered privately says so under the question, nam
   } finally {
     await m.unmount()
     useRooms.getState().reset()
+    removeDom()
+  }
+})
+
+test('touch screens: no "…" on every message; a long press opens its menu (reply, copy, edit and delete my own)', async () => {
+  const html = render([message({ roomId: R, seq: 1, author: ME, body: 'mine' })])
+  // the button stays for the mouse (on hover) and goes on phones and touch screens
+  expect(html).toMatch(/<button[^>]*class="[^"]*pointer-coarse:hidden max-sm:hidden[^"]*"[^>]*data-testid="message-menu"/)
+  installDom()
+  const m = await mount(<RoomMessages roomId={R} messages={[message({ roomId: R, seq: 1, author: ME, body: 'mine' })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  try {
+    const press = (type: string, o: Record<string, unknown> = {}) => {
+      const e = Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10, ...o })
+      m.get('room-message').dispatchEvent(e)
+    }
+    // a finger that moves (scrolling) opens nothing
+    press('pointerdown')
+    press('pointermove', { clientY: 60 })
+    await m.settle(700)
+    expect(m.find('message-reply')).toBeNull()
+    // held still: the menu
+    press('pointerdown')
+    await m.settle(700)
+    expect(['message-reply', 'message-copy', 'message-edit', 'message-delete'].map((id) => !!m.find(id))).toEqual([true, true, true, true])
+  } finally {
+    await m.unmount()
     removeDom()
   }
 })
