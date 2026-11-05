@@ -3,7 +3,15 @@ export const MOBILE_PROTOCOL = 1
 export const MAX_FILE_BYTES = 50 * 1024 * 1024
 export const MAX_CHUNK_BYTES = 3 * 1024 * 1024
 export const TRANSFER_IDLE_MS = 60_000
+/** Required by protocol 1: a bridge without them is not a mobile app. */
 export const MOBILE_CAPABILITIES = ['file-share-v1', 'external-oauth-v1'] as const
+/** Optional, versioned: the web page asks for this phone's native push token (APNs/FCM) after sign-in. An app without
+ * it, or a web page that does not know it, keeps working; push simply stays off. */
+export const PUSH_CAPABILITY = 'push-token-v1'
+export type PushPlatform = 'ios' | 'android'
+/** APNs host the token belongs to: development builds get sandbox tokens; TestFlight and App Store builds production. */
+export type PushEnvironment = 'sandbox' | 'production'
+export interface PushToken { platform: PushPlatform; token: string; environment: PushEnvironment }
 export interface MobileConfig {
   protocol: 1; appVersion: string; platform: 'ios' | 'android'; generation: number; nonce: string;
   capabilities: readonly string[]
@@ -18,8 +26,9 @@ export type FileMessage = Envelope & (
 export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'session-reset' }
   | { type: 'external-open'; url: string; purpose: 'google-oauth' }
+  | { type: 'push-token' }
 ))
-export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number }
+export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const generation = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v < 0x7fffffff
 const id = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(v)
@@ -59,11 +68,28 @@ export function parseMessage(raw: string): MobileMessage | null {
       break
     case 'file-chunk': if (!seq(m.seq) || base64Size(m.b64) === null) return null; break
     case 'file-end': if (!seq(m.seq)) return null; break
-    case 'file-abort': case 'session-reset': break
+    case 'file-abort': case 'session-reset': case 'push-token': break
     case 'external-open': if (m.purpose !== 'google-oauth' || typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break
     default: return null
   }
   return m as unknown as MobileMessage
+}
+/** APNs device tokens are hex (32 bytes today; Apple says the length may grow); FCM registration tokens are opaque. */
+export function validPushToken(v: unknown): v is PushToken {
+  if (!object(v) || (v.environment !== 'sandbox' && v.environment !== 'production') || typeof v.token !== 'string') return false
+  if (v.platform === 'ios') return /^[0-9a-f]{64,200}$/.test(v.token)
+  return v.platform === 'android' && v.environment === 'production' && /^[A-Za-z0-9_:.-]{32,3000}$/.test(v.token)
+}
+/** A notification may only name a path on the chosen team: ids only, no scheme, host, '//', '..', query or fragment.
+ * The same rule is in shared/src/cloud-protocol/push-gateway.ts (validPushPath); a test keeps them equal. */
+export function notificationPath(v: unknown): string | null {
+  return typeof v === 'string' && v.length <= 200 && /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/.test(v) ? v : null
+}
+/** The path a tapped notification opens, or null. date: iOS reports seconds, Android milliseconds. A notification
+ * delivered before the current team was chosen (teamSince, ms) opens nothing: it may belong to the previous team. */
+export function tappedNotificationPath(data: unknown, date: unknown, teamSince: number): string | null {
+  if (typeof date !== 'number' || !Number.isFinite(date) || (date < 1e11 ? date * 1000 : date) < teamSince) return null
+  return object(data) ? notificationPath(data.path) : null
 }
 export function validConfig(v: unknown): v is MobileConfig {
   return object(v) && v.protocol === MOBILE_PROTOCOL && (v.platform === 'ios' || v.platform === 'android')

@@ -1,4 +1,4 @@
-import { base64Size, MAX_FILE_BYTES, parseMessage, sameTeam, TRANSFER_IDLE_MS, type FileMessage, type MobileConfig, type MobileReply } from './protocol'
+import { base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -79,10 +79,14 @@ export class FileTransfers {
   }
 }
 
+/** The only push failures the web page learns: the person said no, or this build/device cannot receive push. */
+export class PushRefused extends Error { constructor(readonly code: 'push_denied' | 'push_unavailable') { super(code) } }
+export type PushTokenSource = () => Promise<PushToken>
+
 /** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>) {}
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushTokenSource) {}
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.files.clear() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {
@@ -98,8 +102,14 @@ export class MobileReceiver {
     }
     try {
       if (m.type === 'external-open') await this.external(m.url)
-      else await this.files.receive(m)
-    } catch { reply.ok = false; reply.error = 'mobile_operation_failed' }
+      else if (m.type === 'push-token') {
+        // Same origin/nonce/generation checks as files; the token goes only to the document that asked.
+        if (!this.push || !current.capabilities.includes(PUSH_CAPABILITY)) throw new PushRefused('push_unavailable')
+        const token = await this.push()
+        if (!validPushToken(token)) throw new PushRefused('push_unavailable')
+        reply.push = { platform: token.platform, token: token.token, environment: token.environment }
+      } else await this.files.receive(m)
+    } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused ? error.code : 'mobile_operation_failed' }
     return this.enabled && this.config === current ? reply : null
   }
 }
