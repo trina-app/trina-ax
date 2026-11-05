@@ -585,7 +585,7 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
           {error}
         </p>
       )}
-      <Button type="submit" variant="primary" busy={busy} className="w-full" data-testid="password-submit">
+      <Button type="submit" variant="primary" busy={busy} className={forced ? 'w-full' : undefined} data-testid="password-submit">
         {t('auth.changePassword')}
       </Button>
     </form>

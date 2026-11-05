@@ -261,8 +261,8 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
             <X size={18} />
           </IconButton>
         </div>
-        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))]">{footer}</div>}
+        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5 max-sm:px-4">{children}</div>
+        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))] max-sm:px-4">{footer}</div>}
       </div>
     </div>,
     typeof document === 'undefined' ? null : document.body,
