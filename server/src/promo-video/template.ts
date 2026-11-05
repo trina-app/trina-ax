@@ -160,7 +160,10 @@ function hook(x: Ctx): string {
     inner.push(`<div class="big-wrap" style="${box(X, T.before)};transform-origin:0 0;animation:${move}"><div style="transform-origin:20% 60%;animation:${settle}"><div class="big" style="font-size:${u(z.before)}"><span style="animation:${dim}"><span class="shine" style="animation:${shine}">${esc(h.before)}</span></span><i class="strike" style="animation:${strike}"></i></div></div></div>`)
     const slam = m.ft(s + 2.0, 0.5, j(op(0), tf({ s: 1.25 }), bl(10)), j(op(1), tf({ s: 1 }), bl(0)), 'xo')
     const count = m.ft(s + 2.0, 0.95, tf({ s: 1.07 }), tf({ s: 1 }), 'p2o')
-    const num = /\d/.test(h.after) ? countingNumber(x, h.after, s + 2.0, 0.95, { down: true }) : `<span class="g">${esc(h.after)}</span>`
+    // a count runs toward the new state: down (half a day → 14 s) unless the old state is a smaller number (3.7 → 81)
+    const value = (t: string) => { const d = splitNumber(t).digits.replace(/,/g, ''); return d ? Number(d) : Number.NaN }
+    const n0 = value(h.before), n1 = value(h.after)
+    const num = /\d/.test(h.after) ? countingNumber(x, h.after, s + 2.0, 0.95, { down: !(n0 < n1) }) : `<span class="g">${esc(h.after)}</span>`
     inner.push(`<div class="big-wrap" style="${box(X - 6, T.after)};transform-origin:30% 60%;animation:${slam}"><div class="big hot" style="font-size:${u(z.after)};transform-origin:30% 72%;animation:${count}">${num}</div></div>`)
   } else {
     // swap: the first word leaves upward through its mask, the new one rises into the same place

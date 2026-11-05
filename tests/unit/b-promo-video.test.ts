@@ -168,6 +168,11 @@ describe('the composition and the sound (pure)', () => {
     const n = composition(doc(), true)
     expect(n.root).toContain('class="cnt f0 g"')
     expect(n.root).toContain('class="fin g"')
+    // the hook counts down to a smaller new state (from all nines), up to a bigger one (from 0)
+    const hookOf = (before: string, after: string) => composition(doc({ hook: { label: '클릭', before, after, line: '', mode: 'strike' } }), true).css
+    const firstCount = (css: string) => /@keyframes m[0-9a-z]+\{0%\{--pvn:(\d+)/.exec(css)?.[1]
+    expect(firstCount(hookOf('반나절', '14초'))).toBe('99')
+    expect(firstCount(hookOf('3.7회', '81회'))).toBe('0')
   })
 
   test('sounds: three beds and six effects, the bed from frame 0, every effect peaking on a beat of the grid', () => {
