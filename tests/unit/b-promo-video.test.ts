@@ -161,6 +161,9 @@ describe('the composition and the sound (pure)', () => {
     const proof = c.root.slice(c.root.indexOf('class="sc s3"'), c.root.indexOf('class="sc s4"'))
     expect(proof).not.toContain('class="cnt')
     expect(proof).toContain('제주까지')
+    // a particle after the key phrase stays attached (no space the line does not have)
+    const stuck = composition(doc({ proof: { stats: [], headline: ['구체적인 *성과*로'], sub: '', picture: null } }), true).root
+    expect(stuck).toMatch(/>성과<\/span><span class="wd" [^>]*>로</)
     // the counts: a registered integer counted by CSS, the exact text taking over when it lands
     const n = composition(doc(), true)
     expect(n.root).toContain('class="cnt f0 g"')

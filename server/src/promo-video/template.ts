@@ -300,8 +300,14 @@ function proof(x: Ctx): string {
     parts.push(horizon(hz, s + 1.4))
     let t = s + 0.1
     const heads = p.headline.map((l) => {
-      const words = segments(l).flatMap((sg) => sg.text.split(/\s+/).filter(Boolean).map((w) => ({ w, accent: sg.accent })))
-      return `<div class="ln">${words.map(({ w, accent }) => { const a = m.ft(t, 0.5, j(op(0), tf({ s: 1.3 }), bl(10)), j(op(1), tf({ s: 1 }), bl(0)), 'xo'); t += 0.25; return `<span class="wd${accent ? ' ac' : ''}" style="animation:${a}">${esc(w)}</span>` }).join(' ')}</div>`
+      // each word slams in; a space stays only where the line has one ("*성과*로" keeps its particle attached)
+      const html = segments(l).map((sg) => sg.text.split(/(\s+)/).map((w) => {
+        if (!w) return ''
+        if (/^\s+$/.test(w)) return ' '
+        const a = m.ft(t, 0.5, j(op(0), tf({ s: 1.3 }), bl(10)), j(op(1), tf({ s: 1 }), bl(0)), 'xo'); t += 0.25
+        return `<span class="wd${sg.accent ? ' ac' : ''}" style="animation:${a}">${esc(w)}</span>`
+      }).join('')).join('')
+      return `<div class="ln">${html}</div>`
     }).join('')
     parts.push(`<i class="glow" style="${box(-100, 120, 1280, 1000)};background:radial-gradient(closest-side,${rgba(c.glow, 0.45)},${rgba(c.glow, 0)});animation:${m.ft(s, 2.4, j(op(0.2), tf({ s: 0.8 })), j(op(1), tf({ s: 1.04 })), 'p2o')}"></i>`)
     const cam = m.ft(s, 3.4, tf({ s: 1 }), tf({ s: 1.05 }), 'sio')

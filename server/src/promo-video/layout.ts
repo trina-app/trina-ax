@@ -63,9 +63,13 @@ export function splitNumber(n: string): { pre: string; digits: string; unit: str
   return { pre: m[1]!.trim(), digits: m[2]!, unit: m[3]!.trim() }
 }
 export const AFFIX = 0.6
+/** a figure's width at weight 900 with tabular figures (the numbers are set that way so a count does not jiggle),
+ * measured in Chromium from the bundled font: every digit 0.6816 em */
+const TABULAR = 0.6816
 function numberWidth(n: string, size: number): number {
   const p = splitNumber(n)
-  return textWidth(p.digits, size, 900, -0.045) + textWidth(p.pre + p.unit, size * AFFIX, 800, -0.03) + (p.unit ? size * 0.04 : 0)
+  const digits = [...p.digits].reduce((w, ch) => w + (/\d/.test(ch) ? TABULAR * size : textWidth(ch, size, 900)), 0) - [...p.digits].length * 0.045 * size
+  return digits + textWidth(p.pre + p.unit, size * AFFIX, 800, -0.03) + (p.unit ? size * 0.04 : 0)
 }
 function fitNumber(n: string, width: number, max: number, min: number): number | null {
   const w1 = numberWidth(n, 1)
