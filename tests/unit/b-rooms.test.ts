@@ -271,13 +271,65 @@ test('files: kept outside the team folder, readable by the room\'s members only,
   expect(r.status).toBe(200)
   expect(await r.text()).toBe('quarterly numbers')
   for (const c of [ada.client, owner, otto.client]) expect((await get(c)).status).toBe(404)
-  // stored under the data folder, nowhere in the team folder
-  expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'rooms', dm.id, file.id))).toBe(true)
-  const inTeam = (dir: string): boolean => fs.readdirSync(dir, { withFileTypes: true }).some((e) => e.isDirectory() ? inTeam(path.join(dir, e.name)) : e.name.includes(file.id) || e.name === 'plan.txt')
-  expect(inTeam(h.ctx.config.teamRoot)).toBe(false)
+  // kept in .system/rooms (with the team folder, so in its backups), which no person reaches through the files API,
+  // the owner included; and nowhere else in the team folder
+  const stored = path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id, file.id)
+  expect(fs.existsSync(stored)).toBe(true)
+  for (const c of [owner, ada.client, mia.client]) {
+    expect((await c.try('GET', `/api/files/download?path=${encodeURIComponent(`.system/rooms/${dm.id}/${file.id}`)}`)).status).toBe(404)
+  }
+  const elsewhere = (dir: string): boolean => fs.readdirSync(dir, { withFileTypes: true }).some((e) => e.isDirectory() ? e.name !== '.system' && elsewhere(path.join(dir, e.name)) : e.name.includes(file.id) || e.name === 'plan.txt')
+  expect(elsewhere(h.ctx.config.teamRoot)).toBe(false)
   await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${msg.id}`)
   expect((await get(nora.client)).status).toBe(404)
-  expect(fs.existsSync(path.join(h.ctx.config.dataDir, 'rooms', dm.id, file.id))).toBe(false)
+  expect(fs.existsSync(stored)).toBe(false)
+})
+
+test('backups: room files are in the team archive and come back with a restore; rows and files match after it', async () => {
+  const { mia, nora } = await setup()
+  const { BackupManager } = await import('../../server/src/system/backup')
+  const { resolveLayout } = await import('../../server/src/system/layout')
+  const { roomFilesOf } = await import('../../server/src/rooms/files')
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const upload = async (name: string, text: string) => {
+    const form = new FormData()
+    form.set('file', new File([new TextEncoder().encode(text)], name, { type: 'text/plain' }))
+    const r = await h.fetch(`/api/rooms/${dm.id}/files`, { method: 'POST', body: form, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
+    const f = await r.json()
+    const m = await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: name, fileIds: [f.id], clientMessageId: cm() })
+    return { file: f, msg: m }
+  }
+  const a = await upload('a.txt', 'first file')
+  const layout = resolveLayout(h.ctx.config)
+  const mgr = new BackupManager({ db: h.ctx.db, dbFile: path.join(h.ctx.config.dataDir, 'app.db'), layout, log: h.ctx.log, version: '0.0.0' })
+  const meta = await mgr.run({ kind: 'manual', scope: 'full' })
+  const manifest = JSON.parse(fs.readFileSync(path.join(mgr.teamDir(meta.id), 'manifest.json'), 'utf8')) as Record<string, unknown>
+  expect(Object.keys(manifest)).toContain(`.system/rooms/${dm.id}/${a.file.id}`)
+  // the team folder rebuilt from the backup holds the room file, byte for byte
+  const dest = path.join(h.ctx.config.dataDir, 'restored-team')
+  await mgr.restoreTeamTo(meta.id, dest)
+  expect(fs.readFileSync(path.join(dest, '.system', 'rooms', dm.id, a.file.id), 'utf8')).toBe('first file')
+  // after the backup: a new file, and the first message deleted (its file goes)
+  const b = await upload('b.txt', 'second file')
+  await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${a.msg.id}`)
+  // the database of the backup comes back (Admin › Backups): it has a's row and not b's. Put the rows that way.
+  const old = (await import('bun:sqlite')).Database
+  const copy = new old(mgr.dbFileOf(meta.id)!, { readonly: true })
+  const aRow = copy.query('SELECT * FROM room_files WHERE id = ?').get(a.file.id) as Record<string, string | number | null>
+  copy.close()
+  h.ctx.db.query(`INSERT INTO room_files (${Object.keys(aRow).join(', ')}) VALUES (${Object.keys(aRow).map(() => '?').join(', ')})`).run(...Object.values(aRow))
+  h.ctx.db.query('DELETE FROM room_files WHERE id = ?').run(b.file.id)
+  const r = roomFilesOf(h.ctx).reconcile()
+  expect(r).toMatchObject({ rowsRemoved: 1, filesRemoved: 1 })
+  expect(h.ctx.db.query('SELECT id FROM room_files WHERE id IN (?, ?)').all(a.file.id, b.file.id)).toEqual([])
+  expect(fs.existsSync(path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id, b.file.id))).toBe(false)
+  // files of the first layout (<data dir>/rooms) move to the team folder at the next start
+  const c = await upload('c.txt', 'third file')
+  fs.mkdirSync(path.join(h.ctx.config.dataDir, 'rooms'), { recursive: true })
+  fs.renameSync(path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id), path.join(h.ctx.config.dataDir, 'rooms', dm.id))
+  expect(roomFilesOf(h.ctx).reconcile()).toMatchObject({ movedRooms: 1, rowsRemoved: 0 })
+  const got = await h.fetch(`/api/rooms/${dm.id}/files/${c.file.id}`, { headers: { cookie: nora.client.cookie! } })
+  expect(await got.text()).toBe('third file')
 })
 
 test('replay after a reconnect: room events are replayed only while the person is still in the room', async () => {

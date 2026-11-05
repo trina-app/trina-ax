@@ -13,6 +13,8 @@ A local backup is on the same disk. Keep an encrypted off-host copy and test rec
 | `archive` / `restore-archive` | Database + team files (including file history present there), extracted to `db/app.sqlite` and `team/` | OS accounts, services, config, CA keys, provider secret keys and data-directory session state |
 | Office `teamax restore-archive` | Stops the app and swaps the recovered DB/team into the office installation | Does not reconstruct missing deployment settings or external accounts |
 
+Files sent in chat rooms (대화방) are kept in the team folder under `.system/rooms/`, a folder no person can open through the app (the owner and admins included) and that the owner's export leaves out, so every team-folder backup, archive, off-site copy and restore above includes them. At every start the server matches them with the database: after a DB-only restore, room files the restored database does not know are removed, and so are rows whose file is gone (the message keeps its text). / 대화방에서 보낸 파일은 팀 폴더의 `.system/rooms/`에 있어 팀 폴더 백업·보관·복원에 함께 들어가요. 서버가 시작할 때 DB와 맞추므로, DB만 복원하면 그 DB가 모르는 대화방 파일은 지워져요.
+
 Keep all members of a full/incremental backup chain. Do not copy a running SQLite database with plain `cp`; the CLI uses a consistent snapshot. Restored database copies invalidate saved sessions, unused invitations and password-reset links. Extracting an archive or restoring team files to a new folder does not end sessions on the running server; replacing its database requires everyone to sign in again. Backups may contain encrypted credential rows but not the sealing keys: on a new machine reconnect providers and integrations. Do not publish archives or passwords.
 
 ## Make a backup now

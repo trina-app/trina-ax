@@ -7971,9 +7971,14 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   it), no badge and no unread count for anyone else. Where a turn would hook in: `Rooms.send()` is the one writer of
   room messages; an AI answer is a second writer with `author_kind 'ai'`, `asked_by` = who asked, first as a private
   preview to that person (`visibility 'private'`, `visible_to`), and sharing it turns it to `'room'` (and notifies then).
-- **Room files outside the team folder.** Owners and admins can read everything in the team folder outside
-  `users/<id>/` (`server/src/policy/access.ts`), so room files are not stored there: `<data dir>/rooms/<room id>/<file
-  id>` (0700 / 0600, with a `.thumb.jpg` preview), reached only through `GET /api/rooms/:id/files/:fileId`, which checks
+- **Room files where no person reaches them, but in every backup.** Owners and admins can read everything in the team
+  folder outside `users/<id>/` (`server/src/policy/access.ts`), so room files are not in a folder people can open. They
+  are in `<team>/.system/rooms/<room id>/<file id>` (0700 / 0600, with a `.thumb.jpg` preview): `.system/` is closed to
+  every person, the AI's tools, the dev environment and the owner's export, and it is part of every team-folder backup,
+  archive, off-site copy and restore (a first version kept them in `<data dir>/rooms/`, which no backup covered; such
+  files move over at the next start). At every start `RoomFiles.reconcile()` removes files without a row and rows
+  without a file, so a database restored from a backup and the newer folder match again. They count as team storage.
+  They are reached only through `GET /api/rooms/:id/files/:fileId`, which checks
   on every read that the caller is in the room now and may see the message it was sent with (before sending: the
   uploader only). The upload is the chat attachment's path and limits (multipart ≤ 50 MB, the storage check, the temp
   file and its sha256, the image size and thumbnail helpers, no preview of a quarantined file). A deleted message's files
