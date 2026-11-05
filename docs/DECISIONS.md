@@ -8511,12 +8511,17 @@ status bar and home indicator areas were not in the page's colours (the bottom i
 - **`push-permission-v1` (new build).** `push-permission` answers `granted` / `undetermined` / `denied` without ever
   prompting (Android 13+ "denied with canAskAgain" before the first question is undetermined; iOS provisional too);
   `open-settings` opens the app's page in the phone's Settings (`Linking.openSettings`). Same origin, nonce and
-  generation checks as every message. **Store builds 1 and 2** lack it: the page cannot tell granted from not asked
-  without prompting, so it shows the card until that phone has given a token once (remembered as granted), then
-  registers quietly at later sign-ins; a "no" shows the old "allow it in the phone's Settings" text without a button.
-  Nothing waits on a message an old build would not answer.
+  generation checks as every message; open-settings works only while the app is on screen, at most once every 3 s.
+  **Store builds 1 and 2** lack it: the page cannot tell granted from not asked without prompting, so a session that
+  already has a registered phone counts as granted (no card, registered again at sign-in as before), and otherwise the
+  card shows until that phone has given a token once (remembered as granted). After a "no" Settings keeps [알림 켜기]
+  with the "allow it in the phone's Settings" text: those builds cannot open Settings or tell when it was turned on,
+  and the OS answers at once without a prompt. One registration runs at a time (coming back from the OS prompt
+  checks again). Nothing waits on a message an old build would not answer.
 - **Safe areas: edge to edge, the page's own colours.** The app draws the WebView over the whole screen (no native
-  bands) and the page pads itself: `--safe-top` / `--safe-bottom` in `web/src/index.css` are the larger of
+  bands) once the page has reported its look (appearance-v1), which only pages that pad themselves do; until then,
+  and again after every full load, it keeps the padding it had before, so build 3 still fits a team server that has
+  not updated (some never update by themselves). The page pads itself: `--safe-top` / `--safe-bottom` in `web/src/index.css` are the larger of
   `env(safe-area-inset-*)` and `--app-inset-*`, which the app sets before every page loads (Android's WebView 133
   reports no insets). The page's root pads the top, so its canvas runs under the status bar; full-screen layers on
   phones (Settings, the drawer, side panels, search, sheets) pad themselves in their own colour; the tab bar, the room
