@@ -26,13 +26,13 @@
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
-// POST /__test/dev-env {box?: 'running'} turns the dev environment (experiment) on for every project until the next reset.
+// POST /__test/dev-env {box?: 'running', srt?: true} turns the dev environment (experiment) on for every project until the next reset.
 import { z } from 'zod'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
   ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
-  type ApiName, type Artifact, type Attachment, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
+  type ApiName, type Artifact, type Attachment, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, NOTES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
@@ -205,9 +205,22 @@ export class MockServer {
   /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
   popular: { path: string; uses: number; users: number }[] = []
   /** POST /__test/dev-env {box?: 'running'}: the dev environment (experiment) of every project is on until the next
-   * reset, with a stopped box (or a running one) and a few lines of activity; otherwise its endpoints answer 404, like
+   * reset, with a stopped box (or a running one) and a few lines of activity; srt: true is the srt runner (no box, a
+   * running dev server and a waiting job, warning version 2); otherwise its endpoints answer 404, like
    * a server without MYCEL_DEV_ENV */
-  devEnv: { box: 'stopped' | 'running' } | null = null
+  devEnv: { box: 'stopped' | 'running'; srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
+  /** the team setting devEnv.team (GET and PUT /api/admin/dev-env), off until an admin turns it on */
+  devEnvTeam = MockServer.devEnvTeamDefault()
+  static devEnvTeamDefault() {
+    return { extraDomains: [] as string[], enabled: false, scope: { mode: 'writers' as 'writers' | 'selected', groupIds: [] as string[], userIds: [] as string[] }, network: 'open' as 'open' | 'offline',
+      limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: null as { by: { id: string; name: string } | null; at: string; warningVersion: number } | null }
+  }
+  devEnvTeamView() {
+    if (!this.devEnv) fail('not_found', 404)
+    const srt = !!this.devEnv!.srt
+    return { setting: this.devEnvTeam, defaultDomains: ['registry.npmjs.org', 'pypi.org', 'github.com'], plan: srt ? { plan: 'starter', maxRunning: 1, cpus: 2, memoryMiB: 3072, pids: 1024, network: 'open' } : null,
+      runner: srt ? 'srt' as const : 'box' as const, warningVersion: srt ? 2 : 1, availability: { available: true } }
+  }
 
   constructor(o: { setup?: boolean } = {}) {
     this.reset(o)
@@ -233,6 +246,7 @@ export class MockServer {
     this.teamGoal = null
     this.popular = []
     this.devEnv = null
+    this.devEnvTeam = MockServer.devEnvTeamDefault()
     this.epoch = uuidv7()
     this.seq = 0
     this.buffer = []
@@ -606,6 +620,7 @@ export class MockServer {
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
+        ...(this.devEnv ? { devEnv: true as const } : {}),
         features: this.cloud
           ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
           : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
@@ -624,6 +639,12 @@ export class MockServer {
   devEnvOf(user: User, projectId: string) {
     if (!this.devEnv || !this.projects.some((p) => p.id === projectId)) fail('not_found', 404)
     const running = this.devEnv!.box === 'running'
+    const srt = this.devEnv!.srt
+    if (srt) return {
+      availability: { available: true },
+      setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 1536, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 2 } },
+      warningVersion: 2, mayUse: true, mayManage: user.role !== 'member', needsFolder: false, box: null, jobs: [], runs: srt, runner: 'srt' as const,
+    }
     return {
       availability: { available: true },
       setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 1 } },
@@ -633,6 +654,8 @@ export class MockServer {
       needsFolder: false,
       box: { state: this.devEnv!.box, startedAt: running ? now() : null, lastActiveAt: now(), memoryMiB: running ? 412 : null, processes: running ? [{ pid: 41, seconds: 120, command: 'npx remotion studio --port 5173' }] : [], stopCode: null },
       jobs: [],
+      runs: { running: [], waiting: [] },
+      runner: 'box' as const,
     }
   }
 
@@ -1016,7 +1039,7 @@ export class MockServer {
           : [],
       }
     },
-    mySessions: () => ({ items: [{ id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', userAgent: 'Chrome on macOS', createdAt: now(), lastSeenAt: now(), expiresAt: now(), current: true }] }),
+    mySessions: () => ({ items: [{ id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36', createdAt: now(), lastSeenAt: now(), expiresAt: now(), current: true }] }),
     inviteInfo: (c) => {
       const i = this.invites.find((x) => x.token === c.params.token)
       if (!i) fail('not_found', 404)
@@ -1171,6 +1194,29 @@ export class MockServer {
       this.devEnvOf(c.user, c.params.id!)
       this.devEnv!.box = c.body.action === 'stop' ? 'stopped' : 'running'
       return this.devEnvOf(c.user, c.params.id!)
+    },
+    devEnvRunStop: (c) => {
+      this.devEnvOf(c.user, c.params.id!)
+      const srt = this.devEnv!.srt
+      if (!srt) fail('not_found', 404)
+      srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
+      srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
+      return this.devEnvOf(c.user, c.params.id!)
+    },
+    // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on (srt) needs the
+    // current warning accepted
+    devEnvTeam: () => this.devEnvTeamView(),
+    updateDevEnvTeam: (c) => {
+      const v = this.devEnvTeamView()
+      const b = c.body
+      const before = this.devEnvTeam
+      const after = { ...before, limits: { ...before.limits, ...(b.limits ?? {}) }, ...(b.extraDomains ? { extraDomains: b.extraDomains } : {}), ...(b.scope ? { scope: b.scope } : {}), ...(b.network ? { network: b.network } : {}), ...(b.enabled !== undefined ? { enabled: b.enabled } : {}) }
+      if (v.runner === 'srt' && after.enabled && !(before.enabled && before.consent?.warningVersion === v.warningVersion) && after.consent?.warningVersion !== v.warningVersion) {
+        if (b.acceptWarning !== v.warningVersion) fail('conflict', 409, '먼저 개발 환경 경고를 확인해 주세요.')
+        after.consent = { by: { id: c.user.id, name: c.user.name }, at: now(), warningVersion: v.warningVersion }
+      }
+      this.devEnvTeam = after
+      return this.devEnvTeamView()
     },
     devEnvPreview: (c) => {
       this.devEnvOf(c.user, c.params.id!)
@@ -2460,7 +2506,11 @@ export class MockServer {
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null
-    else if (p === '/__test/dev-env') this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped' }
+    else if (p === '/__test/dev-env') {
+      const by = this.users[0] ? { id: this.users[0].id, name: this.users[0].name } : null
+      const run = (id: string, kind: 'job' | 'server', name: string, position: number | null, lastLine: string) => ({ id, kind, name, by, startedAt: now(), runAt: position === null ? now() : null, position, memoryMiB: position === null ? 320 : null, lastLine })
+      this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped', ...(body.srt ? { srt: { running: [run('r1', 'server', 'npm run dev', null, 'ready on http://localhost:3000')], waiting: [run('r2', 'job', 'render', 1, '')] } } : {}) }
+    }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }

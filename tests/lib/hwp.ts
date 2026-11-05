@@ -5,7 +5,7 @@ import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 
 const CFB = XLSX.CFB
-export const TAG = { DOC_PROPS: 16, ID_MAPPINGS: 17, BIN_DATA: 18, CHAR_SHAPE: 21, PARA_SHAPE: 25, TRACK_CHANGE: 96, PARA_HEADER: 66, PARA_TEXT: 67, PARA_CHAR_SHAPE: 68, PARA_LINE_SEG: 69, PARA_RANGE_TAG: 70, CTRL_HEADER: 71, LIST_HEADER: 72, TABLE: 77, SHAPE_COMPONENT: 76, SHAPE_OLE: 84, SHAPE_PICTURE: 85, CTRL_DATA: 87, VIDEO_DATA: 98 }
+export const TAG = { DOC_PROPS: 16, ID_MAPPINGS: 17, BIN_DATA: 18, CHAR_SHAPE: 21, PARA_SHAPE: 25, TRACK_CHANGE: 96, PARA_HEADER: 66, PARA_TEXT: 67, PARA_CHAR_SHAPE: 68, PARA_LINE_SEG: 69, PARA_RANGE_TAG: 70, CTRL_HEADER: 71, LIST_HEADER: 72, PAGE_DEF: 73, TABLE: 77, SHAPE_COMPONENT: 76, SHAPE_OLE: 84, SHAPE_PICTURE: 85, CTRL_DATA: 87, VIDEO_DATA: 98 }
 
 /** A record: tag, level, data (the extended size form from 0xFFF bytes on, or always with `ext`). */
 export function rec(tag: number, level: number, data: Uint8Array, ext = false): Buffer {
@@ -42,13 +42,24 @@ export const fieldEnd = (id = '%clk'): Piece => ({ w: ctrl8(4, id) })
 export const bookmark = (level = 1): Piece => ({ w: ctrl8(22, 'bokm'), ctrl: [rec(TAG.CTRL_HEADER, level, Buffer.concat([chid('bokm'), Buffer.alloc(4)]))] })
 /** an automatic number (atno) */
 export const autoNumber = (level = 1): Piece => ({ w: ctrl8(18, 'atno'), ctrl: [rec(TAG.CTRL_HEADER, level, Buffer.concat([chid('atno'), Buffer.alloc(8)]))] })
-/** the section and column definitions Hangul puts first in a section (secd, cold), with their records */
-export const sectionDef = (): Piece => ({
+/** a page setup (PAGE_DEF, HWPUNIT): Hangul's default A4 upright page unless given */
+export interface PageSpec { width?: number; height?: number; left?: number; right?: number; top?: number; bottom?: number; header?: number; footer?: number; gutter?: number; landscape?: boolean }
+/** the PAGE_DEF record: paper width and height, left, right, top, bottom, header, footer and gutter margins, attribute
+ * (bit 0: the page is turned, 넓게) */
+export function pageDef(p: PageSpec = {}, level = 2): Buffer {
+  const d = Buffer.alloc(40)
+  ;[p.width ?? 59528, p.height ?? 84188, p.left ?? 8504, p.right ?? 8504, p.top ?? 5668, p.bottom ?? 4252, p.header ?? 4252, p.footer ?? 4252, p.gutter ?? 0, p.landscape ? 1 : 0]
+    .forEach((v, k) => d.writeUInt32LE(v, k * 4))
+  return rec(TAG.PAGE_DEF, level, d)
+}
+/** the section and column definitions Hangul puts first in a section (secd, cold), with their records; the page setup
+ * under secd */
+export const sectionDef = (page: PageSpec = {}): Piece => ({
   w: Buffer.concat([ctrl8(2, 'secd'), ctrl8(2, 'cold')]),
   ctrl: [
     Buffer.concat([
       rec(TAG.CTRL_HEADER, 1, Buffer.concat([chid('secd'), Buffer.from('000000006e0400000000401f00000100000000000000000000000000000000000000000000000000000000', 'hex').subarray(0, 43)])),
-      rec(73, 2, Buffer.from('88e80000dc4801003821000038210000241600009c1000009c1000009c1000000000000000000000', 'hex')),
+      pageDef(page),
     ]),
     rec(TAG.CTRL_HEADER, 1, Buffer.concat([chid('cold'), Buffer.from('1000000000000000', 'hex')])),
   ],
@@ -138,8 +149,10 @@ function relevel(b: Buffer, level: number): Buffer {
 // ---------------------------------------------------------------- tables
 export interface CellSpec { text?: string | [number, string | Piece | (string | Piece)[]][]; colSpan?: number; rowSpan?: number; width: number; height?: number; paras?: Buffer; nParas?: number; shaded?: boolean }
 /** A table in its own paragraph, as Hangul writes one: the paragraph with the table control, CTRL_HEADER 'tbl ' (with
- * the table's size), TABLE (rows, columns, cells per row, zones), then each cell's LIST_HEADER and paragraphs. */
-export function table(rows: CellSpec[][], o: { level?: number; zones?: [number, number, number, number, number][]; caption?: string; tableHeight?: number; tail?: Buffer } = {}): Buffer {
+ * the table's size), TABLE (rows, columns, cells per row, zones), then each cell's LIST_HEADER and paragraphs. By default
+ * it floats and splits at a page boundary; `inline` places it as a character (글자처럼 취급, as Hangul's statutory
+ * forms do), `split` sets TABLE's bits 0-1 (0 not split, 1 by cell, 2 split). */
+export function table(rows: CellSpec[][], o: { level?: number; zones?: [number, number, number, number, number][]; caption?: string; tableHeight?: number; tail?: Buffer; inline?: boolean; split?: 0 | 1 | 2 } = {}): Buffer {
   const L = o.level ?? 0
   const occupied = new Set<string>()
   const cells: Buffer[] = []
@@ -164,12 +177,13 @@ export function table(rows: CellSpec[][], o: { level?: number; zones?: [number, 
   const cols = Math.max(...[...occupied].map((k) => Number(k.split(':')[1]) + 1))
   const height = o.tableHeight ?? rows.reduce((h, cs) => h + Math.max(...cs.map((c) => ((c.rowSpan ?? 1) === 1 ? c.height ?? 1282 : 0)), 0), 0)
   const ch = Buffer.alloc(46)
-  chid('tbl ').copy(ch, 0); ch.writeUInt32LE(0x082a2210, 4); ch.writeUInt32LE(width, 16); ch.writeUInt32LE(height, 20)
+  // the attribute Hangul writes for a floating table, and for one placed as a character (bit 0, with bit 8)
+  chid('tbl ').copy(ch, 0); ch.writeUInt32LE(o.inline ? 0x082a2311 : 0x082a2210, 4); ch.writeUInt32LE(width, 16); ch.writeUInt32LE(height, 20)
   for (let k = 0; k < 4; k++) ch.writeUInt16LE(283, 28 + k * 2)
   ch.writeUInt32LE(0x5bb840e2, 36)
   const zones = o.zones ?? []
   const t = Buffer.alloc(18 + 2 * rows.length + 4 + 10 * zones.length)
-  t.writeUInt32LE(0x4000006, 0); t.writeUInt16LE(rows.length, 4); t.writeUInt16LE(cols, 6)
+  t.writeUInt32LE((0x4000004 | (o.split ?? 2)) >>> 0, 0); t.writeUInt16LE(rows.length, 4); t.writeUInt16LE(cols, 6)
   for (let k = 0; k < 4; k++) t.writeUInt16LE(510, 10 + k * 2)
   rows.forEach((cs, r) => t.writeUInt16LE(cs.length, 18 + 2 * r))
   const z = 18 + 2 * rows.length
@@ -316,6 +330,26 @@ export function hwpEmploymentForm(o: DocOpts = {}): Uint8Array {
     para([[0, [fieldBegin(), fieldEnd(), ' (담당 부서 연락처)']]]),
     para([[CHAR.small, ['문서번호 제2026-0412호', bookmark()]]], { extra: [rec(120, 1, Buffer.from('미래 레코드', 'utf16le'))], last: true }),
   ])], o)
+}
+
+/**
+ * A made-up one-page application (신청서) built the way statutory forms are: the page is one table placed as a character
+ * (글자처럼 취급), a heading row, `rows` empty list rows and a closing row, every row 3000 HWPUNIT tall. With the default
+ * 18 list rows the table is 60,000 tall, and the default page's body (84,188 less 5,668 top, 4,252 bottom, header and
+ * footer) is 65,764: one more row fits, two do not. `inline: false` floats it; `split` as for table().
+ */
+export function hwpOnePageForm(o: { rows?: number; inline?: boolean; split?: 0 | 1 | 2; page?: PageSpec } = {}): Uint8Array {
+  const W = [6000, 9000, 15000]
+  const row = (...t: string[]): CellSpec[] => t.map((text, k) => ({ text, width: W[k]!, height: 3000 }))
+  return hwpDoc([Buffer.concat([
+    para([[0, sectionDef(o.page)]]),
+    table([
+      row('관계', '성명', '주소'),
+      ...Array.from({ length: o.rows ?? 18 }, () => row('', '', '')),
+      [{ text: '가나시장 귀하', width: 30000, colSpan: 3, height: 3000 }],
+    ], { inline: o.inline ?? true, split: o.split ?? 2 }),
+    para('위와 같이 신청합니다.', { last: true }),
+  ])])
 }
 
 /**

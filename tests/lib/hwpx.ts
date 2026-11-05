@@ -69,8 +69,10 @@ export function para(runs: string | [number, string][], o: { paraPr?: number; st
 export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 export interface CellSpec { text?: string | [number, string][]; colSpan?: number; rowSpan?: number; width: number; height?: number; shaded?: boolean; raw?: string }
-/** a table in its own paragraph, as Hangul writes one; each row's cells left to right (columns counted from spans) */
-export function table(rows: CellSpec[][], o: { id?: number; cache?: boolean; zones?: string } = {}): string {
+/** a table in its own paragraph, as Hangul writes one; each row's cells left to right (columns counted from spans). By
+ * default placed as a character and split by cell at a page boundary, as Hangul writes a new table; `height` sets
+ * hp:sz's height (default the rows' heights) */
+export function table(rows: CellSpec[][], o: { id?: number; cache?: boolean; zones?: string; treatAsChar?: boolean; pageBreak?: 'CELL' | 'TABLE' | 'NONE'; height?: number } = {}): string {
   const occupied = new Set<string>()
   let width = 0
   const trs = rows.map((cells, r) => {
@@ -93,18 +95,26 @@ export function table(rows: CellSpec[][], o: { id?: number; cache?: boolean; zon
     return `<hp:tr>${tcs.join('')}</hp:tr>`
   })
   const cols = Math.max(...[...occupied].map((k) => Number(k.split(':')[1]) + 1))
-  const height = rows.reduce((h, cells) => h + Math.max(...cells.map((c) => (c.rowSpan ?? 1) === 1 ? c.height ?? 2400 : 0), 0), 0)
-  const tbl = `<hp:tbl id="${o.id ?? 1500000000}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="CELL" repeatHeader="1" rowCnt="${rows.length}" colCnt="${cols}" cellSpacing="0" borderFillIDRef="${FORM.line}" noAdjust="0">` +
+  const height = o.height ?? rows.reduce((h, cells) => h + Math.max(...cells.map((c) => (c.rowSpan ?? 1) === 1 ? c.height ?? 2400 : 0), 0), 0)
+  const tbl = `<hp:tbl id="${o.id ?? 1500000000}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" pageBreak="${o.pageBreak ?? 'CELL'}" repeatHeader="1" rowCnt="${rows.length}" colCnt="${cols}" cellSpacing="0" borderFillIDRef="${FORM.line}" noAdjust="0">` +
     `<hp:sz width="${width}" widthRelTo="ABSOLUTE" height="${height}" heightRelTo="ABSOLUTE" protect="0"/>` +
-    '<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>' +
+    `<hp:pos treatAsChar="${o.treatAsChar === false ? 0 : 1}" affectLSpacing="0" flowWithText="1" allowOverlap="0" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="COLUMN" vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/>` +
     '<hp:outMargin left="283" right="283" top="283" bottom="283"/><hp:inMargin left="510" right="510" top="141" bottom="141"/>' + (o.zones ?? '') + trs.join('') + '</hp:tbl>'
   return para([], { raw: `<hp:run charPrIDRef="0">${tbl}<hp:t/></hp:run>`, cache: o.cache, vert: 4000 })
 }
 
+/** a page setup (HWPUNIT; the built-in A4 upright page unless given): hp:pagePr and its hp:margin. Hangul writes
+ * landscape="WIDELY" for an upright page and "NARROWLY" for a turned one, keeping the upright paper's width and height */
+export interface PageSpec { width?: number; height?: number; left?: number; right?: number; top?: number; bottom?: number; header?: number; footer?: number; landscape?: boolean }
+export const pageSecPrXml = (p: PageSpec = {}) => defaultSecPrXml().replace(/<hp:pagePr\b[\s\S]*?<\/hp:pagePr>/,
+  `<hp:pagePr landscape="${p.landscape ? 'NARROWLY' : 'WIDELY'}" width="${p.width ?? 59528}" height="${p.height ?? 84186}" gutterType="LEFT_ONLY">` +
+  `<hp:margin header="${p.header ?? 4252}" footer="${p.footer ?? 4252}" gutter="0" left="${p.left ?? 8504}" right="${p.right ?? 8504}" top="${p.top ?? 5668}" bottom="${p.bottom ?? 4252}"/></hp:pagePr>`)
+
 /** A .hwpx with Hangul's parts in Hangul's order: `sections` are the paragraphs of each section after the first one
- * (which holds the page setup). `extra` parts go at the end; `manifest` items are added to content.hpf. */
-export function hwpxDoc(sections: string[], o: { head?: string; extra?: Record<string, Uint8Array | string>; manifest?: string; preview?: string; firstPara?: string } = {}): Uint8Array {
-  const first = o.firstPara ?? `<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">${defaultSecPrXml()}` +
+ * (which holds the page setup, `page` or the built-in one). `extra` parts go at the end; `manifest` items are added to
+ * content.hpf. */
+export function hwpxDoc(sections: string[], o: { head?: string; extra?: Record<string, Uint8Array | string>; manifest?: string; preview?: string; firstPara?: string; page?: PageSpec } = {}): Uint8Array {
+  const first = o.firstPara ?? `<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0">${o.page ? pageSecPrXml(o.page) : defaultSecPrXml()}` +
     `<hp:ctrl><hp:colPr id="" type="NEWSPAPER" layout="LEFT" colCount="1" sameSz="1" sameGap="0"/></hp:ctrl></hp:run><hp:run charPrIDRef="0"><hp:t/></hp:run>${lineseg(0)}</hp:p>`
   const secs = sections.map((s, i) => XML_DECL + `<hs:sec ${NS_ATTRS}>${i === 0 ? first : ''}${s}</hs:sec>`)
   const items = secs.map((_, i) => `<opf:item id="section${i}" href="Contents/section${i}.xml" media-type="application/xml"/>`).join('')
@@ -171,6 +181,25 @@ export function employmentForm(o: { cache?: boolean } = {}): Uint8Array {
     picture() +
     para([], { raw: '<hp:run charPrIDRef="14"><hp:t>문서번호 제2026-0412호</hp:t><hp:futureThing kind="미래 요소" level="3"/></hp:run>', cache, vert: 30000 }),
   ], { extra: { 'BinData/image1.png': PNG_1PX }, manifest: PICTURE_ITEM, preview: '재 직 증 명 서' })
+}
+
+/**
+ * A made-up one-page application (신청서) built the way statutory forms are: the page is one table placed as a character
+ * (글자처럼 취급), a heading row, `rows` empty list rows and a closing row, every row 3000 HWPUNIT tall. With the default
+ * 18 list rows the table is 60,000 tall, and the built-in page's body (84,186 less 5,668 top, 4,252 bottom, header and
+ * footer) is 65,762: one more row fits, two do not.
+ */
+export function onePageForm(o: { rows?: number; treatAsChar?: boolean; pageBreak?: 'CELL' | 'TABLE' | 'NONE'; page?: PageSpec } = {}): Uint8Array {
+  const W = [6000, 9000, 15000]
+  const row = (...t: string[]): CellSpec[] => t.map((text, k) => ({ text, width: W[k]!, height: 3000 }))
+  return hwpxDoc([
+    table([
+      row('관계', '성명', '주소'),
+      ...Array.from({ length: o.rows ?? 18 }, () => row('', '', '')),
+      [{ text: '가나시장 귀하', width: 30000, colSpan: 3, height: 3000 }],
+    ], { treatAsChar: o.treatAsChar, pageBreak: o.pageBreak }) +
+    para('위와 같이 신청합니다.'),
+  ], { page: o.page })
 }
 
 /**

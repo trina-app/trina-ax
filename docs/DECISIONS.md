@@ -1125,7 +1125,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **단계마다 체크포인트(SQLite WAL, `synchronous=FULL`)이고 단계는 "확인한 뒤 실행"이다.** 그래서 kill -9로 단계 중간에 죽어도 그 단계를 다시 돌리면 된다(예: 클론은 VMID가 이미 있고 설명이 그 테넌트면 건너뜀, 데이터 디스크는 이미 있으면 새로 만들지 않음). VMID·IP·MAC 배정도 저널에 남아 재시작해도 같다. 시험은 실제 hostd 프로세스를 단계 ③·④에서 SIGKILL로 죽이고 다시 띄워 성공까지 본다.
 - **이동은 두 작업으로 나눴다.** 대상에 `reserveCapacity` → 원본에 `moveTenant`(운영 중 사전 복사, 정지, 마지막 증분, `moved` 표시) → 대상에 `restoreTenant{replica:{host:<원본>}}`. 대상 쪽은 호스트 고장 때 버디 복제본을 승격하는 경로와 똑같다. VM 설정은 데이터 zvol의 ZFS 사용자 속성 `ax:vmconf`로 데이터와 같이 간다(syncoid `--sendoptions=p`, 수신 계정 `zfs allow`에 `userprop` 추가). §6.2의 "moveTenant 한 작업" 대신 이렇게 한 이유: 한 호스트의 hostd가 다른 호스트의 Proxmox를 만질 수 없게(호스트 사이 권한을 수신 전용 ZFS 위임으로만 둠).
 - **purge 조건**: (소프트 삭제 + `purgeAfter` 지남) 또는 (`customer_request`·`provision_failed` + purge 키 2차 서명). `provision_failed`는 소프트 삭제 없이도 된다(만들다 실패한 VM). 호스트당 시간당 3건은 실행 시점에 세고, 재시작으로 이어지는 purge는 자기 자리를 유지한다.
-- **데이터 디스크는 `/var/lib/mycel` 전체에 마운트한다(결정 L1).** isolation §5.1(데이터 디스크 = `/var/lib/mycel`)과 linux-runtime D2(`/var/lib/mycel` 아래에 app·root까지 한 트리)가 부딪힌다. 템플릿 빌드는 W1 설치기를 `--image-mode`로 돌린 뒤 그 트리를 `/usr/lib/mycel/seed-base`로 옮겨 두고, `mycel-enroll`이 빈 데이터 디스크에 그대로 복사한다(`cp -a`). 그래서 `mycel-ctl update`로 바뀐 앱 버전과 root 바이너리가 데이터 디스크에 있어 재이미징에도 남는다. 계정 uid/gid는 **고정**(`axserver` 990, `axagent` 991, 시스템 범위라 `checkDedicated` 통과): 템플릿 판이 바뀌어도 데이터 디스크 파일 주인이 맞는다. 버린 안: 데이터 디스크를 다른 곳에 두고 하위 폴더만 바인드(마운트 7개, W1 설치기와 따로 놀음), app·root를 OS 디스크에 두기(재이미징 때 업데이트가 되돌아감).
+- **데이터 디스크는 `/var/lib/mycel` 전체에 마운트한다(결정 L1).** isolation §5.1(데이터 디스크 = `/var/lib/mycel`)과 linux-runtime D2(`/var/lib/mycel` 아래에 app·root까지 한 트리)가 부딪힌다. 템플릿 빌드는 W1 설치기를 `--image-mode`로 돌린 뒤 그 트리를 `/usr/lib/mycel/seed-base`로 옮겨 두고, `mycel-enroll`이 빈 데이터 디스크에 그대로 복사한다(`cp -a`). 그래서 `mycel-ctl update`로 바뀐 앱 버전과 root 바이너리가 데이터 디스크에 있어 재이미징에도 남는다. 계정 uid/gid는 **고정**(`axserver` 980, `axagent` 981, 시스템 범위라 `checkDedicated` 통과; 990/991은 Debian 13 genericcloud 기본 이미지가 이미 쓴다: 2026-10-30 파일럿에서 uid 990 = systemd-resolve): 템플릿 판이 바뀌어도 데이터 디스크 파일 주인이 맞는다. 버린 안: 데이터 디스크를 다른 곳에 두고 하위 폴더만 바인드(마운트 7개, W1 설치기와 따로 놀음), app·root를 OS 디스크에 두기(재이미징 때 업데이트가 되돌아감).
 - **W1 설치기 `--image-mode` 계약**: BASE에 전부 설치하되 유닛을 켜거나 시작하지 않고 설정 토큰도 만들지 않는다. 키트가 없으면 템플릿 빌드가 이 계약을 적은 오류로 멈춘다(`--allow-missing-kit`은 파이프라인 점검용, 운영 불가 표시).
 - **재이미징 뒤 `reattach`는 CP를 부르지 않는다.** 토큰도 없다. 데이터 디스크에 설정·릴레이 키·등록이 다 있으므로 `/etc/default/mycel`을 다시 쓰고 유닛을 켜면 끝난다(control-plane에 reattach 계약이 없음). 절대 포맷하지 않는다.
 - **클라우드 등록은 `engine.credentialKinds = ["anthropic-api-key","openai-api-key"]`**(CP 응답에 목록이 없을 때, ADDENDUM 3). `--standalone`(셀프호스트)은 네 종류 모두.
@@ -1143,7 +1143,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **DockerDriver는 개발 전용이다.** 테넌트 = systemd가 PID 1인 특권 Debian 컨테이너, 데이터 디스크 = 도커 볼륨, 게스트 에이전트 = `docker exec`. 커널을 공유하고 특권이라 격리가 전혀 없다. 이 맥에서 가짜 CP와 진짜 `mycel-enroll`로 생성→등록→실행→정지/재개→스냅숏/복원→크기 변경→삭제→purge 전체를 확인하는 데만 쓴다.
 - **mycel-enroll 세부**(작업자 기록): 복원 내려받기는 `BASE/.install-tmp/enroll-dl`(root 0700), 복호화 결과는 `BASE/data/.restore-staging/<backupId>/`(axserver 0700, 서버 계정이 root 전용 폴더를 지나갈 수 없어서). `identityAge`·`credentialsKeyAge`는 ASCII armor와 바이너리 age의 base64를 둘 다 받는다. 데이터 디스크는 `mount -t ext4 -o noatime`로 직접 마운트한다. 오류 코드: `config_invalid`, `insecure_url`, `data_disk_missing|ambiguous|not_blank|failed`, `kit_incomplete`, `seed_failed`, `relay_key_failed`, `enroll_unreachable`, `apply_failed`, `restore_failed`, `restore_unsupported`, `start_failed`. https가 아닌 http:// CP는 루프백이거나 `AX_ENROLL_ALLOW_HTTP=1`(개발 이미지)일 때만.
 - **템플릿 서명**: 릴리스 키가 `"ax-template-v1\n<templateVersion>\n<sha256>"`(줄바꿈 끝 없음)에 Ed25519로 서명하고(`scripts/image/build.sh` → `<image>.sig`, base64), hostd `installTemplate`은 작업의 버전과 sha256으로 같은 문자열을 만들어 확인한다(`templateSigningString`). 버전까지 묶어 옛 이미지를 새 버전 이름으로 다시 설치하는 것을 막는다.
-- **템플릿 빌드(`scripts/image/build.sh`, H-05)**: Debian 13 genericcloud(SHA512SUMS 확인) → `virt-resize`로 12G → `virt-customize --network`로 `customize.sh`(멱등, 두 번째 실행 `changed=0`) → `virt-sparsify`. libguestfs가 필요해서 리눅스 CI 러너나 Proxmox 호스트에서 돈다(이 맥의 colima 컨테이너에서는 passt가 죽어 appliance가 안 뜸). 계정 990/991은 **패키지 설치보다 먼저** 만든다(어떤 패키지의 시스템 계정도 그 번호를 가져가지 못하게).
+- **템플릿 빌드(`scripts/image/build.sh`, H-05)**: Debian 13 genericcloud(SHA512SUMS 확인) → `virt-resize`로 12G → `virt-customize --network`로 `customize.sh`(멱등, 두 번째 실행 `changed=0`) → `virt-sparsify`. libguestfs가 필요해서 리눅스 CI 러너나 Proxmox 호스트에서 돈다(이 맥의 colima 컨테이너에서는 passt가 죽어 appliance가 안 뜸). 계정 980/981은 **패키지 설치보다 먼저** 만든다(어떤 패키지의 시스템 계정도 그 번호를 가져가지 못하게).
 - **`var-lib-mycel.mount`는 켜 두지 않는다**(인터페이스 메모의 "enabled"에서 바꿈). 켜 두면 첫 부팅마다 아직 없는 디스크를 약 90초 기다린다. 대신 mycel 유닛마다 `RequiresMountsFor=/var/lib/mycel` 드롭인을 두어, 등록 뒤 부팅에서는 유닛이 마운트를 끌어오고 데이터 디스크가 없으면 서비스가 OS 디스크의 빈 폴더 위에서 뜨지 않는다. 첫 부팅·reattach에서는 `mycel-enroll`이 직접 마운트한다.
 - **손님 sysctl 파일은 `99-ax-guest.conf`**(`ptrace_scope=2` 등): 키트의 `60-mycel.conf`(`ptrace_scope=1`)보다 뒤에 읽혀 이긴다.
 - **무인 업그레이드는 Debian-Security만**, `--force-confold`(우리가 바꾼 `chrony.conf` 때문에 보안 업데이트가 멈추지 않게).
@@ -5438,6 +5438,56 @@ box limits follow the plan.
   podman and a fixed `mycel-devbox` uid in the template, box state on the data disk (G-T4-6), a reinstall after a
   reimage, and idle checks that count box jobs. Until then an operator installs it as a trial.
 
+### Dev environment on srt, behind a flag (feat/srt-dev-env, 2026-11-04)
+
+Input: the owner and Dion chose srt (`@anthropic-ai/sandbox-runtime`) in place of the podman box. Design:
+`docs/research/srt-dev-env.md`. This change builds it behind `MYCEL_DEV_ENV_RUNNER=srt`. The box stays the default, and a
+later PR removes it.
+
+- **Executor.** The server account runs one srt process (CLI mode, node 22 in `/opt/trina/node`) for each command, job
+  or dev server, in a `systemd-run --scope` unit `trina-dev-<16 chars>.scope` in `<ID>-devenv.slice`, with MemoryMax,
+  CPUQuota, TasksMax, OOMPolicy=kill and RuntimeMaxSec. `run-wrap` sets rlimits and `oom_score_adj` 800 and writes the
+  exit code. A polkit rule lets the server account start, stop and reset-failed only these scope names.
+- **Not locked to a project (owner, 2026-11-04).** Any chat, with or without a project, can run commands. The admin
+  turns srt on for the team (`devEnv.team`: on, who, network, limits, consent); the per-project setting stays for the
+  box. A run gets the folder access of the person who owns the chat, built from the folder rules for every command
+  and job start (`server/src/devenv/srt/access.ts`), plus a home per person and, for a chat with no project, the chat's
+  work folder `<base>/devenv/work/<chatId>`. The tracker stops a job when the person's access changes.
+- **Team settings › Dev environment (2026-11-04).** Admins edit the team setting there (on or off, who, network,
+  limits cut to the plan, extra sites, the warning). Before, the only way in was a project's modal, so a team with no
+  projects could not turn it on. A save sends only the changed fields, because a change of network or limits stops
+  every run. `Me.server.devEnv` (the flag) shows the section, so a server without the flag gets no 404 request.
+- **Write only in the starting folder (owner, 2026-11-04, Q0 (b)).** In a run, only the starting folder (the project
+  folder) and the person's own `users/<id>` are writable. Every other folder that the person may write is read-only in
+  the run, and a run in a chat's work folder writes no team folder except `users/<id>`. Why: a write outside the
+  project folder has no change record and no older versions, it skips the read-scope check, and a shared writable
+  folder is a code channel between people (a git hook, `package.json` scripts or a Makefile that another person's AI
+  runs later with that person's access, G-SRT-11). The project folder stays shared by its writers, with its change
+  window. A copy from a folder the person may read into the project folder still skips the read-scope check.
+  `settingsProblems` refuses a run whose settings make another team folder writable. A writable folder inside a
+  read-only one (an admin's project folder below the read-only team root) also gets a `denyRead` landing, because srt
+  binds reads back after writes and would cover it read-only (Docker A28c, A28d).
+- **Files.** The srt settings hide the whole base folder and `/etc/default/<ID>`, and give back the person's team
+  folders (read from the rules; write only in the starting folder and the own folder), the person's home (read and write) and logs (read). srt itself denies writes to `.git/hooks`, `.git/config` and
+  similar files. The environment has only listed keys, never the server's. A `cwd` through a link out of the project is
+  refused before the run.
+- **Network.** `open` now means an allowlist: the defaults in `shared/src/dev-env-domains.ts` plus the team's extra
+  domains (`devEnv.team`, admins). The team's host names (public origins, relay, `MYCEL_DEV_ENV_DENY_HOSTS`) are denied,
+  and an admin cannot allow them. Private, link-local and metadata ranges and the VM's public IPv4 (IMDS) are denied
+  after resolution. srt's warning has version 2, so an owner accepts again before the first srt run.
+- **Queue.** Jobs over `maxRunning` wait (FIFO for the team, 3 per person, 10 for the server, 24 hours). A waiting job
+  checks access again before it starts. Commands over `maxRunning + 1` are refused at once. Dev servers: one per chat,
+  `maxRunning` on the server. Migration 222 adds the table `dev_env_runs` (a run has a person and a chat, the project
+  can be null); `dev_env_jobs` stays for the box.
+- **Plan caps.** The server reads `root/dev-env.json` with a TS port of `parseEntitlement` (fail closed) and cuts each
+  run's limits to it. The install writes the slice from the same file, so the server cannot raise the total.
+- **Left from the design, on purpose.** A drop-in sets the flag and `ReadWritePaths=<base>/devenv`;
+  `server.service.in` and `scripts/linux/deps.txt` do not change (the packages come from `install-srt.sh`). No preview
+  on srt yet (the Q2 fallback). The tool keeps its name `box_shell`. `/run` is denied too. `CLAUDE_CODE_TMPDIR` points
+  srt's sandbox temp folder into the project home (else `/tmp/claude`, which the settings hide).
+- **Tests.** `tests/unit/dev-env-srt.test.ts` (fakes) and `tests/linux/srt-attack.ts` (real srt in Docker, CI). Not yet
+  verified on systemd: polkit, the scope limits, OOM, and the Starter memory budget (design section 11).
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.
@@ -6514,6 +6564,20 @@ Asked for: the AI fills in and changes an existing .hwp (HWP 5.x binary) the sam
 - Tests: `tests/lib/hwp.ts` builds .hwp documents record by record (paragraphs with shapes and controls, tables with zones and captions, Hangul's streams); `tests/unit/hwp-edit.test.ts` (each change kind and the records it rewrites and nothing else, controls and shapes next to an edit, a line break, headings, empty cells with and without PARA_TEXT, fields in cells, rows with TABLE, zones, addresses and height, every other stream and the directory byte for byte, a second section, compressed and uncompressed documents, the extended record size both ways, the mini-stream line both ways, unknown records and streams, Hangul's default scripts, every untrusted case, damaged containers, the model checked against hwp.ts, the server's read-back, the worker modes, the review's cases (names in other case, rows in nested tables in both orders, characters outside the BMP, rows after a row with no cells, an OLE storage, forbidden name characters, the paragraph limit); Hangul-saved samples and rhwp rendering when `MYCEL_HWP_SAMPLES` names a folder); `tests/unit/hwpx-edit.test.ts` (nested-table rows in both orders for .hwpx); `tests/unit/c-edit-hwp.test.ts` (a .hwp through the tool: a new version with history, a new .hwp, an output in the other format refused, refused documents saving nothing, write and edit still refusing).
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
 
+## add_rows: a table that fills its page (fix/hwp-add-rows-page-fit, 2026-11-05)
+
+Found 2026-11-04 by opening the stage 3 samples in Hancom Docs (Hancom's own engine). The front page of a statutory form (주민등록법 시행규칙's 교부 제한 신청서) is one table placed as a character (글자처럼 취급) that fills the page. add_rows put in two rows, and the table's estimated height went from 75,100 to 80,876 HWPUNIT. Such a table cannot continue on the next page, so Hancom cut off what did not fit: the form's last line ("시장·군수·구청장, 읍·면·동장 또는 출장소장 귀하") was gone, and the tool had reported success. Statutory forms are often built this way.
+
+- **The rule** (`hwp-changes.ts`, `checkPageFit`, both formats): add_rows is refused and nothing is saved when the table cannot continue on the next page and its estimated new height is larger than the page body. A table cannot continue when it is placed as a character (.hwp: CTRL_HEADER attribute bit 0; .hwpx: `hp:pos treatAsChar="1"`) or is set not to split at a page boundary (.hwp: TABLE attribute bits 0-1 = 0; .hwpx: `hp:tbl pageBreak="NONE"`). A floating table that splits by cell or as a whole is not checked. A table inside a cell is checked against the outermost table around it, with that table's settings. Each level passes on only the growth that does not fit in its cell's stated height (the room above the inner table), and the changes of one call add up.
+- **The estimate** is the height the editor writes into the table: for .hwp, the copied row's height as the table's height per row gives it or as its cells give it, whichever is larger; for .hwpx, the copied row's tallest cell. "About N fit" comes from the same estimate.
+- **The page body** is the paper's height (its width when the page is turned) less the top, bottom, header and footer margins. .hwp: the section's PAGE_DEF (paper width and height; left, right, top, bottom, header, footer and gutter margins; attribute bit 0 set when the page is turned (넓게), with width and height kept upright). .hwpx: `hp:pagePr` (`landscape="WIDELY"` upright, `"NARROWLY"` turned, as Hangul writes them and hwpx-write.ts reads them) and its `hp:margin`. A section with no page setup, or more than one, is not checked.
+- **Checked on the sample**: page 59,528 × 84,188, top 5,668, bottom 2,834, no header or footer margin, so the body is 75,686. The original table (75,100) fits; the two-row result (80,876) does not; the estimate allows 0 more rows (2,888 per row, 586 of room). Header and footer margins count: Hangul keeps them between the page margins and the body, and the line positions Hangul saves in its own files end at that body. A turned page swaps width and height (.hwp PAGE_DEF bit 0; .hwpx `landscape="NARROWLY"`). The samples' other two forms keep their bytes: the same change lists give byte-identical files.
+- **Conservative**: only the table's own estimated height counts. Its outer margins do not: Hangul lays out another of the samples' forms with its table and 141 + 141 of outer margin on one line, 71 past the body. The paragraphs above the table on the page do not count, and neither do rows that wrapped text makes taller.
+- **Known limits**: paragraphs above the table on the same page and rows grown by wrapped text are not counted, so a call can still pass whose rows Hangul then cuts off. The estimate can also be larger than the copied row (an average row taller than it), so a few more rows may fit than "about N" says. A table whose stated height is already taller than the body takes no rows: we cannot show it still fits, so it gets the same answer (a few Hangul-saved tables state a height slightly over the body).
+- **The message** goes to the AI, which passes it on: `change 2: table 1 fills its page and cannot continue on the next page (it is placed as a character), so Hangul would cut off its end: 2 rows were asked for and about 0 fit. Fill only the rows the table already has, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.` A nested table is named as "table 2 is inside table 1, which fills its page". The edit_hwp description gets one clause: a form whose page is one table takes only the rows that still fit on that page, so fill its empty rows first.
+- Tests: `tests/unit/hwp-edit.test.ts` and `tests/unit/hwpx-edit.test.ts` (placed as a character, refused with how many fit and fitting rows added; the sample's numbers; floating tables that split, and one that does not; a turned page; header and footer margins; no page setup or two; nested tables with the cell's room, the outer table's settings, and two changes of one call in both orders); with `MYCEL_HWP_SAMPLES`, every table of the samples that cannot continue takes the "about N" rows and refuses one more; `tests/unit/c-edit-hwp.test.ts` (the refusal reaches the AI as an error with no new version, for .hwp and .hwpx, and the row that fits is saved). The builders in `tests/lib/hwp.ts` and `tests/lib/hwpx.ts` take a page setup and a table's placement and split setting.
+- Needed in the core too (potenlab/team-ax): everything here.
+
 ## Projects: a folder with instructions (feat/project-is-folder, 2026-11-03)
 
 Two reviews found that a project overlapped with folders (people mixed up the Project object and the `projects/<p>/`
@@ -6761,7 +6825,7 @@ An independent review said "merge after should-fix" and found nothing that break
 
 - The "no AI connection" chat errors (`no_credential`, `credential_unusable`) get a button, and a short line above the composer says the same before the person sends anything. The button depends on who the person is, and the server decides: `GET /api/me/ai-access` returns `{ usable, action, requested }` with `action` one of `connect_team` (owner, goes to Admin > AI connections), `connect_own` (the team allows personal connections, goes to Settings > AI connections) or `ask_owner`. An admin is not offered the team page: only the owner adds team connections (owner-reauth), so an admin is treated like a member. The chat error itself is unchanged; it already carries the reason, and the action comes from this endpoint, so the error never has to name anyone.
 - `usable` reuses `credentials/access.ts canUseAi` (the same rule as Admin > Members "No AI" and the composer's engine list), not a new check. It is always true when engines sign in on their own (authMode other than managed). The banner shows nothing until the first answer, a failed check shows nothing, and it never blocks typing. It refreshes on the existing `engine_choice_changed` notice, which every connection change already publishes.
-- "팀장에게 알리기" (first called "관리자에게 알리기"; renamed because only owners get it): `POST /api/me/ai-access/request` writes one inbox row per active owner in a new table `onboarding_notices` (migration 222; event `onboarding.ai_request`, source = the member's id). The notification service has a fixed event list and tables are never rebuilt, so a small table of its own follows `integration_request_notices`. The unique row is the dedupe: a second click does nothing, and the same row answers "알렸어요" (`requested`). Retention is the inbox's 30 days; after that the member can ask again. Only a signed-in person who cannot use AI and is not the owner can ask (403 otherwise). The owner sees the member's display name and a link, never text from the member. The notice counts as read once the member can use AI (checked in `reconcile`) or is gone. Admins do not get it: they cannot connect anything.
+- "팀장에게 알리기" (first called "관리자에게 알리기"; renamed because only owners get it): `POST /api/me/ai-access/request` writes one inbox row per active owner in a new table `onboarding_notices` (migration 231, first numbered 222; event `onboarding.ai_request`, source = the member's id). The notification service has a fixed event list and tables are never rebuilt, so a small table of its own follows `integration_request_notices`. The unique row is the dedupe: a second click does nothing, and the same row answers "알렸어요" (`requested`). Retention is the inbox's 30 days; after that the member can ask again. Only a signed-in person who cannot use AI and is not the owner can ask (403 otherwise). The owner sees the member's display name and a link, never text from the member. The notice counts as read once the member can use AI (checked in `reconcile`) or is gone. Admins do not get it: they cannot connect anything.
 - Owner checklist (Home): the AI item is first and points to Admin > AI connections. Another stream replaces this checklist during trials; the change is two lines.
 - With B's trial AI credit (integration): while the credit is active it answers anyone without a connection, so `usable` is true (`hasCredentialSoonFor`) and no banner shows. Once it is used up or over and nothing else answers a Claude user, `GET /api/me/ai-access` adds `trial: 'used' | 'ended'` and the banner says that first (`aiAccess.banner.trialUsed` / `trialEnded`, B's own first sentence in five languages), then the usual sentence and button. The chat errors `trial_credit_used` and `trial_ended` get the same button as `no_credential`; their text already says the credit is gone. The banner learns it at its next check (a page load, a connection change, or the button in such an error); the server does not push when the credit runs out. A request refused only because other requests hold the last dollars also reads `trial_credit_used` while the credit still counts as active: then the button stays hidden and Retry works once those finish.
 
@@ -7854,3 +7918,15 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   (`a-team-link-starter`), `tests/unit/c-general-pack-switch.test.ts`, the count and "지금 있는 팀원 n명도 넣기"
   (`welcome.test.tsx`), the file list and the patched memory (`team-link.test.tsx`), the chip in the box and in a question
   (`starter-arrival.test.tsx`, `steps-receipt.test.tsx`).
+
+## Migration 222 renumbered to 231 (integration with 0.4.0-beta.7, 2026-11-05)
+
+- main's 0.4.0-beta.7 line shipped `222_b_dev_env_run_state.sql`, and stream A had taken 222 for
+  `onboarding_notices`. The runner keys applied migrations by number (`schema_migrations.version`) and refuses two files
+  with one number, so ours moved to `231_b_onboarding_notices.sql` (the next number in B's range after 230); main's
+  released number is never changed. Nothing else refers to the number (the table and its code are unchanged).
+- Known consequence: a development or demo database made from this branch before the renumber recorded 222 as
+  `onboarding_notices`. It would skip main's 222 (dev environment run state) and stop on 231 ("table already exists"),
+  so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
+  No released server ever had our 222.
+

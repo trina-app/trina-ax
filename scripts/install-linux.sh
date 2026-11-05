@@ -42,6 +42,10 @@
 #                         must be https://<public host>/api/integrations/google-drive/callback. Not kept: repair and
 #                         update leave the installed file as it is.
 #   --skip-apt            do not install distribution packages (they must already be there)
+#   --image-mode          install only, for a template build (scripts/image/customize.sh: virt-customize, no running
+#                         systemd): install the files and the units, but enable and start nothing, write no setup code,
+#                         load no engine firewall, wait for no health. Live-kernel checks only warn (the booted VM runs
+#                         them again). Implies --hosted.
 #   --no-systemd          no systemd here (a test container): write everything but the units and print how to run
 #                         `mycel-ctl supervise` instead (not supported for real use)
 #   uninstall: --purge also deletes the data, the team folder and the accounts; --keep-logins keeps agent/codex-auth
@@ -71,6 +75,7 @@ esac
 
 ID=mycel SRV_USER="" AGT_USER="" PORT=47820 PROXY_PORT=47821 TLS_PORT=0
 FROM="" HOSTED=0 PLAN="" CODEX_MODELS="" ALLOW_UNSIGNED=0 AUTO_UPDATE=1 SKIP_APT=0 SYSTEMD=1 PURGE=0 KEEP_LOGINS=0
+IMAGE_MODE=0
 PUBLIC_HOST="" APP_CONNECTORS="" DRIVE_CLIENT=""   # "" = not given: keep what server.json has
 ENGINES=()
 SET=()   # options given on the command line (repair/update keep the rest from install.json)
@@ -102,6 +107,7 @@ while [ $# -gt 0 ]; do
     --google-drive-client) val "$@"; DRIVE_CLIENT=$2; shift 2 ;;
     --skip-apt) SKIP_APT=1; shift ;;
     --no-systemd) SYSTEMD=0; SET+=(nosystemd); shift ;;
+    --image-mode) IMAGE_MODE=1; HOSTED=1; SET+=(hosted); shift ;;
     --purge) PURGE=1; shift ;;
     --keep-logins) KEEP_LOGINS=1; shift ;;
     -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
@@ -112,6 +118,7 @@ given() { local s; for s in ${SET[@]+"${SET[@]}"}; do [ "$s" = "$1" ] && return 
 ! { given auto && given noauto; } || die "--auto-update and --no-auto-update exclude each other"
 ! { given signed && given unsigned; } || die "--require-signed and --allow-unsigned exclude each other"
 ! { given auto && given hosted; } || die "--auto-update is for self-installs; the hosted service updates its tenants"
+[ "$IMAGE_MODE" = 0 ] || [ "$CMD" = install ] || die "--image-mode is for install only (a template build)"
 
 [ "$(uname -s)" = Linux ] || die "Linux only (macOS: scripts/install-macos.sh)"
 [ "$CMD" = check ] || [ "$(id -u)" = 0 ] || die "run as root (sudo), or \`$0 check --from <kit>\` to only check"
@@ -339,8 +346,10 @@ case "$OSID:$OSVER" in debian:12|debian:13|ubuntu:24.04) OS_OK=1 ;; esac
 MACH=$(uname -m)
 case "$MACH" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; *) die "unsupported processor $MACH (x86_64 or aarch64)" ;; esac
 if [ "$ARCH" = amd64 ] && ! grep -qw sse4_2 /proc/cpuinfo; then die "this x86_64 processor has no SSE4.2 (bun and Claude Code need it; in a VM use CPU type x86-64-v2 or host)"; fi
-if [ "$SYSTEMD" = 1 ] && ! have_systemd; then die "no systemd here; use --no-systemd (test containers only)"; fi
-[ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null)" = cgroup2fs ] || die "cgroup v2 (unified) is required; /sys/fs/cgroup is $(stat -fc %T /sys/fs/cgroup 2>/dev/null || echo missing)"
+# image mode: a check of the live kernel only warns (the build runs in a chroot or appliance; the booted VM checks again)
+imgwarn() { if [ "$IMAGE_MODE" = 1 ]; then warn "image mode: $*"; else die "$*"; fi; }
+if [ "$SYSTEMD" = 1 ] && [ "$IMAGE_MODE" = 0 ] && ! have_systemd; then die "no systemd here; use --no-systemd (test containers only)"; fi
+[ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null)" = cgroup2fs ] || imgwarn "cgroup v2 (unified) is required; /sys/fs/cgroup is $(stat -fc %T /sys/fs/cgroup 2>/dev/null || echo missing)"
 
 # ---- 2) the kit's programs are ELF for this processor; the kit verifies (manifest + release signature) ----
 # (read from the ELF header itself: file(1) may not be installed yet) machine 0x3e = x86-64, 0xb7 = aarch64
@@ -533,13 +542,13 @@ if [ "$RESTRICT_USERNS" = 1 ] && { [ -f "/etc/apparmor.d/$ID-bwrap" ] || ! usern
 elif [ "$RESTRICT_USERNS" = 1 ]; then
   say "AppArmor: bwrap may already create user namespaces here (another profile allows it); no profile added"
 fi
-userns_ok || die "bwrap cannot create a user namespace as an unprivileged account (kernel.unprivileged_userns_clone=0, user.max_user_namespaces=0, a container without nesting, or an AppArmor profile in the way)"
+userns_ok || imgwarn "bwrap cannot create a user namespace as an unprivileged account (kernel.unprivileged_userns_clone=0, user.max_user_namespaces=0, a container without nesting, or an AppArmor profile in the way)"
 # nftables works here (a container needs CAP_NET_ADMIN in its own network namespace)
-{ nft add table inet mycel_probe && nft delete table inet mycel_probe; } >/dev/null 2>&1 || die "nft cannot add a table (needs nf_tables and CAP_NET_ADMIN in this network namespace)"
+{ nft add table inet mycel_probe && nft delete table inet mycel_probe; } >/dev/null 2>&1 || imgwarn "nft cannot add a table (needs nf_tables and CAP_NET_ADMIN in this network namespace)"
 if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then
   printf '%s\n' "$PF" > /dev/null
 else
-  [ "$HOSTED" = 1 ] && die "preflight failed for a hosted tenant: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-800)"
+  [ "$HOSTED" = 1 ] && imgwarn "preflight failed for a hosted tenant: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-800)"
   warn "preflight: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-600)"
 fi
 
@@ -548,7 +557,7 @@ SYSCTL_F="/etc/sysctl.d/60-$ID.conf"
 printf '# %s (%s): processes of one account may not attach to each other (linux-runtime spec 3.1.1)\nkernel.yama.ptrace_scope = 1\n' "$PRODUCT_NAME" "$ID" > "$SYSCTL_F.tmp"
 install -o root -g root -m 644 "$SYSCTL_F.tmp" "$SYSCTL_F"; rm -f "$SYSCTL_F.tmp"
 if ! sysctl -q -p "$SYSCTL_F" >/dev/null 2>&1 || [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then
-  if [ "$HOSTED" = 1 ] && [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then die "kernel.yama.ptrace_scope is below 1 and cannot be set here (a container: the host must set it, spec 6.3)"; fi
+  if [ "$HOSTED" = 1 ] && [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then imgwarn "kernel.yama.ptrace_scope is below 1 and cannot be set here (a container: the host must set it, spec 6.3)"; fi
   [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -ge 1 ] || warn "could not set kernel.yama.ptrace_scope = 1 (a container? the host must set it); diagnostics report it"
 fi
 
@@ -808,8 +817,12 @@ for name in claude codex; do
     rm -f "$stage"
     got=$(engine_version "$dir/$name")
     if [ -n "$pin" ] && [ "$got" != "$pin" ]; then
-      if [ "$HOSTED" = 1 ]; then die "engine $name: version ${got:-unknown}, the kit pins $pin (hosted tenants run only the pinned version)"; fi
-      warn "engine $name: version ${got:-unknown}, the kit pins $pin (the lockdown tests ran with $pin)"
+      # image mode: the version check runs the engine in bwrap, and the build has no user namespaces. A download (or
+      # cache copy) already matched the pinned SHA-256, so an empty answer only warns; a wrong version still stops.
+      if [ "$IMAGE_MODE" = 1 ] && [ -z "$got" ] && [ -z "$src" ]; then
+        warn "image mode: engine $name: --version cannot run here (no user namespaces); the file matched the pinned SHA-256 of $pin"
+      elif [ "$HOSTED" = 1 ]; then die "engine $name: version ${got:-unknown}, the kit pins $pin (hosted tenants run only the pinned version)"
+      else warn "engine $name: version ${got:-unknown}, the kit pins $pin (the lockdown tests ran with $pin)"; fi
     fi
     nolink "$BASE/app/engines/$name"
     rm -f "$BASE/app/engines/$name/current"
@@ -954,7 +967,8 @@ if [ -n "$DRIVE_CLIENT" ]; then
 fi
 
 # ---- 11) one-time setup code while the team has no account (setup/code for root, data/setup-token for the server) ----
-if [ ! -f "$BASE/setup/code" ] && { [ ! -f "$BASE/data/app.db" ] || [ -e "$BASE/data/setup-token" ]; }; then
+# (image mode: none; every tenant gets its own from mycel-enroll at first boot)
+if [ "$IMAGE_MODE" = 0 ] && [ ! -f "$BASE/setup/code" ] && { [ ! -f "$BASE/data/app.db" ] || [ -e "$BASE/data/setup-token" ]; }; then
   CODE=$(head -c 18 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
   (umask 077 && printf '%s\n' "$CODE" > "$ITMP/code")
   put "$ITMP/code" "$SRV_USER" root 640 "$BASE/setup/code"
@@ -994,8 +1008,13 @@ if { [ -n "$PUBLIC_HOST" ] || [ -n "$APP_CONNECTORS" ]; } && [ -f "/etc/default/
 fi
 
 # ---- 12) the engine firewall: loaded before any engine can run, or no install ----
-FW_OUT=$("$BASE/root/mycel-ctl" firewall apply --base "$BASE" 2>&1) || die "loading the engine firewall failed: $(printf '%s' "$FW_OUT" | tail -n 3 | tr '\n' ' ')"
-say "engine firewall: nft table inet $ID ($AGT_USER may reach only 127.0.0.1:$PROXY_PORT)"
+# (image mode: no engine runs in the build; $ID-firewall.service loads it at boot, before the launcher)
+if [ "$IMAGE_MODE" = 1 ]; then
+  say "image mode: engine firewall not loaded ($ID-firewall.service loads it at boot)"
+else
+  FW_OUT=$("$BASE/root/mycel-ctl" firewall apply --base "$BASE" 2>&1) || die "loading the engine firewall failed: $(printf '%s' "$FW_OUT" | tail -n 3 | tr '\n' ' ')"
+  say "engine firewall: nft table inet $ID ($AGT_USER may reach only 127.0.0.1:$PROXY_PORT)"
+fi
 
 # ---- 13) systemd units: rendered by mycel-ctl from root/systemd/*.in and root/install.json (one renderer for the
 # installer, `mycel-ctl update` and `supervise`, so they never disagree on the launcher's sandbox flags) ----
@@ -1010,10 +1029,11 @@ for u in "${UNITS[@]}"; do
 done
 if [ "$SYSTEMD" = 1 ]; then
   if command -v systemd-analyze >/dev/null 2>&1; then
-    VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ${SLICE:+"./$SLICE"} 2>&1) || die "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
+    VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ${SLICE:+"./$SLICE"} 2>&1) || imgwarn "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
   fi
   for f in "$ITMP/units"/*; do install -o root -g root -m 644 "$f" "$UNIT_DIR/$(basename "$f")"; done
-  systemctl daemon-reload
+  # (image mode: no running systemd; the booted VM reads the units)
+  if have_systemd; then systemctl daemon-reload; fi
   # both units are stopped (above): stopping their empty slice makes systemd create it again with the limits it has now
   # (daemon-reload alone does not change a running slice; the limits exist only while 1A is on, mycel-ctl safe-ops)
   [ -z "$SLICE" ] || systemctl stop "$SLICE" >/dev/null 2>&1 || true
@@ -1040,6 +1060,12 @@ if [ "$HOSTED" = 1 ] || ! grep -qs '^[[:space:]]*SystemMaxUse=' /etc/systemd/jou
   fi
 fi
 
+if [ "$IMAGE_MODE" = 1 ]; then
+  rm -f "$BASE/setup/code" "$BASE/data/setup-token"
+  say "installed $ID $VERSION in image mode: units installed, none enabled or started, no setup code"
+  [ ${#WARNINGS[@]} -eq 0 ] || { say "with ${#WARNINGS[@]} warning(s):"; printf '  %s\n' "${WARNINGS[@]}"; }
+  exit 0
+fi
 if [ "$SYSTEMD" = 0 ]; then
   say "installed $ID $VERSION without systemd (test containers only). Start everything with:"
   say "  $BASE/root/mycel-ctl supervise --base $BASE"

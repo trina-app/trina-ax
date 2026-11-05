@@ -111,6 +111,9 @@ test.describe('home focus on touch devices', () => {
 })
 
 async function audit(page: Page, where: string) {
+  // colours that are still changing (a main button that was just enabled fades from the disabled grey to the accent)
+  // are measured at their end value: axe in the middle of a fade reads a mix that no one sees for long
+  await page.evaluate(() => Promise.all(document.getAnimations().filter((a) => a instanceof CSSTransition).map((a) => a.finished.catch(() => {}))))
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
   const serious = r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
   expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
@@ -206,7 +209,8 @@ test('no serious accessibility problems at phone width', async ({ page }) => {
   await expect(page.getByTestId('bulk-bar')).toBeVisible()
   await audit(page, 'files selection (phone)')
   await page.goto('/admin/members')
-  await expect(page.getByTestId('members-table')).toBeVisible()
+  // a phone shows a card per member, not the table
+  await expect(page.getByTestId('members-list')).toBeVisible()
   await audit(page, 'admin (phone)')
 })
 

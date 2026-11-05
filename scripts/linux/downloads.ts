@@ -65,8 +65,10 @@ export function downloadFor(tool: LinuxTool, arch: LinuxArch): string {
 
 export const sha256File = (f: string) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex')
 
-/** A pinned download from dist/cache (fetched once). The hash is checked every time; a wrong file is removed. */
-export async function cachedDownload(name: string, o: { table?: Record<string, PinnedDownload>; cacheDir?: string; fetchImpl?: typeof fetch } = {}): Promise<string> {
+/** A pinned download from dist/cache (fetched once). The hash is checked every time; a wrong file is removed. A network
+ *  error or an HTTP 5xx answer gets up to `tries` attempts in all (a large file on a CI runner can see a socket reset);
+ *  any other HTTP error and a wrong hash stop at once. */
+export async function cachedDownload(name: string, o: { table?: Record<string, PinnedDownload>; cacheDir?: string; fetchImpl?: typeof fetch; tries?: number; waitMs?: number } = {}): Promise<string> {
   const d = (o.table ?? LINUX_DOWNLOADS)[name]
   if (!d) throw new Error(`${name} is not a pinned download`)
   if (!/^[0-9a-f]{64}$/.test(d.sha256)) throw new Error(`${name}: no SHA-256 pinned yet (run bun scripts/linux/downloads.ts --check)`)
@@ -74,11 +76,23 @@ export async function cachedDownload(name: string, o: { table?: Record<string, P
   const f = path.join(dir, name)
   if (!fs.existsSync(f)) {
     fs.mkdirSync(dir, { recursive: true })
-    console.log(`downloading ${d.url}`)
-    const res = await (o.fetchImpl ?? fetch)(d.url, { redirect: 'follow' })
-    if (!res.ok) throw new Error(`${d.url}: HTTP ${res.status}`)
-    fs.writeFileSync(`${f}.part`, new Uint8Array(await res.arrayBuffer()))
-    fs.renameSync(`${f}.part`, f)
+    const tries = o.tries ?? 3
+    for (let i = 1; ; i++) {
+      console.log(`downloading ${d.url}${i > 1 ? ` (try ${i} of ${tries})` : ''}`)
+      let retry = true
+      try {
+        const res = await (o.fetchImpl ?? fetch)(d.url, { redirect: 'follow' })
+        if (!res.ok) { retry = res.status >= 500; throw new Error(`${d.url}: HTTP ${res.status}`) }
+        fs.writeFileSync(`${f}.part`, new Uint8Array(await res.arrayBuffer()))
+        fs.renameSync(`${f}.part`, f)
+        break
+      } catch (e) {
+        fs.rmSync(`${f}.part`, { force: true })
+        if (!retry || i >= tries) throw e
+        console.log(`download failed (${(e as Error).message}); trying again`)
+        await new Promise((r) => setTimeout(r, (o.waitMs ?? 5_000) * i))
+      }
+    }
   }
   const got = sha256File(f)
   if (got !== d.sha256) { fs.rmSync(f); throw new Error(`${name}: SHA-256 ${got}, expected ${d.sha256} (removed; run again to download it again)`) }

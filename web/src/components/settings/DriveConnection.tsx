@@ -106,11 +106,17 @@ export function DriveConnection() {
   const t = useT()
   const [connection, setConnection] = useState<Connection | null>(null)
   const [revokeWarning, setRevokeWarning] = useState(false)
+  // The first load of the status failed: this is not a failed connection, so it has its own message and a Retry.
+  const [loadFailed, setLoadFailed] = useState(false)
   const d = useDriveFlow(setConnection)
   const { busy, error, setBusy, setError, generation, flow } = d
-  useEffect(() => {
+  const load = () => {
     const g = ++generation.current
-    api.call(API.myDriveConnection).then(r => { if (g === generation.current) setConnection(r) }, () => { if (g === generation.current) setError(true) })
+    setLoadFailed(false)
+    api.call(API.myDriveConnection).then(r => { if (g === generation.current) setConnection(r) }, () => { if (g === generation.current) setLoadFailed(true) })
+  }
+  useEffect(() => {
+    load()
     return () => { generation.current++ }
   }, [])
   const start = () => { setRevokeWarning(false); void d.start() }
@@ -132,9 +138,10 @@ export function DriveConnection() {
     <div><h2 className="text-base font-semibold">{t('drive.title')}</h2><p className="mt-1 text-sm text-muted">{t('drive.description')}</p></div>
     <p className="rounded-xl bg-subtle p-3 text-xs text-muted">{t('drive.privacy')}</p>
     {mobileApp() && <p className="text-xs text-muted">{t('drive.mobileBrowserLogin')}</p>}
+    {!connection && loadFailed && <ErrorNote onRetry={load}>{t('drive.loadFailed')}</ErrorNote>}
     {error && <ErrorNote>{t('drive.failed')}</ErrorNote>}
     {revokeWarning && <p role="status" className="text-sm text-muted">{t('drive.revokeWarning')}</p>}
-    {!connection && !error && <Skeleton lines={3} />}
+    {!connection && !loadFailed && <Skeleton lines={3} />}
     {connection && !connection.configured && <p>{t('drive.notConfigured')}</p>}
     {connection?.configured && <>
       <p data-testid="drive-status">{t(`drive.status.${connection.status}`)}</p>

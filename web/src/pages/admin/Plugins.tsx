@@ -3,7 +3,7 @@
 // platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
 import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
 import type { PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
@@ -13,7 +13,7 @@ import { formatSize } from '../../lib/format'
 import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, EmptyState, Modal, confirmDialog } from '../../components/ui'
-import { Card, Loadable, useLoad } from './common'
+import { AdminPageHeader, Card, Loadable, useLoad } from './common'
 
 type T = ReturnType<typeof useT>
 
@@ -188,10 +188,58 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
   )
 }
 
+/** One licence ("MIT") stays on the line; a list of them ("MIT AND Apache-2.0 AND …") is long and noisy there. */
+export const longLicense = (license: string) => /\s(AND|OR)\s/i.test(license) || license.length > 24
+
+/** The publisher and platforms line. A long licence list is "Licenses" there: the full list in its tooltip, and under
+ * the line when pressed (a phone has no tooltip). */
+export function PluginMeta({ text, license }: { text: string; license: string }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const listId = useId()
+  if (!longLicense(license)) return <p className="text-xs text-faint">{text} · {license}</p>
+  return (
+    <div className="text-xs text-faint">
+      <p>
+        {text} ·{' '}
+        <button type="button" aria-expanded={open} aria-controls={listId} title={license} onClick={() => setOpen((v) => !v)} className="underline decoration-dotted underline-offset-2 hover:text-ink" data-testid="plugin-licenses">
+          {t('plugins.licenses')}
+        </button>
+      </p>
+      {open && <p id={listId} className="mt-1 break-words" data-testid="plugin-license-list">{license}</p>}
+    </div>
+  )
+}
+
 function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id: string) => Promise<void>; fileInstall: boolean }) {
   const t = useT()
   // the server may first download the package from the release feed
   const [busy, setBusy] = useState(false)
+  // installed and up to date: the full text is already in "Installed" above, so here one line and a link to it
+  if (c.installedVersion && !c.updateAvailable) {
+    return (
+      <li className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm" data-testid="plugin-catalog" data-plugin={c.id} data-compact>
+        <span className="font-medium">{c.name}</span>
+        <Badge tone="ok">{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>
+        <button
+          type="button"
+          className="ml-auto text-xs font-medium text-accent-text underline-offset-2 hover:underline"
+          onClick={() => {
+            const el = [...document.querySelectorAll<HTMLElement>('[data-testid="plugin-installed"]')].find((x) => x.dataset.plugin === c.id)
+            if (!el) return
+            el.tabIndex = -1
+            el.scrollIntoView({ block: 'center' })
+            el.focus({ preventScroll: true })
+          }}
+          data-testid="plugin-catalog-show-installed"
+        >
+          {/* the visible words start the name (a voice command says them); the plugin name follows for screen readers */}
+          {t('adminux.plugins.showInstalled')}
+          <span className="sr-only">: {c.name}</span>
+        </button>
+      </li>
+    )
+  }
   return (
     <li className="space-y-2 px-4 py-3" data-testid="plugin-catalog" data-plugin={c.id}>
       <div className="flex flex-wrap items-center gap-2">
@@ -202,7 +250,7 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
       </div>
       <p className="text-sm text-muted">{c.description}</p>
       <HwpWriting id={c.id} />
-      <p className="text-xs text-faint">{t('plugins.publisher', { name: c.publisher.name })} · {t('plugins.platforms', { list: platformText(t, c.platforms) })} · {c.license}</p>
+      <PluginMeta text={`${t('plugins.publisher', { name: c.publisher.name })} · ${t('plugins.platforms', { list: platformText(t, c.platforms) })}`} license={c.license} />
       {c.recommended && <p className="text-xs text-muted">{t('plugins.recommendedHint')}</p>}
       <Permissions items={c.permissions} />
       {c.availability === 'available' && (!c.installedVersion || c.updateAvailable) && (
@@ -241,6 +289,8 @@ export default function Plugins() {
     try { setPlan(await fn()) } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) }
   }
   return (
+    <>
+    <AdminPageHeader title={t('admin.plugins')} />
     <Loadable state={state}>
       {(d: PluginList) => (
         <>
@@ -286,5 +336,6 @@ export default function Plugins() {
         </>
       )}
     </Loadable>
+    </>
   )
 }

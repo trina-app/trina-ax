@@ -6,10 +6,12 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { mayReloadNow } from '../lib/reload-guard'
+import { api, API } from '../lib/api'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, openArtifact, setSidePanel, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
+import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { useMe } from '../store/session'
 import { useUi } from '../store/ui'
 import OfficeUpdateBanner from './OfficeUpdateBanner'
@@ -34,6 +36,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
+  const unread = useUnreadInbox()
 
   // banners raised by the server (e.g. a changed team skill) open app addresses through the router
   useEffect(() => {
@@ -111,8 +114,15 @@ export default function Layout() {
         )}
         <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
           <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden">
-            <IconButton label={t('sidebar.open')} onClick={() => setDrawer(true)}>
+            {/* the Inbox count lives in the drawer: a dot on the menu button says that something is unread */}
+            <IconButton
+              label={unread > 0 ? `${t('sidebar.open')} (${t('notifications.unread', { count: unread })})` : t('sidebar.open')}
+              onClick={() => setDrawer(true)}
+              className="relative"
+              data-testid="menu-open"
+            >
               <Menu size={20} />
+              {unread > 0 && <span className="absolute top-1 right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas" aria-hidden data-testid="menu-unread" />}
             </IconButton>
             <span className="flex-1 truncate text-center text-sm font-semibold">{PRODUCT.displayName}</span>
             <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')}>
@@ -173,6 +183,28 @@ function DevModeBanner() {
       {t('dev.banner')}
     </div>
   )
+}
+
+/** The unread Inbox count for the phone top bar (the sidebar asks for it in the same way). Phones only: the wide
+ * screen shows the count in the sidebar itself. */
+function useUnreadInbox() {
+  const [unread, setUnread] = useState(0)
+  const [phone, setPhone] = useState(() => typeof window !== 'undefined' && !!window.matchMedia && !window.matchMedia('(min-width: 768px)').matches)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(min-width: 768px)')
+    const h = () => setPhone(!mq.matches)
+    mq.addEventListener?.('change', h)
+    return () => mq.removeEventListener?.('change', h)
+  }, [])
+  useEffect(() => {
+    if (!phone) return
+    const load = () => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => setUnread(r.unreadCount), () => {})
+    void load()
+    const offs = [notificationsChanged.on(() => void load()), reloadAsked.on(() => void load()), accessChanged.on(() => void load())]
+    return () => offs.forEach((off) => off())
+  }, [phone])
+  return unread
 }
 
 /** "다시 연결 중" while the socket is down; after 30 s "팀 서버에 연결할 수 없음" (answers on screen stay). */

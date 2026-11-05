@@ -22,7 +22,10 @@ import { ToolError } from '../policy/errors'
 import { assertStorageRoomForAI } from '../system/storage'
 import { boxd } from './boxd'
 import { jobResultsForAI, jobRuns, newJobName, pollJobs, startJob } from './jobs'
-import { devEnvSetting, mayUseBox, type ProjectRef } from './setting'
+import { devEnvRunner, devEnvSetting, mayUseBox, mayUseDevEnv, type ProjectRef } from './setting'
+import { commandSlotFree, othersInProject, runCommand, runNameInUse, spaceOf, startServer, submitJob, type Space } from './srt/runner'
+import { pollSrt, runResultsForAI } from './jobs'
+import path from 'node:path'
 import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from './track'
 import type { Change } from './snapshot'
 
@@ -43,7 +46,7 @@ export const BoxShellInput = z.object({
   command: z.string().min(1).max(64 * 1024).describe('the shell command (bash -lc), for example "npm install" or "git status"'),
   cwd: z.string().max(1024).optional().describe('folder relative to the project folder (default: the project folder)'),
   timeout_sec: z.number().int().min(1).max(1800).optional().describe('time limit in seconds (default 120, at most 1800)'),
-  background: z.boolean().optional().describe('start a long-running process (a dev server, a watcher) and return at once; its output goes to /cache/logs/<log_name>.log in the box'),
+  background: z.boolean().optional().describe('start a long-running process (a dev server, a watcher) and return at once; its output goes to the log <log_name>.log (the tool text says where)'),
   job: z.boolean().optional().describe('run a long command (a render, a large build) in the background as a job: it returns at once, it has an exit status and a log, and the person gets a notice when it ends'),
   log_name: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).optional().describe('name of the log file for a background command or a job'),
 })
@@ -59,6 +62,23 @@ export const BOX_SHELL_DESCRIPTION = 'Run a shell command in the dev environment
   + 'When a job ends the person gets a notice, and your next box_shell call in this project gives you its exit code and the end of its log; you do not go on by yourself when it ends. '
   + 'The disk size of the box limits only node_modules, .venv and caches. Files in /work are on the server disk: a command there has no size limit of its own, and the box stops when the server disk is nearly full. '
   + 'One command at a time per project; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back.'
+
+/** The tool text with the srt runner (docs/research/srt-dev-env.md section 7). The runner is not locked to a project:
+ * the command gets the folder access of the person of this chat. */
+export const SRT_SHELL_DESCRIPTION = 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
+  + 'The command can read the team folders that the person of this chat may open; other folders are not there. '
+  + 'It can write only the folder it starts in and the person\'s own folder users/<id>: every other team folder is read-only in a command, also where the person may write. To save a file in another team folder, use the file tools. '
+  + 'Team folders are under $TRINA_TEAM, with the same paths as in the file tools. '
+  + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
+  + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses and which the file tools do not show: copy a result the person needs into their own folder users/<id>, or into another team folder they can write with the file tools. '
+  + 'node_modules, .venv and build output are in that folder and use team disk. '
+  + 'The network reaches only allowed sites (npm, PyPI, GitHub and the sites an admin added), or nothing (the team setting). '
+  + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
+  + 'You cannot change .git/config or .git/hooks. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  + 'For a dev server use background=true. There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
+  + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
+  + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
+  + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back.'
 
 /** commands that would use a person's login (hole 2: the person confirms after seeing who changed what) */
 export const CREDENTIAL_COMMAND = /(^|[\s;&|(])(git\s+(push|fetch|pull|clone|submodule|ls-remote)|npm\s+(publish|login|adduser|token)|yarn\s+(publish|npm\s+publish)|pnpm\s+publish|gh\s|ssh\s|scp\s|rsync\s.*:|docker\s+(login|push)|twine\s+upload|cargo\s+publish|aws\s|gcloud\s|az\s)/
@@ -89,7 +109,8 @@ const clip = (s: string) => (s.length > OUT_SHOWN ? s.slice(0, OUT_SHOWN) + '\n(
 
 export interface BoxShellHost {
   ctx: AppContext
-  project: ProjectRef & { name: string }
+  /** the project of the chat; null: a chat with no project (srt runner only) */
+  project: (ProjectRef & { name: string }) | null
   userId: string
   turnId: string
   /** the chat of the turn: the link in a job's notice */
@@ -100,19 +121,146 @@ export interface BoxShellHost {
   redact(s: string): string
 }
 
+type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
+
+/** The answer to the AI after a command ran (both runners). */
+function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: import('@mycel/shared').BoxdExit; w: Window; background: boolean; what: string }) {
+  const { notes, head, started, exit: e, w, background, what } = o
+  const parts = [...notes, `${head} (${((Date.now() - started) / 1000).toFixed(1)} s)`]
+  parts.push(e.stdout ? `--- stdout ---\n${clip(e.stdout)}` : '--- stdout: empty ---')
+  if (e.stderr) parts.push(`--- stderr ---\n${clip(e.stderr)}`)
+  if (e.truncated) parts.push('(output cut)')
+  if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes)}`)
+  if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
+  if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
+  const failed = e.code !== 0 || (e.signal !== '' && !background)
+  return { ...text(h.redact(parts.join('\n')), failed), summary: `${what} -> ${e.signal || 'exit ' + e.code} ${e.ms} ms, ${w.changes.length} files` }
+}
+
+type SrtNotes = () => Promise<string[]>
+const NO_WINDOW: Window = { changes: [], background: [], conflicts: [] }
+
+/** The srt runner (MYCEL_DEV_ENV_RUNNER=srt): a command waits for its end; a job starts or waits in the queue; a dev
+ * server starts or is refused. In the project folder of a project chat they run in a change window, as with the box.
+ * Elsewhere (the chat's work folder) nothing is recorded: that folder is not a team folder. */
+async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space; tracked: ProjectRef | null; cwd: string; what: string; jobName: string | null; notes: string[]; jobNotes: SrtNotes }) {
+  const { ctx } = h
+  const { space, cwd, what, jobName, notes } = o
+  const background = !!input.background && !jobName
+  const timeoutMs = (input.timeout_sec ?? 120) * 1000
+  const started = Date.now()
+  const shown = h.redact(input.command)
+  if (!jobName && !background) {
+    const slot = commandSlotFree(ctx)
+    if (!slot.ok) return { ...text(h.redact([...notes, ...await o.jobNotes(), `Error: the command could not run (${slot.message}).`].join('\n')), true), summary: `${o.what} -> busy` }
+  }
+  type Out = { kind: 'exit'; r: Awaited<ReturnType<typeof runCommand>> } | { kind: 'job'; r: Awaited<ReturnType<typeof submitJob>> } | { kind: 'server'; r: Awaited<ReturnType<typeof startServer>> }
+  const go = async (): Promise<Out> => {
+    const base = { space, turnId: h.turnId, command: input.command, shown, cwd }
+    if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
+    if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background' }) }
+    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal }) }
+  }
+  let w: Window & { value: Out }
+  if (o.tracked) {
+    w = await withChangeWindow(ctx, o.tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, go)
+    markSeen(ctx, o.tracked.id, h.userId)
+  } else w = { ...NO_WINDOW, value: await go() }
+  notes.push(...await o.jobNotes())
+  const out = w.value
+  const result = !out.r.ok ? { error: out.r.message.slice(0, 300) }
+    : out.kind === 'exit' && out.r.ok ? { code: out.r.value.code, signal: out.r.value.signal, ms: out.r.value.ms }
+    : out.kind === 'job' && out.r.ok ? { state: out.r.state, position: out.r.position }
+    : { state: 'running' }
+  audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: space.projectId, detail: {
+    turnId: h.turnId, chatId: space.chatId, command: h.redact(input.command.slice(0, 2000)), cwd, folder: o.tracked ? 'project' : 'work', background: background || !!jobName, ...(jobName ? { job: jobName } : {}), runner: 'srt',
+    result, changed: w.changes.length, background_changes: w.background.length, conflicts: w.conflicts,
+  } })
+  if (!out.r.ok) return { ...text(h.redact([...notes, `Error: the command could not run (${out.r.message.slice(0, 300)}).`].join('\n')), true), summary: `${what} -> ${out.r.message.slice(0, 200)}` }
+  const empty = { ev: 'exit' as const, code: 0, signal: '', stdout: '', stderr: '', truncated: false, ms: Date.now() - started }
+  if (out.kind === 'job' && out.r.ok) {
+    const head = out.r.state === 'running'
+      ? `Started as job ${jobName} (log: $TRINA_LOGS/${jobName}.log). Do not wait for it: when it ends the person gets a notice, and your next box_shell call in this chat gives you the result.`
+      : `Queued as job ${jobName}: other jobs of the team run now, so it waits (position ${out.r.position}) and starts by itself. Do not wait for it: when it ends the person gets a notice, and your next box_shell call in this chat gives you the result.`
+    return answer(h, { notes, head, started, exit: empty, w, background: true, what })
+  }
+  if (out.kind === 'server') return answer(h, { notes, head: `Started in the background (log: $TRINA_LOGS/${input.log_name ?? 'background'}.log). A later command cannot reach it; test it in one command with curl.`, started, exit: empty, w, background: true, what })
+  if (out.kind !== 'exit' || !out.r.ok) throw new Error('unreachable')
+  const e = out.r.value
+  const head = e.signal === 'timeout' ? `Stopped: the time limit (${timeoutMs / 1000} s) was reached.`
+    : e.signal === 'oom' ? 'Stopped: the command ran out of memory (the team limit).'
+    : e.signal === 'stopped' ? 'Stopped.'
+    : `Exit code ${e.code}.`
+  return answer(h, { notes, head, started, exit: e, w, background: false, what })
+}
+
+/** One box_shell call on the srt runner. */
+async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, firstCall: boolean) {
+  const { ctx, project } = h
+  // never trust the start of the turn alone: the admin may have turned it off, the person may be out of scope now
+  if (!mayUseDevEnv(ctx.db, ctx.files, h.userId)) return { ...text('The dev environment is off for you now. Do not try again.', true), summary: `${what} -> off` }
+  const space = spaceOf(ctx, { userId: h.userId, chatId: h.chatId ?? null, project: project ? { id: project.id, folderPath: project.folderPath } : null })
+  if (!space) return { ...text('Error: this chat has no folder for commands. Do not try again.', true), summary: `${what} -> no folder` }
+  const tracked = project && space.projectId === project.id && space.root === path.join(ctx.files.fx.root, project.folderPath) ? { id: project.id, folderPath: project.folderPath } : null
+  const cwd = boxCwd(data.cwd)
+  if (cwd === null) return { ...text('Invalid input: cwd must be a folder inside the folder of this chat (the project folder, or the work folder).', true), summary: `${what} -> bad cwd` }
+  const background = !!data.background || !!data.job
+  /** the jobs of this chat that ended and the AI does not know of yet, in every answer that goes back to it */
+  const jobNotes = async () => {
+    await pollSrt(ctx, { userId: h.userId }).catch(() => {})
+    return runResultsForAI(ctx, h.userId, h.chatId ?? null).map((n) => h.redact(n))
+  }
+  try { assertStorageRoomForAI(0) } catch (e) {
+    if (!(e instanceof ToolError)) throw e
+    audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: space.projectId, detail: { turnId: h.turnId, chatId: space.chatId, command: h.redact(data.command.slice(0, 2000)), cwd, background, runner: 'srt', result: { error: 'storage_full' } } })
+    return { ...text([...await jobNotes(), `Error: ${e.message}. No command runs until then. Delete files with the file tools, or ask the person to do it. Do not try again before that.`].join('\n'), true), summary: `${what} -> storage full` }
+  }
+  const jobName = data.job ? (data.log_name ?? newJobName()) : null
+  // the log is per person: a job or dev server with the same name would write over it
+  const logInUse = background ? (jobName ?? data.log_name ?? 'background') : null
+  if (logInUse) {
+    await pollSrt(ctx, { userId: h.userId }).catch(() => {})
+    if (runNameInUse(ctx.db, h.userId, logInUse)) return { ...text(`Error: a job or dev server named ${logInUse} still runs for this person. Use another log_name, or wait for it to end.`, true), summary: `${what} -> job name in use` }
+  }
+  const notes: string[] = []
+  if (tracked) {
+    const foreign = changesByOthers(ctx, tracked, h.userId)
+    if (usesCredentials(data.command) && foreign.total > 0) {
+      const ok = await h.confirm(
+        `This command can use a login: ${data.command.slice(0, 200)}\nOther people changed files in the project since your last command. Check the changes before you run it.`,
+        [{ label: 'Run it', value: 'run' }, { label: 'Do not run', value: 'no' }],
+        foreign.items.slice(0, 20).map((c) => `${c.by.name}${c.background ? ' (background process)' : ''}: ${c.action} ${c.path}`),
+      )
+      if (ok !== 'run') return { ...text('The person did not allow this command after seeing the changes by other people. Do not run it again in this answer.', true), summary: `${what} -> not allowed (changes by others)` }
+      markSeen(ctx, tracked.id, h.userId, foreign.lastId)
+    } else if (firstCall && foreign.total > 0) {
+      notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign)}`)
+    }
+    if (firstCall) {
+      const others = othersInProject(ctx, tracked.id, h.userId)
+      if (others.length) notes.push('Other people\'s jobs and dev servers in this project (they keep running):\n' + others.slice(0, 20).map((r) => `  ${r.kind} ${r.name}${r.position ? ` (waiting, position ${r.position})` : ''}, by ${r.by}`).join('\n'))
+    }
+  }
+  return srtShell(h, data, { space, tracked, cwd, what, jobName, notes, jobNotes })
+}
+
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
 
 export function boxShellTool(h: BoxShellHost) {
   let firstCall = true
   return {
     name: BOX_SHELL_TOOL,
-    description: BOX_SHELL_DESCRIPTION,
+    description: devEnvRunner() === 'srt' ? SRT_SHELL_DESCRIPTION : BOX_SHELL_DESCRIPTION,
     inputSchema: (() => { const j = z.toJSONSchema(BoxShellInput, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j })(),
     async call(args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
       const a = BoxShellInput.safeParse(args)
       if (!a.success) return { ...text('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), true), summary: 'box_shell -> invalid input' }
-      const { ctx, project } = h
       const what = h.redact(`box_shell ${a.data.command.slice(0, 200)}`)
+      if (devEnvRunner() === 'srt') { const first = firstCall; firstCall = false; return srtCall(h, a.data, what, first) }
+      const { ctx } = h
+      const project = h.project
+      // the box runner is offered in project chats only (chat/turn.ts)
+      if (!project) return { ...text('The dev environment is off for this chat. Do not try again.', true), summary: `${what} -> off` }
       // never trust the start of the turn alone: the admin may have turned it off, the folder rules may have changed
       if (!mayUseBox(ctx.db, ctx.files, project, h.userId)) return { ...text('The dev environment is off for this project or for you now. Do not try again.', true), summary: `${what} -> off` }
       // a turn that began before the project got its folder, or a project turned on before turn-on gave it one
@@ -207,15 +355,7 @@ export function boxShellTool(h: BoxShellHost) {
         : jobName ? `Started in the background (log: /cache/logs/${jobName}.log), but this server does not track jobs: there is no notice and no exit code. Read the log for progress.`
         : background ? `Started in the background (log: /cache/logs/${a.data.log_name ?? 'background'}.log).`
         : `Exit code ${e.code}.`
-      const parts = [...notes, `${head} (${((Date.now() - started) / 1000).toFixed(1)} s)`]
-      parts.push(e.stdout ? `--- stdout ---\n${clip(e.stdout)}` : '--- stdout: empty ---')
-      if (e.stderr) parts.push(`--- stderr ---\n${clip(e.stderr)}`)
-      if (e.truncated) parts.push('(output cut)')
-      if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes)}`)
-      if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
-      if (w.conflicts.length) parts.push(`Someone saved some of these files while the command ran; their version is kept as: ${w.conflicts.join(', ')}`)
-      const failed = e.code !== 0 || (e.signal !== '' && !background)
-      return { ...text(h.redact(parts.join('\n')), failed), summary: `${what} -> ${e.signal || 'exit ' + e.code} ${e.ms} ms, ${w.changes.length} files` }
+      return answer(h, { notes, head, started, exit: e, w, background, what })
     },
   }
 }

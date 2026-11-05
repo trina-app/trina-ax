@@ -24,8 +24,21 @@ export const cleanValue = (s: string) => cleanText(s.replace(/\r\n?/g, '\n'))
 /** A paragraph as the changes see it: its text as hwp.ts reads it, its heading level, the table cell it is directly in. */
 export interface CPara { i: number; text: string; heading: number; cell?: CCell }
 export interface CCell { table: CTable; row: number; col: number; rowSpan: number; colSpan: number; height: number; paras: CPara[] }
-/** a table, numbered in reading order (`i`, 0-based) */
-export interface CTable { i: number; cells: CCell[] }
+/** a table, numbered in reading order (`i`, 0-based), and the paragraph that holds it */
+export interface CTable { i: number; cells: CCell[]; para: CPara | null }
+
+/** why a table cannot continue on the next page (Hangul's names for the settings in brackets) */
+export const FIXED_ON_PAGE = {
+  asChar: 'it is placed as a character',
+  noSplit: 'it is set not to split at a page boundary',
+}
+/** A page's body height in HWPUNIT: the paper's height (its width when the page is turned) less the top and bottom
+ * margins and the header and footer margins, which Hangul keeps between those margins and the body; null when that
+ * leaves nothing. */
+export function pageBodyHeight(p: { width: number; height: number; top: number; bottom: number; header: number; footer: number; landscape: boolean }): number | null {
+  const h = (p.landscape ? p.width : p.height) - p.top - p.bottom - p.header - p.footer
+  return Number.isFinite(h) && h > 0 ? h : null
+}
 
 /** a replaced range of a paragraph's text, in characters of what it reads as */
 export interface TextEdit { from: number; to: number; text: string; change: number }
@@ -86,6 +99,15 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
   /** writes the rows; returns the index of the paragraph the new ones go before in reading order (or paras.length) and
    * how deep the table is nested (rows put in at one place read deepest first) */
   protected abstract rowsAt(plan: RowPlan<C, T>, i: number): { before: number; depth: number }
+  /** the table's height as the document states it (HWPUNIT), or null */
+  protected abstract tableHeight(t: T): number | null
+  /** the height one new row copied from `cells` adds to the table: the estimate rowsAt writes into the table's height */
+  protected abstract rowHeight(t: T, cells: C[]): number
+  /** why the table cannot continue on the next page (FIXED_ON_PAGE), or null when it can */
+  protected abstract fixedOnPage(t: T): string | null
+  /** the body height of the pages of the table's section (pageBodyHeight), or null when the section does not say it
+   * plainly (no page setup, or more than one) */
+  protected abstract pageBody(t: T): number | null
 
   apply(c: HwpChange, i: number) {
     if ('find' in c) this.replace(c, i)
@@ -221,11 +243,65 @@ export abstract class ChangeEditor<P extends CPara, C extends CCell, T extends C
     const plan: RowPlan<C, T> = { t, T, A, C, cells, rows: a.rows.map((r) => cells.map((_, ci) => cleanValue(r[ci] ?? ''))) }
     this.checkCopyRow(plan, i)
     for (const r of plan.rows) for (const v of r) if (v.length > HWP_CHANGE_LIMITS.valueChars) refuseChange(i, `a value is longer than ${HWP_CHANGE_LIMITS.valueChars.toLocaleString('en')} characters`)
+    const row = this.rowHeight(t, cells)
+    this.checkPageFit(plan, row, i)
     const { before: key, depth } = this.rowsAt(plan, i)
+    for (const [x, g] of this.growthOut(t, a.rows.length * row) ?? []) this.grown.set(x, g)
     const newParas = plan.rows.flatMap((r) => r.map((text, ci) => ({ text, heading: cells[ci]!.paras[0]?.heading ?? 0 })))
     this.inserts.set(key, [...(this.inserts.get(key) ?? []), { change: i, depth, paras: newParas }].sort((a, b) => b.depth - a.depth || a.change - b.change))
     const k = a.rows.length
     this.note(i, `${T}, after row ${A}`, '', `${k} row${k > 1 ? 's' : ''} like row ${C}: ${a.rows.map((r) => r.join(' | ')).join(' / ')}`)
+  }
+
+  // ---- a table that fills its page
+  /** each table's estimated growth from the rows added so far in this call: its own, and what tables inside it pass on */
+  private grown = new Map<T, number>()
+
+  /** The estimated growth of `t` and of each table around it when `t` grows by `g`, from `t` outwards. A table inside a
+   * cell grows the table around it only by what no longer fits in that cell's height as the document states it (the
+   * cell holds at least the table, so this never counts more than the outer table must grow). Null when a height
+   * needed is not known. */
+  private growthOut(t: T, g: number): [T, number][] | null {
+    const out: [T, number][] = []
+    for (let cur = t; ;) {
+      const before = this.grown.get(cur) ?? 0
+      out.push([cur, before + g])
+      const cell = cur.para?.cell
+      if (!cell) return out
+      const h = this.tableHeight(cur)
+      if (h === null) return null
+      const room = Math.max(0, cell.height - h)
+      g = Math.max(0, before + g - room) - Math.max(0, before - room)
+      cur = cell.table as T
+    }
+  }
+
+  /**
+   * Refuses rows that would make a table taller than its page's body when it cannot continue on the next page: placed
+   * as a character, or set not to split at a page boundary. Hangul then cuts off what does not fit (a statutory form
+   * whose front page is one such table lost its last line, and the edit had reported success). A table inside a cell
+   * is checked by the outermost table around it, with that table's settings. Only the table's own estimated height
+   * counts, not the paragraphs above it on the page or rows that wrapped text makes taller, so a fit is never refused
+   * that the estimate does not show to be too tall.
+   */
+  private checkPageFit(plan: RowPlan<C, T>, row: number, i: number) {
+    const k = plan.rows.length
+    const outer = (n: number) => { const c = this.growthOut(plan.t, n * row); return c ? c[c.length - 1]! : null }
+    const [o, growth] = outer(k) ?? []
+    if (!o || !growth) return
+    const why = this.fixedOnPage(o)
+    const body = why ? this.pageBody(o) : null
+    const h = body ? this.tableHeight(o) : null
+    if (!why || !body || h === null || h + growth <= body) return
+    // the rows that fit, by the same estimate
+    let fit = 0
+    while (fit + 1 < k && h + outer(fit + 1)![1] <= body) fit++
+    const OT = `table ${o.i + 1}`
+    const which = o === plan.t ? `${plan.T} fills its page` : `${plan.T} is inside ${OT}, which fills its page`
+    const s = (n: number) => (n === 1 ? '' : 's')
+    refuseChange(i, `${which} and cannot continue on the next page (${why}), so Hangul would cut off its end: ` +
+      `${k} row${s(k)} ${k === 1 ? 'was' : 'were'} asked for and about ${fit} fit. ` +
+      (fit ? `Add at most ${fit} row${s(fit)}` : 'Fill only the rows the table already has') + ', and write the rest on a separate sheet, as such forms usually ask')
   }
 
   /** each paragraph's text after the changes (a cell's new text replaces all of it) */

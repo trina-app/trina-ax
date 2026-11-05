@@ -14,7 +14,7 @@ import { editHwpx } from '../../server/src/files/hwpx-edit'
 import { XML_DECL } from '../../server/src/files/hwpx-template'
 import { readZip, writeZip } from '../../server/src/files/zip-write'
 import { ToolError } from '../../server/src/policy/errors'
-import { clickHere, employmentForm, enc, FORM, formHeaderXml, hwpxDoc, hwpxParts, para, picture, PICTURE_ITEM, PNG_1PX, purchaseForm, table } from '../lib/hwpx'
+import { clickHere, employmentForm, enc, FORM, formHeaderXml, hwpxDoc, hwpxParts, onePageForm, para, picture, PICTURE_ITEM, PNG_1PX, purchaseForm, table } from '../lib/hwpx'
 
 setDefaultTimeout(60_000)
 
@@ -182,6 +182,67 @@ describe('rows added to a table', () => {
     expect(refusal(p, [{ add_rows: { table: 1, after_row: 9, rows: [['a']] } }])).toContain('has rows 1-4, so after_row 9')
     const field = doc1(table([[{ text: '항목', width: 5000 }], [{ raw: para([], { raw: clickHere('입력') }), width: 5000 }]]))
     expect(refusal(field, [{ add_rows: { table: 1, rows: [['x']] } }])).toContain('row 2 of table 1 cannot be copied (holds hp:ctrl)')
+  })
+})
+
+describe('rows added to a table that fills its page (Hangul cuts off what does not fit)', () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, k) => ['자녀', `홍예시${k + 1}`, '가상시 예시구 샘플로 12'])
+  const add = (n: number, table = 1): HwpChange => ({ add_rows: { table, after_row: 3, rows: rows(n) } })
+  const AS_CHAR = 'cannot continue on the next page (it is placed as a character), so Hangul would cut off its end'
+  const height = (b: Uint8Array) => /<hp:sz width="\d+" widthRelTo="ABSOLUTE" height="(\d+)"/.exec(section(b))![1]
+
+  test('placed as a character (treatAsChar): rows past the page body are refused with how many fit, nothing written; rows that fit are added', () => {
+    const form = onePageForm()
+    expect(height(form)).toBe('60000')
+    expect(refusal(form, [add(3)])).toBe(`change 1: table 1 fills its page and ${AS_CHAR}: 3 rows were asked for and about 1 fit. ` +
+      'Add at most 1 row, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
+    expect(refusal(form, [add(2)])).toContain('2 rows were asked for and about 1 fit')
+    const r = editHwpx(form, [add(1)])
+    expect(height(r.file)).toBe('63000')
+    expect(section(r.file)).toContain('rowCnt="21"')
+  })
+
+  test('a floating table that splits (pageBreak CELL or TABLE) grows past a page; pageBreak NONE is refused', () => {
+    for (const pageBreak of ['CELL', 'TABLE'] as const) expect(height(editHwpx(onePageForm({ treatAsChar: false, pageBreak }), [add(10)]).file)).toBe('90000')
+    expect(refusal(onePageForm({ treatAsChar: false, pageBreak: 'NONE' }), [add(2)])).toBe('change 1: table 1 fills its page and cannot continue on the next page ' +
+      '(it is set not to split at a page boundary), so Hangul would cut off its end: 2 rows were asked for and about 1 fit. ' +
+      'Add at most 1 row, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
+    expect(refusal(onePageForm({ pageBreak: 'TABLE' }), [add(2)])).toContain(AS_CHAR)
+  })
+
+  test('the page body: a turned page (landscape="NARROWLY") is the paper\'s width tall; the header and footer margins take from it', () => {
+    // turned A4: 59,528 - 5,668 - 4,252 x 3 = 41,104; 10 list rows make 36,000
+    expect(refusal(onePageForm({ rows: 10, page: { landscape: true } }), [add(2)])).toContain('2 rows were asked for and about 1 fit')
+    expect(() => editHwpx(onePageForm({ rows: 10, page: { landscape: true } }), [add(1)])).not.toThrow()
+    expect(() => editHwpx(onePageForm({ rows: 10 }), [add(5)])).not.toThrow()
+    // without header and footer margins the body is 74,266: four more rows fit, not five
+    expect(() => editHwpx(onePageForm({ page: { header: 0, footer: 0 } }), [add(4)])).not.toThrow()
+    expect(refusal(onePageForm({ page: { header: 0, footer: 0 } }), [add(5)])).toContain('5 rows were asked for and about 4 fit')
+    // no page setup in the section: nothing to measure against, so nothing is refused
+    const noPage = hwpxDoc([table([[{ text: '가', width: 4000, height: 60_000 }]])], { firstPara: '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t/></hp:run></hp:p>' })
+    expect(() => editHwpx(noPage, [{ add_rows: { table: 1, rows: [['나']] } }])).not.toThrow()
+    expect(refusal(hwpxDoc([table([[{ text: '가', width: 4000, height: 60_000 }]])]), [{ add_rows: { table: 1, rows: [['나']] } }])).toContain('1 row was asked for and about 0 fit')
+  })
+
+  test('a table inside a cell grows the outermost table, checked with that table\'s settings; the cell\'s room is taken first', () => {
+    // table 2 (three rows of 3,000, floating) in a 12,000 cell of table 1 (placed as a character): 3,000 of room;
+    // table 1 is 12,000 + 16 x 3,000 = 60,000 of the 65,762 body
+    const inner = table([0, 1, 2].map((k) => [{ text: `내부${k + 1}`, width: 20000, height: 3000 }]), { id: 1500000009, treatAsChar: false })
+    const nested = (o: { treatAsChar?: boolean } = {}) => doc1(table([
+      [{ text: '목록', width: 6000, height: 12_000 }, { raw: inner, width: 24000, height: 12_000 }],
+      ...Array.from({ length: 16 }, () => [{ text: '', width: 6000, height: 3000 }, { text: '', width: 24000, height: 3000 }]),
+    ], { treatAsChar: o.treatAsChar }) + para('끝'))
+    const add2 = (n: number): HwpChange => ({ add_rows: { table: 2, rows: Array.from({ length: n }, (_, k) => [`새${k + 1}`]) } })
+    expect(() => editHwpx(nested(), [add2(2)])).not.toThrow()
+    expect(refusal(nested(), [add2(4)])).toBe('change 1: table 2 is inside table 1, which fills its page and cannot continue on the next page ' +
+      '(it is placed as a character), so Hangul would cut off its end: 4 rows were asked for and about 2 fit. ' +
+      'Add at most 2 rows, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
+    expect(() => editHwpx(nested({ treatAsChar: false }), [add2(10)])).not.toThrow()
+    // changes of one call add up: each fits alone (63,000 and 63,000), together they do not
+    const outer: HwpChange = { add_rows: { table: 1, after_row: 2, rows: [['', '']] } }
+    expect(() => editHwpx(nested(), [outer])).not.toThrow()
+    expect(refusal(nested(), [add2(2), outer])).toContain('change 2: table 1 fills its page')
+    expect(refusal(nested(), [outer, add2(2)])).toContain('change 2: table 2 is inside table 1, which fills its page')
   })
 })
 

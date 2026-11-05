@@ -45,7 +45,7 @@ import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, type ChatToolSet } from './tools'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
-import { devEnvFlag, mayUseBox } from '../devenv/setting'
+import { devEnvFlag, devEnvRunner, mayUseBox, mayUseDevEnv } from '../devenv/setting'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { readRegular, sha256 } from '../files/store'
@@ -127,8 +127,9 @@ export class TurnExec {
   private runningAtStop: ReadonlySet<string> = new Set()
   status: 'starting' | 'running' | 'finished' = 'starting'
   browser = false
-  /** the project whose dev environment box this turn may use (devenv/tool.ts box_shell), else null */
-  devEnv: { id: string; folderPath: string; name: string } | null = null
+  /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
+   * chat with no project, srt runner only) */
+  devEnv: { project: { id: string; folderPath: string; name: string } | null } | null = null
   principal: Principal | null = null
   private templateScope = false
   /** a company profile draft chat (onboarding/draft.ts): its own instructions, web_fetch only on the typed site, at
@@ -328,11 +329,15 @@ export class TurnExec {
 
     this.browser = !this.profileDraft && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
-    // dev environment EXPERIMENT (devenv/setting.ts): a project chat whose box this person may use, never a scheduled
-    // run (nobody there answers the credential card) or an approved template run (its scope is fixed)
-    if (devEnvFlag() && chat.project_id && !this.templateScope && !this.profileDraft && spec.clientKind !== 'schedule') {
-      const p = rt.store.projectRow(chat.project_id)
-      if (p && mayUseBox(rt.db, rt.files, { id: p.id, folderPath: p.folder_path }, spec.userId)) this.devEnv = { id: p.id, folderPath: p.folder_path, name: p.name }
+    // dev environment EXPERIMENT (devenv/setting.ts), never in a scheduled run (nobody there answers the credential
+    // card), an approved template run (its scope is fixed) or a company profile draft (web_fetch only). The box: a
+    // project chat whose box this person may use.
+    // srt: any chat of a person in scope, with or without a project; the folder access is the person's (devenv/srt).
+    if (devEnvFlag() && !this.templateScope && !this.profileDraft && spec.clientKind !== 'schedule') {
+      const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
+      const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
+      if (devEnvRunner() === 'srt') { if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project } }
+      else if (project && mayUseBox(rt.db, rt.files, project, spec.userId)) this.devEnv = { project }
     }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet

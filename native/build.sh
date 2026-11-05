@@ -1,8 +1,8 @@
 #!/bin/bash
 # Build the native helpers for macOS and Linux: bin/<os>-<arch>/{mycel-bridge,mycel-gate,mycel-launcher,mycel-bootstrap,
 # mycel-safeops} (mycel-safeops: the image normalizer of AI reads, server/src/files/vision.ts, and the safe-ops 1A helper),
-# plus Linux only bin/linux-<arch>/{mycel-enroll,mycel-sandbox,mycel-ctl,mycel-boxd} (ee/cloud/README.md; linux-runtime spec 3.3.4,
-# 3.6.5) and bin/darwin-<arch>/mycel-ocr (Swift: PDFKit / ImageIO / Apple Vision; only when built on a Mac with swiftc).
+# plus Linux only bin/linux-<arch>/{mycel-enroll,mycel-sandbox,mycel-ctl,mycel-boxd,mycel-link} (ee/cloud/README.md; linux-runtime
+# spec 3.3.4, 3.6.5; mycel-link: the ax-link agent of the EC2 image, scripts/image/README.md) and bin/darwin-<arch>/mycel-ocr (Swift: PDFKit / ImageIO / Apple Vision; only when built on a Mac with swiftc).
 # Linux has no OCR (docs/DECISIONS.md "AI sees images and PDF pages"): the AI sees images and scanned pages instead.
 #   bash native/build.sh                     arm64 (this repo's default; dev on Apple silicon)
 #   ARCHS=amd64 bash native/build.sh         Intel
@@ -15,7 +15,7 @@ for arch in $ARCHS; do
   case "$arch" in arm64|amd64) ;; *) echo "native/build.sh: ARCHS takes arm64 and/or amd64, not $arch" >&2; exit 2 ;; esac
 done
 CMDS="mycel-bridge mycel-gate mycel-launcher mycel-bootstrap mycel-safeops"
-LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl mycel-boxd"
+LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl mycel-boxd mycel-link"
 for os in darwin linux; do
   for arch in $ARCHS; do
     out="bin/$os-$arch"; mkdir -p "$out"

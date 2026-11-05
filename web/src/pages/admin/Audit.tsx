@@ -154,9 +154,10 @@ export default function Audit() {
       {shown && !shown.length && (
         <p className="py-6 text-sm text-faint" data-testid="activity-empty">
           {active ? t('audit.none') : t('activity.empty')}{' '}
-          {active && (
-            <button type="button" className="font-medium text-accent-text hover:underline" onClick={clear}>
-              {t('activity.clear')}
+          {/* older pages may still hold a match (the search looks only at the rows loaded so far): look further back */}
+          {active && cursor && (
+            <button type="button" className="mr-3 font-medium text-accent-text hover:underline disabled:opacity-60" disabled={busy} onClick={() => void load(true)} data-testid="activity-search-older">
+              {t('adminux.audit.searchOlder')}
             </button>
           )}
         </p>
@@ -177,7 +178,8 @@ export default function Audit() {
           ))}
         </div>
       )}
-      {cursor && (
+      {/* "Load more" only under rows: an empty result has its own line above */}
+      {cursor && shown && shown.length > 0 && (
         <div className="pt-4 text-center">
           <Button size="sm" busy={busy} onClick={() => void load(true)} data-testid="activity-load-more">
             {t('common.loadMore')}
@@ -237,7 +239,7 @@ function Sentence({ e }: { e: AuditEntry }) {
         {e.source === 'tool' ? t('activity.aiUsed', { tool: label }) : inSentence(label)}
       </span>
       {item && <span className="text-faint"> · <span className="font-mono text-xs">{item}</span></span>}
-      {summary && <span className="text-faint"> · {summary}</span>}
+      {summary && <span className="text-faint"> · {arrows(summary)}</span>}
     </>
   )
 }
@@ -254,7 +256,28 @@ function Details({ e, times }: { e: AuditEntry; times?: string[] }) {
     [t('activity.detail.action'), e.action],
   ]
   if (e.target) rows.push([t('activity.detail.item'), e.target])
-  const rest = Object.entries(e.detail ?? {}).filter(([, v]) => v !== null && v !== undefined && v !== '')
+  // the detail fields people read (what it did, the result, where from) get a name and words; the other fields stay as
+  // the server wrote them, under "More details", for anyone matching the entry with the server log
+  const detail: Record<string, unknown> = { ...(e.detail ?? {}) }
+  const take = (k: string) => {
+    const v = detail[k]
+    delete detail[k]
+    return v
+  }
+  const summary = typeof detail.summary === 'string' ? (take('summary') as string) : null
+  if (summary) rows.push([t('adminux.audit.key.summary'), arrows(summary)])
+  if (typeof detail.ok === 'number' || typeof detail.ok === 'boolean') {
+    const failed = take('ok') === 0 || e.detail?.ok === false
+    const denied = failed && !!summary && /-> denied\b/.test(summary)
+    rows.push([t('adminux.audit.key.result'), t(denied ? 'audit.denied' : failed ? 'audit.failed' : 'adminux.audit.done')])
+  }
+  if (typeof detail.ip === 'string') rows.push([t('adminux.audit.key.ip'), take('ip') as string])
+  if (detail.via === 'internet') {
+    take('via')
+    rows.push([t('adminux.audit.key.via'), t('audit.viaInternet')])
+  }
+  if (typeof detail.reason === 'string') rows.push([t('adminux.audit.key.reason'), take('reason') as string])
+  const rest = Object.entries(detail).filter(([, v]) => v !== null && v !== undefined && v !== '')
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
       {rows.map(([k, v]) => (
@@ -275,6 +298,7 @@ function Details({ e, times }: { e: AuditEntry; times?: string[] }) {
           </dd>
         </div>
       )}
+      {rest.length > 0 && <div className="col-span-2 mt-1.5 text-faint">{t('adminux.audit.moreDetails')}</div>}
       {rest.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="font-mono text-faint">{k}</dt>
@@ -311,3 +335,6 @@ function ToolOutcome({ e }: { e: AuditEntry }) {
   if (!failed) return null
   return <Badge tone="danger">{t(/-> denied\b/.test(summary) ? 'audit.denied' : 'audit.failed')}</Badge>
 }
+
+/** A tool summary's "->" ("read hr/x.xlsx -> denied: no access") as an arrow, which reads as words, not as code. */
+const arrows = (text: string) => text.replace(/\s*->\s*/g, ' → ')

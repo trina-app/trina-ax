@@ -1,9 +1,9 @@
 // Routes and the sign-in gate: first-run setup → /setup, signed out → /login (invite links still open),
 // must change password → /password, otherwise the app with its WebSocket running.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { errorText } from './lib/api'
+import { ApiError, errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
 import { useSendQueue } from './store/sendQueue'
@@ -114,14 +114,24 @@ function Gate() {
   }, [])
 
   if (status.kind === 'loading') return <Splash />
-  if (status.kind === 'error')
+  if (status.kind === 'error') {
+    // The plain hint always shows; the server's own words and the HTTP status are a small detail under it
+    const hint = t('conn.cantReachHint')
+    const text = errorText(status.error, locale, hint)
+    const detail = [text !== hint ? text : null, status.error instanceof ApiError ? `HTTP ${status.error.status}` : null].filter(Boolean).join(' · ')
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-canvas p-6 text-center" data-testid="cant-reach">
+        <p className="mb-3 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+          <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
+          {PRODUCT.displayName}
+        </p>
         <p className="font-medium">{t('conn.cantReach')}</p>
-        <p className="max-w-md text-sm text-muted">{errorText(status.error, locale, t('conn.cantReachHint'))}</p>
+        <p className="max-w-md text-sm text-balance text-muted">{hint}</p>
+        {detail && <p className="max-w-md text-xs text-faint">{detail}</p>}
         <Button onClick={() => void load()}>{t('common.retry')}</Button>
       </div>
     )
+  }
   if (status.kind === 'setup')
     return (
       <Routes>
@@ -173,6 +183,8 @@ function Gate() {
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
           <Route path="welcome" element={<Welcome />} />
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* an unknown address: say so (with a way home) instead of opening Home without a word */}
+          <Route path="*" element={<NotFound />} />
         </Route>
         <Route path="/login" element={<AfterSignIn />} />
         {/* right after making the team: the welcome steps (lib/welcome.ts), else Home */}
@@ -183,7 +195,6 @@ function Gate() {
         <Route path="/join" element={<AfterJoin />} />
         {/* a reset link opened while someone is signed in (a shared computer): using it signs that person in instead */}
         <Route path="/reset-password/:token" element={<ResetPassword />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </div>
       </RealPath.Provider>
@@ -221,6 +232,21 @@ function AfterJoin() {
 export function AfterSetup() {
   useEffect(() => () => clearAfterSetup(), [])
   return <Navigate to={afterSetupTarget()} replace />
+}
+
+/** An address the app does not know (a wrong or old link): a clear message and a link to Home, inside the normal layout. */
+function NotFound() {
+  const t = useT()
+  return (
+    // the layout already has the <main> landmark; the page heading is an h1 like on other pages
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center" data-testid="not-found">
+      <h1 className="text-lg font-semibold text-balance text-ink">{t('notFound.title')}</h1>
+      <p className="max-w-md text-sm text-balance text-muted">{t('notFound.hint')}</p>
+      <Link to="/" className="mt-3 text-sm font-medium text-accent-text underline">
+        {t('notFound.home')}
+      </Link>
+    </div>
+  )
 }
 
 /** Signed in while on /login: go where the person was heading (?next=, same-site paths only). */

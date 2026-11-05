@@ -66,7 +66,7 @@ git push origin v0.3.0-beta.1
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
 | 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
 
-2의 네 job은 동시에 돈다. publish는 시험과 빌드가 모두 통과해야 시작한다.
+2의 네 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
 - **맥 데스크톱 앱(dmg)은 넣지 않는다.** Apple 서명·공증이 아직 없다. 맥 데스크는 지금처럼 "새 버전이 있어요" 안내만 받는다.
 - 시험·빌드·배포는 모두 태그가 가리키는 같은 커밋으로 한다. publish와 github-release는 시작할 때 태그가 아직 그 커밋인지 다시 보고, 태그가 옮겨졌으면 멈춘다.
@@ -208,7 +208,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 |---|---|---|
 | prepare: 태그 ≠ 버전 | 아무것도 안 함 | 태그를 지운다(`git push --delete origin vX && git tag -d vX`). 버전을 고친 커밋에 다시 단다. |
 | prepare: 비밀값 없음, 키 불일치 | 아무것도 안 함 | 비밀값을 고친 뒤 그 run에서 "Re-run all jobs" |
-| test·build | 아무것도 안 올라감 | 고친 커밋에 **새 버전**으로 태그(예: `0.3.1`, `0.3.0-beta.2`). 태그를 옮기지 않는다. |
+| test·build-linux (사무실·윈도우 빌드는 아래 "Desktop builds missing") | 아무것도 안 올라감 | 고친 커밋에 **새 버전**으로 태그(예: `0.3.1`, `0.3.0-beta.2`). 태그를 옮기지 않는다. |
 | publish 중간 | 버전 파일 일부만 올라갔을 수 있다. 머리는 그대로라 설치는 영향 없음 | 그 run에서 **"Re-run failed jobs"**. 같은 run의 빌드 결과(7일 보관)를 다시 서명해도 바이트가 같으므로 이어서 올라간다. 올라간 파일을 지우지 않는다. |
 | publish: `release.json`이 `.sig` 없이 있다고 멈춤 | 둘 사이에서 끊겼다. 피드의 파일에 서명해 줄 수는 없어 사람이 본다 | 내용을 확인한 뒤 버킷에서 그 `release.json`만 지우고 "Re-run failed jobs" |
 | publish: `.sig`가 `release.json` 없이 있다고 멈춤 | `.sig`만 남았다. 새 `release.json`과 맞지 않는다 | 버킷에서 그 `.sig`만 지우고 "Re-run failed jobs" |
@@ -223,6 +223,8 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 - 같은 태그를 다시 돌리려면 Actions → Release → Run workflow에서 tag를 넣는다. "Use workflow from"도 같은 태그로 고른다(그 태그의 release.yml·ci.yml로 돈다).
 - 로컬에서 같은 일을 하려면 `publish.ts`(사무실)와 `publish-server.ts --dir <서명된 묶음 폴더>`(리눅스)를 쓴다. 리눅스 묶음은 리눅스(같은 아키텍처)에서만 빌드된다.
 - GitHub Release 파일 확인: 받은 폴더에서 `bun scripts/release/release-ci.ts verify-sums SHA256SUMS`(이 빌드의 공개키로 `.sig`를 확인한 뒤 옆의 파일 sha256을 본다).
+
+**Desktop builds missing.** The Linux server release does not wait for the desktop builds. When `build-office` or `build-windows` fails or gets no hosted runner (macOS on 2026-11-02, 03 and 04), `publish` still signs and publishes the Linux builds to the server feed. It does not change the office feed (the offices keep the previous release) and logs a `::warning::`. `SHA256SUMS` lists only the files that are in the release, and the GitHub Release body starts with a line that names the missing downloads. To add them, use "Re-run failed jobs" in the same run (artifacts stay 7 days): `publish` runs again, uploads the same server files again (they are skipped), publishes the office feed and adds the files to the GitHub Release. Remove the "not in this release yet" line from the release body by hand. A person who cancels the run still stops `publish`.
 
 ## 7. 키를 바꿀 때
 

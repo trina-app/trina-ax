@@ -116,7 +116,7 @@ function ConnectorCard({ c, added, onAdd }: { c: Connector; added: boolean; onAd
       <ConnectorLogo c={c} className="size-10" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">{c.name}</span>
-        <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{t(`integrations.catalog.${c.id}`)}</span>
+        <span className="mt-0.5 line-clamp-2 text-xs text-muted">{t(`integrations.catalog.${c.id}`)}</span>
       </span>
       {added ? (
         <span className="flex size-8 shrink-0 items-center justify-center text-ok" role="img" aria-label={t('integrations.discover.added', { name: c.name })} data-testid="connector-added">

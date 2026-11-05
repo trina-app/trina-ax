@@ -110,7 +110,8 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'formatting of the text it replaces; when it appears more than once, give occurrence or all: true); { cell: { next_to: "<the label ' +
       'cell\'s whole text>" } (or with direction "below"; or { table, row, col }, 1-based), value } fills an empty cell; { add_rows: ' +
       '{ table_with: "<the whole text of one of its cells>" or table, after_row?, copy_row?, rows: [[...], ...] } } adds rows shaped like ' +
-      'copy_row (default: after_row, which defaults to the last row), one value per cell; borders are copied too, so copy a middle row when the last one closes the table with a heavier line. Tables are numbered in reading order. Plain text only: no new formatting, ' +
+      'copy_row (default: after_row, which defaults to the last row), one value per cell; borders are copied too, so copy a middle row when the last one closes the table with a heavier line. ' +
+      'A form whose page is one table takes only the rows that still fit on that page: fill its empty rows first. Tables are numbered in reading order. Plain text only: no new formatting, ' +
       'images or styles. If a change cannot be applied exactly (not found, found more than once, across differently formatted text, a ' +
       'tab, a field or a merged cell), nothing is saved and the error says why. Without `output` the result is a new version of the ' +
       'same file (the previous one stays in its history); with `output` a new file of the same format. ' +

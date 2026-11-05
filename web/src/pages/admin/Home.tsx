@@ -15,7 +15,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import { Badge, Button } from '../../components/ui'
 import { actionLabel } from './Audit'
-import { useAction, useLoad } from './common'
+import { AdminPageHeader, useAction, useLoad } from './common'
 import { JobLine, useUpdateInstall } from './jobs'
 import { OwnerChecklist } from './OwnerChecklist'
 
@@ -139,11 +139,14 @@ export default function Home() {
     })),
   ]
   const ready = settled(users, engines, credentials, services, storage, diagnostics)
+  // A source of the list above that did not load: the list may miss something, so Home never says all is well then
+  const unchecked = [users, engines, credentials, services, storage, diagnostics].some((s) => s.error !== null)
   const defaultEngine = engines.data?.engines.find((e) => e.id === engines.data?.defaultEngine)?.label
   const latest = audit.data?.[0]
 
   return (
     <div className="space-y-8" data-testid="admin-home">
+      <AdminPageHeader title={t('admin.home')} className="!mb-0" still />
       {ready && (
         <section aria-labelledby="admin-home-attention">
           {attention.length ? (
@@ -171,7 +174,12 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+              {unchecked && <p className="mt-2 text-xs text-muted" data-testid="admin-not-all-checked">{t('adminHome.notAllChecked.more')}</p>}
             </>
+          ) : unchecked ? (
+            <h2 id="admin-home-attention" className="flex items-center gap-2 text-sm text-warn" data-testid="admin-not-all-checked">
+              <AlertTriangle size={16} aria-hidden /> {t('adminHome.notAllChecked')}
+            </h2>
           ) : (
             <h2 id="admin-home-attention" className="flex items-center gap-2 text-sm text-muted" data-testid="admin-all-good">
               <CheckCircle2 size={16} className="text-ok" aria-hidden /> {t('adminHome.allGood')}

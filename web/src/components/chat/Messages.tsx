@@ -80,15 +80,9 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
     )
   if (a.kind === 'image' && !thumbFailed)
     return (
-      <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('overflow-hidden rounded-xl border border-line', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
-        <img
-          src={thumbnailUrl(a.id)}
-          alt={a.name}
-          loading="lazy"
-          onError={() => setThumbFailed(true)}
-          className="max-h-48 max-w-[260px] object-cover"
-          style={a.width && a.height ? { aspectRatio: `${a.width} / ${a.height}` } : undefined}
-        />
+      // the same box as a file card, so a tiny or a large image keeps the row even; the image fills it (cropped)
+      <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line bg-subtle sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
+        <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onError={() => setThumbFailed(true)} className="block h-full w-full object-cover" />
       </button>
     )
   const ext = typeOf(a.name)
@@ -395,7 +389,9 @@ export function AssistantMessage({
   const streaming = m.status === 'streaming'
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
-  const thinking = streaming && !m.content
+  // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them
+  const waitingForYou = streaming && requests.length > 0
+  const thinking = streaming && !m.content && !waitingForYou
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
   const errText = m.error
@@ -429,6 +425,11 @@ export function AssistantMessage({
           </div>
         )}
         <AnswerBody m={m} chatId={chatId} streaming={streaming} />
+        {waitingForYou && (
+          <p className="mb-2 text-sm text-muted" role="status" data-testid="waiting-for-you">
+            {t('chatux.waitingForYou')}
+          </p>
+        )}
         {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
         {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
@@ -480,9 +481,12 @@ export function AssistantMessage({
         {!streaming && (
           <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1', !isLast && ON_HOVER)} data-testid="answer-actions">
             {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} />}
-            <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} data-testid="regenerate">
-              <RotateCcw size={13} />
-            </IconButton>
+            {/* the newest failed answer has "Try again" in its error box: one control for one action */}
+            {!(m.status === 'error' && isLast) && (
+              <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} data-testid="regenerate">
+                <RotateCcw size={13} />
+              </IconButton>
+            )}
             {m.content && m.status === 'done' && (
               <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} data-testid="suggest-skill">
                 <BookmarkPlus size={13} />

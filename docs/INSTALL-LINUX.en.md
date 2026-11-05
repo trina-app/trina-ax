@@ -2,7 +2,7 @@
 
 [한국어](INSTALL-LINUX.md) · [IT checklist](for-admins.md)
 
-Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be available. A plain Docker container is not supported by this production installer.** Do not bypass those checks. A local demo is a separate development environment.
+Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be available. A plain Docker container is not supported by this production installer.** Do not bypass those checks. For Docker, use the image and compose file in [INSTALL-DOCKER.md](INSTALL-DOCKER.md) instead (fewer limits than this install). A local demo is a separate development environment.
 
 ## Requirements
 

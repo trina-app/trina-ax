@@ -1,19 +1,22 @@
 // ⌘/Ctrl+K: one place to find the team's own things, like Claude's search. Type tabs (all, chats, projects, files,
-// skills, scheduled, MCP); with no text it shows what needs attention, recent chats and projects, and actions.
+// skills, scheduled, MCP); with no text it shows what needs attention, recent chats and projects, and actions (the
+// inbox among them, with its unread count).
 // Chats are searched on the server by title and content (GET /api/chats?q=). Projects, skills, scheduled tasks and MCP
-// connections come from the lists the app already reads and are matched here by name. Files: the dialog does not search
-// file contents itself, so a key press starts no file search (R2-ETC-02); its row opens the file screen's content
-// search with the same text.
+// connections come from the lists the app already reads and are matched here by name (a scheduled task also by its
+// instruction, and then the row shows the matching part of it, so the match is not hidden). Files: file names are
+// searched on the server (GET /api/files/find); the dialog does not search file contents itself, so a key press starts
+// no content search (R2-ETC-02); its last row opens the file screen's content search with the same text.
 import clsx from 'clsx'
-import { BookMarked, Cable, CalendarClock, CalendarPlus, CornerDownLeft, FileSearch, FolderKanban, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { skillTitle, type Chat, type Integration, type Project, type Schedule } from '@mycel/shared/api'
+import { skillTitle, type Chat, type FileEntry, type Integration, type Project, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { platform } from '../lib/pwa'
+import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useUi } from '../store/ui'
-import { useFocusTrap } from './ui'
+import { useEdgeFade, useFocusTrap } from './ui'
 import { contentQueryReady } from './FileContentSearch'
 import { skillFileLink } from './AvailableSkills'
 import { useChatActions } from './chat/chatActions'
@@ -42,6 +45,10 @@ interface Row {
   attention?: boolean
   /** highlight the typed text in the title */
   match?: boolean
+  /** highlight the typed text in the second part too (the part of an instruction that matched) */
+  subMatch?: boolean
+  /** more words the typed text may match (an action's other name) */
+  terms?: string
   icon: typeof MessageSquare
   href: string
   chat?: Chat
@@ -53,6 +60,14 @@ const onMac = () => platform() === 'mac' || platform() === 'ios'
 const norm = (s: string) => s.toLocaleLowerCase()
 const has = (q: string, ...xs: (string | null | undefined)[]) => xs.some((x) => !!x && norm(x).includes(q))
 const parentOf = (path: string) => path.split('/').slice(0, -1).join('/')
+/** The part of a long text around the first match, on one line: "…every Monday, summarise the weekly notes…". */
+export function snippetAround(text: string, q: string, before = 24, after = 48): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  const i = norm(flat).indexOf(q)
+  if (i < 0) return ''
+  const from = Math.max(0, i - before), to = Math.min(flat.length, i + q.length + after)
+  return `${from > 0 ? '…' : ''}${flat.slice(from, to)}${to < flat.length ? '…' : ''}`
+}
 
 /** The lists Search reads once when it opens; null while loading, 'error' when one could not be read. */
 function useList<T>(load: () => Promise<T>): T | null | 'error' {
@@ -68,6 +83,9 @@ function useList<T>(load: () => Promise<T>): T | null | 'error' {
   return v
 }
 const ok = <T,>(v: T | null | 'error'): T | null => (v === 'error' ? null : v)
+/** What a task's search may match besides its name: a task's own instruction. A template's prompt is the server's own
+ *  and never shown, so it is not searched. */
+const scheduleText = (s: Schedule) => (s.templateId ? '' : s.prompt)
 
 function SearchBox({ onClose }: { onClose: () => void }) {
   const t = useT()
@@ -83,6 +101,9 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   const [menu, setMenu] = useState<{ row: Row; top: number } | null>(null)
   const [found, setFound] = useState<Chat[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // files whose name contains the text (null while it loads or with no text), and whether that search failed
+  const [names, setNames] = useState<FileEntry[] | null>(null)
+  const [namesFailed, setNamesFailed] = useState(false)
   // Esc closes an open row menu first, then the dialog
   useFocusTrap(ref, true, () => (menu ? closeMenu() : onClose()))
 
@@ -91,6 +112,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   const skills = useList<Skill[]>(() => api.call(API.listSkills).then((r) => r.items))
   const schedules = useList(() => api.call(API.listSchedules).then((r) => r.items))
   const mcp = useList(() => api.call(API.listIntegrations))
+  const unread = useList(() => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => r.unreadCount))
 
   const query = norm(q.trim())
   // chats by title and content, on the server
@@ -120,6 +142,29 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query])
+  // files by name, on the server, only where file rows are shown
+  const wantNames = !!query && (tab === 'all' || tab === 'files')
+  useEffect(() => {
+    setNames(null)
+    setNamesFailed(false)
+    if (!wantNames) return
+    let live = true
+    const timer = setTimeout(() => {
+      api.call(API.findFiles, { query: { q: q.trim(), path: '', limit: 30 } }).then(
+        (r) => live && setNames(r.items),
+        () => {
+          if (!live) return
+          setNames([])
+          setNamesFailed(true)
+        },
+      )
+    }, 200)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, wantNames])
 
   const projectName = useMemo(() => new Map((ok(projects) ?? []).map((p) => [p.id, p.name])), [projects])
   const chatRow = (c: Chat, attention?: string): Row => ({
@@ -128,13 +173,24 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   })
   const projectRow = (p: Project): Row => ({ key: `project:${p.id}`, kind: 'project', icon: FolderKanban, title: p.name, sub: p.folderPath, href: `/projects/${p.id}`, match: true })
   const skillRow = (s: Skill): Row => ({ key: `skill:${s.path}`, kind: 'skill', icon: BookMarked, title: skillTitle(s), sub: parentOf(s.path), href: skillFileLink(s.path), match: true })
-  const scheduleRow = (s: Schedule, attention?: string): Row => ({
-    key: `schedule:${s.id}`, kind: 'schedule', icon: CalendarClock, title: s.title, href: `/scheduled/${encodeURIComponent(s.id)}`, match: true,
-    sub: attention ?? (s.projectId ? projectName.get(s.projectId) : undefined), attention: !!attention,
-  })
+  /** A task's name as the Scheduled page shows it. When the typed text is only in its instruction (hidden in the list),
+   *  the second part shows that part of the instruction, highlighted, so the row does not look like a wrong result. */
+  const scheduleRow = (s: Schedule, attention?: string): Row => {
+    const title = scheduleName(s, t)
+    const inInstruction = !attention && !!query && !has(query, title) ? snippetAround(scheduleText(s), query) : ''
+    return {
+      key: `schedule:${s.id}`, kind: 'schedule', icon: CalendarClock, title, href: `/scheduled/${encodeURIComponent(s.id)}`, match: true,
+      sub: attention ?? (inInstruction ? t('search.inInstruction', { text: inInstruction }) : s.projectId ? projectName.get(s.projectId) : undefined),
+      subMatch: !!inInstruction, attention: !!attention,
+    }
+  }
   const mcpRow = (i: Integration, attention?: string): Row => ({
     key: `mcp:${i.id}`, kind: 'mcp', icon: Cable, title: i.name, href: '/settings/integrations', match: true,
     sub: attention ?? (i.scope === 'team' ? t('search.team') : undefined), attention: !!attention,
+  })
+  const fileNameRow = (f: FileEntry): Row => ({
+    key: `file:${f.path}`, kind: 'file', icon: f.type === 'folder' ? Folder : FileIcon, title: f.name, sub: parentOf(f.path), match: true,
+    href: f.type === 'folder' ? `/files?path=${encodeURIComponent(f.path)}` : skillFileLink(f.path),
   })
   const filesRow = (): Row => ({ key: 'files', kind: 'file', icon: FileSearch, title: t('search.inFiles', { q: q.trim() }), href: `/files?q=${encodeURIComponent(q.trim())}` })
 
@@ -147,9 +203,15 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     const m = ok(mcp)
     if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: '/settings/integrations?add=1' })
     list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
+    // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
+    const n = ok(unread) ?? 0
+    list.push({
+      key: 'act:inbox', kind: 'action', icon: Bell, title: t('inbox.open'), href: '/settings/notifications', terms: `${t('inbox.title')} ${t('notifications.title')}`,
+      sub: n > 0 ? t('notifications.unread', { count: n }) : undefined, attention: n > 0,
+    })
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, locale])
+  }, [mcp, unread, locale])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -193,13 +255,14 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), (found ?? []).slice(0, tab === 'all' ? 5 : 30).map((c) => chatRow(c)))
     if (tab === 'all' || tab === 'projects') push('projects', typeLabel('projects'), allProjects.filter((p) => has(query, p.name, p.folderPath)).slice(0, few).map(projectRow))
     if (tab === 'all' || tab === 'skills') push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
-    if (tab === 'all' || tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, s.title, s.prompt)).slice(0, few).map((s) => scheduleRow(s)))
+    if (tab === 'all' || tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, scheduleName(s, t), scheduleText(s))).slice(0, few).map((s) => scheduleRow(s)))
     if (tab === 'all' || tab === 'mcp') push('mcp', typeLabel('mcp'), allMcp.filter((i) => has(query, i.name, i.url)).slice(0, few).map((i) => mcpRow(i)))
-    if ((tab === 'all' || tab === 'files') && contentQueryReady(q)) push('files', typeLabel('files'), [filesRow()])
-    if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title)))
+    if (tab === 'all' || tab === 'files')
+      push('files', typeLabel('files'), [...(names ?? []).slice(0, tab === 'all' ? 4 : 30).map(fileNameRow), ...(contentQueryReady(q) ? [filesRow()] : [])])
+    if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, recent, projects, skills, schedules, mcp, found, actions, locale])
+  }, [query, tab, recent, projects, skills, schedules, mcp, found, names, actions, locale])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const active = rows[Math.min(sel, rows.length - 1)]
@@ -223,8 +286,17 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     const at = el?.getBoundingClientRect()
     setMenu({ row: r, top: at && box ? at.bottom - box.top : 0 })
   }
+  // the type tabs scroll sideways on a phone: fade the cut edge, and bring the chosen one into view (arrow keys at the
+  // ends of the text choose another)
+  const tabRow = useRef<HTMLDivElement>(null)
+  useEdgeFade(tabRow)
+  useEffect(() => {
+    const row = tabRow.current
+    if (!row || row.scrollWidth <= row.clientWidth) return
+    row.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [tab])
   const moveTab = (d: 1 | -1) => setTab((x) => SEARCH_TABS[(SEARCH_TABS.indexOf(x) + d + SEARCH_TABS.length) % SEARCH_TABS.length]!)
-  const loading = (tab === 'chats' && (query ? found === null && !error : recent === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null)
+  const loading = (tab === 'chats' && (query ? found === null && !error : recent === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && names === null)
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')
 
   const mark = (text: string): ReactNode => {
@@ -297,28 +369,32 @@ function SearchBox({ onClose }: { onClose: () => void }) {
             <X size={18} aria-hidden />
           </button>
         </div>
-        <div role="tablist" aria-label={t('search.types')} className="scroll-thin flex shrink-0 gap-1 overflow-x-auto border-b border-line px-4 pb-3">
-          {SEARCH_TABS.map((x) => (
-            <button
-              key={x}
-              type="button"
-              role="tab"
-              aria-selected={tab === x}
-              tabIndex={tab === x ? 0 : -1}
-              data-testid={`search-tab-${x}`}
-              onClick={() => {
-                setTab(x)
-                inputRef.current?.focus()
-              }}
-              className={clsx('shrink-0 rounded-lg px-3 py-1.5 text-sm', tab === x ? 'bg-hover font-medium text-text' : 'text-muted hover:text-text')}
-            >
-              {t(TAB_LABEL[x])}
-            </button>
-          ))}
+        {/* the line under the tabs sits outside the row, so the row's edge fade does not fade it too */}
+        <div className="shrink-0 border-b border-line">
+          <div ref={tabRow} role="tablist" aria-label={t('search.types')} className="scroll-thin edge-fade flex gap-1 overflow-x-auto px-4 pb-3">
+            {SEARCH_TABS.map((x) => (
+              <button
+                key={x}
+                type="button"
+                role="tab"
+                aria-selected={tab === x}
+                tabIndex={tab === x ? 0 : -1}
+                data-testid={`search-tab-${x}`}
+                onClick={() => {
+                  setTab(x)
+                  inputRef.current?.focus()
+                }}
+                className={clsx('shrink-0 rounded-lg px-3 py-1.5 text-sm', tab === x ? 'bg-hover font-medium text-text' : 'text-muted hover:text-text')}
+              >
+                {t(TAB_LABEL[x])}
+              </button>
+            ))}
+          </div>
         </div>
         <div ref={listRef} id="search-results" role="listbox" aria-label={t('search.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:max-h-[56vh]">
           {error && <p className="px-3 py-2 text-sm text-danger">{error}</p>}
           {failed && <p className="px-3 py-2 text-sm text-danger">{t('search.loadFailed')}</p>}
+          {namesFailed && wantNames && <p className="px-3 py-2 text-sm text-danger" data-testid="search-names-failed">{t('search.fileNamesFailed')}</p>}
           {sections.map((s) => (
             <div key={s.id} role="group" aria-labelledby={`sh-${s.id}`} data-testid={`search-section-${s.id}`} className="pb-1">
               <p id={`sh-${s.id}`} className="px-3 pt-3 pb-1.5 text-xs text-faint">{s.label}</p>
@@ -342,7 +418,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
                     </span>
                     <span className="min-w-0 flex-1 truncate">
                       {r.match ? mark(r.title) : r.title}
-                      {r.sub && <span className={clsx('ml-2 text-xs', r.attention ? 'text-accent-text' : 'text-faint')}>{r.sub}</span>}
+                      {r.sub && <span className={clsx('ml-2 text-xs', r.attention ? 'text-accent-text' : 'text-faint')}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
                     </span>
                     {on && r.chat && (
                       <span

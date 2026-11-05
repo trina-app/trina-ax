@@ -9,7 +9,8 @@
 //   `occurrence` or `all`. The new text goes into the text it replaces and takes its formatting.
 // - { cell, value }: an empty table cell, found next to a label cell or by table / row / column, gets the text.
 // - { add_rows }: rows added to a table, each a copy of one row's cells (borders, sizes, paragraph and character shape)
-//   with new text; the rows below move down, the table's row count, height and cell zones follow.
+//   with new text; the rows below move down, the table's row count, height and cell zones follow. Refused when the
+//   table cannot continue on the next page and would grow taller than the page body (hp:pagePr).
 // Paragraph text only: no new styles, the header is not touched.
 //
 // The patch: each section is tokenized with the offsets of every tag (after the XML parser of hwpx-write.ts has
@@ -33,7 +34,7 @@ import {
   decodeHwpEditRequest, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX,
   hwpxReadLines, applyLineEdits, type HwpChange, type HwpEditReport,
 } from './hwpx-check'
-import { asChanges, ChangeEditor, clip, docLines, HWP_CHANGE_LIMITS, placeholdersIn, refuseChange, type RowPlan } from './hwp-changes'
+import { asChanges, ChangeEditor, clip, docLines, FIXED_ON_PAGE, HWP_CHANGE_LIMITS, pageBodyHeight, placeholdersIn, refuseChange, type RowPlan } from './hwp-changes'
 import { NS_ATTRS } from './hwpx-template'
 import { assertKnown, assertPlainPackage, escText, isCompoundFile, parseXml, type Refuse } from './hwpx-write'
 import { checkZip, isZip } from './zip-guard'
@@ -527,7 +528,7 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     }
     const rc = attrRange(xml, t.el, 'rowCnt')!
     this.edit(t, rc[0], rc[1], String(R + k), i)
-    const height = Math.max(0, ...cells.map((c) => c.height))
+    const height = this.rowHeight(t, cells)
     const sz = kidEls(t.el, 'hp:sz')[0]
     const h = sz && attrRange(xml, sz, 'height')
     if (h && height && /^\d+$/.test(xml.slice(h[0], h[1]))) this.edit(t, h[0], h[1], String(Number(xml.slice(h[0], h[1])) + k * height), i)
@@ -547,6 +548,52 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     let depth = 0
     for (let e = t.el.parent; e; e = e.parent) depth++
     return { before: next ? next.i : this.doc.paras.length, depth }
+  }
+
+  // ---- a table that fills its page
+  /** hp:sz's height */
+  protected tableHeight(t: Table): number | null {
+    const sz = kidEls(t.el, 'hp:sz')[0]
+    const v = sz ? attrsOf(this.doc.sections[t.sec]!.xml, sz).get('height') : undefined
+    return v !== undefined && /^\d+$/.test(v) ? Number(v) : null
+  }
+
+  /** the copied row's tallest cell (hp:cellSz height) */
+  protected rowHeight(_t: Table, cells: Cell[]): number {
+    return Math.max(0, ...cells.map((c) => c.height))
+  }
+
+  /** hp:pos treatAsChar="1": placed as a character; hp:tbl pageBreak="NONE": not split (CELL and TABLE split) */
+  protected fixedOnPage(t: Table): string | null {
+    const xml = this.doc.sections[t.sec]!.xml
+    const pos = kidEls(t.el, 'hp:pos')[0]
+    if (pos && attrsOf(xml, pos).get('treatAsChar') === '1') return FIXED_ON_PAGE.asChar
+    if (attrsOf(xml, t.el).get('pageBreak') === 'NONE') return FIXED_ON_PAGE.noSplit
+    return null
+  }
+
+  private bodies = new Map<number, number | null>()
+  /** the section's hp:pagePr (width, height, landscape) and its hp:margin (top, bottom, header, footer). Hangul writes
+   * landscape="WIDELY" for an upright page and "NARROWLY" for a turned one, whose width and height stay the upright
+   * paper's (as hwpx-write.ts reads them) */
+  protected pageBody(t: Table): number | null {
+    if (this.bodies.has(t.sec)) return this.bodies.get(t.sec)!
+    const sec = this.doc.sections[t.sec]!
+    const found: El[] = []
+    const walk = (e: El) => { for (const k of e.kids) if (isEl(k)) { if (k.name === 'hp:pagePr') found.push(k); else walk(k) } }
+    walk(sec.root)
+    let body: number | null = null
+    const margin = found.length === 1 ? kidEls(found[0]!, 'hp:margin') : []
+    if (margin.length === 1) {
+      const p = attrsOf(sec.xml, found[0]!), m = attrsOf(sec.xml, margin[0]!)
+      const n = (a: Map<string, string>, k: string) => { const v = a.get(k); return v !== undefined && /^\d+$/.test(v) ? Number(v) : NaN }
+      const land = p.get('landscape')
+      if (land === 'WIDELY' || land === 'NARROWLY') {
+        body = pageBodyHeight({ width: n(p, 'width'), height: n(p, 'height'), top: n(m, 'top'), bottom: n(m, 'bottom'), header: n(m, 'header'), footer: n(m, 'footer'), landscape: land === 'NARROWLY' })
+      }
+    }
+    this.bodies.set(t.sec, body)
+    return body
   }
 
   /** a copy of `cell` for row `row` (0-based) with `value` */

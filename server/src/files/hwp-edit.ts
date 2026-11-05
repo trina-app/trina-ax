@@ -21,7 +21,8 @@
 // Rows (add_rows): the TABLE record (row count, cells per row, cell zones), the LIST_HEADER row address of the cells
 // below, new cells copied from one row's LIST_HEADER, first paragraph header and first character shape with the new
 // text, the table's height in its CTRL_HEADER (an estimate; Hangul lays the table out again) and the layout cache of
-// the paragraph holding the table.
+// the paragraph holding the table. Rows that would make a table that cannot continue on the next page taller than the
+// page body (the section's PAGE_DEF) are refused (files/hwp-changes.ts).
 //
 // Refused, writing nothing: distribution-only (배포용), password, DRM, certificate-encrypted, signed, privacy-protected
 // and change-tracking documents (FileHeader flags, their streams and records), scripts other than Hangul's empty
@@ -38,7 +39,10 @@ import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { CfbError, cfbMismatch, isCfb, readCfb, writeCfb, type Cfb } from './cfb'
 import { hwpOutline, hwpText, INFLATE_TOTAL_MAX, ONE_WCHAR, SECTIONS_MAX, STREAM_MAX } from './hwp'
-import { asChanges, ChangeEditor, clip, docLines, HWP_CHANGE_LIMITS, placeholdersIn, refuseChange, type CCell, type CPara, type CTable, type RowPlan } from './hwp-changes'
+import {
+  asChanges, ChangeEditor, clip, docLines, FIXED_ON_PAGE, HWP_CHANGE_LIMITS, pageBodyHeight, placeholdersIn, refuseChange, type CCell, type CPara, type CTable,
+  type RowPlan,
+} from './hwp-changes'
 import {
   applyLineEdits, decodeHwpEditRequest, encodeHwpEditResult, firstDifference, HWP_EDIT_MAX, HWPX_TEXT_MAX, hwpxReadLines,
   type HwpChange, type HwpEditReport,
@@ -65,7 +69,7 @@ function refuseDoc(why: string): never { throw new ToolError(`${DOC_BAD}: ${why}
 /** record tags (HWPTAG_BEGIN 0x10 + n) */
 const TAG = {
   BIN_DATA: 18, DIST_DOC_DATA: 28, PARA_HEADER: 66, PARA_TEXT: 67, PARA_CHAR_SHAPE: 68, PARA_LINE_SEG: 69, PARA_RANGE_TAG: 70,
-  CTRL_HEADER: 71, LIST_HEADER: 72, TABLE: 77, SHAPE_OLE: 84, TRACK_CHANGE: 96, TRACK_CHANGE_AUTHOR: 97, VIDEO_DATA: 98,
+  CTRL_HEADER: 71, LIST_HEADER: 72, PAGE_DEF: 73, TABLE: 77, SHAPE_OLE: 84, TRACK_CHANGE: 96, TRACK_CHANGE_AUTHOR: 97, VIDEO_DATA: 98,
 }
 /** a paragraph's own records; anything else directly under PARA_HEADER is unknown to this editor */
 const PARA_KIDS = new Set([TAG.PARA_TEXT, TAG.PARA_CHAR_SHAPE, TAG.PARA_LINE_SEG, TAG.PARA_RANGE_TAG, TAG.CTRL_HEADER])
@@ -684,13 +688,12 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
       const b = new Uint8Array(2); put16(b, 0, c.row + k)
       this.splice(t.sec, o, o + 2, b, i)
     }
-    // the table's height (its object properties in CTRL_HEADER: id, attribute, offsets, width, height): an estimate,
-    // the copied row's height as the table's height per row says it or its cells, whichever is larger
-    if (recs.size[t.ctrl]! >= 24) {
+    // the table's height (its object properties in CTRL_HEADER: id, attribute, offsets, width, height): an estimate
+    // (rowHeight)
+    const h = this.tableHeight(t)
+    if (h !== null) {
       const o = recs.data[t.ctrl]! + 20
-      const h = u32(recs.bytes, o)
-      const row = Math.max(Math.round(h / R), ...cells.map((c) => c.height))
-      const b = new Uint8Array(4); put32(b, 0, Math.min(0x7fffffff, h + k * row))
+      const b = new Uint8Array(4); put32(b, 0, Math.min(0x7fffffff, h + k * this.rowHeight(t, cells)))
       this.splice(t.sec, o, o + 4, b, i)
     }
     // the paragraph that holds the table, and those around it, are laid out again
@@ -702,6 +705,47 @@ class Editor extends ChangeEditor<Para, Cell, Table> {
     // the new paragraphs go before the first paragraph after the place in reading order
     const next = this.doc.paras.find((p) => p.sec > t.sec || (p.sec === t.sec && p.rec >= last.end))
     return { before: next ? next.i : this.doc.paras.length, depth: recs.level[last.lh]! }
+  }
+
+  // ---- a table that fills its page
+  /** the table's height in its CTRL_HEADER (id, attribute, vertical and horizontal offset, width, height) */
+  protected tableHeight(t: Table): number | null {
+    const recs = this.recs(t)
+    return recs.size[t.ctrl]! >= 24 ? u32(recs.bytes, recs.data[t.ctrl]! + 20) : null
+  }
+
+  /** the copied row's height as the table's height per row says it or its cells, whichever is larger: Hangul's cells
+   * can keep a minimum height while the table keeps the laid-out one, so the cells alone undercount */
+  protected rowHeight(t: Table, cells: Cell[]): number {
+    const h = this.tableHeight(t)
+    return Math.max(h === null ? 0 : Math.round(h / Math.max(1, t.rowSizes.length)), ...cells.map((c) => c.height))
+  }
+
+  /** CTRL_HEADER's attribute bit 0: placed as a character; TABLE's attribute bits 0-1 at a page boundary: 0 not split,
+   * 1 split by cell, 2 split */
+  protected fixedOnPage(t: Table): string | null {
+    const recs = this.recs(t)
+    if (recs.size[t.ctrl]! >= 8 && u32(recs.bytes, recs.data[t.ctrl]! + 4) & 1) return FIXED_ON_PAGE.asChar
+    if (t.rec >= 0 && recs.size[t.rec]! >= 4 && (u32(recs.bytes, recs.data[t.rec]!) & 3) === 0) return FIXED_ON_PAGE.noSplit
+    return null
+  }
+
+  private bodies = new Map<number, number | null>()
+  /** the section's PAGE_DEF (under its section definition, secd): paper width and height, the left, right, top, bottom,
+   * header, footer and gutter margins, then the attribute, whose bit 0 says the page is turned (넓게): the paper keeps
+   * its upright width and height, and Hangul lays the page out with them swapped */
+  protected pageBody(t: Table): number | null {
+    if (this.bodies.has(t.sec)) return this.bodies.get(t.sec)!
+    const recs = this.recs(t)
+    let pd = -1, n = 0
+    for (let r = 0; r < recs.n; r++) if (recs.tag[r] === TAG.PAGE_DEF) { pd = r; n++ }
+    let body: number | null = null
+    if (n === 1 && recs.size[pd]! >= 40) {
+      const b = recs.body(pd)
+      body = pageBodyHeight({ width: u32(b, 0), height: u32(b, 4), top: u32(b, 16), bottom: u32(b, 20), header: u32(b, 24), footer: u32(b, 28), landscape: (u32(b, 36) & 1) === 1 })
+    }
+    this.bodies.set(t.sec, body)
+    return body
   }
 
   /** the records of a copy of `cell` for row `row` (0-based) with `value`: its LIST_HEADER with one paragraph, a copy of

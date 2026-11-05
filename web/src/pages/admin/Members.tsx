@@ -3,9 +3,11 @@
 // one link for many people, members only, with a ready-made message for KakaoTalk or Slack. Members: role, groups, disable (ends their sessions),
 // temporary password reset or a one-time reset link to hand over (both audited; the owner resets only on the server
 // Mac), remove. Each person links to the folders they see (Folder permissions › By person); the invite and add dialogs
-// preview the folders someone new with that role and those groups will see.
-import { KeyRound, Link2, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+// preview the folders someone new with that role and those groups will see. Below the md width each member is a card
+// (name, role and status, the skills switch) with the row's actions in a "…" menu; wider screens keep the table.
+import { KeyRound, Link2, MoreHorizontal, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
+import clsx from 'clsx'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, User } from '@mycel/shared/api'
@@ -19,9 +21,9 @@ import { toast } from '../../store/ui'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
 import { SkillManagerCell, skillsVia, useFolderPeople, useSkillManagers } from './SkillManagers'
-import { Card, Loadable, SecretBox, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { AdminPageHeader, Card, Loadable, SecretBox, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { NewPersonPreview, personViewLink } from './AccessResults'
 import { TeamLinkCard } from '../../components/onboarding/TeamLinkPanel'
@@ -51,6 +53,16 @@ export default function Members() {
   const [editing, setEditing] = useState<User | null>(null)
 
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? '?'
+  // a phone: one card per member instead of a squeezed table (the same query as Tailwind's md)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  /** the owner and yourself have no actions here; an admin is managed by the owner only */
+  const canManage = (u: User) => u.role !== 'owner' && u.id !== me.user.id && (u.role !== 'admin' || isOwner(me))
+  const skillCell = (u: User) =>
+    u.status === 'active' ? (
+      <SkillManagerCell subject={{ type: 'user', id: u.id, name: u.name, always: u.role !== 'member' }} data={skillManagers.data} via={skillsVia(skillsAccess.data?.get(u.id), (id) => groups.data?.find((g) => g.id === id)?.name)} onChanged={() => void skillManagers.reload()} />
+    ) : (
+      <span className="text-xs text-faint">—</span>
+    )
 
   const resetPassword = (u: User) => setResetting(u)
   /** One-time link (24 h) the person opens to choose a new password; no email, the admin hands it over. */
@@ -70,6 +82,15 @@ export default function Members() {
     if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
     if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
   }
+  /** The actions used less often: on a phone in the card's "…" menu with the others, on a wide screen in the row's
+   * "…" menu next to Edit and Reset password, so the row keeps one line. */
+  const moreActions = (u: User): MemberMenuItem[] => [
+    { label: t('members.resetLinkButton'), icon: <UserRoundKey size={14} aria-hidden />, onSelect: () => void createResetLink(u), testId: `reset-link-${u.username}` },
+    u.status === 'active'
+      ? { label: t('members.disable'), icon: <UserRoundX size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `disable-member-${u.username}` }
+      : { label: t('members.enable'), icon: <UserRoundCheck size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `enable-member-${u.username}` },
+    ...(isOwner(me) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `delete-member-${u.username}` }] : []),
+  ]
   // an invite is revoked at once, with no confirm dialog: one at a time, a held key does not repeat it, and the focus goes
   // to the list's title (the next row's button is another revoke)
   const invitesTitle = useRef<HTMLHeadingElement>(null)
@@ -84,8 +105,8 @@ export default function Members() {
 
   return (
     <>
-      <Card
-        title={t('members.title')}
+      <AdminPageHeader
+        title={t('admin.members')}
         actions={
           <>
             <Button size="sm" onClick={() => setAddOpen(true)}>
@@ -96,18 +117,53 @@ export default function Members() {
             </Button>
           </>
         }
-      >
+      />
+      <Card title={t('members.title')}>
         <Loadable state={users}>
-          {({ items: list, noAi }) => (
+          {({ items: list, noAi }) => phone ? (
+            <ul className="divide-y divide-line" data-testid="members-list">
+              {list.map((u) => (
+                <li key={u.id} className={clsx('flex items-start gap-2 py-3 text-sm', u.status === 'disabled' && 'opacity-60')} data-testid={`member-card-${u.username}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{u.name}</p>
+                    <p className="truncate text-xs text-faint">
+                      {u.username} · users/{u.id}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-y-1">
+                      <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} />
+                    </div>
+                    <div className="mt-2 flex items-start gap-3 text-xs">
+                      <span className="pt-0.5 text-muted">{t('skillMgr.column')}</span>
+                      {skillCell(u)}
+                    </div>
+                    <Link to={personViewLink({ person: u.id })} className="mt-1.5 inline-block text-xs text-accent-text underline-offset-2 hover:underline" aria-label={t('accessView.membersLinkFor', { name: u.name })} data-testid="member-access-link">
+                      {t('accessView.membersLink')}
+                    </Link>
+                  </div>
+                  {canManage(u) && (
+                    <MemberMenu
+                      name={u.name}
+                      items={[
+                        { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(u), testId: `edit-member-${u.username}` },
+                        { label: t('members.reset'), icon: <KeyRound size={14} aria-hidden />, onSelect: () => resetPassword(u), testId: `reset-password-${u.username}` },
+                        ...moreActions(u),
+                      ]}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm" data-testid="members-table">
                 <thead>
-                  <tr className="text-left text-xs text-faint">
-                    <th className="py-2 pr-3 font-medium">{t('auth.name')}</th>
+                  {/* the headers keep one line (only the long skills header may wrap); the name column keeps room for a name and its path */}
+                  <tr className="text-left text-xs whitespace-nowrap text-faint">
+                    <th className="min-w-40 py-2 pr-3 font-medium">{t('auth.name')}</th>
                     <th className="py-2 pr-3 font-medium">{t('members.role')}</th>
                     <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('admin.groups')}</th>
                     <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('members.lastSeen')}</th>
-                    <th className="py-2 pr-3 font-medium">{t('skillMgr.column')}</th>
+                    <th className="w-24 py-2 pr-3 font-medium whitespace-normal">{t('skillMgr.column')}</th>
                     <th className="py-2">
                       <span className="sr-only">{t('files.actions')}</span>
                     </th>
@@ -127,41 +183,24 @@ export default function Members() {
                         </Link>
                       </td>
                       <td className="py-2 pr-3">
-                        <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>
-                        {u.status === 'disabled' && <Badge tone="danger" className="ml-1">{t('members.disabled')}</Badge>}
-                        {u.mustChangePassword && <TempPasswordBadge user={u} />}
-                        {noAi?.includes(u.id) && <NoAiBadge />}
+                        <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} />
                       </td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.groupIds.map(groupName).join(', ') || '—'}</td>
                       <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
-                      <td className="py-2 pr-3">
-                        {u.status === 'active' ? (
-                          <SkillManagerCell subject={{ type: 'user', id: u.id, name: u.name, always: u.role !== 'member' }} data={skillManagers.data} via={skillsVia(skillsAccess.data?.get(u.id), (id) => groups.data?.find((g) => g.id === id)?.name)} onChanged={() => void skillManagers.reload()} />
-                        ) : (
-                          <span className="text-xs text-faint">—</span>
-                        )}
-                      </td>
+                      <td className="py-2 pr-3">{skillCell(u)}</td>
                       <td className="py-2">
-                        {u.role !== 'owner' && u.id !== me.user.id && (u.role !== 'admin' || isOwner(me)) && (
-                          // one line when there is room; on a phone the buttons wrap here instead of scrolling the table sideways
-                          <div className="flex flex-wrap items-center justify-end">
+                        {canManage(u) && (
+                          // one line: Edit and Reset password (used most), the rest behind "…"
+                          <div className="flex items-center justify-end whitespace-nowrap">
                             <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
                               {t('common.edit')}
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} data-testid={`reset-password-${u.username}`}>
-                              <KeyRound size={14} aria-hidden /> {t('members.reset')}
+                            {/* the key icon only, so the row fits at 1280 next to the admin menu; the name stays for screen
+                                readers and as a tooltip */}
+                            <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} title={t('members.reset')} data-testid={`reset-password-${u.username}`}>
+                              <KeyRound size={14} aria-hidden /> <span className="sr-only">{t('members.reset')}</span>
                             </Button>
-                            <IconButton label={t('members.resetLinkButton')} onClick={() => createResetLink(u)} data-testid={`reset-link-${u.username}`}>
-                              <UserRoundKey size={15} />
-                            </IconButton>
-                            <Button size="sm" variant="ghost" onClick={() => toggleDisabled(u)}>
-                              {u.status === 'active' ? t('members.disable') : t('members.enable')}
-                            </Button>
-                            {isOwner(me) && (
-                              <IconButton label={t('common.deleteNamed', { name: u.name })} onClick={() => remove(u)}>
-                                <Trash2 size={15} />
-                              </IconButton>
-                            )}
+                            <MemberMenu name={u.name} items={moreActions(u)} />
                           </div>
                         )}
                       </td>
@@ -263,6 +302,102 @@ export default function Members() {
       )}
       {secret && <Handover {...secret} onClose={() => setSecret(null)} />}
     </>
+  )
+}
+
+/** The role, and what needs the admin's eye: disabled, a temporary password, no AI. */
+function MemberBadges({ user: u, noAi }: { user: User; noAi: boolean }) {
+  const t = useT()
+  return (
+    <>
+      <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>
+      {u.status === 'disabled' && <Badge tone="danger" className="ml-1">{t('members.disabled')}</Badge>}
+      {u.mustChangePassword && <TempPasswordBadge user={u} />}
+      {noAi && <NoAiBadge />}
+    </>
+  )
+}
+
+export interface MemberMenuItem { label: string; icon: ReactNode; onSelect: () => void; danger?: boolean; testId: string }
+
+/** A member's actions behind "…" (like a skill's menu): all of them on a phone card, the less common ones in a table row: arrow keys move, Escape or Tab closes and goes
+ * back to the button, a click outside closes. */
+export function MemberMenu({ name, items }: { name: string; items: MemberMenuItem[] }) {
+  const t = useT()
+  const box = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  // The menu has a fixed position at the "…" button: in a table row it must not be cut off by the table's sideways
+  // scroll box (the last row's menu went below its edge). It opens upwards when there is no room below.
+  const [pos, setPos] = useState<CSSProperties | null>(null)
+  const place = () => {
+    const r = box.current?.querySelector('button')?.getBoundingClientRect()
+    if (!r) return
+    const right = window.innerWidth - r.right
+    const up = window.innerHeight - r.bottom < items.length * 34 + 24 && r.top > window.innerHeight - r.bottom
+    setPos(up ? { position: 'fixed', bottom: window.innerHeight - r.top + 4, right } : { position: 'fixed', top: r.bottom + 4, right })
+  }
+  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  useLayoutEffect(() => {
+    if (!open) return setPos(null)
+    place()
+    // the page (or the table) scrolls, or the window changes size: the menu stays at its button
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+  useEffect(() => {
+    if (!open) return
+    menuItems()[0]?.focus({ preventScroll: true })
+    // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
+    const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [open])
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (!open) return
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      if (e.key === 'Escape') e.stopPropagation()
+      setOpen(false)
+      box.current?.querySelector('button')?.focus()
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const all = menuItems()
+      const at = all.indexOf(document.activeElement as HTMLElement)
+      all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus()
+    }
+  }
+  const label = t('members.actionsFor', { name })
+  return (
+    <div ref={box} className="relative shrink-0" onKeyDown={onKeyDown}>
+      <IconButton label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="member-more">
+        <MoreHorizontal size={16} aria-hidden />
+      </IconButton>
+      {open && (
+        <div role="menu" aria-label={label} style={pos ?? undefined} className="fixed z-30 w-52 rounded-lg border border-line bg-surface p-1 shadow-lg">
+          {items.map((it) => (
+            <button
+              key={it.testId}
+              role="menuitem"
+              type="button"
+              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover', it.danger && 'text-danger')}
+              onClick={() => {
+                setOpen(false)
+                // focus on "…" first: the item goes away, and a dialog it opens gives focus back to "…" when it closes
+                box.current?.querySelector('button')?.focus()
+                it.onSelect()
+              }}
+              data-testid={it.testId}
+            >
+              {it.icon} {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

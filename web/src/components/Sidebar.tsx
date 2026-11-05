@@ -1,9 +1,9 @@
-// Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, files, team
-// skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage (their own, in
+// Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, scheduled,
+// inbox (with the unread count), files, team skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage (their own, in
 // Settings), Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is a drawer opened
 // from the top bar.
 import clsx from 'clsx'
-import { BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
@@ -15,7 +15,7 @@ import { clearLocalData } from '../lib/localData'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
-import { skillsChanged } from '../store/live'
+import { accessChanged, notificationsChanged, reloadAsked, skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
 import { useChatActions } from './chat/chatActions'
@@ -136,6 +136,14 @@ export default function Sidebar() {
     void load()
     return skillsChanged.on(() => void load())
   }, [])
+  // unread inbox notifications: a count next to "Inbox" (the list itself is in Settings > Notifications)
+  const [unread, setUnread] = useState(0)
+  useEffect(() => {
+    const load = () => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => setUnread(r.unreadCount), () => {})
+    void load()
+    const offs = [notificationsChanged.on(() => void load()), reloadAsked.on(() => void load()), accessChanged.on(() => void load())]
+    return () => offs.forEach((off) => off())
+  }, [])
   const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover max-sm:h-10'
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
 
@@ -169,6 +177,24 @@ export default function Sidebar() {
         </NavLink>
         <NavLink to="/scheduled" className={active} onClick={close} data-testid="nav-scheduled">
           <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
+        </NavLink>
+        <NavLink
+          to="/settings/notifications"
+          className={active}
+          onClick={(e) => {
+            settingsOpenedFrom(e.currentTarget)
+            close()
+          }}
+          data-testid="nav-inbox"
+        >
+          <Bell size={16} aria-hidden /> {t('inbox.title')}
+          {unread > 0 && (
+            // aria-label on a plain span is not read: the number is hidden from screen readers and the words are sr-only
+            <span className="ml-auto rounded-full bg-accent px-1.5 text-[11px] font-medium text-accent-ink" data-testid="inbox-unread">
+              <span aria-hidden>{unread > 99 ? '99+' : unread}</span>
+              <span className="sr-only">{t('notifications.unread', { count: unread })}</span>
+            </span>
+          )}
         </NavLink>
         <NavLink to="/files" className={active} onClick={close}>
           <FolderOpen size={16} aria-hidden /> {t('sidebar.files')}

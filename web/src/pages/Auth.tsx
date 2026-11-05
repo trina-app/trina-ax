@@ -31,6 +31,38 @@ export const PASSWORD_MIN = 8
  */
 export const usernameProblem = (v: string) => v.length > 0 && !/^[A-Za-z0-9._@-]*$/.test(v)
 
+/** What is wrong with a username field on submit: empty, characters the server refuses, or not 2–64 characters. */
+const usernameCheck = (v: string): MessageKey | null => {
+  const u = v.trim()
+  if (!u) return 'auth.required'
+  return usernameProblem(u) || u.length < 2 || u.length > 64 ? 'auth.usernameHint' : null
+}
+const requiredCheck = (v: string): MessageKey | null => (v.trim() ? null : 'auth.required')
+
+/**
+ * The auth forms check their own fields (they use noValidate), so all errors show in one style under the field and in
+ * the screen language, never as the browser's popup. `problems` lists the fields in screen order (the key is the
+ * input's `name`). After a submit attempt each field with a problem shows its error; the error goes away as soon as the
+ * field is correct. `check` gives the focus to the first field with a problem and says whether the form may be sent.
+ */
+function useFieldChecks<K extends string>(problems: Record<K, MessageKey | null>) {
+  const t = useT()
+  const [tried, setTried] = useState(false)
+  const errorOf = (k: K) => {
+    const key = problems[k]
+    return tried && key ? t(key) : null
+  }
+  const check = (form: HTMLFormElement) => {
+    const first = (Object.keys(problems) as K[]).find((k) => problems[k])
+    if (!first) return true
+    setTried(true)
+    const el = form.elements.namedItem(first)
+    if (el instanceof HTMLElement) el.focus()
+    return false
+  }
+  return { errorOf, check }
+}
+
 /** The language switcher of the sign-in style screens. Before sign-in the pick is kept in this browser (sent with an
  * invite acceptance as the new account's language, saved to the account at sign-in when it has none); without one
  * the team default shows. Signed in (forced password change, reset link) it is the person's own language setting. */
@@ -112,12 +144,14 @@ export function Login() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const { busy, error, run } = useSubmit()
+  const { errorOf, check } = useFieldChecks({ username: requiredCheck(username), password: password ? null : 'auth.required' })
   const reason = status.kind === 'signed-out' ? status.reason : undefined
   // a demo server (`bun run demo:trina`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
-  const submit = (e: FormEvent) => {
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!check(e.currentTarget)) return
     void run(async () => {
       const r = await api.call(API.login, { body: { username: username.trim(), password, client: clientKind(), tokenMode: 'cookie' } })
       signedIn(r.me, { adoptPick: true })
@@ -134,12 +168,12 @@ export function Login() {
   }
   return (
     <AuthFrame title={t('auth.signIn')} sub={reason === 'ended' ? t('auth.sessionEnded') : reason === 'expired' ? t('auth.sessionExpired') : undefined}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label={t('auth.username')}>
-          <input className={inputCls} autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
+      <form onSubmit={submit} noValidate className="space-y-4">
+        <Field label={t('auth.username')} error={errorOf('username')}>
+          <input className={inputCls} name="username" autoComplete="username" autoCapitalize="none" value={username} onChange={(e) => setUsername(e.target.value)} required data-testid="login-username" />
         </Field>
-        <Field label={t('auth.password')}>
-          <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required data-testid="login-password" />
+        <Field label={t('auth.password')} error={errorOf('password')}>
+          <input className={inputCls} name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required data-testid="login-password" />
         </Field>
         {error && (
           <p role="alert" className="text-sm text-danger">
@@ -175,8 +209,17 @@ export function Setup() {
     if (l && l !== locale) setLocale(l)
   }, []) // once, on arrival
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const submit = (e: FormEvent) => {
+  const { errorOf, check } = useFieldChecks({
+    setupToken: link.token ? null : requiredCheck(form.setupToken),
+    teamName: requiredCheck(form.teamName),
+    name: requiredCheck(form.name),
+    username: usernameCheck(form.username),
+    password: form.password ? null : 'auth.required',
+    password2: form.password2 ? null : 'auth.required',
+  })
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!check(e.currentTarget)) return
     if (form.password !== form.password2) return setError('auth.passwordMismatch')
     if ([...form.password].length < PASSWORD_MIN) return setError('auth.passwordRule')
     void run(async () => {
@@ -194,14 +237,14 @@ export function Setup() {
   return (
     // the "Team language" field below is this screen's language switcher too (one picker, not two)
     <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} noValidate className="space-y-3">
         {!link.token && (
-          <Field label={t('setup.token')} hint={t('setup.tokenHint')}>
-            <input className={inputCls} value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
+          <Field label={t('setup.token')} hint={t('setup.tokenHint')} error={errorOf('setupToken')}>
+            <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
           </Field>
         )}
-        <Field label={t('setup.teamName')}>
-          <input className={inputCls} value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
+        <Field label={t('setup.teamName')} error={errorOf('teamName')}>
+          <input className={inputCls} name="teamName" value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
         </Field>
         <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
           {/* the team language is the language on screen: picking one here switches this page too */}
@@ -222,17 +265,17 @@ export function Setup() {
             ))}
           </select>
         </Field>
-        <Field label={t('auth.name')}>
-          <input className={inputCls} value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} />
+        <Field label={t('auth.name')} error={errorOf('name')}>
+          <input className={inputCls} name="name" value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} />
         </Field>
-        <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={usernameProblem(form.username) ? t('auth.usernameHint') : null}>
-          <input className={inputCls} value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" />
+        <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={errorOf('username') ?? (usernameProblem(form.username) ? t('auth.usernameHint') : null)}>
+          <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" />
         </Field>
-        <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
-          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required autoComplete="new-password" />
+        <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
+          <input className={inputCls} name="password" type="password" value={form.password} onChange={set('password')} required autoComplete="new-password" />
         </Field>
-        <Field label={t('auth.passwordAgain')}>
-          <input className={inputCls} type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" />
+        <Field label={t('auth.passwordAgain')} error={errorOf('password2')}>
+          <input className={inputCls} name="password2" type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" />
         </Field>
         {error && (
           <p role="alert" className="text-sm text-danger">
@@ -261,21 +304,24 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { s
   const [capsOn, setCapsOn] = useState(false)
   const caps = (e: React.KeyboardEvent) => setCapsOn(e.getModifierState?.('CapsLock') ?? false)
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const submit = (e: FormEvent) => {
+  // the form checks its own fields (noValidate): errors under the field in the screen language, never a browser popup
+  const { errorOf, check } = useFieldChecks({ name: requiredCheck(form.name), username: usernameCheck(form.username), password: form.password ? null : 'auth.required' })
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!check(e.currentTarget)) return
     if ([...form.password].length < PASSWORD_MIN) return onTooShort()
     onSubmit({ name: form.name.trim(), username: form.username.trim(), password: form.password })
   }
   return (
-    <form onSubmit={submit} className="space-y-3" data-testid="join-form">
-      <Field label={t('auth.name')}>
-        <input className={inputCls} value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="invite-name" />
+    <form onSubmit={submit} noValidate className="space-y-3" data-testid="join-form">
+      <Field label={t('auth.name')} error={errorOf('name')}>
+        <input className={inputCls} name="name" value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="invite-name" />
       </Field>
-      <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={usernameProblem(form.username) ? t('auth.usernameHint') : null}>
-        <input className={inputCls} value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
+      <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={errorOf('username') ?? (usernameProblem(form.username) ? t('auth.usernameHint') : null)}>
+        <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
       </Field>
-      <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
-        <input className={inputCls} type={show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="invite-password" />
+      <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
+        <input className={inputCls} name="password" type={show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="invite-password" />
       </Field>
       <div className="flex items-center justify-between gap-2">
         <span role="status" className="text-xs text-warn" data-testid="caps-lock">
@@ -425,8 +471,10 @@ export function ResetPassword() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const submit = (e: FormEvent) => {
+  const { errorOf, check } = useFieldChecks({ password: form.password ? null : 'auth.required', password2: form.password2 ? null : 'auth.required' })
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!check(e.currentTarget)) return
     if (form.password !== form.password2) return setError('auth.passwordMismatch')
     if ([...form.password].length < PASSWORD_MIN) return setError('auth.passwordRule')
     void run(async () => {
@@ -452,13 +500,13 @@ export function ResetPassword() {
     )
   return (
     <AuthFrame title={t('reset.title')} sub={t('reset.sub', { name: info.name ?? '', username: info.username ?? '', date: info.expiresAt ? formatDateTime(info.expiresAt, locale) : '' })}>
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} noValidate className="space-y-3">
         <input type="text" name="username" value={info.username ?? ''} autoComplete="username" readOnly hidden />
-        <Field label={t('auth.password')} hint={t('auth.passwordRule')}>
-          <input className={inputCls} type="password" value={form.password} onChange={set('password')} required autoComplete="new-password" data-testid="reset-password" />
+        <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
+          <input className={inputCls} name="password" type="password" value={form.password} onChange={set('password')} required autoComplete="new-password" data-testid="reset-password" />
         </Field>
-        <Field label={t('auth.passwordAgain')}>
-          <input className={inputCls} type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" data-testid="reset-password2" />
+        <Field label={t('auth.passwordAgain')} error={errorOf('password2')}>
+          <input className={inputCls} name="password2" type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" data-testid="reset-password2" />
         </Field>
         {error && (
           <p role="alert" className="text-sm text-danger">
@@ -489,8 +537,14 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
   const caps = (e: React.KeyboardEvent) => setCapsOn(e.getModifierState?.('CapsLock') ?? false)
   const { busy, error, run, setError } = useSubmit()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
-  const submit = (e: FormEvent) => {
+  const { errorOf, check } = useFieldChecks({
+    current: withoutCurrent || form.current ? null : 'auth.required',
+    next: form.next ? null : 'auth.required',
+    next2: form.next2 ? null : 'auth.required',
+  })
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!check(e.currentTarget)) return
     if (form.next !== form.next2) return setError('auth.passwordMismatch')
     if ([...form.next].length < PASSWORD_MIN) return setError('auth.passwordRule')
     void run(async () => {
@@ -500,19 +554,19 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
     })
   }
   return (
-    <form onSubmit={submit} className="space-y-3">
+    <form onSubmit={submit} noValidate className="space-y-3">
       {/* lets a password manager file the new password under the right account */}
       {me && <input type="text" name="username" value={me.user.username} autoComplete="username" readOnly hidden />}
       {!withoutCurrent && (
-        <Field label={forced ? t('auth.temporaryPassword') : t('auth.currentPassword')}>
-          <input className={inputCls} type="password" value={form.current} onChange={set('current')} required autoComplete="current-password" data-testid="password-current" />
+        <Field label={forced ? t('auth.temporaryPassword') : t('auth.currentPassword')} error={errorOf('current')}>
+          <input className={inputCls} name="current" type="password" value={form.current} onChange={set('current')} required autoComplete="current-password" data-testid="password-current" />
         </Field>
       )}
-      <Field label={t('auth.newPassword')} hint={t('auth.passwordRule')}>
-        <input className={inputCls} type={show ? 'text' : 'password'} value={form.next} onChange={set('next')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" autoFocus={withoutCurrent} data-testid="password-new" />
+      <Field label={t('auth.newPassword')} hint={t('auth.passwordRule')} error={errorOf('next')}>
+        <input className={inputCls} name="next" type={show ? 'text' : 'password'} value={form.next} onChange={set('next')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" autoFocus={withoutCurrent} data-testid="password-new" />
       </Field>
-      <Field label={t('auth.passwordAgain')}>
-        <input className={inputCls} type={show ? 'text' : 'password'} value={form.next2} onChange={set('next2')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="password-new2" />
+      <Field label={t('auth.passwordAgain')} error={errorOf('next2')}>
+        <input className={inputCls} name="next2" type={show ? 'text' : 'password'} value={form.next2} onChange={set('next2')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="password-new2" />
       </Field>
       <div className="flex items-center justify-between gap-2">
         <span role="status" className="text-xs text-warn" data-testid="caps-lock">

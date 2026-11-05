@@ -1,13 +1,14 @@
 // Shared building blocks. Every icon-only button takes an aria-label (translated); modals trap focus and give it
 // back to where it was (tab 5 "접근성").
 import clsx from 'clsx'
-import { Check, Copy, Loader2, X } from 'lucide-react'
+import { Check, CircleAlert, Copy, Loader2, X } from 'lucide-react'
 import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import { useT } from '../i18n'
 import { useUi } from '../store/ui'
 import { writeRich } from '../lib/clipboard'
+import { edgeFade } from '../lib/edgeFade'
 
 /** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
 const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(node, body) : node)
@@ -30,6 +31,9 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
         size === 'sm' ? 'h-8 px-2.5 text-[13px] max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
+        // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
+        // (a busy one, with its spinner, keeps the accent: it is working, not off)
+        variant === 'primary' && !busy && 'dark:disabled:bg-hover dark:disabled:text-faint dark:disabled:opacity-100 dark:disabled:hover:bg-hover',
         // the edge of a bordered button is what marks it as one on a card: --c-field-border (>= 3:1), not the hairline
         variant === 'secondary' && 'border border-field-border bg-surface text-ink hover:bg-hover',
         variant === 'ghost' && 'text-muted hover:bg-hover hover:text-ink',
@@ -117,12 +121,19 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
   )
 }
 
-export function ErrorNote({ children, onRetry }: { children: ReactNode; onRetry?: () => void }) {
+/** An error with an icon, the message in the body colour and an optional small detail (such as "HTTP 503") under it. */
+export function ErrorNote({ children, onRetry, detail }: { children: ReactNode; onRetry?: () => void; detail?: ReactNode }) {
   const t = useT()
   return (
-    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-soft px-3 py-2.5 text-sm text-ink">
       {/* at least ~12rem for the text: on a phone the button wraps below instead of squeezing it to a column */}
-      <span className="min-w-0 flex-[1_1_12rem]">{children}</span>
+      <span className="flex min-w-0 flex-[1_1_12rem] items-start gap-2">
+        <CircleAlert size={16} className="mt-0.5 shrink-0 text-danger" aria-hidden />
+        <span className="min-w-0">
+          {children}
+          {detail && <span className="mt-0.5 block text-xs text-muted">{detail}</span>}
+        </span>
+      </span>
       {onRetry && (
         <Button size="sm" variant="secondary" className="ml-auto" onClick={onRetry}>
           {t('common.retry')}
@@ -426,6 +437,46 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
   )
 }
 
+// ---------------- layout helpers ----------------
+/** Whether a media query matches now, and again when it changes (a phone turned, a window resized). */
+export function useMediaQuery(query: string) {
+  const get = () => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches
+  const [matches, setMatches] = useState(get)
+  useEffect(() => {
+    const mq = window.matchMedia?.(query)
+    if (!mq) return
+    const on = () => setMatches(mq.matches)
+    on()
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [query])
+  return matches
+}
+
+/** A row that scrolls sideways (class `edge-fade`): marks the edges that have more behind them (data-fade-start,
+ * data-fade-end), and index.css fades those edges. Its scroll-padding keeps a margin when a tab scrolls into view. */
+export function useEdgeFade<T extends HTMLElement>(ref: React.RefObject<T | null>) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => {
+      const f = edgeFade(el.scrollLeft, el.scrollWidth, el.clientWidth)
+      for (const [name, on] of [['data-fade-start', f.start], ['data-fade-end', f.end]] as const) {
+        if (on) el.setAttribute(name, '')
+        else el.removeAttribute(name)
+      }
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null
+    ro?.observe(el)
+    return () => {
+      el.removeEventListener('scroll', update)
+      ro?.disconnect()
+    }
+  }, [ref])
+}
+
 // ---------------- simple tabs ----------------
 /** The ids that tie a tab to its panel: `base` is the Tabs' `panels` (one useId per Tabs), `id` the tab's. */
 export const tabIds = (base: string, id: string) => ({ tab: `${base}-tab-${id}`, panel: `${base}-panel-${id}` })
@@ -447,6 +498,7 @@ export function TabPanel({ base, value, className, children, ...rest }: { base: 
  * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content. */
 export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean; panels: string }) {
   const list = useRef<HTMLDivElement>(null)
+  useEdgeFade(list)
   // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
   // then, so a row that fits never moves the page.
   useEffect(() => {
@@ -473,7 +525,7 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
     list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
   }
   return (
-    <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
+    <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('edge-fade flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
       {items.map((it) => (
         <button
           key={it.id}

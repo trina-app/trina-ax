@@ -71,6 +71,8 @@ export const Me = z.object({
     /** Safe operations 1A is on (MYCEL_SAFE_OPS_1A): every conversation is confidential, and so is every HTML / SVG
      * file preview (shown without scripts outside the desktop app). Absent = off. */
     allChatsConfidential: z.literal(true).optional(),
+    /** the dev environment experiment is on (MYCEL_DEV_ENV=1): Team settings shows its section. Absent = off. */
+    devEnv: z.literal(true).optional(),
     /** a Linux server's Windows desktop app in Settings > Apps (server/src/system/windows-app.ts): 'feed' = the server
      * (self-installed or a hosted tenant) takes it from the signed release feed by itself after it starts or updates,
      * 'folder' = a self-installed server without a feed (the owner copies the release's files in). Absent: an office Mac

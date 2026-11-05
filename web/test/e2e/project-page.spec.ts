@@ -145,6 +145,36 @@ test('the dev environment is one closed line with its state; opened, the box, th
   await expect(page.getByRole('dialog', { name: '개발 환경' })).toBeVisible()
 })
 
+test('on the srt runner: no box; the runs and the queue, each with Stop; the srt warning and network texts', async ({ page }) => {
+  await reset(page)
+  await page.request.post('/__test/dev-env', { data: { srt: true } })
+  await signIn(page)
+  const id = await newProject(page)
+  await page.goto(`/projects/${id}`)
+  const row = page.getByTestId('dev-env')
+  await expect(row.getByTestId('dev-env-toggle')).toContainText('지금 실행 중')
+  await row.getByTestId('dev-env-toggle').click()
+  await expect(row.getByTestId('dev-env-running')).toContainText('npm run dev')
+  await expect(row.getByTestId('dev-env-running')).toContainText('ready on http://localhost:3000')
+  await expect(row.getByTestId('dev-env-waiting')).toContainText('1번째')
+  await expect(row.getByTestId('dev-env-preview')).toHaveCount(0)
+  await expect(row).toContainText('미리보기는 아직 쓸 수 없어요')
+  // cancel the waiting job, stop the dev server: the lists go
+  await row.getByTestId('dev-env-waiting').getByTestId('dev-env-run-stop').click()
+  await expect(row.getByTestId('dev-env-waiting')).toHaveCount(0)
+  await row.getByTestId('dev-env-running').getByTestId('dev-env-run-stop').click()
+  await expect(row.getByTestId('dev-env-running')).toHaveCount(0)
+  await expect(row.getByTestId('dev-env-toggle')).not.toContainText('지금 실행 중')
+  // the setting names the allowlist, not the internet
+  await row.getByTestId('dev-env-edit').click()
+  const dialog = page.getByRole('dialog', { name: '개발 환경' })
+  await expect(dialog.getByRole('combobox')).toContainText('허용된 사이트만')
+  await expect(dialog).toContainText('팀 디스크')
+  // one setting for the whole team: chats with no project use it too
+  await expect(dialog.getByTestId('dev-env-team-wide')).toContainText('팀 전체')
+  await expect(dialog).toContainText('팀의 모든 사람')
+})
+
 for (const scheme of ['light', 'dark'] as const) {
   test(`a project page has no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })

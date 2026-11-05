@@ -5,7 +5,7 @@ import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
-import { Check, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
+import { Check, ChevronRight, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
@@ -20,7 +20,7 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { openTeamFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
-import { useCopy } from './ui'
+import { useCopy, useEdgeFade } from './ui'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
 const mathRehype = [rehypeKatex, { throwOnError: false, strict: false, trust: false, maxExpand: 500 }] as const
@@ -148,6 +148,9 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
 function CopyableTable({ children }: { children: ReactNode }) {
   const t = useT()
   const ref = useRef<HTMLTableElement>(null)
+  // a table wider than the answer scrolls sideways: the edge with more columns behind it fades, so the cut reads as "scroll"
+  const scroller = useRef<HTMLDivElement>(null)
+  useEdgeFade(scroller)
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     const rows = [...ref.current!.rows].map((r) => [...r.cells].map((c) => ({ head: c.tagName === 'TH', text: c.innerText.replace(/\s*\n\s*/g, ' ').trim() })))
@@ -165,10 +168,16 @@ function CopyableTable({ children }: { children: ReactNode }) {
   return (
     // phones (button always shown): the button sits under the table instead of on its top border, over the header row
     <div className="group relative my-3 max-sm:flex max-sm:flex-col">
-      <div className="overflow-x-auto rounded-lg border border-line">
-        <table ref={ref} className="m-0 min-w-full text-sm">
-          {children}
-        </table>
+      <div className="relative">
+        {/* a wider fade than the tab rows, and a round arrow at the cut edge: the mask alone is faint on the dark page */}
+        <div ref={scroller} className="edge-fade peer overflow-x-auto rounded-lg border border-line [--fade:3rem]!" data-testid="md-table-scroll">
+          <table ref={ref} className="m-0 min-w-full text-sm">
+            {children}
+          </table>
+        </div>
+        <span className="pointer-events-none absolute top-1/2 right-1.5 hidden size-6 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-surface text-muted shadow-sm peer-data-[fade-end]:flex" aria-hidden data-testid="md-table-more">
+          <ChevronRight size={14} />
+        </span>
       </div>
       <button
         type="button"
@@ -210,6 +219,12 @@ function CopyableQuote({ label, children }: { label: string; children: ReactNode
     </div>
   )
 }
+
+/** The plain text of a table cell (its Markdown node). */
+const cellText = (n: Element | ElementContent | undefined): string =>
+  !n ? '' : n.type === 'text' ? n.value : 'children' in n ? n.children.map((c) => cellText(c as ElementContent)).join('') : ''
+/** A number, amount, percent or date ("1,234.5", "-12%", "$3.2M", "2026-11-04"): it must not break over two lines. */
+const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]*(%|[A-Za-z]{1,3})?\)?$/.test(text.trim())
 
 // ---------------- links and images ----------------
 /** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
@@ -267,6 +282,7 @@ const origin = () => (typeof location === 'undefined' ? 'http://localhost' : loc
 // defined once: inline component functions are new types on every render, which remounts (and resets) diagrams
 const COMPONENTS: Components = {
   table: ({ children }) => <CopyableTable>{children}</CopyableTable>,
+  td: ({ node, className, ...props }) => <td {...props} className={clsx(className, isNumberCell(cellText(node)) && 'whitespace-nowrap') || undefined} />,
   a: ({ href, children }) => {
     const l = classifyLink(href, origin())
     if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>

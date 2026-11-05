@@ -17,8 +17,8 @@ import {
 } from '../../server/src/files/hwpx-check'
 import { ToolError } from '../../server/src/policy/errors'
 import {
-  autoNumber, bookmark, br, CHAR, chid, defaultScript, fieldBegin, fieldEnd, hwpDoc, hwpEmploymentForm, hwpPurchaseForm, hwpStreams, hyphen, linkDoc,
-  nbsp, para, paragraphs, rec, sectionDef, sectionRecords, SHAPE, tab, table, TAG, textOf, type Rec,
+  autoNumber, bookmark, br, CHAR, chid, defaultScript, fieldBegin, fieldEnd, hwpDoc, hwpEmploymentForm, hwpOnePageForm, hwpPurchaseForm, hwpStreams, hyphen,
+  linkDoc, nbsp, pageDef, para, paragraphs, rec, sectionDef, sectionRecords, SHAPE, tab, table, TAG, textOf, type CellSpec, type PageSpec, type Rec,
 } from '../lib/hwp'
 
 setDefaultTimeout(60_000)
@@ -30,6 +30,8 @@ const refusal = (doc: Uint8Array, changes: HwpChange[]): string => {
 }
 /** a document of one section: the section definition, then these paragraphs */
 const doc1 = (...paras: Buffer[]) => hwpDoc([Buffer.concat([para([[0, sectionDef()]]), ...paras])])
+/** the same on a page of its own setup */
+const docOnPage = (page: PageSpec, ...paras: Buffer[]) => hwpDoc([Buffer.concat([para([[0, sectionDef(page)]]), ...paras])])
 const key = (r: Rec) => `${r.tag}/${r.level}/${r.ext ? 'x' : ''}${r.data.toString('hex')}`
 /** the records only one of two sections has (a multiset difference, in order) */
 function recordDiff(a: Rec[], b: Rec[]) {
@@ -233,6 +235,85 @@ describe('rows added to a table', () => {
     // a TABLE record with more bytes after its zones than this editor knows
     const odd = doc1(table([[{ text: '가', width: 4000 }], [{ text: '나', width: 4000 }]], { tail: Buffer.from('0000', 'hex') }))
     expect(refusal(odd, [{ add_rows: { table: 1, rows: [['x']] } }])).toContain('the table record of table 1 is not one this editor knows')
+  })
+})
+
+describe('rows added to a table that fills its page (Hangul cuts off what does not fit)', () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, k) => ['자녀', `홍예시${k + 1}`, '가상시 예시구 샘플로 12'])
+  const add = (n: number, table = 1): HwpChange => ({ add_rows: { table, after_row: 3, rows: rows(n) } })
+  const AS_CHAR = 'cannot continue on the next page (it is placed as a character), so Hangul would cut off its end'
+  const height = (b: Uint8Array, t = 0) => hwpEditModel(b).tables[t]!.height
+
+  test('placed as a character: rows past the page body are refused with how many fit, nothing written; rows that fit are added', () => {
+    const form = hwpOnePageForm()
+    expect(height(form)).toBe(60_000)
+    expect(refusal(form, [add(3)])).toBe(`change 1: table 1 fills its page and ${AS_CHAR}: 3 rows were asked for and about 1 fit. ` +
+      'Add at most 1 row, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
+    expect(refusal(form, [{ find: '위와 같이', replace: '아래와 같이' }, add(2)])).toContain('change 2: table 1 fills its page')
+    const r = editHwp(form, [add(1)])
+    expect(height(r.file)).toBe(63_000)
+    expect(hwpEditModel(r.file).tables[0]!.rowSizes.length).toBe(21)
+  })
+
+  test('the statutory form Hangul cut off (2026-11-04): 75,100 fits the 75,686 body, two rows (80,876 by the estimate) do not', () => {
+    // its page: A4, 5,668 at the top and sides, 2,834 at the bottom, no header or footer margin; 26 rows in 9 columns
+    // are here 26 rows of three cells, the table's stated height and the copied row's cells (2,839) as in the form
+    const page = { left: 5668, right: 5668, top: 5668, bottom: 2834, header: 0, footer: 0 }
+    const cells = (t: string): CellSpec[] => [{ text: t, width: 8000, height: 2839 }, { text: '', width: 15000, height: 2839 }, { text: '', width: 24901, height: 2839 }]
+    const d = docOnPage(page, table(Array.from({ length: 26 }, (_, r) => cells(`${r + 1}`)), { inline: true, tableHeight: 75_100 }))
+    expect(refusal(d, [{ add_rows: { table: 1, after_row: 10, rows: [['모', '박가상', '가상시 견본구 예시로 7'], ['부', '홍가상', '가상시 견본구 예시로 7']] } }]))
+      .toContain(`table 1 fills its page and ${AS_CHAR}: 2 rows were asked for and about 0 fit. Fill only the rows the table already has, and write the rest on a separate sheet, as such forms usually ask`)
+    // the estimate per row: the table's height per row (2,888), larger than the cells' 2,839
+    expect(refusal(d, [{ add_rows: { table: 1, after_row: 10, rows: [['모', '박가상', '']] } }])).toContain('1 row was asked for and about 0 fit')
+  })
+
+  test('a floating table that splits at a page boundary grows past a page; one set not to split is refused', () => {
+    for (const split of [1, 2] as const) {
+      const r = editHwp(hwpOnePageForm({ inline: false, split }), [add(10)])
+      expect(height(r.file)).toBe(90_000)
+    }
+    expect(refusal(hwpOnePageForm({ inline: false, split: 0 }), [add(2)])).toBe('change 1: table 1 fills its page and cannot continue on the next page ' +
+      '(it is set not to split at a page boundary), so Hangul would cut off its end: 2 rows were asked for and about 1 fit. ' +
+      'Add at most 1 row, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
+    // placed as a character, it cannot continue whatever its split setting says
+    expect(refusal(hwpOnePageForm({ split: 2 }), [add(2)])).toContain(AS_CHAR)
+  })
+
+  test('the page body: a turned page (landscape) is the paper\'s width tall; the header and footer margins take from it', () => {
+    // turned A4: 59,528 - 5,668 - 4,252 x 3 = 41,104; 10 list rows make 36,000
+    const turned = hwpOnePageForm({ rows: 10, page: { landscape: true } })
+    expect(refusal(turned, [add(2)])).toContain('2 rows were asked for and about 1 fit')
+    expect(() => editHwp(turned, [add(1)])).not.toThrow()
+    expect(() => editHwp(hwpOnePageForm({ rows: 10 }), [add(5)])).not.toThrow()
+    // without header and footer margins the body is 74,268: four more rows fit, not five
+    expect(() => editHwp(hwpOnePageForm({ page: { header: 0, footer: 0 } }), [add(4)])).not.toThrow()
+    expect(refusal(hwpOnePageForm({ page: { header: 0, footer: 0 } }), [add(5)])).toContain('5 rows were asked for and about 4 fit')
+    expect(refusal(hwpOnePageForm(), [add(4)])).toContain('4 rows were asked for and about 1 fit')
+    // no page setup, or two of them in the section: nothing to measure against, so nothing is refused
+    const twice = hwpDoc([Buffer.concat([para([[0, sectionDef()]], { extra: [pageDef({}, 1)] }), table([[{ text: '가', width: 4000, height: 60_000 }]], { inline: true })])])
+    expect(() => editHwp(twice, [{ add_rows: { table: 1, rows: [['나']] } }])).not.toThrow()
+  })
+
+  test('a table inside a cell grows the outermost table, checked with that table\'s settings; the cell\'s room is taken first', () => {
+    // table 2 (three rows of 3,000, floating) in a 12,000 cell of table 1 (placed as a character): 3,000 of room. Table
+    // 1 is 12,000 + 16 x 3,000 = 60,000 of the 65,764 body
+    const nested = (o: { inline?: boolean } = {}) => doc1(table([
+      [{ text: '목록', width: 6000, height: 12_000 }, { paras: table([0, 1, 2].map((k) => [{ text: `내부${k + 1}`, width: 20000, height: 3000 }]), { level: 2 }), width: 24000, height: 12_000 }],
+      ...Array.from({ length: 16 }, () => [{ text: '', width: 6000, height: 3000 }, { text: '', width: 24000, height: 3000 }]),
+    ], { inline: o.inline ?? true }), para('끝', { last: true }))
+    const inner = (n: number): HwpChange => ({ add_rows: { table: 2, rows: Array.from({ length: n }, (_, k) => [`새${k + 1}`]) } })
+    // 2 rows: 6,000, of which 3,000 go into the cell's room; 4 rows: 9,000 past it, 2 rows fit
+    expect(() => editHwp(nested(), [inner(2)])).not.toThrow()
+    expect(refusal(nested(), [inner(4)])).toBe('change 1: table 2 is inside table 1, which fills its page and cannot continue on the next page ' +
+      '(it is placed as a character), so Hangul would cut off its end: 4 rows were asked for and about 2 fit. ' +
+      'Add at most 2 rows, and write the rest on a separate sheet, as such forms usually ask. Nothing was saved.')
+    // the outer table floats and splits: the inner one may grow past the page
+    expect(() => editHwp(nested({ inline: false }), [inner(10)])).not.toThrow()
+    // changes of one call add up: each fits alone (63,000 and 63,529), together they do not, in either order
+    const outer: HwpChange = { add_rows: { table: 1, after_row: 2, rows: [['', '']] } }
+    expect(() => editHwp(nested(), [outer])).not.toThrow()
+    expect(refusal(nested(), [inner(2), outer])).toContain('change 2: table 1 fills its page and cannot continue on the next page (it is placed as a character), so Hangul would cut off its end: 1 row was asked for and about 0 fit')
+    expect(refusal(nested(), [outer, inner(2)])).toContain('change 2: table 2 is inside table 1, which fills its page')
   })
 })
 
@@ -518,6 +599,30 @@ describe.skipIf(!SAMPLES)('Hangul-saved documents (MYCEL_HWP_SAMPLES)', () => {
       }
     }
     expect(changed).toBeGreaterThan(0)
+  })
+
+  test('a table that cannot continue on the next page: rows past its page are refused with how many fit, and that many are taken', () => {
+    let fixed = 0
+    for (const f of sampleFiles(SAMPLES!)) {
+      const b = new Uint8Array(fs.readFileSync(f))
+      let m: ReturnType<typeof hwpEditModel>
+      try { m = hwpEditModel(b) } catch { continue }
+      for (const [ti, t] of m.tables.entries()) {
+        // the last of the table's last few rows that can be copied
+        for (let row = t.rowSizes.length; row >= Math.max(1, t.rowSizes.length - 4); row--) {
+          const add = (n: number) => { try { editHwp(b, [{ add_rows: { table: ti + 1, after_row: row, rows: Array.from({ length: n }, () => []) } }]); return '' } catch (e) { return (e as Error).message } }
+          const msg = add(50)
+          if (!msg) break
+          const fit = /fills its page and cannot continue on the next page .*about (\d+) fit/.exec(msg)?.[1]
+          if (fit === undefined) continue
+          fixed++
+          if (Number(fit) > 0) expect(add(Number(fit)), `${f} table ${ti + 1}`).toBe('')
+          expect(add(Number(fit) + 1), `${f} table ${ti + 1}`).toContain(`about ${fit} fit`)
+          break
+        }
+      }
+    }
+    console.log(`${fixed} tables that fill their page`)
   })
 })
 if (!SAMPLES) test('Hangul-saved samples not given (MYCEL_HWP_SAMPLES): skipped', () => { console.log('skipped: set MYCEL_HWP_SAMPLES to a folder of Hangul-saved .hwp files') })

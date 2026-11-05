@@ -194,12 +194,15 @@ export default function Composer({
     }
   }, [recorder.state])
 
+  const hint = transcribing ? t('voice.transcribing') : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
+  // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
+  // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
-  }, [text])
+  }, [text, hint])
 
   useEffect(() => {
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
@@ -587,7 +590,7 @@ export default function Composer({
                     void submit()
                   }
                 }}
-                placeholder={transcribing ? t('voice.transcribing') : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))}
+                placeholder={hint}
                 disabled={transcribing}
                 className={clsx('block max-h-[240px] min-w-0 flex-1 resize-none bg-transparent pb-3 pl-5 text-[15px] leading-6 outline-none placeholder:text-faint', answering ? 'pt-1.5' : 'pt-3')}
                 data-testid="composer-input"

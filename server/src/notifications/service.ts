@@ -30,7 +30,7 @@ const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 
 const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
 const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
- * requests to connect a service (migration 220), a member's request for an AI connection (migration 222), joins
+ * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111) and a member's first run of a team skill during the 7-day team goal
  * (migration 223) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are
  * never rebuilt. */
@@ -67,7 +67,7 @@ export class Notifications {
     this.record(userId, 'integration.request', requestId, createdAt, true)
   }
   /** A member without AI asks this owner to connect one. The source is the member's id only; a second ask is a no-op
-   * (UNIQUE row, migration 222). Shown always. */
+   * (UNIQUE row, migration 231). Shown always. */
   onboardingAiRequest(ownerId: string, memberId: string, createdAt = new Date().toISOString()) {
     // a settled or read row from an earlier ask is armed again (unread, new time) instead of being swallowed by the unique row
     const again = this.ctx.db.query("UPDATE onboarding_notices SET read_at=NULL, created_at=? WHERE user_id=? AND event_type='onboarding.ai_request' AND source_id=? AND read_at IS NOT NULL").run(createdAt, ownerId, memberId)
@@ -175,6 +175,7 @@ export class Notifications {
     const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null }
     const db = this.ctx.db
     const job = row.event_type === 'dev_env.job' ? db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail FROM dev_env_jobs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string } | null : null
+    if (row.event_type === 'dev_env.job' && !job) return this.devEnvRunOut(row, base)
     const stop = row.event_type === 'dev_env.box' ? db.query('SELECT project_id,code FROM dev_env_stops WHERE id=?').get(row.source_id) as { project_id: string; code: string } | null : null
     const projectId = job?.project_id ?? stop?.project_id
     const project = projectId ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(projectId) as { name: string; folder_path: string; trashed_with: string | null } | null : null
@@ -190,6 +191,23 @@ export class Notifications {
     if (stop) return { ...base, link: 'project', devEnv: { ...devEnv, stopCode: stop.code } }
     const chat = job!.chat_id ? db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(job!.chat_id, row.user_id) as { id: string } | null : null
     return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : 'project', devEnv: { ...devEnv, job: { name: job!.name, exitCode: job!.exit_code, note: job!.end_note, tail: job!.log_tail } } }
+  }
+  /** A job of the srt runner (dev_env_runs): the person's own run, from any chat, with or without a project. With a
+   * project it is shown while the person can see the project; with none, projectId and projectName are ''. */
+  private devEnvRunOut(row: Row, base: InboxNotification): InboxNotification {
+    const db = this.ctx.db
+    const run = db.query('SELECT project_id,name,chat_id,exit_code,end_note,log_tail,end_reason FROM dev_env_runs WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { project_id: string | null; name: string; chat_id: string | null; exit_code: number | null; end_note: string; log_tail: string; end_reason: string } | null
+    if (!run) return base
+    const project = run.project_id ? db.query('SELECT name,folder_path,trashed_with FROM projects WHERE id=?').get(run.project_id) as { name: string; folder_path: string; trashed_with: string | null } | null : null
+    if (project) {
+      try {
+        if (project.trashed_with !== null && !admins(db).includes(row.user_id)) throw new Error('project folder in the trash')
+        authorize(this.ctx.files.fx, this.ctx.files.rules(), this.ctx.files.principal(row.user_id), project.folder_path, 'read')
+      } catch { return base }
+    }
+    const chat = run.chat_id ? db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(run.chat_id, row.user_id) as { id: string } | null : null
+    const job = { name: run.name, exitCode: run.exit_code, note: run.end_note, tail: run.log_tail, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}) }
+    return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : project ? 'project' : null, devEnv: { projectId: project ? run.project_id! : '', projectName: project?.name ?? '', job } }
   }
   private out(row: Row): InboxNotification {
     let chatId: string | null = null, outcome: ScheduleRunOutcome | null = null
