@@ -209,7 +209,7 @@ test('realtime: room events reach the room\'s members only, and a read names nob
   expect(hub.to('room.message.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
 })
 
-test('notices: a DM (one per unread run) and an @mention; muted rooms keep mentions; reading clears them; no text', async () => {
+test('notices: a DM or an @mention, one unread notice of each per room; muted rooms are quiet; reading clears them; no text', async () => {
   const { mia, nora, teamRoom, send } = await setup()
   const n = notificationsOf(h.ctx)
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
@@ -224,22 +224,29 @@ test('notices: a DM (one per unread run) and an @mention; muted rooms keep menti
   const last = (await nora.client.call('GET', `/api/rooms/${dm.id}`)).lastSeq
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: last })
   expect(n.list(nora.id, {}).unreadCount).toBe(0)
-  // muted: no DM notice, but a mention still comes
-  await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: true })
-  await send(mia.client, dm.id, 'quiet')
-  expect(n.list(nora.id, {}).unreadCount).toBe(0)
-  await send(mia.client, dm.id, '@NORA look', { mentions: [nora.id] })
-  inbox = n.list(nora.id, {})
-  expect(inbox.unreadCount).toBe(1)
-  expect(inbox.items[0]).toMatchObject({ code: 'room.mention' })
-  // a team room message notifies only those mentioned
+  // a team room message notifies only those mentioned, and mentions too come once per unread run
   const team = await teamRoom(mia.client)
   await send(mia.client, team.id, 'for everyone')
-  expect(n.list(nora.id, {}).unreadCount).toBe(1)
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
+  await send(mia.client, team.id, '@NORA and this', { mentions: [nora.id] })
+  inbox = n.list(nora.id, {})
+  expect(inbox.unreadCount).toBe(1)
+  expect(inbox.items[0]).toMatchObject({ code: 'room.mention', room: { id: team.id } })
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  // muted: neither DM messages nor mentions make a notice
+  await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: true })
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { muted: true })
+  await send(mia.client, dm.id, 'quiet')
+  await send(mia.client, dm.id, '@NORA look', { mentions: [nora.id] })
+  await send(mia.client, team.id, '@NORA in the team room', { mentions: [nora.id] })
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { muted: false })
   // the person's setting turns room notices off
   n.setPreferences(nora.id, { roomMessages: false })
   await send(mia.client, team.id, '@NORA again', { mentions: [nora.id] })
-  expect(n.list(nora.id, {}).unreadCount).toBe(1)
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
   // a deleted message takes its notice with it
   n.setPreferences(nora.id, { roomMessages: true })
   await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: false })
@@ -248,6 +255,21 @@ test('notices: a DM (one per unread run) and an @mention; muted rooms keep menti
   expect(n.list(nora.id, {}).unreadCount).toBe(1)
   await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${gone.id}`)
   expect(n.list(nora.id, {}).unreadCount).toBe(0)
+})
+
+test('sending is rate limited per person; a resend of the same message is free', async () => {
+  const { mia, nora } = await setup()
+  const { SEND_BURST } = await import('../../server/src/rooms/service')
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const first = { body: 'one', clientMessageId: cm() }
+  for (let i = 0; i < SEND_BURST; i++) await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, i === 0 ? first : { body: `m${i}`, clientMessageId: cm() })
+  const over = await mia.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'one too many', clientMessageId: cm() })
+  expect(over.status).toBe(429)
+  expect(over.body.error).toMatchObject({ code: 'rate_limited', retryAfter: expect.any(Number) })
+  // the same message again (a reconnect) is answered, not counted
+  expect((await mia.client.try('POST', `/api/rooms/${dm.id}/messages`, first)).status).toBe(201)
+  // another person has their own budget
+  expect((await nora.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'hi', clientMessageId: cm() })).status).toBe(201)
 })
 
 test('files: kept outside the team folder, readable by the room\'s members only, gone with their message', async () => {

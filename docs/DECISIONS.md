@@ -7989,10 +7989,12 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   replays `room.*` only while the person is still in that room, else `resync`; a person removed from a room also loses
   their replay buffer (`forgetReplay`) and gets `room.updated removed`. The app reloads its rooms after any reset or
   resync (gaps are not patched from events).
-- **Notices: a DM message or an @mention.** `room.dm` (the other person, unless they muted the DM) and `room.mention`
-  (each member picked as a mention, muted or not; only people in the room count). A DM adds no second notice while one
-  of that room is unread, so a burst of messages is one notice and one push; reading the room marks its notices read and
-  a deleted message takes its notice with it. They live in `room_notices` (notification_inbox has a fixed event_type
+- **Notices: a DM message or an @mention.** `room.dm` (the other person) and `room.mention` (each member picked as a
+  mention; only people in the room count); nobody who muted the room gets either. No second notice of the same kind
+  while one of that room is unread, so a burst of messages or mentions is one notice and one push; reading the room
+  marks its notices read and a deleted message takes its notice with it. Sending is rate limited per person (a burst of
+  20, then one a second, all rooms together; 429 with the seconds to wait; a resend of the same clientMessageId is
+  free). They live in `room_notices` (notification_inbox has a fixed event_type
   list and is never rebuilt) and are part of the one inbox; the inbox entry names the room and who wrote it, never the
   text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
   `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
