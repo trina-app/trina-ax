@@ -47,6 +47,11 @@ layout only.
 본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 "한글", "HWP" and "HWPX" are trademarks of Hancom Inc.; no endorsement is implied.
 
+Promo video templates use unchanged Pretendard Variable 1.3.9 (OFL-1.1), see
+resources/notices/pretendard/. The MP4 render runs the HyperFrames CLI 0.9.15
+(Apache-2.0), installed outside this repository's dependencies on a development
+machine only (scripts/promo-video/).
+
 HWP previews use rhwp 0.8.7 (MIT) and unchanged Noto Sans KR Regular (OFL-1.1).
 Exact pins, upstream notices and source-offer details: resources/hwp/.
 Release distributions preserve these in licenses/hwp/.

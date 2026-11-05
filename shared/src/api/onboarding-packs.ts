@@ -17,13 +17,17 @@ export type SkillPackId = z.infer<typeof SkillPackId>
  * person, or the asking person's own) and "핵심 정리" (a document's brief, or what the asking person needs to know). */
 export const GENERAL_TASKS_SKILL = 'skills/general/meeting-tasks/SKILL.md'
 export const GENERAL_BRIEF_SKILL = 'skills/general/doc-brief/SKILL.md'
-/** "카드뉴스": the welcome steps' first result (docs/DECISIONS.md "N — The first result is the company's card news"):
- * five square cards from the company intro (an uploaded deck, or 회사 소개.md written from the website), the images the
- * website read collected and the brand colours. */
+/** "카드뉴스": the welcome steps' first result from docs/DECISIONS.md "N" until the promo video; still installed for
+ * every team: five square cards from the company intro (an uploaded deck, or 회사 소개.md written from the website),
+ * the images the website read collected and the brand colours. */
 export const GENERAL_CARDNEWS_SKILL = 'skills/general/card-news/SKILL.md'
 /** The artifact key the card news skill writes its cards under (both languages' SKILL.md name it): the web app opens
  * that artifact by itself when it is saved, as the cards are the whole answer (docs/DECISIONS.md "W2"). */
 export const CARD_NEWS_ARTIFACT_KEY = 'card-news'
+/** "홍보 영상": the welcome steps' first result (docs/DECISIONS.md "V"): the company's promo video, its slots filled
+ * by the AI with the promo_video tool from the company intro and the brand images folder. Its artifact
+ * (PROMO_ARTIFACT_KEY, promo-video.ts) opens beside the chat by itself like the cards. */
+export const GENERAL_PROMO_SKILL = 'skills/general/promo-video/SKILL.md'
 
 /** The meeting notes folder inside the team's own group folder (groups/<team>/회의록/), named in the team language. */
 export const NOTES_FOLDER = { ko: '회의록', en: 'Meeting notes', id: 'Notulen rapat', ja: '議事録', es: 'Actas de reuniones' } as const satisfies Record<Locale, string>

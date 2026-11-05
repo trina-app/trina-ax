@@ -53,6 +53,14 @@ if (!result.success) {
 }
 
 const pkgDir = (p: string) => path.dirname(require.resolve(`${p}/package.json`))
+
+// the promo video templates' typeface (docs/DECISIONS.md "V"; OFL-1.1, resources/notices/pretendard): the artifact page
+// loads fonts/promo-video.css (the frame allows fonts from /vendor/ only), the MP4 render reads the same file
+const FONT = path.resolve(WEB, '..', 'resources', 'promo-video', 'fonts', 'PretendardVariable.woff2')
+fs.mkdirSync(path.join(OUT, 'fonts'), { recursive: true })
+fs.copyFileSync(FONT, path.join(OUT, 'fonts', 'PretendardVariable.woff2'))
+fs.writeFileSync(path.join(OUT, 'fonts', 'promo-video.css'),
+  '@font-face{font-family:"Pretendard Promo";src:url("PretendardVariable.woff2") format("woff2");font-weight:45 930;font-style:normal;font-display:block}\n')
 fs.copyFileSync(path.join(pkgDir('@tailwindcss/browser'), 'dist', 'index.global.js'), path.join(OUT, 'tailwind.js'))
 
 const version = (p: string) => (JSON.parse(fs.readFileSync(path.join(pkgDir(p), 'package.json'), 'utf8')) as { version: string }).version
@@ -62,5 +70,5 @@ const manifest = {
   versions: Object.fromEntries(['react', 'react-dom', 'lucide-react', 'recharts', 'mermaid', '@tailwindcss/browser'].map((p) => [p, version(p)])),
 }
 fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2))
-const total = fs.readdirSync(OUT).reduce((n, f) => n + fs.statSync(path.join(OUT, f)).size, 0)
+const total = fs.readdirSync(OUT).reduce((n, f) => n + (fs.statSync(path.join(OUT, f)).isFile() ? fs.statSync(path.join(OUT, f)).size : 0), 0)
 console.log(`vendor: ${fs.readdirSync(OUT).length} files, ${(total / 1024 / 1024).toFixed(1)} MB → ${path.relative(process.cwd(), OUT)}`)

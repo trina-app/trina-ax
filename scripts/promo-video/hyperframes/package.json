@@ -1,0 +1,9 @@
+{
+  "name": "mycel-hyperframes-tool",
+  "private": true,
+  "description": "The HyperFrames CLI that renders promo videos to MP4 on a development server (docs/DECISIONS.md \"V\"). Installed outside the repository's workspaces by scripts/promo-video/install-hyperframes.ts; not a dependency of the server.",
+  "license": "AGPL-3.0-only",
+  "dependencies": {
+    "hyperframes": "0.9.15"
+  }
+}

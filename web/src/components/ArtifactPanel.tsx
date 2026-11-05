@@ -2,11 +2,13 @@
 // "save to the team folder", and when it fails at runtime or cannot be built (unsupported import, compile error)
 // "ask the AI to fix it". While the AI is still writing it,
 // the code shows as it arrives. Ported from Saram / chat-proto ArtifactPanel.
+// A promo video (key "promo-video", docs/DECISIONS.md "V") plays in the frame; its header offers [영상 파일로 받기]
+// where the server can make the MP4, instead of copying or downloading the page's code.
 import clsx from 'clsx'
 import { AlertTriangle, ChevronLeft, ChevronRight, Download, FolderInput, Loader2, Shapes, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import type { ArtifactType } from '@mycel/shared/api'
-import { api, API, errorText, saveBlob } from '../lib/api'
+import { PROMO_ARTIFACT_KEY, type ArtifactType, type PromoVideoInfo } from '@mycel/shared/api'
+import { api, API, errorText, saveBlob, startDownload } from '../lib/api'
 import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, fixPromptWords, FRAME_TYPES, staticSource, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
 import { useFrameScripts } from '../lib/confidential'
 import { joinPath } from '../lib/paths'
@@ -22,7 +24,7 @@ import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import type { FrameFiles } from '../lib/frame-files'
-import { CopyButton, IconButton, Spinner } from './ui'
+import { Button, CopyButton, IconButton, Spinner } from './ui'
 
 let compiler: Promise<CompileFn> | null = null
 
@@ -116,7 +118,9 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     }
   }
 
-  const showCode = writing || tab === 'code' || type === 'code'
+  // a promo video: the page is ours (server-built), so no code tab, no copy, no page download; the MP4 instead
+  const promo = artifactKey === PROMO_ARTIFACT_KEY && type === 'html'
+  const showCode = writing || (!promo && tab === 'code') || type === 'code'
   return (
     <aside aria-label={t('artifact.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="artifact-panel">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
@@ -124,7 +128,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
         <h2 className="min-w-0 truncate text-sm font-semibold" title={title}>
           {title}
         </h2>
-        {type && <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 text-[11px] text-muted">{t(TYPE_LABEL[type])}</span>}
+        {type && !promo && <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 text-[11px] text-muted">{t(TYPE_LABEL[type])}</span>}
         {writing && (
           <span className="flex shrink-0 items-center gap-1 text-xs text-accent-text">
             <Loader2 size={12} className="animate-spin" aria-hidden /> {t('artifact.writing')}
@@ -144,12 +148,15 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
               </IconButton>
             </span>
           )}
-          {content !== null && <CopyButton text={content} />}
+          {content !== null && !promo && <CopyButton text={content} />}
+          {artifact && promo && <PromoMp4Button key={artifact.id} id={artifact.id} />}
           {artifact && (
             <>
-              <IconButton label={t('common.download')} onClick={() => saveBlob(new Blob([artifact.content], { type: 'text/plain;charset=utf-8' }), artifactFileName(artifact))}>
-                <Download size={16} />
-              </IconButton>
+              {!promo && (
+                <IconButton label={t('common.download')} onClick={() => saveBlob(new Blob([artifact.content], { type: 'text/plain;charset=utf-8' }), artifactFileName(artifact))}>
+                  <Download size={16} />
+                </IconButton>
+              )}
               <IconButton label={t('artifact.saveToTeam')} disabled={saving} onClick={() => setPickFolder(true)}>
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <FolderInput size={16} />}
               </IconButton>
@@ -160,7 +167,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
           </IconButton>
         </div>
       </header>
-      {type && type !== 'code' && !writing && (
+      {type && type !== 'code' && !writing && !promo && (
         <div className="flex gap-1 border-b border-line px-3 py-1.5" role="tablist" aria-label={t('artifact.view')}>
           {(['preview', 'code'] as const).map((x) => (
             <button key={x} role="tab" type="button" aria-selected={tab === x} onClick={() => setTab(x)} className={clsx('rounded-md px-2.5 py-1 text-xs', tab === x ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover')}>
@@ -241,5 +248,53 @@ function StaticArtifact({ type, content, title, files }: { type: ArtifactType; c
       <ExternalImagesNote count={files.external} />
       <StaticFrame html={html} title={title} gutter={type === 'html'} />
     </div>
+  )
+}
+
+/**
+ * [영상 파일로 받기] on a promo video: shown only where this server can make the MP4 (GET /api/promo-videos/:id says
+ * so; never a button that cannot work). The first press makes it (about half a minute; the button says so meanwhile)
+ * and the download starts when it is ready; a later press downloads the one made before.
+ */
+function PromoMp4Button({ id }: { id: string }) {
+  const t = useT()
+  const locale = useLocale()
+  const [info, setInfo] = useState<PromoVideoInfo | null>(null)
+  const [wanted, setWanted] = useState(false)
+  useEffect(() => {
+    let live = true
+    api.call(API.getPromoVideo, { params: { id } }).then((r) => live && setInfo(r), () => live && setInfo(null))
+    return () => { live = false }
+  }, [id])
+  const rendering = info?.mp4.state === 'rendering'
+  // while it is made: ask again every two seconds
+  useEffect(() => {
+    if (!rendering) return
+    const timer = setInterval(() => {
+      api.call(API.getPromoVideo, { params: { id } }).then(setInfo, () => {})
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [rendering, id])
+  const download = (i: PromoVideoInfo) => startDownload(api.url(API.downloadPromoVideo, { params: { id } }), `${i.title}.mp4`)
+  // made after a press: the download starts by itself; failed: say so once
+  useEffect(() => {
+    if (!wanted || !info) return
+    if (info.mp4.state === 'done') { setWanted(false); download(info) }
+    else if (info.mp4.state === 'failed') { setWanted(false); toast({ level: 'error', text: t('promo.mp4.failed') }) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info, wanted])
+  if (!info?.mp4.available) return null
+  const press = async () => {
+    if (info.mp4.state === 'done') return download(info)
+    setWanted(true)
+    try { setInfo(await api.call(API.renderPromoVideo, { params: { id } })) } catch (e) {
+      setWanted(false)
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
+  return (
+    <Button size="sm" variant="secondary" className="mr-1" busy={rendering} disabled={rendering} onClick={() => void press()} data-testid="promo-mp4">
+      {!rendering && <Download size={14} aria-hidden />} {rendering ? t('promo.mp4.making') : t('promo.mp4.get')}
+    </Button>
   )
 }
