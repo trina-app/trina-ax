@@ -788,8 +788,9 @@ export default function Files() {
                 )}
                 {tree && tree.entries.length > 0 && (
                   <table className="w-full text-sm" data-testid="file-table">
-                    {/* not on phones: no "이름" line over the rows there, rows are selected by a long press */}
-                    <thead className="max-md:hidden">
+                    {/* phones: no "이름" line over the rows (rows are selected by a long press), until something is
+                        selected: then its box selects all */}
+                    <thead className={clsx(!anyChecked && 'max-md:hidden')}>
                       <tr className="text-left text-xs text-faint">
                         <th className="w-0 py-1 pr-0 pl-1">
                           <CheckBox
