@@ -8555,7 +8555,11 @@ ends and weight before the first result. Fixed here, each in its own commit:
   고치기" (고치기: the review form in a dialog; saving there updates the line). It sits on the result step because the card
   news without files is made from that profile. A draft without a one-line intro, a failed reading, the pasted text, the
   three questions and Admin › Team settings keep the review. The company name is saved as the draft found it (empty
-  reads as the team's name everywhere).
+  reads as the team's name everywhere). Only the team's first profile is saved this way (asked again right before
+  saving): a re-read of a saved one ("홈페이지 다시 읽기" from its review) or one saved meanwhile in another tab shows the
+  review and is never overwritten unseen (review fix). Since a profile may now be unchecked, the AI's <company_profile>
+  block no longer says the owner checked it: it says it may come from the website unchecked, that the person is right
+  when they say otherwise, and that tone and words to avoid are preferences, not rules (`chat/prompt.ts`).
 - **No team line above step 1.** "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" is gone with the team-type choice; leaving step 1
   still sets up every team's start. The marketing pack is one quiet button under Team skills ("마케팅 스킬 7개 넣기",
   owners and admins, while no team skill is under `skills/marketing/`); before, it was offered only on an empty page.

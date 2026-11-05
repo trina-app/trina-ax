@@ -4,13 +4,17 @@
 //   opens or skips shows as a line as it happens, DraftActivity, and so do the images it kept for the brand folder) →
 //   "이렇게 이해했어요": every field editable, its source page and excerpt under it, a wrong one removed with one click,
 //   the brand colours the server found as swatches (remove only; docs/DECISIONS.md "N") → Save
-//   (PUT /api/onboarding/profile). The AI never saves anything: the person does.
+//   (PUT /api/onboarding/profile). The AI never saves anything itself: the person saves, or, in the welcome steps
+//   (`autoSave`), the page saves a website reading as it came on the person's behalf, unchecked (chat/prompt.ts says
+//   so to the AI).
 // When the site can't be read (or there is none): paste a text (the same draft, from the text) or answer three
 // questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads, the step
 // offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself.
 // `autoSave` (the welcome steps): a website reading whose draft has a one-line intro is saved as it came, with the
 // same body as the review's save, and the step is done; the welcome page then shows one line of it with "고치기", which
-// opens this review. Pasted text, a draft without a one-line intro and a save that fails keep the review.
+// opens this review. Only while the team has no saved profile (asked again right before saving): a re-read of a saved
+// profile (다시 읽기 from its review) never overwrites it unseen, it shows the review. Pasted text, a draft without a
+// one-line intro and a save that fails keep the review too.
 // A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -109,8 +113,8 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // the latest props for the reading loop (it starts once per reading)
-  const latest = useRef({ onDone, autoSave })
-  latest.current = { onDone, autoSave }
+  const latest = useRef({ onDone, autoSave, hadProfile: !!initial })
+  latest.current = { onDone, autoSave, hadProfile: !!initial }
   // while reading: the pages the server opened or skipped so far, and whether the AI is writing the profile
   const [activity, setActivity] = useState<{ steps: ProfileDraftPage[]; writing: boolean; assets: DraftAssets | null }>({ steps: [], writing: false, assets: null })
   const heading = useRef<HTMLHeadingElement>(null)
@@ -172,8 +176,10 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
             // no more reads of this draft (a late step event must not save it twice)
             stopped = true
             clearTimeout(timer)
-            await saveAsRead(read)
-            return
+            // only the team's first profile: one saved before (this step's own, another tab, an admin) is never
+            // overwritten unseen; a read that fails counts as "there may be one"
+            const first = !latest.current.hadProfile && (await api.call(API.getCompanyProfile).then((r) => !r.profile, () => false))
+            if (first) { await saveAsRead(read); return }
           }
           setDraft((prev) => named({ ...read, website: read.website || prev.website }))
           setPhase({ kind: 'review' })

@@ -3,7 +3,8 @@
 // four chips; what is saved is trimmed and keeps sources only for fields that still have a value. The reading lines
 // ("R"), and what the server collected while reading ("N"): the images line, the brand colours as swatches that can
 // only be removed, saved with the profile, and shown in Admin › Team settings. While it reads, only "later" ("W2").
-// In the welcome steps (autoSave) a website draft with a one-line intro is saved as it came, without the review.
+// In the welcome steps (autoSave) a website draft with a one-line intro is saved as it came, without the review, only
+// while the team has no saved profile.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
@@ -375,6 +376,44 @@ describe('colours and images, clicked', () => {
     const admin = await run({ oneLine: 'Acme makes quiet desk fans.' })
     expect(admin.review).toBe(true)
     expect(admin.puts).toEqual([])
+  })
+
+  test('autoSave never overwrites a saved profile: a re-read from its review, or one saved meanwhile in another tab, shows the review and saves nothing', async () => {
+    const draftDone = { status: 'done', website: 'https://acme.example/', error: null, steps: [], assets: { images: 0, logo: false, colors: [] },
+      draft: { website: 'https://acme.example/', name: '', oneLine: 'A newer reading', products: '', audience: '', tone: [], avoid: '', sources: [] } }
+    const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
+    const read = async (m: Awaited<ReturnType<typeof mount>>) => {
+      await m.until(() => m.find('profile-step-site') && !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-step-review'), 'the review')
+      await m.settle(300)
+    }
+    // the owner's saved profile, re-read from its review ("홈페이지 다시 읽기"): the review with the new reading
+    calls = []
+    draftState = draftDone
+    saved = PROFILE
+    let done: CompanyProfile | null = null
+    let m = await mount(<MemoryRouter><ProfileStep initial={PROFILE} onDone={(p) => { done = p }} onSkip={noop} skipLabel="나중에 하기" autoSave /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-review'), 'the saved review')
+      await m.click(button('홈페이지 다시 읽기'))
+      await read(m)
+      expect(puts()).toEqual([])
+      expect(done).toBeNull()
+      expect(m.container.querySelectorAll('input').map((i) => (i as unknown as { value: string }).value)).toContain('A newer reading')
+    } finally { await m.unmount() }
+    // none when the step opened, but one saved meanwhile (another tab, an admin): asked again right before, the review
+    calls = []
+    saved = PROFILE
+    m = await mount(<MemoryRouter><ProfileStep onDone={(p) => { done = p }} onSkip={noop} skipLabel="나중에 하기" initialWebsite="https://acme.example/" autoSave /></MemoryRouter>)
+    try {
+      await read(m)
+      expect(calls.filter((c) => c.key === 'GET /api/onboarding/profile').length).toBeGreaterThan(0)
+      expect(puts()).toEqual([])
+      expect(done).toBeNull()
+    } finally { await m.unmount(); saved = null }
   })
 
   test('Admin › Team settings: the saved colours as a row of swatches; none, no row', async () => {
