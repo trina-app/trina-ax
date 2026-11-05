@@ -1,4 +1,5 @@
-import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
 export function mobileApp(): MobileConfig | null {
@@ -62,6 +63,7 @@ export function resetMobileSession(): void {
     if (reply.nextGeneration !== config.generation + 1) throw new Error('mobile_protocol_mismatch')
     // Native also installs this config before delivering its acknowledgement.
     if (!mobileApp() || mobileApp()!.generation !== reply.nextGeneration) throw new Error('mobile_protocol_mismatch')
+    void sendAppearance().catch(() => {})
   })
   void barrier.catch(reportMobileError)
 }
@@ -163,11 +165,44 @@ export async function confirmPushDevice(deviceId: string, removeKey: string): Pr
   await request({ ...envelope(config), type: 'push-registered', deviceId, removeKey }, config)
   return true
 }
+/** What the OS says about notifications for this app (push-permission-v1); the app never shows its prompt for this.
+ * null: this app cannot tell (store builds 1 and 2). Rejects with push_unavailable when the build has no push. */
+export async function requestPushPermission(): Promise<PushPermission | null> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_PERMISSION_CAPABILITY)) return null
+  const reply = await request({ ...envelope(config), type: 'push-permission' }, config, 10_000)
+  if (turn !== epoch) throw cancelled()
+  if (!pushPermission(reply.permission)) throw new Error('push_unavailable')
+  return reply.permission
+}
+/** The app can open its page in the phone's Settings (push-permission-v1). */
+export const canOpenAppSettings = () => !!mobileApp()?.capabilities.includes(PUSH_PERMISSION_CAPABILITY)
+export async function openAppSettings(): Promise<void> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_PERMISSION_CAPABILITY)) throw new Error('mobile_unavailable')
+  await request({ ...envelope(config), type: 'open-settings' }, config, 10_000)
+}
+/** The page's look for the app's status bar (appearance-v1): when the bridge comes, when the theme changes, and again
+ * after every session reset (a send that the reset fenced off is not lost). Not tied to a session: the latest look
+ * always wins, so neither a pending reset nor a failed one stops it. */
+async function sendAppearance(): Promise<void> {
+  await barrier.catch(() => {})
+  const config = mobileApp()
+  if (!config?.capabilities.includes(APPEARANCE_CAPABILITY)) return
+  await request({ ...envelope(config), type: 'appearance', dark: document.documentElement.classList.contains('dark'), system: currentTheme() === 'system' }, config, 10_000)
+}
 export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return
   initialized = true; onError = errorHandler ?? onError
   window.addEventListener('mycel:mobile', receive)
-  window.addEventListener('mycel:mobile-ready', () => { abortPending(); barrier = Promise.resolve() })
+  window.addEventListener('mycel:mobile-ready', () => { abortPending(); barrier = Promise.resolve(); void sendAppearance().catch(() => {}) })
+  window.addEventListener('mycel:theme', () => void sendAppearance().catch(() => {}))
   window.addEventListener('pagehide', () => abortPending())
   window.addEventListener('mycel:download', (event) => {
     const url = (event as CustomEvent<{ url?: unknown }>).detail?.url

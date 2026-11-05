@@ -20,6 +20,7 @@ import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
 import { BottomTabs } from './BottomTabs'
+import { PhonePushAsk } from './settings/PushNotifications'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
@@ -145,6 +146,8 @@ export default function Layout() {
               <Outlet />
             </ChunkErrorBoundary>
           </div>
+          {/* the phone app's own question before the OS prompt (only while the OS has not been asked) */}
+          <PhonePushAsk />
           {/* phones: 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
           <BottomTabs />
         </main>

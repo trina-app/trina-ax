@@ -7,7 +7,7 @@
 // profile) keeps its section marked in the list, and its way back goes to that section. Admin stays its own page.
 import clsx from 'clsx'
 import { ArrowLeft, ChevronDown, Search, X } from 'lucide-react'
-import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
 import { Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { api, API } from '../../lib/api'
 import { browserSettingsBridge } from '../../lib/desktop'
@@ -15,6 +15,7 @@ import { useT } from '../../i18n'
 import { settingsTabs } from '../../pages/settingsTabs'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap } from '../ui'
 import { BottomTabs } from '../BottomTabs'
+import { PhonePushLine } from './PushNotifications'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections few people need on a phone: behind "더 보기" in the phone's list */
@@ -108,16 +109,19 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
               {groups.map((g, i) => (
                 <div key={g[0]!.group} className={clsx('space-y-0.5', i > 0 && 'mt-2 border-t border-line pt-2')}>
                   {g.map((x) => (
-                    <NavLink
-                      key={x.id}
-                      to={`/settings/${x.id}`}
-                      replace
-                      className={({ isActive }) =>
-                        clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ADVANCED.has(x.id) && !more && 'max-md:hidden')
-                      }
-                    >
-                      <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
-                    </NavLink>
+                    <Fragment key={x.id}>
+                      <NavLink
+                        to={`/settings/${x.id}`}
+                        replace
+                        className={({ isActive }) =>
+                          clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ADVANCED.has(x.id) && !more && 'max-md:hidden')
+                        }
+                      >
+                        <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
+                      </NavLink>
+                      {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
+                      {x.id === 'notifications' && <PhonePushLine />}
+                    </Fragment>
                   ))}
                 </div>
               ))}

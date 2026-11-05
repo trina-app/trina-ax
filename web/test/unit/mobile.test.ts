@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
 import { clientKind } from '../../src/lib/desktop'
-import { setMobilePushSession } from '../../src/lib/mobile-push'
-import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply } from '../../../mobile/src/protocol'
+import { askLater, laterHides, LATER_MS, registerMobilePush, setMobilePushSession, usePhonePush } from '../../src/lib/mobile-push'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -131,29 +131,157 @@ test('push-registered goes only to an app that offers push-registered-v1; the fi
   expect(messages.at(-1)).toMatchObject({ type: 'push-registered', deviceId: 'device-1', removeKey: 'k'.repeat(43) })
 })
 
-test('a session known before the app installed its bridge registers the phone once the bridge is ready', async () => {
+// The server and the phone's storage for the sign-in flow: GET /api/push says push is available, POST registers.
+function pushServer(over: object = {}) {
   const realFetch = globalThis.fetch, calls: string[] = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input), method = init?.method ?? 'GET'
     calls.push(`${method} ${new URL(url, 'https://team.example').pathname}`)
-    if (url.endsWith('/api/push') && method === 'GET') return Response.json({ configured: false, enabled: false, publicKey: null, subscriptionId: null, native: { available: true, deviceId: null, gateway: 'push.example.test' }, optedOut: false })
+    if (url.endsWith('/api/push') && method === 'GET') return Response.json({ configured: false, enabled: false, publicKey: null, subscriptionId: null, native: { available: true, deviceId: null, gateway: 'push.example.test' }, optedOut: false, ...over })
     if (url.endsWith('/api/push/devices')) return Response.json({ id: 'device-9', removeKey: 'k'.repeat(43) })
     return new Response('{}', { status: 404 })
   }) as typeof fetch
+  const stored = new Map<string, string>(), priorStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => stored.set(k, v), removeItem: (k: string) => stored.delete(k) } })
+  return { calls, stored, restore() {
+    globalThis.fetch = realFetch; setMobilePushSession(null)
+    if (priorStorage) Object.defineProperty(globalThis, 'localStorage', priorStorage); else Reflect.deleteProperty(globalThis, 'localStorage')
+  } }
+}
+const androidToken = { platform: 'android' as const, token: 'fcm:' + 'A'.repeat(140), environment: 'production' as const }
+const withPermission = (permission: PushPermission) => (m: MobileMessage) => { if (m.type === 'push-permission') reply(m, { permission }); else if (m.type === 'push-token') reply(m, { push: androidToken }); else reply(m) }
+const settle = async (until: () => boolean = () => false) => { for (let i = 0; i < 60 && !until(); i++) await tick() }
+const today = [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY]
+
+test('a session known before the app installed its bridge registers the phone once the bridge is ready, when the OS already said yes', async () => {
+  const server = pushServer()
   try {
-    const token = { platform: 'android' as const, token: 'fcm:' + 'A'.repeat(140), environment: 'production' as const }
-    handler = m => { if (m.type === 'push-token') reply(m, { push: token }); else reply(m) }
+    handler = withPermission('granted')
     win.mycelMobile = undefined as unknown as MobileConfig // the page loaded, the bridge is not there yet
     setMobilePushSession('user:session-before-bridge')
-    for (let i = 0; i < 5; i++) await tick()
-    expect(calls).toHaveLength(0)
-    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+    await settle()
+    expect(server.calls).toHaveLength(0)
+    win.mycelMobile = { ...config, capabilities: today }
     win.dispatchEvent(new Event('mycel:mobile-ready'))
-    for (let i = 0; i < 50 && !messages.some(m => m.type === 'push-registered'); i++) await tick()
-    expect(calls).toEqual(['GET /api/push', 'POST /api/push/devices'])
-    expect(messages.map(m => m.type)).toEqual(['push-token', 'push-registered'])
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(server.calls).toEqual(['GET /api/push', 'POST /api/push/devices'])
+    expect(messages.map(m => m.type)).toEqual(['push-permission', 'push-token', 'push-registered'])
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'granted', ask: false })
     win.dispatchEvent(new Event('mycel:mobile-ready')) // another page load of the same session: not again
-    for (let i = 0; i < 5; i++) await tick()
-    expect(calls).toHaveLength(2)
-  } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
+    await settle()
+    expect(server.calls).toHaveLength(2)
+  } finally { server.restore() }
+})
+
+test('never the OS prompt by itself: not asked yet, the page shows its own question; only its button asks the OS', async () => {
+  const server = pushServer()
+  try {
+    handler = withPermission('undetermined')
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('user:session-undetermined')
+    await settle(() => usePhonePush.getState().ask)
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'undetermined', ask: true })
+    expect(messages.map(m => m.type)).toEqual(['push-permission'])
+    expect(server.calls).toEqual(['GET /api/push'])
+    await registerMobilePush() // [알림 켜기]
+    expect(messages.map(m => m.type)).toEqual(['push-permission', 'push-token', 'push-registered'])
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'granted', ask: false })
+    expect(server.stored.get('mycel.phonePush.granted')).toBe('1')
+  } finally { server.restore() }
+})
+
+test('store builds without push-permission-v1: the question until a token came once; then quiet re-registration', async () => {
+  const server = pushServer()
+  try {
+    handler = withPermission('granted') // an old app never gets push-permission: its capability list lacks it
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY] }
+    setMobilePushSession('user:old-build-1')
+    await settle(() => usePhonePush.getState().ask)
+    expect(usePhonePush.getState()).toMatchObject({ permission: null, ask: true })
+    expect(messages).toHaveLength(0)
+    await registerMobilePush()
+    expect(messages.map(m => m.type)).toEqual(['push-token', 'push-registered'])
+    messages = []
+    setMobilePushSession('user:old-build-2') // the next sign-in on this phone: the OS said yes before
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(messages.map(m => m.type)).toEqual(['push-token', 'push-registered'])
+    expect(usePhonePush.getState().ask).toBe(false)
+  } finally { server.restore() }
+})
+
+test('a "no" in the OS prompt stands (Android may let the app ask once more), and Settings learns it', async () => {
+  const server = pushServer()
+  try {
+    handler = m => { if (m.type === 'push-permission') reply(m, { permission: 'undetermined' }); else if (m.type === 'push-token') reply(m, { ok: false, error: 'push_denied' }); else reply(m) }
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('user:denies')
+    await settle(() => usePhonePush.getState().ask)
+    await expect(registerMobilePush()).rejects.toThrow('push_denied')
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'denied', ask: false })
+    setMobilePushSession('user:denies-again')
+    await settle(() => usePhonePush.getState().permission !== null)
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'denied', ask: false })
+    // turned on in the phone's Settings: the OS says granted, the page registers on its own
+    handler = withPermission('granted')
+    win.dispatchEvent(new Event('mycel:mobile-foreground'))
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(usePhonePush.getState().permission).toBe('granted')
+    expect(server.stored.has('mycel.phonePush.denied')).toBe(false)
+  } finally { server.restore() }
+})
+
+test('no question when push is off on this server, the person turned it off, or the OS said no', async () => {
+  for (const [over, permission] of [[{ native: { available: false, deviceId: null, gateway: null } }, 'undetermined'], [{ optedOut: true }, 'undetermined'], [{}, 'denied']] as const) {
+    const server = pushServer(over)
+    try {
+      handler = withPermission(permission)
+      win.mycelMobile = { ...config, capabilities: today }
+      setMobilePushSession(`user:quiet-${JSON.stringify(over)}`)
+      await settle(() => server.calls.length > 0 && (messages.length > 0 || !!(over as { native?: unknown }).native))
+      await settle()
+      expect(usePhonePush.getState().ask).toBe(false)
+      expect(messages.filter(m => m.type === 'push-token')).toHaveLength(0)
+    } finally { server.restore(); messages = [] }
+  }
+})
+
+test('[나중에]: away for a week, then for good after the second time', () => {
+  const now = Date.UTC(2026, 10, 5)
+  expect(laterHides(null, now)).toBe(false)
+  expect(laterHides(JSON.stringify({ n: 1, at: now }), now + LATER_MS - 1)).toBe(true)
+  expect(laterHides(JSON.stringify({ n: 1, at: now }), now + LATER_MS)).toBe(false)
+  expect(laterHides(JSON.stringify({ n: 2, at: now }), now + 365 * LATER_MS)).toBe(true)
+  expect(laterHides('not json', now)).toBe(false)
+  const server = pushServer()
+  try {
+    usePhonePush.setState({ ask: true })
+    askLater(now); expect(usePhonePush.getState().ask).toBe(false)
+    askLater(now + LATER_MS)
+    expect(JSON.parse(server.stored.get('mycel.phonePush.later')!)).toEqual({ n: 2, at: now + LATER_MS })
+  } finally { server.restore() }
+})
+
+test('appearance-v1: the page tells the app its look when the bridge is ready and when the theme changes', async () => {
+  const root = { classList: { contains: (c: string) => c === 'dark' && dark } }
+  let dark = true
+  Object.defineProperty(doc, 'documentElement', { configurable: true, value: root })
+  try {
+    win.mycelMobile = { ...config, capabilities: [...MOBILE_CAPABILITIES, APPEARANCE_CAPABILITY] }
+    win.dispatchEvent(new Event('mycel:mobile-ready'))
+    await settle(() => messages.some(m => m.type === 'appearance'))
+    const looks = () => messages.filter(m => m.type === 'appearance').map(m => ({ dark: (m as { dark: boolean }).dark, system: (m as { system?: boolean }).system }))
+    expect(looks()).toEqual([{ dark: true, system: true }])
+    dark = false; win.dispatchEvent(new Event('mycel:theme'))
+    await settle(() => looks().length > 1)
+    expect(looks()).toEqual([{ dark: true, system: true }, { dark: false, system: true }])
+    // a session reset (sign-in) right after the look was asked for: the look is sent again with the new generation
+    messages = []
+    setMobileSession('user:appearance-after-reset')
+    await settle(() => messages.some(m => m.type === 'appearance'))
+    expect(messages.map(m => m.type)).toEqual(['session-reset', 'appearance'])
+    expect(messages[1]!.generation).toBe(messages[0]!.generation + 1)
+    messages = []; win.mycelMobile = { ...config } // an app without it gets nothing
+    win.dispatchEvent(new Event('mycel:theme')); await settle()
+    expect(messages).toHaveLength(0)
+  } finally { Reflect.deleteProperty(doc, 'documentElement') }
 })
