@@ -11,6 +11,9 @@ export async function reset(page: Page, o: { setup?: boolean; teamLocale?: 'ko' 
 export function watchConsole(page: Page) {
   const errors: string[] = []
   page.on('console', (m) => {
+    // the demo's GET /api/demo is a 404 on every server that is not a demo (the sign-in page asks each server once,
+    // web/src/components/demo/Demo.tsx): the browser logs it, and it is no error of the page
+    if (m.type() === 'error' && /status of 404/.test(m.text()) && /\/api\/demo$/.test(m.location().url)) return
     if (m.type() === 'error') errors.push(m.text())
   })
   page.on('pageerror', (e) => errors.push(String(e)))
