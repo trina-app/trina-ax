@@ -5,7 +5,7 @@ import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
-import { Check, ChevronRight, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
+import { Check, ChevronRight, Copy, Download, FileText, ImageOff, ExternalLink } from 'lucide-react'
 import { createContext, memo, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
@@ -13,7 +13,7 @@ import rehypeKatex from 'rehype-katex'
 import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { fileUrl, saveBlob, startDownload } from '../lib/api'
+import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown } from '../lib/markdown'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
@@ -233,24 +233,24 @@ const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]
 const OpenableFiles = createContext<ReadonlySet<string> | null>(null)
 const openableOk = (set: ReadonlySet<string> | null, path: string) => !set || set.has(path.replace(/^\/+|\/+$/g, ''))
 
-/** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
- *  too, which shows the "can't be previewed" notice and a download button. It sits in the sentence like a word: no
- *  taller than the text's line (no vertical margin or padding, a 20px line in a 28px one), so the line it is on keeps
- *  the paragraph's spacing; a long name wraps inside it only when it cannot fit a line of its own. */
+/** A file the AI made or mentioned: a link in the sentence, with a small file icon at the text's height, that opens the
+ *  preview panel (which has the download; a file without a viewer shows the "can't be previewed" notice and a
+ *  download button there). No frame, divider or button of its own: it reads like a word and wraps like one. */
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
   if (!openableOk(useContext(OpenableFiles), path)) return <span data-testid="team-file-text">{children}</span>
   const canPreview = previewKind(path) !== null
   return (
-    <span className="not-prose inline-flex max-w-full items-stretch overflow-hidden rounded-md border border-line bg-surface align-middle text-[0.9em] leading-5 font-medium text-ink" data-testid="team-file-chip">
-      <button type="button" onClick={() => openTeamFile(path, at)} className="inline-flex min-w-0 items-center gap-1 px-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}>
-        {canPreview ? <Eye size={13} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={13} className="shrink-0 text-accent-text" aria-hidden />}
-        <span className="min-w-0 [overflow-wrap:anywhere]">{children}</span>
-      </button>
-      <button type="button" onClick={() => startDownload(fileUrl(path), baseName(path))} className="border-l border-line px-1.5 text-muted hover:bg-hover" aria-label={t('common.download')} title={t('common.download')}>
-        <Download size={12} aria-hidden />
-      </button>
-    </span>
+    <button
+      type="button"
+      onClick={() => openTeamFile(path, at)}
+      className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text"
+      title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}
+      data-testid="team-file-chip"
+    >
+      <FileText className="mr-0.5 inline-block size-[0.95em] shrink-0 align-[-0.125em]" aria-hidden />
+      {children}
+    </button>
   )
 }
 
