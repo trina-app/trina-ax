@@ -2953,6 +2953,7 @@ export const en: Record<MessageKey, string> = {
   "skillShare.asks": "Teammates are asked:",
   "skillShare.files": "Files it uses:",
   "skillShare.latest": "the newest {kind} in the {folder} folder",
+  "skillShare.folder": "the photos in the {folder} folder",
   "skillShare.latestFile": "file",
   "skillShare.share": "Share with the team",
   "skillShare.retry": "Try again",

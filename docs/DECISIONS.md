@@ -8165,3 +8165,26 @@ chat tools); the hosting side only hands over the image key.
 - **After the result**: S's bar now reads "마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요"
   [팀 스킬로 저장]. The skill draft's instructions say that work made from the company's own material asks the topic
   and the channel and names the brand images folder (the folder of several pictures, not each picture).
+  A folder of pictures the run picked from, named with `"latest": false`, stays the whole folder (`draftFiles`; the card
+  says "마케팅팀 이미지 폴더의 사진"): as "the newest file" of it, the team skill would read one picture next time.
+- **Checked on 2026-11-05** with `bun run dev` (Claude Code login, the local relay), through the API and once in a
+  browser at 390 px, on five teams: a Korean B2B SaaS (8 pictures, the purple logo colour), a café roastery
+  on imweb (8 pictures, its charcoal), a shipbuilding-parts maker (5 pictures,
+  SVG logo so none, no colour), an English SaaS on an English team (the English skill and folders), and a
+  fictional 20-page PDF deck with no website (three photos made). 4 rounds of the skill, each card looked at full size;
+  the answers took 70–170 s; no card overflowed its square; numbers were checked against the material. 10 brand photos
+  were tried in all and 7 made (0.15 credits each) plus 1.39 credits of model comparison: 2.44 credits.
+- **Not done**: a PDF or PNG of the cards (above); the AI still sometimes puts a customer's portrait on a card about the
+  product when a site's pictures are mostly case studies; a draft started from Admin › Team settings collects pictures
+  that are placed only by a later first result; staged pictures of drafts that never reach a first result stay in
+  the data folder; Home's meeting notes line (`readNotesHint`) is left unused; the Go hosting daemon side of
+  `hosted-image-key-set` beyond mycel-ctl (private).
+- Tests: `tests/unit/b-onboarding-cardnews.test.ts` (what a page offers, colour ranking, pictures by bytes, profile
+  colours and the facts line, 회사 소개.md, a hostile page in one pass; with the real web_fetch and a stand-in photo
+  service: the collected pictures, the CDN picture, never another site's style sheet; the first result owner-only,
+  placed once, 회사 소개.md kept, files checked; an old row gets "카드뉴스" once; brand_image only in a first-result
+  chat with the key, the prompt rules, a failed job given back, four a team; the picture folder of a team skill),
+  `tests/unit/c-onboarding-image-key.test.ts` (the hosted key: stored encrypted, removed, refused off hosted, never in
+  output, export, restore, rekey, strict stdin), `cloud-protocol` vectors, mycel-ctl `TestTenantHostedImageKeySet`,
+  `b-onboarding-draft` and `b-onboarding-team-space` (the `assets` field, the third general skill),
+  `web/test/unit/welcome.test.tsx`, `profile-step.test.tsx`, `web/test/e2e/welcome-notes.spec.ts`.

@@ -278,3 +278,14 @@ describe('a hostile page does not stall the server', () => {
     expect(a.images.length).toBeLessThanOrEqual(1)
   })
 })
+
+describe('the team skill made of a card news answer', () => {
+  test('the brand images folder is named as a whole (never "the newest picture"); a dated file still means the newest', async () => {
+    const { draftFiles } = await import('../../server/src/onboarding/skill-draft')
+    const used = ['groups/acme/Brand/Company intro.md', 'groups/acme/Brand/Images/logo.png', 'groups/acme/Brand/Images/website-1.jpg']
+    expect(draftFiles([{ path: 'groups/acme/Brand/Company intro.md', latest: false }, { path: 'groups/acme/Brand/Images', latest: false }], used))
+      .toEqual([{ path: 'groups/acme/Brand/Company intro.md', latest: false }, { path: 'groups/acme/Brand/Images', latest: false }])
+    // a folder of documents named as it is stays "the latest" (S)
+    expect(draftFiles([{ path: 'groups/acme/Brand', latest: false }], used)).toEqual([{ path: 'groups/acme/Brand', latest: true }])
+  })
+})

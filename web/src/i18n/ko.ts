@@ -2952,6 +2952,7 @@ export const ko = {
   "skillShare.asks": "팀원에게 물어볼 것:",
   "skillShare.files": "쓰는 자료:",
   "skillShare.latest": "{folder} 폴더의 가장 최근 {kind}",
+  "skillShare.folder": "{folder} 폴더의 사진",
   "skillShare.latestFile": "파일",
   "skillShare.share": "팀에 공유",
   "skillShare.retry": "다시 정리하기",

@@ -27,8 +27,9 @@ const notesNames = new Set((Object.values(NOTES_FOLDER) as string[]).map((n) => 
 export function fileLabel(f: SkillDraftFile, t: ReturnType<typeof useT>): string {
   const parts = f.path.split('/')
   const name = parts.at(-1) ?? f.path
-  if (!f.latest) return name
   const folder = parts[0] === 'groups' && parts.length >= 3 ? `${parts[1]} ${name}` : name
+  // a folder of pictures, all of it (the brand images folder: docs/DECISIONS.md "N")
+  if (!f.latest) return /\.[a-z0-9]{1,6}$/i.test(name) ? name : t('skillShare.folder', { folder })
   const kind = f.like || (notesNames.has(name.normalize('NFC')) ? name : t('skillShare.latestFile'))
   return t('skillShare.latest', { folder, kind })
 }

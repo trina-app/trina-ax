@@ -2953,6 +2953,7 @@ export const id: Record<MessageKey, string> = {
   "skillShare.asks": "Yang ditanyakan ke rekan tim:",
   "skillShare.files": "Bahan yang dipakai:",
   "skillShare.latest": "{kind} terbaru di folder {folder}",
+  "skillShare.folder": "foto di folder {folder}",
   "skillShare.latestFile": "file",
   "skillShare.share": "Bagikan ke tim",
   "skillShare.retry": "Coba susun lagi",

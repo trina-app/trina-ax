@@ -2913,6 +2913,7 @@ export const es: Record<MessageKey, string> = {
   "skillShare.asks": "Se pregunta al equipo:",
   "skillShare.files": "Archivos que usa:",
   "skillShare.latest": "el {kind} más reciente de la carpeta {folder}",
+  "skillShare.folder": "las fotos de la carpeta {folder}",
   "skillShare.latestFile": "archivo",
   "skillShare.share": "Compartir con el equipo",
   "skillShare.retry": "Intentar de nuevo",

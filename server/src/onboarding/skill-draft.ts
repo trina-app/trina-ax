@@ -160,6 +160,8 @@ const parentOf = (p: string) => p.slice(0, p.lastIndexOf('/'))
 /** "쓰는 자료": only the team files the run used (or their folders), never a personal folder, skills/ or .system/. A dated
  * file (or one the model marks `latest`: this week's notes) is its folder and "the latest"; a template stays itself, even
  * in the notes folder the welcome step puts every file in. */
+const PICTURE = /\.(png|jpe?g|webp|gif|avif)$/i
+
 export function draftFiles(raw: unknown, used: readonly string[]): SkillDraftFile[] {
   const out: SkillDraftFile[] = []
   const add = (f: SkillDraftFile) => {
@@ -183,6 +185,10 @@ export function draftFiles(raw: unknown, used: readonly string[]): SkillDraftFil
       const like = dated ? nameStem(base) : ''
       if (dir && (latest || dated)) add({ path: dir, latest: true, ...(like ? { like } : {}) })
       else add({ path: p, latest: false })
+    } else if (folders.has(p) && item && typeof item === 'object' && (item as { latest?: unknown }).latest === false && used.filter((u) => parentOf(u) === p).every((u) => PICTURE.test(u))) {
+      // a folder of pictures the run picked from (the brand images folder, docs/DECISIONS.md "N"): all of it, so the
+      // pictures added there later are used too; never "the newest picture"
+      add({ path: p, latest: false })
     } else if (folders.has(p)) {
       // the folder named as it is: the kind of the run's dated files in it, when they are of one kind
       const stems = new Set(used.filter((u) => parentOf(u) === p && DATED.test(path.posix.basename(u))).map((u) => nameStem(path.posix.basename(u))))

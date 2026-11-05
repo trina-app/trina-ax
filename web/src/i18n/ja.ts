@@ -2913,6 +2913,7 @@ export const ja: Record<MessageKey, string> = {
   "skillShare.asks": "メンバーに聞くこと:",
   "skillShare.files": "使う資料:",
   "skillShare.latest": "{folder} フォルダーの最新の{kind}",
+  "skillShare.folder": "{folder} フォルダーの写真",
   "skillShare.latestFile": "ファイル",
   "skillShare.share": "チームに共有",
   "skillShare.retry": "もう一度まとめる",
