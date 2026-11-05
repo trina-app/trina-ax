@@ -2976,6 +2976,7 @@ export const id: Record<MessageKey, string> = {
   "slack.err.socket_mode_off": "Socket Mode mati di aplikasi Slack. Nyalakan lagi di pengaturan aplikasi.",
   "slack.err.unreachable": "Tidak bisa menghubungi Slack sekarang. Terus mencoba.",
   "slack.err.key_unsafe": "Server tidak bisa memakai folder kuncinya. Minta pengelola server memeriksanya.",
+  "slack.err.app_mismatch": "Kedua token berasal dari aplikasi Slack yang berbeda. Masukkan Bot User OAuth Token dan App-Level Token dari aplikasi yang sama.",
   "slack.err.unknown": "Ada masalah pada koneksi Slack. Coba simpan token lagi.",
   "slack.admin.title": "Slack",
   "slack.admin.desc": "Orang bertanya ke @{product} di Slack atau lewat DM; jawabannya memakai izin orang yang tertaut.",

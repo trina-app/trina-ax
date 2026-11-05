@@ -2976,6 +2976,7 @@ export const en: Record<MessageKey, string> = {
   "slack.err.socket_mode_off": "Socket Mode is off in the Slack app. Turn it on again in the app settings.",
   "slack.err.unreachable": "Cannot reach Slack right now. It keeps trying.",
   "slack.err.key_unsafe": "The server cannot use its key folder. Ask whoever runs the server to check it.",
+  "slack.err.app_mismatch": "The two tokens belong to different Slack apps. Enter the Bot User OAuth Token and the App-Level Token of the same app.",
   "slack.err.unknown": "Something is wrong with the Slack connection. Try saving the tokens again.",
   "slack.admin.title": "Slack",
   "slack.admin.desc": "People ask @{product} in Slack or in a DM; it answers with the linked person's own permissions.",

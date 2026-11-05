@@ -18,7 +18,7 @@ const STATE: Record<SlackAdmin['state'], { key: MessageKey; tone: 'neutral' | 'o
 const ERRORS: Record<SlackErrorCode, MessageKey> = {
   invalid_auth: 'slack.err.invalid_auth', token_revoked: 'slack.err.invalid_auth', missing_scope: 'slack.err.missing_scope',
   not_bot_token: 'slack.err.invalid_auth', not_app_token: 'slack.err.not_app_token', enterprise_install: 'slack.err.unknown',
-  workspace_changed: 'slack.err.unknown', socket_mode_off: 'slack.err.socket_mode_off', unreachable: 'slack.err.unreachable',
+  workspace_changed: 'slack.err.unknown', socket_mode_off: 'slack.err.socket_mode_off', app_mismatch: 'slack.err.app_mismatch', unreachable: 'slack.err.unreachable',
   ratelimited: 'slack.err.unreachable', key_unsafe: 'slack.err.key_unsafe', unknown: 'slack.err.unknown',
 }
 

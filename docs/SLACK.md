@@ -17,7 +17,8 @@ Decisions: [DECISIONS.md](DECISIONS.md) "Slack 커넥터".
 3. **Make the app-level token.** *Basic Information › App-Level Tokens › Generate Token and Scopes*, scope
    `connections:write`. Copy it (`xapp-…`).
 4. **Paste both** in Admin › Slack and press *Check and save*. The server checks them with Slack (`auth.test`,
-   `apps.connections.open`) and the scopes the bot token has; a wrong token says why. Then **Turn on**.
+   `apps.connections.open`, `bots.info`): the scopes the bot token has and that both tokens are of the same app; a wrong
+   token says why. Then **Turn on**.
 5. **Invite the app** to the channels where people may ask it: `/invite @trina-ax`. Without this Slack does not tell
    the app about mentions there.
 
@@ -32,11 +33,12 @@ Slack. Saving tokens of another workspace removes every link of the old one.
 
 - **The first time**, the app answers only you ("Only visible to you") with *Connect account*. The link opens the app
   (sign in if needed), shows the Slack account and your account side by side, and links them when you press *Link*. Only
-  link a Slack account that is yours: whoever uses it can then ask with your permissions. Then ask again.
+  link a Slack account that is yours: whoever uses it can then ask with your permissions. Slack then says which account
+  it is linked to, and every "working…" names the account it answers as. Then ask again.
 - **In a channel** the answer is shown to you only, with *Post to channel*. Pressing it posts the answer to the thread,
   "Asked by <you>", without the steps, the files it read or the link to your chat. Each answer can be posted once, and
   only by the person who asked.
-- **In a DM** the answer comes in the thread of your message.
+- **In a DM** the answer comes in the thread of your message (a new message, so Slack notifies you; "working…" goes).
 - **Follow-ups**: mention the app again in the same thread (or reply in the DM thread); they continue the same chat.
   A new thread is a new chat.
 - **Unlink** in Settings › App connectors › Slack. A disabled or deleted account is unlinked at once.
@@ -58,12 +60,12 @@ command.
 | What | Limit |
 | --- | --- |
 | Workspaces | one per team server; an organization-wide (Enterprise Grid) install is refused |
-| Who can ask | linked people of the installed workspace; people of another workspace in a shared channel (Slack Connect) and bots are not answered |
+| Who can ask | linked people of the installed workspace; people of another workspace in a shared channel (Slack Connect) and bots are not answered; no link while Slack cannot say who is asking |
 | One-time link | 10 minutes, used once, the newest one only, 10 per Slack account per hour, one a minute |
 | Links | one Slack account per person, one person per Slack account |
 | What the AI gets | the question's text only: no earlier messages of the thread, no files |
 | Answer in Slack | shortened to about 11,000 characters, with a link to the whole answer in the chat; posted to a thread: about 29,000 |
-| Waiting for an answer | 2 hours; a turn that waits for a card (a question of the AI, a confirmation) tells the asker to answer it in the app |
+| Waiting for an answer | 2 hours, then the asker is told (the chat keeps a later answer); a turn that waits for a card (a question of the AI, a confirmation) tells the asker to answer it in the app |
 | Ephemeral messages | Slack does not keep them (they are gone after a reload) and delivers them only to people in the channel; the chat in the app keeps the answer |
 
 Slack sends an event again when it is not acknowledged within 3 seconds: the server acknowledges each one at once and
@@ -77,10 +79,18 @@ after 1, 2, 4 … seconds (at most a minute).
   their own key directory `<secrets>/integrations/slack` (owned by the server account, 0700). No response, log line,
   audit entry, engine or chat ever gets them; the screen only knows whether they are saved.
 - Who asked comes from Slack's own event (workspace, organization and user ids), never from the message text. Socket
-  Mode needs no request signature; every envelope is checked against strict shapes, the workspace and the app id.
+  Mode needs no request signature; every envelope is checked against strict shapes, the workspace and the app id saved
+  with the tokens (nothing is handled while the app id is unknown).
+- An answer goes out only while the Slack account is still linked to the person it ran as; unlinked or disabled
+  meanwhile, it stays in the chat only. Answers are written in Slack's markup with `&`, `<`, `>` written out, so they
+  never mention `@here`, `@channel` or a person, and a link whose text looks like an address shows the real address.
+- The connection is pinged every 30 seconds; one that stops answering (the Mac slept, the network dropped it) is opened
+  again.
 - A link is bound to the Slack account it was sent to. It cannot link another Slack account, and an account already
-  linked elsewhere cannot take it. The page names both accounts, so a person who was sent somebody else's link can see
-  that the Slack account is not theirs.
+  linked elsewhere cannot take it. The page names both accounts (the Slack display name with the full name, the user
+  name and the id, since a display name is anyone's choice), so a person who was sent somebody else's link can see that
+  the Slack account is not theirs. Nothing proves in the browser that the person who confirms owns the Slack account
+  (no "Sign in with Slack" yet): see DECISIONS.md.
 - Audit log: `slack.tokens`, `slack.enabled`, `slack.disabled`, `slack.removed`, `slack.linked`, `slack.unlinked`,
   `slack.posted`.
 

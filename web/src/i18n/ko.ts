@@ -2975,6 +2975,7 @@ export const ko = {
   "slack.err.socket_mode_off": "Slack 앱에서 Socket Mode가 꺼져 있어요. 앱 설정에서 다시 켜 주세요.",
   "slack.err.unreachable": "Slack에 연결하지 못하고 있어요. 다시 시도하고 있어요.",
   "slack.err.key_unsafe": "서버의 키 폴더를 쓸 수 없어요. 서버를 운영하는 사람에게 확인을 부탁해 주세요.",
+  "slack.err.app_mismatch": "두 토큰이 서로 다른 Slack 앱의 것이에요. 같은 앱의 Bot User OAuth Token과 App-Level Token을 넣어 주세요.",
   "slack.err.unknown": "Slack 연결에 문제가 있어요. 토큰을 다시 저장해 보세요.",
   "slack.admin.title": "Slack",
   "slack.admin.desc": "Slack에서 @{product}를 부르거나 DM을 보내면, 계정을 연결한 사람의 권한으로 답해요.",

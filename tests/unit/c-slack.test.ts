@@ -92,6 +92,11 @@ describe('setup (the owner)', () => {
     fake.scopes = ['app_mentions:read', 'chat:write', 'im:history', 'users:read']
     const other = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken, 'integration.secret'), appToken: await seal(fake.appToken) })
     expect(other.status).toBe(400)
+    // the app-level token of another app than the bot token's
+    fake.socketAppId = 'A0OTHERAPP'
+    const mixed = await call('dana', 'PUT', '/api/admin/slack/tokens', { botToken: await seal(fake.botToken), appToken: await seal(fake.appToken) })
+    expect(mixed.json.error.params.reason).toBe('app_mismatch')
+    delete fake.socketAppId
     expect(h.ctx.db.query('SELECT count(*) n FROM slack_config').get()).toEqual({ n: 0 })
   })
 
@@ -150,7 +155,8 @@ describe('linking', () => {
     expect((await call('bob', 'POST', '/api/slack/link/confirm', { token: aliceToken })).status).toBe(404)
     expect((await call('bob', 'GET', '/api/slack/me')).json.link).toBeNull()
     // Slack is told, to alice only, where she asked
-    expect(await waitFor(() => ephemeralsTo('U0ALICE').some((c) => /is connected/.test(c.args.text ?? '')))).toBe(true)
+    // the Slack account is told which account it now asks as
+    expect(await waitFor(() => ephemeralsTo('U0ALICE').some((c) => (c.args.text ?? '').includes('is connected to the Trina AX account Alice Kim (@alice)')))).toBe(true)
     expect(h.ctx.db.query("SELECT target, detail FROM audit_log WHERE action = 'slack.linked'").all()).toEqual([{ target: 'alice', detail: JSON.stringify({ slackUser: 'U0ALICE', team: 'T0ACME' }) }])
   })
 
@@ -198,6 +204,7 @@ describe('asking', () => {
     // "working…" to alice only, with the link to the chat
     const working = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => /Working/.test(c.args.text ?? '')))
     expect(blocksOf(working!)).toContain(`${h.url}/c/${chatId}`)
+    expect(blocksOf(working!)).toContain('Answering as Alice Kim (@alice).')
     const answer = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => blocksOf(c).includes('Refunds take 7 days.')), { timeoutMs: 30_000 })
     expect(answer).toBeTruthy()
     expect(answer!.args.channel).toBe(C)
@@ -254,15 +261,20 @@ describe('asking', () => {
     expect(msgs.length).toBe(4)
   })
 
-  test('in a DM the answer replaces the working message in the DM thread', async () => {
+  test('in a DM the answer comes as a new message in the DM thread and the working message goes', async () => {
     const ts = nextTs()
-    fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: say('Hello from the DM.'), ts, channel: 'D0ALICE', event_ts: ts })
+    fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: say('Hello from the DM. &lt;!here&gt; [https://bank.example](https://evil.example)'), ts, channel: 'D0ALICE', event_ts: ts })
     const working = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0ALICE'))
     expect(working!.args.thread_ts).toBe(ts)
-    const update = await waitFor(() => fake.of('chat.update').find((c) => c.args.channel === 'D0ALICE' && blocksOf(c).includes('Hello from the DM.')), { timeoutMs: 30_000 })
-    expect(update).toBeTruthy()
+    const answer = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0ALICE' && blocksOf(c).includes('Hello from the DM.')), { timeoutMs: 30_000 })
+    expect(answer!.args.thread_ts).toBe(ts)
     // no button in a DM: it is the asker's own conversation
-    expect(blocksOf(update!)).not.toContain('trina_post')
+    expect(blocksOf(answer!)).not.toContain('trina_post')
+    // nothing in the blocks or the notification text mentions anyone or hides where a link goes
+    expect(answer!.args.text).toContain('&lt;!here&gt;')
+    expect(answer!.args.text).not.toContain('<!here>')
+    expect(blocksOf(answer!)).toContain('https://bank.example (<https://evil.example>)')
+    expect(await waitFor(() => fake.of('chat.delete').some((c) => c.args.channel === 'D0ALICE'))).toBe(true)
     // the bot's own messages and edits in the DM are not questions
     fake.event({ type: 'message', channel_type: 'im', user: 'U0BOT', bot_id: 'B0BOT', text: 'Working on it…', ts: nextTs(), channel: 'D0ALICE' })
     fake.event({ type: 'message', channel_type: 'im', subtype: 'message_changed', user: 'U0ALICE', text: 'x', ts: nextTs(), channel: 'D0ALICE' })
@@ -292,6 +304,31 @@ describe('asking', () => {
     fake.event({ type: 'app_mention', user: 'U0ALICE; DROP', text: '<@U0BOT> hi', ts: nextTs(), channel: C })
     await Bun.sleep(300)
     expect(fake.calls.length).toBe(before)
+  })
+
+  test('an answer is not sent to a Slack account unlinked while it was being written', async () => {
+    const n = fake.calls.length
+    mention('U0ALICE', `@fake ${JSON.stringify({ sleep: 1200 })} ${say('secret plans')}`)
+    const req = await waitFor(() => h.ctx.db.query("SELECT id FROM slack_requests WHERE state = 'waiting'").get() as { id: string } | null, { timeoutMs: 10_000 })
+    const link = h.ctx.db.query("SELECT * FROM slack_links WHERE user_id = 'alice'").get() as Record<string, unknown>
+    h.ctx.db.query("DELETE FROM slack_links WHERE user_id = 'alice'").run()
+    await waitFor(() => (h.ctx.db.query('SELECT state FROM slack_requests WHERE id = ?').get(req!.id) as { state: string }).state !== 'waiting', { timeoutMs: 30_000 })
+    expect((h.ctx.db.query('SELECT state FROM slack_requests WHERE id = ?').get(req!.id) as { state: string }).state).toBe('failed')
+    expect(fake.calls.slice(n).some((c) => JSON.stringify(c.args).includes('secret plans'))).toBe(false)
+    // linked again for the tests after this one
+    h.ctx.db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(link.id as string, 'alice', link.team_id as string, link.enterprise_id as string, link.slack_user_id as string, link.slack_name as string, link.created_at as string)
+  })
+
+  test('no link when Slack cannot say who is asking', async () => {
+    const before = linksTo('U0BOB').length
+    skew = 30 * 60_000
+    fake.failNext['users.info'] = { error: 'internal_error' }
+    const n = ephemeralsTo('U0BOB').length
+    mention('U0BOB', 'hi')
+    await waitFor(() => ephemeralsTo('U0BOB').length > n)
+    skew = 0
+    expect(linksTo('U0BOB').length).toBe(before)
   })
 
   test('Slack refreshes the connection: a new one is opened and events still arrive', async () => {

@@ -8092,6 +8092,25 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
 - **Not in this step:** files, thread context, a slash command, streaming answers (`chat.startStream`), Slack's AI app
   surface (`assistant:write`), Enterprise Grid org installs, more than one workspace, telling the person in the app that
   their account was linked (they confirmed it themselves on the page).
+- **Review (2026-11-05), what changed:** the notification `text` of every message is escaped plain text (it carried the
+  raw Markdown, so `<!channel>` or a disguised link could reach a channel through "Post to channel"); a Markdown link
+  whose text reads like an address is shown as `text (<address>)`, `|` in an address is `%7C`; NUL characters are
+  dropped before conversion (one crashed it after the row was claimed); an answer is sent only while the asker's Slack
+  account is still linked to the person and that person may use the app (`slack_requests.enterprise_id` kept for it);
+  finished answers are taken before waiting ones (20 running turns no longer hold them back); a 30-second ping finds a
+  dead connection; Socket Mode turned off in Slack keeps its reason instead of a reconnect wiping it; no link when
+  `users.info` fails or names another workspace (it failed open); `bots.info` and the socket address's `app_id` must
+  name one app (tokens of two apps are refused, `app_mismatch`), the saved app id is what envelopes must carry and
+  nothing is handled without one; at most `max` sections; DM answers are a new message (notified) and "working…" is
+  deleted; posting from a chat deleted in the app is refused; a stopped connection's late attempt writes no state; the
+  clean-up runs once a minute; two quick link requests make one link; a request past 2 hours tells the asker.
+- **"Send the victim my link" stays a risk to watch.** The link binds the Slack account it was sent to, and the page
+  names that account (display name, full name, user name, id) and the signed-in person, but a person who does not read
+  it can still link someone else's Slack account to themselves (the other one then asks as them), or link their own
+  account to a Slack account that is not theirs. Two more signals were added: Slack tells the linked Slack account which
+  account it now asks as, and every "working…" names it. The fix that proves ownership is Sign in with Slack (OpenID
+  Connect) on the link page, or matching the Slack e-mail (`users:read.email`) with the account's; both need more than
+  the minimal scopes and a redirect address the owner registers, so they are left for the next step.
 - Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
   for another purpose; the link prompt to the asker only; both names, used once, expiry, cancel, linked elsewhere;
   Slack Connect; a turn as the linked person answered ephemerally with the button; posting once, not by someone else; a

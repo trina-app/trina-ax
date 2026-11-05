@@ -18,7 +18,7 @@ beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
 afterAll(() => removeDom())
 beforeEach(() => {
   calls = []
-  preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false }
+  preview = { workspace: 'Acme', slack: { userId: 'U0ALICE', name: 'alice.slack', realName: 'Alice in Slack', handle: 'alice' }, me: { name: 'Bob Lee', username: 'bob' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), linkedElsewhere: false }
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://team.localhost')
     calls.push({ method: init?.method ?? 'GET', path: url.pathname, url: url.href, raw: typeof init?.body === 'string' ? init.body : '' })
@@ -38,6 +38,7 @@ describe('the Slack link page', () => {
     await m.until(() => m.find('slack-link-slack'), 'the accounts')
     expect(m.get('slack-link-slack').textContent).toContain('alice.slack')
     expect(m.get('slack-link-slack').textContent).toContain('U0ALICE')
+    expect(m.get('slack-link-slack').textContent).toContain('Alice in Slack · @alice')
     expect(m.get('slack-link-me').textContent).toContain('Bob Lee')
     expect(m.get('slack-link-me').textContent).toContain('@bob')
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /api/slack/link/preview'])

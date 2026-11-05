@@ -50,7 +50,11 @@ export default function SlackLink() {
           <dl className="space-y-3 rounded-xl border border-line p-4 text-sm">
             <div>
               <dt className="text-muted">{t('slack.link.slackAccount', { workspace: info.workspace })}</dt>
-              <dd className="break-words font-medium" data-testid="slack-link-slack">{info.slack.name ?? info.slack.userId} <span className="text-xs text-faint">{info.slack.userId}</span></dd>
+              <dd className="break-words" data-testid="slack-link-slack">
+                <span className="font-medium">{info.slack.name ?? info.slack.userId}</span>
+                {/* every name is the person's own choice: the full name, the user name and the id are shown with it */}
+                <span className="mt-0.5 block text-xs text-muted">{[info.slack.realName && info.slack.realName !== info.slack.name ? info.slack.realName : null, info.slack.handle ? `@${info.slack.handle}` : null, info.slack.userId].filter(Boolean).join(' · ')}</span>
+              </dd>
             </div>
             <div>
               <dt className="text-muted">{t('slack.link.meAccount')}</dt>

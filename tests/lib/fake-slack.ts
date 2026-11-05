@@ -1,5 +1,5 @@
 // A stand-in for Slack (tests of the Slack connector, docs/SLACK.md): the Web API methods the connector calls
-// (auth.test, apps.connections.open, users.info, chat.postMessage, chat.postEphemeral, chat.update), a Socket Mode
+// (auth.test, apps.connections.open, bots.info, users.info, chat.postMessage, chat.postEphemeral, chat.update, chat.delete), a Socket Mode
 // WebSocket that says hello and records every acknowledgement, and response URLs. Nothing reaches the real Slack.
 import type { ServerWebSocket } from 'bun'
 
@@ -12,6 +12,8 @@ export interface FakeSlack {
   team: { id: string; name: string }
   botUserId: string
   appId: string
+  /** the app the socket address names (another app's app-level token) */
+  socketAppId?: string
   users: Record<string, FakeUser>
   calls: Call[]
   acks: { id: string; ms: number }[]
@@ -100,7 +102,10 @@ export function startFakeSlack(): FakeSlack {
           if (bot) return json({ ok: false, error: 'not_allowed_token_type' })
           if (!app) return json({ ok: false, error: 'invalid_auth' })
           fake.opens++
-          return json({ ok: true, url: `ws://${u.host}/link?ticket=${fake.opens}` })
+          return json({ ok: true, url: `ws://${u.host}/link?ticket=${fake.opens}&app_id=${fake.socketAppId ?? fake.appId}` })
+        case 'bots.info':
+          if (!bot) return json({ ok: false, error: 'invalid_auth' })
+          return json({ ok: true, bot: { id: args.bot, app_id: fake.appId, user_id: fake.botUserId, name: 'trina-ax' } })
         case 'users.info': {
           if (!bot) return json({ ok: false, error: 'invalid_auth' })
           const x = fake.users[args.user ?? '']
@@ -110,6 +115,7 @@ export function startFakeSlack(): FakeSlack {
         case 'chat.postMessage': return bot ? json({ ok: true, channel: args.channel, ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.postEphemeral': return bot ? json({ ok: true, message_ts: nextTs() }) : json({ ok: false, error: 'invalid_auth' })
         case 'chat.update': return bot ? json({ ok: true, channel: args.channel, ts: args.ts }) : json({ ok: false, error: 'invalid_auth' })
+        case 'chat.delete': return bot ? json({ ok: true, channel: args.channel, ts: args.ts }) : json({ ok: false, error: 'invalid_auth' })
       }
       return json({ ok: false, error: 'unknown_method' })
     },

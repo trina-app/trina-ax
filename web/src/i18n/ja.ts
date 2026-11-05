@@ -2936,6 +2936,7 @@ export const ja: Record<MessageKey, string> = {
   "slack.err.socket_mode_off": "SlackアプリでSocket Modeがオフになっています。アプリの設定でオンにしてください。",
   "slack.err.unreachable": "現在Slackに接続できません。再試行を続けています。",
   "slack.err.key_unsafe": "サーバーのキーフォルダーを使用できません。サーバーの管理者に確認を依頼してください。",
+  "slack.err.app_mismatch": "2つのトークンが別々のSlackアプリのものです。同じアプリのBot User OAuth TokenとApp-Level Tokenを入力してください。",
   "slack.err.unknown": "Slackとの接続に問題があります。トークンを保存し直してください。",
   "slack.admin.title": "Slack",
   "slack.admin.desc": "Slackで@{product}をメンションするかDMを送ると、連携した本人の権限で回答します。",

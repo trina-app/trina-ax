@@ -15,7 +15,7 @@ import { SealedSecret } from './credentials'
 export const SlackState = z.enum(['off', 'connecting', 'connected', 'error'])
 export type SlackState = z.infer<typeof SlackState>
 /** reason codes only (never Slack's own text): the screen puts them in the reader's words */
-export const SlackErrorCode = z.enum(['invalid_auth', 'token_revoked', 'missing_scope', 'not_bot_token', 'not_app_token', 'enterprise_install', 'workspace_changed', 'socket_mode_off', 'unreachable', 'ratelimited', 'key_unsafe', 'unknown'])
+export const SlackErrorCode = z.enum(['invalid_auth', 'token_revoked', 'missing_scope', 'not_bot_token', 'not_app_token', 'enterprise_install', 'workspace_changed', 'socket_mode_off', 'app_mismatch', 'unreachable', 'ratelimited', 'key_unsafe', 'unknown'])
 export type SlackErrorCode = z.infer<typeof SlackErrorCode>
 
 export const SlackWorkspace = z.object({ teamId: z.string(), name: z.string(), url: z.string().nullable() })
@@ -60,7 +60,9 @@ export type MySlack = z.infer<typeof MySlack>
 export const SlackLinkBody = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) })
 export const SlackLinkPreview = z.object({
   workspace: z.string(),
-  slack: z.object({ userId: z.string(), name: z.string().nullable() }),
+  /** as Slack's profile says: the display name, the full name and the user name (all set by the person, so the page
+   * shows them together with the id) */
+  slack: z.object({ userId: z.string(), name: z.string().nullable(), realName: z.string().nullable(), handle: z.string().nullable() }),
   /** the person signed in here, who would be linked */
   me: z.object({ name: z.string(), username: z.string() }),
   expiresAt: IsoTime,
