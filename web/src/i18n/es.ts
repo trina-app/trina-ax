@@ -1255,6 +1255,7 @@ export const es: Record<MessageKey, string> = {
   'groups.desc': "Asigne permisos de carpetas a grupos completos.",
   'members.pageDesc': "Las personas de su equipo y sus roles.",
   'members.inviteToTeam': "Invitar al equipo",
+  'members.teamLinkOpen': "Ajustes del enlace…",
   'members.search': "Buscar por nombre, usuario o correo",
   'members.roleAll': "Todos",
   'members.roleFor': "Rol de {name}",

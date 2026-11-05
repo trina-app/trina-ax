@@ -1283,6 +1283,7 @@ export const en: Record<MessageKey, string> = {
   'groups.desc': 'Give folder permissions to whole groups.',
   'members.pageDesc': 'People in your team and their roles.',
   'members.inviteToTeam': 'Invite to team',
+  'members.teamLinkOpen': 'Link settings…',
   'members.search': 'Search by name, username or email',
   'members.roleAll': 'All',
   'members.roleFor': 'Role of {name}',

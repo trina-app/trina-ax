@@ -18,7 +18,9 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   expect((await page.request.post('/__test/skills', { data: { files: [{ path: 'skills/광고-문구.md', name: '광고 문구', description: '광고 문구 세 줄' }] } })).ok()).toBe(true)
   await signIn(page)
   await page.goto('/admin/members')
-  const card = page.getByTestId('team-link-form')
+  // the team link is made in a popup from the header's "Team invite link" button
+  await page.getByTestId('team-link-open').click()
+  const card = page.getByRole('dialog').getByTestId('team-link-form')
   await expect(card).toBeVisible()
   await page.getByTestId('team-link-skill').selectOption('skills/광고-문구.md')
   await page.getByTestId('team-link-create').click()
@@ -60,6 +62,9 @@ test('make the team link, copy the message, join with it, land on the skill; a r
 
   // the admin sees the use; turning the link off makes it say so
   await page.reload()
+  // the page lists the link with its uses; its popup has the details and "turn off"
+  await expect(page.getByTestId('team-link-row')).toContainText('1/20명')
+  await page.getByTestId('team-link-open').click()
   await expect(page.getByTestId('team-link-uses')).toHaveText('1/20명')
   await page.getByTestId('team-link-revoke').click()
   await page.getByRole('dialog').getByRole('button', { name: '링크 끄기' }).click()

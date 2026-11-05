@@ -78,11 +78,55 @@ test('Members: title with the count, one line, Invite; search and the Role filte
   await role.selectOption('all')
   await expect(rows).toHaveCount(4)
 
-  // invites keep their place under the table
-  await expect(page.getByTestId('team-link-card')).toBeVisible()
+  // no inline invite form: no link yet, so no Invite links section either
+  await expect(page.getByTestId('team-link-card')).toHaveCount(0)
+  await expect(page.getByTestId('invite-links')).toHaveCount(0)
   await page.getByTestId('invite-new').click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.keyboard.press('Escape')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('Members: "Team invite link" opens a popup; make, copy, and the page lists it quietly', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await page.goto('/admin/members')
+  const opener = page.getByTestId('team-link-open')
+  await expect(opener).toHaveText(t['teamLink.title'])
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: t['teamLink.title'] })
+  await expect(dialog).toBeVisible()
+  // the same form as before, in the popup: groups, how many, how long, a skill, the member note, Make invite link
+  await expect(dialog.getByTestId('team-link-form')).toBeVisible()
+  await expect(dialog.getByTestId('team-link-uses-input')).toHaveAttribute('placeholder', '20')
+  await dialog.getByTestId('team-link-create').click()
+  // after making it, the popup shows the link with Copy
+  const url = (await dialog.getByTestId('team-link-url').innerText()).trim()
+  expect(url).toMatch(/\/join#t=tl[0-9a-f]+$/)
+  await dialog.getByRole('button', { name: t['teamLink.copyLink'] }).first().click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url)
+  // Done closes it, focus goes back to the button
+  await page.getByTestId('team-link-done').click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+  // the page lists it in a quiet row: uses, Copy, and "…" (settings or turn off)
+  const row = page.getByTestId('team-link-row')
+  await expect(row).toContainText(translate('ko', 'teamLink.uses', { used: 0, max: 20 }))
+  await row.getByRole('button', { name: t['teamLink.copyLink'] }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url)
+  // Esc closes the popup too
+  await row.getByTestId('member-more').click()
+  await page.getByRole('menu').getByTestId('team-link-row-open').click()
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  // "…" › Turn link off asks first, then the row (and the empty section) go away
+  await row.getByTestId('member-more').click()
+  await page.getByRole('menu').getByTestId('team-link-row-revoke').click()
+  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByTestId('team-link-row')).toHaveCount(0)
+  await expect(page.getByTestId('invite-links')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -212,6 +256,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await audit(page, 'members')
     await rowOf(page, 'Bob').getByTestId('member-more').click()
     await audit(page, 'members (menu open)')
+    await page.keyboard.press('Escape')
+    await page.getByTestId('team-link-open').click()
+    await expect(page.getByRole('dialog').getByTestId('team-link-form')).toBeVisible()
+    await audit(page, 'team invite link popup')
     await page.keyboard.press('Escape')
     await page.goto('/admin/groups')
     await expect(page.getByTestId('group-list')).toBeVisible()

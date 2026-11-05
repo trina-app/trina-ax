@@ -1255,6 +1255,7 @@ export const ja: Record<MessageKey, string> = {
   'groups.desc': "グループ全体にフォルダーの権限を付与します。",
   'members.pageDesc': "チームのメンバーとその役割です。",
   'members.inviteToTeam': "チームに招待",
+  'members.teamLinkOpen': "リンクの設定…",
   'members.search': "名前、ユーザー名、メールで検索",
   'members.roleAll': "すべて",
   'members.roleFor': "{name}の役割",

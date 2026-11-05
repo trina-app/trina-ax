@@ -9,7 +9,7 @@
 // and a Role filter, then a quiet table (name · username · role · skills switch · "…"). The owner changes a role right
 // in the row; every other action, and "Folders they see", is in the row's "…". Below the md width each member is a
 // stacked row with the same parts. Invites (the team link and the invite links) stay under the table.
-import { FolderLock, KeyRound, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
+import { FolderLock, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
 import { useId, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -27,12 +27,12 @@ import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
 import { SkillManagerCell, skillsVia, useFolderPeople, useSkillManagers } from './SkillManagers'
-import { AdminPageHeader, Card, CountBadge, Loadable, SearchBox, SecretBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, SearchBox, SecretBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { NewPersonPreview, personViewLink } from './AccessResults'
-import { TeamLinkCard } from '../../components/onboarding/TeamLinkPanel'
+import { TeamLinkDialog } from '../../components/onboarding/TeamLinkPanel'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -61,6 +61,13 @@ export default function Members() {
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
   const navigate = useNavigate()
+  // the team invite link: made and managed in a popup (TeamLinkDialog); the page lists it under the members
+  const teamLink = useLoad(() => api.call(API.getTeamLink))
+  const [teamLinkOpen, setTeamLinkOpen] = useState(false)
+  const revokeTeamLink = async () => {
+    if (!(await confirmDialog({ title: t('teamLink.revokeTitle'), body: t('teamLink.revokeBody'), confirm: t('teamLink.revoke'), danger: true }))) return
+    if (await actOk(() => api.call(API.revokeTeamLink))) await teamLink.reload()
+  }
 
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? '?'
   // a phone: one card per member instead of a squeezed table (the same query as Tailwind's md)
@@ -104,7 +111,8 @@ export default function Members() {
   // an invite is revoked at once, with no confirm dialog: one at a time, a held key does not repeat it, and the focus goes
   // to the list's title (the next row's button is another revoke)
   const invitesTitle = useRef<HTMLHeadingElement>(null)
-  const inviteFocus = useFocusAfterRemove(invites.data, () => invitesTitle.current)
+  // (with no link left the list goes away: then to the Invite button)
+  const inviteFocus = useFocusAfterRemove(invites.data, () => invitesTitle.current ?? document.querySelector<HTMLElement>('[data-testid="invite-new"]'))
   const revoking = useOneAtATime<string>()
   const revoke = (i: Invite) =>
     revoking.run(i.id, async () => {
@@ -165,6 +173,9 @@ export default function Members() {
           <>
             <Button size="sm" onClick={() => setAddOpen(true)}>
               <UserPlus size={14} aria-hidden /> {t('members.add')}
+            </Button>
+            <Button size="sm" onClick={() => setTeamLinkOpen(true)} data-testid="team-link-open">
+              <Link2 size={14} aria-hidden /> {t('teamLink.title')}
             </Button>
             <Button size="sm" variant="primary" onClick={() => setInviteOpen(true)} data-testid="invite-new">
               <Plus size={14} aria-hidden /> {t('members.inviteToTeam')}
@@ -271,19 +282,39 @@ export default function Members() {
 
       <ScheduleReviews />
 
-      <TeamLinkCard />
-
-      <Card title={t('members.invites')} desc={t('members.invitesDesc')} headingRef={invitesTitle}>
-        <Loadable state={invites}>
-          {(list) =>
-            !list.length ? (
-              <p className="text-sm text-faint">{t('members.noInvites')}</p>
-            ) : (
-              <ul className="divide-y divide-line text-sm" data-testid="invite-list">
-                {list.map((i) => {
+      {/* Invite links, quiet and only when there are any: the team link (copy, or "…" to change or turn it off in its
+          popup) and the single-use links (revoke at once). Making a link happens in the popups of the header buttons. */}
+      {(!!teamLink.data?.link || !!invites.data?.length) && (
+        <section className="mb-8" aria-labelledby="invite-links-title" data-testid="invite-links">
+          <h2 id="invite-links-title" ref={invitesTitle} tabIndex={-1} className="text-sm font-semibold">
+            {t('members.invites')}
+          </h2>
+          <OneLine className="mt-0.5 mb-2 text-xs text-muted">{t('members.invitesDesc')}</OneLine>
+          <div className="divide-y divide-line border-y border-line text-sm">
+            {teamLink.data?.link && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5" data-testid="team-link-row">
+                <Link2 size={14} className="shrink-0 text-muted" aria-hidden />
+                <span className="font-medium">{t('teamLink.title')}</span>
+                <span className="min-w-0 flex-1 text-xs text-muted">
+                  {teamLink.data.link.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {t('teamLink.uses', { used: teamLink.data.link.uses, max: teamLink.data.link.maxUses })} ·{' '}
+                  {Date.parse(teamLink.data.link.expiresAt) < Date.now() ? t('members.expired') : t('teamLink.until', { date: formatDateTime(teamLink.data.link.expiresAt, locale) })}
+                </span>
+                {teamLink.data.link.url && <CopyButton text={teamLink.data.link.url} label={t('teamLink.copyLink')} showLabel className="border border-line" />}
+                <MemberMenu
+                  name={t('teamLink.title')}
+                  items={[
+                    { label: t('members.teamLinkOpen'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setTeamLinkOpen(true), testId: 'team-link-row-open' },
+                    { label: t('teamLink.revoke'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void revokeTeamLink(), danger: true, testId: 'team-link-row-revoke' },
+                  ]}
+                />
+              </div>
+            )}
+            {!!invites.data?.length && (
+              <ul className="divide-y divide-line" data-testid="invite-list">
+                {invites.data.map((i) => {
                   const expired = Date.parse(i.expiresAt) < Date.now()
                   return (
-                    <li key={i.id} className="flex flex-wrap items-center gap-2 py-2">
+                    <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">
                       <Badge>{t(`role.${i.role}`)}</Badge>
                       <span className="min-w-0 flex-1 text-xs text-muted">
                         {i.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
@@ -297,10 +328,11 @@ export default function Members() {
                   )
                 })}
               </ul>
-            )
-          }
-        </Loadable>
-      </Card>
+            )}
+          </div>
+        </section>
+      )}
+      {teamLinkOpen && <TeamLinkDialog onClose={() => setTeamLinkOpen(false)} onChange={(r) => teamLink.setData(r)} />}
 
       {inviteOpen && (
         <InviteDialog

@@ -1282,6 +1282,7 @@ export const ko = {
   'groups.desc': '폴더 권한을 그룹 단위로 줄 수 있어요.',
   'members.pageDesc': '팀 사람들과 역할이에요.',
   'members.inviteToTeam': '팀에 초대',
+  'members.teamLinkOpen': '링크 설정',
   'members.search': '이름, 아이디, 이메일로 찾기',
   'members.roleAll': '전체',
   'members.roleFor': '{name}의 역할',

@@ -514,7 +514,8 @@ for (const locale of ['ko', 'en', 'id'] as const) {
         await revoke.click()
         expect((await deleted).status()).toBe(204)
         await expect(row).toHaveCount(0)
-        await expect(page.getByText(t['members.noInvites'], { exact: true })).toBeVisible()
+        // no link left: the quiet Invite links section goes away (no empty card)
+        await expect(page.getByTestId('invite-links')).toHaveCount(0)
         // No stale cancel button remains to send another DELETE; the document was never reloaded.
         await expect(revoke).toHaveCount(0)
         expect(deletes).toBe(rejectFirst ? 2 : 1)

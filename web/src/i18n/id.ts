@@ -1283,6 +1283,7 @@ export const id: Record<MessageKey, string> = {
   'groups.desc': 'Beri izin folder ke satu grup sekaligus.',
   'members.pageDesc': 'Orang di tim Anda dan perannya.',
   'members.inviteToTeam': 'Undang ke tim',
+  'members.teamLinkOpen': 'Pengaturan link…',
   'members.search': 'Cari nama, nama pengguna, atau email',
   'members.roleAll': 'Semua',
   'members.roleFor': 'Peran {name}',

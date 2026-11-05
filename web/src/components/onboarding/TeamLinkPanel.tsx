@@ -18,7 +18,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
 import QrCode from '../QrCode'
-import { Button, Field, Skeleton, confirmDialog, inputCls, useCopy } from '../ui'
+import { Button, Field, Modal, Skeleton, confirmDialog, inputCls, useCopy } from '../ui'
 import { GroupChecks } from '../../pages/admin/people-choices'
 import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
 
@@ -436,20 +436,27 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, starter, seatsLef
   )
 }
 
-/** Admin › Members: the team invite link. A card from 640px (the admin cards' frame); on a phone no frame of its own,
- * only a hairline under it, as the Home goal card (a frame near the screen edge reads as tight). */
-export function TeamLinkCard() {
+/** Admin › Members: the team invite link in a popup (the page's "Team invite link" button). The same panel as before,
+ * so making the link, copying it or its message, changing it and turning it off work exactly as they did on the page;
+ * after "Make invite link" the popup shows the link with its Copy buttons. */
+export function TeamLinkDialog({ onClose, onChange }: { onClose: () => void; onChange?: (r: TeamLinkResponse) => void }) {
   const t = useT()
-  const id = useId()
   return (
-    <section className="mb-6 border-b border-line pb-6 sm:rounded-2xl sm:border sm:bg-surface sm:pb-0" aria-labelledby={id} data-testid="team-link-card">
-      <header className="pb-4 sm:border-b sm:border-line sm:px-4 sm:py-3">
-        <h2 id={id} className="text-sm font-semibold">{t('teamLink.title')}</h2>
-        <OneLine className="mt-0.5 text-xs text-muted">{t('teamLink.desc')}</OneLine>
-      </header>
-      <div className="sm:p-4">
-        <TeamLinkPanel />
+    <Modal
+      open
+      onClose={onClose}
+      title={t('teamLink.title')}
+      width={560}
+      footer={
+        <Button onClick={onClose} data-testid="team-link-done">
+          {t('common.done')}
+        </Button>
+      }
+    >
+      <div data-testid="team-link-card">
+        <OneLine className="mb-4 text-sm text-muted">{t('teamLink.desc')}</OneLine>
+        <TeamLinkPanel onChange={onChange} />
       </div>
-    </section>
+    </Modal>
   )
 }
