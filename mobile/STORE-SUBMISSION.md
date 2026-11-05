@@ -20,12 +20,11 @@ What the owner provides or decides before each store step. Engineering steps and
 
 ## Push in TestFlight / App Store builds
 
-- Deploy the push gateway (push-gateway/README.md): `APNS_PRIVATE_KEY`, `APNS_KEY_ID` (and later
-  `FCM_SERVICE_ACCOUNT`) as secrets, the `BLOCKED` KV namespace id, the custom domain `push.trina.app`. Send one push
-  to a TestFlight phone from the Worker first: Cloudflare does not document HTTP/2 for Worker subrequests, and APNs
-  needs it. If it fails, run `push-gateway/src/bun.ts` behind TLS on a small server at the same address.
-- Team servers need the release that contains migration 240 (`/api/push/devices`); they reach `https://push.trina.app`
-  by default (`MYCEL_PUSH_GATEWAY=''` turns it off).
+- Run the push gateway (push-gateway/README.md): `bun push-gateway/src/bun.ts` behind TLS at `push.trina.app`, with
+  `APNS_PRIVATE_KEY`, `APNS_KEY_ID` (and later `FCM_SERVICE_ACCOUNT`) in its environment. A Cloudflare Worker cannot
+  reach APNs (HTTP/2 only).
+- Team servers need the release with migration 240 (`/api/push/devices`) and `push.gatewayUrl: "https://push.trina.app"`
+  in server.json (or `MYCEL_PUSH_GATEWAY`): phone push is off until then. Owners see it in Settings › Notifications.
 
 ## App Store review (owner)
 
@@ -40,7 +39,7 @@ What the owner provides or decides before each store step. Engineering steps and
   admin. Enter https://qa-test.trina.app on the first screen. Native features: push notifications (asked after sign-in,
   generic text only), the iOS share sheet for downloaded files, the native photo/camera picker for attachments, voice
   input, an offline / cannot-reach screen with retry. Account deletion: Settings › Profile › Delete account (계정 삭제) opens
-  "Request account deletion"; the team owner is notified in the app and deletes the account and the personal files."
+  "Request account deletion"; the team owner is notified in the app and removes the account; the personal files are archived for the owner."
 - **Screenshots**: 6.9-inch iPhone (1320 × 2868 or 1290 × 2796), at least the first screen, a chat, files and
   notifications, with the fictional data. No iPad (iPhone only in v1).
 - Age rating, content rights and export compliance (answered by `ITSAppUsesNonExemptEncryption=false`).

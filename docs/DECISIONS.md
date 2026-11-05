@@ -7966,37 +7966,50 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   installs have none and use production. Android push needs the owner's `google-services.json`
   (`MYCEL_MOBILE_GOOGLE_SERVICES`); without it an Android build logs one line and push stays off.
 - **A tap opens only an id path on the current team** (`/rooms/<id>` style, no scheme, host, `//`, `..`, query or
-  fragment; the same rule as the gateway's `validPushPath`, a test keeps them equal). A notification delivered before
-  the current team was chosen opens nothing, and changing team clears delivered notifications: one phone token can
-  outlive a team switch. In the foreground the notification goes to the list without a banner (the web app is live).
-- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 240, one added column), not a
-  second table. Every event the push service delivers, including codes other branches add, reaches phones through the
+  fragment; the same rule as the gateway's `validPushPath`, a test keeps them equal), and only when the notification's
+  `tag` (the team's device id) is the device the app registered with the current team; a notification delivered before
+  the current team was chosen opens nothing either. Changing team clears delivered notifications. In the foreground a
+  notification goes to the list without a banner (the web app is live). On iOS, expo-notifications reads remote data
+  from the APNs payload's `body` dictionary, so the gateway puts `{ notificationId, code, path, tag }` there; FCM data
+  stays flat.
+- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 240: `kind`, `remove_hash`), not
+  a second table. Every event the push service delivers, including codes other branches add, reaches phones through the
   same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
   re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
   cannot misread it as Web Push). `POST /api/push/devices` / `DELETE /api/push/devices/:id`; `GET /api/push` adds
-  `native: { available, deviceId }` and `optedOut`. A token belongs to the latest session that registered it, also for
-  another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
-- **Through a push gateway, never APNs/FCM from team servers.** Team servers do not get Apple's .p8 key or Google's
-  service account. They POST `{ v, platform, environment, token, notificationId, code, locale, path?, ttlSeconds }` to
+  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it,
+  also for another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
+- **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
+  hands device id and key to the app (`push-registered`). On a team switch, also from the cannot-reach screen, the app
+  calls the public `POST /api/push/devices/:id/remove` with the key (always 204, no session: the person is leaving that
+  team). If that server cannot be reached, the removal is kept (at most four, 30 days) and retried at each app start.
+- **Off until the operator chooses a gateway.** Team servers never get Apple's .p8 key or Google's service account;
+  they POST `{ v, platform, environment, token, notificationId, code, locale, tag?, path?, ttlSeconds }` to
   `<gateway>/v1/send` (contract `shared/src/cloud-protocol/push-gateway.ts`, MIT), signed with the team's Ed25519 key:
-  the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). The
-  request goes through the Web Push transport's pinned public-address HTTPS post. Only 410 deletes a device (the
-  gateway's 404 means a wrong address). `path` comes from `registerPushPath(code, resolver)`; the three existing codes
-  open the inbox, as a Web Push click does. Address: `SERVICE_HOSTS.pushGateway` (`service.json`, Trina:
-  `https://push.trina.app`), `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` (null = off); test configs have none.
-- **The gateway** (`push-gateway/`): trust on first use per team public key, per-key limits (120/min for a key younger
-  than a day, 1200/min after) and per-token limits (20/min, 200/day), a 10-minute dedupe that is also the replay
-  guard, generic text from code and locale only (App Review 4.5.4; room codes say "새 메시지가 있어요"), APNs token auth
-  (production only unless `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Cloudflare does not
-  document HTTP/2 for a Worker's outbound fetch, which APNs requires; so `src/bun.ts` runs the same handler with
-  `node:http2`. One live push from the Worker decides which entry runs at push.trina.app. Not deployed.
+  the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). There
+  is no built-in default: phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
+  gateway (the Trina hosted service writes `https://push.trina.app`). Owners and admins see one line in Settings ›
+  Notifications: phone push off, or on through `<host>`. `push` and `push-gateway` are reserved relay team names, so
+  nobody can take `push.<domain>` under the relay wildcard. The request goes through the Web Push transport's pinned
+  public-address HTTPS post; only 410 deletes a device (the gateway's 404 means a wrong address). `path` comes from
+  `registerPushPath(code, resolver)`; the three existing codes open the inbox, as a Web Push click does.
+- **The gateway** (`push-gateway/`) runs on Bun (`src/bun.ts`), behind a TLS terminator: APNs requires HTTP/2 and a
+  Cloudflare Worker's outbound fetch speaks HTTP/1.1, so there is no Worker. Trust on first use per team public key (a
+  key that never sent successfully is forgotten after a day), a per-client-IP limit before signature checks, per-key
+  limits (120/min for a key younger than a day, 1200/min after), per-(key, token) limits (20/min, 200/day, so one server
+  cannot use up a phone's budget for other teams), a 10-minute dedupe that is also the replay guard, generic text from
+  code and locale only (App Review 4.5.4; room codes say "새 메시지가 있어요"), APNs token auth (production only unless
+  `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Not deployed.
 - **App Review screens**: a native "offline" / "cannot reach your team" screen with Try again and Change team address
   (Korean and English by the phone's language). Account deletion starts inside the app: Settings › Profile › 계정 삭제
   opens `/settings/account/delete` ("계정 삭제 요청"). Admins create accounts and only the owner deletes them, so the
-  person confirms, the owner (only the owner: admins cannot act on it) gets an in-app notice (no OS push) that opens
-  Admin › Members at that person, and removing a person who asked deletes their personal folder instead of archiving it
-  (so "your personal files are deleted" is true). The owner cannot ask (409; hand over the role first). Requests are
+  person confirms and the owner (only the owner: admins cannot act on it) gets an in-app notice (no OS push) that opens
+  Admin › Members at that person. Removing that person works as for anyone: the account goes and the personal files
+  are archived for the owner (they are not deleted). The owner cannot ask (409; hand over the role first). Requests are
   idempotent, audited, at most five a day (migration 241).
+- **Release build**: Expo's "Generate app.config" build phase runs `expo config` again inside xcodebuild, so
+  `scripts/ios-release.sh` exports the edition for the whole run and refuses an export whose embedded config is not the
+  edition's (build 1 showed "Team AX" inside the app because only prebuild had the edition).
 - Known limits: an iOS build made in Xcode with a development profile but Release configuration reports sandbox only if
-  its profile says so; a team switch from the "cannot reach" screen leaves the old team's device row until that session
-  ends (its pushes show generic text, a tap opens nothing).
+  its profile says so; a removal owed to a team whose server stays unreachable for 30 days is dropped, and that team
+  keeps the device until the session ends (its pushes show generic text, a tap opens nothing because of the tag).
