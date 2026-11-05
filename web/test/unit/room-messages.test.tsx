@@ -4,7 +4,7 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
-import { RoomMessages } from '../../src/components/rooms/RoomMessages'
+import { previewWhy, RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { useRooms } from '../../src/store/rooms'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { at, BEN, CY, ME, message } from './rooms-fixtures'
@@ -61,28 +61,31 @@ test('an AI answer is shown like a chat answer without its steps: Markdown, who 
   expect(html).not.toContain('data-testid="room-ai-preview"')
 })
 
-test('a private preview says at the top that only I see it, says why in short sentences, and has one outline action', () => {
+test('a private preview says at its top that only I see it, with one text action and why in short sentences', () => {
   const a = message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'mine only', preview: { folders: ['acme/finance', '', 'skills/marketing', 'shared/teams/finance'], personal: true, outside: true } })
   const html = render([a])
   expect(count(html, 'data-testid="room-ai-preview"')).toBe(1)
-  // the top line: mine only, in place of "asked by"
+  // the top line: mine only, in place of "asked by", with "Post" on it as a text action (no framed button)
   expect(html).toContain('data-testid="room-ai-private"')
   expect(html).toContain(translate('en', 'rooms.aiPrivate'))
   expect(html).not.toContain(translate('en', 'rooms.aiAskedBy', { name: 'Ada' }))
   expect(html.indexOf('room-ai-private')).toBeLessThan(html.indexOf('mine only'))
-  // one short sentence per reason: the folders by the last parts of their paths, once each, no skills folder, never a
-  // full path; my own folder; the web
+  const line = html.slice(html.indexOf('data-testid="room-ai-private"'))
+  const own = line.slice(0, line.indexOf('</p>'))
+  expect(count(own, '<button')).toBe(1)
+  expect(own).toContain('data-testid="room-ai-share"')
+  expect(own).toContain(`>${translate('en', 'rooms.aiPost')}<`)
+  expect(own).not.toContain('border-field-border')
+  expect(own).not.toContain('bg-accent')
+  // the reason right under it, before the answer: one short sentence per reason, the folders by the last parts of
+  // their paths, once each, no skills folder, never a full path; my own folder; the web
+  expect(html.indexOf('room-ai-preview')).toBeLessThan(html.indexOf('mine only'))
   const folders = ['finance', translate('en', 'rooms.aiRootFolder')].join(', ')
   expect(html).toContain([translate('en', 'rooms.aiWhyFolders', { folders }), translate('en', 'rooms.aiWhyMine'), translate('en', 'rooms.aiWhyOutside')].join(' '))
   expect(html).not.toContain('acme/finance')
   expect(html).not.toContain('marketing')
-  // one action on the note itself, an outline button; putting the preview away is in the "…" menu
-  const note = html.slice(html.indexOf('data-testid="room-ai-preview"'))
-  const own = note.slice(0, note.indexOf('</div>'))
-  expect(count(own, '<button')).toBe(1)
-  expect(own).not.toContain('bg-accent')
-  expect(own).toContain('border-field-border')
-  expect(html).toContain(translate('en', 'rooms.aiShare'))
+  // nothing repeated under the answer; putting the preview away is in the "…" menu
+  expect(count(html, 'data-testid="room-ai-share"')).toBe(1)
   expect(count(html, 'data-testid="message-menu"')).toBe(1)
 })
 
@@ -90,7 +93,7 @@ test('a private preview without a folder to name says so without names, or gives
   const reason = (preview: NonNullable<ReturnType<typeof message>['preview']>) => {
     const html = render([message({ roomId: R, seq: 3, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', body: 'x', preview })])
     const note = html.slice(html.indexOf('data-testid="room-ai-preview"'))
-    return note.slice(note.indexOf('<p'), note.indexOf('</p>'))
+    return note.slice(0, note.indexOf('</p>'))
   }
   // a skills folder or one the person cannot open: "folders some people here cannot open", no name
   expect(reason({ folders: ['skills/marketing'], personal: false, outside: true })).toContain([translate('en', 'rooms.aiWhySomeFolders'), translate('en', 'rooms.aiWhyOutside')].join(' '))
@@ -101,6 +104,14 @@ test('a private preview without a folder to name says so without names, or gives
   // the Korean reads as plain short sentences, not a list after a colon
   expect(translate('ko', 'rooms.aiWhySomeFolders')).toBe('방 사람 중 일부가 열 수 없는 폴더를 읽었어요.')
   expect(translate('ko', 'rooms.aiWhyMine')).toBe('내 폴더를 읽었어요.')
+})
+
+test('in a 1:1 room the reasons name the other person, never "the room"', () => {
+  const t = (k: string, v?: Record<string, string | number>) => translate('ko', k as never, v)
+  expect(previewWhy({ folders: ['acme/finance'], personal: false, outside: false }, t as never, true)).toBe(translate('ko', 'rooms.aiWhyFoldersDm', { folders: 'finance' }))
+  expect(previewWhy({ folders: [], otherFolders: true, personal: false, outside: false }, t as never, true)).toBe(translate('ko', 'rooms.aiWhySomeFoldersDm'))
+  expect(previewWhy(undefined, t as never, true)).toBe(translate('ko', 'rooms.aiPrivateAllDm'))
+  for (const k of ['rooms.aiWhyFoldersDm', 'rooms.aiWhySomeFoldersDm', 'rooms.aiPrivateAllDm', 'rooms.aiPost']) expect(translate('ko', k as never, { folders: 'x' })).not.toContain('대화방')
 })
 
 test("an AI answer's team file links are chips only for files the viewer may open; the rest is plain text", () => {
