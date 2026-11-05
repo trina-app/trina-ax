@@ -8303,7 +8303,8 @@ chat tools); the hosting side only hands over the image key.
   card, no number twice, no full stop in a headline, a panel as tall as its text (the fixed 47% cramped four lines).
   One `artifact` (the preview inlines team pictures, `lib/frame-files.ts`). **No PDF or PNG**: make_file turns
   Markdown into documents (pandoc, typst) and cannot render this HTML; the artifact panel's download gives the HTML.
-- **Brand photos with Higgsfield, only here** (`onboarding/brand-image.ts`, tool `brand_image`): when fewer than three
+- **Brand photos with Higgsfield, only here** (taken out before the merge: "N, Higgsfield taken out" below;
+  `onboarding/brand-image.ts`, tool `brand_image`): when fewer than three
   usable pictures exist. Offered only in a chat of `onboarding_result_chats`, only to its owner, only with the key and
   while the team has photos left: 4 per team for its whole life (rows not failed; the row is written in the same
   synchronous step as the count, so two calls cannot both take the last; a failed job gives it back). Never for
@@ -8314,7 +8315,7 @@ chat tools); the hosting side only hands over the image key.
   photo is a team file the server made from the AI's words). **Model: `z_image` (Z Image), 0.15 credits a picture**:
   in one test prompt Soul 2.0 (0.12) wrote words on a laptop screen and Soul Location (0.12) put a person in; Z Image
   kept to the rules and looked as good as Seedream 5.0 Flash and Kling O1 (0.5 each).
-- **The API and the key.** Higgsfield's developer API that its CLI uses: `https://fnf-api-gw.higgsfield.ai/fnf`,
+- **The API and the key** (taken out with the photos). Higgsfield's developer API that its CLI uses: `https://fnf-api-gw.higgsfield.ai/fnf`,
   `POST /developer/v2alpha/images/<job type>/generations {params}` → `{id}`, `GET /developer/v2alpha/jobs/<id>` →
   `status`, `result_url`; `Authorization: Bearer <access token>` and `hf-workspace-id`. A hosted team gets the key from
   the hosting service like the speech key: tenant command `hosted-image-key-set` (`{ token, workspace }` or `{ token:
@@ -8385,6 +8386,43 @@ same way"; the brand images folder line follows Q's per-language team folder ("t
 Images"). US spelling as in Q: "Brand colors" on the review, in 회사 소개.md's English words and in the facts line the AI
 reads (both skills name that label), color and center in the English skill. Q's rewrites of the old files step and of
 the ad copy result left with those lines. Korean, Japanese, Indonesian and Spanish are unchanged.
+
+
+### N, Higgsfield taken out; type-only cards (integration, 2026-11-05)
+
+The owner finds the brand photos overkill, and the gate data agrees: every real company in the gate runs had 5–8 usable
+pictures on its own site; only the fictional deck without a website needed made ones. Keeping the photos would also
+need a handoff the hosting side cannot hold yet: the token is an OAuth access token that expires within a day, so the
+console would have to refresh and push it to every hosted team before it runs out (no long-lived key limited to image
+models exists). Taken out before the merge; the code stays on `feat/onboarding-cardnews` for later.
+
+- **Gone**: `onboarding/brand-image.ts` (tool `brand_image`, its offer in the first-result chat, 4 a team, `z_image`),
+  the dev key file `<data>/secrets/higgsfield-onboarding.key`, `credentials/hosted-image.ts` (vault entry, rekey, export
+  and restore rules, the drop on a server that is not hosted), the tenant command `hosted-image-key-set` (cloud
+  protocol, vectors, `admin.js hosted-image-key`, `mycel-ctl`, now as on main: no root update for this PR), its audit
+  label. The first-result chats are no longer marked: nothing but the photo tool read `onboarding_result_chats`.
+- **Migration 233** (unreleased) keeps only `onboarding_brand_assets`, which the website reading fills and the first
+  result places (pictures, page text, colours); `onboarding_result_chats` and `onboarding_images` are not created.
+- **Type-only cards.** With fewer fitting pictures than the photo layouts need (only the brand images folder and photo
+  files attached to the message count), the skill never makes, downloads or draws a picture; cards 1–3 without one use
+  a designed version: `type-cover` (the brand colour, the logo on a white tile or the company name, one disc, the
+  headline low), `type-statement` (paper, a bar, a large line, a corner disc), `type-points` (the brand panel above, two
+  or three numbered points below). The only shapes are that disc and bar, text never on them, no empty photo slot. A
+  card made without a photo is named in one line of the answer, with how to add photos.
+- **Light brand colours**: `--brand-text` (the brand colour when dark, #111111 when light) for headlines, eyebrows and
+  the wordmark on paper; a yellow brand's headlines were unreadable on paper before, in the photo layouts too.
+- **Checked** in a browser render at 1080 px with a dark green, a deep blue and a yellow brand, Korean and English (no
+  text outside its card or on a shape), then with the real AI on `bun run dev` (Claude Code login): the fictional
+  20-page deck with no website and no logo used all three type-only versions with the company name as the mark; its
+  numbers were the deck's (18 %, 87 sites, p. 11); the answer said that photos added to the brand images folder can go in
+  next time (81 s). A real company's English site whose eight pictures were all
+  product screenshots, banners and mascot drawings: the skill found none usable, made the three type-only versions with
+  the app-icon logo on its tile, a yellow brand with near-black headlines on paper, and its two numbers were the site's
+  as written (60 s). A dev server needs its relay for this: with `--no-relay` it never learns its exit address and every
+  web address waits for a person's OK.
+- Tests: `b-onboarding-cardnews` (the first-result chat offers no image tool, also with a key file on the server),
+  `c-tools` (the registry is back to main's list; it failed with `brand_image` in it), `cloud-protocol` (main's
+  commands).
 
 ## Demo content: the mechanism is open, a company's content is a folder (feat/demo-content-split, 2026-11-05)
 
