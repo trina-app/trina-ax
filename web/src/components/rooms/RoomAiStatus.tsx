@@ -90,9 +90,9 @@ function MyRun({ roomId, run }: { roomId: string; run: RoomAiRun }) {
       <AiMark />
       <div className="min-w-0 flex-1">
         <p className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-sm font-medium text-ink">{t('rooms.aiName')}</span>
-          <span className="text-sm text-muted" role="status">
-            {run.state === 'queued' && run.position > 0 ? t('rooms.aiQueued', { n: run.position }) : t('rooms.aiAnswering')}
+          {/* "트리나가 답하는 중" names the AI already; waiting in the queue says whose turn it is */}
+          <span className="text-sm font-medium text-ink" role="status">
+            {run.state === 'queued' && run.position > 0 ? `${t('rooms.aiName')} · ${t('rooms.aiQueued', { n: run.position })}` : t('rooms.aiAnswering')}
           </span>
           {!requests.length && <Dots />}
           <Button size="sm" variant="secondary" className="ml-auto" busy={stopping} onClick={() => void stop()} data-testid="room-ai-stop">
