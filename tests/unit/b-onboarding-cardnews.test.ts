@@ -9,7 +9,8 @@ import { API, CARD_NEWS_ARTIFACT_KEY, GENERAL_CARDNEWS_SKILL } from '@mycel/shar
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { noteEgressIp } from '../../server/src/tools/egress'
-import { acceptImage, cssColors, extractPageAssets, imageKind, largestSrc, logoColors, normColor, rankColors } from '../../server/src/onboarding/brand-assets'
+import { acceptImage, cssColors, dropRepeats, extractPageAssets, imageKind, introText, largestSrc, logoColors, normColor, pageLines, rankColors } from '../../server/src/onboarding/brand-assets'
+import { htmlToText } from '../../server/src/tools/web-fetch'
 import { which } from '../../server/src/config'
 import { pngOf } from '../lib/images'
 import { cleanColors, cleanProfile, profileFactLines } from '../../server/src/onboarding/profile'
@@ -123,8 +124,86 @@ describe('what a page offers (pure)', () => {
     expect(md).toContain('홈페이지(https://acme.example/)')
     expect(md).toContain('## 한 줄 소개\n\n조용한 선풍기를 만들어요\n\n출처: https://acme.example/ — "조용한 선풍기"')
     expect(md).toContain('## 브랜드 색\n\n#0e5e4e')
-    expect(md).toContain('### 회사 소개\n\n출처: https://acme.example/about\n\n> 소개\n> 링크 글 2019년에 세웠어요.')
+    expect(md).toContain('### 회사 소개\n\n출처: https://acme.example/about\n\n> 소개\n\n> 링크 글 2019년에 세웠어요.')
     expect(md).not.toContain('## 고객')
+  })
+  // docs/DECISIONS.md "W3": on a company site with CRLF markup, a site menu of nested link lists in a <header>, the
+  // content in <section>s and a footer, the section held only the menu and hundreds of empty "> " lines, the same for
+  // every page, and none of the page's own words
+  const crlf = (s: string) => s.replace(/\n/g, '\r\n')
+  const menu = `<header id="top-menu" class="site_gnb">\n<nav class="gnb-list">\n<ul>\n${['제품', '서비스', '소식', '회사 소개'].map((m) =>
+    `  <li>\n    <span>${m}</span>\n    <ul>\n${[['개요', 'overview'], ['탁상형', 'desk'], ['벽걸이형', 'wall'], ['부품', 'parts']].map(([x, slug]) => `      <li>\n        <a href="/kr/${slug}/">${x}</a>\n      </li>\n\n\n`).join('')}    </ul>\n  </li>\n`).join('')}</ul>\n</nav>\n</header>\n`
+  const shell = (body: string) => crlf(`<!doctype html><html><head><title>Acme</title></head><body>\n<a href="#top" class="skip-nav">본문으로 이동</a>\n${menu}${body}\n<footer class="site-footer"><p>Copyright © Acme. All rights reserved.</p><a href="/privacy">개인정보처리방침</a></footer>\n<div class="cookie-banner"><p>쿠키를 사용합니다</p><button>동의</button></div></body></html>`)
+  const home = shell(`<section class="intro">\n  <h2 class="pc">조용한 바람<br>더 나은 하루</h2><h2 class="mo">조용한 바람 더 나은 하루</h2>\n  <p>\n    Acme는 작은 사무실을 위한\n    조용한 바람을 만들어요.\n  </p>\n</section>\n<section><h3><span>바람 연구소</span> <span>바람 연구소</span></h3><p>더 조용한 날개를 연구해요.</p><a href="/kr/lab/">더 알아보기</a></section>`)
+  const about = shell(`<main><article><header><h1>회사 연혁</h1></header><p>1990년에 세웠어요.</p><aside>관련 글</aside></article></main>`)
+  test('a page\'s own words for 회사 소개.md: no site menu, footer, cookie bar or blank lines; a heading for each screen once', () => {
+    const base = new URL('https://www.acme.example/kr/')
+    // the old reading (web_fetch's text): the menu and blank lines first
+    const old = htmlToText(home, base).text
+    expect(old.startsWith('[본문으로 이동]')).toBe(true)
+    expect(old).toContain('[벽걸이형](https://www.acme.example/kr/wall/)')
+    // carriage returns are line breaks now: no run of blank lines, also for the AI's web_fetch
+    expect(old).not.toContain('\r')
+    expect(old).not.toMatch(/\n{3,}/)
+    const text = introText(home, base)
+    expect(text.split('\n')).toEqual([
+      '조용한 바람 더 나은 하루',
+      'Acme는 작은 사무실을 위한 조용한 바람을 만들어요.',
+      '바람 연구소',
+      '더 조용한 날개를 연구해요.',
+    ])
+    // in main or an article, a header is the content's own; an aside is not
+    expect(introText(about, base).split('\n')).toEqual(['회사 연혁', '1990년에 세웠어요.'])
+  })
+  test('page lines: links-only lines (a menu) dropped, links reduced to their words, repeats once, a sane length', () => {
+    expect(pageLines('- [제품](https://a.example/p)\r\n\r\n\r\n- [뉴스](https://a.example/n) | [채용](https://a.example/c)\r\n# 소개\r\n[링크 글](https://a.example/x) 2019년에 세웠어요.\r\n›\r\n01\r\n# 소개')).toEqual(['소개', '링크 글 2019년에 세웠어요.'])
+    expect(dropRepeats('조용한 바람 조용한 바람 조용한 바람 더 나은')).toBe('조용한 바람 더 나은')
+    expect(dropRepeats('하하 하하 웃어요')).toBe('하하 하하 웃어요')
+    const long = Array.from({ length: 400 }, (_, i) => `문장 ${i}번은 회사 이야기를 해요.`).join('\n')
+    const lines = pageLines(long, 2000)
+    expect(lines.join('\n').length).toBeLessThanOrEqual(2000)
+    expect(lines[0]).toBe('문장 0번은 회사 이야기를 해요.')
+    expect(pageLines('가'.repeat(5000), 100)).toEqual(['가'.repeat(99) + '…'])
+  })
+  test('회사 소개.md: every page quoted line by line, never an empty quote line; a line another page said is left out', () => {
+    const base = new URL('https://www.acme.example/kr/')
+    // the second page repeats the first one's slogan
+    const pages = [
+      { url: 'https://www.acme.example/kr/', title: 'Acme', text: introText(home, base) },
+      { url: 'https://www.acme.example/kr/about/', title: '회사 연혁', text: introText(shell('<main><h1>조용한 바람 더 나은 하루</h1><p>1990년에 세웠어요.</p></main>'), base) },
+    ]
+    const md = introMarkdown({ locale: 'ko', name: 'Acme', profile: null, pages })
+    expect(md).not.toMatch(/^>\s*$/m)
+    expect(md).not.toContain('벽걸이형')
+    expect(md).not.toContain('Copyright')
+    expect(md).toContain('> 조용한 바람 더 나은 하루\n\n> Acme는 작은 사무실을 위한 조용한 바람을 만들어요.')
+    expect(md.match(/조용한 바람 더 나은 하루/g)!.length).toBe(1)
+    expect(md).toContain('### 회사 연혁\n\n출처: https://www.acme.example/kr/about/\n\n> 1990년에 세웠어요.')
+    // a row kept before this fix (web_fetch's text, CRLF): still no empty quote line and no menu of links
+    const old = introMarkdown({ locale: 'ko', name: 'Acme', profile: null, pages: [{ url: 'https://www.acme.example/kr/', title: 'Acme', text: htmlToText(home, base).text.replace(/\n/g, '\r\n\r\n') }] })
+    expect(old).not.toMatch(/^>\s*$/m)
+    expect(old).not.toContain('벽걸이형')
+    expect(old).toContain('> Acme는 작은 사무실을 위한')
+    // a long page gets its share, not the whole budget
+    const big = { url: 'https://www.acme.example/kr/big/', title: '긴 글', text: Array.from({ length: 300 }, (_, i) => `긴 글 ${i}번째 문장이에요.`).join('\n') }
+    const md2 = introMarkdown({ locale: 'ko', name: 'Acme', profile: null, pages: [big, { url: 'https://www.acme.example/kr/next/', title: '다음', text: '다음 쪽 이야기예요.' }] })
+    expect(md2.slice(md2.indexOf('### 긴 글'), md2.indexOf('### 다음')).length).toBeLessThan(2600)
+    expect(md2).toContain('> 다음 쪽 이야기예요.')
+  })
+  test('the page\'s own words in one pass: a hostile page does not stall the reading', () => {
+    const base = new URL('https://acme.example/')
+    const pages = [
+      '<header>'.repeat(200_000),
+      `<div class="${'gnb '.repeat(1000)}">`.repeat(500),
+      ('<p>' + 'a b '.repeat(150) + '</p>').repeat(3000),
+      ('[x](y) ' + '- '.repeat(50) + '\n').repeat(50_000),
+    ]
+    for (const page of pages) {
+      const t0 = performance.now()
+      introText(page, base)
+      pageLines(page)
+      expect(performance.now() - t0, page.slice(0, 20)).toBeLessThan(1500)
+    }
   })
 })
 

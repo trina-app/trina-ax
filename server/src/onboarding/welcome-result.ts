@@ -25,7 +25,7 @@ import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { freeName } from '../team-files/place'
-import { assetDir, stagedAssets, type BrandAssetRow } from './brand-assets'
+import { assetDir, BRAND_PAGE_TEXT_MAX, pageLines, stagedAssets, type BrandAssetRow } from './brand-assets'
 import { readCompanyProfile } from './profile'
 import { installPackSkill } from './skill-packs'
 import { brandFoldersOf, cardNewsSkill, readWelcome, setupWelcomeTeam } from './welcome'
@@ -69,6 +69,8 @@ const MD: Record<Locale, { head: (name: string) => string; lead: (site: string) 
 
 /** All of the website text that goes into 회사 소개.md, at most. */
 const INTRO_PAGES_MAX_CHARS = 12_000
+/** One page's text in 회사 소개.md, at most (its first lines: the page's own headings and paragraphs). */
+const INTRO_PAGE_MAX_CHARS = 2_000
 
 /** The latest website draft chat of this person that collected something (images or page text), or null. */
 export function latestDraftChat(ctx: Pick<AppContext, 'db'>, userId: string): string | null {
@@ -81,11 +83,9 @@ export function latestDraftChat(ctx: Pick<AppContext, 'db'>, userId: string): st
   } catch { return null }
 }
 
-/** Page text for a Markdown quote: links reduced to their words, headings and blank runs tidied, each line quoted. */
-function quote(text: string): string {
-  return text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/^#+\s*/gm, '').replace(/\n{3,}/g, '\n\n').trim()
-    .split('\n').map((l) => (l.trim() ? `> ${l.trim()}` : '>')).join('\n')
-}
+/** Page lines as Markdown quotes: each line its own quote (a blank line between, never an empty "> ") so a heading and
+ * a paragraph do not run together. */
+const quote = (lines: readonly string[]): string => lines.map((l) => `> ${l}`).join('\n\n')
 
 /** 회사 소개.md from the profile (the person confirmed it) and the pages the server opened (quoted, with their address). */
 export function introMarkdown(o: { locale: Locale; name: string; profile: ReturnType<typeof readCompanyProfile>; pages: Pick<BrandAssetRow, 'url' | 'title' | 'text'>[] }): string {
@@ -107,17 +107,25 @@ export function introMarkdown(o: { locale: Locale; name: string; profile: Return
     section(t.avoid, p.avoid, 'avoid')
     section(t.colors, p.colors?.join(', '))
   }
+  // each page's own words (brand-assets.ts pageLines: no menu, no blank or repeated lines; rows kept before that are
+  // tidied the same way), a line another page said already left out (the site's footer, a slogan on every page)
   let used = 0
-  const pages = o.pages.filter((x) => x.text?.trim())
+  const said = new Set<string>()
+  const pages: { pg: (typeof o.pages)[number]; lines: string[] }[] = []
+  for (const pg of o.pages) {
+    const room = INTRO_PAGES_MAX_CHARS - used
+    if (room < 200) break
+    const lines = pageLines(pg.text ?? '', BRAND_PAGE_TEXT_MAX).filter((l) => !said.has(l.normalize('NFC').toLowerCase()))
+    for (const l of lines) said.add(l.normalize('NFC').toLowerCase())
+    // its first lines up to the page's share (a first line longer than that is cut with "…")
+    const kept = pageLines(lines.join('\n'), Math.min(room, INTRO_PAGE_MAX_CHARS))
+    if (!kept.length) continue
+    used += kept.reduce((n, l) => n + l.length + 1, 0)
+    pages.push({ pg, lines: kept })
+  }
   if (pages.length) {
     out.push(`## ${t.pages}`, '')
-    for (const pg of pages) {
-      const room = INTRO_PAGES_MAX_CHARS - used
-      if (room < 200) break
-      const text = pg.text!.slice(0, room)
-      used += text.length
-      out.push(`### ${(pg.title ?? '').replace(/\s+/g, ' ').trim() || pg.url}`, '', `${t.source}: ${pg.url}`, '', quote(text), '')
-    }
+    for (const { pg, lines } of pages) out.push(`### ${(pg.title ?? '').replace(/\s+/g, ' ').trim() || pg.url}`, '', `${t.source}: ${pg.url}`, '', quote(lines), '')
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
 }

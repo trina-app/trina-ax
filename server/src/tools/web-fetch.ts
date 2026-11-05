@@ -460,17 +460,39 @@ const closeTagRe = new Map<string, RegExp>()
 const closeTag = (name: string) => { let r = closeTagRe.get(name); if (!r) { r = new RegExp(`</${name}\\s*>`, 'gi'); closeTagRe.set(name, r) } return r }
 const isNameChar = (c: number) => (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c === 45 || c === 58
 
+/** Prose mode: the page's frame around its content (the site menu, the footer, side boxes, forms and buttons). */
+const FRAME_TAGS = new Set(['nav', 'footer', 'aside', 'form', 'button', 'dialog'])
+const FRAME_ROLE = /\brole\s{0,5}=\s{0,5}["']?(?:navigation|banner|contentinfo|search|menubar|menu)\b/i
+const CLASS_ID = /\b(?:class|id)\s{0,5}=\s{0,5}(?:"([^"]{0,500})"|'([^']{0,500})'|([^\s>"']{1,200}))/gi
+/** class or id words of a site's menus and frames (the "_gnb" of "site_gnb" too) */
+const FRAME_WORD = /(?:^|[\s_-])(?:gnb|lnb|snb|breadcrumbs?|skip-?(?:nav|navigation|to-content|links?)|cookie-?(?:banner|consent|notice|bar)|sitemap)(?:$|[\s_-])/i
+const frameAttrs = (attrs: string): boolean => {
+  if (attrs.length > 4000) return false
+  if (FRAME_ROLE.test(attrs)) return true
+  for (const m of attrs.matchAll(CLASS_ID)) if (FRAME_WORD.test(m[1] ?? m[2] ?? m[3] ?? '')) return true
+  return false
+}
+
 /**
  * Readable text from HTML: drops scripts / styles / hidden elements, keeps headings, list items and links.
  * One forward pass (every position is looked at a bounded number of times): pages come from anyone, and a
- * backtracking regex over a 5 MB page would stall the whole server (one process).
+ * backtracking regex over a 5 MB page would stall the whole server (one process). Carriage returns are line breaks
+ * (a page written with CRLF gave hundreds of blank lines).
+ * `prose`: only the page's own content, for a company intro (onboarding/brand-assets.ts introText): the site's frame is
+ * left out (nav, footer, aside, forms and buttons, a header outside main or article, menus by role, class or id), and
+ * the markup's own line breaks and a <br> are spaces (a heading broken for the screen is one line).
  */
-export function htmlToText(html: string, base: URL): { title?: string; text: string } {
+export function htmlToText(html: string, base: URL, o: { prose?: boolean } = {}): { title?: string; text: string } {
   const out: string[] = []
   let title: string | undefined
   let hidden: { name: string; depth: number } | null = null
   let anchor: { at: number; href: string } | null = null
+  /** prose: inside main or article (a header there is the content's own) */
+  let content = 0
+  const prose = !!o.prose
   const emit = (s: string) => { if (!hidden) out.push(s) }
+  /** the page's text between tags (prose: its own line breaks and runs of spaces are one space) */
+  const text = (s: string) => emit(prose ? decodeEntities(s).replace(/\s+/g, ' ') : decodeEntities(s))
   /** structure (newlines, list marks) inside a link label is just a space */
   const mark = (s: string) => emit(anchor ? ' ' : s)
   const closeAnchor = () => {
@@ -486,8 +508,8 @@ export function htmlToText(html: string, base: URL): { title?: string; text: str
   let i = 0
   while (i < n) {
     const lt = html.indexOf('<', i)
-    if (lt < 0) { emit(decodeEntities(html.slice(i))); break }
-    if (lt > i) emit(decodeEntities(html.slice(i, lt)))
+    if (lt < 0) { text(html.slice(i)); break }
+    if (lt > i) text(html.slice(i, lt))
     i = lt
     const c1 = html.charCodeAt(i + 1)
     if (html.startsWith('<!--', i)) { const e = html.indexOf('-->', i + 4); if (e < 0) break; i = e + 3; emit(' '); continue }
@@ -513,6 +535,7 @@ export function htmlToText(html: string, base: URL): { title?: string; text: str
     i = gt + 1
     if (closing) {
       if (hidden) { if (name === hidden.name && --hidden.depth === 0) hidden = null; continue }
+      if (prose && (name === 'main' || name === 'article') && content > 0) content--
       if (name === 'a') closeAnchor()
       else if (name === 'title') { /* title text was taken at the start tag */ }
       else if (BLOCK_END.has(name)) mark('\n\n')
@@ -531,6 +554,10 @@ export function htmlToText(html: string, base: URL): { title?: string; text: str
     }
     if (hidden) { if (name === hidden.name && !selfClosing && !VOID.has(name)) hidden.depth++; continue }
     if (!VOID.has(name) && !selfClosing && HIDDEN_ATTR.test(attrs)) { hidden = { name, depth: 1 }; continue }
+    if (prose && !VOID.has(name) && !selfClosing) {
+      if (FRAME_TAGS.has(name) || (name === 'header' && content === 0) || frameAttrs(attrs)) { hidden = { name, depth: 1 }; continue }
+      if (name === 'main' || name === 'article') content++
+    }
     if (name === 'a') {
       closeAnchor()
       const h = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs)
@@ -539,11 +566,11 @@ export function htmlToText(html: string, base: URL): { title?: string; text: str
     }
     if (/^h[1-6]$/.test(name)) mark('\n\n' + '#'.repeat(Number(name[1])) + ' ')
     else if (name === 'li') mark('\n- ')
-    else if (name === 'br' || name === 'hr') mark('\n')
+    else if (name === 'br' || name === 'hr') mark(prose && name === 'br' ? ' ' : '\n')
     else if (name === 'td' || name === 'th') mark(' | ')
   }
   closeAnchor()
-  const s = out.join('').replace(/[ \t\f\v\u00a0]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  const s = out.join('').replace(/\r\n?/g, '\n').replace(/[ \t\f\v\u00a0]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
   return { title: title || undefined, text: s }
 }
 

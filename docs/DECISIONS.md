@@ -8583,4 +8583,17 @@ Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its
   pixel is the logo's own colour; close buckets are merged after averaging (one colour on a bucket edge counts once);
   the share a colour needs stays about 1 % of the picture. Nothing else in the ranking changed. Test: a generated
   logo of the same shape (a made-up blue) gives exactly its blue, and the page's UI blues do not beat it.
+- **회사 소개.md quoted only the site menu.** Its "홈페이지에서 읽은 글" held the menu and hundreds of empty `>` lines,
+  the same for every page, and none of the page's words: the page row kept web_fetch's text cut at 4,000 characters,
+  the site's markup is CRLF (htmlToText only collapsed `\n`, so every `\r` line stayed and became an empty quote line)
+  and its first 4,000 characters were the menu. Now: htmlToText reads `\r\n` and `\r` as line breaks (the AI's
+  web_fetch too); the page row keeps `introText`, htmlToText's new `prose` mode (no nav, footer, aside, form, button or
+  dialog, no header outside main or article, no element whose role, class or id names a menu, breadcrumb, skip link or
+  cookie bar; markup line breaks and `<br>` are spaces), as lines (`pageLines`: links reduced to their words, a line of
+  only links dropped, a phrase repeated in a row once (a heading's phone, tablet and computer versions), a line said
+  already or inside one of the last three dropped, no line without two letters or digits). 회사 소개.md quotes each line
+  as its own quote (a blank line between, never an empty `> `), at most 2,000 characters per page and 12,000 in all, and
+  leaves out a line another page said already. A row kept before this (only on dev servers: N is unreleased) is
+  tidied by the same lines. All of it in one pass with bounded patterns (the N review's hostile pages, plus menus and
+  endless lines: test).
 

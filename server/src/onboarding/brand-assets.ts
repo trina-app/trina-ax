@@ -27,7 +27,7 @@ import type { Logger } from '../log'
 import { which } from '../config'
 import { imageSize } from '../uploads/image'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
-import { decode, decodeEntities, pinnedGet, resolveTarget, type ResolveOptions } from '../tools/web-fetch'
+import { decode, decodeEntities, htmlToText, pinnedGet, resolveTarget, type ResolveOptions } from '../tools/web-fetch'
 
 /** Images kept aside per draft chat (the logo among them). */
 export const BRAND_IMAGES_MAX = 8
@@ -39,6 +39,8 @@ const STYLESHEETS_MAX = 2
 const STYLESHEET_BYTES = 512 * 1024
 /** Characters of each page's text kept for 회사 소개.md. */
 export const BRAND_PAGE_TEXT_MAX = 4000
+/** A line of page text shorter than this (letters and digits) says nothing ("›", "01", "+"). */
+const LINE_MIN_CHARS = 2
 const FETCH_TIMEOUT_MS = 12_000
 /** A content picture smaller than this on its short side is an icon, a thumbnail or a badge. */
 const MIN_SIDE = 300
@@ -308,6 +310,70 @@ export function extractPageAssets(html: string, base: URL): PageAssets {
   return { logos: sort(logos), images: sort(images), colors, stylesheets }
 }
 
+// ---------------- the page's own words (회사 소개.md) ----------------
+
+/** A phrase said again right after itself ("조용한 바람 조용한 바람": a site's phone, tablet and computer
+ * versions of one heading) once. Bounded: at most 200 words and phrases of at most 20 words are looked at. */
+export function dropRepeats(line: string): string {
+  const w = line.split(' ')
+  if (w.length < 2 || w.length > 200) return line
+  const same = (i: number, j: number, k: number) => { for (let x = 0; x < k; x++) if (w[i + x] !== w[j + x]) return false; return true }
+  for (let i = 0; i < w.length; i++) {
+    let chars = 0
+    for (let k = 1; k <= 20 && i + 2 * k <= w.length; k++) {
+      chars += w[i + k - 1]!.length
+      // a phrase of at least four characters ("하하 하하", "a a" stay)
+      if (chars < 4) continue
+      while (i + 2 * k <= w.length && same(i, i + k, k)) w.splice(i + k, k)
+    }
+  }
+  return w.join(' ')
+}
+
+/** Lines of a page looked at, at most (a page of endless short lines stops here). */
+const PAGE_LINES_MAX = 3000
+
+/**
+ * A page's text as lines worth quoting (docs/DECISIONS.md "W3"): one line per heading, paragraph or list item, links
+ * reduced to their words, a phrase said twice in a row once, and none of these: an empty line, a line that is only
+ * links (a menu), a line without two letters or digits, a line the page already said. At most `max` characters, cut at
+ * a line (a first line longer than that is cut with "…"). Also tidies text kept before this (web_fetch's text: CRLF
+ * lines, the site menu).
+ */
+export function pageLines(text: string, max = BRAND_PAGE_TEXT_MAX): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  let used = 0
+  let looked = 0
+  for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (used >= max || looked >= PAGE_LINES_MAX) break
+    const line = raw.trim().slice(0, 20_000)
+    if (!line) continue
+    looked++
+    // a line that is only links and marks is a menu
+    const words = line.replace(/\[([^\]\n]{0,500})\]\([^)\s]{0,2000}\)/g, '$1')
+    const outside = line.replace(/\[[^\]\n]{0,500}\]\([^)\s]{0,2000}\)/g, '')
+    if (outside !== line && !/[\p{L}\p{N}]/u.test(outside)) continue
+    const tidy = words.replace(/^(?:#{1,6}\s+|[-*•]\s+|\|\s*)+/, '').replace(/(?:\s*\|)+\s*$/, '').replace(/\s+/g, ' ').trim()
+    if ((tidy.match(/[\p{L}\p{N}]/gu) ?? []).length < LINE_MIN_CHARS) continue
+    const clean = dropRepeats(tidy)
+    const key = clean.normalize('NFC').toLowerCase()
+    // said already: the same line, or part of one of the last few (a heading and then its paragraph)
+    if (seen.has(key) || out.slice(-3).some((o) => o.includes(clean))) continue
+    seen.add(key)
+    const room = max - used
+    if (clean.length > room) { if (!out.length) out.push(clean.slice(0, room - 1).trimEnd() + '…'); break }
+    out.push(clean)
+    used += clean.length + 1
+  }
+  return out
+}
+
+/** The text of a page for 회사 소개.md: its own content without the site's frame (htmlToText's prose mode), as lines. */
+export function introText(html: string, base: URL, max = BRAND_PAGE_TEXT_MAX): string {
+  return pageLines(htmlToText(html.slice(0, 3 * 1024 * 1024), base, { prose: true }).text, max).join('\n')
+}
+
 // ---------------- fetching ----------------
 
 export interface FetchedImage { bytes: Buffer; ext: 'png' | 'jpg' | 'webp'; width: number; height: number; url: string }
@@ -460,7 +526,11 @@ export class BrandCollector {
     // the same page again (a second answer): its text once, its pictures already looked at
     if (this.pages.has(r.url)) return
     this.pages.add(r.url)
-    this.insert({ kind: 'page', url: r.url, page_url: r.url, title: r.title ?? null, text: r.text.slice(0, BRAND_PAGE_TEXT_MAX), weight: 0 })
+    // the page's own words (no site menu, footer or blank lines); without its markup, web_fetch's text tidied
+    let text = ''
+    try { text = r.html ? introText(r.html, new URL(r.url)) : '' } catch { text = '' }
+    if (!text) text = pageLines(r.text).join('\n')
+    this.insert({ kind: 'page', url: r.url, page_url: r.url, title: r.title ?? null, text, weight: 0 })
     if (!r.html) return
     let found: PageAssets
     try { found = extractPageAssets(r.html, new URL(r.url)) } catch { return }
