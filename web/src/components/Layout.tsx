@@ -19,6 +19,8 @@ import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
+import { BottomTabs } from './BottomTabs'
+import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
 import { IconButton, Spinner } from './ui'
@@ -37,6 +39,8 @@ export default function Layout() {
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
   const unread = useUnreadInbox()
+  // the team chat rooms: the list (sidebar group, the phone tab's count) stays loaded while the app is open
+  useRoomsSync()
 
   // banners raised by the server (e.g. a changed team skill) open app addresses through the router
   useEffect(() => {
@@ -113,7 +117,8 @@ export default function Layout() {
           </div>
         )}
         <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden">
+          {/* inside a room the room's own header (with its back arrow) is the only bar on a phone */}
+          <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden', /^\/rooms\/[^/]+/.test(location.pathname) && 'hidden')}>
             {/* the Inbox count lives in the drawer: a dot on the menu button says that something is unread */}
             <IconButton
               label={unread > 0 ? `${t('sidebar.open')} (${t('notifications.unread', { count: unread })})` : t('sidebar.open')}
@@ -135,6 +140,8 @@ export default function Layout() {
               <Outlet />
             </ChunkErrorBoundary>
           </div>
+          {/* phones: 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
+          <BottomTabs />
         </main>
         {panel && (
           <div

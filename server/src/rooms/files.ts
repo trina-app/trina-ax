@@ -1,0 +1,241 @@
+// Files and images sent in a room (docs/DECISIONS.md "대화방 v1"). Not where people can reach them: owners and admins can
+// read the team folder outside users/<id>/ (policy/access.ts), and a room's files belong to its members only. They live
+// in <team>/.system/rooms/<room id>/<file id> (0700 / 0600): .system/ is closed to every person, the AI's tools and the
+// owner's export (policy/access.ts, policy/resolve.ts, system/export.ts), yet it is in every backup, archive and
+// restore of the team folder (system/backup.ts), so room files go wherever the database goes. They are reached only
+// through GET /api/rooms/:id/files/:fileId, which checks on every read that the caller is in the room now and may see
+// the message the file was sent with. The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
+// storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
+// reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
+// without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
+import fs from 'node:fs'
+import path from 'node:path'
+import { PRODUCT } from '@mycel/shared'
+import type { RoomFile } from '@mycel/shared/api'
+import type { AppContext } from '../context'
+import { newId, nowIso } from '../db'
+import { ext } from '../files/extract'
+import { fail } from '../http/errors'
+import { badSegment } from '../policy/names'
+import { checkRegular } from '../team-files/place'
+import { mimeOf } from '../team-files/service'
+import { attachmentKind } from '../uploads/attachments'
+import { imageSize, makeThumbnail } from '../uploads/image'
+import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from './store'
+
+/** An upload not sent in a message within a day is removed. */
+export const UNSENT_FILE_MS = 24 * 3600_000
+/** Room files without a database row are kept this long in .system/rooms-orphans/ (reconcile). */
+export const ORPHAN_KEEP_MS = 30 * 86400_000
+const THUMB = '.thumb.jpg'
+const MOVING = '.moving'
+const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
+/** the time in an orphan batch's name (<stamp>-<pid>-<n>; a bare <stamp> from before is read too) */
+const parseStamp = (s: string): number | null => {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z(?:-\d+-\d+)?$/.exec(s)
+  return m ? Date.UTC(+m[1]!, +m[2]! - 1, +m[3]!, +m[4]!, +m[5]!, +m[6]!) : null
+}
+const services = new WeakMap<AppContext, RoomFiles>()
+
+export class RoomFiles {
+  constructor(readonly ctx: AppContext) {}
+  root() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms') }
+  private dir(roomId: string) { return path.join(this.root(), roomId) }
+  private abs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), f.id) }
+  private thumbAbs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), `${f.id}.thumb.jpg`) }
+
+  private member(userId: string, roomId: string) {
+    const room = roomRow(this.ctx.db, roomId)
+    const me = room && !room.archived_at ? memberRow(this.ctx.db, roomId, userId) : null
+    return me ?? fail('not_found')
+  }
+
+  /** Keep an uploaded temp file (moved, not copied) for sending in this room. */
+  async create(userId: string, roomId: string, name: string, src: string, sha256: string): Promise<RoomFile> {
+    this.member(userId, roomId)
+    const clean = name.normalize('NFC').replace(/[\u0000-\u001f]/g, '').trim()
+    const bad = clean.includes('/') || clean.includes('\\') ? 'names cannot contain "/"' : badSegment(clean)
+    if (bad) fail('validation', undefined, { fields: { 'body.name': bad } })
+    const id = newId()
+    fs.mkdirSync(this.dir(roomId), { recursive: true, mode: 0o700 })
+    const dst = this.abs({ room_id: roomId, id })
+    const head = Buffer.alloc(64 * 1024)
+    const fd = fs.openSync(src, 'r')
+    let headLen = 0
+    try { headLen = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
+    const size = fs.statSync(src).size
+    try { fs.renameSync(src, dst) } catch { fs.copyFileSync(src, dst); fs.rmSync(src, { force: true }) }
+    fs.chmodSync(dst, 0o600)
+    const kind = attachmentKind(clean)
+    // a file on the team's quarantine list (safe-ops) is kept as a file: no preview is made from it
+    const quarantined = this.ctx.files.quarantine.hasHash(sha256)
+    const dims = kind === 'image' && !quarantined ? imageSize(head.subarray(0, headLen)) : null
+    let thumb = false
+    if (kind === 'image' && !quarantined) {
+      try { thumb = await makeThumbnail(dst, this.thumbAbs({ room_id: roomId, id }), 640, path.join(this.ctx.config.dataDir, 'work')) } catch (e) { this.ctx.log.debug('room thumbnail failed', { err: e }) }
+    }
+    this.ctx.db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, roomId, userId, clean, size, mimeOf(clean) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, sha256, thumb ? 1 : 0, nowIso())
+    return fileOut(this.ctx.db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
+  }
+
+  /**
+   * The file for `userId`, checked now: in the room, and either sent in a message they may see (not deleted) or their
+   * own upload not sent yet. thumb: the small preview (or the image itself when it is a small web image).
+   */
+  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string } {
+    const me = this.member(userId, roomId)
+    const f = this.ctx.db.query('SELECT * FROM room_files WHERE id = ? AND room_id = ?').get(fileId, roomId) as FileRow | null
+    if (!f) return fail('not_found')
+    if (f.message_id) {
+      const m = messageRow(this.ctx.db, roomId, f.message_id)
+      if (!m || m.deleted_at || !canSee(m, me)) fail('not_found')
+    } else if (f.user_id !== userId) fail('not_found')
+    const abs = this.abs(f)
+    if (thumb) {
+      if (f.thumb) { try { checkRegular(this.thumbAbs(f)); return { abs: this.thumbAbs(f), name: `${f.name}.jpg` } } catch { /* the original below */ } }
+      if (f.kind !== 'image' || !/^(png|jpe?g|gif|webp)$/.test(ext(f.name)) || f.size > 2 * 1024 * 1024) fail('not_found')
+    }
+    try { checkRegular(abs) } catch { fail('not_found') }
+    return { abs, name: f.name }
+  }
+
+  /** A message was deleted: its files go from disk and from the table. */
+  removeForMessage(messageId: string) {
+    const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id = ? RETURNING id, room_id').all(messageId) as Pick<FileRow, 'id' | 'room_id'>[]
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); fs.rmSync(this.thumbAbs(f), { force: true }) }
+  }
+
+  /**
+   * At start: the files on disk and the rows in room_files are compared. Nothing is deleted on a guess:
+   * - a row whose file is not there is kept (GET answers 404 for it) and only counted in the log: the team folder may be
+   *   a share that is not mounted yet, unreadable, or put in place after the first start;
+   * - a file without a row (a database restored from a backup is older than the folder: files sent since have no row) is
+   *   moved to <team>/.system/rooms-orphans/<time>/<room id>/, so going back to the newer database stays possible, and
+   *   such batches are deleted after ORPHAN_KEEP_MS;
+   * - files of the first layout (<data dir>/rooms/, before room files were kept with the team folder) are moved over,
+   *   file by file through a temporary name, so an interrupted start leaves no half file under a real name.
+   * When <team>/.system/rooms is missing or cannot be read, nothing else is done. Runs before requests are served.
+   */
+  reconcile(now = Date.now()): { movedFiles: number; missingFiles: number; orphansMoved: number; orphanBatchesPurged: number; skipped?: true } {
+    const out = { movedFiles: 0, missingFiles: 0, orphansMoved: 0, orphanBatchesPurged: 0 }
+    // the first layout moves over only into a team folder that is there: an empty mount point of a share that is not
+    // mounted yet gets no .system/rooms of its own
+    if (this.teamFolderPresent()) out.movedFiles = this.moveLegacy()
+    const root = this.root()
+    let rooms: string[]
+    try {
+      if (!fs.statSync(root).isDirectory()) throw new Error('not a folder')
+      fs.accessSync(root, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK)
+      rooms = fs.readdirSync(root)
+    } catch {
+      const n = (this.ctx.db.query('SELECT COUNT(*) n FROM room_files').get() as { n: number }).n
+      if (n) this.ctx.log.warn('room files folder missing or unreadable; room files are not checked at this start', { rows: n })
+      return { ...out, skipped: true }
+    }
+    const rows = this.ctx.db.query('SELECT id, room_id FROM room_files').all() as Pick<FileRow, 'id' | 'room_id'>[]
+    const known = new Set(rows.map((r) => `${r.room_id}/${r.id}`))
+    for (const r of rows) if (!fs.existsSync(this.abs(r))) out.missingFiles++
+    const batch = this.newBatch(now)
+    for (const room of rooms) {
+      const dir = path.join(root, room)
+      let names: string[] = []
+      try { names = fs.readdirSync(dir) } catch { continue }
+      for (const n of names) {
+        if (n.endsWith(MOVING)) { fs.rmSync(path.join(dir, n), { force: true }); continue } // an interrupted copy
+        const id = n.endsWith(THUMB) ? n.slice(0, -THUMB.length) : n
+        if (known.has(`${room}/${id}`)) continue
+        fs.mkdirSync(path.join(batch, room), { recursive: true, mode: 0o700 })
+        fs.renameSync(path.join(dir, n), path.join(batch, room, n))
+        out.orphansMoved++
+      }
+      try { fs.rmdirSync(dir) } catch { /* not empty */ }
+    }
+    out.orphanBatchesPurged = this.purgeOrphans(now)
+    if (out.movedFiles || out.missingFiles || out.orphansMoved || out.orphanBatchesPurged) this.ctx.log.info('room files checked', out)
+    return out
+  }
+
+  private orphansRoot() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms-orphans') }
+
+  /** A batch folder name no other start uses: the time, this process and a count (two starts in one second differ). */
+  private newBatch(now: number): string {
+    for (let i = 0; ; i++) {
+      const p = path.join(this.orphansRoot(), `${stamp(now)}-${process.pid}-${i}`)
+      if (!fs.existsSync(p)) return p
+    }
+  }
+
+  /** The team folder can be read and written and holds something (setup makes its folders; an unmounted share is empty). */
+  private teamFolderPresent(): boolean {
+    try {
+      const t = this.ctx.files.fx.root
+      fs.accessSync(t, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK)
+      return fs.readdirSync(t).length > 0
+    } catch { return false }
+  }
+
+  /** <data dir>/rooms/<room>/<file> → <team>/.system/rooms/<room>/<file>, each file copied to `<name>.moving` and renamed
+   * (a rename when both are on one disk), then the old one removed. A file already there is not copied again. */
+  private moveLegacy(): number {
+    const legacy = path.join(this.ctx.config.dataDir, 'rooms')
+    if (!fs.existsSync(legacy)) return 0
+    let moved = 0
+    for (const room of fs.readdirSync(legacy)) {
+      const from = path.join(legacy, room), to = this.dir(room)
+      fs.mkdirSync(to, { recursive: true, mode: 0o700 })
+      for (const n of fs.readdirSync(from)) {
+        const src = path.join(from, n), dst = path.join(to, n)
+        if (!fs.existsSync(dst)) {
+          try { fs.renameSync(src, dst) } catch {
+            fs.copyFileSync(src, dst + MOVING)
+            fs.chmodSync(dst + MOVING, 0o600)
+            fs.renameSync(dst + MOVING, dst)
+          }
+          moved++
+        }
+        fs.rmSync(src, { force: true })
+      }
+      try { fs.rmdirSync(from) } catch { /* something was left: looked at again next start */ }
+    }
+    try { fs.rmdirSync(legacy) } catch { /* the same */ }
+    return moved
+  }
+
+  /** Orphan batches older than ORPHAN_KEEP_MS by both the time in their name and their folder's time go. Not when the
+   * clock looks wrong (earlier than the newest room file: a Mac with a dead clock battery, a restored VM). */
+  private purgeOrphans(now: number): number {
+    const newest = (this.ctx.db.query('SELECT MAX(created_at) t FROM room_files').get() as { t: string | null }).t
+    if (newest && now < Date.parse(newest)) {
+      this.ctx.log.warn('the clock is earlier than the newest room file; set-aside room files are kept', { newest })
+      return 0
+    }
+    let n = 0
+    let batches: string[] = []
+    try { batches = fs.readdirSync(this.orphansRoot()) } catch { return 0 }
+    for (const b of batches) {
+      const at = parseStamp(b)
+      if (at === null || now - at < ORPHAN_KEEP_MS) continue
+      let mtime: number
+      try { mtime = fs.statSync(path.join(this.orphansRoot(), b)).mtimeMs } catch { continue }
+      if (now - mtime < ORPHAN_KEEP_MS) continue
+      fs.rmSync(path.join(this.orphansRoot(), b), { recursive: true, force: true })
+      n++
+    }
+    return n
+  }
+
+  /** Uploads never sent, and files of rooms that are gone. */
+  sweep(now = Date.now()) {
+    const cutoff = new Date(now - UNSENT_FILE_MS).toISOString()
+    const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id IS NULL AND created_at < ? RETURNING id, room_id').all(cutoff) as Pick<FileRow, 'id' | 'room_id'>[]
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); fs.rmSync(this.thumbAbs(f), { force: true }) }
+    return rows.length
+  }
+}
+
+export function roomFilesOf(ctx: AppContext): RoomFiles {
+  let s = services.get(ctx)
+  if (!s) { s = new RoomFiles(ctx); services.set(ctx, s) }
+  return s
+}

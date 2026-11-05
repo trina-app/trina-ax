@@ -9,7 +9,14 @@ import { accessChanged, notificationsChanged, reloadAsked } from '../../store/li
 import { Button, ErrorNote, Skeleton } from '../ui'
 import { PushNotifications } from './PushNotifications'
 
-const preferenceKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
+const preferenceKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions', 'roomMessages'] as const
+
+/** A DM message or an @mention in a team chat room: who wrote it when the server still names them (never the text). */
+const roomText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
+  const from = item.room?.from
+  if (item.code === 'room.mention') return from ? t('notifications.event.room.mentionNamed', { name: from }) : t('notifications.event.room.mention')
+  return from ? t('notifications.event.room.dmNamed', { name: from }) : t('notifications.event.room.dm')
+}
 
 /** A suggestion to review opens in the review tab, an own result in "my suggestions" (the Skills screen checks access). */
 export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId'>) => `/skills?${item.code === 'skill.suggested' ? 'review' : 'mine'}=${encodeURIComponent(item.sourceId)}`
@@ -84,10 +91,11 @@ export function Notifications() {
       <h3 className="mb-3 text-sm font-semibold">{t('inbox.title')} <span className="font-normal text-muted">· {t('notifications.unread', { count: unread })}</span></h3>
       {!items.length && <p className="text-sm text-muted">{t('notifications.empty')}</p>}
       <ul className="divide-y divide-line">{items.map(item => <li key={item.id} className="flex items-start gap-3 py-3" data-testid="notification-item">
-        <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{item.code === 'dev_env.job' || item.code === 'dev_env.box' ? devEnvText(item, t) : item.code === 'onboarding.ai_request' && item.requester ? t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name }) : item.code === 'team.joined' ? (item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')) : item.code === 'onboarding.first_run' ? firstRunText(t, locale, item) : item.code === 'integration.request' && item.request ? t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host }) : t(item.code === 'schedule.failure' && item.review ? 'notifications.event.schedule.review' : item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
+        <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{item.code === 'room.dm' || item.code === 'room.mention' ? roomText(item, t) : item.code === 'dev_env.job' || item.code === 'dev_env.box' ? devEnvText(item, t) : item.code === 'onboarding.ai_request' && item.requester ? t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name }) : item.code === 'team.joined' ? (item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')) : item.code === 'onboarding.first_run' ? firstRunText(t, locale, item) : item.code === 'integration.request' && item.request ? t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host }) : t(item.code === 'schedule.failure' && item.review ? 'notifications.event.schedule.review' : item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
           {item.devEnv?.job?.exitCode === null && item.devEnv.job.note && <p className="mt-1 text-xs text-muted" data-testid="notification-job-note">{item.devEnv.job.note}</p>}
           {item.devEnv?.job?.tail && <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-faint" data-testid="notification-job-tail">{item.devEnv.job.tail}</pre>}
           {item.link === 'chat' && item.chatId && <Link className="text-sm text-accent-text hover:underline" to={`/c/${encodeURIComponent(item.chatId)}`} onClick={() => void read(item)}>{t(item.code === 'dev_env.job' ? 'notifications.openChat' : 'scheduled.openResult')}</Link>}
+          {item.link === 'room' && item.room && <Link className="text-sm text-accent-text hover:underline" to={`/rooms/${encodeURIComponent(item.room.id)}`} onClick={() => void read(item)} data-testid="notification-room-link">{t('notifications.openRoom')}</Link>}
           {item.link === 'project' && item.devEnv && <Link className="text-sm text-accent-text hover:underline" to={`/projects/${encodeURIComponent(item.devEnv.projectId)}`} onClick={() => void read(item)}>{item.devEnv.projectName}</Link>}
           {item.review && <Link className="text-sm text-accent-text hover:underline" to="/scheduled" onClick={() => void read(item)} data-testid="notification-review-link">{t('settings.schedules')}</Link>}
           {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/drive" onClick={() => void read(item)}>{t('drive.title')}</Link>}
@@ -101,7 +109,8 @@ export function Notifications() {
       {cursor && <Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button>}
     </div>}
     {preferences && <fieldset disabled={busy} className="space-y-3 rounded-xl border border-line p-4"><legend className="px-1 text-sm font-medium">{t('notifications.preferences')}</legend>
-      {preferenceKeys.map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
+      {/* a server from before a preference existed leaves it out: no box for it */}
+      {preferenceKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
       <p className="text-xs text-muted">{t('notifications.preferenceHint')}</p>
     </fieldset>}
     <PushNotifications />

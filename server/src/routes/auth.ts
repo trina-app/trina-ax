@@ -3,6 +3,8 @@
 // Contract: shared/src/api/auth.ts
 import { API } from '@mycel/shared/api'
 import { LOCALE_CHANGED } from '../admin/settings'
+import { audit } from '../admin/audit'
+import { profileChangedFor } from '../auth/profiles'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatus } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
@@ -63,11 +65,16 @@ export const authRoutes: RouteModule = {
         for (const [k, v] of Object.entries(next)) if (v === undefined || v === null) delete next[k]
         sets.push('prefs = ?'); args.push(JSON.stringify(next))
       }
+      const renamed = body.name !== undefined && body.name !== u!.name
       ctx.db.transaction(() => {
         if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, auth.user.id)
         // null = follow the team default again
         if (body.locale !== undefined) setUserLocale(ctx.db, auth.user.id, body.locale)
       })()
+      if (renamed) {
+        audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: ['name'], name: { from: u!.name, to: body.name } } })
+        ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
+      }
       // the person's other windows and devices switch too
       if (body.locale !== undefined) ctx.services.realtime.publish(auth.user.id, LOCALE_CHANGED)
       return a().me(auth.user.id, auth.session.id)

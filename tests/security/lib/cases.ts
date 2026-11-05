@@ -11,8 +11,10 @@ import { C, USER_OF, WHO, type Who, type World } from './world'
 import { P4_SPECS } from './p4-cases'
 import { INTEGRATION_SPECS } from './integrations-cases'
 import { TEAM_ICON_SPECS } from './team-icon-cases'
+import { PEOPLE_SPECS } from './people-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
+import { ROOM_SPECS } from './rooms-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -28,6 +30,7 @@ type Scope =
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
+  | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
 export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
@@ -49,6 +52,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
+    case 'room-dm': return who === 'memberIn' || who === 'other'
     case 'nobody': return false
   }
 }
@@ -69,8 +73,10 @@ export const SPECS: Record<string, Spec> = {
   ...P4_SPECS,
   ...INTEGRATION_SPECS,
   ...TEAM_ICON_SPECS,
+  ...PEOPLE_SPECS,
   ...REMOTE_MCP_SPECS,
   ...PLUGIN_SPECS,
+  ...ROOM_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',

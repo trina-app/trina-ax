@@ -31,6 +31,7 @@ import { recordSent } from '../tools/connection-urls'
 import { boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
+import { ROOM_OFF_TOOLS } from '../rooms/ai-tools'
 
 interface Tool {
   name: string
@@ -73,6 +74,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
     if(confidential && !localTool(t.name)) return false
+    // a team chat room's AI session (rooms/ai.ts): no memories, no title, no connection card there
+    if (exec.room && ROOM_OFF_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     return true
@@ -132,6 +135,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
+      exec.noteRoomTool(name)
+      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
+      const roomNo = await exec.confirmRoomChange(name, args)
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (room)` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -157,21 +164,34 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwp -> not allowed by the user (wider audience)' }
       }
       const out = await t.call(args, files)
+      // a room session: a link share_file made says the path exists; its folder counts like a name read (turn.ts noteReads)
+      if (exec.room && name === 'share_file' && !out.isError) {
+        const p = (args as { path?: unknown } | null)?.path
+        if (typeof p === 'string') files.namePaths.add(p.split('/').filter((x) => x && x !== '.').join('/'))
+      }
       exec.afterTool()
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts)
       return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
     },
     afterFileTool: (name, isError, args) => {
-      exec.noteTaint(name, args); exec.noteReads(); exec.afterTool()
+      exec.noteTaint(name, args); exec.noteRoomTool(name); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
+    },
+    // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
+    beforeBatch: async (name, args) => {
+      const no = await exec.confirmRoomChange(name, args)
+      return no ? { refusal: no, summary: `${name} -> not allowed by the user (room)` } : null
     },
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
       recordSent(exec.rt.db, exec.spec.chatId, args)
+      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
+      const roomNo = await exec.confirmRoomChange(name, args)
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (room)` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
@@ -251,14 +271,18 @@ function skillTools(exec: TurnExec): Tool[] {
         const user = person()
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'skill -> denied: account disabled' }
         const skills = listSkills(rt.files, user)
+        // in a room the names it offers back are only of skills everyone there may read (they may reach the room); a skill
+        // named exactly still loads, and its folder then joins the read scope
+        const shown = exec.roomReadable ? skills.filter((s) => exec.roomReadable!(s.path)) : skills
         const hit = resolveSkill(skills, a.data.name)
         if (hit && 'ambiguous' in hit) {
-          return { ...text(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.name))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call skill again with the path of the one you mean.`, true), summary: `skill -> ambiguous (${hit.ambiguous.length})` }
+          const named = hit.ambiguous.filter((s) => shown.includes(s))
+          return { ...text(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.name))}"${named.length ? `: ${named.map((s) => s.path).join(', ')}` : ''}. ${named.length ? 'Call skill again with the path of the one you mean.' : 'Ask the user which one they mean.'}`, true), summary: `skill -> ambiguous (${hit.ambiguous.length})` }
         }
         // read again through the file checks (the same answer for a missing file and one the person cannot read)
         const skill = hit ? readSkill(rt.files, user, hit.skill.path) : null
         if (!skill) {
-          const near = matchSkills(skills, a.data.name, { limit: 5 }).map((m) => `"${neutralizeTags(clipName(m.skill.name, 64))}"`)
+          const near = matchSkills(shown, a.data.name, { limit: 5 }).map((m) => `"${neutralizeTags(clipName(m.skill.name, 64))}"`)
           return {
             ...text(`No skill called "${neutralizeTags(clipName(a.data.name))}" that this user can use.${near.length ? ` Similar: ${near.join(', ')}.` : ''} Use a name from the skill list in your instructions, or look with find_skills.`, true),
             summary: 'skill -> not found',
@@ -280,7 +304,8 @@ function skillTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const user = person()
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'find_skills -> denied: account disabled' }
-        const skills = listSkills(rt.files, user)
+        // in a room only the skills everyone there may read (their names and descriptions may reach the room)
+        const skills = listSkills(rt.files, user).filter((s) => !exec.roomReadable || exec.roomReadable(s.path))
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores, projectFolder: exec.projectFolder })
         const q = neutralizeTags(clipName(a.data.query, 80))

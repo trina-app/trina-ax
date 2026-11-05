@@ -91,6 +91,9 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       return failed('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.') || '(input)'}: ${i.message}`).join('; ')).result
     }
     const { old_string, new_string, replace_all } = a.data
+    // a room's AI session asks once for the whole batch (chat/turn.ts confirmRoomChange); a no stops every file
+    const batchNo = extra?.beforeBatch ? await extra.beforeBatch(EDIT_FILES_TOOL, params?.arguments ?? {}, { files: owner.files }).catch(() => ({ refusal: 'The change could not be checked, so nothing was changed. Try again.', summary: `${EDIT_FILES_TOOL} -> not changed (the check failed)` })) : null
+    if (batchNo) { row(batchNo.summary, 0); return failed(batchNo.refusal).result }
     // the file each path names: its actual name when the person (as they are now) may read it, so no other path
     // learns anything; else the path as typed without "." and empty parts (such a path fails as an edit anyway)
     const me = loadPrincipal(db, ctx.user.id)

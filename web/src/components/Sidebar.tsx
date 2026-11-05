@@ -1,5 +1,6 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, scheduled,
-// inbox (with the unread count), files, team skills, admin, recent chats by date, and the account menu (the person's email or ID, Settings, Usage (their own, in
+// inbox (with the unread count), files, team skills, admin, the team chat rooms (rooms/SidebarRooms.tsx), recent chats
+// by date, and the account menu (the person's email or ID, Settings, Usage (their own, in
 // Settings), Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is a drawer opened
 // from the top bar.
 import clsx from 'clsx'
@@ -18,7 +19,9 @@ import { useChats } from '../store/chats'
 import { accessChanged, notificationsChanged, reloadAsked, skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
+import { Avatar } from './Avatar'
 import { useChatActions } from './chat/chatActions'
+import { SidebarRooms } from './rooms/SidebarRooms'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 
 /** shortcut hints in the keys of this computer (the handlers take ⌘ and Ctrl alike, Layout.tsx) */
@@ -215,6 +218,8 @@ export default function Sidebar() {
       </div>
 
       <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide}>
+        {/* the team chat rooms (people with people), above the AI chats */}
+        <SidebarRooms onNavigate={close} />
         <div className="group/recents flex items-center gap-1 pr-1 pl-3">
           <h2 className="text-xs font-medium text-faint">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={() => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
@@ -476,9 +481,7 @@ function AccountMenu() {
         className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-hover"
         data-testid="account-menu"
       >
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-ink" aria-hidden>
-          {me.user.name.slice(0, 1).toUpperCase()}
-        </span>
+        <Avatar user={me.user} size={24} />
         <span className="flex min-w-0 flex-1 items-baseline gap-1">
           <span className="truncate text-sm font-medium">{me.user.name}</span>
           <span className="shrink-0 text-xs text-faint" aria-hidden>

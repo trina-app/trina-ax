@@ -26,8 +26,9 @@ export function locChip(t: T, l: SourceLoc): string {
   }
 }
 
-// defaultOpen / initial: tests render the open list without a click or a server
-export default function SourcesList({ chatId, messageId, count, defaultOpen = false, initial }: { chatId: string; messageId: string; count: number; defaultOpen?: boolean; initial?: MessageSources }) {
+// defaultOpen / initial: tests render the open list without a click or a server. `load`: where the list comes from
+// when it is not a chat answer's (an AI answer in a room: GET /api/rooms/:id/messages/:messageId/sources)
+export default function SourcesList({ chatId, messageId, count, defaultOpen = false, initial, load }: { chatId: string; messageId: string; count: number; defaultOpen?: boolean; initial?: MessageSources; load?: (signal: AbortSignal) => Promise<MessageSources> }) {
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(defaultOpen)
@@ -40,7 +41,7 @@ export default function SourcesList({ chatId, messageId, count, defaultOpen = fa
     const ctrl = new AbortController()
     setError(null)
     setData(null)
-    api.call(API.messageSources, { params: { id: chatId, messageId }, signal: ctrl.signal }).then(
+    ;(load ? load(ctrl.signal) : api.call(API.messageSources, { params: { id: chatId, messageId }, signal: ctrl.signal })).then(
       (r) => { if (!ctrl.signal.aborted) setData(r) },
       (e: unknown) => { if (!ctrl.signal.aborted) setError(errorText(e, locale, t('error.network'))) },
     )
