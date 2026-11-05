@@ -1752,6 +1752,7 @@ export const ko = {
   'audit.source.tool': 'AI 도구',
   'audit.source.auth': '로그인',
   'audit.denied': '거부됨',
+  'activity.confirmedByUser': '사용자가 확인함',
   'audit.failed': '실패',
   'audit.act.setup': '팀 만듦',
   'audit.act.file.attach': '채팅에 팀 파일 첨부',

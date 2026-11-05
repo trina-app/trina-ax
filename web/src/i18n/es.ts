@@ -1719,6 +1719,7 @@ export const es: Record<MessageKey, string> = {
   'audit.source.tool': "Herramienta de IA",
   'audit.source.auth': "Inicio de sesión",
   'audit.denied': "Denegado",
+  'activity.confirmedByUser': 'confirmado por la persona',
   'audit.failed': "Falló",
   'audit.act.setup': "Creó el equipo",
   'audit.act.file.attach': "Adjuntó un archivo del equipo a un chat",

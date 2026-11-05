@@ -1753,6 +1753,7 @@ export const id: Record<MessageKey, string> = {
   'audit.source.tool': 'Alat AI',
   'audit.source.auth': 'Login',
   'audit.denied': 'Ditolak',
+  'activity.confirmedByUser': 'dikonfirmasi pengguna',
   'audit.failed': 'Gagal',
   'audit.act.setup': 'Membuat tim',
   'audit.act.file.attach': 'Melampirkan berkas tim ke chat',

@@ -1719,6 +1719,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.source.tool': "AIツール",
   'audit.source.auth': "ログイン",
   'audit.denied': "拒否",
+  'activity.confirmedByUser': 'ユーザーが確認済み',
   'audit.failed': "失敗",
   'audit.act.setup': "チームを作成",
   'audit.act.file.attach': "チームのファイルをチャットに添付",

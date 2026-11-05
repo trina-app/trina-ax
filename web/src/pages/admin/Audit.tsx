@@ -239,6 +239,7 @@ function Sentence({ e }: { e: AuditEntry }) {
         {e.source === 'tool' ? t('activity.aiUsed', { tool: label }) : inSentence(label)}
       </span>
       {item && <span className="text-faint"> · <span className={clsx(item.code && 'font-mono text-xs')}>{item.text}</span></span>}
+      {item?.confirmed && <span className="text-faint"> · {t('activity.confirmedByUser')}</span>}
     </>
   )
 }
@@ -250,12 +251,30 @@ const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * address it worked on ("read shared/a.csv -> 4 lines" → shared/a.csv). A sign-in's item is the username, already the
  * person on the row. The rest (the id, the whole summary, the process behind a tool connection) is in the details.
  */
-export function rowItem(e: AuditEntry): { text: string; code: boolean } | null {
+export function rowItem(e: AuditEntry): { text: string; code: boolean; confirmed?: true } | null {
   if (e.source === 'auth') return null
   if (e.source === 'tool') {
-    const head = (typeof e.detail?.summary === 'string' ? e.detail.summary : '').split(' -> ')[0]!
+    const summary = typeof e.detail?.summary === 'string' ? e.detail.summary : ''
+    const [head = '', ...rest] = summary.split(' -> ')
+    const tail = rest.join(' -> ')
+    // "(confirmed by the user)", "(address confirmed by the user)", …: the person allowed it on a card
+    const confirmed = /confirmed by the user/.test(summary) ? ({ confirmed: true } as const) : {}
     const item = head.startsWith(`${e.action} `) ? head.slice(e.action.length + 1).trim() : ''
-    return item.includes('/') && !/[{}"=]/.test(item) ? { text: item, code: true } : null
+    // a web address (web_fetch …): host and path, and "?…" when a query was left out (the query is where data that
+    // leaves would be: an admin needs to see that there was one)
+    const url = /^https?:\/\/\S+/i.exec(item)?.[0]
+    if (url) {
+      try {
+        const u = new URL(url)
+        return { text: `${u.host}${u.pathname === '/' ? '' : u.pathname}${u.search ? '?…' : ''}`, code: true, ...confirmed }
+      } catch { /* not an address after all */ }
+    }
+    // a file the tool saved (make_file pdf -> users/a/b.pdf 12B, save_url -> users/a/b.png (…)): the saved path
+    if (e.action === 'make_file' || e.action === 'save_url') {
+      const saved = /^(\S+\/\S+)/.exec(tail)?.[1]
+      return saved ? { text: saved, code: true, ...confirmed } : null
+    }
+    return item.includes('/') && !/[{}"=]/.test(item) ? { text: item, code: true, ...confirmed } : null
   }
   if (!e.target) return null
   if (!ID.test(e.target)) return { text: e.target, code: true }

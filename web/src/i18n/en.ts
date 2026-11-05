@@ -1753,6 +1753,7 @@ export const en: Record<MessageKey, string> = {
   'audit.source.tool': 'AI tool',
   'audit.source.auth': 'Sign-in',
   'audit.denied': 'Denied',
+  'activity.confirmedByUser': 'confirmed by the user',
   'audit.failed': 'Failed',
   'audit.act.setup': 'Created the team',
   'audit.act.file.attach': 'Attached a team file to a chat',

