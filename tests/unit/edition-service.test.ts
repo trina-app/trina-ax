@@ -7,7 +7,7 @@ import { isServiceHost, SERVICE_HOSTS } from '../../shared/src/service-hosts'
 
 const ROOT = path.resolve(import.meta.dir, '../..')
 const source = fs.readFileSync(path.join(ROOT, 'shared/src/service-hosts.ts'), 'utf8')
-const trina = { teamDomain: 'trina.app', officialRelayUrl: 'wss://relay.trina.app/connect', accountHost: 'account.trina.app', statusHost: 'status.trina.app' }
+const trina = { teamDomain: 'trina.app', officialRelayUrl: 'wss://relay.trina.app/connect', accountHost: 'account.trina.app', statusHost: 'status.trina.app', pushGateway: 'https://push.trina.app' }
 
 describe('edition service hosts', () => {
   test('the official relay is under the team domain, and isServiceHost knows both', () => {
@@ -16,12 +16,15 @@ describe('edition service hosts', () => {
     expect(isServiceHost(`evil${SERVICE_HOSTS.teamDomain}`)).toBe(false)
     expect(isServiceHost('relay.example.com')).toBe(false)
   })
-  test('writes exactly the four fields', () => {
+  test('writes exactly the five fields; an edition without pushGateway has no native push by default', () => {
     const out = editionService(source, trina)
     expect(out).toContain("teamDomain: 'trina.app',")
     expect(out).toContain("officialRelayUrl: 'wss://relay.trina.app/connect',")
     expect(out).toContain("accountHost: 'account.trina.app',")
     expect(out).toContain("statusHost: 'status.trina.app',")
+    expect(out).toContain("pushGateway: 'https://push.trina.app',")
+    const { pushGateway: _, ...withoutPush } = trina
+    expect(editionService(source, withoutPush)).toContain("pushGateway: '',")
     expect(out.replace(/'[^'\n]*'/g, "''")).toBe(source.replace(/'[^'\n]*'/g, "''"))
     expect(editionService(out, trina)).toBe(out)
   })
@@ -31,5 +34,6 @@ describe('edition service hosts', () => {
     expect(() => parseEditionService({ ...trina, accountHost: 'https://account.trina.app' })).toThrow()
     expect(() => parseEditionService({ ...trina, officialRelayUrl: 'ws://relay.trina.app/connect' })).toThrow()
     expect(() => parseEditionService({ ...trina, officialRelayUrl: 'wss://relay.other.app/connect' })).toThrow()
+    for (const pushGateway of ['http://push.trina.app', 'https://push.trina.app/v1', "https://push.trina.app'", 'https://user@push.trina.app', 'https://push.trina.app:444']) expect(() => parseEditionService({ ...trina, pushGateway })).toThrow()
   })
 })
