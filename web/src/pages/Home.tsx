@@ -1,7 +1,7 @@
 // New chat. First-time members see which folders their AI can see and three example questions (filled with
 // their folder names, no engine call). Owners and admins get ONE thing at the top: the welcome steps' "continue" row
 // while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a time"); the
-// owner's setup checklist is on Admin › Home. On a demo server (`bun run demo:trina`) a demo person sees only their
+// owner's setup checklist is on Admin › Home. On a demo server (`bun run demo:company`) a demo person sees only their
 // one line and their questions (components/demo/Demo.tsx).
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
 // one line each, with nothing else added:

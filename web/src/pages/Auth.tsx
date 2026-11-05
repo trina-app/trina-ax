@@ -146,7 +146,7 @@ export function Login() {
   const { busy, error, run } = useSubmit()
   const { errorOf, check } = useFieldChecks({ username: requiredCheck(username), password: password ? null : 'auth.required' })
   const reason = status.kind === 'signed-out' ? status.reason : undefined
-  // a demo server (`bun run demo:trina`): one action, start as the new hire; the usual form is one link away
+  // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
   const submit = (e: FormEvent<HTMLFormElement>) => {
