@@ -40,7 +40,7 @@ test('run now: a new chat now, the schedule stays; a paused task says it does no
   await expect(item.getByTestId('schedule-run-link')).toHaveAttribute('href', /\/c\/[0-9a-f-]+$/)
   await page.getByRole('button', { name: '채팅 열기' }).click()
   await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
-  await expect(page.getByTestId('chat-title')).toContainText('⏰ 주간 회의록 요약')
+  await expect(page.getByTestId('chat-title')).toContainText('주간 회의록 요약')
   await page.goBack()
   await sw.click()
   await expect(sw).toBeChecked()
