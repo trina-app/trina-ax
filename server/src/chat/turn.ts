@@ -73,6 +73,8 @@ import { RedactingText, redactorFor, type Redactor } from '../integrations/conne
 import { DraftPages, draftScopeOf, draftSystemPrompt, type DraftTurn } from '../onboarding/draft'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
+import { ROOM_FILE_TOOLS } from '../rooms/ai-tools'
+import type { RoomTurnContext } from './runtime'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -146,6 +148,9 @@ export class TurnExec {
   readonly done: Promise<void>
   /** the person's sessions were reset while this turn ran (access shrank): the session is not kept at the end */
   sessionRevoked = false
+  /** a team chat room's AI session (rooms/ai.ts, chats.room_id): its steps go to the person through the room, it has
+   * no memories, and what it uses decides whether its answer may go to the room */
+  room: { roomId: string } | null = null
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -202,6 +207,9 @@ export class TurnExec {
 
   constructor(readonly rt: ChatRuntime, readonly spec: TurnSpec) {
     this.done = new Promise((r) => (this.resolveDone = r))
+    // a team chat room's AI session (rooms/ai.ts): known from the start, so every step and the end go through the room
+    const roomId = (rt.db.query('SELECT room_id FROM chats WHERE id = ?').get(spec.chatId) as { room_id: string | null } | null)?.room_id
+    if (roomId) this.room = { roomId }
     const limit = rt.wallTimeoutMs ?? 45 * 60_000
     const remaining = spec.wallDeadlineAt ? Date.parse(spec.wallDeadlineAt) - Date.now() : limit
     // A wall-clock rollback cannot extend this process's deadline. Persisted deadlines survive retries/recovery.
@@ -326,6 +334,11 @@ export class TurnExec {
     const chat = rt.store.chatRow(spec.chatId)
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
+    // never a confidential conversation in a room (safe operations stay in AI chats); no room hooks, no room turn
+    if (this.room) {
+      if (!rt.rooms) { this.error = engineError('crash', spec.locale); return }
+      if (confidentialChat(rt.db, spec.chatId)) { this.error = { code: 'forbidden', message: tr('roomAiSafeOps', spec.locale) }; return }
+    }
 
     this.browser = !this.profileDraft && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
@@ -355,6 +368,15 @@ export class TurnExec {
       fs.rmSync(stash, { force: true })
     }
     if (!resume && userMsg.parent_id === null) this.newSession()
+    // a room's AI session: the room's latest messages the person can see go in front of the question (rooms/ai.ts).
+    // Other people's words are outside content (remember protection) and the room is where they came from (tab 7)
+    let roomCtx: RoomTurnContext | null = null
+    if (this.room) {
+      const r = rt.rooms!.prepare({ chatId: spec.chatId, roomId: this.room.roomId, userId: spec.userId, userMessageId: spec.userMessageId, continues: userMsg.parent_id !== null })
+      if ('error' in r) { this.error = r.error; return }
+      roomCtx = r
+      if (r.others) { this.taint(); addSources(rt.db, spec.chatId, [{ type: 'room', id: this.room.roomId }]) }
+    }
     // a draft chat gets no project (no instructions, no folder): no team content in a card-free web turn
     const project = this.profileDraft ? null : rt.projectForChat(chat.project_id, this.principal)
     this.projectFolder = project?.folderPath ?? null
@@ -380,8 +402,10 @@ export class TurnExec {
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
-      memories: rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나")
+      memories: this.room ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
       history: fresh ? rt.history(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      room: roomCtx?.prompt ?? null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -423,7 +447,7 @@ export class TurnExec {
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
     const hints = !invoked && !this.profileDraft && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores, projectFolder: this.projectFolder })) : ''
-    const message = scheduled + continued + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
+    const message = (roomCtx ? `${roomCtx.block}\n\n` : '') + scheduled + continued + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
@@ -895,6 +919,7 @@ export class TurnExec {
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
+        this.noteRoomTool(tool, e.input)
         return
       }
       case 'tool_end': {
@@ -1018,7 +1043,7 @@ export class TurnExec {
     if (at >= this.content.length) return
     this.content = this.content.slice(0, at)
     this.dirty = true
-    this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset: at, text: '', reset: true } })
+    if (!this.room) this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset: at, text: '', reset: true } })
   }
 
   private emitText(t: string) {
@@ -1026,7 +1051,8 @@ export class TurnExec {
     const offset = this.content.length
     this.content += t
     this.dirty = true
-    this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset, text: t } })
+    // a room's answer is not streamed: the person sees its steps, and the room the finished answer (rooms/ai.ts)
+    if (!this.room) this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset, text: t } })
   }
 
   addStep(s: Partial<Step> & Pick<Step, 'kind' | 'label' | 'status'>): Step {
@@ -1105,6 +1131,7 @@ export class TurnExec {
   }
 
   private publishStep(step: Step) {
+    if (this.room) { this.rt.rooms?.step({ roomId: this.room.roomId, turnId: this.id, userId: this.spec.userId }, { ...step }); return }
     this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, step: { ...step } } })
   }
 
@@ -1118,7 +1145,8 @@ export class TurnExec {
   /** A session without any earlier conversation (new chat, or the first message edited) starts untainted. Fresh
    * sessions that carry the branch history keep the mark: the history holds what was seen before. */
   private newSession() {
-    this.rt.db.query('UPDATE chats SET session_tainted = 0 WHERE id = ?').run(this.spec.chatId)
+    // a room session's mark of outside sources goes with its read scope (rooms/ai.ts)
+    this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0 WHERE id = ?').run(this.spec.chatId)
     clearScope(this.rt.db, this.spec.chatId)
   }
   taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId) }
@@ -1137,6 +1165,23 @@ export class TurnExec {
       // own folder only; the attachment folder inside it holds files from elsewhere (uploads, shared screenshots)
       if ((p !== mine && !p.startsWith(mine + '/')) || p.startsWith(mine + '/.attachments')) this.taint()
     }
+  }
+
+  /**
+   * A room's AI session (rooms/ai.ts): a tool outside the team-file tools (rooms/ai-tools.ts; the engine's web search,
+   * a page, a connection, the browser, anything unknown) marks the session as having used something from outside, so
+   * its answers stay private to the person. A folder `list`ed (`ok`: the listing came back) joins the read scope like
+   * a read: its file names may go into the answer.
+   */
+  noteRoomTool(tool: string, input: unknown, ok = false) {
+    if (!this.room) return
+    if (!ROOM_FILE_TOOLS.has(tool)) {
+      this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId)
+      return
+    }
+    if (tool !== 'list' || !ok) return
+    const p = String((input as { path?: unknown } | null)?.path ?? '').split('/').filter((x) => x && x !== '.').join('/')
+    if (p) addSources(this.rt.db, this.spec.chatId, [sourceOf(this.rt.db, this.rt.files.rules(), p)])
   }
 
   // ---------------- attachments ----------------
@@ -1211,7 +1256,7 @@ export class TurnExec {
     const allowed = this.widenAllowed.get(dir)
     if (!binding && allowed && w.narrower.every((s) => allowed.has(sourceKey(s)))) return null
     const L = this.spec.locale
-    const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L) }
+    const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
     const from = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels)).join(', ')
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('widenConfirm', L, { sources: from, target: segs.join('/'), n: String(w.targetViewers) }) + (binding ? '\nSHA-256: ' + JSON.parse(binding).hash : ''),
@@ -1416,6 +1461,8 @@ export class TurnExec {
   private async finish() {
     if (this.saver) clearInterval(this.saver)
     this.flushText()
+    // a room session: every read of this turn is in the read scope before the room decides where the answer goes
+    if (this.room) { try { this.noteReads() } catch (e) { this.rt.log.warn('room read scope failed', { err: e, turn: this.id }) } }
     // the whole answer once more: an escaped or base64 form of a secret cut across two pieces (message.done below
     // carries the saved answer, which the apps show in place of the streamed one)
     this.redactorNow = null
@@ -1499,7 +1546,8 @@ export class TurnExec {
     if (this.terminationUnconfirmed) this.quarantine()
     else this.rt.turnFinished(this)
     const row = this.rt.store.messageRow(this.spec.assistantId)
-    if (row) this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message: this.rt.store.toMessage(row) } })
+    if (this.room) this.rt.roomEnded(this.id)
+    else if (row) this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message: this.rt.store.toMessage(row) } })
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated')
     this.resolveDone()
   }

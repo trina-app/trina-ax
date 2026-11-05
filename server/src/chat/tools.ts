@@ -31,6 +31,7 @@ import { recordSent } from '../tools/connection-urls'
 import { boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
+import { ROOM_OFF_TOOLS } from '../rooms/ai-tools'
 
 interface Tool {
   name: string
@@ -73,6 +74,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
     if(confidential && !localTool(t.name)) return false
+    // a team chat room's AI session (rooms/ai.ts): no memories, no title, no connection card there
+    if (exec.room && ROOM_OFF_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     return true
@@ -132,6 +135,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
+      exec.noteRoomTool(name, args)
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -162,7 +166,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
     },
     afterFileTool: (name, isError, args) => {
-      exec.noteTaint(name, args); exec.noteReads(); exec.afterTool()
+      exec.noteTaint(name, args); exec.noteRoomTool(name, args, !isError); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)

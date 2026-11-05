@@ -9,13 +9,15 @@
 //                        personal external-service connection returned
 //   {type:'integration', id}  what a team external-service connection returned: its viewers are the active people its
 //                        access rules allow today (integrations/connections/store.ts)
+//   {type:'room', id}    messages other members wrote in a team chat room, which the AI got as context there
+//                        (rooms/ai.ts): its viewers are the room's members today
 // null (no sources yet) = no limit. read and grep results count; list / glob (names only), skills, memories and the
 // person's own messages do not.
 import type { Database } from 'bun:sqlite'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { getRow, usersOf } from '../integrations/connections/store'
 
-export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string }
+export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'room'; id: string }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
 export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : `${s.type}:${s.id}`)
@@ -69,6 +71,7 @@ function activePeople(db: Database): Principal[] {
 function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principal[]): Set<string> {
   if (s.type === 'user') return new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
   if (s.type === 'integration') return usersOf(db, s.id)
+  if (s.type === 'room') return roomViewers(db, s.id, people)
   let segs: string[] = []
   if (s.type === 'folder') {
     const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
@@ -76,6 +79,13 @@ function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principa
     segs = row.path === '' ? [] : row.path.split('/')
   }
   return new Set(people.filter((p) => atLeast(rules.access(p, segs), 'read')).map((p) => p.id))
+}
+
+/** The active people in a room now (an archived room: nobody). */
+export function roomViewers(db: Database, roomId: string, people?: Principal[]): Set<string> {
+  const ids = (db.query('SELECT m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ? AND r.archived_at IS NULL').all(roomId) as { user_id: string }[]).map((r) => r.user_id)
+  const active = new Set((people ?? activePeople(db)).map((p) => p.id))
+  return new Set(ids.filter((id) => active.has(id)))
 }
 
 export interface Widening {
@@ -101,10 +111,20 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
 }
 
 /** Where a source is, for the confirmation card. */
-export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string }): string {
+export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string }): string {
   if (s.type === 'root') return text.root
+  if (s.type === 'room') return (text.room ?? 'room {name}').replace('{name}', roomName(db, s.id))
   if (s.type === 'user') return s.id === me ? text.mine : `users/${s.id}/`
   if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'
   const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
   return row ? (row.path === '' ? text.root : row.path + '/') : '?'
+}
+
+/** A room as a card names it: the group's name for a team room, the other members' names otherwise. */
+export function roomName(db: Database, roomId: string): string {
+  const r = db.query('SELECT r.kind, g.name FROM rooms r LEFT JOIN groups g ON g.id = r.group_id WHERE r.id = ?').get(roomId) as { kind: string; name: string | null } | null
+  if (!r) return '?'
+  if (r.kind === 'team' && r.name) return r.name
+  const names = (db.query('SELECT u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY u.name LIMIT 4').all(roomId) as { name: string }[]).map((x) => x.name)
+  return names.join(', ') || '?'
 }

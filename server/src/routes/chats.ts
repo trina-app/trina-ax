@@ -143,7 +143,8 @@ export const chatsRoutes: RouteModule = {
     // ---------------- chats ----------------
     kit.handle(API.listChats, ({ query, auth }) => {
       const limit = query.limit ?? 50
-      const where: string[] = ['user_id = ?']
+      // a room's AI session (rooms/ai.ts) is not one of the person's chats
+      const where: string[] = ['user_id = ?', 'room_id IS NULL']
       const args: (string | number)[] = [auth.user.id]
       where.push(query.trash ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL')
       if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }
