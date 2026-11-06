@@ -205,9 +205,8 @@ function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'de
 
 export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, personalFolder: 'transfer' | 'delete'): void {
   const auth = c.get('auth')!
-  // owner only (설계서 4번 탭; the contract says so too, this is the second check): an admin may disable a member
-  // and reset their password, but not end their account, purge their chats or hand their folder away
-  if (auth.user.role !== 'owner') fail('forbidden', msg('ownerOnlyDelete', c.get('locale')))
+  // owner or admin (owner decision 2026-11-06; before, the owner only): guard() keeps the role rules, so an admin
+  // deletes members only, never another admin, the owner or themselves. The personal folder still goes to the owner.
   const target = liveUser(ctx, id)
   guard(c, target)
   const before = captureState(ctx.db)

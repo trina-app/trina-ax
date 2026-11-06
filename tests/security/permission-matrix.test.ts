@@ -78,19 +78,20 @@ describe('permission matrix: every route x every persona', () => {
   describe('phase 2: allowed writes + finding checks', () => { for (const k of phase2) run(k) })
 })
 
-// ---------------------------------------------------------------- findings: known gaps vs the design source of truth
-// Each test here asserts the DESIGNED behaviour and currently FAILS, documenting a finding (kept, not deleted, per
-// the review rule). Fixing the server should turn it green.
-describe('findings (asserts the 설계서; currently failing)', () => {
-  // TODO finding "admin-can-delete-account": the 설계서 (tab 4 "DELETE /api/admin/users/:id ... owner만", DECISIONS.md
-  // A "계정 삭제는 owner만") reserves account deletion to the OWNER, but API.deleteUser is auth:'admin' and
-  // server/src/admin/users.ts deleteUser()->guard() never enforces owner-only for a member target, so a non-owner
-  // admin can tombstone a member (ends their sessions, purges chats/memories, moves their personal folder).
-  test('an admin (not owner) cannot delete a member account [TODO admin-can-delete-account]', async () => {
-    // a fresh member so the matrix's own deleteUser cases don't race this one
-    const u = await W.as.owner.ok('POST', '/api/admin/users', { username: 'victim' + crypto.randomUUID().slice(0, 6), name: 'Victim', role: 'member' })
+// ---------------------------------------------------------------- account deletion by role
+// DECISIONS.md A 역할 규칙 (owner decision 2026-11-06; before it the owner only, the old finding
+// "admin-can-delete-account"): API.deleteUser is admin-level, so the matrix above expects owner and admin allowed on
+// its member target; here the roles behind it, on fresh people so the matrix's own deleteUser cases don't race these.
+describe('account deletion: an admin deletes members, only the owner deletes admins', () => {
+  const fresh = (role: 'member' | 'admin') => W.as.owner.ok('POST', '/api/admin/users', { username: `del${role[0]}` + crypto.randomUUID().slice(0, 6), name: 'Acme Temp', role })
+  test('an admin deletes a member account', async () => {
+    const u = await fresh('member')
     const r = await W.as.admin.del(`/api/admin/users/${u.user.id}`)
-    expect(r.status, `admin deleted a member (design: owner only): ${r.status}`).toBeGreaterThanOrEqual(400)
+    expect(r.status, `admin could not delete a member: ${r.status} ${r.text.slice(0, 160)}`).toBe(204)
+  })
+  test('an admin cannot delete another admin, the owner or themselves', async () => {
+    const a = await fresh('admin')
+    for (const id of [a.user.id, 'dana', 'carol']) expect((await W.as.admin.del(`/api/admin/users/${id}`)).status, id).toBe(403)
   })
 })
 
