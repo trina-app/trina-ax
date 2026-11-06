@@ -23,6 +23,9 @@ export const KnowledgeExploreInput = z.object({
   limit: z.number().int().min(1).max(20).default(8).describe('How many functions, classes and other symbols (default 8)'),
 })
 
+/** the answer when nothing is found, the same whether or not anything is indexed (F1) */
+export const NOTHING_FOUND = 'Nothing in the indexed documents or code matches, or nothing is indexed there yet. Use grep and read.'
+
 export const KNOWLEDGE_EXPLORE_DESCRIPTION =
   "Find documents, code and how things connect across the team's files. Give words or names (any language); returns matching " +
   'passages of documents (PDF, Word, Excel, PowerPoint, Hangul, text and more) with the file, page or section and a link, the documents ' +
@@ -69,9 +72,9 @@ export function registerKnowledgeExplore(ctx: AppContext, reg: ToolRegistry): vo
       if (r.passages.length) parts.push('Documents:\n' + r.passages.map((x, i) => passageText(x, i, lang, sourceLink(x.path, x.loc, lang))).join('\n\n'))
       if (r.related.length) parts.push('Related documents:\n' + r.related.map(relatedLine).join('\n'))
       if (r.hits.length) parts.push('Code:\n' + r.hits.map((h, i) => hitText(h, i, sourceLink(h.path, null, lang))).join('\n\n'))
-      const text = parts.length
-        ? parts.join('\n\n') + note
-        : r.indexed ? `Nothing in the indexed documents or code matches.${note}` : `Nothing is indexed yet in the folders this user can read.${note || ' Use grep and read.'}`
+      // one wording whether or not anything is indexed: which of the two it was could tell the person that a folder they
+      // can only partly see holds documents or code in the part hidden from them (security review F1)
+      const text = parts.length ? parts.join('\n\n') + note : `${NOTHING_FOUND}${note}`
       return {
         text,
         summary: `${KNOWLEDGE_EXPLORE} q(len=${a.query.length})${base ? ' in ' + base : ''} -> ${r.passages.length} passages, ${r.related.length} related, ${r.hits.length} symbols${r.pending ? `, ${r.pending} pending` : ''}`,

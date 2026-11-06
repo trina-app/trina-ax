@@ -114,6 +114,9 @@ As a converter (`server/src/tools/isolate.ts`), like pandoc:
 
 - macOS `sandbox-exec` / Linux `bwrap`: no network, the only program it may start is the bundle's `node`, writes only
   into the index folder, reads only the bundle and the copy (Linux mounts the copy read-only).
+- **A Linux server without `bwrap` runs CodeGraph without that sandbox**, as it runs the other converters there: the
+  limits below and the fixed environment still apply, the network and file limits do not. Install `bwrap`
+  (bubblewrap) on any server that indexes code people upload.
 - Below people's work (`taskpolicy -c utility` on macOS, `nice` and `ionice` on Linux), a 30-minute limit per run (the
   wall clock may run three times longer while it waits behind people's work), killed above 1.5 GB of memory.
 - Its telemetry, update check and self-download are off (`DO_NOT_TRACK=1`, `CODEGRAPH_TELEMETRY=0`,
@@ -141,6 +144,13 @@ asking, with the folder rules as they are then. The same rules hold for document
 - `path` narrows the search to one folder. A folder the person cannot read is refused with the same words as a missing
   one ("not found or no access").
 - Losing access works at once: the next question leaves the folder out, without re-indexing.
+- Callers and callees: CodeGraph finds them by a function's name. When another function of that name is in a file the
+  person may not read, the match is shown without its connections (they could be the other one's).
+- A match's signature comes from the index and can hold values (`= "…"`, default arguments): it is shown only while
+  the file itself still has it, so a value taken out of a file is not shown from an older index.
+- An empty answer has one wording, whether or not anything is indexed, and "still being indexed" counts only folders
+  never indexed yet: either could otherwise tell that a folder the person sees only in part has documents or code, or
+  changes, in the part hidden from them.
 - Every file named joins the chat's read scope (`TurnFiles.readPaths`), like a read, so saving that content somewhere
   wider asks first. The matches are the answer's sources.
 - In a team chat room the tool is read-only, and the folders it searched count as read, like `grep` and `search`.

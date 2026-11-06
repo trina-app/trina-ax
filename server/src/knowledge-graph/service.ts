@@ -120,6 +120,9 @@ const isPersonal = (p: string) => p.startsWith('users/')
 const plainRel = (rel: string) => !!rel && !rel.split('/').some((s) => s === '' || s === '.' || s === '..')
 const CALLABLE = new Set(['function', 'method', 'class', 'component', 'interface', 'struct', 'trait', 'route'])
 const NOT_SHOWN = new Set(['file', 'import', 'export', 'parameter'])
+/** how many symbols of one name are looked at before the connections of a match are shown (F2) */
+const SAME_NAME_MAX = 50
+const squash = (x: string) => x.replace(/\s+/g, '')
 const newDocState = (): DocState => ({ status: 'pending', documents: 0, failed: 0, lastSyncAt: null, error: null })
 
 /** tests: options (stand-ins, null for none; short quiet times) for the apps made after this call; undefined: back to
@@ -649,15 +652,16 @@ export class KnowledgeGraph {
     const rules = this.ctx.files.rules()
     const files = new Set<string>()
     const seen = new Map<string, { abs: string } | null>()
-    const visible = (teamPath: string) => {
+    /** the person may read this file now (anywhere, whatever `base` says) */
+    const readable = (teamPath: string) => {
       if (seen.has(teamPath)) return seen.get(teamPath)!
       let v: { abs: string } | null = null
-      if (!o.base || under(teamPath, o.base)) {
-        try { const a = authorize(fx, rules, user, teamPath, 'read'); if (a.st?.isFile()) v = { abs: a.abs } } catch { v = null }
-      }
+      try { const a = authorize(fx, rules, user, teamPath, 'read'); if (a.st?.isFile()) v = { abs: a.abs } } catch { v = null }
       seen.set(teamPath, v)
       return v
     }
+    /** an answer may name this file: readable, and under `base` when one was given */
+    const visible = (teamPath: string) => (!o.base || under(teamPath, o.base) ? readable(teamPath) : null)
     const mine = Object.keys(this.state.roots).filter((p) => {
       if (o.base && !under(p, o.base) && !under(o.base, p)) return false
       return rules.canList(user, p.split('/'))
@@ -729,6 +733,11 @@ export class KnowledgeGraph {
         }
         return out
       }
+      // CodeGraph finds callers and callees by name only: with another function of the same name in a file this person
+      // may not read, the connections could be that one's (security review F2). Exact names rank first in its search, so
+      // the list below holds them all unless it is full of them; then nothing is shown either.
+      const same = (await this.runner!.search(this.project(root), h.name, SAME_NAME_MAX)).filter((x) => x.name === h.name)
+      if (!same.length || same.length >= SAME_NAME_MAX || same.some((x) => { const tp = toTeam(root, x.filePath); return !tp || !readable(tp) })) return
       const [up, down] = await Promise.all([this.runner!.callers(this.project(root), h.name, 12), this.runner!.callees(this.project(root), h.name, 12)])
       h.callers = keep(up)
       h.callees = keep(down)
@@ -742,15 +751,21 @@ export class KnowledgeGraph {
         const lines = text.split('\n')
         const end = Math.min(lines.length, Math.max(h.line, Math.min(h.endLine, h.line + 11)))
         h.snippet = lines.slice(h.line - 1, end).map((l, i) => `${String(h.line + i).padStart(5)}  ${l.length > 300 ? l.slice(0, 300) + '…' : l}`).join('\n')
-      } catch { /* changed meanwhile: named without lines */ }
+        // the signature is the index's (it can hold values: `= "sk-…"`, default arguments): shown only while the file
+        // itself still has it, so a value taken out of a file is not shown from an older index (security review F3)
+        if (h.signature && !squash(text).includes(squash(h.signature))) h.signature = null
+      } catch { h.signature = null /* changed meanwhile: named without lines */ }
       files.add(h.path)
       for (const r of [...h.callers, ...h.callees]) files.add(r.filePath)
     }
     for (const x of passages) files.add(x.path)
     for (const x of related) files.add(x.path)
+    // only folders never indexed yet: an update in progress can come from a change in a part hidden from this person,
+    // and counting it would tell them (security review F1)
     const pending = mine.filter((p) => {
       const s = this.state.roots[p]!
-      return (codeOn && s.hasCode && (s.status === 'pending' || s.status === 'indexing')) || (!!s.docs && (s.docs.status === 'pending' || s.docs.status === 'indexing'))
+      const waiting = (x: { status: string; lastSyncAt: string | null }) => x.lastSyncAt === null && (x.status === 'pending' || x.status === 'indexing')
+      return (codeOn && waiting(s)) || (!!s.docs && waiting(s.docs))
     }).length
     return { hits, passages, related, pending, indexed: ready.length + docRoots.length, files }
   }
