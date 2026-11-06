@@ -10525,6 +10525,9 @@ person too; they already create and disable people, and having to ask the owner 
   never the owner, never another admin, never themselves. These are the rules `guard()` already applied to disable and
   password reset, so delete now follows the same table. The contract is `auth: 'admin'` (it was `'owner'`); the server
   function `deleteUser` is the real check.
+- **Relation to the first change of 2026-11-06** (admins may delete members, no password, requests to the owner only,
+  `sec-account-delete-roles.test.ts`): this builds on it. The role rules are the same; on top, an admin types their
+  password again, the actor and target are read again at the moment of the delete, and requests also reach the admins.
 - **Deleting is as heavy as before.** Same flow and choices: the tombstone, sessions end now, chats and memories go
   after the retention period, the personal folder goes to the owner's archive (`transfer`) or is deleted
   (`?personalFolder=delete`), the same warning dialog in the web. The archive is always in the **owner's** personal

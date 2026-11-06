@@ -21,7 +21,7 @@ import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
-import { formatDateTime } from '../../lib/format'
+import { formatDateTime, formatShortDateTime } from '../../lib/format'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { newTemporaryPassword } from '../../lib/temp-password'
 import { PASSWORD_MIN } from '../Auth'
@@ -121,8 +121,8 @@ export default function Members() {
     if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: removeBody(u), confirm: t('common.delete'), danger: true }))) return
     if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id }, body: {} }))) await users.reload()
   }
-  /** The actions used less often: on a phone in the card's "…" menu with the others, on a wide screen in the row's
-   * "…" menu next to Edit and Reset password, so the row keeps one line. */
+  /** The actions used less often, for the rows this viewer manages (canManage): on a phone in the card's "…" menu with
+   * the others, on a wide screen in the row's "…" menu next to Edit and Reset password, so the row keeps one line. */
   const moreActions = (u: User): MemberMenuItem[] => [
     { label: t('members.resetLinkButton'), icon: <UserRoundKey size={14} aria-hidden />, onSelect: () => void createResetLink(u), testId: `reset-link-${u.username}` },
     u.status === 'active'
@@ -224,7 +224,7 @@ export default function Members() {
       />
       <section className="mb-8" aria-label={t('members.title')}>
         <Loadable state={users}>
-          {({ items, noAi }) => {
+          {({ items, noAi, noAiUntil }) => {
             const list = shown(items)
             if (!list.length)
               return (
@@ -245,7 +245,7 @@ export default function Members() {
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {roleCell(u)}
-                        <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
+                        <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
                       </div>
                       <div className="mt-2 flex items-start gap-3 text-xs">
                         <span className="pt-0.5 text-muted">{t('skillMgr.column')}</span>
@@ -278,7 +278,7 @@ export default function Members() {
                         <td className="py-3.5 pr-4">
                           <span className="flex flex-wrap items-center gap-1.5">
                             <span className="font-medium text-ink">{u.name}</span>
-                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
+                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
                           </span>
                           {u.groupIds.length > 0 && <span className="mt-0.5 block text-xs text-faint">{u.groupIds.map(groupName).join(', ')}</span>}
                         </td>
@@ -431,15 +431,16 @@ export default function Members() {
 
 type RoleFilter = 'all' | User['role']
 
-/** What needs the admin's eye, next to the name: disabled, a temporary password, no AI. (The role has its own column.) */
-function AttentionBadges({ user: u, noAi, requested = false }: { user: User; noAi: boolean; requested?: boolean }) {
+/** What needs the admin's eye, next to the name: disabled, a temporary password, no AI (until when, when only a limit
+ * keeps them from it). (The role has its own column.) */
+function AttentionBadges({ user: u, noAi, noAiUntil, requested = false }: { user: User; noAi: boolean; noAiUntil?: string; requested?: boolean }) {
   const t = useT()
   return (
     <>
       {u.status === 'disabled' && <Badge tone="danger">{t('members.disabled')}</Badge>}
       {requested && <span className="inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{t('accountDeletion.badge')}</Badge></span>}
       {u.mustChangePassword && <TempPasswordBadge user={u} />}
-      {noAi && <NoAiBadge />}
+      {noAi && <NoAiBadge until={noAiUntil} />}
     </>
   )
 }
@@ -466,14 +467,18 @@ function InlineRole({ user, busy, onChange }: { user: User; busy: boolean; onCha
   )
 }
 
-/** "No AI": this person cannot use any AI connection now (none of their own, none of the team's for them). Opens
- * Admin › AI providers, where the owner adds one or assigns one to them. */
-function NoAiBadge() {
+/** "No AI": this person cannot use any AI connection now (none of their own, none of the team's for them). With
+ * `until` (GET /api/admin/users noAiUntil) only a limit keeps them from it: the same badge says until when, and the
+ * hint that it comes back by itself. Opens Admin › AI providers, where the owner adds one or assigns one to them. */
+export function NoAiBadge({ until }: { until?: string }) {
   const t = useT()
+  const locale = useLocale()
+  const time = until ? formatShortDateTime(until, locale) : ''
+  const hint = until ? t('members.noAiUntilHint', { time }) : t('members.noAiHint')
   return (
-    <Link to="/admin/providers" title={t('members.noAiHint')} className="inline-flex" data-testid="member-no-ai">
-      <Badge tone="warn">{t('members.noAi')}</Badge>
-      <span className="sr-only">{t('members.noAiHint')}</span>
+    <Link to="/admin/providers" title={hint} className="inline-flex" data-testid="member-no-ai">
+      <Badge tone="warn">{until ? t('members.noAiUntil', { time }) : t('members.noAi')}</Badge>
+      <span className="sr-only">{hint}</span>
     </Link>
   )
 }

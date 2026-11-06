@@ -58,6 +58,11 @@ export const UsersResponse = z.object({
    * Only when asked for (`?noAi=1`), and absent when this server does not answer with AI connections (engine.authMode
    * other than managed). */
   noAi: z.array(UserId).optional(),
+  /** With `noAi`: for the people in it whom waiting alone brings AI back, when (ISO): the earliest end of a limit on a
+   * connection of theirs, on any engine that answers them: a provider's limit with a known end that is not "out of
+   * credit", or a connection's monthly block limit (the next month). Absent for anyone a wait does not help (no
+   * connection, switched off, refused, expired, out of credit): plain "No AI". ("AI 한도 · 11월 8일 오전 12:59까지") */
+  noAiUntil: z.record(UserId, IsoTime).optional(),
   /** The people with an open request to have their account deleted (Settings › Profile › 계정 삭제 요청,
    * shared/src/api/account-deletion.ts). For the owner and the admins, who delete accounts (an admin gets the members' requests only). */
   deletionRequested: z.array(UserId).optional(),
