@@ -15,8 +15,8 @@ import { PROFILE_TITLE_MAX, RELEASE_CHANNEL } from '@mycel/shared'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { deviceLabel } from '../lib/userAgent'
-import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
-import { installGuideShown, platform, type Platform } from '../lib/pwa'
+import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, splitDownloads, type DownloadItem } from '../lib/downloads'
+import { browser, canInstallIn, installGuideShown, isStandalone, platform, type Platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
@@ -593,7 +593,7 @@ function Apps() {
       )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
         <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p}
-          server={downloadsSourceOf(me.server)} />
+          server={downloadsSourceOf(me.server)} installHere={installGuideShown() && !isStandalone() && canInstallIn(browser())} />
       </Section>
     </>
   )
@@ -611,11 +611,32 @@ const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } cat
 
 /** The installers under Settings > Apps > Desktop app (exported for tests). Inside a Mac App Store build only the App
  * Store line: no installer, no install steps, and not the empty state either (it asks for an installer and tells the
- * owner how to add the .dmg). */
-export function DesktopDownloads({ downloads, store, owner, here, server = 'office' }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform; server?: DownloadsSource }) {
+ * owner how to add the .dmg). On a Mac or a Windows PC only this computer's installer is in sight: without one, a line
+ * says so (and, in a browser that can install the page, points at "Install as an app" above), and the other computer's
+ * installers are folded under one line. A phone or Linux lists them all, as before. */
+export function DesktopDownloads({ downloads, store, owner, here, server = 'office', installHere = false }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform; server?: DownloadsSource; /** a browser tab that can install the page as an app (the guide above is shown) */ installHere?: boolean }) {
   const t = useT()
   const locale = useLocale()
+  const [othersOpen, setOthersOpen] = useState(false)
   if (store) return <p className="text-sm text-muted">{t('apps.macStore')}</p>
+  const item = (d: DownloadItem, list: DownloadItem[]) => (
+    <li key={d.file}>
+      <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-field-border px-3 py-2 text-sm hover:bg-hover">
+        <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
+        {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
+      </a>
+      {d.platform === here && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
+      {archNote(d) && <Badge tone="warn" className="ml-2">{t(archNote(d)!)}</Badge>}
+      {showSteps(list, d) && (
+        <ol className="mt-2 list-decimal space-y-1 break-keep pl-5 text-xs text-muted">
+          {installSteps(d).map((k) => (
+            <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
+          ))}
+        </ol>
+      )}
+    </li>
+  )
+  const split = Array.isArray(downloads) ? splitDownloads(downloads, here) : null
   return (
     <>
       {downloads === null && <Skeleton lines={2} />}
@@ -625,26 +646,25 @@ export function DesktopDownloads({ downloads, store, owner, here, server = 'offi
           {owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>}
         </>
       )}
-      {Array.isArray(downloads) && (
-        <ul className="space-y-4">
-          {downloads.map((d) => (
-            <li key={d.file}>
-              <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-field-border px-3 py-2 text-sm hover:bg-hover">
-                <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
-                {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
-              </a>
-              {d.platform === here && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
-              {archNote(d) && <Badge tone="warn" className="ml-2">{t(archNote(d)!)}</Badge>}
-              {showSteps(downloads, d) && (
-                <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
-                  {installSteps(d).map((k) => (
-                    <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
-                  ))}
-                </ol>
-              )}
-            </li>
-          ))}
-        </ul>
+      {split && !split.computer && <ul className="space-y-4">{split.others.map((d) => item(d, split.others))}</ul>}
+      {split?.computer && (
+        <div className="space-y-3">
+          {split.mine.length ? <ul className="space-y-4">{split.mine.map((d) => item(d, split.mine))}</ul> : (
+            <p className="break-keep text-sm text-muted" data-testid="desktop-none-here">
+              {t(here === 'mac' ? 'apps.noMacApp' : 'apps.noWindowsApp')}
+              {installHere && <> {t('apps.installInstead')}</>}
+            </p>
+          )}
+          {split.others.length > 0 && (
+            // the other kind of computer's installers: reachable, not in the way
+            <details className="group" open={othersOpen} onToggle={(e) => setOthersOpen(e.currentTarget.open)} data-testid="desktop-others">
+              <summary className="-mx-2 flex h-9 w-fit cursor-pointer list-none items-center gap-1.5 rounded-lg px-2 text-sm text-muted hover:bg-hover [&::-webkit-details-marker]:hidden">
+                <ChevronDown size={15} className="shrink-0 transition group-open:rotate-180" aria-hidden /> {t('apps.otherComputers')}
+              </summary>
+              {othersOpen && <ul className="mt-2 space-y-4">{split.others.map((d) => item(d, split.others))}</ul>}
+            </details>
+          )}
+        </div>
       )}
     </>
   )
