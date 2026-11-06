@@ -203,11 +203,21 @@ function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'de
   return ['users', owner.id, label, name].join('/')
 }
 
-export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, personalFolder: 'transfer' | 'delete'): void {
+export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, personalFolder: 'transfer' | 'delete', password?: string): Promise<void> {
   const auth = c.get('auth')!
-  // owner only (설계서 4번 탭; the contract says so too, this is the second check): an admin may disable a member
-  // and reset their password, but not end their account, purge their chats or hand their folder away
-  if (auth.user.role !== 'owner') fail('forbidden', msg('ownerOnlyDelete', c.get('locale')))
+  const locale = c.get('locale')
+  // the owner deletes anyone but themselves; an admin deletes a plain member only (never the owner, another admin or
+  // themselves: guard), and types their password again first. The contract says so too: this is the second check
+  if (auth.user.role !== 'owner' && auth.user.role !== 'admin') fail('forbidden')
+  const first = liveUser(ctx, id)
+  guard(c, first)
+  if (auth.user.role === 'admin') {
+    if (typeof password !== 'string' || !(await ctx.services.sessions.verifyPassword(auth.user.id, password, c.get('info')))) {
+      fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
+    }
+  }
+  // the password check above waited: read the person again, and once more inside the transaction below, so what
+  // decides is what they are at the moment of the delete (a member promoted to admin meanwhile is refused)
   const target = liveUser(ctx, id)
   guard(c, target)
   const before = captureState(ctx.db)
@@ -217,6 +227,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
   try { revokeSignIns = integrationsOf(ctx).signInsToRevoke(id) } catch (e) { c.get('log').warn('sign-ins of a deleted member could not be read for revoking', { err: e, userId: id }) }
   let requested = false
   ctx.db.transaction(() => {
+    guard(c, liveUser(ctx, id))
     // tombstone: the username is freed for reuse, the id (personal folder name, usage, audit) is never reused
     ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ?, username = ?, password_hash = NULL, email = NULL WHERE id = ?")
       .run(now, `${target.username}#deleted-${Date.parse(now).toString(36)}`, id)

@@ -78,19 +78,30 @@ describe('permission matrix: every route x every persona', () => {
   describe('phase 2: allowed writes + finding checks', () => { for (const k of phase2) run(k) })
 })
 
-// ---------------------------------------------------------------- findings: known gaps vs the design source of truth
-// Each test here asserts the DESIGNED behaviour and currently FAILS, documenting a finding (kept, not deleted, per
-// the review rule). Fixing the server should turn it green.
-describe('findings (asserts the 설계서; currently failing)', () => {
-  // TODO finding "admin-can-delete-account": the 설계서 (tab 4 "DELETE /api/admin/users/:id ... owner만", DECISIONS.md
-  // A "계정 삭제는 owner만") reserves account deletion to the OWNER, but API.deleteUser is auth:'admin' and
-  // server/src/admin/users.ts deleteUser()->guard() never enforces owner-only for a member target, so a non-owner
-  // admin can tombstone a member (ends their sessions, purges chats/memories, moves their personal folder).
-  test('an admin (not owner) cannot delete a member account [TODO admin-can-delete-account]', async () => {
-    // a fresh member so the matrix's own deleteUser cases don't race this one
-    const u = await W.as.owner.ok('POST', '/api/admin/users', { username: 'victim' + crypto.randomUUID().slice(0, 6), name: 'Victim', role: 'member' })
-    const r = await W.as.admin.del(`/api/admin/users/${u.user.id}`)
-    expect(r.status, `admin deleted a member (design: owner only): ${r.status}`).toBeGreaterThanOrEqual(400)
+// ---------------------------------------------------------------- account deletion by role
+// 설계서 4번 탭 / DECISIONS.md 역할 규칙: the owner deletes anyone but themselves; an admin deletes a plain member only,
+// with their own password in the body. Never the owner, another admin or themselves.
+describe('account deletion by role', () => {
+  const fresh = async (role: 'member' | 'admin') => (await W.as.owner.ok('POST', '/api/admin/users', { username: 'victim' + crypto.randomUUID().slice(0, 6), name: 'Victim', role })).user.id as string
+  test('an admin cannot delete a member without the password, nor with a wrong one', async () => {
+    const id = await fresh('member')
+    for (const body of [undefined, { password: 'wrong-password-1' }]) {
+      const r = await W.as.admin.del(`/api/admin/users/${id}`, body)
+      expect(r.status, `admin deleted a member with no valid password: ${r.status}`).toBe(403)
+    }
+  })
+  test('an admin cannot delete another admin or the owner, even with the password', async () => {
+    const other = await fresh('admin')
+    expect((await W.as.admin.del(`/api/admin/users/${other}`, { password: PW.carol })).status).toBe(403)
+    expect((await W.as.admin.del('/api/admin/users/dana', { password: PW.carol })).status).toBe(403)
+  })
+  test('an admin deletes a member with the password', async () => {
+    const id = await fresh('member')
+    expect((await W.as.admin.del(`/api/admin/users/${id}`, { password: PW.carol })).status).toBe(204)
+  })
+  test('a member cannot delete anyone', async () => {
+    const id = await fresh('member')
+    expect((await W.as.memberIn.del(`/api/admin/users/${id}`, { password: PW.alice })).status).toBe(403)
   })
 })
 

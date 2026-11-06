@@ -1,9 +1,9 @@
 // Settings › Profile › 계정 삭제 요청 (/settings/account/delete; contract: shared/src/api/account-deletion.ts; App Store
 // review 5.1.1(v): an app with accounts lets people start the deletion inside the app, and the phone app shows this
-// page in its web view). The team owner deletes accounts, so the page asks the owner: one short paragraph of what
+// page in its web view). The team owner and the admins delete accounts, so the page asks them: one short paragraph of what
 // happens and one button; once asked, when it was asked and a cancel; the owner, who cannot ask, is sent to Team
-// settings to make someone else the owner. The owners' inbox entry is deletionNoticeText (components/settings/
-// Notifications.tsx); the owner deletes the account in Admin › Members.
+// settings to make someone else the owner. The inbox entry of the owners and admins is deletionNoticeText (components/settings/
+// Notifications.tsx); the account is deleted in Admin › Members.
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AccountDeletionRequest, InboxNotification } from '@mycel/shared/api'
@@ -17,7 +17,7 @@ import { Button, ErrorNote, Skeleton } from '../ui'
 
 type T = ReturnType<typeof useT>
 
-/** The owners' inbox text: who asks while the account is there, and whether it was taken back or done. */
+/** The owners' and admins' inbox text: who asks while the account is there, and whether it was taken back or done. */
 export function deletionNoticeText(t: T, item: Pick<InboxNotification, 'deletionRequest'>): string {
   const d = item.deletionRequest
   if (d?.state === 'handled') return t('accountDeletion.noticeHandled')

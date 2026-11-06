@@ -51,7 +51,7 @@ describe('the page', () => {
       await m.until(() => m.find('account-deletion-none'), 'the page')
       const page = m.get('account-deletion').textContent ?? ''
       expect(page).toContain('계정 삭제 요청')
-      expect(page).toContain('팀장이 계정을 삭제해요')
+      expect(page).toContain('팀장과 관리자에게 앱 안에서 알림이 가고, 그중 한 사람이 계정을 삭제해요')
       expect(page).toContain('팀장만 읽을 수 있는 보관 폴더로 옮겨지고')
       expect(page).not.toContain('파일도 지워져요')
       expect(page).toContain('14일 뒤')
