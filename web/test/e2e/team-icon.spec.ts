@@ -44,6 +44,8 @@ test('team logo: refused files, upload with previews, the tab icon follows, remo
   const v = (await card.getAttribute('data-version'))!
   await expect(page.getByTestId('team-icon-status')).toHaveText('팀 로고를 쓰고 있어요.')
   await expect(page.getByTestId('team-icon-upload')).toHaveText('로고 바꾸기')
+  // the previews at each size sit behind "Show previews" (the row stays short)
+  await page.getByTestId('team-icon-previews').click()
   for (const scheme of ['light', 'dark']) {
     for (const n of [16, 32, 180]) {
       const img = page.getByTestId(`team-icon-preview-${scheme}`).getByTestId(`team-icon-img-${n}`)
@@ -111,6 +113,7 @@ test('phone width: the previews keep their real sizes and the page does not scro
   await page.goto('/admin/settings')
   await page.getByTestId('team-icon-input').setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
+  await page.getByTestId('team-icon-previews').click()
   for (const scheme of ['light', 'dark']) {
     for (const n of [16, 32, 180]) expect((await page.getByTestId(`team-icon-preview-${scheme}`).getByTestId(`team-icon-img-${n}`).boundingBox())!.width).toBe(n)
   }

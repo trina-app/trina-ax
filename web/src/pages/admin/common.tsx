@@ -1,7 +1,7 @@
 // Small helpers shared by the admin screens.
 import clsx from 'clsx'
 import { Search } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -181,10 +181,31 @@ export function SearchBox({ value, onChange, label, testId, className }: { value
 export const matches = (q: string, locale: string, ...texts: (string | null | undefined)[]) =>
   !q || texts.some((s) => !!s && s.toLocaleLowerCase(locale).includes(q))
 
+/** Cards inside this show as plain page sections (a heading, its line, the content; no box), for a settings page laid
+ * out like a document (Team settings). */
+const FlatCards = createContext(false)
+export const FlatCardsProvider = FlatCards.Provider
+
 /** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove.
  * No title, no line and no buttons: the card has no header row (the page header above names it). */
 export function Card({ title, actions, children, desc, headingRef, testId }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string }) {
   const head = title || desc || actions
+  if (useContext(FlatCards)) {
+    return (
+      <section className="border-t border-line py-6" data-testid={testId}>
+        {head && (
+          <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-2">
+            <div className="min-w-0 flex-1 max-sm:basis-full">
+              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium">{title}</h2>}
+              {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+            </div>
+            {actions}
+          </header>
+        )}
+        {children}
+      </section>
+    )
+  }
   return (
     <section className="mb-6 rounded-2xl border border-line bg-surface" data-testid={testId}>
       {head && (
@@ -288,5 +309,51 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
         <input data-autofocus className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
       </Field>
     </Modal>
+  )
+}
+
+/** A group of settings under a plain heading (Team settings): no box, a hairline above every group but the first. */
+export function SettingsSection({ title, desc, children, testId, id }: { title: ReactNode; desc?: ReactNode; children: ReactNode; testId?: string; id?: string }) {
+  return (
+    <section id={id} className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
+      <h2 id={id ? `${id}-title` : undefined} className="text-base font-medium">{title}</h2>
+      {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+      <div className="mt-1">{children}</div>
+    </section>
+  )
+}
+
+/**
+ * One setting as one row: its name, a short line on what it does under it, and the control on the right (stacked on a
+ * phone). `id` is the control's id: the name labels it and the line describes it. `more`: the longer details, behind
+ * "Learn more" (kept in the page, hidden, so the row reads short). `heading`: the name is a heading, for a row whose
+ * control is not one field (the team logo). `below`: under the line, always shown (an error, a state).
+ */
+export function SettingRow({ id, title, desc, more, control, below, heading, testId, attrs }: {
+  id?: string; title: ReactNode; desc?: ReactNode; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; testId?: string; attrs?: Record<string, string>
+}) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const descId = id ? `${id}-desc` : undefined
+  return (
+    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:gap-8" data-testid={testId} {...attrs}>
+      <div className="min-w-0 flex-1">
+        {heading ? <h3 className="text-sm font-medium text-ink">{title}</h3> : <label htmlFor={id} className="text-sm font-medium text-ink">{title}</label>}
+        {(desc || more) && (
+          <div className="mt-1 text-sm text-muted">
+            {desc && <span id={descId}>{desc}</span>}
+            {desc && more && ' '}
+            {more && (
+              <button type="button" aria-expanded={open} className="font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
+                {t(open ? 'common.less' : 'teamSettings.learnMore')}
+              </button>
+            )}
+          </div>
+        )}
+        {more && <div hidden={!open} className="mt-2 max-w-prose text-xs leading-relaxed text-faint">{more}</div>}
+        {below}
+      </div>
+      {control && <div className="flex shrink-0 justify-start sm:justify-end sm:pt-0.5">{control}</div>}
+    </div>
   )
 }

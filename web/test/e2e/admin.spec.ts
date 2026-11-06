@@ -285,7 +285,7 @@ async function onOfficeMac(page: Page, status: () => object) {
   await page.route('**/api/admin/office-update', (route) => route.fulfill({ json: status() }))
 }
 const legacyHint = (page: Page) => page.getByText(translate('ko', 'teamSettings.updateWindowLegacy', { window: '22:30-00:30', zone: 'Asia/Jakarta' }), { exact: true })
-const plainHint = (page: Page) => page.getByText(DICTS.ko['teamSettings.updateWindowHint'], { exact: true })
+const plainHint = (page: Page) => page.getByText(DICTS.ko['teamSettings.row.updateWindowDesc'], { exact: true })
 
 test('settings: an office Mac says which update window runs while the field is empty, and never writes it in', async ({ page }) => {
   await reset(page)
@@ -590,7 +590,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const created = await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: 'Retention chat' } })
     expect(created.ok()).toBeTruthy()
     await page.goto('/admin/settings')
-    await page.getByLabel(t['teamSettings.chatTrashDays'], { exact: true }).fill('5')
+    await page.getByLabel(t['teamSettings.row.chatTrash'], { exact: true }).fill('5')
     await page.getByRole('button', { name: t['common.save'], exact: true }).click()
     await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
     // no page.goto from here: the dialogs must use the new value without a reload
@@ -629,7 +629,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       if (r.method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings') patches.push(r.postDataJSON())
     })
     await expect(window).toHaveValue('')
-    await expect(page.getByText(t['teamSettings.updateWindowHint'], { exact: true })).toBeVisible()
+    await expect(page.getByText(t['teamSettings.row.updateWindowDesc'], { exact: true })).toBeVisible()
     for (const invalid of ['25:00-26:00', '25:00-01:00', '00:00-25:00', '23:60-01:00', '00:00-23:60']) {
       await window.fill(invalid)
       await expect(error).toBeVisible()
