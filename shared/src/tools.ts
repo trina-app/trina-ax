@@ -208,6 +208,33 @@ export const SaveUrlInput = z.strictObject({
 })
 export const SaveUrlOutput = z.object({ url: z.string(), path: z.string(), size: z.number(), sha256: z.string(), type: z.string(), conflictCopyOf: z.string().optional() })
 
+// The person's own team chat rooms, read from their AI chat (server/src/chat/room-tools.ts, docs/DECISIONS.md "내 AI
+// 채팅에서 대화방 읽기"). Never offered in a room's own AI session, a confidential or a draft chat.
+const when = z.string().min(1).max(40)
+/** rooms: the rooms the person is in now, or (with query, person, since or until) the messages they can see that match */
+export const RoomsInput = z.strictObject({
+  query: z.string().min(1).max(200).optional().describe('Words to look for in the messages (all of them, any case). Without query, person, since and until the rooms are listed.'),
+  person: z.string().min(1).max(100).optional().describe('Only messages written by this person (their name or part of it, e.g. "Minji").'),
+  room: z.string().min(1).max(200).optional().describe('Only this room (its name, the other person\'s name for a 1:1 chat, or its id). Without a search it narrows the list.'),
+  since: when.optional().describe('Messages from this date or time on, e.g. "2026-11-01" or "2026-11-01T09:00" (the team\'s time zone).'),
+  until: when.optional().describe('Messages before this date or time (a date alone: up to the end of that day).'),
+  limit: z.number().int().min(1).max(100).optional().describe('At most this many results (default 30).'),
+})
+/** room_read: one room's messages (or one thread's), as the person sees them */
+export const RoomReadInput = z.strictObject({
+  room: z.string().min(1).max(200).describe('The room: its id (best: from rooms, or a #[name](room:<id>) the user picked), its name, or the other person\'s name for a 1:1 chat.'),
+  thread: z.string().min(1).max(100).optional().describe('The id of a message that has a thread ("thread: N replies" in an earlier result): read that thread instead of the room.'),
+  since: when.optional().describe('Only messages from this date or time on, e.g. "2026-11-01" (the team\'s time zone).'),
+  until: when.optional().describe('Only messages before this date or time; to read further back, the time of the oldest message shown.'),
+  limit: z.number().int().min(1).max(200).optional().describe('At most this many messages, the newest ones (default 50, at most 200).'),
+})
+/** room_file: the text (or the picture) of a file sent in a room */
+export const RoomFileInput = z.strictObject({
+  room: z.string().min(1).max(200).describe('The room the file was sent in (its id or name, as for room_read).'),
+  file: z.string().min(1).max(300).describe('The file\'s id from room_read ("file_id=…"), or its exact name.'),
+  offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
+})
+
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
 export const TextOutput = z.object({ text: z.string() })
@@ -241,6 +268,9 @@ export const OTHER_TOOLS = {
   find_skills: { input: FindSkillsInput, output: TextOutput },
   web_fetch: { input: WebFetchInput, output: WebFetchOutput },
   save_url: { input: SaveUrlInput, output: SaveUrlOutput },
+  rooms: { input: RoomsInput, output: TextOutput },
+  room_read: { input: RoomReadInput, output: TextOutput },
+  room_file: { input: RoomFileInput, output: TextOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

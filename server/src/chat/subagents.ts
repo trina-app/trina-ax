@@ -21,10 +21,11 @@ export const MAX_SUBAGENT_TURNS = 50
  * Tools only the main AI has. Like Claude Code's AskUserQuestion: a sub-agent cannot ask the person (it writes what it
  * does not know into its report and the main AI asks). The chat title, memories (Claude Code subagents do not get the
  * main session's memory), schedules and videos (side effects and cost the person decides on with the main AI) and the
- * desktop browser (one screen of the person's, not to be driven by several agents at once) stay with the main AI.
+ * desktop browser (one screen of the person's, not to be driven by several agents at once) stay with the main AI, and
+ * so do the person's team chat rooms (chat/room-tools.ts: other people's words, read where the person watches).
  * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right.
  */
-export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell'])
+export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file'])
 /** what the read-only Explore helper may use (of the tools the turn has) */
 export const EXPLORE_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
 

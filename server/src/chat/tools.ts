@@ -34,8 +34,9 @@ import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { ROOM_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
+import { roomReadTools } from './room-tools'
 
-interface Tool {
+export interface Tool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
@@ -108,6 +109,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec)) add(t)
+  // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
+  // in a confidential or draft chat (add() above keeps those to their own tools)
+  for (const t of roomReadTools(exec)) add(t)
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -381,8 +385,9 @@ function bTools(exec: TurnExec): Tool[] {
         if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
         const value = clean.text
         let source: 'ai' | 'user' = 'ai'
-        if (exec.tainted) {
-          // this conversation has seen outside content: the person confirms before anything is kept (tab 3)
+        // this conversation has seen outside content, or once had a team chat room's messages in it (chats.rooms_seen,
+        // kept for the rest of the chat): the person confirms before anything is kept (tab 3)
+        if (exec.tainted || exec.roomsSeen) {
           const answer = await exec.waitForPerson({
             kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
             options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,

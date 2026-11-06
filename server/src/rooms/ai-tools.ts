@@ -38,3 +38,17 @@ export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
 export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images']
+
+/**
+ * A person's own AI chat that has read their team chat rooms (chats.rooms_seen, chat/room-tools.ts; docs/DECISIONS.md
+ * "내 AI 채팅에서 대화방 읽기"): the tools that go on without the room card there. The room session's read-only tools, the
+ * room tools themselves, and the own chat's other tools that only read or look (the scheduled tasks' list, Google
+ * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the
+ * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts). Every other
+ * tool (writes, moves, schedules, connections' tools and call_tool, the browser's clicks and pages, box_shell, forget,
+ * connect_service, tools added later) waits for the person's yes on a card for the rest of that chat (fails closed).
+ */
+export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
+  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
+  'read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests',
+])
