@@ -379,7 +379,10 @@ export const EngineStatus = z.object({
   provider: z.string().optional(),
   installed: z.boolean(),
   version: z.string().nullable(),
-  status: z.enum(['ok', 'not_installed', 'not_logged_in', 'version_unsupported', 'lockdown_failed', 'error', 'unknown']),
+  status: z.enum(['ok', 'limited', 'not_installed', 'not_logged_in', 'version_unsupported', 'lockdown_failed', 'error', 'unknown']),
+  /** limited (managed): every usable-looking AI connection of this engine waits for a limit to end; the earliest end
+   * (null when none says when). Set up and working again by itself, so not a problem to fix. */
+  limitedUntil: IsoTime.nullable().optional(),
   /** what is missing, in the user's language (e.g. "owner must run `claude setup-token`") */
   detail: z.string().nullable(),
   models: z.array(z.object({ id: z.string(), label: z.string() })),
