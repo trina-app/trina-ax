@@ -1,0 +1,4 @@
+# The web unit tests (bun test test/unit): every test file starts from the same place, whatever file ran before it
+# (test/unit/preload.ts).
+[test]
+preload = ["./test/unit/preload.ts"]
