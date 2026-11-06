@@ -134,11 +134,13 @@ export class RoomAi implements RoomTurns {
     }
   }
 
-  /** Did anyone join or leave the room since the session's current conversation began (Rooms.sync audits each change)? */
+  /** Did anyone join or leave the room since the session's current conversation began? Rooms.sync audits each change
+   * of a team room or the everyone room; a group chat's are its event lines (not audited). */
   private membersChangedSince(roomId: string, chatId: string): boolean {
     const began = (this.db.query("SELECT MAX(created_at) at FROM messages WHERE chat_id = ? AND role = 'user' AND parent_id IS NULL").get(chatId) as { at: string | null }).at
     if (!began) return false
     return !!this.db.query("SELECT 1 FROM audit_log WHERE action = 'room.members' AND target = ? AND at > ? LIMIT 1").get(roomId, began)
+      || !!this.db.query("SELECT 1 FROM room_messages WHERE room_id = ? AND event IS NOT NULL AND json_extract(event, '$.type') IN ('added', 'left', 'removed') AND created_at > ? LIMIT 1").get(roomId, began)
   }
 
   /** The person's AI session in the room, or null. */
@@ -167,8 +169,8 @@ export class RoomAi implements RoomTurns {
     const q = qid ? messageRow(db, o.roomId, qid) : null
     const before = q ? q.seq : room.last_seq + 1
     // messages for the whole room only: a private preview (anyone's, the person's own too) never goes back to the AI,
-    // where a later answer could carry it into the room
-    const rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.seq < ? AND m.seq > ? AND m.visibility = 'room' AND m.deleted_at IS NULL ORDER BY m.seq DESC LIMIT ?`)
+    // where a later answer could carry it into the room; event lines (a rename, who joined) are no one's words
+    const rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.seq < ? AND m.seq > ? AND m.visibility = 'room' AND m.deleted_at IS NULL AND m.event IS NULL ORDER BY m.seq DESC LIMIT ?`)
       .all(o.roomId, before, me.visible_from_seq, ROOM_CONTEXT_MESSAGES) as MessageRow[]
     // the person's own questions and the answers to them are in the session already (or in the history a fresh one gets)
     const own = o.continues ? new Set((db.query('SELECT question_id FROM room_ai_turns WHERE room_id = ? AND user_id = ?').all(o.roomId, o.userId) as { question_id: string }[]).map((r) => r.question_id)) : new Set<string>()
@@ -213,7 +215,7 @@ export class RoomAi implements RoomTurns {
       '</room_context>',
       `${attr(asker)}'s message:`,
     ].join('\n')
-    const prompt: RoomPrompt = { name: label, kind: room.kind === 'dm' || room.kind === 'all' ? room.kind : 'team', members: members(db, o.roomId).length, asker }
+    const prompt: RoomPrompt = { name: label, kind: room.kind, members: members(db, o.roomId).length, asker }
     // the members now, by the folder rules (no file system): which skills the AI may be shown here
     const readers = this.readers(o.roomId)
     const rules = this.ctx.files.rules()
@@ -471,10 +473,12 @@ export class RoomAi implements RoomTurns {
     if (!want.length) return new Map()
     return new Map((this.db.query(`SELECT id, name FROM users WHERE id IN (${want.map(() => '?').join(',')})`).all(...want) as { id: string; name: string }[]).map((r) => [r.id, r.name]))
   }
-  /** a team room: its group's name; the everyone room; a DM: the other person */
+  /** a team room: its group's name; the everyone room; a DM: the other person; a group chat: just that. Never the
+   * room's own name (rooms.name): any member of a group chat may set it, so the AI is not given it at all. */
   private roomLabel(room: RoomRow, userId: string): string {
     if (room.kind === 'team' && room.group_id) return (this.db.query('SELECT name FROM groups WHERE id = ?').get(room.group_id) as { name: string } | null)?.name ?? 'team'
     if (room.kind === 'all') return 'everyone'
+    if (room.kind === 'group') return 'group chat'
     const other = this.db.query('SELECT u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ? LIMIT 1').get(room.id, userId) as { name: string } | null
     return other?.name ?? 'direct message'
   }

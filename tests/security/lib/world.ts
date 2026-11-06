@@ -63,6 +63,9 @@ export const C = {
   dmFileName: 'SEC-DM-FILE-8d2',
   // the AI's answer to alice in that DM, from her own folder: a private preview for alice only
   dmAiPreview: 'SEC-DM-AIPREVIEW-3e7',
+  // a group chat of alice, erin and frank (docs/DECISIONS.md "그룹 대화와 방 이름"): its message and its name are theirs
+  groupMsg: 'SEC-GROUP-MSG-6c4',
+  groupName: 'SEC-GROUP-NAME-2f9',
 } as const
 
 export type Who = 'owner' | 'admin' | 'memberIn' | 'other' | 'memberOut' | 'pwchange' | 'anon'
@@ -89,6 +92,8 @@ export interface World {
     dmRoom: string; dmMsg: string; dmMsgDel: string; dmFile: string
     /** alice's question to the AI in the DM (its turn) and the private preview it gave her */
     dmAiTurn: string; dmAiPreview: string
+    /** a group chat alice made with erin and frank (alice is its manager), and a second one only for leaving */
+    groupRoom: string; groupLeaveRoom: string
   }
   sockets: Record<'alice' | 'bob' | 'carol' | 'dana' | 'erin', Socket>
 }
@@ -255,6 +260,11 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   const dmAiRun = await sockets.alice.next('room.ai.run', (f) => f.data.run.questionId === dmAsk.id && f.data.run.state === 'done', 30_000)
   const dmAiPreview = (await alice.ok('GET', `/api/rooms/${dmRoom}/messages`)).items.find((m: any) => m.authorKind === 'ai' && m.replyTo?.id === dmAsk.id).id
 
+  // ---------------- a group chat of alice (its manager), erin and frank ----------------
+  const groupRoom = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'frank'], name: C.groupName })).id
+  await alice.ok('POST', `/api/rooms/${groupRoom}/messages`, { body: `${C.groupMsg} agenda`, clientMessageId: cm() })
+  const groupLeaveRoom = (await alice.ok('POST', '/api/rooms', { kind: 'group', userIds: ['erin', 'frank'] })).id
+
   const desktop = { alice: inst.client('alice-desktop', { client: 'desktop', window: 'win-alice-desk' }), bob: inst.client('bob-desktop', { client: 'desktop', window: 'win-bob-desk' }) }
   await desktop.alice.login('alice', PW.alice, 'desktop')
   await desktop.bob.login('bob', PW.bob, 'desktop')
@@ -267,7 +277,7 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
       artifact, memory, attachment: att.id, projAlice, projFalcon, projMkt, projShared, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
       resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
-      dmAiTurn: dmAiRun.data.run.turnId, dmAiPreview,
+      dmAiTurn: dmAiRun.data.run.turnId, dmAiPreview, groupRoom, groupLeaveRoom,
     },
   }
 }

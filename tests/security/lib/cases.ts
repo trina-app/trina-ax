@@ -34,6 +34,7 @@ type Scope =
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
+  | 'room-group'      // the group chat of alice, erin and frank: alice and erin (frank still has to change his password)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
 export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
@@ -55,7 +56,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
-    case 'room-dm': return who === 'memberIn' || who === 'other'
+    case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
     case 'nobody': return false
   }
 }

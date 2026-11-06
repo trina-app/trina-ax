@@ -139,10 +139,12 @@ export function sourceLabel(db: Database, s: ReadSource, me: string, text: { min
   return row ? (row.path === '' ? text.root : row.path + '/') : '?'
 }
 
-/** A room as a card names it: the group's name for a team room, the other members' names otherwise. */
+/** A room as a card names it (to the person, shown as text): its own name when it has one, the group's name for a team
+ * room, the other members' names otherwise. */
 export function roomName(db: Database, roomId: string): string {
-  const r = db.query('SELECT r.kind, g.name FROM rooms r LEFT JOIN groups g ON g.id = r.group_id WHERE r.id = ?').get(roomId) as { kind: string; name: string | null } | null
+  const r = db.query('SELECT r.kind, r.name own, g.name FROM rooms r LEFT JOIN groups g ON g.id = r.group_id WHERE r.id = ?').get(roomId) as { kind: string; own: string | null; name: string | null } | null
   if (!r) return '?'
+  if (r.kind !== 'dm' && r.own) return r.own
   if (r.kind === 'team' && r.name) return r.name
   const names = (db.query('SELECT u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY u.name LIMIT 4').all(roomId) as { name: string }[]).map((x) => x.name)
   return names.join(', ') || '?'

@@ -4,12 +4,17 @@
 // Events (shared/src/api/ws.ts room.*) go to the room's members only, through the hub's publishEach: a person who is
 // not in the room never gets one, and a message only to those who may see it (canSee).
 //
+// Group chats (kind 'group', docs/DECISIONS.md "그룹 대화와 방 이름"): made by a person with people they pick; any member
+// invites or leaves, the manager (store.ts managerOf) and owners or admins in it take someone out; the last one out
+// archives it. Rooms.sync never changes who is in one, except that a disabled or deleted account leaves. Not audited,
+// like DMs. Renames, invites and leaves are event lines (store.ts): a seq in the room, no unread, notice or AI.
+//
 // The AI (rooms/ai.ts, docs/DECISIONS.md "대화방의 트리나"): send() is the one place a person's message is written,
 // and a message that calls the AI ("@트리나 …") starts its turn there, checked before the message is written. The
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import type { Room, RoomMember, RoomMessage, RoomReadState, ServerEventInput } from '@mycel/shared/api'
+import { ROOM_GROUP_MAX, type Room, type RoomMember, type RoomMessage, type RoomReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -17,8 +22,8 @@ import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
 import { notificationsOf } from '../notifications/service'
 import {
-  canSee, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, roomOut, roomRow, SEE_SQL, setRoomPathCheck, unreadCount,
-  type MemberRow, type MessageRow, type RoomRow,
+  canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, roomOut, roomRow, SEE_SQL, setRoomPathCheck, unreadCount,
+  type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
 import { roomAiOf, type AskOptions } from './ai'
@@ -120,11 +125,153 @@ export class Rooms {
     return this.get(userId, found.id)
   }
 
-  setMuted(userId: string, roomId: string, muted: boolean): Room {
-    this.mine(userId, roomId)
-    this.db.query('UPDATE room_members SET muted = ? WHERE room_id = ? AND user_id = ?').run(muted ? 1 : 0, roomId, userId)
-    this.roomEvent(roomId, 'updated', new Set([userId]))
+  /** A group chat of me and `userIds` (at least two others, active people of this team; not audited). Its name is
+   * optional: without one the app shows the other members' names. Everyone in it sees it from its first line. */
+  createGroup(userId: string, userIds: readonly string[], name?: string | null): Room {
+    const others = [...new Set(userIds)].filter((id) => id !== userId)
+    if (others.length < 2) fail('validation', undefined, { fields: { 'body.userIds': 'at least two other people' } })
+    if (others.length + 1 > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
+    this.assertActive(others)
+    const id = newId(), now = nowIso()
+    this.db.transaction(() => {
+      this.db.query("INSERT INTO rooms (id, kind, created_by, created_at, activity_at, name) VALUES (?, 'group', ?, ?, ?, ?)").run(id, userId, now, now, name?.trim() || null)
+      const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, ?, ?)')
+      for (const u of [userId, ...others]) add.run(id, u, now)
+      this.eventLine(id, userId, { type: 'created', userIds: others }, now)
+      // not audited: the audit log is the admins' to read, and they must not learn who talks to whom
+    })()
+    this.roomEvent(id, 'added')
+    return this.get(userId, id)
+  }
+
+  /** My setting (muted) and the room's own name (mayRename: else 403). A name change is an event line. */
+  update(userId: string, roomId: string, b: { muted?: boolean; name?: string | null }): Room {
+    const { room } = this.mine(userId, roomId)
+    if (b.name !== undefined) this.rename(userId, room, b.name)
+    if (b.muted !== undefined) {
+      this.db.query('UPDATE room_members SET muted = ? WHERE room_id = ? AND user_id = ?').run(b.muted ? 1 : 0, roomId, userId)
+      this.roomEvent(roomId, 'updated', new Set([userId]))
+    }
     return this.get(userId, roomId)
+  }
+
+  setMuted(userId: string, roomId: string, muted: boolean): Room {
+    return this.update(userId, roomId, { muted })
+  }
+
+  /** '' or null: back to the server's name; a team room given its group's own name follows the group again. Team rooms
+   * and the everyone room: audited (room.rename), as their other changes are; a group chat not. */
+  private rename(userId: string, room: RoomRow, raw: string | null) {
+    if (!mayRename(this.db, room, userId)) fail('forbidden')
+    let name = raw?.trim() || null
+    if (name && room.kind === 'team' && name === groupName(this.db, room)) name = null
+    if ((room.name ?? null) === name) return
+    const now = nowIso()
+    const line = this.db.transaction(() => {
+      this.db.query('UPDATE rooms SET name = ? WHERE id = ?').run(name, room.id)
+      if (room.kind !== 'group') audit(this.db, { actor: userId, action: 'room.rename', target: room.id, detail: { kind: room.kind, name } })
+      return this.eventLine(room.id, userId, { type: 'renamed', name }, now)
+    })()
+    this.roomEvent(room.id, 'updated')
+    this.messageEvent('room.message', messageRow(this.db, room.id, line)!)
+  }
+
+  // ---------------- group chats: who is in one ----------------
+  /** Add people to a group chat I am in (any member). Those already in it are skipped; the others see the room from
+   * now on (visible_from_seq = the room's last seq, as in a team room) and the line that says they were invited. */
+  invite(userId: string, roomId: string, userIds: readonly string[]): Room {
+    const { room } = this.mine(userId, roomId)
+    // a team room follows its group and the everyone room the team; a DM keeps its two (the app makes a new group chat)
+    if (room.kind !== 'group') fail('forbidden')
+    const ids = [...new Set(userIds)].filter((id) => id !== userId)
+    if (!ids.length) fail('validation', undefined, { fields: { 'body.userIds': 'nobody to add' } })
+    this.assertActive(ids)
+    const inRoom = new Set(members(this.db, roomId).map((m) => m.user_id))
+    const fresh = ids.filter((id) => !inRoom.has(id))
+    if (!fresh.length) return this.get(userId, roomId)
+    if (inRoom.size + fresh.length > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
+    const now = nowIso()
+    const line = this.db.transaction(() => {
+      const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
+      for (const u of fresh) add.run(u, now, roomId)
+      return this.eventLine(roomId, userId, { type: 'added', userIds: fresh }, now)
+    })()
+    const added = new Set(fresh)
+    this.roomEvent(roomId, 'added', added)
+    const r = roomRow(this.db, roomId)!
+    this.fanout(roomId, (m) => (added.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, r, m) } }))
+    this.messageEvent('room.message', messageRow(this.db, roomId, line)!)
+    return this.get(userId, roomId)
+  }
+
+  /** Leave a group chat (team rooms and the everyone room follow the groups, a DM keeps its two: 403). */
+  leave(userId: string, roomId: string): void {
+    const { room } = this.mine(userId, roomId)
+    if (room.kind !== 'group') fail('forbidden')
+    this.dropMembers(room.id, [{ userId, actor: userId, event: { type: 'left' } }])
+  }
+
+  /** Take `targetId` out of a group chat: its manager may, and so may an owner or admin who is in it; never oneself
+   * (that is leaving). Anyone else in it: 403. */
+  removeMember(userId: string, roomId: string, targetId: string): void {
+    const { room } = this.mine(userId, roomId)
+    if (room.kind !== 'group') fail('forbidden')
+    if (targetId === userId) fail('validation', undefined, { fields: { 'params.userId': 'yourself: leave the room instead' } })
+    if (managerOf(this.db, room) !== userId && !isOwnerOrAdmin(this.db, userId)) fail('forbidden')
+    if (!memberRow(this.db, roomId, targetId)) fail('not_found')
+    this.dropMembers(room.id, [{ userId: targetId, actor: userId, event: { type: 'removed', userId: targetId } }])
+  }
+
+  /** People out of a group chat at once: their member rows and notices go, each of their windows loses the room (and
+   * their replay buffer, so nothing of it is replayed), the others get the line and the new members. The last one out
+   * archives the room (rows kept; nobody can read them). */
+  private dropMembers(roomId: string, out: { userId: string; actor: string | null; event: EventData }[], inTx = false): { lines: string[]; archived: boolean } {
+    const now = nowIso()
+    const run = () => {
+      const lines: string[] = []
+      for (const o of out) {
+        this.db.query('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(roomId, o.userId)
+        this.db.query('DELETE FROM room_notices WHERE room_id = ? AND user_id = ?').run(roomId, o.userId)
+      }
+      const left = (this.db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(roomId) as { n: number }).n
+      if (!left) {
+        this.db.query('UPDATE rooms SET archived_at = ? WHERE id = ? AND archived_at IS NULL').run(now, roomId)
+        return { lines, archived: true }
+      }
+      for (const o of out) lines.push(this.eventLine(roomId, o.actor, o.event, now))
+      return { lines, archived: false }
+    }
+    const r = inTx ? run() : this.db.transaction(run)()
+    if (!inTx) this.afterDrop(roomId, out.map((o) => o.userId), r)
+    return r
+  }
+  private afterDrop(roomId: string, gone: readonly string[], r: { lines: string[]; archived: boolean }) {
+    for (const u of new Set(gone)) {
+      this.ctx.services.realtime.forgetReplay(u)
+      this.ctx.services.realtime.publish(u, { type: 'room.updated', data: { roomId, change: 'removed', room: null } })
+    }
+    if (r.archived) return
+    const room = roomRow(this.db, roomId)
+    if (room) this.fanout(roomId, (m) => ({ type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, room, m) } }))
+    for (const id of r.lines) this.messageEvent('room.message', messageRow(this.db, roomId, id)!)
+  }
+
+  /** Only active accounts of this team; one that is not (disabled, deleted, unknown) refuses the whole request without
+   * saying which (the people list already shows who is active). */
+  private assertActive(ids: readonly string[]) {
+    if (!ids.length) return
+    const n = (this.db.query(`SELECT COUNT(*) n FROM users WHERE status = 'active' AND deleted_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`).get(...ids) as { n: number }).n
+    if (n !== ids.length) fail('validation', undefined, { fields: { 'body.userIds': 'not an active person of this team' } })
+  }
+
+  /** An event line (store.ts): the room's next seq, written by `actorId` (who did it), inside the caller's transaction.
+   * It does not move the room's activity: a rename does not bring a room to the top of the list. */
+  private eventLine(roomId: string, actorId: string | null, e: EventData, now: string): string {
+    const id = newId()
+    const seq = (this.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+    this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at, event)
+      VALUES (?, ?, ?, 'user', ?, 'room', '', '[]', ?, ?)`).run(id, roomId, seq, actorId, now, JSON.stringify(e))
+    return id
   }
 
   members(userId: string, roomId: string): RoomMember[] {
@@ -153,7 +300,8 @@ export class Rooms {
     this.takeSendToken(userId)
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
-      if (!q || !canSee(q, me)) fail('validation', undefined, { fields: { 'body.replyToId': 'not in this room' } })
+      // an event line is not a message to answer
+      if (!q || !canSee(q, me) || q.event) fail('validation', undefined, { fields: { 'body.replyToId': 'not in this room' } })
     }
     const mentions = this.validMentions(roomId, userId, b.mentions)
     const fileIds = [...new Set(b.fileIds)]
@@ -238,7 +386,8 @@ export class Rooms {
   private own(roomId: string, messageId: string, userId: string): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
     if (!m) return fail('not_found')
-    if (m.author_kind !== 'user' || m.author_id !== userId) return fail('forbidden')
+    // an event line is nobody's message: its author did something, they did not write it
+    if (m.author_kind !== 'user' || m.author_id !== userId || m.event) return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
     return m
   }
@@ -276,11 +425,12 @@ export class Rooms {
   }
 
   // ---------------- notices ----------------
-  /** A DM message notifies the other person, an @mention each person mentioned; nobody who muted the room. One unread
-   * notice of each kind per room and person (Notifications.roomNotice). Private messages (the AI's previews) notify
-   * nobody; an AI answer not the person who asked. The notice is the message id only. */
+  /** A DM or group chat message notifies the others (code room.dm: a conversation of picked people, as Slack's group
+   * DMs), an @mention each person mentioned; nobody who muted the room. One unread notice of each kind per room and
+   * person (Notifications.roomNotice). Private messages (the AI's previews) and event lines notify nobody; an AI answer
+   * not the person who asked. The notice is the message id only. */
   notify(row: MessageRow) {
-    if (row.visibility !== 'room' || row.deleted_at) return
+    if (row.visibility !== 'room' || row.deleted_at || row.event) return
     const room = roomRow(this.db, row.room_id)
     if (!room) return
     const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m))
@@ -290,7 +440,7 @@ export class Rooms {
       if (m.muted) continue
       try {
         if (mentioned.has(m.user_id)) n.roomNotice(m.user_id, 'room.mention', row.id, row.room_id, row.created_at)
-        else if (room.kind === 'dm') n.roomNotice(m.user_id, 'room.dm', row.id, row.room_id, row.created_at)
+        else if (room.kind === 'dm' || room.kind === 'group') n.roomNotice(m.user_id, 'room.dm', row.id, row.room_id, row.created_at)
       } catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
   }
@@ -319,11 +469,21 @@ export class Rooms {
    * everyone; members = the group's active people / every active person. Someone added joins at the room's last seq
    * (they see the messages from then on); someone removed (left the group, disabled, deleted) loses the room, its
    * notices and their replay buffer. A team room whose group was deleted is archived with no members. Audited.
+   * Group chats: who is in one is never changed here, nor any room's own name, except that a disabled or deleted
+   * account leaves (an event line, not audited; the last one out archives it).
    */
   sync(): void {
     const db = this.db, now = nowIso()
     const added = new Map<string, string[]>(), removed = new Map<string, string[]>()
+    const groupOut = new Map<string, { users: string[]; r: { lines: string[]; archived: boolean } }>()
     db.transaction(() => {
+      const gone = db.query(`SELECT m.room_id, m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id JOIN users u ON u.id = m.user_id
+        WHERE r.kind = 'group' AND r.archived_at IS NULL AND (u.status <> 'active' OR u.deleted_at IS NOT NULL) ORDER BY m.room_id, m.joined_at, m.user_id`).all() as { room_id: string; user_id: string }[]
+      const byRoom = new Map<string, string[]>()
+      for (const g of gone) (byRoom.get(g.room_id) ?? byRoom.set(g.room_id, []).get(g.room_id)!).push(g.user_id)
+      for (const [roomId, users] of byRoom) {
+        groupOut.set(roomId, { users, r: this.dropMembers(roomId, users.map((u) => ({ userId: u, actor: u, event: { type: 'left' as const } })), true) })
+      }
       if (!db.query("SELECT 1 FROM rooms WHERE kind = 'all'").get()) {
         const id = newId()
         db.query("INSERT INTO rooms (id, kind, created_at, activity_at) VALUES (?, 'all', ?, ?)").run(id, now, now)
@@ -356,6 +516,7 @@ export class Rooms {
         audit(db, { actor: null, action: 'room.members', target: id, detail: { via: 'groups', added: added.get(id) ?? [], removed: removed.get(id) ?? [] } })
       }
     })()
+    for (const [roomId, g] of groupOut) this.afterDrop(roomId, g.users, g.r)
     for (const [roomId, users] of removed) {
       for (const u of users) {
         // events about this room sit in their replay buffer: a window resuming from before now reloads instead
