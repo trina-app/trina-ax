@@ -1,8 +1,8 @@
 // A person asks the team owner to delete their own account (shared/src/api/account-deletion.ts,
 // server/src/auth/deletion-requests.ts; App Store review 5.1.1(v)). The request deletes nothing itself: it tells the
-// owner in the inbox (metadata only, shown always, one entry per owner and person), the owner cannot ask, asking is
-// idempotent and limited per day, cancel and the owner's delete close it, and the owner's Admin › Members list says
-// who asked.
+// owner and the admins in the inbox (metadata only, shown always, one entry per owner or admin and person; an admin's
+// own request goes to the owner only), the owner cannot ask, asking is idempotent and limited per day, cancel and a
+// delete close it, and the Admin › Members list of the owner and of the admins says who asked.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -27,7 +27,7 @@ const entries = async (c: Client) => (await c.call('GET', '/api/notifications'))
 const audits = (action: string, id: string) => (h.ctx.db.query('SELECT COUNT(*) AS n FROM audit_log WHERE action = ? AND actor_id = ? AND target = ?').get(action, id, id) as { n: number }).n
 
 describe('asking', () => {
-  test('a member asks once: the owner is told (name, link to the person), nobody else; asking again changes nothing', async () => {
+  test('a member asks once: the owner and the admins are told (name, link to the person), nobody else; asking again changes nothing', async () => {
     const m = await addMember(h, owner, { username: 'mina' })
     expect(await m.client.call('GET', PATH)).toEqual({ state: 'none', requestedAt: null })
     const signals = h.hub.events.length
@@ -37,15 +37,17 @@ describe('asking', () => {
     const [entry, ...more] = await entries(owner)
     expect(more).toEqual([])
     expect(entry).toMatchObject({ eventType: 'account.deletion_request', sourceId: m.id, link: 'admin_members', readAt: null, chatId: null, deletionRequest: { name: 'MINA', state: 'open' } })
-    // the realtime signal carries nothing but "the inbox changed", to the owner only
+    // the realtime signal carries nothing but "the inbox changed", to the owner and the admins only
     const sent = h.hub.events.slice(signals)
     expect(sent.length).toBeGreaterThan(0)
     for (const e of sent) {
-      expect(e.target).toBe(ownerId)
+      expect([ownerId, admin.id]).toContain(e.target)
       expect(e.data).toEqual({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
     }
-    // admins cannot delete accounts and are not told; the person is not told about their own request
-    expect(await entries(admin.client)).toEqual([])
+    // admins delete members, so they are told; the person is not told about their own request
+    const [adminEntry, ...adminMore] = await entries(admin.client)
+    expect(adminMore).toEqual([])
+    expect(adminEntry).toMatchObject({ sourceId: m.id, link: 'admin_members', deletionRequest: { name: 'MINA', state: 'open' } })
     expect(await entries(m.client)).toEqual([])
     // idempotent: the same request, no second entry, one audit row
     const again = await m.client.call('POST', PATH, { confirm: true })
@@ -69,9 +71,15 @@ describe('asking', () => {
     expect((await m.client.call('GET', PATH)).state).toBe('pending')
   })
 
-  test('an admin may ask too (the owner deletes admins)', async () => {
+  test('an admin may ask too (the owner deletes admins): only the owner is told', async () => {
     expect((await admin.client.call('POST', PATH, { confirm: true })).state).toBe('pending')
     expect((await entries(owner)).some((x: any) => x.sourceId === admin.id && x.deletionRequest?.state === 'open')).toBe(true)
+    expect((await entries(admin.client)).some((x: any) => x.sourceId === admin.id)).toBe(false)
+    // another admin gets no notice either, and does not see the request in Admin › Members (members' requests only)
+    const other = await addMember(h, owner, { username: 'alma', role: 'admin' })
+    expect((await entries(other.client)).some((x: any) => x.sourceId === admin.id)).toBe(false)
+    expect((await other.client.call('GET', '/api/admin/users')).deletionRequested ?? []).not.toContain(admin.id)
+    expect((await owner.call('GET', '/api/admin/users')).deletionRequested).toContain(admin.id)
     expect((await admin.client.call('DELETE', PATH)).state).toBe('none')
   })
 
@@ -130,11 +138,11 @@ describe('cancel and ask again', () => {
 })
 
 describe('the owner handles it', () => {
-  test('Admin › Members tells the owner (not admins) who asked; deleting the account archives the files and closes the request', async () => {
+  test('Admin › Members tells the owner and the admins who asked; deleting the account archives the files and closes the request', async () => {
     const m = await addMember(h, owner, { username: 'dora' })
     await m.client.call('POST', PATH, { confirm: true })
     expect((await owner.call('GET', '/api/admin/users')).deletionRequested).toContain(m.id)
-    expect((await admin.client.call('GET', '/api/admin/users')).deletionRequested).toBeUndefined()
+    expect((await admin.client.call('GET', '/api/admin/users')).deletionRequested).toContain(m.id)
     fs.writeFileSync(path.join(h.ctx.files.fx.root, 'users', m.id, 'notes.md'), 'dora')
     // removed like anyone else: the personal files go to the owner's archive, they are not deleted
     expect((await owner.try('DELETE', `/api/admin/users/${m.id}`)).status).toBe(204)
@@ -175,5 +183,28 @@ describe('the owner handles it', () => {
       expect(fks.length, table).toBeGreaterThan(0)
       for (const fk of fks) expect(fk, table).toMatchObject({ table: 'users', on_delete: 'CASCADE' })
     }
+  })
+})
+
+describe('a role change moves the notices', () => {
+  test('a demoted admin loses the notices of requests they no longer handle; a member who asked and is made an admin is the owner\'s business only', async () => {
+    const boss = await addMember(h, owner, { username: 'bram', role: 'admin' })
+    const peer = await addMember(h, owner, { username: 'pia', role: 'admin' })
+    const m = await addMember(h, owner, { username: 'moe' })
+    await m.client.call('POST', PATH, { confirm: true })
+    expect((await entries(boss.client)).some((x: any) => x.sourceId === m.id)).toBe(true)
+    expect((await entries(peer.client)).some((x: any) => x.sourceId === m.id)).toBe(true)
+    // demoted: the admin's notices (and the unread count) go
+    await owner.call('PATCH', `/api/admin/users/${boss.id}`, { role: 'member' })
+    expect(await entries(boss.client)).toEqual([])
+    expect((await boss.client.try('GET', '/api/admin/users')).status).toBe(403)
+    // promoted: the other admins' entries for that person go, the owner's stay
+    await owner.call('PATCH', `/api/admin/users/${m.id}`, { role: 'admin' })
+    expect((await entries(peer.client)).some((x: any) => x.sourceId === m.id)).toBe(false)
+    expect((await entries(owner)).some((x: any) => x.sourceId === m.id && x.deletionRequest?.state === 'open')).toBe(true)
+    // and the 30-day refresh does not bring them back
+    notificationsOf(h.ctx).reconcile()
+    expect((await entries(peer.client)).some((x: any) => x.sourceId === m.id)).toBe(false)
+    expect((await entries(boss.client))).toEqual([])
   })
 })

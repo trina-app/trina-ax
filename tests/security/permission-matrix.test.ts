@@ -79,19 +79,29 @@ describe('permission matrix: every route x every persona', () => {
 })
 
 // ---------------------------------------------------------------- account deletion by role
-// DECISIONS.md A 역할 규칙 (owner decision 2026-11-06; before it the owner only, the old finding
-// "admin-can-delete-account"): API.deleteUser is admin-level, so the matrix above expects owner and admin allowed on
-// its member target; here the roles behind it, on fresh people so the matrix's own deleteUser cases don't race these.
-describe('account deletion: an admin deletes members, only the owner deletes admins', () => {
-  const fresh = (role: 'member' | 'admin') => W.as.owner.ok('POST', '/api/admin/users', { username: `del${role[0]}` + crypto.randomUUID().slice(0, 6), name: 'Acme Temp', role })
-  test('an admin deletes a member account', async () => {
-    const u = await fresh('member')
-    const r = await W.as.admin.del(`/api/admin/users/${u.user.id}`)
-    expect(r.status, `admin could not delete a member: ${r.status} ${r.text.slice(0, 160)}`).toBe(204)
+// 설계서 4번 탭 / DECISIONS.md 역할 규칙: the owner deletes anyone but themselves; an admin deletes a plain member only,
+// with their own password in the body. Never the owner, another admin or themselves.
+describe('account deletion by role', () => {
+  const fresh = async (role: 'member' | 'admin') => (await W.as.owner.ok('POST', '/api/admin/users', { username: 'victim' + crypto.randomUUID().slice(0, 6), name: 'Victim', role })).user.id as string
+  test('an admin cannot delete a member without the password, nor with a wrong one', async () => {
+    const id = await fresh('member')
+    for (const body of [undefined, { password: 'wrong-password-1' }]) {
+      const r = await W.as.admin.del(`/api/admin/users/${id}`, body)
+      expect(r.status, `admin deleted a member with no valid password: ${r.status}`).toBe(403)
+    }
   })
-  test('an admin cannot delete another admin, the owner or themselves', async () => {
-    const a = await fresh('admin')
-    for (const id of [a.user.id, 'dana', 'carol']) expect((await W.as.admin.del(`/api/admin/users/${id}`)).status, id).toBe(403)
+  test('an admin cannot delete another admin or the owner, even with the password', async () => {
+    const other = await fresh('admin')
+    expect((await W.as.admin.del(`/api/admin/users/${other}`, { password: PW.carol })).status).toBe(403)
+    expect((await W.as.admin.del('/api/admin/users/dana', { password: PW.carol })).status).toBe(403)
+  })
+  test('an admin deletes a member with the password', async () => {
+    const id = await fresh('member')
+    expect((await W.as.admin.del(`/api/admin/users/${id}`, { password: PW.carol })).status).toBe(204)
+  })
+  test('a member cannot delete anyone', async () => {
+    const id = await fresh('member')
+    expect((await W.as.memberIn.del(`/api/admin/users/${id}`, { password: PW.alice })).status).toBe(403)
   })
 })
 

@@ -127,15 +127,25 @@ export class Notifications {
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
   }
-  /** A person asks this owner to delete their account (auth/deletion-requests.ts). The source is the person's id only;
-   * one row per owner and person (UNIQUE, migration 244): asking again after a cancel re-arms it (unread, new time)
+  /** A person asks this owner (or admin) to delete their account (auth/deletion-requests.ts). The source is the person's id only;
+   * one row per owner or admin and person (UNIQUE, migration 244): asking again after a cancel re-arms it (unread, new time)
    * instead of adding one, so asking and cancelling over and over never fills the inbox. Shown always: there is no
-   * setting for it, and someone waits for the owner. Never the owner's own request. */
+   * setting for it, and someone waits. Never the person's own request. */
   deletionRequest(ownerId: string, requesterId: string, createdAt = new Date().toISOString()) {
     if (ownerId === requesterId) return
     const again = this.ctx.db.query("UPDATE account_deletion_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='account.deletion_request' AND source_id=? AND read_at IS NOT NULL").run(createdAt, ownerId, requesterId)
     if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
     this.record(ownerId, 'account.deletion_request', requesterId, createdAt, true)
+  }
+  /** A role changed: what an owner or admin no longer handles leaves their inbox. A person who became a member is no
+   * longer told of anyone's request; a member who became an admin is now the owner's business only, so the admins'
+   * entries for that person go (the owners keep theirs). */
+  forgetDeletionNotices(o: { userId: string } | { requesterId: string }) {
+    const db = this.ctx.db
+    const rows = 'userId' in o
+      ? db.query('DELETE FROM account_deletion_notices WHERE user_id=? RETURNING user_id').all(o.userId)
+      : db.query("DELETE FROM account_deletion_notices WHERE source_id=? AND user_id IN (SELECT id FROM users WHERE role='admin') RETURNING user_id").all(o.requesterId)
+    for (const u of new Set((rows as { user_id: string }[]).map((r) => r.user_id))) if (this.active(u)) this.signal(u)
   }
   /** A request that no longer waits (taken back, or the account was deleted): its entries count as read, so no owner is
    * left with something to do that is gone. The entry stays and says what happened. */
@@ -143,17 +153,17 @@ export class Notifications {
     const rows = this.ctx.db.query("UPDATE account_deletion_notices SET read_at=? WHERE source_id=? AND read_at IS NULL RETURNING user_id").all(new Date().toISOString(), requesterId) as { user_id: string }[]
     for (const u of new Set(rows.map((r) => r.user_id))) if (this.active(u)) this.signal(u)
   }
-  /** Every owner has the entry of every open request: an owner made after the request (owner transfer) gets it too,
-   * and a request still open after the 30 days of the inbox comes back as a new entry. A person who became the owner
-   * since is left out (the owner cannot ask). */
+  /** Every owner has the entry of every open request, and every admin that of every open member's request: an owner
+   * or admin made after the request gets it too, and a request still open after the 30 days of the inbox comes back
+   * as a new entry. A person who became the owner since is left out (the owner cannot ask). */
   private openDeletionRequests() {
     const db = this.ctx.db
     const open = db.query(`SELECT r.user_id FROM account_deletion_requests r JOIN users u ON u.id=r.user_id
       WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL AND u.role != 'owner'`).all() as { user_id: string }[]
     if (!open.length) return
-    const owners = db.query("SELECT id FROM users WHERE role='owner' AND status='active' AND deleted_at IS NULL").all() as { id: string }[]
     const now = new Date().toISOString()
-    for (const r of open) for (const o of owners) {
+    for (const r of open) for (const id of deletionHandlers(this.ctx, (db.query('SELECT role FROM users WHERE id=?').get(r.user_id) as { role: string }).role)) {
+      const o = { id }
       if (!db.query("SELECT 1 FROM account_deletion_notices WHERE user_id=? AND event_type='account.deletion_request' AND source_id=?").get(o.id, r.user_id)) this.record(o.id, 'account.deletion_request', r.user_id, now, true)
     }
   }
@@ -372,8 +382,8 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(u ? { joined: { name: u.name } } : {}) }
     }
-    // the owner sees who asks (a name while the account is there) and where the request is now; while it waits, the
-    // link opens that person in Admin › Members, where the owner deletes the account
+    // the owner and the admins see who asks (a name while the account is there) and where the request is now; while it
+    // waits, the link opens that person in Admin › Members, where the account is deleted
     if (row.event_type === 'account.deletion_request') {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
       const q = this.ctx.db.query('SELECT cancelled_at, handled_at FROM account_deletion_requests WHERE user_id=?').get(row.source_id) as { cancelled_at: string | null; handled_at: string | null } | null
@@ -517,8 +527,14 @@ export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joi
     catch { ctx.log.warn('team join notification recording failed') }
   }
 }
-export function notifyDeletionRequest(ctx: AppContext, ownerIds: Iterable<string>, requesterId: string) {
-  for (const ownerId of new Set(ownerIds)) {
+/** Who is told about, and handles, a request from someone with this role: the owners, and the admins when a member asks. */
+export function deletionHandlers(ctx: AppContext, requesterRole: string): string[] {
+  const roles = requesterRole === 'member' ? "'owner', 'admin'" : "'owner'"
+  return (ctx.db.query(`SELECT id FROM users WHERE role IN (${roles}) AND status = 'active' AND deleted_at IS NULL`).all() as { id: string }[]).map((u) => u.id)
+}
+
+export function notifyDeletionRequest(ctx: AppContext, handlerIds: Iterable<string>, requesterId: string) {
+  for (const ownerId of new Set(handlerIds)) {
     try { notificationsOf(ctx).deletionRequest(ownerId, requesterId) }
     catch { ctx.log.warn('account deletion request notification recording failed') }
   }

@@ -657,6 +657,44 @@ for (const locale of ['ko', 'en', 'id'] as const) {
 }
 
 
+test('members: an admin gets Delete on member rows only, and types the password again to delete', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+  await signIn(page, { username: 'dana', password: 'dana password 1' })
+  await page.goto('/admin/members')
+  const table = page.getByTestId('members-table')
+  // a member row: Delete is in the "…" menu
+  const bob = table.getByRole('row').filter({ hasText: 'Bob' })
+  await bob.getByTestId('member-more').click()
+  await expect(page.getByTestId('delete-member-bob')).toBeVisible()
+  await page.keyboard.press('Escape')
+  // another admin and the owner: whatever their menu holds, there is no Delete (and no Disable: an admin acts on members)
+  for (const [name, user] of [['Eve', 'eve'], ['Olga', 'olga']] as const) {
+    const more = table.getByRole('row').filter({ hasText: name }).getByTestId('member-more')
+    if (await more.count()) { await more.click(); await page.keyboard.press('Escape') }
+    await expect(page.getByTestId(`delete-member-${user}`)).toHaveCount(0)
+    await expect(page.getByTestId(`disable-member-${user}`)).toHaveCount(0)
+  }
+
+  // the same warning as the owner sees, and the password again; a wrong one keeps the person
+  await bob.getByTestId('member-more').click()
+  await page.getByTestId('delete-member-bob').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Bob')
+  await expect(dialog).toContainText(translate('en', 'members.removeBody', { days: 7 }))
+  const confirm = dialog.getByRole('button', { name: DICTS.en['common.delete'], exact: true })
+  await expect(confirm).toBeDisabled()
+  await dialog.locator('input[type="password"]').fill('not the password')
+  await confirm.click()
+  await expect(page.getByRole('alert').filter({ hasText: /password/i })).toBeVisible()
+  await expect(bob).toBeVisible()
+  await dialog.locator('input[type="password"]').fill('dana password 1')
+  const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE' && new URL(r.url()).pathname === '/api/admin/users/bob')
+  await confirm.click()
+  expect((await deleted).status()).toBe(204)
+  await expect(dialog).toHaveCount(0)
+  await expect(table.getByRole('row').filter({ hasText: 'Bob' })).toHaveCount(0)
+})
+
 test('members: cancelled and rejected deletions retain the row; a successful retry refreshes it', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
