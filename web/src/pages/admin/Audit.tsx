@@ -283,6 +283,13 @@ export function rowItem(e: AuditEntry): { text: string; code: boolean; confirmed
   return typeof name === 'string' && name.trim() ? { text: name, code: false } : null
 }
 
+/** Reasons the server writes as ids that have words ("<action>:<reason>"); any other reason is shown as written. */
+const REASON_WORDS: Record<string, MessageKey> = {
+  'remote_mcp.scope_dropped:role': 'audit.reason.notAdmin',
+  'remote_mcp.scope_dropped:status': 'audit.reason.disabled',
+  'remote_mcp.tool:not_admin': 'audit.reason.notAdmin',
+}
+
 /** Everything the row knows: exact time, who (and their id), the action id, the item, where from, and the rest as is. */
 function Details({ e, times }: { e: AuditEntry; times?: string[] }) {
   const t = useT()
@@ -315,7 +322,16 @@ function Details({ e, times }: { e: AuditEntry; times?: string[] }) {
     take('via')
     rows.push([t('adminux.audit.key.via'), t('audit.viaInternet')])
   }
-  if (typeof detail.reason === 'string') rows.push([t('adminux.audit.key.reason'), take('reason') as string])
+  // a person's own AI app through the MCP connector (its tools, its upload links, the group changes it made)
+  if (detail.via === 'connector' || detail.via === 'connector_link') {
+    take('via')
+    rows.push([t('adminux.audit.key.via'), t('audit.viaConnector')])
+  }
+  if (typeof detail.reason === 'string') {
+    const reason = take('reason') as string
+    const words = REASON_WORDS[`${e.action}:${reason}`]
+    rows.push([t('adminux.audit.key.reason'), words ? t(words) : reason])
+  }
   const rest = Object.entries(detail).filter(([, v]) => v !== null && v !== undefined && v !== '')
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">

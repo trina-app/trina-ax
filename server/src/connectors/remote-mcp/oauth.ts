@@ -4,7 +4,7 @@ import type { AppConfig } from '../../app-config'
 import type { AppContext } from '../../context'
 import type { AuthInfo } from '../../services'
 import { audit } from '../../admin/audit'
-import { ACCESS_MS, CODE_MS, GRANT_MS, MCP_PATH, OAuthError, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
+import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
 
 type Client = { id: string; name: string; redirects: string }
 type Pending = { id: string; client_id: string; redirect_uri: string; challenge: string; state: string | null; scopes: string; resource: string; user_id: string | null; session_id: string | null; expires_at: number }
@@ -14,6 +14,29 @@ type CodeRow = { grant_id: string; redirect_uri: string; challenge: string; expi
 const invalid = () => new OAuthError('invalid_grant')
 const string = (v: unknown, max = 2048): string => { if (typeof v !== 'string' || !v || v.length > max) throw new OAuthError('invalid_request'); return v }
 const iso = (v: number) => new Date(v).toISOString()
+
+/** An active owner or admin right now (the users table, not the role when a grant was made). mcp:admin needs this. */
+export function isTeamAdmin(db: Database, userId: string): boolean {
+  return !!db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL AND role IN ('owner','admin')").get(userId)
+}
+
+/**
+ * Take mcp:admin off every connector grant of a person who is no longer an active owner or admin (demoted, disabled,
+ * or found so by a tool call). For good: like their invites and reset links, being made admin again does not bring
+ * it back; they connect again (a new grant of an owner or admin gets it). `actor`: the admin who made the change (Admin › Members), or null when the
+ * server found it (a tool call). Returns how many grants changed.
+ */
+export function dropAdminScope(db: Database, userId: string, reason: 'role' | 'status', actor: string | null = null): number {
+  let n = 0
+  for (const g of db.query('SELECT id,scopes FROM remote_mcp_grants WHERE user_id=?').all(userId) as { id: string; scopes: string }[]) {
+    const scopes = JSON.parse(g.scopes) as string[]
+    if (!scopes.includes(ADMIN_SCOPE)) continue
+    db.query('UPDATE remote_mcp_grants SET scopes=? WHERE id=?').run(JSON.stringify(scopes.filter(s => s !== ADMIN_SCOPE)), g.id)
+    audit(db, { actor, action: 'remote_mcp.scope_dropped', target: g.id, detail: { scope: ADMIN_SCOPE, user: userId, reason } })
+    n++
+  }
+  return n
+}
 
 /** Separate public-client credential namespace. No app session token is ever accepted here. */
 export class RemoteOAuth {
@@ -95,11 +118,26 @@ export class RemoteOAuth {
     this.db.query('UPDATE remote_mcp_requests SET user_id=?,session_id=? WHERE id=? AND user_id IS NULL').run(auth.user.id, auth.session.id, id)
     return r
   }
+  /** The asked scopes this person may be offered: mcp:admin only to an active owner or admin. Dropped, not refused: an
+   * app that asks for every advertised scope must still connect a member (RFC 6749 3.3; the token's `scope` says so). */
+  private offered(scopes: string[], userId: string): string[] {
+    return scopes.filter(s => s !== ADMIN_SCOPE || isTeamAdmin(this.db, userId))
+  }
+  /**
+   * `scopes`: what the app asked for (its mcp:write is the write box's starting state). `optional`: the boxes
+   * (OPTIONAL_SCOPES). `admin`: the connection will also manage the team's groups (an active owner or admin now).
+   */
   consent(id: string, auth: AuthInfo) {
     const r = this.pending(id, auth), c = this.client(r.client_id)
-    return { id, clientName: c.name, redirectOrigin: new URL(r.redirect_uri).origin, scopes: JSON.parse(r.scopes) as string[], resource: r.resource, expiresAt: iso(r.expires_at) }
+    return { id, clientName: c.name, redirectOrigin: new URL(r.redirect_uri).origin, scopes: this.offered(JSON.parse(r.scopes), auth.user.id), optional: [...OPTIONAL_SCOPES] as string[], admin: isTeamAdmin(this.db, auth.user.id), resource: r.resource, expiresAt: iso(r.expires_at) }
   }
-  decide(id: string, auth: AuthInfo, allow: boolean) {
+  /**
+   * The grant: mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:admin when the
+   * person is an active owner or admin at this moment (no box, and nothing the page sends changes it), plus
+   * offline_access when the app asked for it. It may hold a scope the app did not ask for; the token answer's `scope`
+   * names exactly what was granted (RFC 6749 3.3), and a refresh can only narrow it.
+   */
+  decide(id: string, auth: AuthInfo, allow: boolean, o: { write?: boolean } = {}) {
     return this.db.transaction(() => {
       const r = this.pending(id, auth), url = new URL(r.redirect_uri)
       this.db.query('DELETE FROM remote_mcp_requests WHERE id=?').run(id)
@@ -110,9 +148,14 @@ export class RemoteOAuth {
       const active = this.db.query('SELECT count(*) AS n FROM remote_mcp_grants WHERE user_id=? AND revoked_at IS NULL AND expires_at>?').get(auth.user.id, this.now()) as { n: number }
       if (active.n >= 50) throw new OAuthError('temporarily_unavailable', 503)
       const grant = secret('tax_grant_'), code = secret('tax_code_'), end = Math.min(this.now() + GRANT_MS, this.browser(auth))
-      this.db.query('INSERT INTO remote_mcp_grants(id,client_id,user_id,session_id,resource,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(grant, r.client_id, auth.user.id, auth.session.id, r.resource, r.scopes, this.now(), end)
+      const asked = JSON.parse(r.scopes) as string[], chosen = new Set<string>(['mcp:read'])
+      if (o.write ?? asked.includes('mcp:write')) chosen.add('mcp:write')
+      if (isTeamAdmin(this.db, auth.user.id)) chosen.add(ADMIN_SCOPE)
+      if (asked.includes('offline_access')) chosen.add('offline_access')
+      const selected = SCOPES.filter(s => chosen.has(s))
+      this.db.query('INSERT INTO remote_mcp_grants(id,client_id,user_id,session_id,resource,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(grant, r.client_id, auth.user.id, auth.session.id, r.resource, JSON.stringify(selected), this.now(), end)
       this.db.query('INSERT INTO remote_mcp_codes VALUES(?,?,?,?,?,NULL)').run(hash(code), grant, r.redirect_uri, r.challenge, this.now() + CODE_MS)
-      audit(this.db, { actor: auth.user.id, action: 'remote_mcp.connected', target: grant, detail: { scopes: JSON.parse(r.scopes) } })
+      audit(this.db, { actor: auth.user.id, action: 'remote_mcp.connected', target: grant, detail: { scopes: selected, asked } })
       url.searchParams.set('code', code)
       return { redirectUrl: url.href }
     }).immediate()

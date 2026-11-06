@@ -12,7 +12,7 @@ import { fail } from '../http/errors'
 import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
-import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath } from './folders'
+import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath, type SeenStates } from './folders'
 import { notifyTemplateOffers } from '../notifications/service'
 
 type In<T extends z.ZodType> = z.output<T>
@@ -27,6 +27,19 @@ const toGroup = (ctx: AppContext, g: GroupRow): Group => ({ id: g.id, name: g.na
 export function listGroups(ctx: AppContext): Group[] {
   return (ctx.db.query('SELECT id, name, description FROM groups ORDER BY name').all() as GroupRow[]).map((g) => toGroup(ctx, g))
 }
+
+/** One group, or null. */
+export function getGroup(ctx: AppContext, id: string): Group | null {
+  const g = ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow | null
+  return g ? toGroup(ctx, g) : null
+}
+
+/** Where a change came from when not the web screens: the remote MCP connector's group tools pass 'connector', and the
+ * audit lines of the change (group.*, folder.access_lost) say so. `seen`: filled with the access states before and
+ * after when the change ran afterAccessChange (the connector says what changed from them). Nothing else differs. */
+export interface ChangeFrom { via?: 'connector'; seen?: SeenStates }
+const viaOf = (o: ChangeFrom) => (o.via ? { via: o.via } : {})
+const byOf = (actor: string, target: string, o: ChangeFrom) => ({ actor, target, ...viaOf(o), ...(o.seen ? { seen: o.seen } : {}) })
 
 function checkMembers(ctx: AppContext, ids: readonly string[], locale: Locale): string[] {
   const uniq = [...new Set(ids)]
@@ -72,7 +85,7 @@ export function groupFolder(ctx: AppContext, id: string): string | null {
 
 /** Make a group as `actorId` (Admin › Groups, and the welcome steps' team group): the group, its folder groups/<name>/
  * with its folders row and the rule "this group writes", audited as group.create. */
-export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[] }, locale: Locale): Group {
+export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[] }, locale: Locale, from: ChangeFrom = {}): Group {
   const auth = { user: { id: actorId } }
   if (nameTaken(ctx, b.name)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
   const memberIds = checkMembers(ctx, b.memberIds, locale)
@@ -87,17 +100,21 @@ export function createGroupAs(ctx: AppContext, actorId: string, b: { name: strin
     ctx.db.query(`INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access, updated_by, updated_at) VALUES (?, ?, 'group', ?, 'write', ?, ?)
       ON CONFLICT(folder_id, subject_type, subject_id) DO UPDATE SET access = 'write', updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
       .run(newId(), f.id, id, auth.user.id, new Date().toISOString())
-    audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds } })
+    audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds, ...viaOf(from) } })
   })()
-  afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  afterAccessChange(ctx, before, byOf(auth.user.id, id, from))
   // templates for this group reach its members now (security review 2, #1)
   notifyTemplateOffers(ctx)
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
 export function updateGroup(c: Context<AppEnv>, ctx: AppContext, id: string, b: In<typeof UpdateGroupBody>): Group {
-  const auth = c.get('auth')!
-  const locale = c.get('locale')
+  return updateGroupAs(ctx, c.get('auth')!.user.id, id, b, c.get('locale'))
+}
+
+/** Rename a group, change its description or replace its members, as `actorId` (Admin › Groups, the connector). */
+export function updateGroupAs(ctx: AppContext, actorId: string, id: string, b: { name?: string; description?: string | null; memberIds?: readonly string[] }, locale: Locale, from: ChangeFrom = {}): Group {
+  const auth = { user: { id: actorId } }
   const g = ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow | null
   if (!g) fail('not_found')
   if (b.name !== undefined && nameTaken(ctx, b.name, id)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
@@ -111,15 +128,20 @@ export function updateGroup(c: Context<AppEnv>, ctx: AppContext, id: string, b: 
       const add = ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
       for (const u of memberIds) add.run(id, u)
     }
-    audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds } })
+    audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds, ...viaOf(from) } })
   })()
-  if (memberIds) { afterAccessChange(ctx, before, { actor: auth.user.id, target: id }); notifyTemplateOffers(ctx) }
+  if (memberIds) { afterAccessChange(ctx, before, byOf(auth.user.id, id, from)); notifyTemplateOffers(ctx) }
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
 /** Delete a group and every rule that names it; its folder stays on disk (then only admins see it until new rules). */
 export function deleteGroup(c: Context<AppEnv>, ctx: AppContext, id: string): void {
-  const auth = c.get('auth')!
+  deleteGroupAs(ctx, c.get('auth')!.user.id, id)
+}
+
+/** deleteGroup as `actorId` (Admin › Groups, the connector). */
+export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from: ChangeFrom = {}): void {
+  const auth = { user: { id: actorId } }
   const g = ctx.db.query('SELECT id, name FROM groups WHERE id = ?').get(id) as { id: string; name: string } | null
   if (!g) fail('not_found')
   const before = captureState(ctx.db)
@@ -131,7 +153,7 @@ export function deleteGroup(c: Context<AppEnv>, ctx: AppContext, id: string): vo
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
-    audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name } })
+    audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name, ...viaOf(from) } })
   })()
-  afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  afterAccessChange(ctx, before, byOf(auth.user.id, id, from))
 }

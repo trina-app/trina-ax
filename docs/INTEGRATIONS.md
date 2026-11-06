@@ -24,13 +24,27 @@ has a public origin for it: `server.json` `appConnectors: true` with `tunnel.hos
 `--public-host HOST --app-connectors`), or the environment variable `MYCEL_REMOTE_MCP_ORIGIN`, which wins when it is
 set. Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` scope also
 `write`, `edit`, `upload_file` and `create_upload_link`. All of them use the person's current folder permissions.
+With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_list`, `group_create`, `group_update` and
+`group_delete` (`remote-mcp/groups.ts`).
 
+- Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
+  is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
+  start only when the app asked for it; `mcp:admin` comes with every new connection of an active owner or admin (no
+  box; one line on the page says so), never a member's. The token's `scope` names exactly what was granted, and a
+  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › AI apps says so).
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
+- Group tools: an owner's or admin's connection only; a member never gets `mcp:admin`, and an app's request for it
+  is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
+  their grants for good. The changes call the Admin › Groups server functions (same checks, same audit lines plus
+  `via: 'connector'`) and answer with who now opens or loses which folders and what else the group gives (team
+  connections, templates, team Drive shares, AI connections, budgets, engine choice, dev environment, team room). Names in answers are
+  JSON-quoted (a name can hold a line break); the tools and the `initialize` instructions say they are data.
 
-Details: docs/DECISIONS.md "App connectors: upload_file for binary files" and "App connectors: one-time upload links".
+Details: docs/DECISIONS.md "App connectors: upload_file for binary files", "App connectors: one-time upload links" and
+"App connectors: group management for owners and admins, scope mcp:admin".
 
 Code: `server/src/integrations/connections/` (`store.ts` rows and secrets, `net.ts` requests, `mcp.ts` the MCP client,
 `oauth.ts` sign-in, `service.ts` the operations, `tools.ts` the AI's tools, `hide.ts` hiding secrets a service sends
