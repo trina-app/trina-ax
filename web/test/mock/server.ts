@@ -1838,7 +1838,7 @@ export class MockServer {
     getWelcome: () => ({ progress: this.welcome }),
     updateWelcome: (c) => {
       const at = now()
-      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
+      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
       const b = c.body as import('@mycel/shared/api').WelcomeUpdate
       if (b.resultChatId !== undefined) {
         if (!this.chats.some((x) => x.id === b.resultChatId)) fail('not_found', 404)
@@ -1848,6 +1848,13 @@ export class MockServer {
       if (b.step) {
         if (b.step.state === 'done' || p.steps[b.step.id] !== 'done') p.steps[b.step.id] = b.step.state
         if (b.step.id === 'result' && b.step.state === 'done' && p.steps.invite === 'skipped') p.steps.invite = null
+        if (b.step.id === 'skills') delete p.skillsLater
+      }
+      // 내 스킬 put off on a phone (docs/DECISIONS.md "K"); the invite's landing skill among the shared ones
+      if (b.skillsLater && !b.step && p.steps.skills !== 'done') { p.steps.skills = 'skipped'; p.skillsLater = true }
+      if (b.landing !== undefined) {
+        if (!p.shared?.skills.some((x) => x.path === b.landing)) fail('validation', 400)
+        p.shared = { ...p.shared!, landing: b.landing }
       }
       if (b.inviteShown && !p.inviteShownAt) p.inviteShownAt = at
       if (b.site) p.site = b.site
@@ -1858,7 +1865,7 @@ export class MockServer {
         p.steps.invite ??= 'skipped'
         p.finishedAt ??= at
       }
-      if (!p.finishedAt && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite) p.finishedAt = at
+      if (!p.finishedAt && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite && !p.skillsLater) p.finishedAt = at
       p.updatedAt = at
       this.welcome = p
       return { progress: p }
