@@ -9895,8 +9895,12 @@ no numbers slide when the material has no numbers; about twice the AI usage per 
   system notification in the desktop app when the window is not focused. On a phone the preview pages at full width
   instead of stacking; on a computer the deck page shows a thumbnail strip under the stage when there is room.
 - **The time budgets** (the owner's "3분 5분 10분", `intro-deck/tiers.ts`): one team setting `introDeckTier`, chosen by
-  owners and admins in Admin › Team settings ("회사 소개서 만들기 시간": 3분 · 기본 / 5분 / 10분, with what each costs);
-  `quick` until someone picks; `MYCEL_DECK_TIER` overrides it on a dev server only. quick ≈ 3 min as above.
+  owners and admins in Admin › Team settings ("회사 소개서 만들기 시간": 3분 / 5분 · 기본 / 10분, with what each costs);
+  `standard` (5 minutes) until someone picks (`DEFAULT_DECK_TIER`, one constant: the owner, 2026-11-06, "5분, 10분짜리도
+  괜찮을 것 같다 — 그거 시켜두고 스킬 가져오기나 파일 가져오기 스텝 시키면 되잖아": the welcome moves on to other steps
+  while the deck is made, on another branch); `MYCEL_DECK_TIER` overrides it on a dev server only. quick ≈ 3 min as
+  above. The build is the chat turn on the server: it goes on when the person leaves the chat or closes the page, and
+  `deck.progress` reaches every window of theirs, so the done toast shows wherever they are (tested both ways).
   standard ≈ 5 min: a `read` step where the server reads up to 10 pages of the company's own site (the scope of the
   website saved in the profile, the setup draft's rule: that host and its subdomains; fetched like web_fetch), 2–3
   WebSearch searches by the AI, and outside articles used only when listed in the outline's `web_sources` (url, outlet,

@@ -5,7 +5,7 @@
 //   2 구성 짜기 · N장            until the outline exists (outlineAt)
 //   3 한 장씩 만들기 · k/N       until the last slide (slidesAt), with a live line under it ("5장 · 숫자를 도넛 차트로 그리는 중")
 //   4 다시 보고 다듬기           until the end (finishedAt)
-import { DECK_TOOL, type DeckBuild, type DeckFigureKind, type Message, type Step } from '@mycel/shared/api'
+import { DECK_TOOL, type DeckBuild, type DeckFigureKind, type Message, type Step, DECK_TIER_MINUTES, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 import { api, API } from './api'
 import { splitCommand } from './skillTitles'
@@ -66,7 +66,9 @@ const FIGURE: Record<DeckFigureKind, MessageKey> = {
 }
 
 /** How long a deck of this budget usually takes, in minutes (the note under the block; DeckTier, older servers: quick). */
-export const tierMinutes = (b: DeckBuild | null) => (b?.tier === 'deep' ? 10 : b?.tier === 'standard' ? 5 : 3)
+/** The note's minutes: the build's budget, or the default budget before the build exists (the team's own choice shows
+ * once the server has read it for the build). */
+export const tierMinutes = (b: DeckBuild | null) => DECK_TIER_MINUTES[b?.tier ?? DEFAULT_DECK_TIER]
 
 const host = (url: string) => {
   try {

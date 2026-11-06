@@ -968,6 +968,8 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
     h = await startHarness({ name: 'b-intro-deck' })
     // a Korean team: the deck's language, the PowerPoint runs' (ko-KR, Hangul charset) and the theme names in the answer
     h.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('defaultLocale', ?)").run(JSON.stringify('ko'))
+    // the 3-minute budget (no read step, no searches): the default is 5 minutes (DEFAULT_DECK_TIER)
+    h.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('introDeckTier', ?)").run(JSON.stringify('quick'))
     put(SRC, MATERIAL)
     put(IMG + 'factory.png', realPng(1920, 1080))
     put(IMG + 'line.png', realPng(1600, 1000, [200, 200, 190, 255]))

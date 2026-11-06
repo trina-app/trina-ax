@@ -157,7 +157,7 @@ describe('the four steps', () => {
   })
 
   test('the note says the budget\'s usual time', () => {
-    expect([tierMinutes(null), tierMinutes(build()), tierMinutes(build({ tier: 'quick' })), tierMinutes(build({ tier: 'standard' })), tierMinutes(build({ tier: 'deep' }))]).toEqual([3, 3, 3, 5, 10])
+    expect([tierMinutes(null), tierMinutes(build()), tierMinutes(build({ tier: 'quick' })), tierMinutes(build({ tier: 'standard' })), tierMinutes(build({ tier: 'deep' }))]).toEqual([5, 5, 3, 5, 10])
     expect(ko('deck.progress.note', { min: 5 })).toBe('보통 5분 안에 끝나요. 다른 메뉴를 써도 돼요. 다 되면 알려 드릴게요.')
   })
 
@@ -396,7 +396,8 @@ describe('the block in the chat', () => {
     expect(s).toContain('data-testid="deck-clock"')
     expect(count(s, 'data-testid="deck-row-')).toBe(4 + 0)
     expect(s).toContain('data-testid="deck-row-read" data-state="running"')
-    expect(s).toContain('보통 3분 안에 끝나요. 다른 메뉴를 써도 돼요. 다 되면 알려 드릴게요.')
+    // before the build exists the note gives the default budget (DEFAULT_DECK_TIER: 5 minutes)
+    expect(s).toContain('보통 5분 안에 끝나요. 다른 메뉴를 써도 돼요. 다 되면 알려 드릴게요.')
     expect(s).not.toContain('data-testid="deck-strip"')
   })
 
@@ -435,7 +436,7 @@ describe('the block in the chat', () => {
     expect(s).toContain('data-run="done"')
     expect(s).toMatch(/data-testid="deck-folded"[^>]*>.*회사 소개서 · 9장 · 2분 34초/)
     expect(s).toContain('aria-expanded="false"')
-    for (const gone of ['deck-strip', 'deck-clock', 'deck-rows', '보통 3분']) expect(s).not.toContain(gone)
+    for (const gone of ['deck-strip', 'deck-clock', 'deck-rows', '보통 5분', '보통 3분']) expect(s).not.toContain(gone)
   })
 
   test('stopped: the row says it stopped and how far it got, with no red per-slide steps', async () => {
@@ -452,7 +453,7 @@ describe('the block in the chat', () => {
       useLocaleStore.setState({ locale: l })
       const s = await html(build({ done: 4 }))
       expect(s).toContain(translate(l, 'deck.progress.title'))
-      expect(s).toContain(translate(l, 'deck.progress.note', { min: 3 }))
+      expect(s).toContain(translate(l, 'deck.progress.note', { min: 5 }))
     }
   })
 })

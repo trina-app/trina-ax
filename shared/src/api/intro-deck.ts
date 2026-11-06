@@ -193,13 +193,18 @@ export const DECK_FIGURE_FOR: Record<Deck2Kind, readonly DeckFigureKind[]> = {
 export const DECK_PATTERNS = ['dots', 'lines', 'contours', 'none'] as const
 export const DeckPattern = z.enum(DECK_PATTERNS)
 export type DeckPattern = z.infer<typeof DeckPattern>
-/** How long a deck may take, one setting per team (settings key `introDeckTier`; the welcome's default is `quick`):
+/** How long a deck may take, one setting per team (settings key `introDeckTier`; the default is `standard`, the owner's
+ * choice of 2026-11-06: the welcome moves on to other steps while the deck is made):
  * quick ≈ 3 min (the material saved at setup, one review) · standard ≈ 5 min (8–10 pages of the company's site, 2–3
  * web searches with sourced facts, a second review when the first found more than two problems) · deep ≈ 10 min
  * (about 15 pages, 6–8 searches, the strongest model the engine offers, two reviews and a headline pass). */
 export const DECK_TIERS = ['quick', 'standard', 'deep'] as const
 export const DeckTier = z.enum(DECK_TIERS)
 export type DeckTier = z.infer<typeof DeckTier>
+/** The time budget until an owner or admin picks another (the one constant to change). */
+export const DEFAULT_DECK_TIER: DeckTier = 'standard'
+/** About how long each budget takes, in minutes (what the progress block's note says). */
+export const DECK_TIER_MINUTES: Record<DeckTier, number> = { quick: 3, standard: 5, deep: 10 }
 /** The accent SVG's size cap (DESIGN "AI accents"). */
 export const DECK_ACCENT_MAX_BYTES = 12_000
 export const DECK_ACCENTS_MAX = 2

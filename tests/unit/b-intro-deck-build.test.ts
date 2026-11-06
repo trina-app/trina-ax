@@ -4,12 +4,13 @@
 // into the artifact "intro-deck" and its row in intro_decks, the builds' routes and the downloads of a round-2 deck.
 // A real app with the fake engine; every company here is made up.
 import { layoutDeck2 } from '../../server/src/intro-deck/layout2'
+import { getTeamSettings } from '../../server/src/admin/settings'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { API, DECK_ARTIFACT_KEY, type DeckBuild, type DeckSlide2, type ServerEventInput } from '@mycel/shared/api'
+import { API, DECK_ARTIFACT_KEY, type DeckBuild, type DeckSlide2, type ServerEventInput, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { which } from '../../server/src/config'
@@ -133,6 +134,8 @@ describe('the intro deck built slide by slide (a real app, the fake engine)', ()
   beforeAll(async () => {
     h = await startHarness({ name: 'b-intro-deck-build' })
     h.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('defaultLocale', ?)").run(JSON.stringify('ko'))
+    // the 3-minute budget (no read step, no searches): the default is 5 minutes (DEFAULT_DECK_TIER)
+    h.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('introDeckTier', ?)").run(JSON.stringify('quick'))
     const hub = h.ctx.services.realtime
     const orig = hub.publish.bind(hub)
     hub.publish = (user: string, ev: ServerEventInput) => { events.push({ user, ev }); orig(user, ev) }
@@ -250,6 +253,45 @@ describe('the intro deck built slide by slide (a real app, the fake engine)', ()
     const out = layoutDeck2(spec.doc)
     const imgs = out.slides[3]!.items.filter((it) => it.t === 'image').map((it) => (it as { src: string }).src)
     expect(imgs).toEqual([IMG + 'part1.png', IMG + 'part2.png'])
+  })
+
+  test('the build goes on on the server after the person leaves the chat and the page; the end reaches a window opened elsewhere', async () => {
+    const chat = await newChat()
+    const other = await newChat()
+    const prev = process.env.MYCEL_TYPST_BIN
+    process.env.MYCEL_TYPST_BIN = ''
+    try {
+      // the click: the answer starts and nobody waits for it, no window of the chat is open
+      const r = await start('dana', chat, fake(step(outline()), ...allSlides()))
+      // the person is elsewhere: another chat, then a new window on another page
+      await h.api('dana').call(API.getChat, { params: { id: other } })
+      const sock = await h.ws('dana')
+      await sock.next('hello')
+      await finished(r.assistantMessage.id)
+      await waitFor(() => builds(chat)[0]?.status === 'done', { timeoutMs: 30_000 })
+      // the window that never showed the deck's chat got the end, as every window of hers does
+      type Progress = Extract<ServerEventInput, { type: 'deck.progress' }>
+      const isDone = (f: unknown): f is Progress => { const x = f as Progress; return x.type === 'deck.progress' && x.data.chatId === chat && x.data.build.phase === 'done' }
+      await waitFor(() => sock.frames.some(isDone), { timeoutMs: 10_000 })
+      const done = sock.frames.find(isDone) as unknown as Progress
+      expect(done.data.build.artifactId).toBe(builds(chat)[0]!.artifact_id)
+      expect(done.data.build.slides.every((x: { status: string }) => x.status === 'done')).toBe(true)
+      sock.close()
+    } finally { if (prev === undefined) delete process.env.MYCEL_TYPST_BIN; else process.env.MYCEL_TYPST_BIN = prev }
+  })
+
+  test('the default budget is 5 minutes: the first outline without the read step and a search is sent back once, the next one is taken', async () => {
+    h.ctx.db.query("DELETE FROM settings WHERE key = 'introDeckTier'").run()
+    try {
+      expect(getTeamSettings(h.ctx.db).introDeckTier).toBe(DEFAULT_DECK_TIER)
+      expect(DEFAULT_DECK_TIER).toBe('standard')
+      const chat = await newChat()
+      const answer = await typstOff(() => send('dana', chat, fake(step(outline()), step(outline()), slide(0))))
+      expect(answer).toContain('this deck has a 5-minute budget: first call intro_deck step "read"')
+      expect(answer).toContain('make 2–3 WebSearch searches for reputable outside facts')
+      expect(answer).toContain('Outline accepted: 7 slides')
+      expect(JSON.parse(builds(chat)[0]!.plan).tier).toBe('standard')
+    } finally { h.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('introDeckTier', ?)").run(JSON.stringify('quick')) }
   })
 
   test('a slide with problems gets them back alone; the next try is accepted; two failed tries leave a content slide out', async () => {

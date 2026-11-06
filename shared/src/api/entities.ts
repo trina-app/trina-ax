@@ -615,8 +615,8 @@ export const TeamSettings = z.object({
    * puts it back to null, so a choice made for one provider never sends sound to another. */
   aiMediaTranscripts: z.boolean().nullable(),
   /** how long the company intro deck may take (docs/DECISIONS.md "D2", round 2; server/src/intro-deck/tiers.ts):
-   * quick ≈ 3 min (default), standard ≈ 5 min (more of the site, sourced web facts), deep ≈ 10 min (more again, the
-   * strongest model, two reviews). Owners and admins choose it. */
+   * quick ≈ 3 min, standard ≈ 5 min (the default, DEFAULT_DECK_TIER: more of the site, sourced web facts), deep ≈ 10 min
+   * (more again, the strongest model, two reviews). Owners and admins choose it. */
   introDeckTier: z.enum(['quick', 'standard', 'deep']),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>
