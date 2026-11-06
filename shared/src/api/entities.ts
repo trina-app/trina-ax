@@ -152,6 +152,10 @@ export const Chat = z.object({
   /** Safe operations 1A (docs/SAFE-OPS-1A.md): a confidential conversation. Egress tools are off on the server, and
    * the web app shows its artifacts and HTML / SVG previews without scripts outside the desktop app. Absent = no. */
   confidential: z.literal(true).optional(),
+  /** 내 스킬 가져오기 (docs/DECISIONS.md "W5"): a merge chat made at the end of the welcome steps whose turn waits for its
+   * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
+   * cards it raises are there while they look. Absent = no. */
+  mergeWaiting: z.literal(true).optional(),
 })
 export type Chat = z.infer<typeof Chat>
 

@@ -17,6 +17,7 @@ import { rememberChat } from '../lib/teamAttach'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
 import { stickToBottom } from '../lib/stickToBottom'
+import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useDeckBuilds } from '../store/deckBuilds'
@@ -72,6 +73,11 @@ function ChatView({ chatId }: { chatId: string }) {
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
   }, [chatFromList])
+  // a merge chat made at the end of the welcome steps starts here, while it is on screen (lib/mergeStart.ts)
+  useWaitingMerge(chat, {
+    started: (id) => void api.call(API.getChat, { params: { id } }).then((c) => { setChat(c); upsertChat(c) }, () => {}),
+    error: (e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }),
+  })
 
   // the title menu's "Move to project…" (components/chat/ChatProject.tsx); the project's name before the title comes
   // from the projects store there

@@ -23,6 +23,7 @@ import { useUi } from '../store/ui'
 import { Avatar } from './Avatar'
 import { useChatActions } from './chat/chatActions'
 import { SidebarRooms } from './rooms/SidebarRooms'
+import { SetupRow } from './onboarding/SetupRow'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 
 /** shortcut hints in the keys of this computer (the handlers take ⌘ and Ctrl alike, Layout.tsx) */
@@ -229,6 +230,7 @@ export default function Sidebar() {
         <div className="max-md:hidden">
           <SidebarRooms onNavigate={close} />
         </div>
+        <SetupRow onNavigate={close} />
         <div className="group/recents flex items-center gap-1 pr-1 pl-3">
           <h2 className="text-xs font-medium text-faint">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={() => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">

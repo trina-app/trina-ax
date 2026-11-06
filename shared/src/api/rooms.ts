@@ -27,6 +27,7 @@ import { PRODUCT } from '../product'
 import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
+import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
 
 export const ROOM_MESSAGE_MAX = 10_000
 export const ROOM_FILES_MAX = 10
@@ -88,6 +89,49 @@ const NAME_VISIBLE = /[\p{L}\p{N}\p{S}\p{P}]/u
  * back to the server's name (the group's name, the app's word for everyone, a group chat's members). Always shown as
  * plain text. */
 export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s === '' || (!NAME_FORBIDDEN.test(s) && NAME_VISIBLE.test(s)), { message: 'invisible or control characters' })
+
+/**
+ * A room picked with "#" in the person's own AI chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기"): in the message as
+ * `#[<title>](room:<room id>)`, so the AI reads exactly that room by its id (room_read) and never guesses from a name.
+ * The title is what the person saw when they picked it (no brackets, one line, at most ROOM_NAME_MAX characters); the
+ * server checks membership when the room is read, so a token of a room the person has left reads nothing. The app shows
+ * a token as a chip "#<title>". Only in the AI chat's message box, never in a room's (a room's name would reach people
+ * who are not in it).
+ */
+export const ROOM_REF_RE = /#\[([^\[\]\n]{1,80})\]\(room:([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/g
+/** The title as a token can hold it: no brackets or lines, and never an address (any member of a group chat names it,
+ * and an address in the person's message would count as one they typed: tools/url-gate.ts) */
+export const roomRefTitle = (title: string) => title.replace(/[\[\]\r\n\u2028\u2029]+/g, ' ').replace(/:\/\//g, ': //').replace(/\s+/g, ' ').trim().slice(0, ROOM_NAME_MAX) || '?'
+/** The token for a picked room. */
+export const roomRefToken = (id: string, title: string) => `#[${roomRefTitle(title)}](room:${id})`
+/** The rooms a message names with tokens, in order, each once. */
+export function roomRefsOf(text: string): { id: string; title: string }[] {
+  const out: { id: string; title: string }[] = []
+  for (const m of text.matchAll(ROOM_REF_RE)) if (!out.some((r) => r.id === m[2])) out.push({ id: m[2]!, title: m[1]! })
+  return out
+}
+/** A message split at its tokens: text, and the rooms as {room} (the app draws a chip for each). */
+export function roomRefParts(text: string): ({ text: string } | { room: { id: string; title: string } })[] {
+  const out: ({ text: string } | { room: { id: string; title: string } })[] = []
+  let at = 0
+  for (const m of text.matchAll(ROOM_REF_RE)) {
+    if (m.index! > at) out.push({ text: text.slice(at, m.index) })
+    out.push({ room: { id: m[2]!, title: m[1]! } })
+    at = m.index! + m[0].length
+  }
+  if (at < text.length) out.push({ text: text.slice(at) })
+  return out
+}
+/** The message as the AI is given it: each token as "[#room N]" (N in the order of roomRefsOf), its title and id only
+ * in the server's data block (chat/turn.ts roomRefsBlock), never as the person's own words. */
+export function roomRefsForModel(text: string): string {
+  const order = roomRefsOf(text).map((r) => r.id)
+  return text.replace(ROOM_REF_RE, (_all, _title: string, id: string) => `[#room ${order.indexOf(id) + 1}]`)
+}
+/** An earlier message of the conversation as the AI is given it: each token as the room's id alone. */
+export const roomRefsByIdOnly = (text: string) => text.replace(ROOM_REF_RE, (_all, _title: string, id: string) => `[#room room_id=${id}]`)
+/** The message as people read it: each token as "#<title>" (lists, titles, a text box to edit it in). */
+export const plainRoomRefs = (text: string) => text.replace(ROOM_REF_RE, (_all, title: string) => `#${title}`)
 
 /** A file or image sent in a room. Stored outside the team folder (owners and admins can read the team folder outside
  * users/<id>/); read at GET /api/rooms/:id/files/:fileId by the room's current members only, checked on every read
@@ -281,8 +325,13 @@ export const Room = z.object({
   mentioned: z.boolean(),
   lastReadSeq: z.number().int().nonnegative(),
   lastMessage: RoomLastMessage.nullable(),
-  /** no notices for DM messages from this room (an @mention still notifies) */
+  /** my level for this room is 끄기 (notify.own 'off'): no notices, pushes or sound from it, mentions included; its badge
+   * is grey and stays out of the 대화 tab's count */
   muted: z.boolean(),
+  /** my notifications for this room (docs/DECISIONS.md "대화방 알림 설정", room-alerts.ts): `own` my level for it (null:
+   * my default), `byDefault` what my default gives this kind of room, `level` the one that applies now (own, else
+   * byDefault). Older servers omit it. */
+  notify: z.object({ own: RoomNotifyLevel.nullable(), byDefault: RoomNotifyLevel, level: RoomNotifyLevel }).optional(),
   createdAt: IsoTime,
   /** the last message's time, or when the room was made */
   activityAt: IsoTime,
@@ -300,9 +349,12 @@ export const CreateRoomBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('group'), userIds: z.array(UserId).min(2).max(ROOM_GROUP_MAX - 1), name: RoomName.nullable().optional() }).strict(),
 ])
 export type CreateRoomBody = z.infer<typeof CreateRoomBody>
-/** muted: my own setting. name: the room's own name (Room.canRename; '' or null: back to the server's name) */
-export const UpdateRoomBody = z.object({ muted: z.boolean().optional(), name: RoomName.nullable().optional() }).strict()
-  .refine((b) => b.muted !== undefined || b.name !== undefined, { message: 'nothing to change' })
+/** notifyLevel: my level for this room (null: back to my default). muted: the older apps' switch (true is 'off', false
+ * brings 'off' back to my default); not with notifyLevel. name: the room's own name (Room.canRename; '' or null: back to
+ * the server's name) */
+export const UpdateRoomBody = z.object({ muted: z.boolean().optional(), notifyLevel: RoomNotifyLevel.nullable().optional(), name: RoomName.nullable().optional() }).strict()
+  .refine((b) => b.muted !== undefined || b.notifyLevel !== undefined || b.name !== undefined, { message: 'nothing to change' })
+  .refine((b) => b.muted === undefined || b.notifyLevel === undefined, { message: 'muted or notifyLevel, not both', path: ['muted'] })
 /** people to add to a group chat (active people of this team; those already in it are skipped). They see the room from
  * now on, never what was said before. */
 export const InviteRoomBody = z.object({ userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
@@ -348,10 +400,10 @@ export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
 
 export const ROOMS = {
-  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room) }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count and the last message.' }),
+  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message and my notification level; alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
-  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Mute or unmute a room for me, or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
+  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it.' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),

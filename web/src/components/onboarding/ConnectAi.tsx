@@ -3,11 +3,13 @@
 // "ChatGPT 구독 연결" and "API 키로 연결", and one quiet line to the AI engines page for other providers (OpenRouter …).
 // The line above the composer and a failed answer show ConnectAiButton ("AI 연결하기"; a member's "내 AI 연결하기"): one
 // button where there is room for one line, opening on the recommended way, with "다른 방법" in the dialog for the rest.
+// The setup row and the end screen of the welcome steps (`panel`) open a dialog titled "AI 연결" with the same three
+// ways as the welcome step (the walk of PR #100: the row said "AI 연결하기" and opened "계정 추가" on Claude alone).
 // Each opens Admin › AI connections' own AddCredential dialog in its simple form (the whole team, named after the kind,
 // the provider's terms in one line, the password again for a team connection; one's own as in Settings). No connection
 // logic here. When the dialog is done, GET /api/me/ai-access is asked again: every "no AI" place reads that store, so
 // they all move on together; a connection saved that cannot answer yet says so.
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { CredentialKind } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -15,7 +17,7 @@ import { trialLine } from '../../lib/aiAccess'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { toast } from '../../store/ui'
-import { Button, ErrorNote, Skeleton } from '../ui'
+import { Button, ErrorNote, Modal, Skeleton } from '../ui'
 
 // the dialog comes with Admin's page: loaded when it is first opened, not with Home
 const AddCredential = lazy(() => import('../../pages/admin/Credentials').then((m) => ({ default: m.AddCredential })))
@@ -74,7 +76,7 @@ const quietLink = 'font-medium text-ink underline decoration-line-strong underli
  * first is the main button ("Claude 구독 연결", marked 추천), the others bordered; each opens the dialog on its way. Under
  * them one quiet line to the AI engines page for other providers (OpenRouter …). The team's connection: the owner's.
  */
-export function ConnectAiPanel({ disabled }: { disabled?: boolean }) {
+export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; onConnected?: () => void }) {
   const t = useT()
   const locale = useLocale()
   const [ways, setWays] = useState<Ways | null>(null)
@@ -94,6 +96,7 @@ export function ConnectAiPanel({ disabled }: { disabled?: boolean }) {
     setError(null)
     try {
       if (!(await answersNow())) setError(t('welcome.ai.notYet'))
+      else onConnected?.()
     } finally {
       setChecking(null)
     }
@@ -127,18 +130,22 @@ export function ConnectAiPanel({ disabled }: { disabled?: boolean }) {
 /**
  * One button that opens the same dialog: "AI 연결하기" (the team's, Claude chosen while the team allows a shared Claude
  * subscription, else every way) or, with `personal`, "내 AI 연결하기" (one's own, every way). `quiet`: a text link, for a
- * second way under another action.
+ * second way under another action. `row`: a plain button with these classes and `children` as its content (the setup
+ * row in the sidebar, SetupRow.tsx). `panel` (the team's; the setup row and the welcome steps' end screen): a dialog
+ * titled "AI 연결" with the welcome step's three ways (ConnectAiPanel), closed once AI answers.
  */
-export function ConnectAiButton({ personal = false, size = 'sm', quiet, label, ...props }: {
-  personal?: boolean; size?: 'sm' | 'md'; quiet?: boolean; label?: MessageKey
+export function ConnectAiButton({ personal = false, panel = false, size = 'sm', quiet, label, row, children, ...props }: {
+  personal?: boolean; panel?: boolean; size?: 'sm' | 'md'; quiet?: boolean; label?: MessageKey; row?: string; children?: ReactNode
 } & Record<`data-${string}`, string>) {
   const t = useT()
   const locale = useLocale()
   const [ways, setWays] = useState<Ways | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(false)
   const text = t(label ?? (personal ? 'aiAccess.connectOwn' : 'aiAccess.connectTeam'))
   const start = async () => {
+    if (panel && !personal) { setPanelOpen(true); return }
     setLoading(true)
     try {
       setWays(await waysOf(personal))
@@ -159,12 +166,20 @@ export function ConnectAiButton({ personal = false, size = 'sm', quiet, label, .
   }
   return (
     <>
-      {quiet ? (
+      {row ? (
+        <button type="button" className={row} disabled={loading || checking} aria-busy={loading || checking || undefined} onClick={() => void start()} {...props}>{children ?? text}</button>
+      ) : quiet ? (
         <button type="button" className={quietLink} disabled={loading || checking} onClick={() => void start()} {...props}>{text}</button>
       ) : (
         <Button size={size} variant="primary" busy={loading || checking} onClick={() => void start()} {...props}>{text}</Button>
       )}
       {ways && <Dialog ways={ways} personal={personal} kind={!personal && claudeOf(ways, false) ? 'anthropic-oauth' : undefined} onClose={() => setWays(null)} onDone={() => void done()} />}
+      <Modal open={panelOpen} onClose={() => setPanelOpen(false)} title={t('aiConnect.dialogTitle')}>
+        <div data-testid="connect-ai-dialog">
+          <p className="mb-4 text-sm text-balance text-muted">{t('welcome.ai.why')}</p>
+          <ConnectAiPanel onConnected={() => setPanelOpen(false)} />
+        </div>
+      </Modal>
     </>
   )
 }

@@ -140,6 +140,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/office/cli.ts': { why: 'office-mode terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/update-cli.ts': { why: 'teamax update terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/helper.ts': { why: 'the office certificate page, Korean then English on one page (no session, no language picker; docs/OFFICE.md)', also: /./ },
+  'server/src/rooms/reader.ts': { why: 'the words people add after a room\'s or a person\'s name (방, 대화방, 님), and the words for the everyone room, matched when the AI names a room (not screen text)', also: /^const (NAME_EXTRAS|EVERYONE_WORDS) = / },
   'server/src/policy/names.ts': { why: 'invisible Hangul filler characters refused in names', also: /const INVISIBLE/ },
   'server/src/routes/office-update.ts': { why: 'automatic update messages (ko next to en/id/ja/es)' },
   'server/src/relay-client/index.ts': { why: 'relay notices (ko next to en/id/ja/es)' },
@@ -188,6 +189,12 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/intro-deck/web.ts': { why: 'Korean words that mark a company site\'s about, product, case and news pages (a pattern the server matches, not screen text)', also: /^const WANT = / },
   'server/src/intro-deck/html.ts': { why: 'the deck pager\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ slide: / },
   'server/src/intro-deck/spec.ts': { why: 'the Korean superlatives a deck may use only when its sources do (a word list the check matches, not screen text), and the notes\' source label', also: /^export const SUPERLATIVES = / },
+  'server/src/skills/share.ts': { why: '내 스킬 가져오기: the judge and merge chats\' titles and requests, refusals, the notice and the team rule\'s file name (ko next to en/id/ja/es)' },
+  'server/src/skills/share-merge.ts': { why: '내 스킬 가져오기 v5: the merge chat\'s title and its fixed request (ko next to en/id/ja/es), and the Inbox words its comments quote' },
+  'server/src/skills/share-judge.ts': { why: 'the example title the skill share judge gets (ko next to en/id/ja/es)' },
+  'server/src/skills/share-check.ts': { why: 'Korean words that tell the AI to run a script (matched in a SKILL.md, not screen text)', also: /^\s*\/스크립트\[/ },
+  'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },
+  'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
   'server/src/knowledge-graph/documents/text.ts': { why: 'Korean particles, endings, stopwords and generic document titles for the knowledge graph\'s search tokenizer, and its Hangul range (word lists, not screen text)', also: /^const (HANGUL|KO_SUFFIX) = |^\s+'[^']*'(, '[^']*')*(,|\]\)?)$/ },
 }
 
