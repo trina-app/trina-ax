@@ -4,7 +4,7 @@
 // (AccessPeople.tsx) shows, read only, what one person and their AI see and why; changing a folder's rules from there
 // opens the same panel in By folder (`?edit=<path>&back=<the person view>`), and closing it goes back.
 import { ArrowRight, Loader2, Trash2 } from 'lucide-react'
-import { lazy, Suspense, useId, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useId, useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Folder, PreviewResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -12,6 +12,7 @@ import { useT } from '../../i18n'
 import { isSkillsPath } from '../../lib/access-view'
 import { IconButton, Spinner, TabPanel, Tabs, confirmDialog } from '../../components/ui'
 import { AdminPageHeader, useActionOk, useOneAtATime } from './common'
+import { FolderHeaderSlots } from './folder-slots'
 
 const AccessPeople = lazy(() => import('./AccessPeople'))
 const AccessTree = lazy(() => import('./AccessTree'))
@@ -104,26 +105,50 @@ export default function Folders() {
     // "By folder" again while a folder is chosen: back to the tree (the folder leaves the address)
     if (v !== now || (v === 'folders' && q.has('folder'))) setParams(v === 'people' ? { view: 'people' } : {})
   }
+  // the header stays at the top (like every admin page); the By folder detail column sticks just under it, so the
+  // header's height is passed down as --folders-head
+  const [actions, setActions] = useState<HTMLElement | null>(null)
+  const [filter, setFilter] = useState<HTMLElement | null>(null)
+  const [head, setHead] = useState(0)
+  useLayoutEffect(() => {
+    const el = document.querySelector<HTMLElement>('[data-testid="folders-header"]')
+    if (!el) return
+    const measure = () => setHead(el.getBoundingClientRect().height)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   return (
-    <>
-      {/* the page title with the switch next to it, like AI engines; the switch is as wide as its two tabs */}
-      <AdminPageHeader title={t('admin.folders')} testId="folders-header" still>
-        <Tabs
-          segmented
-          value={view}
-          onChange={choose}
-          panels={panels}
-          items={[
-            { id: 'folders', label: t('accessView.byFolder') },
-            { id: 'people', label: t('accessView.byPerson') },
-          ]}
-          label={t('accessView.tabs')}
-        />
-      </AdminPageHeader>
-      <TabPanel base={panels} value={view}>
+    <FolderHeaderSlots.Provider value={{ actions, filter }}>
+      {/* the same header as Members and Groups: title, one line, Add folder; under them the by folder / by person
+          switch and the view's own filter (its switch or its person search) */}
+      <AdminPageHeader
+        title={t('admin.folders')}
+        desc={t('folders.pageDesc')}
+        testId="folders-header"
+        actions={<span ref={setActions} className="contents" />}
+        controls={
+          <>
+            <Tabs
+              segmented
+              value={view}
+              onChange={choose}
+              panels={panels}
+              items={[
+                { id: 'folders', label: t('accessView.byFolder') },
+                { id: 'people', label: t('accessView.byPerson') },
+              ]}
+              label={t('accessView.tabs')}
+            />
+            <span ref={setFilter} className="contents" />
+          </>
+        }
+      />
+      <TabPanel base={panels} value={view} style={{ '--folders-head': `${head}px` } as CSSProperties}>
         <Suspense fallback={<Spinner />}>{view === 'people' ? <AccessPeople /> : <AccessTree />}</Suspense>
       </TabPanel>
-    </>
+    </FolderHeaderSlots.Provider>
   )
 }
 

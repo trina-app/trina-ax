@@ -14,6 +14,8 @@ import { isAdmin, useMeStrict } from '../../store/session'
 import { ENGINE_LABEL } from '../chat/EngineMenu'
 import { ErrorNote, IconButton, Skeleton } from '../ui'
 import { UsageBar } from '../UsageBar'
+import { FilterPill } from '../usage/FilterPill'
+import { StatCards } from '../usage/StatCards'
 
 type Period = MyUsageData['period']
 const PERIODS: Period[] = ['day', 'week', 'month']
@@ -48,10 +50,24 @@ export default function MyUsage() {
   const shares = usageShares(d?.byModel ?? [])
   return (
     <section aria-labelledby={`${ids}-h`} data-testid="my-usage">
-      {/* phones: the bar above already says the section's name (SettingsDialog.tsx) */}
-      <h2 id={`${ids}-h`} className="text-base font-semibold max-md:sr-only">
-        {t('myUsage.title')}
-      </h2>
+      {/* like the Console: the title, one dim line, and the period pill with refresh on the right */}
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+        <div className="min-w-0 flex-1">
+          <h2 id={`${ids}-h`} className="text-base font-semibold">
+            {t('myUsage.title')}
+          </h2>
+          <p className="mt-1 text-xs text-muted" data-testid="my-usage-desc">
+            {t('myUsage.console.desc', { tz: tz ?? Intl.DateTimeFormat().resolvedOptions().timeZone, at: state.at ? formatDateTime(new Date(state.at).toISOString(), locale, tz) : '…' })}
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <FilterPill neutral label={t('myUsage.period')} value={period} onChange={setPeriod} testId="my-usage-period"
+            options={PERIODS.map((p) => ({ value: p, label: t(`myUsage.period.${p}` as MessageKey) }))} />
+          <IconButton label={t('myUsage.refresh')} onClick={() => setTick((n) => n + 1)} data-testid="my-usage-refresh">
+            <RefreshCw size={14} aria-hidden />
+          </IconButton>
+        </div>
+      </div>
       {!d && !state.error && <Skeleton lines={4} className="mt-4" />}
       {state.error && !d && (
         <div className="mt-4">
@@ -61,7 +77,7 @@ export default function MyUsage() {
       {d && (
         <>
           {/* how full the limits are, like Claude's "This week ... N% used" */}
-          <div className="mt-3 border-b border-line pb-4 max-md:mt-0 max-md:border-b-0 max-md:pb-0" data-testid="my-usage-limits">
+          <div className="mt-4 rounded-xl border border-line bg-surface p-5" data-testid="my-usage-limits">
             {top ? (
               <p className="text-sm font-medium" data-testid="my-usage-headline">
                 {top.exceeded
@@ -87,68 +103,43 @@ export default function MyUsage() {
             ))}
           </div>
 
-          {/* the person's own answers in the chosen period */}
-          <div className="mt-6 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold">{t('myUsage.byModel')}</h3>
-            <label className="sr-only" htmlFor={`${ids}-period`}>
-              {t('myUsage.period')}
-            </label>
-            <select
-              id={`${ids}-period`}
-              className="rounded-md bg-transparent py-1 pr-1 text-sm text-ink hover:bg-hover"
-              value={period}
-              onChange={(e) => setPeriod(e.target.value as Period)}
-              data-testid="my-usage-period"
-            >
-              {PERIODS.map((p) => (
-                <option key={p} value={p}>
-                  {t(`myUsage.period.${p}` as MessageKey)}
-                </option>
-              ))}
-            </select>
+          {/* the totals of the chosen period as the Console's stat cards */}
+          <div className="mt-4">
+            <StatCards
+              testId="my-usage-totals"
+              items={[
+                { label: t('usage.turns'), value: formatNumber(d.totals.turns, locale) },
+                { label: t('usage.tokens'), value: formatNumber(d.totals.inputTokens + d.totals.outputTokens, locale) },
+                { label: t('usage.cost'), value: `${formatUsd(d.totals.costUsd, locale)}${d.totals.unpricedTurns ? ' +?' : ''}` },
+              ]}
+            />
           </div>
-          {!d.byModel.length ? (
-            <p className="mt-3 text-sm text-muted" data-testid="my-usage-none">
-              {t('usage.none')}
-            </p>
-          ) : (
-            <ul className="mt-1" data-testid="my-usage-models">
-              {d.byModel.map((r, i) => (
-                <li key={r.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-1.5 py-2.5 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto]">
-                  <span className="truncate text-sm">
-                    {ENGINE_LABEL[r.engine as keyof typeof ENGINE_LABEL] ?? r.engine}
-                    <span className="text-muted"> · {r.model ?? t('composer.defaultModel')}</span>
-                  </span>
-                  <UsageBar pct={shares[i] ?? 0} className="order-3 col-span-2 sm:order-none sm:col-span-1" />
-                  <span className="text-sm text-muted tabular-nums">{formatNumber((shares[i] ?? 0) / 100, locale, { style: 'percent', maximumFractionDigits: 0 })}</span>
-                </li>
-              ))}
-            </ul>
-          )}
 
-          {/* phones: the three totals side by side, the number under its name, no rules between them */}
-          <dl className="mt-4 border-t border-line max-md:grid max-md:grid-cols-3 max-md:gap-3 max-md:border-t-0 max-md:pt-1" data-testid="my-usage-totals">
-            {(
-              [
-                ['usage.turns', formatNumber(d.totals.turns, locale)],
-                ['usage.tokens', formatNumber(d.totals.inputTokens + d.totals.outputTokens, locale)],
-                ['usage.cost', `${formatUsd(d.totals.costUsd, locale)}${d.totals.unpricedTurns ? ' +?' : ''}`],
-              ] as [MessageKey, string][]
-            ).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between border-b border-line py-2.5 text-sm max-md:min-w-0 max-md:flex-col max-md:items-start max-md:justify-start max-md:gap-0.5 max-md:border-b-0 max-md:py-0">
-                <dt className="text-muted max-md:text-xs">{t(k)}</dt>
-                <dd className="tabular-nums max-md:max-w-full max-md:truncate max-md:font-medium" title={v}>{v}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="mt-2 text-xs text-faint">{t('myUsage.costNote')}</p>
+          {/* the person's own answers in the chosen period, by engine and model */}
+          <section className="mt-4 rounded-xl border border-line bg-surface p-5" aria-labelledby={`${ids}-models`}>
+            <h3 id={`${ids}-models`} className="text-base font-medium">{t('myUsage.byModel')}</h3>
+            {!d.byModel.length ? (
+              <p className="mt-3 text-sm text-muted" data-testid="my-usage-none">
+                {t('usage.none')}
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-line" data-testid="my-usage-models">
+                {d.byModel.map((r, i) => (
+                  <li key={r.key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-1.5 py-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto]">
+                    <span className="truncate text-sm">
+                      {ENGINE_LABEL[r.engine as keyof typeof ENGINE_LABEL] ?? r.engine}
+                      <span className="text-muted"> · {r.model ?? t('composer.defaultModel')}</span>
+                    </span>
+                    <UsageBar pct={shares[i] ?? 0} className="order-3 col-span-2 sm:order-none sm:col-span-1" />
+                    <span className="text-sm text-muted tabular-nums">{formatNumber((shares[i] ?? 0) / 100, locale, { style: 'percent', maximumFractionDigits: 0 })}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <p className="mt-3 text-xs text-faint">{t('myUsage.costNote')}</p>
 
-          <div className="mt-6 flex items-center gap-1 text-xs text-muted">
-            <span data-testid="my-usage-updated">{t('myUsage.updated', { when: formatRelative(new Date(state.at).toISOString(), locale) })}</span>
-            <IconButton label={t('myUsage.refresh')} onClick={() => setTick((n) => n + 1)} data-testid="my-usage-refresh">
-              <RefreshCw size={13} aria-hidden />
-            </IconButton>
-          </div>
+          <p className="mt-1 text-xs text-muted" data-testid="my-usage-updated">{t('myUsage.updated', { when: formatRelative(new Date(state.at).toISOString(), locale) })}</p>
           {isAdmin(me) && (
             <p className="mt-3 text-sm">
               <Link to="/admin/usage" className="text-accent-text underline-offset-2 hover:underline" data-testid="my-usage-team-link">

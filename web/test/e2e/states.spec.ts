@@ -106,7 +106,8 @@ test('a password reset by an admin stays visible in the person\'s security setti
   await reset(page)
   await signIn(page)
   await page.goto('/admin/members')
-  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' }).getByRole('button', { name: '비밀번호 재설정' }).click()
+  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' }).getByTestId('member-more').click()
+  await page.getByRole('menuitem', { name: '비밀번호 재설정' }).click()
   // the dialog proposes an easy temporary password the admin may keep or change
   await expect(page.getByTestId('temp-password')).toHaveValue(/^[a-z]{4,7}[0-9]{4}$/)
   // the dialog says what happens: this password, signed out everywhere now
@@ -160,6 +161,7 @@ test('the forced password screen lets someone at a shared desk leave for another
   await reset(page)
   await signIn(page)
   await page.goto('/admin/members')
+  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' }).getByTestId('member-more').click()
   await page.getByTestId('reset-password-bob').click()
   await page.getByTestId('temp-password').fill('lemon2468')
   await page.getByTestId('reset-temp-submit').click()

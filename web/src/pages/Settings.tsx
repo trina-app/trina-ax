@@ -31,13 +31,13 @@ import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, conf
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
 import { squarePhoto, type Photo } from '../lib/avatar'
-import { DriveConnection } from '../components/settings/DriveConnection'
 import { Notifications } from '../components/settings/Notifications'
 import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { AccountDeletion } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { MemoryForm } from '../components/settings/MemoryForm'
 import ConnectorConnections from './ConnectorConnections'
+import AiApps from './AiApps'
 import MyUsage from '../components/settings/MyUsage'
 import Integrations from './Integrations'
 
@@ -53,9 +53,9 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
-      {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'apps' && <Apps />}

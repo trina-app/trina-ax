@@ -72,6 +72,7 @@ test('edit panel screenshots', async ({ page }) => {
       await page.goto('/admin/folders?folder=projects')
       await page.getByTestId('folder-detail-edit').click()
       await panel.getByTestId('edit-basic-read').click()
+      await panel.getByTestId('edit-show-people').click()
       await expect(panel.getByTestId('edit-below')).toBeVisible()
       await settled()
       await panel.getByTestId('edit-result').scrollIntoViewIfNeeded()

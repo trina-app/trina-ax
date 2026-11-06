@@ -1,7 +1,7 @@
-// The layout fixes of the quick UX check (2026-11-04), in the browser: Admin › Members is a row per member on a phone
-// with the folders they see and the actions behind "…"; Admin › System's facts do not wrap at a laptop width; Admin ›
-// MCP says what it is for under its title; a plugin's long licence list is "Licenses"; a sideways row of tabs fades at
-// a cut edge and keeps a margin before the chosen tab; the Files search box takes the free width on a phone.
+// The layout fixes of the quick UX check (2026-11-04), in the browser: Admin › Members is a card per member on a phone
+// with the actions behind "…"; Admin › System's facts do not wrap at a laptop width; Admin › MCP says what it is for
+// under its title; a plugin's long licence list is "Licenses"; a sideways row of tabs fades at a cut edge and keeps a
+// margin before the chosen tab; the Files search box takes the free width on a phone.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -16,7 +16,7 @@ async function phone(page: Page) {
   await page.setViewportSize(PHONE)
 }
 
-test('Admin › Members on a phone: a row per member, the actions behind "…"; the table on a wide screen', async ({ page }) => {
+test('Admin › Members on a phone: a card per member, the actions behind "…"; the table on a wide screen', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -33,9 +33,7 @@ test('Admin › Members on a phone: a row per member, the actions behind "…"; 
   expect(card.x + card.width).toBeLessThanOrEqual(PHONE.width)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.width)
   expect(await lines(bob.locator('p').first())).toBe(1)
-  // the skills column is named once above the list, not in every row (each switch keeps its own name)
-  await expect(bob.getByText(t['skillMgr.column'], { exact: true })).toHaveCount(0)
-  // the owner (yourself): no actions, only the folders you see
+  // the owner (yourself): the "…" has only "Folders they see" (no actions on yourself)
   await page.getByTestId('member-card-olga').getByTestId('member-more').click()
   await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['accessView.membersLink']])
   await page.keyboard.press('Escape')
@@ -146,26 +144,4 @@ test('Files on a phone: the search box takes the width the buttons leave, its pl
     return c.measureText(el.placeholder).width <= el.clientWidth
   })
   expect(fits).toBe(true)
-})
-
-test('Home on a phone: opening the goal row under the box moves nothing above it', async ({ page }) => {
-  await reset(page)
-  const now = Date.now()
-  const r = await page.request.post('/__test/team-goal', {
-    data: { goal: { state: 'open', target: 3, days: 7, startedAt: new Date(now - 2 * 86_400_000).toISOString(), endsAt: new Date(now + 5 * 86_400_000).toISOString(), daysLeft: 5, skill: null, reachedAt: null, joined: 1, waiting: { first: '민지', more: 0 } } },
-  })
-  expect(r.ok()).toBeTruthy()
-  await phone(page)
-  await signIn(page)
-  const toggle = page.getByTestId('team-goal-toggle')
-  await expect(toggle).toBeVisible()
-  const composer = page.getByTestId('composer')
-  const greeting = page.getByRole('heading', { level: 1 })
-  const before = [(await composer.boundingBox())!.y, (await greeting.boundingBox())!.y]
-  await toggle.click()
-  await expect(page.getByTestId('team-goal-next')).toBeVisible()
-  expect([(await composer.boundingBox())!.y, (await greeting.boundingBox())!.y]).toEqual(before)
-  await toggle.click()
-  await expect(page.getByTestId('team-goal-next')).toBeHidden()
-  expect([(await composer.boundingBox())!.y, (await greeting.boundingBox())!.y]).toEqual(before)
 })

@@ -1,6 +1,7 @@
 // Small helpers shared by the admin screens.
 import clsx from 'clsx'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
+import { Search } from 'lucide-react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
@@ -123,15 +124,17 @@ export function useOneAtATime<K>() {
  * go under it. Engines, Usage and Activity log started this pattern; the other pages use it too now, so all admin
  * pages look the same.
  */
-export function AdminPageHeader({ title, desc, actions, children, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; testId?: string; className?: string; still?: boolean }) {
+export function AdminPageHeader({ title, desc, actions, children, controls, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; controls?: ReactNode; testId?: string; className?: string; still?: boolean }) {
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 className="flex items-center text-lg font-semibold tracking-tight">{title}</h2>
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {desc && <OneLine className="mt-1 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
+      {/* the People pages' search and filters, under the line (like the Claude Console's Members) */}
+      {controls && <div className="mt-3 flex flex-wrap items-center gap-2">{controls}</div>}
     </>
   )
   // still: the header scrolls away with the page, for a page with a sticky part of its own (Folder permissions' detail)
@@ -139,12 +142,72 @@ export function AdminPageHeader({ title, desc, actions, children, testId, classN
   return <StickyHeader className={clsx('-mt-3 mb-3 py-3', className)} testId={testId}>{body}</StickyHeader>
 }
 
+/** How many there are, as a small round badge after a page title ("Members 4"). Nothing until the list has loaded. */
+export function CountBadge({ n, testId }: { n: number | null | undefined; testId?: string }) {
+  if (n == null) return null
+  return (
+    <span className="ml-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-subtle px-2 text-xs font-medium text-muted tabular-nums" data-testid={testId}>
+      {n}
+    </span>
+  )
+}
+
+/** A search box for a list on the page (it filters what is already loaded), in the height of the filter pills. */
+export function SearchBox({ value, onChange, label, testId, className }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string }) {
+  return (
+    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-sm:min-h-10 max-sm:w-full', className)}>
+      <Search size={15} className="shrink-0 text-faint" aria-hidden />
+      <input
+        type="search"
+        className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
+        placeholder={label}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          // Escape empties the box first (and does not close anything around it while there is text)
+          if (e.key === 'Escape' && value) {
+            e.stopPropagation()
+            onChange('')
+          }
+        }}
+        data-testid={testId}
+      />
+    </label>
+  )
+}
+
+/** Does `text` contain the search `q` (already trimmed and lower-cased)? Case-insensitive in the person's language. */
+export const matches = (q: string, locale: string, ...texts: (string | null | undefined)[]) =>
+  !q || texts.some((s) => !!s && s.toLocaleLowerCase(locale).includes(q))
+
+/** Cards inside this show as plain page sections (a heading, its line, the content; no box), for a settings page laid
+ * out like a document (Team settings). */
+const FlatCards = createContext(false)
+export const FlatCardsProvider = FlatCards.Provider
+
 /** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove.
  * No title, no line and no buttons: the card has no header row (the page header above names it).
  * flat: below the md width no frame, a section that ends with a hairline (like the team invite link on Members), for a
  * page whose cards would stack frame on frame on a phone. Its content must not reach into the card's padding. */
 export function Card({ title, actions, children, desc, headingRef, testId, flat }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string; flat?: boolean }) {
   const head = title || desc || actions
+  if (useContext(FlatCards)) {
+    return (
+      <section className="border-t border-line py-6" data-testid={testId}>
+        {head && (
+          <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-2">
+            <div className="min-w-0 flex-1 max-sm:basis-full">
+              {title && <h2 ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium">{title}</h2>}
+              {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+            </div>
+            {actions}
+          </header>
+        )}
+        {children}
+      </section>
+    )
+  }
   return (
     <section className={clsx('mb-6 rounded-2xl border border-line bg-surface', flat && 'max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:bg-transparent max-md:pb-6')} data-testid={testId}>
       {head && (
@@ -248,5 +311,51 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
         <input data-autofocus className={inputCls} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} />
       </Field>
     </Modal>
+  )
+}
+
+/** A group of settings under a plain heading (Team settings): no box, a hairline above every group but the first. */
+export function SettingsSection({ title, desc, children, testId, id }: { title: ReactNode; desc?: ReactNode; children: ReactNode; testId?: string; id?: string }) {
+  return (
+    <section id={id} className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
+      <h2 id={id ? `${id}-title` : undefined} className="text-base font-medium">{title}</h2>
+      {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+      <div className="mt-1">{children}</div>
+    </section>
+  )
+}
+
+/**
+ * One setting as one row: its name, a short line on what it does under it, and the control on the right (stacked on a
+ * phone). `id` is the control's id: the name labels it and the line describes it. `more`: the longer details, behind
+ * "Learn more" (kept in the page, hidden, so the row reads short). `heading`: the name is a heading, for a row whose
+ * control is not one field (the team logo). `below`: under the line, always shown (an error, a state).
+ */
+export function SettingRow({ id, title, desc, more, control, below, heading, testId, attrs }: {
+  id?: string; title: ReactNode; desc?: ReactNode; more?: ReactNode; control?: ReactNode; below?: ReactNode; heading?: boolean; testId?: string; attrs?: Record<string, string>
+}) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const descId = id ? `${id}-desc` : undefined
+  return (
+    <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:gap-8" data-testid={testId} {...attrs}>
+      <div className="min-w-0 flex-1">
+        {heading ? <h3 className="text-sm font-medium text-ink">{title}</h3> : <label htmlFor={id} className="text-sm font-medium text-ink">{title}</label>}
+        {(desc || more) && (
+          <div className="mt-1 text-sm text-muted">
+            {desc && <span id={descId}>{desc}</span>}
+            {desc && more && ' '}
+            {more && (
+              <button type="button" aria-expanded={open} className="font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid={testId ? `${testId}-more` : undefined}>
+                {t(open ? 'common.less' : 'teamSettings.learnMore')}
+              </button>
+            )}
+          </div>
+        )}
+        {more && <div hidden={!open} className="mt-2 max-w-prose text-xs leading-relaxed text-faint">{more}</div>}
+        {below}
+      </div>
+      {control && <div className="flex shrink-0 justify-start sm:justify-end sm:pt-0.5">{control}</div>}
+    </div>
   )
 }

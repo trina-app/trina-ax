@@ -87,6 +87,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const shown = tabs.filter((x) => sectionMatches(x, q, t))
   const groups = [1, 2, 3].map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
   const waiting = (tab === 'credentials' && own === null) || (tab === 'dev-env-sites' && sites === null)
+  // Google Drive was a section of its own: it is in App connectors now, with its dialog open
+  if (tab === 'drive') return <Navigate to="/settings/connectors?drive=1" replace />
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: /settings instead (the
   // list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
