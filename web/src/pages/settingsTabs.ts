@@ -4,8 +4,10 @@
 // there only inside a desktop app that offers it: the value lives in the desktop app, so a normal browser or the PWA
 // has nothing to show, and /settings/browser there opens the profile instead. "AI connections" is there while the team
 // lets members add their own (or one is still there). "MCP" (the AI using other services with the person's own
-// accounts) is always there: it also lists the team connections they may use.
-import { Bell, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Plug, User } from 'lucide-react'
+// accounts) is always there: it also lists the team connections they may use. "Dev environment sites" (the sites the
+// person allowed for her own dev-environment commands, and her Full internet switch) is there while the dev
+// environment on srt is on for her.
+import { Bell, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Network, Plug, User } from 'lucide-react'
 import type { MessageKey } from '../i18n'
 
 export interface SettingsTab {
@@ -26,13 +28,15 @@ const TABS: SettingsTab[] = [
   { id: 'drive', label: 'drive.title', icon: Download, group: 2 },
   { id: 'integrations', label: 'integrations.title', icon: Cable, group: 2 },
   { id: 'connectors', label: 'connectors.title', icon: Plug, group: 2 },
+  { id: 'dev-env-sites', label: 'settings.devEnvSites', icon: Network, group: 2 },
   { id: 'notifications', label: 'notifications.title', icon: Bell, group: 3 },
   { id: 'apps', label: 'settings.apps', icon: Download, group: 3 },
   { id: 'about', label: 'settings.about', icon: Info, group: 3 },
 ]
 
 /** The tabs to show: "browser" only when the desktop app offers Settings > Browser (lib/desktop.ts browserSettingsBridge),
- * "credentials" only when the member may have their own AI connections. */
-export function settingsTabs(withBrowser: boolean, withCredentials = false): SettingsTab[] {
-  return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'credentials' || withCredentials))
+ * "credentials" only when the member may have their own AI connections, "dev-env-sites" only when the dev environment
+ * on srt is on for the person (GET /api/dev-env/sites state is not 'off'). */
+export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false): SettingsTab[] {
+  return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'credentials' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites))
 }

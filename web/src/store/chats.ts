@@ -39,7 +39,7 @@ interface ChatsState {
   threads: Record<string, Thread>
   /** messageId -> estimated dispatch rank (1 = first queued, 0 = running), not turns ahead */
   queue: Record<string, number>
-  /** open ask_user / browser_site / connect_service cards by requestId */
+  /** open ask_user / browser_site / dev_env_site / connect_service cards by requestId */
   requests: Record<string, OpenRequest>
   /** chatId -> key -> artifact being written or just saved */
   liveArtifacts: Record<string, Record<string, LiveArtifact>>
@@ -60,7 +60,7 @@ interface ChatsState {
   regenerate: (chatId: string, assistantId: string, engine?: { engine?: EngineId; model?: string | null }) => Promise<void>
   edit: (chatId: string, userMessageId: string, content: string, attachments: Attachment[]) => Promise<void>
   selectBranch: (chatId: string, messageId: string) => Promise<void>
-  answer: (requestId: string, body: { kind: 'ask_user'; answer: string | string[] | null } | { kind: 'browser_site'; decision: 'once' | 'always' | 'deny' }) => Promise<void>
+  answer: (requestId: string, body: { kind: 'ask_user'; answer: string | string[] | null } | { kind: 'browser_site' | 'dev_env_site'; decision: 'once' | 'always' | 'deny' }) => Promise<void>
   /** a connect_service card's button: the server's outcome (null: the card is no longer open here). A connected or
    * skipped card closes right away (the server also closes it with turn.request.closed). */
   connect: (requestId: string, body: ConnectAction) => Promise<TurnConnectResult | null>

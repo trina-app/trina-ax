@@ -10,6 +10,7 @@ import { Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
 import { api, API } from '../../lib/api'
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
+import { useMe } from '../../store/session'
 import { settingsTabs } from '../../pages/settingsTabs'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap } from '../ui'
 
@@ -41,14 +42,21 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
   }, [])
+  // the dev environment's sites: only while the dev environment on srt is on for this person (a 404: not on this server)
+  const devEnv = useMe()?.server.devEnv
+  const [sites, setSites] = useState<boolean | null>(devEnv ? null : false)
+  useEffect(() => {
+    if (!devEnv) return
+    api.call(API.myDevEnvSites).then((r) => setSites(r.state !== 'off'), () => setSites(false))
+  }, [devEnv])
   // the desktop app's site setting: only inside a desktop app that offers it (the value lives there)
-  const tabs = settingsTabs(Boolean(browserSettingsBridge()), Boolean(own))
+  const tabs = settingsTabs(Boolean(browserSettingsBridge()), Boolean(own), Boolean(sites))
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
   const shown = tabs.filter((x) => !q || t(x.label).toLowerCase().includes(q))
   const groups = [1, 2, 3].map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
-  const waiting = tab === 'credentials' && own === null
+  const waiting = (tab === 'credentials' && own === null) || (tab === 'dev-env-sites' && sites === null)
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: the profile instead
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   const current = tab ?? 'profile'

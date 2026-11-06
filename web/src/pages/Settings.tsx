@@ -30,6 +30,7 @@ import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, conf
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { Notifications } from '../components/settings/Notifications'
+import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { MemoryForm } from '../components/settings/MemoryForm'
 import ConnectorConnections from './ConnectorConnections'
@@ -51,6 +52,7 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'apps' && <Apps />}
       {tab === 'credentials' && <MyCredentials />}
