@@ -3264,6 +3264,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.aiPrivateAllDm": "Si lo publica, la otra persona también lo verá.",
   "rooms.aiMention": "Pregunte a la IA · responde con los archivos que usted puede abrir",
   "tabs.label": "Menú principal",
+  "tabs.back": "Atrás",
   "tabs.chats": "Chats",
   "tabs.files": "Archivos",
   "tabs.me": "Yo",

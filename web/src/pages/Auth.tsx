@@ -14,6 +14,7 @@ import { clientKind } from '../lib/desktop'
 import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
+import { landingPath } from '../lib/tabs'
 import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
 import { holdMadeBy, holdStarter } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
@@ -627,10 +628,10 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
 }
 
 /** Where a signed-in person lands (after the sign-in page, and after the forced password change): Home, or on a phone
- * (where the 대화 tab is) the 대화 list, with the AI chat pinned on top of it. */
+ * (where the tab bar is) the list of the tab the app opens on (lib/tabs.ts START_TAB: 트리나, which is Home). */
 export function signedInHome(): string {
   const phone = typeof window !== 'undefined' && !!window.matchMedia && !window.matchMedia('(min-width: 768px)').matches
-  return phone ? '/rooms' : '/'
+  return landingPath(phone)
 }
 
 export function ForcedPassword() {

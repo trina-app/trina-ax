@@ -1,8 +1,10 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, scheduled,
 // inbox (with the unread count), files, team skills, admin, the team chat rooms (rooms/SidebarRooms.tsx), recent chats
 // by date, and the account menu (the person's email or ID, Settings, Usage (their own, in
-// Settings), Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is a drawer opened
-// from the top bar.
+// Settings), Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is the 트리나
+// tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top, 검색, 프로젝트, 예약
+// 작업, 팀 스킬, the recent chats, and 삭제한 채팅 at the bottom. New chat is the 트리나 tab itself, the Inbox and Admin
+// are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
 import clsx from 'clsx'
 import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -12,16 +14,18 @@ import { PRODUCT } from '@mycel/shared'
 import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
+import { aiName } from '../lib/tabs'
 import { useLogout } from '../lib/logout'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
-import { useDeckBuilds } from '../store/deckBuilds'
-import { accessChanged, notificationsChanged, reloadAsked, skillsChanged } from '../store/live'
+import { skillsChanged } from '../store/live'
+import { useInboxUnread } from '../store/inbox'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
 import { Avatar } from './Avatar'
 import { useChatActions } from './chat/chatActions'
+import { ChatStateDot, isUnused, NeedsAnswerLabel } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 
@@ -30,8 +34,6 @@ const onMac = () => platform() === 'mac' || platform() === 'ios'
 
 const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', yesterday: 'sidebar.yesterday', week: 'sidebar.week', month: 'sidebar.month', older: 'sidebar.older' }
 
-/** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
-const isUnused = (c: Chat) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
 
 /** How Recents is filtered, grouped and sorted, like Claude's: only what the chat list itself knows. Status "Active" is
  * every chat in the list (deleted ones are under the account menu's Deleted chats); "Waiting": an answer is running or
@@ -141,14 +143,8 @@ export default function Sidebar() {
     return skillsChanged.on(() => void load())
   }, [])
   // unread inbox notifications: a count next to "Inbox" (the list itself is in Settings > Notifications)
-  const [unread, setUnread] = useState(0)
-  useEffect(() => {
-    const load = () => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => setUnread(r.unreadCount), () => {})
-    void load()
-    const offs = [notificationsChanged.on(() => void load()), reloadAsked.on(() => void load()), accessChanged.on(() => void load())]
-    return () => offs.forEach((off) => off())
-  }, [])
-  const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover max-sm:h-10'
+  const unread = useInboxUnread()
+  const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover max-md:h-11'
   const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
 
   return (
@@ -156,13 +152,15 @@ export default function Sidebar() {
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
         <Link to="/" onClick={close} className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
           <img src="/favicon.svg" alt="" aria-hidden className="size-5 rounded-md" />
-          {PRODUCT.displayName}
+          {/* the phone's drawer is the AI's history: the AI's one name there, as on its tab */}
+          <span className="max-md:hidden">{PRODUCT.displayName}</span>
+          <span className="md:hidden">{aiName(t)}</span>
         </Link>
       </div>
       <div className="space-y-0.5 px-2">
         <button
           type="button"
-          className={clsx(nav, 'w-full font-medium')}
+          className={clsx(nav, 'w-full font-medium max-md:hidden')}
           onClick={() => {
             close()
             navigate('/')
@@ -182,9 +180,10 @@ export default function Sidebar() {
         <NavLink to="/scheduled" className={active} onClick={close} data-testid="nav-scheduled">
           <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
         </NavLink>
+        {/* phones: the Inbox is on top of the 나 tab, with its count on the tab */}
         <NavLink
           to="/settings/notifications"
-          className={active}
+          className={(s) => clsx(active(s), 'max-md:hidden')}
           onClick={(e) => {
             settingsOpenedFrom(e.currentTarget)
             close()
@@ -200,27 +199,26 @@ export default function Sidebar() {
             </span>
           )}
         </NavLink>
-        {/* the phone drawer is for the chats: 파일 and the account are the 파일 and 나 tabs there. Deleted chats, which
-            the account menu holds, are here on a phone instead. */}
+        {/* the phone drawer is for the AI's chats: 파일 and the account are the 파일 and 나 tabs there. Deleted chats,
+            which the account menu holds, are at the drawer's bottom on a phone instead. */}
         <NavLink to="/files" className={(s) => clsx(active(s), 'max-md:hidden')} onClick={close}>
           <FolderOpen size={16} aria-hidden /> {t('sidebar.files')}
         </NavLink>
         <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
           <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
           {pendingSkills > 0 && (
-            <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
+            // phones: no second count for the same suggestion (the Inbox has it, counted on the 나 tab)
+            <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink max-md:hidden" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
               {pendingSkills}
             </span>
           )}
         </NavLink>
+        {/* phones: Admin is in the 나 tab, under the Inbox */}
         {isAdmin(me) && (
-          <NavLink to="/admin" className={active} onClick={close}>
+          <NavLink to="/admin" className={(s) => clsx(active(s), 'max-md:hidden')} onClick={close}>
             <Shield size={16} aria-hidden /> {t('sidebar.admin')}
           </NavLink>
         )}
-        <NavLink to="/trash" className={(s) => clsx(active(s), 'md:hidden')} onClick={close} data-testid="nav-trash">
-          <Trash2 size={16} aria-hidden /> {t('sidebar.trash')}
-        </NavLink>
       </div>
 
       <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide}>
@@ -285,6 +283,12 @@ export default function Sidebar() {
       <div className="max-md:hidden">
         <AccountMenu />
       </div>
+      {/* phones: the account menu's Deleted chats, at the end of the history */}
+      <div className="border-t border-line p-2 md:hidden">
+        <NavLink to="/trash" className={active} onClick={close} data-testid="nav-trash">
+          <Trash2 size={16} aria-hidden /> {t('sidebar.trash')}
+        </NavLink>
+      </div>
     </nav>
   )
 }
@@ -293,10 +297,6 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
   const t = useT()
   const [menu, setMenu] = useState(false)
   const actions = useChatActions()
-  // the AI of this chat asked something (ask_user / site / connect_service card) and waits: tab 5 "주의가 필요한 채팅"
-  const needsAnswer = useChats((s) => Object.values(s.requests).some((r) => r.chatId === chat.id))
-  // an intro deck finished here while the person was elsewhere (store/deckBuilds.ts): a still dot until it is opened
-  const deckReady = useDeckBuilds((s) => !!s.unseen[chat.id])
   const ref = useRef<HTMLLIElement>(null)
   useEffect(() => {
     if (!menu) return
@@ -325,28 +325,19 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
         onFocus={(e) => e.currentTarget.matches(':focus-visible') && peek.soon(chat, ref.current!, 600)}
         onBlur={peek.hide}
         onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
-        className={({ isActive }) => clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-sm:h-10', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')}
+        className={({ isActive }) => clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-md:h-11 max-md:pr-11', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')}
       >
-        {needsAnswer ? (
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
-        ) : chat.runState !== 'idle' ? (
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label={t(chat.runState === 'queued' ? 'chat.queued' : 'chat.running')} />
-        ) : (
-          deckReady && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label={t('deck.progress.ready')} data-testid="deck-ready-dot" />
-        )}
+        {/* the AI waits for me (ask_user / site / connect_service card), an answer runs, a deck finished meanwhile */}
+        <ChatStateDot chat={chat} />
         <span className="truncate">{chat.title || t('chat.untitled')}</span>
-        {needsAnswer && (
-          <span className="shrink-0 text-micro font-medium text-warn" data-testid="needs-answer">
-            {t('chat.needsAnswer')}
-          </span>
-        )}
+        <NeedsAnswerLabel chatId={chat.id} />
       </NavLink>
       <button
         type="button"
         aria-label={t('chat.menu')}
         aria-expanded={menu}
         onClick={() => setMenu((v) => !v)}
-        className={clsx('absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-faint hover:bg-surface hover:text-ink', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-sm:opacity-100')}
+        className={clsx('absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-faint hover:bg-surface hover:text-ink max-md:right-0 max-md:inline-flex max-md:size-11 max-md:items-center max-md:justify-center', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100')}
       >
         <MoreHorizontal size={15} aria-hidden />
       </button>

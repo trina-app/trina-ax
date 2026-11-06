@@ -3303,6 +3303,7 @@ export const ko = {
   "rooms.aiPrivateAllDm": "올리면 상대도 이 내용을 봐요.",
   "rooms.aiMention": "AI에게 물어보기 · 내가 열 수 있는 파일로 답해요",
   "tabs.label": "주요 메뉴",
+  "tabs.back": "뒤로",
   "tabs.chats": "대화",
   "tabs.files": "파일",
   "tabs.me": "나",

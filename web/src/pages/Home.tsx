@@ -6,8 +6,9 @@
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
-// Phones (below 768px): no cards; the greeting and the box come first, and the "one thing" (the setup row, the goal)
-// is the first quiet row under the box (the goal opens its next step in place). The greeting and the box sit a third of
+// Phones (below 768px): Home is the 트리나 tab, where the app opens. No cards; the greeting and the box come first, the
+// "one thing" (the setup row, the goal) is the first quiet row under the box (the goal opens its next step in place),
+// then the three latest AI chats as plain rows ("최근 채팅"; the whole history is behind ☰ in the top bar). The greeting and the box sit a third of
 // the way down and the rows hang below them, so opening a row moves nothing above it. A project's new
 // chat ("/?project=") shows neither: the goal and the setup row are about the team.
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
@@ -22,7 +23,7 @@
 import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight, Folder, Lock, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
 import type { FileEntry, JoinStarter, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -35,8 +36,10 @@ import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
 import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
-import { isLanding, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
+import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
+import { landingPath } from '../lib/tabs'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
+import { ChatStateDot, isUnused, NeedsAnswerLabel } from '../components/chat/ChatState'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
 import { useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
@@ -58,8 +61,11 @@ export default function Home() {
   const starter = useMemo(() => (projectId ? null : heldStarter(me.user.id)), [me.user.id, projectId])
   const location = useLocation()
   const notes = readNotesHint(location.state)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  // a phone opened on Home while the app opens on another tab (lib/tabs.ts START_TAB): that tab's list instead
+  const elsewhere = phone && isLanding(location) && landingPath(true) !== '/'
   // the owner who left the welcome steps unfinished lands on them, once per tab session (never a link elsewhere)
-  const resuming = useResumeOnLanding(isLanding(location))
+  const resuming = useResumeOnLanding(isLanding(location) && !elsewhere)
   const [preset, setPreset] = useState<{ text: string; n: number } | null>(() => (starter ? { text: starterQuestion(starter, t), n: 0 } : prompt ? { text: prompt, n: 0 } : null))
   useEffect(() => {
     if (!starter || !starter.files.length || starterAttached(me.user.id)) return
@@ -85,10 +91,10 @@ export default function Home() {
   useEffect(() => { void useAiAccess.getState().load() }, [])
   const noAi = extras && !starter && ai.loaded && !ai.usable
   const suggest = extras && !projectId && !starter && ai.loaded && ai.usable
-  const phone = useMediaQuery('(max-width: 767.98px)')
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
   const top = !noAi && extras && isAdmin(me) && !starter && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
 
+  if (elsewhere) return <Navigate to={landingPath(true)} state={LANDING_STATE} replace />
   if (resuming) return <div className="h-full" data-testid="home-resuming" />
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -130,6 +136,7 @@ export default function Home() {
             {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
             {/* phones: the top row is the first row under the box */}
             {phone && top && <div className="mt-3">{top}</div>}
+            {phone && extras && !projectId && !starter && <RecentChats />}
             {suggest && firstTime && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
             {suggest && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
             {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
@@ -140,6 +147,34 @@ export default function Home() {
       </div>
       <p className="px-4 pb-3 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>
     </div>
+  )
+}
+
+/** Phones: the three AI chats I used last, as plain rows under the box (the drawer has them all). Nothing until there
+ * is one. */
+export function RecentChats() {
+  const t = useT()
+  const chats = useChats((s) => s.chats)
+  const recent = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3), [chats])
+  if (!recent.length) return null
+  return (
+    <section className="mt-6" aria-labelledby="home-recents" data-testid="home-recents">
+      <h2 id="home-recents" className="px-3 pb-1 text-xs text-muted">
+        {t('sidebar.recents')}
+      </h2>
+      <ul>
+        {recent.map((c) => (
+          <li key={c.id}>
+            <Link to={`/c/${c.id}`} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink hover:bg-hover" data-testid="home-recent">
+              <ChatStateDot chat={c} />
+              <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
+              <NeedsAnswerLabel chatId={c.id} />
+              <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

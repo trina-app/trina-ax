@@ -14,6 +14,7 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
+import { useBackLink } from '../lib/back'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
 import { stickToBottom } from '../lib/stickToBottom'
@@ -52,6 +53,7 @@ function ChatView({ chatId }: { chatId: string }) {
   }, [deckReady, chatId])
   const announce = useAnnounce()
   const navigate = useNavigate()
+  const backLink = useBackLink()
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId))
   const [chat, setChat] = useState<Chat | null>(chatFromList ?? null)
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
@@ -258,9 +260,10 @@ function ChatView({ chatId }: { chatId: string }) {
   return (
     <div className="flex h-full flex-col">
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
-          it is the only bar (Layout drops its own here): back to the 대화 list, the name, and a new chat. */}
+          it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
+          the name, and a new chat. */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1">
-        <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
+        <Link to="/" replace onClick={backLink} aria-label={t('tabs.back')} title={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
           <ChevronLeft size={20} aria-hidden />
         </Link>
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">

@@ -97,10 +97,11 @@ export default function AdminLayout() {
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
       <div className="shrink-0 border-b border-line lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-b-0">
-        <h1 className="px-4 pt-4 pb-2 text-lg font-semibold tracking-tight sm:px-6 lg:px-5 lg:pt-6 lg:pb-4 lg:text-xl">{t('admin.title')}</h1>
+        {/* phones: the top bar says the name (components/PhoneTopBar.tsx) */}
+        <h1 className="px-4 pt-4 pb-2 text-lg font-semibold tracking-tight max-md:sr-only sm:px-6 lg:px-5 lg:pt-6 lg:pb-4 lg:text-xl">{t('admin.title')}</h1>
         {/* narrow screens: the strip runs to the screen edges, so a link cut off at the right reads as "scroll for more";
             relative: the group names hidden there (sr-only) stay inside the strip instead of widening the page */}
-        <nav ref={nav} aria-label={t('admin.title')} className="scroll-thin edge-fade relative flex items-center gap-1 overflow-x-auto px-4 pb-3 sm:px-6 lg:min-h-0 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-5 lg:overflow-x-hidden lg:overflow-y-auto lg:px-3 lg:pb-6" data-testid="admin-menu">
+        <nav ref={nav} aria-label={t('admin.title')} className="scroll-thin edge-fade relative flex items-center gap-1 overflow-x-auto px-4 pb-3 max-md:pt-3 sm:px-6 lg:min-h-0 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-5 lg:overflow-x-hidden lg:overflow-y-auto lg:px-3 lg:pb-6" data-testid="admin-menu">
           {menu.map((g) => {
             const links = g.items.map((s) => (
               <NavLink

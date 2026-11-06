@@ -3264,6 +3264,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.aiPrivateAllDm": "投稿すると、相手にも見えます。",
   "rooms.aiMention": "AIに聞く · 自分が開けるファイルで回答します",
   "tabs.label": "メインメニュー",
+  "tabs.back": "戻る",
   "tabs.chats": "トーク",
   "tabs.files": "ファイル",
   "tabs.me": "自分",

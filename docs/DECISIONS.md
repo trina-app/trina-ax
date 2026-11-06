@@ -10073,3 +10073,40 @@ owner asked for every skill in the repository to be in every team without anyone
 - Rejected: seeding in `bootstrapOwner` (setup) — every test harness sets up through it, and the welcome steps run
   right after setup anyway; a migration — the skills are files written through the file layer as a person, not rows;
   re-adding a deleted pack skill on update — a delete on purpose must stay.
+
+## Phone navigation: four tabs (feat/phone-nav, 2026-11-06)
+
+넣을 곳: Team AX core (`web/src/lib/tabs.ts`, `components/BottomTabs.tsx`, `components/PhoneTopBar.tsx`), 이유: the
+phone app is the web app in a web view, so its navigation is the web app's.
+
+An independent review of the phone app scored its navigation 18 of 40: it opened on the people-chat list, the ⊕ there
+made a 1:1 and not an AI chat, past AI chats were only behind ☰ under eight rows, the same top-right spot meant three
+things, "what needs me" was in four places, and Android's back looped (‹ in a chat or a room pushed the list as a new
+page, so the phone's back opened the chat again). The owner approved four tabs. Below 768 px:
+
+- **Tabs: 트리나 · 대화 · 파일 · 나.** 트리나 is Home (greeting, message box, the 7-day goal row for admins, then the
+  three latest AI chats as plain rows, "최근 채팅"); 대화 is rooms, DMs and group chats; 나 is Settings. The AI has one
+  name in the chrome: "트리나" where the product is named after it (`PRODUCT_NAMED_AFTER_AI`), the product's short name
+  in the core edition (`aiName`).
+- **Where the app opens is one constant**, `START_TAB` in `lib/tabs.ts` (now `'ai'`). The sign-in landing
+  (`signedInHome`) and a phone opened on `/` (the mobile app's entry) follow it, so opening on 대화 later is one line;
+  the welcome steps still resume on either landing. The owner said rooms matter more than AI history; the approved start
+  stays 트리나 for now.
+- **One action per bar, each in one place.** ☰ is only on Home and opens the AI's history (검색, 프로젝트, 예약 작업, 팀
+  스킬, 최근 채팅 with its filters, 삭제한 채팅 at the bottom). ⊕ is only on 대화 (the people list). 파일 has no top bar
+  (its own header is the bar). A page under a tab (팀 스킬, 프로젝트, 예약 작업, 삭제한 채팅, 관리자) shows ‹ and its name;
+  its own heading stays for screen readers only, and a project's or a task's page drops its list crumb there (the bar
+  above says it). Removed: the pinned "트리나 · AI에게 물어보기" row in 대화, ☰ and its red dot on the other tabs, the drawer
+  rows 새 채팅 / 알림함 / 관리자, the new-chat icon in the top bar, "Trina AX" as the bar's title, 나's own 알림 row.
+- **One count per kind of thing.** Unread room messages on 대화 (muted rooms left out), unread Inbox notices on 나 (one
+  count for the window: `store/inbox.ts`, which the desktop sidebar's 알림함 uses too). 나's list starts with 알림함
+  (that count; its section's bar says 알림함 too) and, for owners and admins, 관리자. The drawer's 팀 스킬 count is gone
+  on phones: a suggestion is an Inbox notice already.
+- **‹ never pushes** (`lib/back.ts`). With an entry of the app's own before it (React Router's `history.state.idx` above
+  0) ‹ is `history.back()`, the same step as the phone's back; opened from outside (a notice, a link, the first page)
+  it replaces the entry with the tab's list. Rooms, AI chats, the top bar and the room-not-found link do this. Rejected:
+  tracking the previous page ourselves (a reload or a WebView restore loses it; the router's index survives both).
+- **Taps:** the bar's buttons and the drawer's rows are 44 px; the type scale is the phone one (13 px floor, badges 11).
+- Tests: `web/test/unit/phone-nav.test.tsx`, `web/test/e2e/phone-nav.spec.ts` (tabs, start tab, badges, no-loop back
+  in a chat, a room and a page, from inside and from outside).
+- Version impact: **minor** (a new phone navigation; no API change).

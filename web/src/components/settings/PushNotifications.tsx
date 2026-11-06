@@ -12,7 +12,7 @@ import { useRealPath } from '../../lib/realPath'
 import { useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { notificationsChanged } from '../../store/live'
-import { hidesTabs } from '../BottomTabs'
+import { hidesTabs } from '../../lib/tabs'
 import { Button, ErrorNote } from '../ui'
 
 export function PushNotifications() {

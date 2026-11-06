@@ -3304,6 +3304,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.aiPrivateAllDm": "Jika diposting, lawan bicara juga akan melihatnya.",
   "rooms.aiMention": "Tanya AI · menjawab dari berkas yang bisa Anda buka",
   "tabs.label": "Menu utama",
+  "tabs.back": "Kembali",
   "tabs.chats": "Obrolan",
   "tabs.files": "File",
   "tabs.me": "Saya",
