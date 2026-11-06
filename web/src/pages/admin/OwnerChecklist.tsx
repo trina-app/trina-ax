@@ -65,7 +65,7 @@ export function OwnerChecklist() {
     Promise.allSettled([api.call(API.engines), api.call(API.listUsers), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills), api.call(API.getTeamLink)]).then(([e, u, i, f, b, sk, tl]) => {
       if (!live) return
       setSteps({
-        engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && x.status === 'ok'),
+        engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && (x.status === 'ok' || x.status === 'limited')),
         // the starting rules (shared/ and skills/, updatedBy null) come with every new team: done once someone set one
         folders: f.status === 'fulfilled' && f.value.items.some((x) => x.rules.some((r) => r.updatedBy !== null)),
         // invited: someone joined, an invite waits, or the team invite link works now (made in the welcome steps or

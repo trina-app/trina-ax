@@ -57,8 +57,12 @@ self.addEventListener('fetch', (event) => {
 // delivery, revoked permission, logged-out browser or offline server fails closed.
 let pushEpoch = 0
 const pushPending = new Set()
-// room.dm / room.mention: a DM message or an @mention in a team chat room (one preference for both)
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'room.dm': 'roomMessages', 'room.mention': 'roomMessages' }
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect' }
+// room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
+// the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
+// at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
+const ROOM_CODES = new Set(['room.dm', 'room.mention'])
+const pushWanted = (preferences, code) => ROOM_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 
 // Store opaque deduplication receipts, never notification text, prompts, file names or tokens.
@@ -121,7 +125,7 @@ self.addEventListener('push', event => {
   event.waitUntil((async () => {
     let payload
     try { payload = event.data?.json() } catch { return }
-    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !Object.hasOwn(PUSH_PREF, payload.code)) return
+    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code))) return
     const tag = `notification:${payload.subscriptionId}:${payload.notificationId}`, generation = pushEpoch
     if (pushPending.has(tag)) return
     pushPending.add(tag)
@@ -134,7 +138,7 @@ self.addEventListener('push', event => {
         return response.json()
       }
       const [settings, preferences, item] = await Promise.all([get('/api/push'), get('/api/notification-preferences'), get(`/api/notifications/${payload.notificationId}`)])
-      if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || preferences[PUSH_PREF[payload.code]] !== true || item.id !== payload.notificationId || item.code !== payload.code || item.readAt !== null) return
+      if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || !pushWanted(preferences, payload.code) || item.id !== payload.notificationId || item.code !== payload.code || item.readAt !== null) return
       // The authenticated server selects generic table text in the recipient's current account/team language.
       const title = settings.messages?.title, body = settings.messages?.bodies?.[payload.code]
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return

@@ -78,6 +78,7 @@ export const T: Record<string, Record<Locale, string>> = {
   codexCatalog: { ko: 'Codex 모델 목록(잠금 카탈로그 model_catalog.json)이 엔진 폴더에 없어요. 설치 스크립트를 다시 실행해 주세요.', en: 'The Codex model list (locked catalog model_catalog.json) is missing from the engine folder. Run the installer again.', id: 'Daftar model Codex (katalog terkunci model_catalog.json) tidak ada di folder mesin. Jalankan installer lagi.', ja: "エンジンフォルダーにCodexモデル一覧（固定カタログmodel_catalog.json）がありません。インストーラーを再実行してください。", es: "Falta la lista de modelos de Codex (catálogo fijo model_catalog.json) en la carpeta del motor. Vuelva a ejecutar el instalador." },
   launcherDown: { ko: '실행기(엔진 계정 데몬)가 답하지 않아요.', en: 'The launcher (engine account daemon) does not answer.', id: 'Launcher (daemon akun mesin) tidak menjawab.', ja: "ランチャー（エンジンアカウントのデーモン）が応答しません。", es: "El lanzador (servicio de la cuenta del motor) no responde." },
   companyKey: { ko: '회사 키 모드인데 회사 API 키가 없어요.', en: 'Company-key mode is on but no company API key is stored.', id: 'Mode kunci perusahaan aktif tetapi belum ada kunci API.', ja: "会社キーモードが有効ですが、会社のAPIキーが保存されていません。", es: "El modo de clave de empresa está activo, pero no hay ninguna clave de API de empresa guardada." },
+  managedLimited: { ko: 'AI 연결이 사용 한도에 닿았어요. 한도가 풀리면 다시 쓸 수 있어요.', en: 'The AI connections have reached their limit. They work again when the limit ends.', id: 'Koneksi AI mencapai batasnya. Koneksi bisa dipakai lagi saat batas berakhir.', ja: "AI接続が使用上限に達しました。上限が解除されると再び使えます。", es: "Las conexiones de IA alcanzaron su límite. Volverán a funcionar cuando termine el límite." },
   managedNone: { ko: 'AI 연결이 없어요. 관리자 > AI 연결에서 추가해 주세요.', en: 'No AI connection. Add one in Admin > AI connections.', id: 'Tidak ada koneksi AI. Tambahkan di Admin > Koneksi AI.', ja: "AI接続がありません。「管理 > AI接続」で追加してください。", es: "No hay conexión de IA. Añada una en Administración > Conexiones de IA." },
   managedNoneDetail: { ko: '이 엔진의 AI 연결을 지금 쓸 수 없어요(거절·만료·한도). 관리자 > AI 연결을 확인해 주세요.', en: 'This engine\'s AI connections cannot be used now (refused, expired, limit). Check Admin > AI connections.', id: 'Koneksi AI mesin ini tidak bisa dipakai sekarang (ditolak, kedaluwarsa, batas). Periksa Admin > Koneksi AI.', ja: "このエンジンのAI接続は現在使えません（拒否、期限切れ、上限到達）。「管理 > AI接続」を確認してください。", es: "Las conexiones de IA de este motor no se pueden usar ahora (rechazadas, vencidas o con límite alcanzado). Revise Administración > Conexiones de IA." },
   version: { ko: '아직 검증하지 않은 버전이에요(고정 버전: {pinned}; 잠금 시험을 통과한 버전: {tested}).', en: 'This version has not been tested (pinned: {pinned}; lockdown-tested: {tested}).', id: 'Versi ini belum diuji (versi yang dikunci: {pinned}; lulus uji penguncian: {tested}).', ja: "このバージョンは未検証です（固定：{pinned}、制限テスト済み：{tested}）。", es: "Esta versión no se ha probado (fijada: {pinned}; con restricciones verificadas: {tested})." },
@@ -107,7 +108,7 @@ export interface EngineEnv {
    * launcher did not answer. Absent (dev): `codex login status` of the owner's own login. */
   codexLogin?: () => Promise<CodexLoginState | null>
   /** managed: the team's AI connections of a family (usable now / all) */
-  credentials?: (family: 'anthropic' | 'openai') => { total: number; usable: number }
+  credentials?: (family: 'anthropic' | 'openai') => { total: number; usable: number; reasons?: string[]; limitedUntil?: string | null }
   /** the server's database */
   db?: import('bun:sqlite').Database
   /** which machine the status lines talk about (deployment.ts hostKind; absent = the Mac wording) and the install base */
@@ -199,7 +200,14 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
   if (mode === 'managed') {
     // the team's AI connections of this engine's family (Admin > AI connections): none, or none usable now
     const c = env.credentials?.(id === 'claude-code' ? 'anthropic' : 'openai') ?? { total: 0, usable: 0 }
-    if (!c.usable) return out('not_logged_in', t(c.total ? 'managedNoneDetail' : 'managedNone', locale))
+    if (!c.usable) {
+      // connections that only wait for a limit to end (rate or usage limit) are set up, not signed out; one that was
+      // refused, expired or needs a new sign-in still is a problem
+      const why = c.reasons ?? []
+      const waiting = why.some((w) => w === 'limited' || w === 'over_limit') && !why.some((w) => w === 'invalid' || w === 'needs_reconnect' || w === 'expired')
+      if (waiting) return { ...out('limited', t('managedLimited', locale)), limitedUntil: c.limitedUntil ?? null }
+      return out('not_logged_in', t(c.total ? 'managedNoneDetail' : 'managedNone', locale))
+    }
   } else if (id === 'claude-code') {
     if (mode === 'agent-own') {
       // an installed server that is not in managed mode (hand-set local-login): the engine account has no login of its own
