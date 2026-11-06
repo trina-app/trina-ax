@@ -1,10 +1,11 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons), people first (docs/DECISIONS.md "Desktop
 // sidebar: rooms first"): the team's name on top, one row for "트리나에게 묻기" (a new AI chat) and search, one row of icons
 // with tooltips (files, projects, scheduled, team skills, the inbox with its count, admin for owners and admins), then one
-// scroll with two capped sections: "대화" (rooms/SidebarRooms.tsx: the five latest rooms, every room with something unread
-// and the room on screen, "더 보기 (N)" for the rest) and "트리나 기록" (the AI's history: the five latest, every chat that
-// waits for me or has an unseen answer, "모두 보기" for the whole of it with its filters; "답변 필요" and dots from the
-// chat list itself, chat/ChatState.tsx), so the AI never sinks under many rooms. People and the AI never share a word:
+// scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the five latest rooms and the room on screen,
+// "더 보기 (N)" for the rest with what is unread there) and "트리나 기록" (the AI's history: the five latest and the chat
+// on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K" when a hidden chat waits for me or has an
+// unseen answer; "답변 필요" and dots from the chat list itself, chat/ChatState.tsx), so the AI never sinks under many
+// rooms. People and the AI never share a word:
 // no bare "채팅" here. Each folds, and each one's whole list stays open or closed, remembered in this browser. Then the
 // account menu (the
 // person's email or ID, Settings, Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens
@@ -16,7 +17,7 @@ import clsx from 'clsx'
 import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
@@ -147,10 +148,16 @@ export default function Sidebar() {
   }, [chats, view, waiting, projects, t])
   const listId = useId()
   const peek = useChatPeek()
-  // a computer: the five latest AI chats unless the whole history is open (or filtered)
+  // a computer: the five latest AI chats and the chat on screen, unless the whole history is open (or filtered)
   const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
-  // the five latest, and any older one that waits for me or has an answer I have not seen (like unread rooms)
-  const latest = useMemo(() => used.filter((c, i) => i < LATEST || c.waiting || c.unseen), [used])
+  const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
+  const latest = useMemo(() => used.filter((c, i) => i < LATEST || c.id === openChat), [used, openChat])
+  // the hidden chats that need me (the AI waits for my answer, or an answer I have not seen): counted on "모두 보기"
+  const hiddenNeeds = useMemo(() => {
+    const asked = new Set(Object.values(waiting).map((r) => r.chatId))
+    const needs = used.filter((c) => !latest.includes(c) && (c.waiting || asked.has(c.id) || c.unseen))
+    return { n: needs.length, waiting: needs.some((c) => c.waiting || asked.has(c.id)) }
+  }, [used, latest, waiting])
   const full = !wide || allChats || changed.length > 0
   const toggleRecents = () => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
 
@@ -227,8 +234,15 @@ export default function Sidebar() {
             </ul>
           )}
           {!full && (used.length > latest.length || cursor) && (
-            <button type="button" onClick={() => setAllChats(true)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-all">
-              {t('rooms.showAll')}
+            <button type="button" onClick={() => setAllChats(true)} className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-all">
+              <span className="truncate">{t('rooms.showAll')}</span>
+              {/* what the hidden chats hold for me, so nothing that needs me is out of sight unannounced */}
+              {hiddenNeeds.n > 0 && (
+                <span className={clsx('ml-auto flex shrink-0 items-center gap-1.5 text-micro font-medium', hiddenNeeds.waiting ? 'text-warn' : 'text-ink')} data-testid="ai-chats-needs">
+                  <span className={clsx('size-1.5 rounded-full', hiddenNeeds.waiting ? 'bg-warn' : 'bg-accent')} aria-hidden />
+                  {t('sidebar.needsYou', { n: hiddenNeeds.n })}
+                </span>
+              )}
             </button>
           )}
           {full && groups.map(([key, { label, items }]) => (

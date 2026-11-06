@@ -3367,6 +3367,8 @@ export const id: Record<MessageKey, string> = {
   "sidebar.aiChats": "Riwayat {name}",
   "sidebar.newAnswer": "Jawaban baru",
   "sidebar.showMore": "Lihat lainnya ({n})",
+  "sidebar.moreUnread": "{n} belum dibaca",
+  "sidebar.needsYou": "{n} perlu kamu",
   "tabs.chats": "Obrolan",
   "tabs.files": "File",
   "tabs.me": "Saya",

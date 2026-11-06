@@ -3366,6 +3366,8 @@ export const ko = {
   "sidebar.aiChats": "{name} 기록",
   "sidebar.newAnswer": "새 답변",
   "sidebar.showMore": "더 보기 ({n})",
+  "sidebar.moreUnread": "안 읽음 {n}",
+  "sidebar.needsYou": "답 필요 {n}",
   "tabs.chats": "대화",
   "tabs.files": "파일",
   "tabs.me": "나",
