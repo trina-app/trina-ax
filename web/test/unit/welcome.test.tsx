@@ -400,8 +400,8 @@ describe('/welcome', () => {
       const doc = globalThis.document as unknown as { body: { querySelector: (s: string) => any; querySelectorAll: (s: string) => any[] } }
       // two groups under quiet headings: the team, then the owner's own account ("내 이름"), one password field with
       // the join page's show switch
-      expect(m.get('setup-section-team').querySelector('legend').textContent).toBe('팀')
-      expect(m.get('setup-section-owner').querySelector('legend').textContent).toBe('내 계정 · 팀장')
+      expect(m.get('setup-section-team').querySelector('legend')!.textContent).toBe('팀')
+      expect(m.get('setup-section-owner').querySelector('legend')!.textContent).toBe('내 계정 · 팀장')
       expect(m.get('setup-section-team').querySelector('[data-testid="setup-team"]')).not.toBeNull()
       expect(m.get('setup-section-owner').textContent).toContain('내 이름')
       expect(doc.body.querySelectorAll('input[autocomplete="new-password"]')).toHaveLength(1)
@@ -741,7 +741,7 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
-  test('no AI that answers the owner (self-hosted, no trial key): the AI step comes first (1/3), Claude 구독 연결 opens the browser sign-in, the other ways are folded; 나중에 leaves the steps', async () => {
+  test('no AI that answers the owner (self-hosted, no trial key): the AI step comes first (1/3) with the three ways at once, Claude 구독 연결 (추천) opens the browser sign-in; 나중에 leaves the steps', async () => {
     signIn('owner')
     ai = { usable: false, action: 'connect_team', requested: false }
     progress = fresh()
@@ -756,8 +756,14 @@ describe('/welcome', () => {
       expect(items.map((li: any) => li.getAttribute('data-progress-step'))).toEqual(['ai', 'profile', 'result'])
       expect(items[0]!.getAttribute('aria-current')).toBe('step')
       expect(items[0]!.textContent).toContain(translate('ko', 'welcome.progress.item', { n: 1, total: 3, label: translate('ko', 'welcome.progress.ai') }))
-      // the other ways folded; nothing of the steps after it
-      expect(m.get('welcome-ai-other').hasAttribute('open')).toBe(false)
+      // the three ways at once, Claude first and recommended, no fold; other AI on the engines page; nothing of the
+      // steps after it
+      expect(m.get('welcome-ai-ways').querySelectorAll('button').map((b: any) => b.getAttribute('data-testid'))).toEqual(['welcome-ai-claude', 'welcome-ai-chatgpt', 'welcome-ai-keys'])
+      expect(m.get('welcome-ai-claude').textContent).toBe(translate('ko', 'welcome.ai.claude') + translate('ko', 'welcome.ai.recommended'))
+      expect(m.get('welcome-ai-chatgpt').textContent).toBe('ChatGPT 구독 연결')
+      expect(m.get('welcome-ai-keys').textContent).toBe('API 키로 연결')
+      expect(m.get('welcome-ai-engines').getAttribute('href')).toBe('/admin/engines')
+      expect(m.find('welcome-ai-other')).toBeNull()
       expect(m.find('welcome-files-pick')).toBeNull()
       expect(m.find('profile-step-site')).toBeNull()
       expect(m.find('welcome-back')).toBeNull()

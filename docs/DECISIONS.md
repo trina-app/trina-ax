@@ -9713,3 +9713,18 @@ section of its own, not a follow-up of D (the company profile), though the deck 
   substitute face.
 - The toast when a picture became type-only at download time (the info answer could say how many).
 - The video hook (`DECK_VIDEO_SUGGESTION`) and pictures from an uploaded PPTX's `ppt/media/`.
+
+## W4 — The owner's walk: setup in two groups, the AI ways at once, coming back resumes (fix/setup-form-sections, 2026-11-06)
+- **Setup form.** "어디까지가 팀이고, 어디부터가 팀장 계정인지 모르겠어": the fields sit in two fieldsets under quiet headings
+  with a hairline, 팀 (team name, team language) and 내 계정 · 팀장 (내 이름, username, password). The password is asked once
+  with the join page's show switch (PR #68), the hint "8자 이상" on the same line; no "비밀번호 확인". The setup API never
+  took the second field.
+- **The AI step shows its ways at once** ("AI 연결 왜 claude 연결 밖에 없어? codex 랑 API는??"; replaces W2's "다른 방법"
+  fold): "Claude 구독 연결" (추천, the main button), "ChatGPT 구독 연결" and "API 키로 연결" as one stack of equal rows, each
+  opening the existing `AddCredential` dialog on that way (`initialKind`; the keys with `onlyKinds`: the Claude and
+  OpenAI keys the team allows), and one quiet line to the AI engines page for other providers (OpenRouter …). A
+  subscription row shows only while the team shares subscriptions (the dialog would refuse it); the first row shown is
+  the main button. No new connection logic. Home's owner card is the same panel. "AI 연결하기" above the composer and
+  under a failed answer stays one button (one line of room there): it opens on the recommended way, and the dialog's
+  "다른 방법" lists every way.
+

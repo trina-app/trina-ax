@@ -12,6 +12,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
   - The first result is now this deck instead of the promo video, and [팀에 공유] invites the team to the "회사 소개서" skill itself, so members' runs (each for their own customers) count toward the 7-day goal. The promo video and card news skills stay installed.
   - Every Linux server bundle now also carries Pretendard 1.3.9 Regular, Bold and ExtraBold (static TTF, OFL-1.1, unchanged) in its `fonts/` folder, with the notice.
 - The first-run "팀 만들기" form is in two groups under quiet headings, "팀" (team name, team language) and "내 계정 · 팀장" (내 이름, username, password), so it is clear where the team ends and the owner's account begins. Like joining, it asks for the password once, with a show-password switch, instead of a second "비밀번호 확인" field; the setup API is unchanged. In all five languages.
+- The welcome step "AI 연결" (and the owner's no-AI card on Home) shows the ways at once instead of one button with "다른 방법" folded: "Claude 구독 연결" (추천), "ChatGPT 구독 연결" and "API 키로 연결" (Claude or OpenAI key), each opening the existing connect dialog on that way, and one line to the AI engines page for OpenRouter and other providers. In all five languages.
 
 ## 0.4.0-beta.9 — 2026-11-06
 

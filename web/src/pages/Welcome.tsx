@@ -225,7 +225,7 @@ function StepHead({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="space-y-1">
       <h2 className="text-lg font-semibold text-ink">{title}</h2>
-      {desc && <p className="text-sm text-muted">{desc}</p>}
+      {desc && <p className="text-sm text-balance text-muted">{desc}</p>}
     </div>
   )
 }
@@ -312,8 +312,9 @@ function ProfileLine({ profile, onSaved }: { profile: CompanyProfile; onSaved: (
 /**
  * AI 연결, only while no AI answers the owner (GET /api/me/ai-access; a hosted trial credit, a managed engine or any
  * working connection skips it). One reason line, then the shared way to connect (components/onboarding/ConnectAi.tsx:
- * one primary "Claude 구독 연결", the other ways folded under "다른 방법"; the same panel is Home's card and the same
- * dialog opens from "AI 연결하기" anywhere). When AI answers, the steps move on by themselves (WelcomeSteps). "나중에
+ * "Claude 구독 연결" (추천), "ChatGPT 구독 연결" and "API 키로 연결" at once, and a quiet line to the AI engines page;
+ * the same panel is Home's card and the same dialog opens from "AI 연결하기" anywhere). When AI answers, the steps move
+ * on by themselves (WelcomeSteps). "나중에
  * 하기" leaves the steps: nothing after this works without AI.
  */
 function AiStep({ busy, onLater }: { busy: boolean; onLater: () => void }) {
