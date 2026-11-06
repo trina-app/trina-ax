@@ -235,6 +235,16 @@ export class MockServer {
     return { extraDomains: [] as string[], enabled: false, scope: { mode: 'writers' as 'writers' | 'selected', groupIds: [] as string[], userIds: [] as string[] }, network: 'open' as 'open' | 'offline',
       limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: null as { by: { id: string; name: string } | null; at: string; warningVersion: number } | null }
   }
+  /** the sites a person allowed and her Full internet switch (GET /api/dev-env/sites); per person, like the server */
+  devEnvSites = new Map<string, { sites: { host: string; createdAt: string }[]; full: boolean }>()
+  devEnvSitesOf(userId: string) {
+    if (!this.devEnv?.srt) fail('not_found', 404)
+    const mine = this.devEnvSites.get(userId) ?? { sites: [], full: false }
+    this.devEnvSites.set(userId, mine)
+    const base = { fullAvailable: true, fullWarningVersion: 1, maxSites: 100 }
+    if (this.devEnvTeam.network === 'offline') return { state: 'no_network' as const, sites: [], fullInternet: false, teamSites: [], ...base }
+    return { state: 'on' as const, sites: mine.sites, fullInternet: mine.full, teamSites: ['registry.npmjs.org', 'pypi.org', 'github.com', ...this.devEnvTeam.extraDomains], ...base }
+  }
   devEnvTeamView() {
     if (!this.devEnv) fail('not_found', 404)
     const srt = !!this.devEnv!.srt
@@ -267,6 +277,7 @@ export class MockServer {
     this.popular = []
     this.devEnv = null
     this.devEnvTeam = MockServer.devEnvTeamDefault()
+    this.devEnvSites = new Map()
     this.epoch = uuidv7()
     this.seq = 0
     this.buffer = []
@@ -775,6 +786,40 @@ export class MockServer {
       question: lines.join('\n\n'), options: [{ label: '바꾸기', value: 'save' }, { label: '바꾸지 않기', value: 'cancel' }], details }
   }
 
+  /** "devqueue": box_shell on srt waits in the team queue (Step.devEnvRun, server/src/devenv/srt/queue.ts): #2 in line,
+   * then #1, then it starts; GET /api/dev-env/runs gives the live place and POST .../stop cancels it. "slow": each place
+   * holds 4 s; "devqueuefull": it waits too long and ends with the dev environment full; "devqueuejob": a job that
+   * waits (#1) after the answer ends. */
+  async devQueueTurn(chatId: string, user: User, prompt: string, assistant: Message, pub: (ev: ServerEventInput) => void, step: (s: Partial<Step> & Pick<Step, 'id' | 'kind' | 'label'>) => Step) {
+    this.devEnv ??= { box: 'stopped' }
+    const srt = (this.devEnv.srt ??= { running: [], waiting: [] })
+    const id = `dq-${assistant.id.slice(-8)}`
+    const by = { id: user.id, name: user.name }
+    if (/devqueuejob/i.test(prompt)) {
+      // a job: the call returns at once, queued #1; it stays in line after the answer
+      srt.waiting = [...srt.waiting, { id, kind: 'job', name: 'render', by, startedAt: now(), runAt: null, position: 1, memoryMiB: null, lastLine: '', chatId, projectId: null }]
+      const j = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npx remotion render', status: 'ok', endedAt: now(), devEnvRun: { id, kind: 'job', state: 'waiting', position: 1 } })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== j.id), j]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: j } })
+      return
+    }
+    srt.waiting = [...srt.waiting.filter((r) => r.id !== id), { id, kind: 'command', name: 'npm run build', by, startedAt: now(), runAt: null, position: 2, memoryMiB: null, lastLine: '', chatId, projectId: null }]
+    const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+    const q = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run build', devEnvRun: { id, kind: 'command', state: 'waiting', position: 2 } })
+    put(q)
+    const hold = /slow/i.test(prompt) ? 4000 : 1500
+    const waiting = () => srt.waiting.find((r) => r.id === id)
+    for (const place of [2, 1]) {
+      const e = waiting()
+      if (e) e.position = place
+      for (let t = 0; t < hold && waiting() && !this.stopped.has(assistant.turnId!); t += 50) await sleep(50)
+    }
+    const cancelled = !waiting()
+    srt.waiting = srt.waiting.filter((r) => r.id !== id)
+    const end = cancelled ? 'cancelled' as const : /devqueuefull/i.test(prompt) ? 'expired' as const : 'started' as const
+    put({ ...q, status: end === 'started' ? 'ok' : 'error', endedAt: now(), devEnvRun: { id, kind: 'command', state: end, position: null } })
+  }
+
   /** The scripted AI. */
   async runTurn(chatId: string, user: User, prompt: string, assistant: Message) {
     const turnId = assistant.turnId!
@@ -804,6 +849,7 @@ export class MockServer {
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
     }
+    if (/devqueue/i.test(prompt)) await this.devQueueTurn(chatId, user, prompt, assistant, pub, step)
     if (/sub-agent/i.test(prompt)) {
       // a sub-agent (Claude Code's Agent tool): its sub-task step, then its own steps under it (Step.parentId)
       const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
@@ -825,7 +871,9 @@ export class MockServer {
       const siteUrl = 'https://docs.example.co.kr/guide/start'
       const markUrl = 'https://docs.example.co.kr/r/c2fsyxj5ltk4nzy1ndmy'
       // "browsersite": like the in-app browser asking to open an office-network address (once / always / deny)
-      const request: TurnRequest = /browsersite/i.test(prompt)
+      const request: TurnRequest = /devenvsite/i.test(prompt)
+        ? { kind: 'dev_env_site', requestId, host: 'api.openweathermap.org', command: 'curl -s https://api.openweathermap.org/data/2.5/weather?q=Seoul' }
+        : /browsersite/i.test(prompt)
         ? { kind: 'browser_site', requestId, url: 'http://10.0.0.5/intranet/', host: '10.0.0.5', reason: '사내 문서 페이지를 열려고 해요.' }
         : /siteask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
@@ -846,6 +894,11 @@ export class MockServer {
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      if (request.kind === 'dev_env_site' && answer === 'always') {
+        const mine = this.devEnvSites.get(user.id) ?? { sites: [], full: false }
+        if (!mine.sites.some((x) => x.host === request.host)) mine.sites.push({ host: request.host, createdAt: now() })
+        this.devEnvSites.set(user.id, mine)
+      }
       prompt += ` answered:${JSON.stringify(answer)}`
     }
     if (/connecttemplate/i.test(prompt)) {
@@ -1314,6 +1367,19 @@ export class MockServer {
     // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on (srt) needs the
     // current warning accepted
     devEnvTeam: () => this.devEnvTeamView(),
+    myDevEnvSites: (c) => this.devEnvSitesOf(c.user.id),
+    removeMyDevEnvSite: (c) => {
+      const mine = this.devEnvSitesOf(c.user.id) && this.devEnvSites.get(c.user.id)!
+      if (!mine.sites.some((x) => x.host === c.body.host)) fail('not_found', 404)
+      mine.sites = mine.sites.filter((x) => x.host !== c.body.host)
+      return this.devEnvSitesOf(c.user.id)
+    },
+    setMyDevEnvFullInternet: (c) => {
+      const now_ = this.devEnvSitesOf(c.user.id)
+      if (c.body.on && (now_.state !== 'on' || c.body.acceptWarning !== 1)) fail('conflict', 409, 'Accept the Full internet warning first.')
+      this.devEnvSites.get(c.user.id)!.full = c.body.on
+      return this.devEnvSitesOf(c.user.id)
+    },
     updateDevEnvTeam: (c) => {
       const v = this.devEnvTeamView()
       const b = c.body
@@ -1329,6 +1395,19 @@ export class MockServer {
     devEnvPreview: (c) => {
       this.devEnvOf(c.user, c.params.id!)
       return { url: `https://preview.example.invalid/${c.body.port}/`, expiresAt: new Date(Date.now() + 600_000).toISOString() }
+    },
+    // srt: the caller's runs and their cancel (the chat's waiting line, "devqueue" turns)
+    myDevEnvRuns: (c) => {
+      const srt = this.devEnv?.srt
+      if (!srt) fail('not_found', 404)
+      return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
+    },
+    stopMyDevEnvRun: (c) => {
+      const srt = this.devEnv?.srt
+      if (!srt || ![...srt.running, ...srt.waiting].some((r) => r.id === c.params.runId && r.by?.id === c.user.id)) fail('not_found', 404)
+      srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
+      srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
+      return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
     },
     listMemories: () => ({ items: this.memories, nextCursor: null }),
     // like server/src/routes/memories.ts: folded to one line, 1–300 characters (the AI's limits), newest first
@@ -2839,6 +2918,8 @@ export class MockServer {
     else if (p === '/__test/dev-env') {
       const by = this.users[0] ? { id: this.users[0].id, name: this.users[0].name } : null
       const run = (id: string, kind: 'job' | 'server', name: string, position: number | null, lastLine: string) => ({ id, kind, name, by, startedAt: now(), runAt: position === null ? now() : null, position, memoryMiB: position === null ? 320 : null, lastLine })
+      if (body.network === 'offline') this.devEnvTeam.network = 'offline'
+      if (Array.isArray(body.sites)) this.devEnvSites.set(this.users[0]!.id, { sites: (body.sites as string[]).map((host) => ({ host, createdAt: now() })), full: false })
       this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped', ...(body.srt ? { srt: { running: [run('r1', 'server', 'npm run dev', null, 'ready on http://localhost:3000')], waiting: [run('r2', 'job', 'render', 1, '')] } } : {}) }
     }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
