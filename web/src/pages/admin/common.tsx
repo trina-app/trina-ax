@@ -150,7 +150,7 @@ export function Card({ title, actions, children, desc, headingRef, testId }: { t
   const head = title || desc || actions
   if (useContext(FlatCards)) {
     return (
-      <section className="border-t border-line py-6" data-testid={testId}>
+      <section className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId}>
         {head && (
           <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-2">
             <div className="min-w-0 flex-1 max-sm:basis-full">

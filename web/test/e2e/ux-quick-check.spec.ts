@@ -59,19 +59,14 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Admin › System at 1280: version and queue share a line, server and free space each take one', async ({ page }) => {
+test('Admin › System at 1280: the server facts are one row each, every value on one line', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/admin/system')
-  const facts = page.getByTestId('system-facts').locator('p')
-  await expect(facts).toHaveCount(4)
-  for (const p of await facts.all()) expect(await lines(p)).toBe(1)
-  // the drive icon sits on the text's first line
-  const disk = facts.nth(3)
-  const icon = await box(disk.locator('svg'))
-  const text = await box(disk.locator('span'))
-  expect(Math.abs(icon.y + icon.height / 2 - (text.y + Math.min(text.height, 20) / 2))).toBeLessThanOrEqual(2)
+  const values = page.getByTestId('system-facts').locator('dd')
+  await expect(values).toHaveCount(3)
+  for (const v of await values.all()) expect(await lines(v)).toBe(1)
 })
 
 test('Admin › MCP: the help line is under the title, before the list', async ({ page }) => {

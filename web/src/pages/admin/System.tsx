@@ -1,15 +1,18 @@
-// System (owner only): diagnostics, connection, update, backup / restore, export. Update, restore and connection
-// changes ask for the password again. Long work runs as a job with progress from the WebSocket.
+// System: owner = storage, version and updates, health, connection, connected folders, backups, export; an admin =
+// the plan, storage and (office mode) the automatic updates. Laid out like a settings document (Team settings): plain
+// sections under headings, label / value rows, long explanations behind "Learn more"; no boxes. Update, restore and
+// connection changes ask for the password again. Long work runs as a job with progress from the WebSocket.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
-import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, HardDrive, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
+import { CheckCircle2, CircleAlert, CircleHelp, CircleX, Download, FolderSync, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useId, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import type { ConnectionMode } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, ErrorNote, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { AdminPageHeader, Card, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
+import { AdminPageHeader, Card, FlatCardsProvider, Loadable as CardLoadable, ReauthDialog, useAction, useActionOk, useLoad } from './common'
 import OfficeUpdate from './OfficeUpdate'
 import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
@@ -18,13 +21,15 @@ import { safeHref } from '../../lib/safeLinks'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
 const STATUS_CLS = { ok: 'text-ok', warn: 'text-warn', fail: 'text-danger', unknown: 'text-faint' } as const
+/** problems first: a failed check, then a warning, then one that could not be checked */
+const STATUS_ORDER = { fail: 0, warn: 1, unknown: 2, ok: 3 } as const
 
 type LoadState<T> = { data: T | null; error: string | null; reload: () => Promise<void> }
 type Report = (id: string, entry: { error: string | null; reload: () => Promise<void> } | null) => void
-/** Each card tells the page whether its load failed, so a page where every card failed shows one message, not one per card. */
+/** Each section tells the page whether its load failed, so a page where every one failed shows one message, not one per section. */
 const LoadReport = createContext<Report | null>(null)
 
-/** The cards' Loadable: the same, and it reports its load error (or none) to the page. */
+/** The sections' Loadable: the same, and it reports its load error (or none) to the page. */
 function Loadable<T>({ state, children, lines }: { state: LoadState<T>; children: (d: T) => ReactNode; lines?: number }) {
   const report = useContext(LoadReport)
   const id = useId()
@@ -35,7 +40,7 @@ function Loadable<T>({ state, children, lines }: { state: LoadState<T>; children
   return <CardLoadable state={state} lines={lines}>{children}</CardLoadable>
 }
 
-/** The failures the cards reported; allFailed when 2 or more cards report and every one failed (the server did not answer). */
+/** The failures the sections reported; allFailed when 2 or more report and every one failed (the server did not answer). */
 function useLoadReport() {
   const [entries, setEntries] = useState<Record<string, { error: string | null; reload: () => Promise<void> }>>({})
   const report = useCallback<Report>((id, entry) => {
@@ -54,7 +59,7 @@ function useLoadReport() {
   return { report, allFailed, firstError: list[0]?.error ?? null, reloadAll: () => Promise.all(list.map((e) => e.reload())) }
 }
 
-/** One message for the whole page when no card could load, with one retry for all of them. */
+/** One message for the whole page when no section could load, with one retry for all of them. */
 function AllFailed({ detail, onRetry }: { detail: string | null; onRetry: () => void }) {
   const t = useT()
   return (
@@ -64,31 +69,63 @@ function AllFailed({ detail, onRetry }: { detail: string | null; onRetry: () => 
   )
 }
 
+/** Label / value rows (a definition list): the label on the left, the value next to it, an action on the right; on a
+ * phone the label goes above the value. */
+function Rows({ children, testId, className }: { children: ReactNode; testId?: string; className?: string }) {
+  return <dl className={`divide-y divide-line text-sm ${className ?? ''}`} data-testid={testId}>{children}</dl>
+}
+function Row({ label, children, action, testId }: { label: ReactNode; children: ReactNode; action?: ReactNode; testId?: string }) {
+  return (
+    <div className="flex flex-wrap items-start gap-x-6 gap-y-1 py-2.5 sm:flex-nowrap" data-testid={testId}>
+      <dt className="text-muted max-sm:basis-full sm:w-40 sm:shrink-0">{label}</dt>
+      <dd className="min-w-0 flex-1">{children}</dd>
+      {action && <dd className="shrink-0">{action}</dd>}
+    </div>
+  )
+}
+
+/** A short line with its longer explanation behind "Learn more" (kept in the page, hidden, so the line reads short). */
+function LearnMore({ short, long }: { short: ReactNode; long: ReactNode }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      {short}{' '}
+      <button type="button" aria-expanded={open} className="font-medium whitespace-nowrap text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)}>
+        {t(open ? 'common.less' : 'teamSettings.learnMore')}
+      </button>
+      <span hidden={!open} className="mt-2 block max-w-prose text-xs leading-relaxed text-faint">{long}</span>
+    </>
+  )
+}
+
 export default function System() {
   const t = useT()
   const loads = useLoadReport()
-  // the cards stay mounted while hidden, so they can report that they loaded again after a retry
+  // the sections stay mounted while hidden, so they can report that they loaded again after a retry
   return (
     <LoadReport.Provider value={loads.report}>
-      <AdminPageHeader title={t('admin.system')} />
-      {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
-      <div hidden={loads.allFailed}>
-        <SystemCards />
-      </div>
+      <FlatCardsProvider value>
+        <AdminPageHeader title={t('admin.system')} />
+        {loads.allFailed && <AllFailed detail={loads.firstError} onRetry={() => void loads.reloadAll()} />}
+        <div hidden={loads.allFailed} className="max-w-3xl" data-testid="system-page">
+          <SystemSections />
+        </div>
+      </FlatCardsProvider>
     </LoadReport.Provider>
   )
 }
 
-function SystemCards() {
+function SystemSections() {
   // office mode: the installation's automatic updates (docs/OFFICE.md "자동 업데이트") instead of the production
-  // updater's card; v null = not office mode, an error (older server) = the production card
+  // updater's section; v null = not office mode, an error (older server) = the production section
   const office = useLoad(async () => ({ v: await api.call(API.officeUpdateStatus) }))
   const me = useMeStrict()
-  // a finished backup changes the diagnostics card's "last backup" line
+  // a finished backup changes the health section's "last backup" line
   const [rev, setRev] = useState(0)
   // what this deployment offers (server/src/system/deployment.ts; absent from older servers = everything)
   const features = me.server.features
-  // an admin: the storage use, and (office mode) the automatic update card
+  // an admin: the plan, the storage use, and (office mode) the automatic updates
   if (!isOwner(me)) return (
     <>
       <PlanCard />
@@ -96,31 +133,38 @@ function SystemCards() {
       {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : null}
     </>
   )
+  // the owner: what the team sees first (the plan, the space), then the version, the server's health, how the team
+  // reaches it, and the tools (connected folders, backups, export)
   return (
     <>
-      <Diagnostics rev={rev} />
       <PlanCard />
       <Storage />
+      {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : (office.data || office.error) && <Update />}
+      <Health rev={rev} />
       <Connection canChange={features?.connectionChange !== false} />
       {features?.connectedFolders !== false && <ConnectedFolders />}
-      {office.data?.v ? <OfficeUpdate status={office.data.v} reload={office.reload} /> : (office.data || office.error) && <Update />}
       <Backups onChanged={() => setRev((r) => r + 1)} />
       <Export />
     </>
   )
 }
 
-function Diagnostics({ rev }: { rev: number }) {
+/** The server's checks (diagnostics): what needs attention first, each with its one line; the checks that passed fold
+ * into one line with "Show details". The facts (server, queue, free space) as rows above. */
+function Health({ rev }: { rev: number }) {
   const t = useT()
   const locale = useLocale()
   const state = useLoad(() => api.call(API.diagnostics), [rev])
   const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false)
   return (
     <Card
-      title={t('system.diagnostics')}
+      title={t('system.health')}
+      testId="system-health"
       actions={
         <Button
           size="sm"
+          variant="ghost"
           busy={busy}
           onClick={async () => {
             setBusy(true)
@@ -133,45 +177,49 @@ function Diagnostics({ rev }: { rev: number }) {
       }
     >
       <Loadable state={state}>
-        {(d) => (
-          <>
-            {/* the short facts share a line (version, queue); the long ones (server, free space) take the full width, so
-                nothing wraps at a laptop width */}
-            <div className="mb-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2" data-testid="system-facts">
-              <p>
-                <span className="text-faint">{t('system.version')}</span> {d.version}
-              </p>
-              <p>
-                <span className="text-faint">{t('system.queue')}</span> {t('system.queueLine', { running: d.queue.running, queued: d.queue.queued, max: d.queue.concurrency })}
-              </p>
-              <p className="sm:col-span-2">
-                <span className="text-faint">{t('system.host')}</span> {d.host.hostname} ({d.host.os}/{d.host.arch})
-              </p>
-              <p className="flex items-start gap-1.5 sm:col-span-2">
-                {/* the icon on the first line's middle, also when the text wraps (a phone) */}
-                <HardDrive size={14} className="mt-[3px] shrink-0 text-faint" aria-hidden />
-                <span>{t('system.diskFree', { team: formatSize(d.disk.teamFolderFreeBytes, locale), data: formatSize(d.disk.dataFreeBytes, locale) })}</span>
-              </p>
-            </div>
-            <ul className="divide-y divide-line text-sm" data-testid="diagnostics">
-              {d.checks.map((c) => {
-                const Icon = STATUS_ICON[c.status]
-                return (
-                  <li key={c.id} className="flex items-start gap-2 py-2">
-                    <Icon size={16} className={`mt-0.5 shrink-0 ${STATUS_CLS[c.status]}`} aria-label={t(`system.check.${c.status}`)} />
-                    <span className="min-w-0 flex-1">
-                      {/* the disk check is the server's free space, not the team's storage use (Storage below, and Home):
-                          the label says so, so the two do not read as two answers to one question */}
-                      <span className="block font-medium">{c.id === 'disk' ? t('adminux.system.diskCheck') : c.label}</span>
-                      {c.detail && <span className="block text-xs text-muted">{c.detail}</span>}
-                    </span>
+        {(d) => {
+          const problems = d.checks.filter((c) => c.status !== 'ok').sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
+          const passed = d.checks.filter((c) => c.status === 'ok')
+          const check = (c: (typeof d.checks)[number]) => {
+            const Icon = STATUS_ICON[c.status]
+            return (
+              <li key={c.id} className="flex items-start gap-2.5 py-2.5" data-status={c.status}>
+                <Icon size={16} className={`mt-0.5 shrink-0 ${STATUS_CLS[c.status]}`} aria-label={t(`system.check.${c.status}`)} />
+                <span className="min-w-0 flex-1">
+                  {/* the disk check is the server's free space, not the team's storage use (Storage above, and Home):
+                      the label says so, so the two do not read as two answers to one question */}
+                  <span className="block">{c.id === 'disk' ? t('adminux.system.diskCheck') : c.label}</span>
+                  {c.detail && <span className="block text-xs text-muted">{c.detail}</span>}
+                </span>
+              </li>
+            )
+          }
+          return (
+            <>
+              <ul className="divide-y divide-line text-sm" data-testid="diagnostics">
+                {problems.map(check)}
+                {passed.length > 0 && (
+                  <li className="py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <CheckCircle2 size={16} className="shrink-0 text-ok" aria-hidden />
+                      <span className="min-w-0 flex-1">{t('system.healthPassed', { n: passed.length })}</span>
+                      <button type="button" aria-expanded={open} className="text-xs font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setOpen(!open)} data-testid="health-details">
+                        {t(open ? 'system.hideDetails' : 'system.showDetails')}
+                      </button>
+                    </div>
+                    <ul hidden={!open} className="mt-1 divide-y divide-line pl-6">{passed.map(check)}</ul>
                   </li>
-                )
-              })}
-            </ul>
-            <p className="mt-2 text-xs text-faint">{t('system.generatedAt', { date: formatDateTime(d.generatedAt, locale) })}</p>
-          </>
-        )}
+                )}
+              </ul>
+              <Rows testId="system-facts" className="mt-3 border-t border-line">
+                <Row label={t('system.host')}>{d.host.hostname} ({d.host.os}/{d.host.arch})</Row>
+                <Row label={t('system.queue')}>{t('system.queueLine', { running: d.queue.running, queued: d.queue.queued, max: d.queue.concurrency })}</Row>
+                <Row label={t('system.freeSpace')}>{t('system.freeSpaceValue', { team: formatSize(d.disk.teamFolderFreeBytes, locale), data: formatSize(d.disk.dataFreeBytes, locale) })}</Row>
+              </Rows>
+              <p className="mt-2 text-xs text-faint">{t('system.generatedAt', { date: formatDateTime(d.generatedAt, locale) })}</p>
+            </>
+          )
+        }}
       </Loadable>
     </Card>
   )
@@ -180,7 +228,7 @@ function Diagnostics({ rev }: { rev: number }) {
 const STORAGE_PARTS = ['team', 'history', 'trash', 'backups', 'models', 'data', 'app', 'other'] as const
 const LEVEL_TONE = { ok: 'ok', warn: 'warn', high: 'warn', full: 'danger' } as const
 
-/** Storage use of the team disk (system/storage.ts): a bar, what uses the space, how to free it, the plan's disk. */
+/** Storage use of the team disk (system/storage.ts): one line with the state, a thin bar, then what uses the space. */
 function Storage() {
   const t = useT()
   const locale = useLocale()
@@ -194,31 +242,38 @@ function Storage() {
           return (
             <div className="space-y-3 text-sm" data-testid="storage">
               <div>
-                <div className="flex items-center justify-between gap-2">
-                  <span>{t('storage.used', { used: formatSize(s.usedBytes, locale), total: formatSize(s.totalBytes, locale), pct: Math.round(pct) })}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    {t('storage.used', { used: formatSize(s.usedBytes, locale), total: formatSize(s.totalBytes, locale), pct: Math.round(pct) })}
+                    <span className="text-muted"> · {t('storage.free', { free: formatSize(s.freeBytes, locale) })}</span>
+                  </span>
                   <Badge tone={LEVEL_TONE[s.level]}>{t(`storage.level.${s.level}`)}</Badge>
                 </div>
-                <div className="mt-1 h-2 rounded bg-line" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={t('storage.title')}>
-                  <div className={`h-full rounded ${bar}`} style={{ width: `${pct}%` }} data-testid="storage-bar" />
+                <div className="mt-2 h-1.5 rounded-full bg-line" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={t('storage.title')}>
+                  <div className={`h-full rounded-full ${bar}`} style={{ width: `${pct}%` }} data-testid="storage-bar" />
                 </div>
-                <p className="mt-1 text-xs text-faint">{t('storage.free', { free: formatSize(s.freeBytes, locale) })}</p>
               </div>
               {s.writesRefused && <p className="text-xs text-danger" role="alert">{t(s.graceEndsAt ? 'storage.overRefused' : 'storage.refused')}</p>}
               {s.graceEndsAt && !s.writesRefused && <p className="text-xs text-warn" role="status">{t('storage.grace', { date: formatDateTime(s.graceEndsAt, locale) })}</p>}
               {s.level !== 'ok' && <p className="text-xs text-warn">{t('storage.howToFree')}</p>}
               {s.breakdown && (
-                // a wide gap between the two columns, so one column's size does not run into the next column's name
-                <ul className="grid gap-x-10 gap-y-1 text-xs sm:grid-cols-2" data-testid="storage-breakdown">
+                // two columns of quiet rows; a wide gap, so one column's size does not run into the next column's name
+                <ul className="grid gap-x-10 sm:grid-cols-2" data-testid="storage-breakdown">
                   {STORAGE_PARTS.map((k) => (
-                    <li key={k} className="flex justify-between gap-4">
+                    <li key={k} className="flex justify-between gap-4 border-b border-line py-1.5">
                       <span className="min-w-0 text-muted">{t(`storage.part.${k}`)}</span>
                       <span className="shrink-0 tabular-nums">{formatSize(s.breakdown![k], locale)}</span>
                     </li>
                   ))}
                 </ul>
               )}
-              {s.measuredAt && <p className="text-xs text-faint">{t('storage.measured', { date: formatDateTime(s.measuredAt, locale) })}</p>}
-              {s.planDiskGiB !== null && <p className="text-xs text-faint">{t('storage.planDisk', { gb: s.planDiskGiB })}</p>}
+              {(s.measuredAt || s.planDiskGiB !== null) && (
+                <p className="text-xs text-faint">
+                  {s.measuredAt && t('storage.measured', { date: formatDateTime(s.measuredAt, locale) })}
+                  {s.measuredAt && s.planDiskGiB !== null && ' · '}
+                  {s.planDiskGiB !== null && t('storage.planDisk', { gb: s.planDiskGiB })}
+                </p>
+              )}
             </div>
           )
         }}
@@ -296,7 +351,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
     setChange({ mode: modes.includes(c.mode) ? c.mode : modes[0]!, relayUrl: '', teamName: c.teamName ?? '', claimCode: '' })
   }
   // without the relay: the office network only, or the public address the server has (tunnel.host, its own domain;
-  // the Diagnostics relay line says the same, server/src/system/ops.ts)
+  // the Health relay line says the same, server/src/system/ops.ts)
   const pub = state.data?.publicAddress ?? null
   const modeName = (m: Mode) => t(m === 'direct-only' && pub ? 'system.mode.direct-public' : `system.mode.${m}`)
   return (
@@ -305,32 +360,36 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
     <Card title={t('system.connection')} actions={canChange && modes.length > 1 ? <Button size="sm" onClick={open}>{t('system.changeMode')}</Button> : undefined}>
       <Loadable state={state} lines={2}>
         {(c) => (
-          <div className="space-y-1 text-sm">
-            <p>
-              {/* no relay and a public address: nothing is off for the team, so no "Off" badge */}
-              {!(c.mode === 'direct-only' && pub) && <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge>}{' '}
-              <span className={c.mode === 'direct-only' && pub ? undefined : 'ml-1'} data-testid="connection-mode-name">{modeName(c.mode)}</span>
-            </p>
-            {c.teamName && c.mode !== 'direct-only' && (
-              <p>
-                <span className="text-faint">{t('system.teamName')}</span> <code>{c.teamName}</code>
-              </p>
-            )}
-            {c.address && (
-              <p>
-                <span className="text-faint">{t('system.address')}</span> <code>{c.address}</code>
-              </p>
-            )}
-            {pub && (
-              <p>
-                <span className="text-faint">{t('system.publicAddress')}</span> <code>https://{pub}</code>
-              </p>
-            )}
-            {c.connectedSince && <p className="text-xs text-faint">{t('system.since', { date: formatDateTime(c.connectedSince, locale) })}</p>}
-            {c.detail && <p className="text-xs text-muted">{DETAIL_TEXT[c.detail] ? t(DETAIL_TEXT[c.detail]!) : c.detail}</p>}
-            <p className="text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
+          <>
+            <Rows>
+              <Row label={t('system.mode')}>
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  {/* no relay and a public address: nothing is off for the team, so no "Off" badge */}
+                  {!(c.mode === 'direct-only' && pub) && <Badge tone={c.state === 'connected' ? 'ok' : c.state === 'connecting' ? 'warn' : 'danger'}>{t(`system.conn.${c.state}`)}</Badge>}
+                  <span data-testid="connection-mode-name">{modeName(c.mode)}</span>
+                </span>
+                {c.connectedSince && <span className="block text-xs text-faint">{t('system.since', { date: formatDateTime(c.connectedSince, locale) })}</span>}
+                {c.detail && <span className="block text-xs text-muted">{DETAIL_TEXT[c.detail] ? t(DETAIL_TEXT[c.detail]!) : c.detail}</span>}
+              </Row>
+              {c.teamName && c.mode !== 'direct-only' && (
+                <Row label={t('system.teamName')}>
+                  <code>{c.teamName}</code>
+                </Row>
+              )}
+              {c.address && (
+                <Row label={t('system.address')}>
+                  <code className="break-all">{c.address}</code>
+                </Row>
+              )}
+              {pub && (
+                <Row label={t('system.publicAddress')}>
+                  <code className="break-all">https://{pub}</code>
+                </Row>
+              )}
+            </Rows>
+            <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
             {c.direct.fingerprintSha256 && <p className="font-mono text-[11px] break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
-          </div>
+          </>
         )}
       </Loadable>
       {change && !confirming && (
@@ -447,14 +506,14 @@ function ConnectedFolders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncing])
   return (
-    <Card title={t('connected.title')} desc={t('connected.desc')}>
+    <Card title={t('connected.title')} desc={<LearnMore short={t('connected.descShort')} long={t('connected.desc')} />}>
       <Loadable state={state}>
         {(list) => (
           <>
             {!list.length ? <p className="text-sm text-faint">{t('connected.empty')}</p> : (
-              <ul className="divide-y divide-line rounded-xl border border-line" data-testid="connected-list">
+              <ul className="divide-y divide-line border-y border-line" data-testid="connected-list">
                 {list.map((c) => (
-                  <li key={c.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+                  <li key={c.id} className="flex items-start gap-3 py-3 text-sm">
                     <FolderSync size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2 font-medium">
@@ -468,7 +527,7 @@ function ConnectedFolders() {
                       </span>
                       {c.lastStatus === 'error' && c.lastError && <span className="mt-1 block text-xs text-danger">{c.lastError}</span>}
                     </span>
-                    <Button size="sm" disabled={c.syncing} onClick={() => void act(() => api.call(API.syncConnected, { params: { id: c.id } })).then(() => state.reload())}>
+                    <Button size="sm" variant="ghost" disabled={c.syncing} onClick={() => void act(() => api.call(API.syncConnected, { params: { id: c.id } })).then(() => state.reload())}>
                       <RefreshCw size={13} aria-hidden /> {t('connected.syncNow')}
                     </Button>
                     <button type="button" aria-label={t('connected.remove')} title={t('connected.remove')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger"
@@ -521,6 +580,8 @@ function ConnectedFolders() {
   )
 }
 
+/** Version and updates (production): the version and channel, the state with its action on the right, automatic
+ * updates (the window lives in Team settings) and going back to the previous version. */
 function Update() {
   const t = useT()
   const locale = useLocale()
@@ -528,43 +589,61 @@ function Update() {
   const install = useUpdateInstall({ version: state.data?.available?.version, previous: state.data?.previous, onDone: () => void state.reload() })
   const setAsk = install.ask
   return (
-    <Card title={t('system.update')}>
+    <Card title={t('system.updates')}>
       <Loadable state={state} lines={2}>
         {(u) => (
-          <div className="space-y-2 text-sm">
-            <p>
-              {t('system.current', { version: u.current })} · {t(u.channel === 'beta' ? 'teamSettings.beta' : 'teamSettings.stable')}
-              {u.lastCheckedAt && <span className="text-xs text-faint"> · {t('system.checked', { date: formatDateTime(u.lastCheckedAt, locale) })}</span>}
-            </p>
-            {u.managed ? (
-              // the hosted cloud: the hosting provider installs updates during the maintenance window (no buttons here)
-              <p className="text-muted" data-testid="update-managed">{t('system.updateManaged')}</p>
-            ) : u.available ? (
-              <div className="rounded-lg border border-line p-3">
-                <p className="font-medium">{t('system.available', { version: u.available.version })}</p>
-                <ReleaseNotes notes={u.available.notes} />
-                {u.available.needsBackupRestoreToRollBack && <p className="mt-1 text-xs text-warn">{t('system.oneWay')}</p>}
-                {u.needsRoot ? (
-                  <p className="mt-2 text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</p>
-                ) : (
-                  <Button variant="primary" size="sm" className="mt-2" disabled={!!install.jobId} onClick={() => setAsk('update')}>
-                    <Upload size={14} aria-hidden /> {t('system.installUpdate')}
-                  </Button>
-                )}
-              </div>
-            ) : u.feed === false ? (
-              <p className="text-muted">{t('system.noFeed')}</p>
-            ) : (
-              <p className="text-muted">{t('system.upToDate')}</p>
-            )}
-            {u.auto && !u.managed && <p className="text-xs text-faint">{t('system.updateAuto')}</p>}
-            {u.previous && !u.managed && (
-              <Button size="sm" variant="ghost" disabled={!!install.jobId} onClick={() => setAsk('rollback')}>
-                <RotateCcw size={14} aria-hidden /> {t('system.rollback', { version: u.previous })}
-              </Button>
-            )}
+          <>
+            <Rows testId="system-update">
+              <Row label={t('system.version')}>
+                {u.current} · {t(u.channel === 'beta' ? 'teamSettings.beta' : 'teamSettings.stable')}
+                {u.lastCheckedAt && <span className="block text-xs text-faint">{t('system.checked', { date: formatDateTime(u.lastCheckedAt, locale) })}</span>}
+              </Row>
+              {u.managed ? (
+                // the hosted cloud: the hosting provider installs updates during the maintenance window (no buttons here)
+                <Row label={t('system.row.status')}>
+                  <span className="text-muted" data-testid="update-managed">{t('system.updateManaged')}</span>
+                </Row>
+              ) : u.available ? (
+                <Row
+                  label={t('system.row.status')}
+                  action={
+                    u.needsRoot ? undefined : (
+                      <Button variant="primary" size="sm" disabled={!!install.jobId} onClick={() => setAsk('update')}>
+                        <Upload size={14} aria-hidden /> {t('system.installUpdate')}
+                      </Button>
+                    )
+                  }
+                >
+                  <span className="font-medium">{t('system.available', { version: u.available.version })}</span>
+                  <ReleaseNotes notes={u.available.notes} />
+                  {u.available.needsBackupRestoreToRollBack && <span className="mt-1 block text-xs text-warn">{t('system.oneWay')}</span>}
+                  {u.needsRoot && <span className="mt-1 block text-xs text-warn" data-testid="update-needs-root">{t('system.updateNeedsRoot')}</span>}
+                </Row>
+              ) : (
+                <Row label={t('system.row.status')}>
+                  {u.feed === false ? <span className="text-muted"><LearnMore short={t('system.noFeedShort')} long={t('system.noFeed')} /></span> : <span className="text-muted">{t('system.upToDate')}</span>}
+                </Row>
+              )}
+              {u.auto && !u.managed && (
+                <Row label={t('system.row.auto')} action={<Link to="/admin/settings#ts-time" className="text-xs font-medium text-accent-text underline-offset-2 hover:underline">{t('system.updateWindowLink')}</Link>}>
+                  <span className="text-muted">{t('system.autoOn')}</span>
+                </Row>
+              )}
+              {u.previous && !u.managed && (
+                <Row
+                  label={t('system.row.previous')}
+                  action={
+                    <Button size="sm" variant="ghost" disabled={!!install.jobId} onClick={() => setAsk('rollback')}>
+                      <RotateCcw size={14} aria-hidden /> {t('system.rollbackShort')}
+                    </Button>
+                  }
+                >
+                  {u.previous}
+                </Row>
+              )}
+            </Rows>
             {install.jobId && <JobLine jobId={install.jobId} />}
-          </div>
+          </>
         )}
       </Loadable>
       {install.dialog}
@@ -609,9 +688,9 @@ function Backups({ onChanged }: { onChanged: () => void }) {
           !list.length ? (
             <p className="text-sm text-faint">{t('system.noBackups')}</p>
           ) : (
-            <ul className="divide-y divide-line text-sm">
+            <ul className="divide-y divide-line border-y border-line text-sm" data-testid="backup-list">
               {list.map((b) => (
-                <li key={b.id} className="flex flex-wrap items-center gap-2 py-2">
+                <li key={b.id} className="flex flex-wrap items-center gap-2 py-2.5">
                   <span className="min-w-0 flex-1">
                     {formatDateTime(b.createdAt, locale)} <span className="text-xs text-faint">· {formatSize(b.size, locale)}</span>
                   </span>
@@ -657,20 +736,22 @@ function Export() {
   useEffect(() => setResult(null), [what])
   return (
     <Card title={t('system.export')} desc={t('system.exportDesc')}>
-      <div className="flex flex-wrap gap-3">
+      <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
+        <legend className="sr-only">{t('system.export')}</legend>
         {(['chats', 'memories', 'files'] as const).map((w) => (
           <label key={w} className="inline-flex items-center gap-1.5 text-sm">
             <input type="checkbox" checked={what.includes(w)} onChange={(e) => setWhat(e.target.checked ? [...what, w] : what.filter((x) => x !== w))} />
             {t(`system.exportWhat.${w}`)}
           </label>
         ))}
+      </fieldset>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <Field label={t('system.exportPassword')} hint={t('system.exportPasswordHint')}>
+          <input className={`${inputCls} max-w-xs`} type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
+        </Field>
       </div>
-      <Field label={t('system.exportPassword')} hint={t('system.exportPasswordHint')}>
-        <input className={`${inputCls} mt-1 max-w-xs`} type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} />
-      </Field>
       <Button
         className="mt-3"
-        variant="primary"
         disabled={!what.length || !!runner.jobId || (pw.length > 0 && pw.length < 8)}
         onClick={() =>
           void runner.run(

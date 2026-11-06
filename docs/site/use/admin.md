@@ -78,4 +78,4 @@ The two tabs are new in 0.4.0. In 0.3.0 and earlier, everything is on one **AI e
 
 ## System
 
-**Admin › System** has backups, diagnostics and updates. Diagnostics shows problems such as a missing engine, a failed check or disabled automatic updates.
+**Admin › System** shows the team's storage, the version and updates, the server's health, how the team reaches the server, connected folders, backups and export, as plain sections. Health lists what needs attention first, such as a missing engine, a failed check or disabled automatic updates; the checks that passed fold into one line with **Show details**. An admin who is not the owner sees the plan, storage and, on an office Mac, the automatic updates.
