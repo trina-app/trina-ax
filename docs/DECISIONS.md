@@ -8112,7 +8112,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     does not fit, an item table it cannot follow) is refused with a reason instead of being passed on. HEIC's tables
     are bounded (10,000 items, 1,000 extents an item, 20,000 steps; sizes 0, 4 or 8 only): a crafted 400 KB file whose
     tables took 45 s is refused in under a millisecond. The cleaner runs in the upload request, not in a worker: every
-    parser is linear (a crafted 50 MB JPEG takes about 80 ms, about as long as hashing it), which a worker would only
+    parser is linear (a 50 MB JPEG, crafted or not, takes 60–100 ms, about as long as hashing it), which a worker would only
     move. A 24,000-file mutation fuzz threw nothing, kept no metadata and took at most 2 ms a file.
   - Shown only when cleaned or harmless: GIF, BMP and SVG (no place in practice) are shown as they are; a TIFF (it
     can hold GPS like any camera EXIF) or a file whose bytes are not the picture its name says goes as a plain file

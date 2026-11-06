@@ -88,7 +88,7 @@ export class RoomFiles {
     // every member gets the photo: like a messenger, the place it was taken, the camera and other metadata are cut out
     // first (uploads/metadata.ts PHOTO keeps the colours, an animation and which way up it is). It runs here, in the
     // request: its parsers read each byte at most a few times and HEIC's item tables have a step budget, so even a
-    // crafted 50 MB upload costs tens of milliseconds, about as long as reading and writing the file
+    // crafted 50 MB upload costs about 100 ms at most, about as long as reading, hashing and writing the file
     let stored = sha256
     if (kind === 'image' && !quarantined && fmt) {
       const cleaned = cleanImage(fs.readFileSync(src), PHOTO)

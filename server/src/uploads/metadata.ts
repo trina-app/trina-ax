@@ -6,7 +6,7 @@
 // Every format is read with keep-lists (what draws the picture stays, anything else goes, a kind added later included),
 // and a file this cannot read exactly is refused (null), never passed on with its metadata. HEIC is cleaned in place
 // (its items and boxes are blanked, the layout stays). Every parser is linear in the file's size, and HEIC's item tables
-// have a step budget: a crafted 50 MB upload costs well under 100 ms (tests/unit/room-photo-metadata.test.ts).
+// have a step budget: a crafted 50 MB upload costs about 100 ms at most (tests/unit/room-photo-metadata.test.ts).
 
 const be16 = (b: Uint8Array, i: number) => (b[i]! << 8) | b[i + 1]!
 const be32 = (b: Uint8Array, i: number) => ((b[i]! << 24) >>> 0) + (b[i + 1]! << 16) + (b[i + 2]! << 8) + b[i + 3]!
