@@ -9927,7 +9927,11 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   tool descriptions tell Claude to ask the person before a destructive change.
 - **Audit.** The web's lines (`group.create`, `group.update`, `group.delete`, `folder.access_lost`) with the same
   fields plus `via: 'connector'`, the actor being the person. Plus `remote_mcp.tool` `{tool, ok, via: 'connector', group,
-  members | added, removed, renamed | name | count}`, and `{ok: false, reason: 'not_admin'}` for a refused role.
+  members | added, removed, renamed | name | count}`, and `{ok: false, reason: 'not_admin'}` for a refused role. The
+  audit screen (Admin › Activity) has words for each: `remote_mcp.scope_dropped` "외부 앱 연결의 그룹 관리 권한을
+  거뒀어요", `remote_mcp.tool` now "외부 앱 도구 사용" (it is no longer only file tools), `via: 'connector'` (and the
+  upload link's `connector_link`) as "접속 경로: 외부 앱(MCP 커넥터)", and the reasons `role` / `not_admin` / `status`
+  in words; `scope` and `asked` stay as written under "More details". In the five locales.
 - **Access words.** Each change answers in plain text with who now opens or loses which folders: `"READER" ("reader"):
   now opens groups/Design (write)`, "loses groups/Design (had write)", "projects/x is now read (was write)", or "nobody
   opens or loses a folder" (with a line that owners and admins open every team folder). It is `accessChanges` in
