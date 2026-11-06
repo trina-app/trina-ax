@@ -1,6 +1,7 @@
-// Admin > AI engines in two tabs (pages/admin/Engines.tsx): Providers, one quiet row per engine that opens in place,
-// and Team provider settings, settings rows whose section shows Save only once something changed. ?tab=team and ?engine=<id>
-// open either from a link.
+// Admin › Providers (pages/admin/Engines.tsx): one quiet row per engine that opens in place, no tabs; ?engine=<id> opens
+// a row. The team's AI settings it used to have in a second tab are in Team settings (TeamAiSettings.tsx), groups whose
+// Save shows only once something in them changed; the old ?tab=team address opens them at #ai (focus=limits:
+// #ai-limits).
 import { expect, test, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -15,8 +16,11 @@ async function start(page: Page) {
 test('Providers: one row per engine with its state, what is missing, check again and the switch; a row opens in place', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
-  await page.goto('/admin/engines')
-  await expect(page.getByRole('tab', { name: t['engines.tab.providers'], exact: true })).toHaveAttribute('aria-selected', 'true')
+  await page.goto('/admin/providers')
+  await expect(page.getByRole('heading', { level: 2, name: t['admin.providers'], exact: true })).toBeVisible()
+  // one list, no tabs: the team's AI settings are in Team settings
+  await expect(page.getByTestId('engines-header').getByRole('tablist')).toHaveCount(0)
+  await expect(page.getByTestId('engine-defaults')).toHaveCount(0)
   const rows = page.getByTestId('engine-card')
   await expect(rows).toHaveCount(3)
   const claude = page.locator('[data-engine="claude-code"]')
@@ -54,7 +58,7 @@ test('Providers: one row per engine with its state, what is missing, check again
 
 test('the owner sets up the API engine from its row; ?engine=api opens it', async ({ page }) => {
   await start(page)
-  await page.goto('/admin/engines?engine=api')
+  await page.goto('/admin/providers?engine=api')
   const api = page.locator('[data-engine="api"]')
   await expect(api.getByTestId('engine-open')).toHaveAttribute('aria-expanded', 'true')
   await expect(api.getByTestId('engine-experimental')).toBeVisible()
@@ -67,34 +71,40 @@ test('the owner sets up the API engine from its row; ?engine=api opens it', asyn
   expect((await saved).postDataJSON()).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1' })
 })
 
-test('the tabs have their own address; Team provider settings shows Save only once something changed', async ({ page }) => {
+test('the old Team provider settings address opens Team settings at #ai; a group shows Save only once something changed', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
-  await page.goto('/admin/engines')
-  await page.getByRole('tab', { name: t['engines.tab.team'], exact: true }).click()
-  await expect(page).toHaveURL(/\/admin\/engines\?tab=team$/)
-  await page.reload()
-  await expect(page.getByRole('tab', { name: t['engines.tab.team'], exact: true })).toHaveAttribute('aria-selected', 'true')
+  await page.goto('/admin/providers?tab=team')
+  await expect(page).toHaveURL(/\/admin\/settings#ai$/)
+  // the AI groups are part of Team settings, under its own groups, and the first one's title has the focus
+  await expect(page.getByTestId('team-settings')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: t['teamAi.defaults'] })).toBeFocused()
+  await expect(page.getByTestId('admin-menu').getByRole('link', { name: t['admin.settings'], exact: true })).toHaveAttribute('aria-current', 'page')
 
   const defaults = page.getByTestId('engine-defaults')
   const choice = page.getByTestId('engine-choice')
   await expect(page.getByTestId('engine-budgets')).toBeVisible()
+  await expect(page.getByTestId('member-accounts')).toBeVisible()
   // nothing changed: no Save anywhere
   await expect(page.getByTestId('engine-defaults-save')).toHaveCount(0)
   await expect(page.getByTestId('engine-choice-save')).toHaveCount(0)
 
-  // a change shows Save and Cancel; Cancel puts it back
+  // a change shows Save and Cancel in its own group; Cancel puts it back. The team form's save bar stays away: these
+  // save on their own
   const concurrency = defaults.getByLabel(t['engines.concurrency'])
   await expect(concurrency).toHaveValue('2')
   await concurrency.fill('4')
   await expect(page.getByTestId('engine-defaults-save')).toBeVisible()
+  await expect(page.getByTestId('team-settings-savebar')).toHaveCount(0)
   await defaults.getByRole('button', { name: t['common.cancel'], exact: true }).click()
   await expect(concurrency).toHaveValue('2')
   await expect(page.getByTestId('engine-defaults-save')).toHaveCount(0)
 
   // Save keeps it; Save goes away again
+  const saved = page.waitForRequest((r) => r.method() === 'PATCH' && /\/api\/admin\/engines$/.test(r.url()))
   await concurrency.fill('4')
   await page.getByTestId('engine-defaults-save').click()
+  expect((await saved).postDataJSON()).toMatchObject({ concurrency: 4 })
   await expect(page.getByTestId('engine-defaults-save')).toHaveCount(0)
   await page.reload()
   await expect(page.getByTestId('engine-defaults').getByLabel(t['engines.concurrency'])).toHaveValue('4')
@@ -105,22 +115,31 @@ test('the tabs have their own address; Team provider settings shows Save only on
   await page.getByTestId('engine-choice-save').click()
   await expect(page.getByTestId('engine-choice-save')).toHaveCount(0)
   await expect(choice.getByTestId('engine-choice-everyone')).toHaveAttribute('aria-checked', 'true')
-
-  // back to Providers: the address loses ?tab
-  await page.getByRole('tab', { name: t['engines.tab.providers'], exact: true }).click()
-  await expect(page).toHaveURL(/\/admin\/engines$/)
   expect(realErrors(errors)).toEqual([])
 })
 
-test('both tabs fit a phone: nothing runs off the side, the switches and Save stay in reach', async ({ page }) => {
+test('a usage-limits link opens Team settings at Usage limits, with the focus on its title', async ({ page }) => {
+  await start(page)
+  await page.goto('/admin/providers?tab=team&focus=limits')
+  await expect(page).toHaveURL(/\/admin\/settings#ai-limits$/)
+  await expect(page.getByRole('heading', { level: 2, name: t['budgets.title'] })).toBeFocused()
+  await expect(page.getByTestId('budget-new')).toBeInViewport()
+  // the same from Admin › Usage
+  await page.goto('/admin/usage')
+  await page.getByTestId('usage-limits-link').click()
+  await expect(page).toHaveURL(/\/admin\/settings#ai-limits$/)
+  await expect(page.getByRole('heading', { level: 2, name: t['budgets.title'] })).toBeFocused()
+})
+
+test('Providers and the AI groups of Team settings fit a phone: nothing runs off the side, the switches stay in reach', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 390, height: 800 })
-  for (const url of ['/admin/engines?engine=api', '/admin/engines?tab=team']) {
+  for (const [url, id] of [['/admin/providers?engine=api', 'engines-header'], ['/admin/settings#ai', 'team-ai-settings']]) {
     await page.goto(url)
-    await expect(page.getByTestId('engines-header')).toBeVisible()
+    await expect(page.getByTestId(id)).toBeVisible()
     const content = page.getByTestId('admin-content')
     await expect.poll(() => content.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
   }
-  await page.goto('/admin/engines')
+  await page.goto('/admin/providers')
   for (const id of ['claude-code', 'codex', 'api']) await expect(page.locator(`[data-engine="${id}"] label`).filter({ has: page.getByTestId(`engine-switch-${id}`) })).toBeInViewport()
 })

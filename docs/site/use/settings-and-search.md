@@ -22,6 +22,13 @@ Click your name at the bottom of the sidebar.
 ## The Settings window
 
 Settings opens as a window over the page you are on. Links such as `/settings/usage` open it at that section.
+Everything in it is just for you; what applies to the whole team is in Admin.
+
+| Group | Sections |
+|---|---|
+| **Account** | Profile, Security & devices, Usage, Memory |
+| **Connections** | Providers (when the team lets members add their own accounts), MCP, App connectors, AI apps |
+| **App** | Notifications, Apps, About |
 
 :::steps
 #### Find a section

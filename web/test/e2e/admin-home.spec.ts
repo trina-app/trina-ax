@@ -11,9 +11,9 @@ const t = DICTS.en
 const MENU: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
   // the owner (this test signs in as the owner) also has Slack, owner-only (AdminLayout MENU)
-  ['admin.group.shared', ['admin.engines', 'admin.credentials', 'admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins', 'slack.admin.title']],
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins', 'slack.admin.title']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
-  ['admin.group.settings', ['admin.settings', 'admin.system']],
+  ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
 
 async function start(page: Page) {
@@ -35,7 +35,7 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByRole('heading', { level: 1, name: t['admin.title'] })).toBeVisible()
 
-  // the menu: Home first, then the groups, what the team shares in a group of its own
+  // the menu: Home first, then the groups (People · AI · Connections · Activity · Team)
   const menu = page.getByRole('navigation', { name: t['admin.title'] })
   await expect(menu.getByRole('link').first()).toHaveText(t['admin.home'])
   await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toHaveAttribute('aria-current', 'page')
@@ -48,22 +48,22 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   // what needs attention, in a few words each: the engine that is on but signed out, the service, the disk (82% in the mock)
   const attention = page.getByTestId('admin-attention')
   await expect(attention.getByRole('link')).toHaveText([`Codex: ${t['engines.status.not_logged_in']}`, `Notion: ${t['integrations.status.needs_auth']}`, 'Storage 82% used'])
-  await expect(attention.getByRole('link', { name: /^Codex/ })).toHaveAttribute('href', '/admin/engines')
+  await expect(attention.getByRole('link', { name: /^Codex/ })).toHaveAttribute('href', '/admin/providers')
   await expect(attention.getByRole('link', { name: /^Notion/ })).toHaveAttribute('href', '/admin/integrations')
 
   // the areas: each card says its state in a line and opens its page
   await expect(page.getByTestId('admin-home-members')).toContainText(/\d+ members/)
-  await expect(page.getByTestId('admin-home-engines')).toContainText('Default: Claude Code')
-  await expect(page.getByTestId('admin-home-engines')).toContainText('1 to fix')
+  await expect(page.getByTestId('admin-home-providers')).toContainText('Default: Claude Code')
+  await expect(page.getByTestId('admin-home-providers')).toContainText('1 to fix')
   await expect(page.getByTestId('admin-home-integrations')).toContainText('1 connection')
   await expect(page.getByTestId('admin-home-plugins')).toContainText(/\d+ plugins? installed/)
   await expect(page.getByTestId('admin-home-usage')).toContainText(t['adminHome.last30'])
   await expect(page.getByTestId('admin-home-audit')).not.toContainText(t['adminHome.unavailable'])
   await expect(page.getByTestId('admin-home-system')).toContainText('Storage 82% used')
   await expect(page.getByText(t['admin.privacy'])).toBeVisible()
-  await page.getByTestId('admin-home-engines').click()
-  await expect(page).toHaveURL(/\/admin\/engines$/)
-  await expect(menu.getByRole('link', { name: t['admin.engines'], exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.getByTestId('admin-home-providers').click()
+  await expect(page).toHaveURL(/\/admin\/providers$/)
+  await expect(menu.getByRole('link', { name: t['admin.providers'], exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('engine-card').first()).toBeVisible()
   expect(realErrors(errors)).toEqual([])
 })
@@ -101,8 +101,10 @@ test('people who cannot use AI are named first, and the AI connections card coun
   })
   await page.goto('/admin')
   const row = page.getByTestId('admin-attention').getByRole('link', { name: "1 person can't use AI: Bob" })
-  await expect(row).toHaveAttribute('href', '/admin/credentials')
-  await expect(page.getByTestId('admin-home-credentials')).toContainText('1 to fix')
+  await expect(row).toHaveAttribute('href', '/admin/providers')
+  await expect(page.getByTestId('admin-home-providers')).toContainText(/\d to fix/)
+  // no separate AI connections card or menu item any more
+  await expect(page.getByTestId('admin-home-credentials')).toHaveCount(0)
 })
 
 test('an area that cannot be read says so on its card; the others still show', async ({ page }) => {
@@ -110,15 +112,15 @@ test('an area that cannot be read says so on its card; the others still show', a
   await page.route('**/api/admin/usage**', (r) => r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/admin')
   await expect(page.getByTestId('admin-home-usage')).toContainText(t['adminHome.unavailable'])
-  await expect(page.getByTestId('admin-home-engines')).toContainText('Default: Claude Code')
+  await expect(page.getByTestId('admin-home-providers')).toContainText('Default: Claude Code')
 })
 
 test('the admin menu stays where it is while the page scrolls, on a wide screen and on a phone', async ({ page }) => {
   await start(page)
   for (const size of [{ width: 1360, height: 640 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    // Team provider settings: the longer of the two AI engines tabs
-    await page.goto('/admin/engines?tab=team')
+    // Team settings, with the team's AI settings at its end: the longest admin page
+    await page.goto('/admin/settings')
     await expect(page.getByTestId('engine-choice')).toBeVisible()
     const menu = page.getByTestId('admin-menu')
     const before = (await menu.boundingBox())!
@@ -127,7 +129,7 @@ test('the admin menu stays where it is while the page scrolls, on a wide screen 
     await content.evaluate((el) => el.scrollTo(0, el.scrollHeight))
     await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
     expect((await menu.boundingBox())!.y).toBe(before.y)
-    await expect(menu.getByRole('link', { name: t['admin.engines'], exact: true })).toBeInViewport()
+    await expect(menu.getByRole('link', { name: t['admin.settings'], exact: true })).toBeInViewport()
     await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toBeAttached()
   }
 })
@@ -135,7 +137,7 @@ test('the admin menu stays where it is while the page scrolls, on a wide screen 
 test('a long explanation stays on one line until "More" opens it', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 1100, height: 800 })
-  await page.goto('/admin/engines?tab=team')
+  await page.goto('/admin/settings#ai')
   const card = page.locator('section').filter({ has: page.getByRole('heading', { name: t['engines.choice'], exact: true }) })
   const desc = card.getByText(t['engines.choiceDesc'], { exact: true })
   await expect(desc).toBeVisible()
@@ -178,7 +180,7 @@ test('a new version is an attention item for the owner; a failed update status i
   await page.unroute('**/api/admin/update')
   await answerUpdate(page, () => ({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
   await page.goto('/admin')
-  await expect(page.getByTestId('admin-home-engines')).toContainText('Default: Claude Code')
+  await expect(page.getByTestId('admin-home-providers')).toContainText('Default: Claude Code')
   await expect(page.getByTestId('attention-update')).toHaveCount(0)
 })
 

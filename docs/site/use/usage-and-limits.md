@@ -38,7 +38,7 @@ Personal skills are never counted by name, so no admin sees what someone keeps p
 
 ## Set limits
 
-There are no limits by default. Admins add them in **Admin › AI engines › Team provider settings**, under **Usage limits**.
+There are no limits by default. Admins add them in **Admin › Team settings**, under **Usage limits**.
 
 | Limit for | Period |
 |---|---|

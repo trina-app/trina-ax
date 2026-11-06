@@ -40,7 +40,7 @@ A skill is an instruction that the person can read. It never gives more access. 
 - **No usage records for personal skills.** Admin > Usage and popular skills count team skills only, so no admin sees the name of a personal skill.
 - Team rules (a `skills/*.md` file without a skill header) are unchanged. A file without a header in `users/<id>/skills/` is not a rule.
 
-## AI 연결 (관리자 > AI 연결)
+## AI 연결 (관리자 > AI 제공자)
 
 AI가 답할 때 쓰는 계정(Claude 구독 토큰, API 키, ChatGPT 로그인)입니다. 자세한 근거는 [DECISIONS.md](DECISIONS.md) "AI 연결".
 

@@ -56,7 +56,7 @@ docker compose exec trina-ax trina-ax-setup-link
 - Docker on your own computer: open the link in your browser.
 - Docker on a server: on your computer, run `ssh -L 47820:127.0.0.1:47820 <server>` first, then open the link.
 
-Create the owner, the team name and the language. Then continue as in the Linux guide: **permissions → AI connection → invite the team → first skill → first backup** ([Linux first run](INSTALL-LINUX.en.md#first-run)). Connect the AI account in Admin › AI connections. Command line alternatives:
+Create the owner, the team name and the language. Then continue as in the Linux guide: **permissions → AI connection → invite the team → first skill → first backup** ([Linux first run](INSTALL-LINUX.en.md#first-run)). Connect the AI account in Admin › AI providers. Command line alternatives:
 
 ```sh
 docker compose exec -T trina-ax /var/lib/mycel/root/set-claude-token < token.txt   # from `claude setup-token`

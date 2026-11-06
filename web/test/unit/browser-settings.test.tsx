@@ -63,9 +63,16 @@ describe('where Settings > Browser shows', () => {
     expect(ids.indexOf('ai-apps')).toBe(ids.indexOf('connectors') + 1)
     expect(ids.indexOf('dev-env-sites')).toBe(ids.indexOf('ai-apps') + 1)
   })
-  test('AI connections still comes after what the AI remembers, with or without the Browser tab', () => {
-    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'credentials'])
-    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 5)).toEqual(['profile', 'security', 'usage', 'memory', 'credentials'])
+  test('Providers lead the Connections group, after Account ends with what the AI remembers, with or without the Browser tab', () => {
+    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 7)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'providers', 'integrations'])
+    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'usage', 'memory', 'providers', 'integrations'])
+  })
+  test('the groups: Account, Connections, App (no AI group), each section in one of them', () => {
+    const by = (g: string) => settingsTabs(true, true).filter((x) => x.group === g).map((x) => x.id)
+    expect(by('account')).toEqual(['profile', 'security', 'browser', 'usage', 'memory'])
+    expect(by('ai')).toEqual([])
+    expect(by('connections')).toEqual(['providers', 'integrations', 'connectors', 'ai-apps'])
+    expect(by('app')).toEqual(['notifications', 'apps', 'about'])
   })
 })
 

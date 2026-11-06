@@ -7,8 +7,8 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls } from '../../components/ui'
 
-/** AI engines › Team provider settings, scrolled to Usage limits (Engines.tsx reads focus=limits). */
-export const USAGE_LIMITS_LINK = '/admin/engines?tab=team&focus=limits'
+/** Team settings, scrolled to Usage limits (TeamAiSettings.tsx reads #ai-limits). */
+export const USAGE_LIMITS_LINK = '/admin/settings#ai-limits'
 
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const t = useT()
@@ -124,11 +124,18 @@ export function useOneAtATime<K>() {
  * go under it. Engines, Usage and Activity log started this pattern; the other pages use it too now, so all admin
  * pages look the same.
  */
+/** "For the whole team": every Admin page says so next to its title (Settings pages say "Just for you", SettingsDialog.tsx) */
+export function PageScope() {
+  const t = useT()
+  return <span className="text-xs text-faint" data-testid="page-scope">{t('scope.team')}</span>
+}
+
 export function AdminPageHeader({ title, desc, actions, children, controls, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; controls?: ReactNode; testId?: string; className?: string; still?: boolean }) {
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <h2 className="flex items-center text-lg font-semibold tracking-tight">{title}</h2>
+        <PageScope />
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
@@ -312,12 +319,19 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
   )
 }
 
-/** A group of settings under a plain heading (Team settings): no box, a hairline above every group but the first. */
-export function SettingsSection({ title, desc, children, testId, id }: { title: ReactNode; desc?: ReactNode; children: ReactNode; testId?: string; id?: string }) {
+/** A group of settings under a plain heading (Team settings): no box, a hairline above every group but the first.
+ * `actions`: a button beside the heading (Add limit). `headingRef`: the heading takes the focus when a link opens the
+ * page at this group (#ai-limits). */
+export function SettingsSection({ title, desc, actions, children, testId, id, headingRef }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children: ReactNode; testId?: string; id?: string; headingRef?: Ref<HTMLHeadingElement> }) {
   return (
-    <section id={id} className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
-      <h2 id={id ? `${id}-title` : undefined} className="text-base font-medium">{title}</h2>
-      {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+    <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium focus:outline-none">{title}</h2>
+          {desc && <div className="mt-1 text-sm text-muted">{desc}</div>}
+        </div>
+        {actions}
+      </div>
       <div className="mt-1">{children}</div>
     </section>
   )
