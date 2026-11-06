@@ -2,8 +2,9 @@
 // chats (chats.ts), which stay as they are. Owner: B (server/src/routes/rooms.ts, server/src/rooms/*).
 //
 // Kinds: 'team' mirrors one group's members (kept in step when the group changes), 'all' is everyone on the team (one
-// per team), 'dm' is exactly two people (one per pair). Only members read or send; an admin or the owner is no
-// exception. A member who joins later (added to the group, a new account) sees the messages from their join on. The
+// per team), 'dm' is exactly two people (one per pair), 'group' is a group chat of hand-picked people (docs/DECISIONS.md
+// "그룹 대화와 방 이름": made from the new-chat picker, any member invites or leaves, its manager removes). Only members
+// read or send; an admin or the owner is no exception. A member who joins later (added to the group, a new account) sees the messages from their join on. The
 // author of a message is always the signed-in person: a body that names an author is refused (the schemas are strict).
 //
 // Realtime: room.* events in ws.ts go to the room's members only. After a reconnect the server replays them only while
@@ -60,8 +61,25 @@ export function roomAiQuestion(body: string, taken: readonly string[] = []): str
   return body.slice(first.end).trim() || body.trim()
 }
 
-export const RoomKind = z.enum(['team', 'all', 'dm'])
+export const RoomKind = z.enum(['team', 'all', 'dm', 'group'])
 export type RoomKind = z.infer<typeof RoomKind>
+
+/** A group chat holds at most this many people, its maker included. */
+export const ROOM_GROUP_MAX = 100
+/** A room's own name: at most this many characters (after trimming). */
+export const ROOM_NAME_MAX = 80
+/** What a room's name may not hold: control characters, every format character (bidirectional marks, overrides and
+ * isolates, zero-width spaces and non-joiners, the byte order mark, soft hyphens, invisible operators, tag characters,
+ * …) but the zero-width joiner that emoji sequences need, line and paragraph separators, and the blank letters that
+ * draw nothing (the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the blank Braille pattern U+2800). */
+const NAME_FORBIDDEN = /(?!\u200d)\p{Cf}|[\p{Cc}\u2028\u2029\u115f\u1160\u3164\uffa0\u2800]/u
+/** ...and it must show something: at least one letter, number, symbol or punctuation mark (not only spaces, combining
+ * marks or joiners). */
+const NAME_VISIBLE = /[\p{L}\p{N}\p{S}\p{P}]/u
+/** A room's own name as typed: trimmed, at most ROOM_NAME_MAX characters, no control characters. '' (or null) takes it
+ * back to the server's name (the group's name, the app's word for everyone, a group chat's members). Always shown as
+ * plain text. */
+export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s === '' || (!NAME_FORBIDDEN.test(s) && NAME_VISIBLE.test(s)), { message: 'invisible or control characters' })
 
 /** A file or image sent in a room. Stored outside the team folder (owners and admins can read the team folder outside
  * users/<id>/); read at GET /api/rooms/:id/files/:fileId by the room's current members only, checked on every read
@@ -87,6 +105,22 @@ export const RoomQuote = z.object({
   deleted: z.boolean(),
 })
 export type RoomQuote = z.infer<typeof RoomQuote>
+
+/** What an event line in a room says (a room message with `event` set: who did it is its author). It takes its place in
+ * the room (a seq) but counts nowhere: no unread number or badge, no notice or push, no menu (not editable, deletable,
+ * quotable or postable), never given to the AI. created: a group chat was made with these people; renamed: the room's
+ * own name is now `name` (null: back to the server's name); added: these people were invited; left: the author left
+ * (or their account is gone); removed: the author took this person out; unknown: a line this build cannot read. */
+export const RoomEventLine = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('created'), users: z.array(UserRef) }),
+  z.object({ type: z.literal('renamed'), name: z.string().nullable() }),
+  z.object({ type: z.literal('added'), users: z.array(UserRef) }),
+  z.object({ type: z.literal('left') }),
+  z.object({ type: z.literal('removed'), user: UserRef.nullable() }),
+  /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
+  z.object({ type: z.literal('unknown') }),
+])
+export type RoomEventLine = z.infer<typeof RoomEventLine>
 
 export const RoomMessage = z.object({
   id: Uuid7,
@@ -130,6 +164,9 @@ export const RoomMessage = z.object({
    * members who see the question ("○○ 님에게만 답했어요" under it), never for the author; nothing of the answer or why.
    * Gone once the author posts the answer */
   answeredPrivately: z.boolean().optional(),
+  /** an event line (a rename, people invited, someone left): shown as a quiet line in the middle, nothing else. Its body
+   * is '', its unread 0; `author` is who did it */
+  event: RoomEventLine.optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
 
@@ -169,8 +206,15 @@ export type RoomLastMessage = z.infer<typeof RoomLastMessage>
 export const Room = z.object({
   id: Uuid7,
   kind: RoomKind,
-  /** team: the group's name; dm and all: null (the app shows the other person's name, or its word for everyone) */
+  /** the room's own name when a member gave it one (plain text); else team: the group's name; dm, all and an unnamed
+   * group chat: null (the app shows the other person's name, its word for everyone, the other members' names) */
   name: z.string().nullable(),
+  /** may I change the name: a group chat's members; a team room's and the everyone room's members who are owner or
+   * admin; nobody in a DM */
+  canRename: z.boolean(),
+  /** a group chat's manager (방장): its maker while they are in it, else the member who joined first. They, and owners
+   * and admins in it, may take someone out. null for the other kinds */
+  managerId: UserId.nullable(),
   groupId: Uuid7.nullable(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
@@ -193,12 +237,20 @@ export type Room = z.infer<typeof Room>
 export const RoomMember = z.object({ user: UserRef, joinedAt: IsoTime })
 export type RoomMember = z.infer<typeof RoomMember>
 
-/** The DM with this person (the existing one when there is one). Team rooms and the everyone room are made by the
- * server, never through the API. */
-export const CreateRoomBody = z.object({ kind: z.literal('dm'), userId: UserId }).strict()
+/** dm: the DM with this person (the existing one when there is one). group: a new group chat of me and these people
+ * (at least two others; several group chats of the same people are fine), optionally named. Only active people of this
+ * team. Team rooms and the everyone room are made by the server, never through the API. */
+export const CreateRoomBody = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('dm'), userId: UserId }).strict(),
+  z.object({ kind: z.literal('group'), userIds: z.array(UserId).min(2).max(ROOM_GROUP_MAX - 1), name: RoomName.nullable().optional() }).strict(),
+])
 export type CreateRoomBody = z.infer<typeof CreateRoomBody>
-/** my own setting */
-export const UpdateRoomBody = z.object({ muted: z.boolean() }).strict()
+/** muted: my own setting. name: the room's own name (Room.canRename; '' or null: back to the server's name) */
+export const UpdateRoomBody = z.object({ muted: z.boolean().optional(), name: RoomName.nullable().optional() }).strict()
+  .refine((b) => b.muted !== undefined || b.name !== undefined, { message: 'nothing to change' })
+/** people to add to a group chat (active people of this team; those already in it are skipped). They see the room from
+ * now on, never what was said before. */
+export const InviteRoomBody = z.object({ userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
 
 /** Without a cursor: the newest `limit` messages, oldest first; nextCursor fetches older ones (prepend). */
 export const ListRoomMessagesQuery = PageQuery
@@ -224,16 +276,19 @@ export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
 
 export const ROOMS = {
-  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room) }), summary: 'The rooms I am in (my team rooms, everyone, DMs), most recent activity first, with my unread count and the last message.' }),
-  createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one). Not audited: admins do not learn who talks to whom.' }),
+  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room) }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count and the last message.' }),
+  createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
-  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Mute or unmute a room for me.' }),
+  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Mute or unmute a room for me, or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'Messages of a room I am in from my join on, newest page first, oldest first within it; each with its unread count.' }),
-  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), optionally a reply, with @mentions and files; DMs and mentions notify.' }),
+  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), optionally a reply, with @mentions and files; DMs, group chats and mentions notify.' }),
   editRoomMessage: endpoint({ method: 'PATCH', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', body: EditRoomMessageBody, response: RoomMessage, summary: 'Edit my own message.' }),
   deleteRoomMessage: endpoint({ method: 'DELETE', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Delete my own message (its text and files are removed; "deleted" stays in its place).' }),
   markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); the unread counts of the others update.' }),
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
+  inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited.' }),
+  removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited.' }),
+  leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview.' }),
   getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),

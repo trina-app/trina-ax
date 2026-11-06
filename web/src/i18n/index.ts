@@ -32,9 +32,10 @@ export const PRODUCT_PARAMS: Params = { product: PRODUCT.displayName, productFil
 
 /** Korean "(으)로" after a filled-in value, when its last sound can be told: 로 after a vowel or ㄹ, 으로 after another
  * final consonant. A number ends as it is read: 1 2 4 5 7 8 9 (일 이 사 오 칠 팔 구) take 로, 0 3 6 (영·십 삼 육) take
- * 으로, so "v{version}(으)로" reads "v1로", "v3으로". Latin letters and signs keep "(으)로". */
+ * 으로, so "v{version}(으)로" reads "v1로", "v3으로". Latin letters and signs keep "(으)로". A value in quotes or
+ * brackets is read by its last word ("'주간 회의'로"). */
 export function koRo(value: string): string {
-  const last = [...value.trim()].pop() ?? ''
+  const last = [...value.trim().replace(/['"’”」』»)\]]+$/u, '')].pop() ?? ''
   const c = last.codePointAt(0) ?? 0
   if (c >= 0xac00 && c <= 0xd7a3) return [0, 8].includes((c - 0xac00) % 28) ? '로' : '으로'
   if (/[0-9]/.test(last)) return '036'.includes(last) ? '으로' : '로'

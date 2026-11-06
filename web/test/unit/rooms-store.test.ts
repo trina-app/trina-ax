@@ -249,3 +249,16 @@ describe('the AI in a room', () => {
     store.reset()
   })
 })
+
+describe('an event line (a rename, people invited, someone left)', () => {
+  test('takes its place in the open room but counts nowhere: no unread, no last line, no move to the top', () => {
+    const r = room({ lastSeq: 4, activityAt: at(-30), lastMessage: null })
+    const other = room({ activityAt: at(-10) })
+    const line = message({ roomId: r.id, seq: 5, body: '', author: BEN, event: { type: 'renamed', name: 'Plan' } })
+    let d = withMessage(data({ rooms: [other, r] }), r.id, line, ME.id)
+    expect(d.rooms.map((x) => x.id)).toEqual([other.id, r.id])
+    expect(d.rooms[1]).toMatchObject({ unreadCount: 0, lastMessage: null, lastSeq: 5, activityAt: at(-30) })
+    d = withMessage(data({ rooms: [r], openRoomId: r.id, thread: { roomId: r.id, messages: [], nextCursor: null, loading: false, error: null } }), r.id, line, ME.id)
+    expect(d.thread!.messages.map((m) => m.id)).toEqual([line.id])
+  })
+})

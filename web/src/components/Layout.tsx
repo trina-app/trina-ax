@@ -146,11 +146,11 @@ export default function Layout() {
               <Menu size={20} />
               {unread > 0 && <span className="absolute top-1 right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas" aria-hidden data-testid="menu-unread" />}
             </IconButton>
-            {/* the 대화 list: its own name here (no second title row on the page) and a new 1:1 chat instead of a new AI
+            {/* the 대화 list: its own name here (no second title row on the page) and a new room chat (a DM or a group chat) instead of a new AI
                 chat (the AI chat is pinned on top of the list) */}
             <span className="flex-1 truncate text-center text-sm font-semibold">{location.pathname === '/rooms' ? t('tabs.chats') : PRODUCT.displayName}</span>
             {location.pathname === '/rooms' ? (
-              <IconButton label={t('rooms.newDm')} onClick={() => navigate('/rooms?new=1', { replace: true })} className="touch-hit" data-testid="topbar-new-dm">
+              <IconButton label={t('rooms.newChat')} onClick={() => navigate('/rooms?new=1', { replace: true })} className="touch-hit" data-testid="topbar-new-dm">
                 <MessageCirclePlus size={20} />
               </IconButton>
             ) : (

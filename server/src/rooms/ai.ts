@@ -42,7 +42,7 @@ import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/
 import { authorize, visiblePath } from '../policy/authorize'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { canSee, memberRow, members, messageRow, messagesOut, MSG_COLS, roomRow, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, memberRow, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
 
 /** room messages before the question that go in front of it, at most */
@@ -134,11 +134,13 @@ export class RoomAi implements RoomTurns {
     }
   }
 
-  /** Did anyone join or leave the room since the session's current conversation began (Rooms.sync audits each change)? */
+  /** Did anyone join or leave the room since the session's current conversation began? Rooms.sync audits each change
+   * of a team room or the everyone room; a group chat's are its event lines (not audited). */
   private membersChangedSince(roomId: string, chatId: string): boolean {
     const began = (this.db.query("SELECT MAX(created_at) at FROM messages WHERE chat_id = ? AND role = 'user' AND parent_id IS NULL").get(chatId) as { at: string | null }).at
     if (!began) return false
     return !!this.db.query("SELECT 1 FROM audit_log WHERE action = 'room.members' AND target = ? AND at > ? LIMIT 1").get(roomId, began)
+      || !!this.db.query("SELECT 1 FROM room_messages WHERE room_id = ? AND event IS NOT NULL AND json_extract(event, '$.type') IN ('added', 'left', 'removed') AND created_at > ? LIMIT 1").get(roomId, began)
   }
 
   /** The person's AI session in the room, or null. */
@@ -167,8 +169,8 @@ export class RoomAi implements RoomTurns {
     const q = qid ? messageRow(db, o.roomId, qid) : null
     const before = q ? q.seq : room.last_seq + 1
     // messages for the whole room only: a private preview (anyone's, the person's own too) never goes back to the AI,
-    // where a later answer could carry it into the room
-    const rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.seq < ? AND m.seq > ? AND m.visibility = 'room' AND m.deleted_at IS NULL ORDER BY m.seq DESC LIMIT ?`)
+    // where a later answer could carry it into the room; event lines (a rename, who joined) are no one's words
+    const rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.seq < ? AND m.seq > ? AND m.visibility = 'room' AND m.deleted_at IS NULL AND m.event IS NULL ORDER BY m.seq DESC LIMIT ?`)
       .all(o.roomId, before, me.visible_from_seq, ROOM_CONTEXT_MESSAGES) as MessageRow[]
     // the person's own questions and the answers to them are in the session already (or in the history a fresh one gets)
     const own = o.continues ? new Set((db.query('SELECT question_id FROM room_ai_turns WHERE room_id = ? AND user_id = ?').all(o.roomId, o.userId) as { question_id: string }[]).map((r) => r.question_id)) : new Set<string>()
@@ -213,7 +215,7 @@ export class RoomAi implements RoomTurns {
       '</room_context>',
       `${attr(asker)}'s message:`,
     ].join('\n')
-    const prompt: RoomPrompt = { name: label, kind: room.kind === 'dm' || room.kind === 'all' ? room.kind : 'team', members: members(db, o.roomId).length, asker }
+    const prompt: RoomPrompt = { name: label, kind: room.kind, members: members(db, o.roomId).length, asker }
     // the members now, by the folder rules (no file system): which skills the AI may be shown here
     const readers = this.readers(o.roomId)
     const rules = this.ctx.files.rules()
@@ -248,9 +250,9 @@ export class RoomAi implements RoomTurns {
     // what this question used: the session's scope now (it started empty with the question, chat/turn.ts), kept on the
     // row for when a private preview is posted
     const scope = this.scopeOf(t.chat_id)
-    const d = this.decide(t.room_id, t.chat_id, scope)
-    const body = msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content
     const q = messageRow(db, t.room_id, t.question_id)
+    const d = this.decide(t.room_id, t.chat_id, scope, q?.seq)
+    const body = msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content
     const id = newId(), now = nowIso()
     db.transaction(() => {
       const seq = (db.query('UPDATE rooms SET last_seq = last_seq + 1, activity_at = ? WHERE id = ? RETURNING last_seq').get(now, t.room_id) as { last_seq: number }).last_seq
@@ -297,7 +299,7 @@ export class RoomAi implements RoomTurns {
    * Paths the person could not open themselves are not in the scope (chat/turn.ts noteRoomTool: such a call answered
    * as it would for anyone). A member added later counts from then on: the next answer is decided with them.
    */
-  decide(roomId: string, chatId: string, scope?: TurnScope): Decision {
+  decide(roomId: string, chatId: string, scope?: TurnScope, questionSeq?: number): Decision {
     const db = this.db, rules = this.ctx.files.rules()
     // an account that cannot be loaded (disabled, deleted, still listed) reads nothing: it fails every check
     const readers = this.readers(roomId)
@@ -333,6 +335,9 @@ export class RoomAi implements RoomTurns {
       const segs = path === '' ? [] : path.split('/')
       if (!people.every((p) => !!p && atLeast(rules.access(p, segs), 'read'))) folders.add(path)
     }
+    // the question itself is the room's too: someone who joined after it was asked (invited into a group chat while the
+    // AI was answering) never saw it, and the answer may repeat it, even when no earlier message went to the AI
+    if (questionSeq !== undefined) for (const r of readers) if (r.member.visible_from_seq >= questionSeq) joined.add(r.member.user_id)
     const joinedLater = [...this.names([...joined]).values()].sort()
     // the preview names to the person who asked only the folders they may open themselves (a name on the way to their
     // folders, or a rule changed since, can be in one they cannot): the others are "folders some people cannot open",
@@ -347,7 +352,7 @@ export class RoomAi implements RoomTurns {
   /** Post my private preview to the room (POST /api/rooms/:id/messages/:messageId/share). */
   share(userId: string, roomId: string, messageId: string): RoomMessage {
     const db = this.db, rooms = roomsOf(this.ctx)
-    const { me } = rooms.mine(userId, roomId)
+    const { room, me } = rooms.mine(userId, roomId)
     const m = messageRow(db, roomId, messageId)
     // only the person who asked; someone else's preview is never theirs to see (canSee): the same 404 as a message that
     // does not exist, also once it is in the room
@@ -358,7 +363,7 @@ export class RoomAi implements RoomTurns {
     const t = db.query('SELECT * FROM room_ai_turns WHERE answer_id = ?').get(m.id) as TurnRow | null
     const scope = t ? storedScope(t.scope) : undefined
     if (t && scope) {
-      const d = this.decide(roomId, t.chat_id, scope)
+      const d = this.decide(roomId, t.chat_id, scope, messageRow(db, roomId, t.question_id)?.seq)
       const now = d.post ? null : decisionJson(d)
       if (now && now !== t.decision) {
         db.query('UPDATE room_ai_turns SET decision = ? WHERE turn_id = ?').run(now, t.turn_id)
@@ -386,7 +391,8 @@ export class RoomAi implements RoomTurns {
       fromSeq = Math.max(me.last_read_seq, me.visible_from_seq)
       db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ?').run(seq, roomId, userId)
       db.query("UPDATE room_ai_turns SET status = 'posted' WHERE answer_id = ?").run(m.id)
-      audit(db, { actor: userId, action: 'room.ai_share', target: m.id, detail: { roomId, sourcesLeftOut: drop.length } })
+      // a DM's or group chat's id would let admins see who talks to whom: only the kind
+      audit(db, { actor: userId, action: 'room.ai_share', target: m.id, detail: { ...roomAuditRef(room), sourcesLeftOut: drop.length } })
     })()
     if (fromSeq < seq - 1) rooms.readEvent(roomId, userId, fromSeq, seq - 1)
     rooms.markNoticesRead(userId, roomId, seq)
@@ -408,6 +414,19 @@ export class RoomAi implements RoomTurns {
     const rt = this.rt()
     if (rt.activeTurn(t.chat_id) !== turnId) return { stopped: false }
     return { stopped: !!rt.stopChat(t.chat_id) }
+  }
+
+  /** Someone left the room or was taken out of it: their questions there stop now (they can no longer stop them,
+   * stop() answers 404 to someone outside the room, and a turn would go on spending their budget). Never throws. */
+  stopFor(roomId: string, userId: string): number {
+    let n = 0
+    try {
+      const active = this.db.query("SELECT * FROM room_ai_turns WHERE room_id = ? AND user_id = ? AND status = 'active'").all(roomId, userId) as TurnRow[]
+      if (!active.length) return 0
+      const rt = this.rt()
+      for (const t of active) if (rt.activeTurn(t.chat_id) === t.turn_id && rt.stopChat(t.chat_id)) n++
+    } catch (e) { this.ctx.log.warn('room questions not stopped', { err: e, room: roomId }) }
+    return n
   }
 
   /** GET /api/rooms/:id/ai */
@@ -471,10 +490,12 @@ export class RoomAi implements RoomTurns {
     if (!want.length) return new Map()
     return new Map((this.db.query(`SELECT id, name FROM users WHERE id IN (${want.map(() => '?').join(',')})`).all(...want) as { id: string; name: string }[]).map((r) => [r.id, r.name]))
   }
-  /** a team room: its group's name; the everyone room; a DM: the other person */
+  /** a team room: its group's name; the everyone room; a DM: the other person; a group chat: just that. Never the
+   * room's own name (rooms.name): any member of a group chat may set it, so the AI is not given it at all. */
   private roomLabel(room: RoomRow, userId: string): string {
     if (room.kind === 'team' && room.group_id) return (this.db.query('SELECT name FROM groups WHERE id = ?').get(room.group_id) as { name: string } | null)?.name ?? 'team'
     if (room.kind === 'all') return 'everyone'
+    if (room.kind === 'group') return 'group chat'
     const other = this.db.query('SELECT u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ? LIMIT 1').get(room.id, userId) as { name: string } | null
     return other?.name ?? 'direct message'
   }

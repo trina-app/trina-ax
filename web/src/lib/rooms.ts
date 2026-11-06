@@ -1,15 +1,57 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
-// messages, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent text). No React,
-// no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { ROOM_AI_NAMES, ROOM_MENTIONS_MAX, roomAiCalled, type Room, type RoomAiRun, type RoomMessage, type Step } from '@mycel/shared/api'
+// messages, event lines, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent
+// text). No React, no requests: unit tested in test/unit/rooms-lib.test.ts.
+import { ROOM_AI_NAMES, ROOM_MENTIONS_MAX, roomAiCalled, type Room, type RoomAiRun, type RoomEventLine, type RoomMessage, type Step, type UserRef } from '@mycel/shared/api'
 
-/** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone. */
-export interface TitleWords { all: string; gone: string }
+/** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone, and for an
+ * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
+export interface TitleWords { all: string; gone: string; names?: (names: string, more: number) => string; sep?: string; alone?: string }
 
-/** team: the group's name; all: the app's word for everyone; dm: the other person (peers[0]). */
-export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'>, words: TitleWords): string {
+/** How many of a group chat's other members its title names before "외 N명". */
+export const TITLE_NAMES = 3
+
+/** The room's own name when it has one; else team: the group's name; all: the app's word for everyone; dm: the other
+ * person (peers[0]); group: the other members (the first TITLE_NAMES of peers, then how many more). */
+export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<Pick<Room, 'memberCount'>>, words: TitleWords): string {
   if (room.kind === 'dm') return room.peers[0]?.name ?? words.gone
+  if (room.kind === 'group' && !room.name) {
+    const shown = room.peers.slice(0, TITLE_NAMES).map((p) => p.name)
+    if (!shown.length) return words.alone ?? words.gone
+    const others = Math.max(shown.length, (room.memberCount ?? room.peers.length + 1) - 1)
+    const list = shown.join(words.sep ?? ', ')
+    return words.names ? words.names(list, others - shown.length) : list
+  }
   return room.name ?? words.all
+}
+
+/** The words of an event line (lib, not React: the component passes t). `person` puts a language's honorific after a
+ * name ("{name}님"), `quote` puts a room name in the language's quotes. */
+export interface EventWords {
+  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
+  nameOf: (u: UserRef | null) => string
+}
+/** "가나님이 다라님, 마바님을 초대했어요": every name but the last gets the language's honorific here, the last one the
+ * text's own (so a name that ends with 님 already gets no second one, and the particle after it fits); past TITLE_NAMES
+ * names "외 N명". */
+export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWords): string {
+  const actor = w.nameOf(author)
+  switch (e.type) {
+    case 'created':
+    case 'added': {
+      const names = e.users.map((u) => w.nameOf(u))
+      const shown = names.slice(0, TITLE_NAMES)
+      const list = shown.map((n, i) => (i < shown.length - 1 ? w.t('rooms.event.person', { name: n }) : n)).join(w.t('rooms.nameSep'))
+      return names.length > shown.length ? w.t('rooms.event.invitedMore', { actor, names: list, n: names.length - shown.length }) : w.t('rooms.event.invited', { actor, names: list })
+    }
+    case 'renamed':
+      return e.name ? w.t('rooms.event.renamed', { actor, name: w.t('rooms.event.quoted', { name: e.name }) }) : w.t('rooms.event.renamedBack', { actor })
+    case 'left':
+      return w.t('rooms.event.left', { actor })
+    case 'removed':
+      return w.t('rooms.event.removed', { actor, name: w.nameOf(e.user) })
+    case 'unknown':
+      return w.t('rooms.event.unknown')
+  }
 }
 
 /** Messages of one author close together share one avatar, name and time: a new run after another author, a pause
@@ -32,7 +74,8 @@ export interface MessageRun {
 
 const authorKey = (m: RoomMessage) => (m.authorKind === 'ai' ? `ai:${m.askedBy?.id ?? ''}` : `user:${m.author?.id ?? ''}`)
 
-/** Cut the messages (oldest first) into runs of one author. */
+/** Cut the messages (oldest first) into runs of one author. An event line is a run of its own and ends the one before
+ * it (the next message starts a new run with its name and time). */
 export function groupRuns(messages: RoomMessage[], dayOf: (iso: string) => string = localDayKey): MessageRun[] {
   const runs: MessageRun[] = []
   let prev: RoomMessage | null = null
@@ -40,7 +83,7 @@ export function groupRuns(messages: RoomMessage[], dayOf: (iso: string) => strin
   for (const m of messages) {
     const day = dayOf(m.createdAt)
     const sameDay = day === prevDay
-    const joins = prev !== null && sameDay && authorKey(prev) === authorKey(m) && (m.author !== null || m.authorKind === 'ai') && Date.parse(m.createdAt) - Date.parse(prev.createdAt) <= RUN_GAP_MS
+    const joins = prev !== null && sameDay && !prev.event && !m.event && authorKey(prev) === authorKey(m) && (m.author !== null || m.authorKind === 'ai') && Date.parse(m.createdAt) - Date.parse(prev.createdAt) <= RUN_GAP_MS
     if (joins) runs.at(-1)!.messages.push(m)
     else runs.push({ key: m.id, messages: [m], newDay: !sameDay })
     prev = m
@@ -107,7 +150,8 @@ export function mentionParts(body: string, mentioned: { id: string; name: string
   return parts
 }
 
-/** The newest loaded message's position: what "read up to here" sends once the bottom of the room is in sight. */
+/** The newest loaded message's position (an event line's too): what "read up to here" sends once the bottom of the room
+ * is in sight. */
 export function newestSeq(messages: RoomMessage[]): number {
   return messages.at(-1)?.seq ?? 0
 }

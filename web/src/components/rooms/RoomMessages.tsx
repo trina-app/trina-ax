@@ -7,7 +7,9 @@
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
-// 있어요"), and above its one action (post it to the room, an outline button) who would see it then.
+// 있어요"), and above its one action (post it to the room, an outline button) who would see it then. An event line (a
+// rename, people invited, someone left or taken out: RoomMessage.event) is one quiet line in the middle, nothing more:
+// no avatar, menu, unread number or reply.
 import clsx from 'clsx'
 import { Copy, CornerUpLeft, Download, FileText, Lock, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useMemo, useRef, useState } from 'react'
@@ -15,7 +17,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
-import { aiMentionNames, groupRuns, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
+import { aiMentionNames, eventText, groupRuns, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
@@ -35,10 +37,20 @@ const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
 export const messageDomId = (id: string) => `room-msg-${id}`
 
-/** For each run: its time reads the same as the run's above it on the same day (a date line starts a new day). Phones
- * show such a time once: the first run of that minute has it. */
+/** For each run: its time reads the same as the time shown above it on the same day (a date line starts a new day).
+ * Phones show such a time once: the first run of that minute has it. An event line shows no time, so a run compares
+ * with the nearest message run above it, never with an event line. */
 export function sameTimeAsAbove(runs: readonly MessageRun[], time: (iso: string) => string): boolean[] {
-  return runs.map((run, i) => i > 0 && !run.newDay && time(run.messages[0]!.createdAt) === time(runs[i - 1]!.messages[0]!.createdAt))
+  let shown: string | null = null
+  return runs.map((run) => {
+    if (run.newDay) shown = null
+    const first = run.messages[0]!
+    if (first.event) return false
+    const t = time(first.createdAt)
+    const same = shown === t
+    shown = t
+    return same
+  })
 }
 
 /** the largest box a thumbnail takes, so the list does not jump while it loads */
@@ -90,7 +102,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
     setFlash(id)
     setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600)
   }
-  const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null
+  const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null && !runs.at(-1)?.messages[0]?.event
   // what the AI did with a question, under that question: my answer that stopped or failed, someone else's answer that
   // stayed theirs only (the question says so, also after a reload)
   const ended = useRooms(useShallow((s) => (s.ai[roomId]?.runs ?? NO_RUNS).filter((r) => !runActive(r))))
@@ -115,6 +127,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                 <span className="h-px flex-1 bg-line" aria-hidden />
               </div>
             )}
+            {first.event ? <EventLine m={first} /> : (
             <div className="flex gap-3 pt-2" data-testid="room-run">
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
@@ -148,6 +161,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                 ))}
               </div>
             </div>
+            )}
           </Fragment>
         )
       })}
@@ -160,6 +174,20 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
         </div>
       )}
     </div>
+  )
+}
+
+/** "가나님이 방 이름을 '주간 회의'로 바꿨어요": the names as the directory has them now, the room name as plain text. */
+function EventLine({ m }: { m: RoomMessage }) {
+  const t = useT()
+  const locale = useLocale()
+  const nameOf = useNameOf()
+  if (!m.event) return null
+  const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser') })
+  return (
+    <p id={messageDomId(m.id)} className="px-6 pt-3 pb-1 text-center text-xs break-words text-faint" title={formatDateTime(m.createdAt, locale)} data-testid="room-event">
+      {text}
+    </p>
   )
 }
 

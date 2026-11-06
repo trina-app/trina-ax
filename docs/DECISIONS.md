@@ -8147,7 +8147,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   `room_files`; 241: `room_notices`, `room_push_deliveries`, `notification_preferences.room_messages`), a new route
   module (`server/src/routes/rooms.ts`, logic in `server/src/rooms/`) and a new contract (`shared/src/api/rooms.ts`,
   events `room.*` in `ws.ts`). The one-person AI chats (`chats`, `server/src/chat/`) are untouched. No AI in rooms yet.
-- **Three kinds, no hand-picked group rooms in v1.** `team`: one per group, its members are the group's active people;
+- **Three kinds, no hand-picked group rooms in v1** (amended 2026-11-06: group chats, see "그룹 대화와 방 이름"). `team`: one per group, its members are the group's active people;
   `all`: one per team, every active person; `dm`: exactly two people, one per pair (`dm_key` = the two ids sorted,
   unique). Rooms of hand-picked people and reactions were cut from v1 after review. The table's CHECK already allows
   `group` (tables are never rebuilt, so a later step can add such rooms without a new table); no code writes one, the
@@ -10167,6 +10167,130 @@ web app's rooms and settings); no server change.
   it or for a member).
 - **Docs.** `docs/site/agents/mcp-connector.md`, `docs/INTEGRATIONS.md` ("App connectors") and this entry.
 
+## 그룹 대화와 방 이름 — group chats and room names (feat/group-rooms, 2026-11-06)
+
+The owner: "챗룸에 그룹챗도 만들 수 있어야 하고, 챗방 이름도 바꿀 수 있어야 해", then: a group can be picked in the
+new-chat list, and a group chat's manager can take someone out. This amends "대화방 v1" ("no hand-picked group rooms in
+v1"): kind `group`, which 240's CHECK already allowed, is now written.
+
+- **A group chat is me and the people I tick.** The new-chat picker is a list with ticks. One person ticked: the DM, as
+  before (`POST /api/rooms {kind:'dm'}`, the existing one when there is one). Two or more: a new group chat
+  (`{kind:'group', userIds, name?}`, at least two others), with an optional name field that shows only then. Several
+  group chats of the same people are fine (no key like `dm_key`). At most `ROOM_GROUP_MAX` (100) people, the maker
+  included, at creation and after invites. Only active accounts of this team: a disabled, deleted or unknown id refuses
+  the whole request with the same 400, so it tells nothing the people list (active people only) does not.
+- **A group in the picker ticks its people now.** The picker lists the groups the caller can see in the app today: every
+  group for the owner and admins (`GET /api/admin/groups`), the groups they are in for a member (`Me.groups`, their
+  people from the group's team room, `GET /api/rooms/:id/members`, whose members are the group's active people). No
+  new endpoint and nothing a member could not read before. Ticking a group ticks its active people (not me, not someone
+  already in the chat when inviting); ticking it again unticks them. A snapshot: the chat never follows the group
+  (that is the group's team room). One other person still makes a DM, by the same rule.
+- **Who is in it.** Any member invites (`POST /api/rooms/:id/members`; people already in it are skipped). Someone added
+  sees the chat from their join on, exactly as a team room's later member (`visible_from_seq` and `last_read_seq` =
+  the room's `last_seq` then): earlier messages, quotes ("deleted" for them), files, AI answers and their sources are
+  not theirs; the invite line right after is the first thing they see. Any member leaves (`POST /api/rooms/:id/leave`);
+  the last one out archives the room (rows kept, nobody can read them). A DM's 초대하기 opens the picker with the other
+  person ticked and makes a new group chat; the DM stays, nothing of it is carried over. Team rooms, the everyone room
+  and DMs refuse invite and leave (403): they follow groups and accounts, a DM keeps its two.
+- **The manager (방장) is computed, never stored**: `rooms.created_by` while they are in the chat (cleared when they leave,
+  are taken out or their account goes), else the member who joined first (`joined_at`, then the user id). The manager, and an owner or admin who is a member of the chat, may take
+  someone out (`DELETE /api/rooms/:id/members/:userId`); never themselves (400: that is leaving), so the manager cannot
+  be taken out by a plain member, and an owner or admin in the chat may take out anyone else, the manager included.
+  Anyone else in it: 403; outside it: 404 as for every room (an admin who is not in it has no way in). The person taken
+  out loses everything of it at once, as on leaving: the member row, their notices of it, their replay buffer
+  (`forgetReplay`) and `room.updated removed` to all their windows; files and AI answers check membership on every
+  read. `Room.managerId` names the manager to the members (the info dialog marks it); nobody's role is told.
+- **Rooms.sync never changes who is in a group chat**, nor any room's own name, with one exception: a disabled or deleted
+  account leaves group chats as it leaves the other rooms (its unread count would never go down otherwise), with a
+  "left" line, and the last one out archives the chat. Enabled again, it is not put back (a group chat has no rule to
+  put it back by; someone invites them).
+- **Room names.** `rooms.name` (migration 250), plain text: trimmed, 1–80 characters (`ROOM_NAME_MAX`, UTF-16 units), no
+  control characters, line or paragraph separators, bidirectional marks, overrides or isolates, or invisible
+  characters (`RoomName`); the zero-width joiners stay for emoji.
+  A group chat: any member renames it. A team room and the everyone room: only a member who is an owner or admin
+  (`Room.canRename` tells the app; the request is checked again, 403 otherwise, and a mute in the same request is not
+  applied). A DM is the other person: never (403). '' or null goes back to the server's name (the group's name, the
+  app's word for everyone, a group chat's members); a team room given its group's own name follows the group again.
+  `Rooms.sync` keeps a custom name through group changes and renames. Team and everyone room renames are audited
+  (`room.rename`, as their other changes are); a group chat's are not. An unnamed group chat shows its other members:
+  the first three of `Room.peers` and "외 N명" (`rooms.groupNamesMore`).
+- **Not audited, like DMs.** Making a group chat, inviting, leaving, removing and renaming one write nothing to the audit
+  log (admins read it and must not learn who talks to whom). Since the AI started a new conversation when a room's
+  members changed by reading `room.members` audit rows, it now also reads the group chat's added / left / removed lines.
+- **Event lines are room messages with `room_messages.event`** (migration 250, a JSON object: created, renamed, added,
+  left, removed, with user ids; names are read when it is shown). `author_kind` is 'user' and `author_id` who did it:
+  240's CHECK allows only 'user' and 'ai', and tables are never rebuilt. A line takes a seq, so it sits in order and
+  `visible_from_seq` applies to it like any message. It counts nowhere: body '', unread 0, never in a badge or the rooms
+  list's last line (`unreadCount`, `lastMessage` skip it), no notice or push (`notify` skips it), it does not move the
+  room's activity, and it cannot be edited or deleted (403, also for its author), answered (400) or posted (404). It is
+  never given to the AI (the room context takes `event IS NULL` only; the history is the chat's own questions and
+  answers). The app shows it as one quiet centred line ("가나님이 방 이름을 '주간 회의'로 바꿨어요", "…님을 초대했어요",
+  "…님이 나갔어요", "…님이 …님을 내보냈어요"); each name but the last gets its honorific in the app, the last one the
+  text's own, so `shared/src/honorific.ts` leaves out a second 님 and fits the particle ("대표님을", "김민지 씨를");
+  "(으)로" after a quoted name is read inside the quotes (`koRo`). An unknown event (a newer build's) shows as a line too,
+  never as a message.
+- **The AI.** A group chat answers like a team room: the answer goes to the chat only when every member now may read
+  everything it used, else a private preview (`RoomAi.decide`, unchanged, works on the members whatever the kind); a
+  member invited later keeps the next answer private when it was given messages from before they joined. The room's
+  own name is never given to the AI: any member may set it, so the instructions say "a group chat of N people" and the
+  context block's label is "group chat" (a team room keeps its group's name, set by admins). A confirmation card shown
+  to the person may name the room by its own name (plain text in the app).
+- **Notices.** A message in a group chat notifies the others like a DM message (`room.dm`: a conversation of picked
+  people, as Slack's group DMs; one notice per unread run, mute and the Room messages switch as before); an @mention as
+  everywhere. Kinds stay 'dm', 'group', 'team' and 'all' in the contract and the `room.*` events (a later branch rings a
+  sound for DMs, group chats and mentions).
+- **UI, lean.** No new cards or boxes. The room header's name (and its member count beside it) opens the room's info,
+  the existing members dialog: the name row (a tap edits it in place, for those who may; empty brings the default back,
+  said under the field), 초대하기 (group chats; DMs: a new group chat), the members (나 and 방장 marked; "…" › 내보내기 on
+  a row for the manager and owners or admins in it, with a confirm; on computers the "…" shows on hover or focus, like
+  a message's), and 대화방 나가기 last (group chats, with a confirm). "멤버 N명" is no longer a button of its own: it
+  sits beside the name inside the title's button. Checked at 1440 and 390×844, light and dark, ko and en; the phone
+  type audit (`web/scripts/type-audit.ts`, which now opens a DM's info too) flags nothing on the room screens. The picker is one list: a search box, a small 그룹
+  section above 사람, rows with a round tick at the end, and in the footer how many are ticked and one primary action
+  (대화하기 / 그룹 대화 만들기 / 초대하기), with the name field above it only for two or more. "새 1:1 대화" is "새 대화". A
+  group chat's mark is two speech bubbles.
+- **Rollback: reader level 5.** An older build would list a group chat as a room of a kind its contract does not know
+  (`RoomKind` without 'group': the response check fails, and without it the chat shows under the everyone room's word)
+  and an event line as an empty message from the person who did it, which they could edit into words and which counts
+  as unread. So 250 declares `min_compatible_reader: 5` and `SCHEMA_READER_LEVEL` is 5: a build before this one
+  refuses the database, and going back means restoring the backup taken before the update (the update screen says so,
+  `needsBackupRestoreToRollBack`; hosted servers roll back by snapshot, `onlySnapshotRollback`). Rejected: making old
+  builds live with it (a plain-text body for lines and a group chat named like a team room): the strict contract still
+  refuses the kind in development and the lines stay editable.
+- **Independent review (2026-11-06) fixes.** A room's own name reached the AI through the refusal text of the "save
+  where more people can see" card (`sourceLabel`): the card still names the room by its own name, the AI reads the
+  server's name only (`roomName(…, own)`). Someone invited while the AI answers a question from before they joined:
+  `decide` now counts the question itself (its seq), not only the earlier messages given to the AI, so that answer
+  stays private ("○○ 님이 들어오기 전 대화"). `room.ai_share` and `room.ai_delete` audit rows name a DM or group chat
+  by its kind only (`roomAuditRef`), never its id (two people's rows with one id would say they talk). Making a group
+  chat, inviting and renaming take from the sending budget (a script cannot fill 99 people's lists or the room with
+  lines). The maker who leaves, is taken out or whose account goes gives up the manager role for good
+  (`rooms.created_by` cleared); invited back, they are a member like the others. Names also refuse the bidi marks
+  (U+200E, U+200F, U+061C), the zero-width space, the byte order mark and the tag characters. The migration is 250:
+  248 is taken by the intro deck branch and 249 by a skill-sharing branch.
+- **Second review (2026-11-06) fixes.** Someone who left and was invited back (or left a group and joined it again)
+  could still edit and delete their messages from before, which they no longer see: editing and deleting now check
+  `canSee` first (404, every kind of room). Names must show something: every format character but the zero-width
+  joiner is refused (soft hyphen, invisible operators, U+180E, U+FFF9–FFFB, …), so are the Hangul fillers (U+115F,
+  U+1160, U+3164, U+FFA0) and the blank Braille pattern U+2800, and a name needs at least one letter, number, symbol or
+  punctuation mark (not combining marks or joiners alone). An event line this build cannot read (a newer build's, a
+  damaged row, a "removed" without its person) is `{type:'unknown'}` by nobody ("대화방 정보가 바뀌었어요"), never
+  "<who> left". Someone who leaves or is taken out of a room (also out of a team room by a group change) has their
+  questions to the AI there stopped (`RoomAi.stopFor`): they could not stop them any more (stop answers 404 outside the
+  room) and the turn would go on spending their budget and sending them steps. At most `GROUPS_PER_HOUR` (10) new group
+  chats a person an hour, on top of the sending budget, with a 429 that says so (`roomGroupLimit`; kept in memory, so
+  a restart starts the count again). The new-chat picker drops ticked people the list does not show (a DM's 초대하기
+  whose other person's account is gone ticked an invisible person and the send was refused). On phones a run's time
+  is compared with the nearest message run above, never an event line (which shows no time). The notice setting and
+  the generic notice text say "1:1 and group chats", since group chat messages notify with `room.dm`. Reader level 5:
+  no other branch (origin/dev, local or remote) raises `SCHEMA_READER_LEVEL`; dev is at 4 and only this branch (and
+  one stacked on it) declares a reader-5 migration.
+- **Tests.** `tests/unit/b-rooms-group.test.ts` (making one, the cap, invite and what a later member cannot see, leave
+  and archive, remove and the computed manager, rename rules for every kind and person, event lines counting nowhere,
+  sync, the reader level), `b-rooms-ai.test.ts` "the AI in a group chat" (the share rule, a member invited later, no
+  event line or room name in the AI's context, a new conversation after an invite), the permission matrix
+  (`inviteRoomMembers`, `removeRoomMember`, `leaveRoom`, and checks on create, rename and invite), and the web tests
+  `room-picker`, `room-info`, `rooms-lib`, `rooms-store`, `room-messages`.
 ## K — Knowledge graph: CodeGraph's code map of the team folders, filtered at every question (2026-11-06)
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
   upload the files its automaticaly sync the folder for the knowledge graph". The AI gets `knowledge_explore`: functions,
