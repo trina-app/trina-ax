@@ -408,9 +408,11 @@ describe('Home\'s latest AI chats on a phone', () => {
     expect([...(await render()).matchAll(/data-testid="home-recent"/g)].length).toBe(1)
   })
 
-  test('a chat whose AI waits for me says so', async () => {
+  test('a chat whose AI waits for me says so: its "?" at the row\'s end, named by the reason (session markers)', async () => {
     const c = chat(2)
     useChats.setState({ chats: [c], requests: { r1: { turnId: 't', chatId: c.id, messageId: 'm', request: {} } } as never })
-    expect(await render()).toContain(`data-testid="needs-answer">${ko('chat.needsAnswer')}<`)
+    const html = await render()
+    expect(html).toContain(`aria-label="${ko('marker.card')}"`)
+    expect(html).toContain('data-testid="marker-ask"')
   })
 })

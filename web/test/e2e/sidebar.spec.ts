@@ -162,7 +162,7 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }])
   })
 }
 
-test('"답변 필요" and the new-answer dot come from the chat list: they survive a reload, with no request per chat', async ({ page }) => {
+test('the "?" and the new-answer dot (session markers) come from the chat list: they survive a reload, with no request per chat', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const s = side(page)
@@ -174,7 +174,7 @@ test('"답변 필요" and the new-answer dot come from the chat list: they survi
   await s.getByTestId('new-chat').click()
   await expect(page).toHaveURL(/\/$/)
   const awayRow = s.locator(`li:has(a[href="${awayChat}"])`)
-  await expect(awayRow.getByTestId('new-answer-dot')).toBeVisible({ timeout: 20_000 })
+  await expect(awayRow.getByTestId('marker-new')).toBeVisible({ timeout: 20_000 })
   // a question card, left for Home
   await page.getByTestId('composer-input').fill('ask me which quarter')
   await page.getByTestId('send').click()
@@ -184,23 +184,23 @@ test('"답변 필요" and the new-answer dot come from the chat list: they survi
   await s.getByTestId('new-chat').click()
   await expect(page).toHaveURL(/\/$/)
   const askRow = s.locator(`li:has(a[href="${askChat}"])`)
-  await expect(askRow.getByTestId('needs-answer')).toHaveText(t['chat.needsAnswer'])
+  await expect(askRow.getByTestId('marker-ask')).toBeVisible()
   // a reload: both still there, from the list alone
   const perChat: string[] = []
   page.on('request', (r) => { if (/\/api\/chats\/[^/]+\/(requests|messages)/.test(r.url())) perChat.push(r.url()) })
   await page.reload()
-  await expect(askRow.getByTestId('needs-answer')).toBeVisible()
-  await expect(awayRow.getByTestId('new-answer-dot')).toBeVisible()
+  await expect(askRow.getByTestId('marker-ask')).toBeVisible()
+  await expect(awayRow.getByTestId('marker-new')).toBeVisible()
   await page.waitForTimeout(500)
   expect(perChat).toEqual([])
   // opened: seen (the server is told), and still seen after a reload
   const seen = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith(`/api/chats${awayChat.slice(2)}/seen`))
   await awayRow.getByRole('link').first().click()
   await seen
-  await expect(awayRow.getByTestId('new-answer-dot')).toHaveCount(0)
+  await expect(awayRow.getByTestId('marker-new')).toHaveCount(0)
   await s.getByTestId('new-chat').click()
-  await expect(awayRow.getByTestId('new-answer-dot')).toHaveCount(0)
+  await expect(awayRow.getByTestId('marker-new')).toHaveCount(0)
   await page.reload()
   await expect(awayRow).toBeVisible()
-  await expect(awayRow.getByTestId('new-answer-dot')).toHaveCount(0)
+  await expect(awayRow.getByTestId('marker-new')).toHaveCount(0)
 })

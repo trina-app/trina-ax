@@ -38,7 +38,7 @@ import type { KnowledgeGraphStatus } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  ApiErrorResponse, CSRF_HEADER, Room, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
@@ -212,6 +212,8 @@ export class MockServer {
   skillMakers = new Map<string, string>()
   folders: Folder[] = []
   chats: Chat[] = []
+  /** the team chat rooms the signed-in person is in (empty unless a test sets them: /__test/rooms) */
+  rooms: Room[] = []
   messages: Message[] = []
   artifacts: Artifact[] = []
   /** intro decks built in round 2 (newest last) and the time per build step (POST /__test/deck-pace) */
@@ -376,6 +378,7 @@ export class MockServer {
     this.skillDrafts = new Map()
     this.skillMakers = new Map()
     this.chats = []
+    this.rooms = []
     this.sources.clear()
     this.messages = []
     this.artifacts = []
@@ -985,7 +988,8 @@ export class MockServer {
       // like the server: the chat list says the AI waits for the person (Chat.waiting) while the card is open
       const waits = this.chats.find((c) => c.id === chatId)!
       waits.waiting = true
-      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits } })
+      // a card that opens is worth telling (chat.updated notify 'card', docs/DECISIONS.md "Session markers")
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits, notify: 'card' } })
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
@@ -1242,12 +1246,17 @@ export class MockServer {
     const chat = this.chats.find((c) => c.id === chatId)!
     chat.runState = 'idle'
     chat.updatedAt = now()
-    // like the server (migration 252): an answer that finished is unseen until the person has the chat on screen
+    // like the server (migration 252): an answer that finished is unseen until the person has the chat on screen; how it
+    // ended when not well (Chat.lastOutcome: failed, or paused at a limit)
     chat.unseen = true
+    if (assistant.status === 'error') chat.lastOutcome = 'error'
+    else if (assistant.status === 'done' && assistant.stopReason) chat.lastOutcome = 'paused'
+    else delete chat.lastOutcome
     if (!chat.title) chat.title = prompt.slice(0, 30)
     this.queueRevision++
     pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
-    pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
+    // "long answer": like an answer that ran over a minute (server/src/chat/runtime.ts LONG_ANSWER_MS): worth telling
+    pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat, ...(/long answer/i.test(prompt) && assistant.status !== 'stopped' ? { notify: 'answer' as const } : {}) } })
     void user
   }
 
@@ -1302,7 +1311,7 @@ export class MockServer {
     me: (c) => this.me(c.user, ''),
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
-    listRooms: () => ({ items: [], alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul' } }),
+    listRooms: () => ({ items: this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul' } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
     mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
@@ -3440,6 +3449,12 @@ export class MockServer {
         for (let d = f.path.lastIndexOf('/'); d > 0; d = f.path.lastIndexOf('/', d - 1)) this.files.set(f.path.slice(0, d), this.files.get(f.path.slice(0, d)) ?? { type: 'folder', mtime: now() })
         this.putFile(f.path, `---\nname: ${f.name}\ndescription: ${f.description ?? ''}\n${f.title ? `metadata:\n  title: ${f.title}\n` : ''}---\n${f.name} steps\n`)
       }
+    }
+    else if (p === '/__test/rooms') {
+      // session markers (docs/DECISIONS.md): rooms as GET /api/rooms lists them (unread counts, "@", the AI waiting on
+      // me); each one is sent like the server's room.updated
+      this.rooms = (body.rooms as unknown[]).map((r) => Room.parse(r))
+      for (const r of this.rooms) this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
     }
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice

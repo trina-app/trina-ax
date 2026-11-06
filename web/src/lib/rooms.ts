@@ -212,14 +212,17 @@ export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partia
  * unread messages (or followed replies) mentions me (the count would read as a count of mentions), else the count. */
 export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits'>>) => (r.aiWaits ? '?' : r.mentioned ? '@' : badgeText(roomUnread(r)))
 
-/** Does this room want me (docs/DECISIONS.md "Session markers"): its AI waits on me (a card of my own question), or,
- * unless I muted it, something unread there is meant for me: an @mention, a message in a DM or group chat, a reply in a
- * thread I follow. The same things the server gives notices for (rooms/service.ts notify). Plain unread messages in a
- * team room or the everyone room only make its row bold, as in Slack. Counted once in the one count n. */
-export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits'>>): boolean {
+/** Does this room want me (docs/DECISIONS.md "Session markers"): its AI waits on me (a card of my own question), or
+ * something unread there is for me by my level for the room (Room.notify, shared room-alerts.ts: the same rule the
+ * server's notices follow): an @mention, a reply in a thread I follow ("내가 참여한 스레드의 답글" on), or any message of
+ * a room at 모든 메시지 (by default: DMs and group chats). Nothing from a room at 끄기. Plain unread messages in a team
+ * room or the everyone room at its default only make the row bold, as in Slack. Counted once in the one count n. An
+ * older server without levels: muted is 끄기, DMs and group chats are 모든 메시지. */
+export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits' | 'notify'>>, threadReplies = true): boolean {
   if (r.aiWaits) return true
-  if (r.muted || roomUnread(r) <= 0) return false
-  return r.mentioned || (r.threadsUnread ?? 0) > 0 || ((r.kind === 'dm' || r.kind === 'group') && r.unreadCount > 0)
+  const level = r.notify?.level ?? (r.muted ? 'off' : r.kind === 'team' || r.kind === 'all' ? 'mentions' : 'all')
+  if (level === 'off' || roomUnread(r) <= 0) return false
+  return r.mentioned || (threadReplies && (r.threadsUnread ?? 0) > 0) || (level === 'all' && r.unreadCount > 0)
 }
 
 /** Who put a reaction there, for its tooltip: the names given ("가나, 다라"), then how many more ("외 3명"). */

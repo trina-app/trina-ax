@@ -37,12 +37,13 @@ export const needsMe = (m: Marker | null) => m?.kind === 'ask' || m?.kind === 'n
 
 type CountedChat = MarkedChat & Pick<Chat, 'id'>
 type CountedRoom = Parameters<typeof roomWantsMe>[0]
-/** The one count n: the AI chats showing "?" or a dot, and the rooms that want me (lib/rooms.ts roomWantsMe: a DM or
- * group chat with unread messages, an @mention, a reply in a thread I follow, the room's AI waiting on me), each
- * once. Chats and rooms, not events: a chat that ended twice counts once. `ask`: any of them is a "?"; `chats` and
- * `chatAsk`: the AI chats' part of it (the phone's ☰ dot: the drawer holds only them). `here`: the chat on screen in a
- * visible window; `cards`: the chats with a card open in this window. */
-export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string> } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean } {
+/** The one count n: the AI chats showing "?" or a dot, and the rooms that want me (lib/rooms.ts roomWantsMe: the room's
+ * AI waiting on me, or unread messages for me by my level for the room: by default a DM or group chat message, an
+ * @mention, a reply in a thread I follow), each once. Chats and rooms, not events: a chat that ended twice counts once.
+ * `ask`: any of them is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the phone's ☰ dot: the drawer holds
+ * only them). `here`: the chat on screen in a visible window; `cards`: the chats with a card open in this window;
+ * `threadReplies`: my "replies in threads I follow" switch (the rooms list's alerts). */
+export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string>; threadReplies?: boolean } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean } {
   let chatsN = 0, chatAsk = false
   for (const c of chats) {
     const m = markerOf(c, { here: c.id === o.here, card: o.cards?.has(c.id) })
@@ -51,7 +52,7 @@ export function attentionCount(chats: readonly CountedChat[], rooms: readonly Co
     if (m!.kind === 'ask') chatAsk = true
   }
   let n = chatsN, ask = chatAsk
-  for (const r of rooms) if (roomWantsMe(r)) { n++; if (r.aiWaits) ask = true }
+  for (const r of rooms) if (roomWantsMe(r, o.threadReplies ?? true)) { n++; if (r.aiWaits) ask = true }
   return { n, ask, chats: chatsN, chatAsk }
 }
 

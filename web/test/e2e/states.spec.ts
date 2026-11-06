@@ -57,24 +57,28 @@ async function hide(page: Page, hidden: boolean) {
   }, hidden)
 }
 
-test('a chat whose AI waits for an answer is marked in the sidebar, and a hidden tab counts it in its title', async ({ page }) => {
+test('a chat whose AI waits for an answer shows "?" at the end of its row, and a hidden tab counts it in its title', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.getByTestId('composer-input').fill('please ask me something')
   await page.getByTestId('send').click()
   await expect(page.getByTestId('ask-card')).toBeVisible()
-  const row = page.getByRole('navigation').getByRole('listitem').filter({ has: page.getByTestId('needs-answer') })
+  // session markers (docs/DECISIONS.md): one marker per row, the reason as its name; the card's "?" stays on screen
+  const row = page.getByRole('navigation').getByRole('listitem').filter({ has: page.getByTestId('marker-ask') })
   await expect(row).toHaveCount(1)
-  await expect(row).toContainText('답변 필요')
+  await expect(row.getByRole('img', { name: '어느 분기를 볼까요?' })).toBeVisible()
+  await expect(row.getByTestId('chat-marker')).toHaveCount(1)
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(1\) /)
   await hide(page, false)
   await expect(page).toHaveTitle(/^[^(]/)
-  // answered: the mark goes away
+  // answered: the "?" goes, and the answer that ends on screen is never "new"
   const card = page.getByTestId('ask-card')
   await card.getByLabel('4분기').check()
   await card.getByRole('button', { name: '답하기' }).click()
-  await expect(page.getByTestId('needs-answer')).toHaveCount(0)
+  await expect(page.getByTestId('marker-ask')).toHaveCount(0)
+  await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
+  await expect(page.getByTestId('chat-marker')).toHaveCount(0)
 })
 
 test('an answer that finishes while the tab is hidden shows "(1)" in the title until the tab is seen', async ({ page }) => {

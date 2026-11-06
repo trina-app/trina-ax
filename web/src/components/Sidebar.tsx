@@ -3,9 +3,9 @@
 // with tooltips (files, projects, scheduled, team skills, the inbox with its count, admin for owners and admins), then one
 // scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the five latest rooms and the room on screen,
 // "더 보기 (N)" for the rest with what is unread there) and "트리나 기록" (the AI's history: the five latest and the chat
-// on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K" when a hidden chat waits for me or has an
-// unseen answer; "답변 필요" and dots from the chat list itself, chat/ChatState.tsx), so the AI never sinks under many
-// rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its own row between the two. People and the AI never share a word:
+// on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K" when hidden chats show a "?" or a dot; one
+// session marker per row from the chat list itself, chat/ChatState.tsx: "?", a spinner or a dot), so the AI never sinks
+// under many rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its own row between the two. People and the AI never share a word:
 // no bare "채팅" here. Each folds, and each one's whole list stays open or closed, remembered in this browser. Then the
 // account menu (the
 // person's email or ID, Settings, Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens
@@ -25,13 +25,15 @@ import { aiName } from '../lib/tabs'
 import { useLogout } from '../lib/logout'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
+import { markerOf, needsMe, waitingOrRunning, type MarkerView } from '../lib/sessionMarkers'
 import { useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
+import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
 import { Avatar } from './Avatar'
 import { useChatActions } from './chat/chatActions'
-import { ChatStateDot, isUnused, NeedsAnswerLabel } from './chat/ChatState'
+import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
 import { SetupRow } from './onboarding/SetupRow'
 import { useMediaQuery } from './ui'
@@ -44,8 +46,9 @@ const BUCKET_LABEL: Record<DateBucket, MessageKey> = { today: 'sidebar.today', y
 
 
 /** How Recents is filtered, grouped and sorted, like Claude's: only what the chat list itself knows. Status "Active" is
- * every chat in the list (deleted ones are under the account menu's Deleted chats); "Waiting": an answer is running or
- * queued, or the AI waits for the person. */
+ * every chat in the list (deleted ones are under the account menu's Deleted chats); "Waiting": a spinner or a "?" row
+ * (an answer runs or waits its turn, a card waits for the person, an answer failed or paused and was not seen; not a new
+ * answer: docs/DECISIONS.md "Session markers"). */
 const VIEW = {
   status: { label: 'sidebar.view.status', options: { all: 'sidebar.status.all', waiting: 'sidebar.filter.active', project: 'sidebar.filter.project', noProject: 'sidebar.filter.noProject', confidential: 'sidebar.filter.confidential' } },
   activity: { label: 'sidebar.view.activity', options: { all: 'sidebar.activity.all', today: 'sidebar.today', week: 'sidebar.week', month: 'sidebar.month' } },
@@ -57,9 +60,9 @@ type RecentsView = { [K in ViewKey]: keyof (typeof VIEW)[K]['options'] }
 const DEFAULT_VIEW: RecentsView = { status: 'all', activity: 'all', group: 'date', sort: 'updated' }
 const VIEW_KEY = 'mycel.sidebar.recentsView'
 const DAY = 86_400_000
-const passes = (v: RecentsView, c: Chat, waiting: boolean, now: number) => {
+const passes = (v: RecentsView, c: Chat, seen: MarkerView, now: number) => {
   const s = v.status
-  const ok = s === 'waiting' ? c.runState !== 'idle' || waiting : s === 'project' ? !!c.projectId : s === 'noProject' ? !c.projectId : s === 'confidential' ? !!c.confidential : true
+  const ok = s === 'waiting' ? waitingOrRunning(c, seen) : s === 'project' ? !!c.projectId : s === 'noProject' ? !c.projectId : s === 'confidential' ? !!c.confidential : true
   const age = now - new Date(c.updatedAt).getTime()
   const fresh = v.activity === 'today' ? dateBucket(c.updatedAt) === 'today' : v.activity === 'week' ? age <= 7 * DAY : v.activity === 'month' ? age <= 30 * DAY : true
   return ok && fresh
@@ -124,7 +127,10 @@ export default function Sidebar() {
     remember(VIEW_KEY, JSON.stringify(v))
   }
   const changed = (Object.keys(VIEW) as ViewKey[]).filter((k) => view[k] !== DEFAULT_VIEW[k])
-  const waiting = useChats((s) => s.requests)
+  const requests = useChats((s) => s.requests)
+  // session markers as this window sees them: the chats with a card open here, the chat on screen in a visible window
+  const cards = useMemo(() => cardChats(requests), [requests])
+  const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
   // project names, only when Recents is grouped by project (one read, kept while the sidebar is there)
   const [projects, setProjects] = useState<Map<string, string> | null>(null)
   useEffect(() => {
@@ -132,10 +138,9 @@ export default function Sidebar() {
     api.call(API.listProjects).then((r) => setProjects(new Map(r.items.map((p) => [p.id, p.name]))), () => setProjects(new Map()))
   }, [view.group, projects])
   const groups = useMemo(() => {
-    const asked = new Set(Object.values(waiting).map((r) => r.chatId))
     const now = Date.now()
     // a chat made only to hold attachments (a file attached, nothing sent yet) is not a conversation yet
-    const shown = chats.filter((c) => !isUnused(c) && passes(view, c, asked.has(c.id), now))
+    const shown = chats.filter((c) => !isUnused(c) && passes(view, c, { card: cards.has(c.id), here: c.id === here }, now))
     const when = (c: Chat) => (view.sort === 'created' ? c.createdAt : c.updatedAt)
     shown.sort((a, b) => (view.sort === 'title' ? (a.title || '').localeCompare(b.title || '') : when(b).localeCompare(when(a))))
     const g = new Map<string, { label: string | null; items: Chat[] }>()
@@ -146,20 +151,19 @@ export default function Sidebar() {
       g.get(key)!.items.push(c)
     }
     return [...g.entries()]
-  }, [chats, view, waiting, projects, t])
+  }, [chats, view, cards, here, projects, t])
   const listId = useId()
   const peek = useChatPeek()
   // a computer: the five latest AI chats and the chat on screen, unless the whole history is open (or filtered)
   const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
   const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
   const latest = useMemo(() => used.filter((c, i) => i < LATEST || c.id === openChat), [used, openChat])
-  // the hidden chats that need me, counted on "모두 보기" as their rows would show it (ChatStateDot): the AI waits for my
-  // answer, or an answer I have not seen (not while the chat runs again: its row shows the running dot then)
+  // the hidden chats that need me, counted on "모두 보기" as their rows would show them (session markers: a "?" or a dot,
+  // not a spinner: a chat that runs again shows the spinner); amber when one of them is a "?"
   const hiddenNeeds = useMemo(() => {
-    const asked = new Set(Object.values(waiting).map((r) => r.chatId))
-    const needs = used.filter((c) => !latest.includes(c) && (c.waiting || asked.has(c.id) || (c.unseen && c.runState === 'idle')))
-    return { n: needs.length, waiting: needs.some((c) => c.waiting || asked.has(c.id)) }
-  }, [used, latest, waiting])
+    const marks = used.filter((c) => !latest.includes(c)).map((c) => markerOf(c, { card: cards.has(c.id), here: c.id === here })).filter(needsMe)
+    return { n: marks.length, waiting: marks.some((m) => m!.kind === 'ask') }
+  }, [used, latest, cards, here])
   const full = !wide || allChats || changed.length > 0
   const toggleRecents = () => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
 
@@ -363,6 +367,8 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
   const t = useT()
   const [menu, setMenu] = useState(false)
   const actions = useChatActions()
+  // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row
+  const { marker, reason } = useChatMarker(chat)
   const ref = useRef<HTMLLIElement>(null)
   useEffect(() => {
     if (!menu) return
@@ -381,7 +387,7 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
   }
 
   return (
-    <li ref={ref} className="group relative" onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)} onMouseLeave={peek.hide}>
+    <li ref={ref} className="group relative" onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)} onMouseLeave={peek.hide} data-marker={marker?.kind}>
       <NavLink
         to={`/c/${chat.id}`}
         onClick={() => {
@@ -391,12 +397,19 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
         onFocus={(e) => e.currentTarget.matches(':focus-visible') && peek.soon(chat, ref.current!, 600)}
         onBlur={peek.hide}
         onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
-        className={({ isActive }) => clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-md:h-11 max-md:pr-11', isActive ? 'bg-hover font-medium text-ink' : 'text-muted')}
+        className={({ isActive }) =>
+          clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-md:h-11 max-md:pr-11', marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : marker?.kind === 'new' ? 'font-medium text-ink' : 'text-muted')
+        }
       >
-        {/* the AI waits for me (ask_user / site / connect_service card), an answer runs, a deck finished meanwhile */}
-        <ChatStateDot chat={chat} />
         <span className="truncate">{chat.title || t('chat.untitled')}</span>
-        <NeedsAnswerLabel chat={chat} />
+        {marker && (
+          // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
+          // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;
+          // on a phone "···" always shows and it sits left of it
+          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center max-md:right-11', menu ? 'opacity-0' : 'md:group-focus-within:opacity-0 md:group-hover:opacity-0')} data-testid="chat-marker">
+            <SessionMarker marker={marker} label={reason} />
+          </span>
+        )}
       </NavLink>
       <button
         type="button"
@@ -717,6 +730,18 @@ function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange:
  * a mouse; decorative (aria-hidden: the link already says the title), never in the way (no pointer events), and gone on
  * leave, Esc, a click or a scroll. One read of the last two messages per chat version, kept for the session. */
 type ChatPeek = ReturnType<typeof useChatPeek>
+/** The peek's first line: the row marker's reason (session markers), as the chat is now (it may have changed since the
+ * pointer came). Nothing on an idle chat. */
+function PeekReason({ chatId, fallback }: { chatId: string; fallback: Chat }) {
+  const chat = useChats((s) => s.chats.find((c) => c.id === chatId)) ?? fallback
+  const { marker, reason } = useChatMarker(chat)
+  if (!marker) return null
+  return (
+    <p className={clsx('mb-2 line-clamp-2 text-xs font-medium', marker.kind === 'ask' ? 'text-warn' : marker.kind === 'new' ? 'text-accent-text' : 'text-faint')} data-testid="chat-peek-reason">
+      {reason}
+    </p>
+  )
+}
 const peeks = new Map<string, Promise<{ text: string; file: string | null }>>()
 function peekOf(c: Chat) {
   const key = `${c.id}:${c.updatedAt}`
@@ -774,6 +799,7 @@ function useChatPeek() {
   const card = shown
     ? createPortal(
         <div aria-hidden className="pointer-events-none fixed z-40 w-72 rounded-xl border border-line bg-surface p-3 shadow-lg" style={{ top: shown.top, left: shown.left }} data-testid="chat-peek">
+          <PeekReason chatId={shown.chat.id} fallback={shown.chat} />
           <div className="mb-2 min-h-12 rounded-lg bg-subtle p-2.5 text-xs text-muted" data-testid="chat-peek-preview">
             {!d ? (
               <span className="block h-3 w-2/3 animate-pulse rounded bg-hover" />

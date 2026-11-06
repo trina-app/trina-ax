@@ -11,6 +11,7 @@ import { closeSidePanel, keepsFilePanel, openArtifact, setSidePanel, typingOnPho
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
+import { useAttention } from '../store/sessionMarkers'
 import { useUi } from '../store/ui'
 import OfficeUpdateBanner from './OfficeUpdateBanner'
 import ManagedNoticesBanner from './ManagedNoticesBanner'
@@ -209,23 +210,19 @@ function ConnectionBanner() {
 }
 
 /**
- * Tab 5 "주의가 필요한 채팅": while the window is hidden, the tab title starts with "(N) " — N = questions the AI is
- * waiting on plus answers that finished meanwhile — so someone in another tab sees that a chat needs them.
- * Cleared when the window is seen again.
+ * Session markers (docs/DECISIONS.md "Session markers"): while the tab is hidden its title starts with "(n) ", n = the
+ * AI chats showing "?" or a new answer and the rooms that want me, each once (store/sessionMarkers.ts): the same number
+ * as the dock badge. It counts chats and rooms, not events.
  */
 export function AttentionTitle() {
-  const waiting = useChats((s) => Object.keys(s.requests).length)
-  const unseen = useUi((s) => s.unseenDone)
+  const { n: count } = useAttention()
   const [hidden, setHidden] = useState(() => typeof document !== 'undefined' && document.hidden)
   useEffect(() => {
-    const h = () => {
-      setHidden(document.hidden)
-      if (!document.hidden) useUi.getState().setUnseenDone(0)
-    }
+    const h = () => setHidden(document.hidden)
     document.addEventListener('visibilitychange', h)
     return () => document.removeEventListener('visibilitychange', h)
   }, [])
-  const n = hidden ? waiting + unseen : 0
+  const n = hidden ? count : 0
   useEffect(() => {
     document.title = n > 0 ? `(${n}) ${PRODUCT.displayName}` : PRODUCT.displayName
   }, [n])

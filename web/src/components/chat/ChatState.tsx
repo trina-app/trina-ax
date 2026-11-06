@@ -1,45 +1,41 @@
-// What a row of the AI chats says about its chat (the sidebar and the phone's drawer, Home's latest chats on a phone):
-// the AI asked something and waits for me (a warn dot, then "답변 필요" after the title: tab 5 "주의가 필요한 채팅"), an
-// answer runs or waits its turn (a pulsing dot), an intro deck finished there while I was elsewhere (store/deckBuilds.ts),
-// or an answer finished after I last had the chat on screen (a still dot). The chat list says the last two that
-// survive a reload, for every window and device (Chat.waiting, Chat.unseen; docs/DECISIONS.md "Desktop sidebar: rooms
-// first"); the live cards of this window (store/chats.ts requests) count too. No request per chat.
-import { useLocation } from 'react-router-dom'
+// What a row of the AI chats says about its chat (the sidebar's 트리나 기록 and 모두 보기, the phone's drawer, Home's
+// latest chats on a phone): one session marker at the row's right end (docs/DECISIONS.md "Session markers",
+// lib/sessionMarkers.ts): "?" in a 16 px amber pill (the rooms' "@" shape) while the AI waits for my answer or an answer
+// failed or paused that I have not seen; a 12 px grey ring while an answer runs or waits its turn (standing still with
+// reduced motion); an 8 px accent dot for an answer I have not seen. Nothing on an idle row. From the chat list itself
+// (Chat.waiting, Chat.unseen, Chat.lastOutcome, runState: the same after a reload and on every device) and the cards
+// open in this window; no request per chat. Its label is the reason, which the row's link name then includes.
+import clsx from 'clsx'
 import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
+import { markerOf, type Marker } from '../../lib/sessionMarkers'
 import { useChats } from '../../store/chats'
-import { useDeckBuilds } from '../../store/deckBuilds'
+import { cardQuestion, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
 
 /** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
 export const isUnused = (c: Pick<Chat, 'title' | 'createdAt' | 'updatedAt' | 'runState'>) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
 
-/** the AI of this chat waits for my answer: the list's word for it, or a card open in this window */
-export function useNeedsAnswer(chat: Pick<Chat, 'id' | 'waiting'>): boolean {
-  const live = useChats((s) => Object.values(s.requests).some((r) => r.chatId === chat.id))
-  return live || !!chat.waiting
+type Marked = Pick<Chat, 'id' | 'runState' | 'waiting' | 'unseen' | 'lastOutcome' | 'confidential'>
+/** A chat's marker and its reason in words, as this window shows them: the AI's question itself when this window has
+ * its card (not for a confidential chat), else the marker's words. */
+export function useChatMarker(chat: Marked): { marker: Marker | null; reason: string } {
+  const t = useT()
+  const here = useSessionMarkers((s) => s.visible && s.onScreen === chat.id)
+  const card = useChats((s) => Object.values(s.requests).some((r) => r.chatId === chat.id))
+  const marker = markerOf(chat, { here, card })
+  const question = useChats((s) => (marker?.reason === 'card' && !chat.confidential ? cardQuestion(s.requests, chat.id) : undefined))
+  return { marker, reason: marker ? reasonText(marker.reason, t, question) : '' }
 }
 
-/** the dot before the title */
-export function ChatStateDot({ chat }: { chat: Pick<Chat, 'id' | 'runState' | 'waiting' | 'unseen'> }) {
-  const t = useT()
-  const needsAnswer = useNeedsAnswer(chat)
-  const deckReady = useDeckBuilds((s) => !!s.unseen[chat.id])
-  // the chat on screen is being seen (the chat page tells the server: POST /api/chats/:id/seen)
-  const here = useLocation().pathname === `/c/${chat.id}`
-  if (needsAnswer) return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
-  if (chat.runState !== 'idle') return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label={t(chat.runState === 'queued' ? 'chat.queued' : 'chat.running')} />
-  if (deckReady) return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label={t('deck.progress.ready')} data-testid="deck-ready-dot" />
-  if (chat.unseen && !here) return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label={t('sidebar.newAnswer')} data-testid="new-answer-dot" />
-  return null
-}
-
-/** "답변 필요" after the title, while the AI waits for me */
-export function NeedsAnswerLabel({ chat }: { chat: Pick<Chat, 'id' | 'waiting'> }) {
-  const t = useT()
-  if (!useNeedsAnswer(chat)) return null
-  return (
-    <span className="shrink-0 text-micro font-medium text-warn" data-testid="needs-answer">
-      {t('chat.needsAnswer')}
-    </span>
-  )
+/** The marker itself (role img, named by the reason). */
+export function SessionMarker({ marker, label, className }: { marker: Marker; label: string; className?: string }) {
+  if (marker.kind === 'ask')
+    return (
+      <span role="img" aria-label={label} className={clsx('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-warn px-1 text-micro leading-none font-bold text-canvas', className)} data-testid="marker-ask" data-reason={marker.reason}>
+        <span aria-hidden>?</span>
+      </span>
+    )
+  if (marker.kind === 'running')
+    return <span role="img" aria-label={label} className={clsx('size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-faint border-r-transparent motion-reduce:animate-none', className)} data-testid="marker-running" data-reason={marker.reason} />
+  return <span role="img" aria-label={label} className={clsx('size-2 shrink-0 rounded-full bg-accent', className)} data-testid="marker-new" />
 }

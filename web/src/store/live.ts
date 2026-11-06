@@ -18,6 +18,7 @@ import { usePeople } from './people'
 import { useRooms } from './rooms'
 import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
+import { chatUpdated, roomMessage, roomUpdated, startSessionMarkers, stopSessionMarkers } from './sessionMarkers'
 import { toast, useUi } from './ui'
 
 /** files.changed (only paths this person can read): the file screen refreshes the folder it shows. */
@@ -45,9 +46,6 @@ let firstServerVersion: string | null = null
 
 /** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
 export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: false }) {
-  if (ev.type === 'message.done' && typeof document !== 'undefined' && document.hidden) {
-    useUi.getState().setUnseenDone(useUi.getState().unseenDone + 1)
-  }
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
   switch (ev.type) {
     case 'queue.position':
@@ -55,34 +53,45 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       useRooms.getState().handleEvent(ev)
       useChats.getState().handleEvent(ev)
       return
+    case 'chat.updated':
+      // session markers (store/sessionMarkers.ts): a live change worth it is told, after a wait
+      chatUpdated(ev, meta)
+      useChats.getState().handleEvent(ev)
+      return
     case 'message.created':
     case 'message.delta':
     case 'message.step':
     case 'message.done':
-    case 'chat.updated':
     case 'turn.request':
     case 'turn.request.closed':
     case 'artifact.updated':
       useChats.getState().handleEvent(ev)
       return
     case 'deck.progress':
-      // an intro deck being built (docs/DECISIONS.md "D2", round 2): the chat's block, the panel, the toast at the end
+      // an intro deck being built (docs/DECISIONS.md "D2", round 2): the chat's block and the panel (its end is told
+      // like any answer's: session markers)
       useDeckBuilds.getState().handleEvent(ev.data.chatId, ev.data.build)
       return
     case 'files.changed':
       filesChanged.emit(ev.data.changes)
       return
     case 'room.message':
+      // a message the server gave me a notice of: told in the desktop app like the Inbox and push (store/sessionMarkers.ts)
+      roomMessage(ev, meta)
       useRooms.getState().handleEvent(ev)
       // a new message meant for me rings once on this device (store/roomSound.ts); an edit or a delete never does
       roomMessageSound(ev.data.roomId, ev.data.message, meta.replay)
+      return
+    case 'room.updated':
+      // the room's AI waits on me now (Room.aiWaits): told like a card
+      roomUpdated(ev, meta)
+      useRooms.getState().handleEvent(ev)
       return
     case 'room.message.updated':
     case 'room.read':
     case 'room.thread':
     // a reaction never rings (nor counts anywhere)
     case 'room.reactions':
-    case 'room.updated':
     case 'room.ai':
     case 'room.ai.run':
     case 'room.ai.step':
@@ -214,7 +223,8 @@ export function startLive() {
   })
   relay = new BrowserRelay((f) => client?.send(f))
   client.start()
-  // the room sound never stops the live updates
+  // neither the session markers nor the room sound ever stop the live updates
+  try { startSessionMarkers() } catch { /* no markers' extras in this window */ }
   try { startRoomSound() } catch { /* no sound in this window */ }
   window.addEventListener('online', nudge)
   document.addEventListener('visibilitychange', onVisible)
@@ -225,6 +235,7 @@ const onVisible = () => document.visibilityState === 'visible' && client?.nudge(
 
 export function stopLive() {
   stopRoomSound()
+  stopSessionMarkers()
   client?.stop()
   client = null
   relay = null
