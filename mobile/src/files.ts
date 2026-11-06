@@ -41,12 +41,13 @@ export function fileTransferIO(): TransferIO {
 }
 
 /** The reinstall marker (src/install.ts): a file the app's deletion removes, next to an id in the keychain, which iOS
- * keeps. */
+ * keeps, and the launches that tried the sign-out since. */
 export function reinstallDeps(): InstallDeps {
   const marker = () => new File(Paths.document, 'team-ax-installed')
+  const slot = (key: string) => ({ get: () => SecureStore.getItemAsync(key), set: (v: string | null) => v === null ? SecureStore.deleteItemAsync(key) : SecureStore.setItemAsync(key, v) })
   return {
-    keychain: { get: () => SecureStore.getItemAsync('team-ax.install'), set: v => v === null ? SecureStore.deleteItemAsync('team-ax.install') : SecureStore.setItemAsync('team-ax.install', v) },
-    marker: { exists: () => marker().exists, create: () => { marker().create() } },
+    keychain: slot('team-ax.install'), tries: slot('team-ax.install-signouts'),
+    marker: { exists: () => marker().exists, create: () => { marker().create() }, remove: () => { const f = marker(); if (f.exists) f.delete() } },
     newId: () => Crypto.randomUUID(),
   }
 }

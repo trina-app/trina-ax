@@ -365,24 +365,68 @@ test('Android: turned off in the phone\'s Settings reads as denied; before the f
   expect(permissionFrom({ status: 'denied', canAskAgain: false, android: false, askedBefore: true })).toBe('denied')
 })
 
-test('a reinstall (keychain id kept, files gone) ends the kept session; an update or a first install does not', async () => {
-  const { wasReinstalled, SIGN_OUT_SCRIPT } = await import('../../mobile/src/install')
+test('a reinstall (keychain id kept, files gone) asks for the sign-out until it got an answer; an update or a first install does not', async () => {
+  const { wasReinstalled, reinstallDone, MAX_SIGN_OUT_LAUNCHES } = await import('../../mobile/src/install')
   const make = (id: string | null, file: boolean, writable = true) => {
-    let key = id, exists = file
-    return { deps: { keychain: { get: async () => key, set: async (v: string | null) => { key = v } }, marker: { exists: () => exists, create: () => { if (!writable) throw new Error('read-only'); exists = true } }, newId: () => 'install-1' }, state: () => ({ key, exists }) }
+    let key = id, exists = file, tries: string | null = null
+    const deps = {
+      keychain: { get: async () => key, set: async (v: string | null) => { key = v } },
+      tries: { get: async () => tries, set: async (v: string | null) => { tries = v } },
+      marker: { exists: () => exists, create: () => { if (!writable) throw new Error('read-only'); exists = true }, remove: () => { exists = false } },
+      newId: () => 'install-1',
+    }
+    return { deps, state: () => ({ key, exists, tries }) }
   }
   const reinstall = make('install-0', false)
   expect(await wasReinstalled(reinstall.deps)).toBe(true)
-  expect(await wasReinstalled(reinstall.deps)).toBe(false) // only once: the marker is there now
+  expect(reinstall.state().exists).toBe(false) // no marker until the sign-out got its answer
+  expect(await wasReinstalled(reinstall.deps)).toBe(true) // the server did not answer: the next launch tries again
+  await reinstallDone(reinstall.deps)
+  expect(reinstall.state()).toEqual({ key: 'install-0', exists: true, tries: null })
+  expect(await wasReinstalled(reinstall.deps)).toBe(false)
+  // a server that never answers: given up after a few launches
+  const unreachable = make('install-0', false)
+  for (let i = 0; i < MAX_SIGN_OUT_LAUNCHES; i++) expect(await wasReinstalled(unreachable.deps)).toBe(true)
+  expect(await wasReinstalled(unreachable.deps)).toBe(false)
+  expect(unreachable.state().exists).toBe(true)
   const update = make(null, false) // from a build that wrote neither, or a first install
   expect(await wasReinstalled(update.deps)).toBe(false)
-  expect(update.state()).toEqual({ key: 'install-1', exists: true })
+  expect(update.state()).toMatchObject({ key: 'install-1', exists: true })
   expect(await wasReinstalled(make('install-0', true).deps)).toBe(false) // an ordinary launch
   expect(await wasReinstalled(make('install-0', false, false).deps)).toBe(false) // cannot write the marker: never act
-  expect(SIGN_OUT_SCRIPT).toContain("fetch('/api/auth/logout',{method:'POST'")
-  expect(SIGN_OUT_SCRIPT).toContain("'x-mycel-csrf':'1'")
 })
 
+test('the reinstall sign-out: once per launch, only on the team page saved at launch, done only on the server answer', async () => {
+  const { ReinstallSignOut, MAX_SIGN_OUT_PAGES } = await import('../../mobile/src/install')
+  let finished = 0, n = 0
+  const a = 'https://a.example', b = 'https://b.example'
+  const s = new ReinstallSignOut(a, async () => { finished++ }, () => `token-${++n}`)
+  // not another team, not another origin's URL on screen
+  expect(s.script(b, `${b}/rooms`)).toBeNull()
+  expect(s.script(a, 'https://evil.example/')).toBeNull()
+  const first = s.script(a, `${a}/rooms`)!
+  expect(first).toContain(JSON.stringify(`${a}/api/auth/logout`)) // the team's own origin, never a relative URL
+  expect(first).toContain('"token-1"')
+  // a forged or stale answer is not taken; a server error leaves it for the next page load
+  expect(s.answer(JSON.stringify({ signOut: 'token-0', status: 204 }))).toBe(false)
+  expect(s.answer(JSON.stringify({ signOut: 'token-1', status: 503 }))).toBe(true)
+  expect(finished).toBe(0)
+  const second = s.script(a, `${a}/`)!
+  expect(s.answer(JSON.stringify({ signOut: 'token-2', status: 204 }))).toBe(true)
+  expect(finished).toBe(1); expect(s.finished).toBe(true)
+  expect(second).toContain('"token-2"')
+  // the person signs in, switches to B and back to A: never signed out again in this launch
+  expect(s.script(a, `${a}/rooms`)).toBeNull()
+  // 401 (there was no session) also counts; at most a few page loads per launch
+  let m = 0
+  const quiet = new ReinstallSignOut(a, async () => { m++ }, () => 't')
+  expect(quiet.script(a, `${a}/`)).not.toBeNull()
+  expect(quiet.answer(JSON.stringify({ signOut: 't', status: 401 }))).toBe(true)
+  expect(m).toBe(1)
+  const capped = new ReinstallSignOut(a, async () => {}, () => 'x')
+  for (let i = 0; i < MAX_SIGN_OUT_PAGES; i++) expect(capped.script(a, `${a}/`)).not.toBeNull()
+  expect(capped.script(a, `${a}/`)).toBeNull()
+})
 test('Android team-address screen: the form is lifted by the keyboard (it covered the Connect button)', () => {
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
   // the setup screen pads itself by the keyboard on Android (KeyboardAvoidingView only works on iOS here)
@@ -395,4 +439,14 @@ test('Android: the look around an older team page is read from the OS each time,
   expect(app).not.toContain('useColorScheme(')
   expect(app).toContain("NativeAppearance?.getColorScheme()")
   expect(app).toMatch(/AppState\.addEventListener\('change', state => \{ if \(state === 'active'\) read\(\) \}\)/)
+})
+
+test('the reinstall sign-out is injected only after the bridge went on this team page, and its answer is not a bridge message', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  expect(app).toContain('async function loaded(url: string): Promise<boolean>')
+  expect(app).toContain('ready.current = installed && !loadFailed.current')
+  expect(app).toContain('ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current) : null')
+  expect(app).toContain('if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return')
+  // one object for the launch (not a flag per team page)
+  expect(app).toContain('signOut={signOut.current}')
 })
