@@ -884,6 +884,7 @@ export const id: Record<MessageKey, string> = {
   'settings.devicesHint': 'Kalau ada perangkat yang tidak kamu kenal, keluarkan lalu ganti kata sandi.',
   'settings.lastSeen': 'Terakhir dipakai {date}',
   'settings.thisDevice': 'Perangkat ini',
+  'settings.devicesMore': 'Tampilkan {n} perangkat lagi',
   'settings.signOutDevice': 'Keluarkan',
 
   'settings.schedules': 'Tugas terjadwal',
@@ -1142,6 +1143,7 @@ export const id: Record<MessageKey, string> = {
   'apps.install': 'Pasang aplikasi',
   'apps.installed': 'Berjalan sebagai aplikasi terpasang.',
   'apps.thisDevice': 'Perangkat ini',
+  'apps.otherDevices': 'Perangkat lain',
   'apps.guideIos': 'iPhone dan iPad (Safari)',
   'apps.iosStep1': 'Buka halaman ini di Safari.',
   'apps.iosStep2': 'Ketuk Bagikan (kotak dengan panah ke atas). Lalu ketuk "Tambahkan ke Layar Utama" dan Tambah.',

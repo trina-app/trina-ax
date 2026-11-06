@@ -7,7 +7,7 @@
 // member's own accounts (Integrations.tsx). Profile ends with "계정 삭제 요청", its own page under the profile
 // (/settings/account/delete, components/settings/AccountDeletion.tsx).
 import clsx from 'clsx'
-import { Brain, Download, Laptop, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
+import { Brain, ChevronDown, Download, Laptop, LogOut, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { EngineId, Me, Memory, Session, Theme } from '@mycel/shared/api'
@@ -27,7 +27,7 @@ import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
-import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
 import { squarePhoto, type Photo } from '../lib/avatar'
@@ -64,20 +64,22 @@ export default function SettingsPane({ tab }: { tab: string }) {
   )
 }
 
-function Section({ title, children, desc }: { title: string; children: React.ReactNode; desc?: string }) {
+/** `page`: the title is the section's own name, which a phone's bar already shows (SettingsDialog.tsx): there it is
+ * kept for screen readers only. */
+function Section({ title, children, desc, page }: { title: string; children: React.ReactNode; desc?: string; page?: boolean }) {
   return (
     <section className="mb-8">
-      <h2 className="mb-1 text-base font-semibold">{title}</h2>
+      <h2 className={clsx('mb-1 text-base font-semibold', page && 'max-md:sr-only')}>{title}</h2>
       {desc && <p className="mb-3 text-sm text-muted">{desc}</p>}
-      <div className={desc ? '' : 'mt-3'}>{children}</div>
+      <div className={clsx(!desc && 'mt-3', !desc && page && 'max-md:mt-0')}>{children}</div>
     </section>
   )
 }
 
 /** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (on a
  * phone the control goes under its name). `framed`: a field with its own frame (the profile form's), which needs no
- * hairline under it on a phone. */
-function Row({ label, hint, htmlFor, hintId, hintError, framed, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; framed?: boolean; children: React.ReactNode }) {
+ * hairline under it on a phone. `quietHint`: on a phone the hint is for screen readers only (an error still shows). */
+function Row({ label, hint, htmlFor, hintId, hintError, framed, quietHint, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; framed?: boolean; quietHint?: boolean; children: React.ReactNode }) {
   return (
     <div className={clsx('flex flex-col gap-2 border-b border-line py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6', framed && 'max-md:border-b-0')}>
       <div className="min-w-0">
@@ -89,7 +91,7 @@ function Row({ label, hint, htmlFor, hintId, hintError, framed, children }: { la
           <p className="text-sm text-ink">{label}</p>
         )}
         {hint && (
-          <p id={hintId} className={clsx('mt-0.5 text-xs', hintError ? 'text-danger' : 'text-muted')} role={hintError ? 'alert' : undefined}>
+          <p id={hintId} className={clsx('mt-0.5 text-xs', hintError ? 'text-danger' : 'text-muted', quietHint && !hintError && 'max-md:sr-only')} role={hintError ? 'alert' : undefined}>
             {hint}
           </p>
         )}
@@ -152,10 +154,10 @@ function Profile() {
   const theme = me.user.prefs.theme ?? 'system'
   return (
     <>
-      <Section title={t('settings.profile')}>
+      <Section title={t('settings.profile')} page>
         {/* noValidate: the server checks the email and its answer shows in the app's own style, not a browser popup */}
         <form onSubmit={save} noValidate data-testid="profile-form">
-          <Row label={t('profile.photo')} hint={photoNote ?? t('profile.photoHint')} hintId={`${ids}-photo-hint`} hintError={!!photoNote} framed>
+          <Row label={t('profile.photo')} hint={photoNote ?? t('profile.photoHint')} hintId={`${ids}-photo-hint`} hintError={!!photoNote} framed quietHint>
             <div className="flex items-center gap-3">
               {previewUrl ? (
                 <img src={previewUrl} alt="" width={56} height={56} className="size-14 shrink-0 rounded-full object-cover" data-testid="profile-photo-preview" />
@@ -200,8 +202,8 @@ function Profile() {
             </span>
           </Row>
           <Row label={t('settings.role')}>
-            <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted sm:justify-end">
-              <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+            <span className="block text-sm text-muted sm:text-right">
+              {t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
             </span>
           </Row>
           {/* the team owner deletes accounts: this asks them (App Store review 5.1.1(v)) */}
@@ -321,6 +323,13 @@ function Security() {
   const ICON = { web: Monitor, desktop: Laptop, mobile: Smartphone } as const
   // tab 5: a reset by an admin (or the owner's recovery on the server Mac) stays visible here, so the person learns of it
   const reset = useMeStrict().passwordReset
+  // phones: the devices come first in view; changing the password (rarer) is one row that opens its form in place
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const formId = useId()
+  // phones: this device and the three last used, the rest one tap away
+  const [allDevices, setAllDevices] = useState(false)
+  const shownSessions = phone && !allDevices && sessions ? [...sessions.filter((x) => x.current), ...sessions.filter((x) => !x.current)].slice(0, 4) : sessions
   return (
     <>
       {reset && (
@@ -329,17 +338,43 @@ function Security() {
           <span>{reset.by ? t('settings.lastReset', { name: reset.by.name, date: formatDateTime(reset.at, locale) }) : t('settings.lastResetRecovery', { date: formatDateTime(reset.at, locale) })}</span>
         </p>
       )}
-      <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
-        <ChangePasswordForm onDone={() => toast({ level: 'success', text: t('settings.passwordChanged') })} />
-      </Section>
+      {phone ? (
+        <section className="mb-6 border-b border-line pb-2">
+          <h2>
+            <button type="button" aria-expanded={passwordOpen} aria-controls={formId} onClick={() => setPasswordOpen((v) => !v)} className="-mx-2 flex h-11 w-[calc(100%+1rem)] items-center gap-2 rounded-lg px-2 text-left text-base font-semibold hover:bg-hover" data-testid="password-open">
+              <span className="min-w-0 flex-1 truncate">{t('auth.changePassword')}</span>
+              <ChevronDown size={18} className={clsx('shrink-0 text-muted transition', passwordOpen && 'rotate-180')} aria-hidden />
+            </button>
+          </h2>
+          {passwordOpen && (
+            <div id={formId} className="pt-1 pb-4">
+              <p className="mb-3 text-sm text-muted">{t('settings.passwordNote')}</p>
+              <ChangePasswordForm onDone={() => { setPasswordOpen(false); toast({ level: 'success', text: t('settings.passwordChanged') }) }} />
+            </div>
+          )}
+        </section>
+      ) : (
+        <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
+          <ChangePasswordForm onDone={() => toast({ level: 'success', text: t('settings.passwordChanged') })} />
+        </Section>
+      )}
       <Section title={t('settings.devices')} desc={t('settings.devicesHint')}>
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!sessions && !error && <Skeleton lines={3} />}
-        <ul className="divide-y divide-line rounded-xl border border-line">
-          {sessions?.map((s) => {
+        {/* phones: plain rows under the section (no frame around them) */}
+        <ul className="divide-y divide-line md:rounded-xl md:border md:border-line">
+          {shownSessions?.map((s) => {
             const Icon = ICON[s.client]
+            const signOut = async () => {
+              try {
+                await api.call(API.revokeMySession, { params: { id: s.id } })
+                void load()
+              } catch (e) {
+                toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+              }
+            }
             return (
-              <li key={s.id} className="flex items-center gap-3 px-4 py-3 text-sm">
+              <li key={s.id} className="flex items-center gap-3 py-3 text-sm md:px-4">
                 <Icon size={18} className="shrink-0 text-muted" aria-hidden />
                 <span className="min-w-0 flex-1">
                   {/* a short name ("Chrome on macOS"); the raw user agent in the tooltip */}
@@ -348,20 +383,13 @@ function Security() {
                 </span>
                 {s.current ? (
                   <Badge tone="accent">{t('settings.thisDevice')}</Badge>
+                ) : phone ? (
+                  // phones: the icon, so the same word is not said on every row; its name says which device
+                  <IconButton label={`${t('settings.signOutDevice')} · ${deviceLabel(s.client, s.userAgent, t)}`} onKeyDown={noKeyRepeat} onClick={() => void signOut()} data-testid="device-sign-out">
+                    <LogOut size={17} />
+                  </IconButton>
                 ) : (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onKeyDown={noKeyRepeat}
-                    onClick={async () => {
-                      try {
-                        await api.call(API.revokeMySession, { params: { id: s.id } })
-                        void load()
-                      } catch (e) {
-                        toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-                      }
-                    }}
-                  >
+                  <Button size="sm" variant="ghost" onKeyDown={noKeyRepeat} onClick={() => void signOut()} data-testid="device-sign-out">
                     {t('settings.signOutDevice')}
                   </Button>
                 )}
@@ -369,6 +397,11 @@ function Security() {
             )
           })}
         </ul>
+        {sessions && shownSessions && sessions.length > shownSessions.length && (
+          <Button size="sm" variant="ghost" className="mt-1 -ml-2.5" onClick={() => setAllDevices(true)} data-testid="devices-more">
+            {t('settings.devicesMore', { n: sessions.length - shownSessions.length })}
+          </Button>
+        )}
       </Section>
     </>
   )
@@ -436,7 +469,7 @@ function Memories() {
     </Button>
   )
   return (
-    <Section title={t('settings.memory')} desc={t('memory.desc')}>
+    <Section title={t('settings.memory')} desc={t('memory.desc')} page>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={3} />}
       {items && (items.length > 0 || editing === 'new') && <div className="mb-3 flex justify-end">{addButton}</div>}
@@ -506,7 +539,7 @@ function About() {
   const info = useServerSource()
   const { version } = info
   return (
-    <Section title={t('settings.about')}>
+    <Section title={t('settings.about')} page>
       {version && <p className="text-sm" data-testid="about-version">{t('about.version', { version })}</p>}
       <p className="mt-2 text-sm text-muted">{t('about.license')}</p>
       <p className="mt-2 text-sm text-muted" data-testid="about-hwp">{t('about.hwp')}</p>

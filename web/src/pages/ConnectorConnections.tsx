@@ -40,15 +40,16 @@ export default function ConnectorConnections() {
   }
   const label = (scope: string) => scope === 'mcp:write' ? t('connectors.write') : scope === 'offline_access' ? t('connectors.offline') : t('connectors.read')
   return <section className="space-y-5" data-testid="connector-connections">
-    <div><h2 className="text-base font-semibold">{t('connectors.title')}</h2><p className="mt-1 text-sm text-muted">{t('connectors.description')}</p></div>
+    {/* phones: the bar above already says the section's name (components/settings/SettingsDialog.tsx) */}
+    <div><h2 className="text-base font-semibold max-md:sr-only">{t('connectors.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('connectors.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!items && !error && <Skeleton lines={3} />}
     {items && <>
       {!configured && items.length > 0 && <p className="text-sm text-muted">{t('connectors.disabled')}</p>}
       {resource && <div className="rounded-xl border border-line p-4"><p className="mb-1 text-sm font-medium">{t('connectors.address')}</p><code className="break-all text-sm">{resource}</code></div>}
-      {/* no connected app: the same dashed empty card as the MCP tab; when the server has no connectors, it says why.
-          With the Slack line under it, only how to add one (when the server has connectors) */}
-      {items.length === 0 && !slack && <div className="rounded-xl border border-dashed border-line" data-testid="connectors-empty">
+      {/* no connected app: the same empty state as the MCP tab (no frame around it); when the server has no connectors,
+          it says why. With the Slack line under it, only how to add one (when the server has connectors) */}
+      {items.length === 0 && !slack && <div data-testid="connectors-empty">
         <EmptyState icon={<Plug size={26} aria-hidden />} title={t('connectors.empty')}>
           <p>{t(configured ? 'connectors.emptyHint' : 'connectors.disabled')}</p>
         </EmptyState>

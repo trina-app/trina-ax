@@ -883,6 +883,7 @@ export const ko = {
   'settings.devicesHint': '모르는 기기가 있으면 로그아웃시키고 비밀번호를 바꾸세요.',
   'settings.lastSeen': '마지막 사용 {date}',
   'settings.thisDevice': '지금 이 기기',
+  'settings.devicesMore': '기기 {n}개 더 보기',
   'settings.signOutDevice': '로그아웃',
 
   'settings.schedules': '예약 작업',
@@ -1141,6 +1142,7 @@ export const ko = {
   'apps.install': '앱으로 설치',
   'apps.installed': '앱으로 설치되어 실행 중이에요.',
   'apps.thisDevice': '이 기기',
+  'apps.otherDevices': '다른 기기',
   'apps.guideIos': 'iPhone·iPad (Safari)',
   'apps.iosStep1': 'Safari에서 이 페이지를 여세요.',
   'apps.iosStep2': '공유 버튼(위쪽 화살표가 있는 네모)을 누르세요. 그다음 "홈 화면에 추가"와 추가를 누르세요.',

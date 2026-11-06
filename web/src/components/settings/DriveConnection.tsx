@@ -135,8 +135,8 @@ export function DriveConnection() {
     finally { if (g === generation.current) setBusy(false) }
   }
   return <section className="space-y-4" data-testid="drive-connection">
-    <div><h2 className="text-base font-semibold">{t('drive.title')}</h2><p className="mt-1 text-sm text-muted">{t('drive.description')}</p></div>
-    <p className="rounded-xl bg-subtle p-3 text-xs text-muted">{t('drive.privacy')}</p>
+    {/* phones: the bar above already says "Google Drive" (SettingsDialog.tsx) */}
+    <div><h2 className="text-base font-semibold max-md:sr-only">{t('drive.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('drive.description')}</p></div>
     {mobileApp() && <p className="text-xs text-muted">{t('drive.mobileBrowserLogin')}</p>}
     {!connection && loadFailed && <ErrorNote onRetry={load}>{t('drive.loadFailed')}</ErrorNote>}
     {error && <ErrorNote>{t('drive.failed')}</ErrorNote>}
@@ -150,6 +150,8 @@ export function DriveConnection() {
         <Button variant="primary" busy={busy} onClick={start}>{t(connection.status === 'connected' || connection.status === 'needs_reconnect' ? 'drive.reconnect' : 'drive.connect')}</Button>
         {connection.status !== 'disconnected' && <Button disabled={busy} onClick={disconnect}>{t('drive.disconnect')}</Button>}
       </div>}
+      {/* what connecting means, as fine print under the action (no box): only where connecting is possible */}
+      <p className="text-xs text-faint" data-testid="drive-privacy">{t('drive.privacy')}</p>
     </>}
   </section>
 }

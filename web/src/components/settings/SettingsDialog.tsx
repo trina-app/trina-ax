@@ -6,7 +6,9 @@
 // is the 나 tab (BottomTabs.tsx opens /settings): it fills the screen above the tab bar (the bar is the way out, no ✕)
 // and opens on its list (no search box): the person's photo, name and title on top, which open the profile (the list's
 // own "프로필" row is left out there), then the sections, with MCP, app connectors and AI connections behind one
-// "더 보기" row. A section on a phone has a ← back to the list. A page under a section (`page`:
+// "더 보기" row at the end of their group (they open in place). A section on a phone has a ← back to the list and its
+// own name in the bar (its page keeps that heading for screen readers only, so the name is not said twice on screen;
+// "설정" stays the dialog's name). A page under a section (`page`:
 // /settings/account/delete, the account deletion request under the profile) keeps its section marked in the list, and
 // its way back goes to that section. Admin stays its own page.
 import clsx from 'clsx'
@@ -27,6 +29,9 @@ import { PhonePushLine } from './PushNotifications'
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections few people need on a phone: behind "더 보기" in the phone's list */
 const ADVANCED = new Set(['integrations', 'connectors', 'credentials'])
+/** sections whose page starts with its own title row that stays (MCP's title beside its tabs, AI connections' card):
+ * the phone's bar keeps "설정" there instead of saying the name twice */
+const OWN_TITLE = new Set(['integrations', 'credentials'])
 
 let openedFrom: HTMLElement | null = null
 /** What gets the keyboard back when the dialog closes, said by whatever opens it when that is not what has focus by
@@ -79,6 +84,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   const current = tab ?? 'profile'
+  // phones: the open section's name in the bar (not for a page under a section: that page has its own title)
+  const section = tab && !page && !OWN_TITLE.has(tab) ? tabs.find((x) => x.id === tab) : undefined
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={onClose}>
@@ -100,9 +107,14 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
           )}
           {/* a phone starts on the title, not on its ← (focus put there showed a ring nobody asked for) or on a hidden
               ✕; a computer still starts on its first button */}
-          <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className="min-w-0 flex-1 truncate px-1 font-semibold outline-none">
+          <h2 id={titleId} tabIndex={-1} data-autofocus={phone ? '' : undefined} className={clsx('min-w-0 flex-1 truncate px-1 font-semibold outline-none', section && 'max-md:sr-only')}>
             {t('settings.title')}
           </h2>
+          {section && (
+            <p aria-hidden className="min-w-0 flex-1 truncate px-1 font-semibold md:hidden" data-testid="settings-section-title">
+              {t(section.label)}
+            </p>
+          )}
           <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">
             <X size={18} />
           </IconButton>
@@ -151,17 +163,15 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                         {x.id === 'notifications' && <PhonePushLine />}
                       </Fragment>
                     ))}
+                    {/* phones: the rarer sections of this group open here, in place */}
+                    {!more && g.some((x) => ADVANCED.has(x.id)) && (
+                      <button type="button" onClick={() => setMore(true)} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm text-muted hover:bg-hover md:hidden" data-testid="settings-more">
+                        <ChevronDown size={16} className="shrink-0" aria-hidden /> {t('common.more')}
+                      </button>
+                    )}
                   </div>
                 </Fragment>
               ))}
-              {!more && shown.some((x) => ADVANCED.has(x.id)) && (
-                <div className="md:hidden">
-                  <Rule />
-                  <button type="button" onClick={() => setMore(true)} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm text-muted hover:bg-hover" data-testid="settings-more">
-                    <ChevronDown size={16} className="shrink-0" aria-hidden /> {t('common.more')}
-                  </button>
-                </div>
-              )}
               {/* phones: signing out lives here (the drawer has no account menu there) */}
               <div className="md:hidden">
                 <Rule />

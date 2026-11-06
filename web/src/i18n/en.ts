@@ -884,6 +884,7 @@ export const en: Record<MessageKey, string> = {
   'settings.devicesHint': "If you don't recognize a device, sign it out and change your password.",
   'settings.lastSeen': 'Last used {date}',
   'settings.thisDevice': 'This device',
+  'settings.devicesMore': 'Show {n} more devices',
   'settings.signOutDevice': 'Sign out',
 
   'settings.schedules': 'Scheduled tasks',
@@ -1142,6 +1143,7 @@ export const en: Record<MessageKey, string> = {
   'apps.install': 'Install app',
   'apps.installed': 'Running as an installed app.',
   'apps.thisDevice': 'This device',
+  'apps.otherDevices': 'Other devices',
   'apps.guideIos': 'iPhone and iPad (Safari)',
   'apps.iosStep1': 'Open this page in Safari.',
   'apps.iosStep2': 'Tap Share (the square with an up arrow). Then tap "Add to Home Screen" and Add.',

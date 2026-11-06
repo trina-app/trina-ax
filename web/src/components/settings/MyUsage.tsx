@@ -48,7 +48,8 @@ export default function MyUsage() {
   const shares = usageShares(d?.byModel ?? [])
   return (
     <section aria-labelledby={`${ids}-h`} data-testid="my-usage">
-      <h2 id={`${ids}-h`} className="text-base font-semibold">
+      {/* phones: the bar above already says the section's name (SettingsDialog.tsx) */}
+      <h2 id={`${ids}-h`} className="text-base font-semibold max-md:sr-only">
         {t('myUsage.title')}
       </h2>
       {!d && !state.error && <Skeleton lines={4} className="mt-4" />}
@@ -60,7 +61,7 @@ export default function MyUsage() {
       {d && (
         <>
           {/* how full the limits are, like Claude's "This week ... N% used" */}
-          <div className="mt-3 border-b border-line pb-4" data-testid="my-usage-limits">
+          <div className="mt-3 border-b border-line pb-4 max-md:mt-0 max-md:border-b-0 max-md:pb-0" data-testid="my-usage-limits">
             {top ? (
               <p className="text-sm font-medium" data-testid="my-usage-headline">
                 {top.exceeded
@@ -125,7 +126,8 @@ export default function MyUsage() {
             </ul>
           )}
 
-          <dl className="mt-4 border-t border-line" data-testid="my-usage-totals">
+          {/* phones: the three totals side by side, the number under its name, no rules between them */}
+          <dl className="mt-4 border-t border-line max-md:grid max-md:grid-cols-3 max-md:gap-3 max-md:border-t-0 max-md:pt-1" data-testid="my-usage-totals">
             {(
               [
                 ['usage.turns', formatNumber(d.totals.turns, locale)],
@@ -133,9 +135,9 @@ export default function MyUsage() {
                 ['usage.cost', `${formatUsd(d.totals.costUsd, locale)}${d.totals.unpricedTurns ? ' +?' : ''}`],
               ] as [MessageKey, string][]
             ).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between border-b border-line py-2.5 text-sm">
-                <dt className="text-muted">{t(k)}</dt>
-                <dd className="tabular-nums">{v}</dd>
+              <div key={k} className="flex items-center justify-between border-b border-line py-2.5 text-sm max-md:min-w-0 max-md:flex-col max-md:items-start max-md:justify-start max-md:gap-0.5 max-md:border-b-0 max-md:py-0">
+                <dt className="text-muted max-md:text-xs">{t(k)}</dt>
+                <dd className="tabular-nums max-md:max-w-full max-md:truncate max-md:font-medium" title={v}>{v}</dd>
               </div>
             ))}
           </dl>
