@@ -1,0 +1,1110 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper cover A 1`] = `
+[
+  "cover A on #0a0a0a (dark) "정밀 부품을 제때 만드는 회사"",
+  "image wide.png 0,0 1920×1080 crop 0,0,1920,1080 r0",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":0,"stops":[{"at":0,"color":"#080808e6"},{"at":0.42,"color":"#08080894"},{"at":0.8,"color":"#08080800"}]}}",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":90,"stops":[{"at":0,"color":"#0808089e"},{"at":0.38,"color":"#08080852"},{"at":0.7,"color":"#08080800"}]}}",
+  "rect 0,0 1920×320 r0 {"linear":{"angle":180,"stops":[{"at":0,"color":"#08080866"},{"at":1,"color":"#08080800"}]}}",
+  "image logo-wide.png 120,104 320×80 crop 0,0,480,120 r0 logo in #ffffff",
+  "text eyebrow 120,553 w1536.67 24/700 lh31 l: [#ffffffd9]회사 소개서",
+  "text headline 120,616 w1536.67 112/800 lh125 l: [#ffffff]정밀 부품을 ⏎ [#ffffff]제때[#ffffff] 만드는 회사",
+  "text sub 120,902 w1106.67 32/400 lh50 l: [#ffffffd9]반도체 장비와 의료기기 부품을 만듭니다",
+  "text website 1200,923 w600 22/700 lh29 r: [#ffffffa6]hanbit.example",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper about A 1`] = `
+[
+  "about A on #f3f2ee "반도체 장비와 의료기기에 들어가는 정밀 가공 부품을 설계하고 만듭니다"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1250 24/700 lh31 l: [#1e4620]회사 소개",
+  "text statement 120,160 w1250 72/700 lh94 l: [#111111]반도체 장비와 의료기기에 들어가는 ⏎ [#1e4620]정밀 가공 부품[#111111]을 설계하고 만듭니다",
+  "line 120,807 → 510,807 #d3d3cf 2",
+  "text label 120,843 w390 24/700 lh31 l: [#828280]설립",
+  "text value 120,892 w390 40/700 lh52 l: [#111111]2009년",
+  "line 550,807 → 940,807 #d3d3cf 2",
+  "text label 550,843 w390 24/700 lh31 l: [#828280]위치",
+  "text value 550,892 w390 40/700 lh52 l: [#111111]경기도 안산",
+  "line 980,807 → 1370,807 #d3d3cf 2",
+  "text label 980,843 w390 24/700 lh31 l: [#828280]분야",
+  "text value 980,892 w390 40/700 lh52 l: [#111111]정밀 가공",
+  "line 1410,807 → 1800,807 #d3d3cf 2",
+  "text label 1410,843 w390 24/700 lh31 l: [#828280]직원",
+  "text value 1410,892 w390 40/700 lh52 l: [#111111]48명",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]02",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper offer A 1`] = `
+[
+  "offer A on #f3f2ee "설계부터 납품까지 한 곳에서"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w936 24/700 lh31 l: [#1e4620]하는 일",
+  "text title 120,160 w936 64/700 lh78 l: [#111111]설계부터 납품까지 한 곳에서",
+  "text sub 120,262 w936 32/400 lh50 l: [#555553]도면 한 장으로 시작해요",
+  "image square.jpg 1152,0 768×1080 crop 69,0,853,1200 r0",
+  "line 120,514 → 1056,514 #d3d3cf 2",
+  "text head 120,540 w300 40/700 lh52 l: [#111111]정밀 가공",
+  "text body 460,544 w596 32/400 lh50 l: [#555553]다섯 축 장비로 아주 작게 깎아요",
+  "line 120,618 → 1056,618 #d3d3cf 2",
+  "text head 120,644 w300 40/700 lh52 l: [#111111]품질 검사",
+  "text body 460,648 w596 32/400 lh50 l: [#555553]모든 부품을 측정기로 확인해요",
+  "line 120,722 → 1056,722 #d3d3cf 2",
+  "text head 120,748 w300 40/700 lh52 l: [#111111]제때 납품",
+  "text body 460,752 w596 32/400 lh50 l: [#555553]약속한 날짜에 맞춰 보내 드려요",
+  "line 120,826 → 1056,826 #d3d3cf 2",
+  "text footer 936,1006 w120 22/700 lh29 r tabular: [#828280]03",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper numbers A 1`] = `
+[
+  "numbers A on #1e4620 (dark) "고객이 다시 찾는 이유"",
+  "rect 0,0 1920×1080 r0 {"solid":"#1e4620"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ffffff]숫자로 보는 회사",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#ffffff]고객이 다시 찾는 이유",
+  "text stat 120,513 w372 112/800 lh112 l tabular: [#ffffff]340[#ffffff 50/700] 곳",
+  "text label 120,661 w372 30/400 lh47 l: [#c5cfc5]거래 고객사",
+  "line 524,525 → 524,708 #59765a 2",
+  "text stat 556,513 w372 112/800 lh112 l tabular: [#ffffff]0.02[#ffffff 50/700]%",
+  "text label 556,661 w372 30/400 lh47 l: [#c5cfc5]불량률",
+  "line 960,525 → 960,708 #59765a 2",
+  "text stat 992,513 w372 112/800 lh112 l tabular: [#ffffff]99.1[#ffffff 50/700]%",
+  "text label 992,661 w372 30/400 lh47 l: [#c5cfc5]납기 준수율",
+  "line 1396,525 → 1396,708 #59765a 2",
+  "text stat 1428,513 w372 112/800 lh112 l tabular: [#ffffff 50/700]+[#ffffff]30[#ffffff 50/700]%",
+  "text label 1428,661 w372 30/400 lh47 l: [#c5cfc5]재주문 증가",
+  "text note 120,940 w1680 24/400 lh35 l: [#a1b1a1]2025년 12월 기준",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#a1b1a1]04",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo in #a1b1a1",
+  "note 출처: 회사 소개.md — "…340곳의 고객사에 납품합니다…"",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper products A 1`] = `
+[
+  "products A on #f3f2ee "주요 부품"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]제품",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]주요 부품",
+  "image p1.png 120,370 533.33×360 crop 0,30,800,540 r0",
+  "text head 120,766 w533.33 40/700 lh52 l: [#111111]정밀 샤프트",
+  "text body 120,830 w533.33 32/400 lh50 l: [#555553]장비 구동부에 들어가는 축이에요",
+  "image p2.png 693.33,370 533.33×360 crop 0,12,800,540 r0",
+  "text head 693.33,766 w533.33 40/700 lh52 l: [#111111]진공 블록",
+  "text body 693.33,830 w533.33 32/400 lh50 l: [#555553]반도체 공정 챔버용 블록이에요",
+  "image p3.png 1266.67,370 533.33×360 crop 0,316,600,405 r0",
+  "text head 1266.67,766 w533.33 40/700 lh52 l: [#111111]의료용 핀",
+  "text body 1266.67,830 w533.33 32/400 lh50 l: [#555553]수술 기구에 쓰는 작은 핀이에요",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]05",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper products B 1`] = `
+[
+  "products B on #f3f2ee "맞춤 가공도 해요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]제품",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]맞춤 가공도 해요",
+  "rect 120,432 820×400 r0 {"solid":"#ecece7"}",
+  "text numeral 164,476 w200 28/700 lh36 l tabular: [#1e4620]01",
+  "text head 164,672 w732 40/700 lh52 l: [#111111]시제품 가공",
+  "text body 164,738 w732 32/400 lh50 l: [#555553]도면만 있으면 한 개부터 만들어요",
+  "rect 980,432 820×400 r0 {"solid":"#ecece7"}",
+  "text numeral 1024,476 w200 28/700 lh36 l tabular: [#1e4620]02",
+  "text head 1024,672 w732 40/700 lh52 l: [#111111]소량 양산",
+  "text body 1024,738 w732 32/400 lh50 l: [#555553]적은 수량의 주문도 받아요",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]06",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper process A 1`] = `
+[
+  "process A on #f3f2ee "주문은 이렇게 진행돼요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]진행 방식",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]주문은 이렇게 진행돼요",
+  "line 120,587 → 1800,587 #d3d3cf 2",
+  "text numeral 120,475 w240 72/700 lh72 l tabular: [#111111]01",
+  "rect 120,579 16×16 r8 {"solid":"#1e4620"}",
+  "text head 120,631 w374 40/700 lh52 l: [#111111]도면 상담",
+  "text body 120,697 w374 32/400 lh50 l: [#555553]도면을 보고 가공 ⏎ [#555553]방법을 정해요",
+  "text numeral 550,475 w240 72/700 lh72 l tabular: [#111111]02",
+  "rect 550,579 16×16 r8 {"solid":"#1e4620"}",
+  "text head 550,631 w374 40/700 lh52 l: [#111111]견적",
+  "text body 550,697 w374 32/400 lh50 l: [#555553]사흘 안에 보내 드려요",
+  "text numeral 980,475 w240 72/700 lh72 l tabular: [#111111]03",
+  "rect 980,579 16×16 r8 {"solid":"#1e4620"}",
+  "text head 980,631 w374 40/700 lh52 l: [#111111]가공",
+  "text body 980,697 w374 32/400 lh50 l: [#555553]전담 팀이 맡아요",
+  "text numeral 1410,475 w240 72/700 lh72 l tabular: [#111111]04",
+  "rect 1410,579 16×16 r8 {"solid":"#1e4620"}",
+  "text head 1410,631 w374 40/700 lh52 l: [#111111]검사와 납품",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]07",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper proof A 1`] = `
+[
+  "proof A on #f3f2ee "함께 일하는 고객사"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]고객사",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]함께 일하는 고객사",
+  "line 120,443 → 1800,443 #d3d3cf 2",
+  "line 120,633 → 1800,633 #d3d3cf 2",
+  "line 120,823 → 1800,823 #d3d3cf 2",
+  "line 680,471 → 680,795 #d3d3cf 2",
+  "line 1240,471 → 1240,795 #d3d3cf 2",
+  "text name 152,512 w496 40/700 lh52 c: [#555553]아크메전자",
+  "text name 712,512 w496 40/700 lh52 c: [#555553]누리메디칼",
+  "text name 1272,512 w496 40/700 lh52 c: [#555553]세온테크",
+  "text name 152,702 w496 40/700 lh52 c: [#555553]다온로보틱스",
+  "text name 712,702 w496 40/700 lh52 c: [#555553]한결기계",
+  "text name 1272,702 w496 40/700 lh52 c: [#555553]미래정공",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]08",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper history A 1`] = `
+[
+  "history A on #f3f2ee "한 걸음씩 걸어온 길"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]연혁",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]한 걸음씩 걸어온 길",
+  "line 120,414 → 1800,414 #d3d3cf 2",
+  "text head 120,442 w390 40/800 lh52 l: [#1e4620]2009",
+  "text body 550,446 w1250 32/400 lh50 l: [#555553]안산에서 창업",
+  "line 120,522 → 1800,522 #d3d3cf 2",
+  "text head 120,550 w390 40/800 lh52 l: [#1e4620]2014",
+  "text body 550,554 w1250 32/400 lh50 l: [#555553]의료기기 부품 시작",
+  "line 120,630 → 1800,630 #d3d3cf 2",
+  "text head 120,658 w390 40/800 lh52 l: [#1e4620]2019",
+  "text body 550,662 w1250 32/400 lh50 l: [#555553]두 번째 공장 준공",
+  "line 120,738 → 1800,738 #d3d3cf 2",
+  "text head 120,766 w390 40/800 lh52 l: [#1e4620]2025.03",
+  "text body 550,770 w1250 32/400 lh50 l: [#555553]가공 라인 증설",
+  "line 120,846 → 1800,846 #d3d3cf 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]09",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper contact A 1`] = `
+[
+  "contact A on #1e4620 (dark) "부품 견적이 필요하면 연락 주세요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#1e4620"}",
+  "image logo-wide.png 120,104 320×80 crop 0,0,480,120 r0 logo in #ffffff",
+  "text eyebrow 120,341 w1393.33 24/700 lh31 l: [#c5cfc5]문의",
+  "text line 120,404 w1393.33 88/800 lh102 l: [#ffffff]부품 견적이 필요하면 ⏎ [#ffffff]연락 주세요",
+  "rect 120,656 213×68 r34 {"solid":"#ffffff"}",
+  "text offer 156,666.50 w159 30/700 lh47 l: [#1e4620]첫 견적 무료",
+  "line 120,800 → 1800,800 #59765a 2",
+  "text person 120,840 w533.33 32/700 lh50 l: [#ffffff]영업팀 박서준 이사",
+  "text phone 120,894 w533.33 32/400 lh50 l: [#c5cfc5]031-555-0142",
+  "text email 693.33,840 w533.33 32/400 lh50 l: [#c5cfc5]sales@hanbit.example",
+  "text website 693.33,894 w533.33 32/400 lh50 l: [#c5cfc5]hanbit.example",
+  "text address 1266.67,840 w533.33 32/400 lh50 l: [#c5cfc5]경기도 안산시 단원구 예시로 12",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#a1b1a1]10",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper cover B 1`] = `
+[
+  "cover B on #1e4620 (dark) "작은 공장의 큰 정밀함"",
+  "rect 0,0 1920×1080 r0 {"solid":"#1e4620"}",
+  "image portrait.jpg 1152,0 768×1080 crop 0,19,1000,1406 r0",
+  "image logo-wide.png 120,104 320×80 crop 0,0,480,120 r0 logo in #ffffff",
+  "text headline 120,616 w936 112/800 lh125 l: [#ffffff]작은 공장의 ⏎ [#ffffff]큰 정밀함",
+  "text sub 120,902 w936 32/400 lh50 l: [#c5cfc5]정밀 가공 부품 전문",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper needs A 1`] = `
+[
+  "needs A on #f3f2ee "부품 때문에 일정이 밀린다면"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]이런 고민",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]부품 때문에 일정이 밀린다면",
+  "line 120,505 → 653.33,505 #d3d3cf 2",
+  "text numeral 120,549 w200 64/700 lh64 l tabular: [#1e4620]01",
+  "text head 120,653 w509.33 40/700 lh52 l: [#111111]납기 지연",
+  "text body 120,725 w509.33 32/400 lh50 l: [#555553]부품이 늦어 조립이 멈춰요",
+  "line 693.33,505 → 1226.67,505 #d3d3cf 2",
+  "text numeral 693.33,549 w200 64/700 lh64 l tabular: [#1e4620]02",
+  "text head 693.33,653 w509.33 40/700 lh52 l: [#111111]들쭉날쭉한 품질",
+  "text body 693.33,725 w509.33 32/400 lh50 l: [#555553]같은 도면인데 결과가 달라요",
+  "line 1266.67,505 → 1800,505 #d3d3cf 2",
+  "text numeral 1266.67,549 w200 64/700 lh64 l tabular: [#1e4620]03",
+  "text head 1266.67,653 w509.33 40/700 lh52 l: [#111111]소량 주문 거절",
+  "text body 1266.67,725 w509.33 32/400 lh50 l: [#555553]적은 수량은 받아 주지 않아요",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]03",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper offer B 1`] = `
+[
+  "offer B on #f3f2ee "세 가지를 약속해요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]하는 일",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]세 가지를 약속해요",
+  "line 120,461 → 1800,461 #d3d3cf 2",
+  "text head 120,493 w533.33 40/700 lh52 l: [#111111]빠른 견적",
+  "text body 693.33,497 w1106.67 32/400 lh50 l: [#555553]도면을 받으면 바로 답해요",
+  "line 120,577 → 1800,577 #d3d3cf 2",
+  "text head 120,609 w533.33 40/700 lh52 l: [#111111]같은 품질",
+  "text body 693.33,613 w1106.67 32/400 lh50 l: [#555553]몇 번을 만들어도 같아요",
+  "line 120,693 → 1800,693 #d3d3cf 2",
+  "text head 120,725 w533.33 40/700 lh52 l: [#111111]소량도 환영",
+  "text body 693.33,729 w1106.67 32/400 lh50 l: [#555553]한 개부터 만들어요",
+  "line 120,809 → 1800,809 #d3d3cf 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]04",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper scene A 1`] = `
+[
+  "scene A on #0a0a0a (dark) "안산 공장의 아침"",
+  "image hall.png 0,0 1920×1080 crop 214,0,2133,1200 r0",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":0,"stops":[{"at":0,"color":"#080808e0"},{"at":0.36,"color":"#08080880"},{"at":0.7,"color":"#08080800"}]}}",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":90,"stops":[{"at":0,"color":"#08080873"},{"at":0.6,"color":"#08080800"}]}}",
+  "text eyebrow 120,783 w1393.33 24/700 lh31 l: [#ffffffd9]공장",
+  "text line 120,842 w1393.33 80/800 lh94 l: [#ffffff]안산 공장의 아침",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#ffffffa6]05",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper numbers B 1`] = `
+[
+  "numbers B on #f3f2ee "numbers"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]숫자",
+  "text stat 120,436 w792 188/800 lh188 l tabular: [#111111]340[#111111 85/700] 곳",
+  "text label 120,660 w792 30/400 lh47 l: [#555553]고객사",
+  "line 960,448 → 960,707 #d3d3cf 2",
+  "text stat 1008,436 w792 188/800 lh188 l tabular: [#111111]15[#111111 85/700] 년",
+  "text label 1008,660 w792 30/400 lh47 l: [#555553]업력",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]06",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+  "note 출처: 회사 소개.md — "…340곳의 고객사에 납품합니다…"",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper cover C 1`] = `
+[
+  "cover C on #1e4620 (dark) "부품이 멈추지 않게"",
+  "rect 0,0 1920×1080 r0 {"solid":"#1e4620"}",
+  "image logo-wide.png 120,104 320×80 crop 0,0,480,120 r0 logo in #ffffff",
+  "text eyebrow 120,560 w1536.67 24/700 lh31 l: [#c5cfc5]회사 소개서",
+  "text headline 120,623 w1536.67 128/800 lh143 l: [#ffffff]부품이 멈추지 않게",
+  "text sub 120,802 w1106.67 32/400 lh50 l: [#c5cfc5]정밀 가공 파트너",
+  "rect 120,488 96×12 r0 {"solid":"#ffffff"}",
+  "line 120,936 → 1800,936 #59765a 2",
+  "text company 120,960 w800 22/700 lh29 l: [#a1b1a1]한빛정밀",
+  "text website 1100,960 w700 22/700 lh29 r: [#a1b1a1]hanbit.example",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper proof B 1`] = `
+[
+  "proof B on #f3f2ee "고객이 직접 말해요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]고객의 말",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]고객이 직접 말해요",
+  "rect 120,505 8×174 r0 {"solid":"#1e4620"}",
+  "text quote 184,497 w1329.33 72/700 lh95 l: [#111111]한빛정밀 덕분에 장비 조립 ⏎ [#111111]일정이 두 주 빨라졌어요",
+  "text who 184,731 w1106.67 32/700 lh50 l: [#555553]누리메디칼 구매팀 김하늘 팀장",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]04",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper history B 1`] = `
+[
+  "history B on #f3f2ee "품질을 인증받았어요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]인증",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]품질을 인증받았어요",
+  "line 120,517 → 940,517 #d3d3cf 2",
+  "rect 120,570 14×14 r0 {"solid":"#1e4620"}",
+  "text head 168,553 w772 40/700 lh52 l: [#111111]ISO 9001",
+  "line 980,517 → 1800,517 #d3d3cf 2",
+  "rect 980,570 14×14 r0 {"solid":"#1e4620"}",
+  "text head 1028,553 w772 40/700 lh52 l: [#111111]ISO 13485",
+  "line 120,641 → 940,641 #d3d3cf 2",
+  "rect 120,694 14×14 r0 {"solid":"#1e4620"}",
+  "text head 168,677 w772 40/700 lh52 l: [#111111]벤처기업 인증",
+  "line 980,641 → 1800,641 #d3d3cf 2",
+  "rect 980,694 14×14 r0 {"solid":"#1e4620"}",
+  "text head 1028,677 w772 40/700 lh52 l: [#111111]이노비즈 인증",
+  "line 120,765 → 1800,765 #d3d3cf 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]05",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): paper proof C 1`] = `
+[
+  "proof C on #f3f2ee "조립 일정을 앞당긴 사례"",
+  "rect 0,0 1920×1080 r0 {"solid":"#f3f2ee"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]사례",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]조립 일정을 앞당긴 사례",
+  "line 120,573 → 605.33,573 #d3d3cf 2",
+  "text label 120,613 w485.33 24/700 lh31 l: [#828280]이전",
+  "text body 120,668 w485.33 32/400 lh50 l: [#555553]부품이 늦어 조립이 자주 멈췄어요",
+  "text arrow 631.33,662 w60 44/700 lh57 c: [#828280]→",
+  "line 717.33,573 → 1202.67,573 #d3d3cf 2",
+  "text label 717.33,613 w485.33 24/700 lh31 l: [#828280]한 일",
+  "text body 717.33,668 w485.33 32/400 lh50 l: [#555553]전담 팀이 가공 순서를 다시 짰어요",
+  "text arrow 1228.67,662 w60 44/700 lh57 c: [#828280]→",
+  "line 1314.67,573 → 1800.00,573 #1e4620 4",
+  "text label 1314.67,613 w485.33 24/700 lh31 l: [#1e4620]결과",
+  "text head 1314.67,668 w485.33 40/700 lh52 l: [#111111]조립 일정이 두 주 빨라졌어요",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]05",
+  "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink cover A 1`] = `
+[
+  "cover A on #0a0a0a (dark) "Cloud backups that just work"",
+  "image wide.png 0,0 1920×1080 crop 0,0,1920,1080 r0",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":0,"stops":[{"at":0,"color":"#050505e6"},{"at":0.42,"color":"#05050594"},{"at":0.8,"color":"#05050500"}]}}",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":90,"stops":[{"at":0,"color":"#0505059e"},{"at":0.38,"color":"#05050552"},{"at":0.7,"color":"#05050500"}]}}",
+  "rect 0,0 1920×320 r0 {"linear":{"angle":180,"stops":[{"at":0,"color":"#05050566"},{"at":1,"color":"#05050500"}]}}",
+  "text company 120,104 w820 40/800 lh52 l: [#ffffff]Acme Cloud",
+  "text eyebrow 120,553 w1536.67 24/700 lh31 l: [#ffffffd9]COMPANY PROFILE",
+  "text headline 120,616 w1536.67 112/800 lh125 l: [#ffffff]Cloud backups ⏎ [#ffffff]that [#ffffff]just work",
+  "text sub 120,902 w1106.67 32/400 lh50 l: [#ffffffd9]Backups for small teams, set up in minutes",
+  "text website 1200,923 w600 22/700 lh29 r: [#ffffffa6]acmecloud.example",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink about A 1`] = `
+[
+  "about A on #160f0d (dark) "We keep the files of small teams safe and easy to restore"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1250 24/700 lh31 l: [#ff5a1f]ABOUT US",
+  "text statement 120,160 w1250 72/700 lh94 l: [#f2f2f0]We keep the files of small ⏎ [#f2f2f0]teams [#ff5a1f]safe and easy to restore",
+  "line 120,807 → 653.33,807 #393331 2",
+  "text label 120,843 w533.33 24/700 lh31 l: [#777371]FOUNDED",
+  "text value 120,892 w533.33 40/700 lh52 l: [#f2f2f0]2018",
+  "line 693.33,807 → 1226.67,807 #393331 2",
+  "text label 693.33,843 w533.33 24/700 lh31 l: [#777371]BASED IN",
+  "text value 693.33,892 w533.33 40/700 lh52 l: [#f2f2f0]Seoul",
+  "line 1266.67,807 → 1800,807 #393331 2",
+  "text label 1266.67,843 w533.33 24/700 lh31 l: [#777371]TEAM",
+  "text value 1266.67,892 w533.33 40/700 lh52 l: [#f2f2f0]35 people",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]02",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink offer A 1`] = `
+[
+  "offer A on #160f0d (dark) "Backups you never think about"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w936 24/700 lh31 l: [#ff5a1f]WHAT WE DO",
+  "text title 120,160 w936 64/700 lh78 l: [#f2f2f0]Backups you ⏎ [#f2f2f0]never think about",
+  "image square.jpg 1152,0 768×1080 crop 278,0,853,1200 r0",
+  "line 120,515 → 1056,515 #393331 2",
+  "text head 120,541 w300 40/700 lh52 l: [#f2f2f0]Automatic",
+  "text body 460,545 w596 32/400 lh50 l: [#a3a09e]Every file is saved each hour",
+  "line 120,619 → 1056,619 #393331 2",
+  "text head 120,645 w300 40/700 lh52 l: [#f2f2f0]Encrypted",
+  "text body 460,649 w596 32/400 lh50 l: [#a3a09e]Only your team holds the key",
+  "line 120,723 → 1056,723 #393331 2",
+  "text head 120,749 w300 40/700 lh52 l: [#f2f2f0]Fast restore",
+  "text body 460,753 w596 32/400 lh50 l: [#a3a09e]Get a folder back in one click",
+  "line 120,827 → 1056,827 #393331 2",
+  "text footer 936,1006 w120 22/700 lh29 r tabular: [#777371]03",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink numbers A 1`] = `
+[
+  "numbers A on #160f0d (dark) "numbers"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "rect -40,-20 2000×1560 r0 ellipse {"radial":{"stops":[{"at":0,"color":"#ff5a1f57"},{"at":0.38,"color":"#ff5a1f1d"},{"at":0.7,"color":"#ff5a1f00"},{"at":1,"color":"#ff5a1f00"}]}}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]IN NUMBERS",
+  "text stat 120,457 w496 150/800 lh150 l tabular: [#f2f2f0]1,200",
+  "text label 120,643 w496 30/400 lh47 l: [#a3a09e]teams",
+  "line 664,469 → 664,690 #393331 2",
+  "text stat 712,457 w496 150/800 lh150 l tabular: [#f2f2f0]99.9[#f2f2f0 68/700]%",
+  "text label 712,643 w496 30/400 lh47 l: [#a3a09e]uptime",
+  "line 1256,469 → 1256,690 #393331 2",
+  "text stat 1304,457 w496 150/800 lh150 l tabular: [#f2f2f0]4.8",
+  "text label 1304,643 w496 30/400 lh47 l: [#a3a09e]app rating",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]04",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+  "note 출처: 회사 소개.md — "…340곳의 고객사에 납품합니다…"",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink products A 1`] = `
+[
+  "products A on #160f0d (dark) "Pick a plan"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]PLANS",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]Pick a plan",
+  "image p1.png 120,370 533.33×360 crop 0,30,800,540 r16",
+  "text head 120,766 w533.33 40/700 lh52 l: [#f2f2f0]Starter",
+  "text body 120,830 w533.33 32/400 lh50 l: [#a3a09e]For teams of up to ten",
+  "image p2.png 693.33,370 533.33×360 crop 0,30,800,540 r16",
+  "text head 693.33,766 w533.33 40/700 lh52 l: [#f2f2f0]Business",
+  "text body 693.33,830 w533.33 32/400 lh50 l: [#a3a09e]For growing teams",
+  "image p3.png 1266.67,370 533.33×360 crop 0,198,600,405 r16",
+  "text head 1266.67,766 w533.33 40/700 lh52 l: [#f2f2f0]Enterprise",
+  "text body 1266.67,830 w533.33 32/400 lh50 l: [#a3a09e]For large companies",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]05",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink products B 1`] = `
+[
+  "products B on #160f0d (dark) "Add what you need"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]ADD-ONS",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]Add what you need",
+  "rect 120,427 390×409 r16 {"solid":"#231c1a"}",
+  "text numeral 164,471 w200 28/700 lh36 l tabular: [#ff5a1f]01",
+  "text head 164,631 w302 36/700 lh47 l: [#f2f2f0]Archive",
+  "text body 164,692 w302 32/400 lh50 l: [#a3a09e]Keep old files ⏎ [#a3a09e]for years",
+  "rect 550,427 390×409 r16 {"solid":"#231c1a"}",
+  "text numeral 594,471 w200 28/700 lh36 l tabular: [#ff5a1f]02",
+  "text head 594,631 w302 36/700 lh47 l: [#f2f2f0]Audit log",
+  "text body 594,692 w302 32/400 lh50 l: [#a3a09e]See who ⏎ [#a3a09e]opened what",
+  "rect 980,427 390×409 r16 {"solid":"#231c1a"}",
+  "text numeral 1024,471 w200 28/700 lh36 l tabular: [#ff5a1f]03",
+  "text head 1024,631 w302 36/700 lh47 l: [#f2f2f0]Support",
+  "text body 1024,692 w302 32/400 lh50 l: [#a3a09e]A person answers",
+  "rect 1410,427 390×409 r16 {"solid":"#231c1a"}",
+  "text numeral 1454,471 w200 28/700 lh36 l tabular: [#ff5a1f]04",
+  "text head 1454,631 w302 36/700 lh47 l: [#f2f2f0]Training",
+  "text body 1454,692 w302 32/400 lh50 l: [#a3a09e]One session ⏎ [#a3a09e]for the team",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]06",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink process A 1`] = `
+[
+  "process A on #160f0d (dark) "Three steps to start"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]HOW IT WORKS",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]Three steps to start",
+  "line 120,615 → 1800,615 #393331 2",
+  "text numeral 120,503 w240 72/700 lh72 l tabular: [#f2f2f0]01",
+  "rect 120,607 16×16 r8 {"solid":"#ff5a1f"}",
+  "text head 120,659 w517.33 40/700 lh52 l: [#f2f2f0]Sign up",
+  "text body 120,725 w517.33 32/400 lh50 l: [#a3a09e]Make an account",
+  "text numeral 693.33,503 w240 72/700 lh72 l tabular: [#f2f2f0]02",
+  "rect 693.33,607 16×16 r8 {"solid":"#ff5a1f"}",
+  "text head 693.33,659 w517.33 40/700 lh52 l: [#f2f2f0]Connect",
+  "text body 693.33,725 w517.33 32/400 lh50 l: [#a3a09e]Pick your folders",
+  "text numeral 1266.67,503 w240 72/700 lh72 l tabular: [#f2f2f0]03",
+  "rect 1266.67,607 16×16 r8 {"solid":"#ff5a1f"}",
+  "text head 1266.67,659 w517.33 40/700 lh52 l: [#f2f2f0]Relax",
+  "text body 1266.67,725 w517.33 32/400 lh50 l: [#a3a09e]We do the rest",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]07",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink proof A 1`] = `
+[
+  "proof A on #160f0d (dark) "Teams that trust us"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]CUSTOMERS",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]Teams that trust us",
+  "line 120,374 → 1800,374 #393331 2",
+  "line 120,542 → 1800,542 #393331 2",
+  "line 120,710 → 1800,710 #393331 2",
+  "line 120,878 → 1800,878 #393331 2",
+  "line 540,402 → 540,850 #393331 2",
+  "line 960,402 → 960,850 #393331 2",
+  "line 1380,402 → 1380,850 #393331 2",
+  "text name 152,434.50 w356 36/700 lh47 c: [#a3a09e]Acme Studio",
+  "text name 572,434.50 w356 36/700 lh47 c: [#a3a09e]Northwind",
+  "text name 992,434.50 w356 36/700 lh47 c: [#a3a09e]Blue Harbor",
+  "text name 1412,434.50 w356 36/700 lh47 c: [#a3a09e]Pine & Co",
+  "text name 152,602.50 w356 36/700 lh47 c: [#a3a09e]Lumen Labs",
+  "text name 572,602.50 w356 36/700 lh47 c: [#a3a09e]Orbit Foods",
+  "text name 992,602.50 w356 36/700 lh47 c: [#a3a09e]Kite Media",
+  "text name 1412,602.50 w356 36/700 lh47 c: [#a3a09e]Atlas Works",
+  "text name 152,770.50 w356 36/700 lh47 c: [#a3a09e]Juniper Law",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]08",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink history A 1`] = `
+[
+  "history A on #160f0d (dark) "How we grew"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]MILESTONES",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]How we grew",
+  "line 120,398 → 1800,398 #393331 2",
+  "text head 120,418 w390 40/800 lh52 l: [#ff5a1f]2018",
+  "text body 550,422 w1250 32/400 lh50 l: [#a3a09e]Founded in Seoul",
+  "line 120,490 → 1800,490 #393331 2",
+  "text head 120,510 w390 40/800 lh52 l: [#ff5a1f]2020",
+  "text body 550,514 w1250 32/400 lh50 l: [#a3a09e]First thousand teams",
+  "line 120,582 → 1800,582 #393331 2",
+  "text head 120,602 w390 40/800 lh52 l: [#ff5a1f]2023",
+  "text body 550,606 w1250 32/400 lh50 l: [#a3a09e]Opened in Tokyo",
+  "line 120,674 → 1800,674 #393331 2",
+  "text head 120,694 w390 40/800 lh52 l: [#ff5a1f]2024",
+  "text body 550,698 w1250 32/400 lh50 l: [#a3a09e]Encrypted archive",
+  "line 120,766 → 1800,766 #393331 2",
+  "text head 120,786 w390 40/800 lh52 l: [#ff5a1f]2025",
+  "text body 550,790 w1250 32/400 lh50 l: [#a3a09e]New restore engine",
+  "line 120,858 → 1800,858 #393331 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]09",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink contact A 1`] = `
+[
+  "contact A on #160f0d (dark) "Try it free for a month"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "rect -700,220 2000×1560 r0 ellipse {"radial":{"stops":[{"at":0,"color":"#ff5a1f4d"},{"at":0.38,"color":"#ff5a1f1a"},{"at":0.7,"color":"#ff5a1f00"},{"at":1,"color":"#ff5a1f00"}]}}",
+  "text company 120,104 w820 40/800 lh52 l: [#f2f2f0]Acme Cloud",
+  "text eyebrow 120,341 w1393.33 24/700 lh31 l: [#ff5a1f]CONTACT",
+  "text line 120,404 w1393.33 88/800 lh102 l: [#f2f2f0]Try it free ⏎ [#f2f2f0]for a month",
+  "rect 120,656 293×68 r34 {"solid":"#ff5a1f"}",
+  "text offer 156,666.50 w247 30/700 lh47 l: [#111111]First month free",
+  "line 120,800 → 1800,800 #393331 2",
+  "text person 120,840 w533.33 32/700 lh50 l: [#f2f2f0]Mina Seo, Sales",
+  "text email 693.33,840 w533.33 32/400 lh50 l: [#a3a09e]hello@acmecloud.example",
+  "text website 693.33,894 w533.33 32/400 lh50 l: [#a3a09e]acmecloud.example",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]10",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink cover B 1`] = `
+[
+  "cover B on #160f0d (dark) "Your files, always back"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "rect -640,278 1800×1404 r0 ellipse {"radial":{"stops":[{"at":0,"color":"#ff5a1f42"},{"at":0.38,"color":"#ff5a1f17"},{"at":0.7,"color":"#ff5a1f00"},{"at":1,"color":"#ff5a1f00"}]}}",
+  "image portrait.jpg 1152,0 768×1080 crop 0,47,1000,1406 r0",
+  "text company 120,104 w820 40/800 lh52 l: [#f2f2f0]Acme Cloud",
+  "text headline 120,702 w936 112/800 lh125 l: [#f2f2f0]Your files, ⏎ [#f2f2f0]always back",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink needs A 1`] = `
+[
+  "needs A on #160f0d (dark) "Losing a day of work hurts"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]SOUNDS FAMILIAR",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]Losing a day of work hurts",
+  "line 120,505 → 653.33,505 #393331 2",
+  "text numeral 120,549 w200 64/700 lh64 l tabular: [#ff5a1f]01",
+  "text head 120,653 w509.33 40/700 lh52 l: [#f2f2f0]Lost laptops",
+  "text body 120,725 w509.33 32/400 lh50 l: [#a3a09e]A stolen laptop takes the files",
+  "line 693.33,505 → 1226.67,505 #393331 2",
+  "text numeral 693.33,549 w200 64/700 lh64 l tabular: [#ff5a1f]02",
+  "text head 693.33,653 w509.33 40/700 lh52 l: [#f2f2f0]Broken drives",
+  "text body 693.33,725 w509.33 32/400 lh50 l: [#a3a09e]Drives fail without warning",
+  "line 1266.67,505 → 1800,505 #393331 2",
+  "text numeral 1266.67,549 w200 64/700 lh64 l tabular: [#ff5a1f]03",
+  "text head 1266.67,653 w509.33 40/700 lh52 l: [#f2f2f0]Wrong edits",
+  "text body 1266.67,725 w509.33 32/400 lh50 l: [#a3a09e]Someone saves over the plan",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]03",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink offer B 1`] = `
+[
+  "offer B on #160f0d (dark) "We keep a copy of everything"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]WHAT WE DO",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]We keep a copy of everything",
+  "line 120,461 → 1800,461 #393331 2",
+  "text head 120,493 w533.33 40/700 lh52 l: [#f2f2f0]Hourly",
+  "text body 693.33,497 w1106.67 32/400 lh50 l: [#a3a09e]Saved every hour",
+  "line 120,577 → 1800,577 #393331 2",
+  "text head 120,609 w533.33 40/700 lh52 l: [#f2f2f0]Private",
+  "text body 693.33,613 w1106.67 32/400 lh50 l: [#a3a09e]Encrypted end to end",
+  "line 120,693 → 1800,693 #393331 2",
+  "text head 120,725 w533.33 40/700 lh52 l: [#f2f2f0]Simple",
+  "text body 693.33,729 w1106.67 32/400 lh50 l: [#a3a09e]No setup to learn",
+  "line 120,809 → 1800,809 #393331 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]04",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink scene A 1`] = `
+[
+  "scene A on #0a0a0a (dark) "Built in Seoul"",
+  "image hall.png 0,0 1920×1080 crop 134,0,2133,1200 r0",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":0,"stops":[{"at":0,"color":"#050505e0"},{"at":0.36,"color":"#05050580"},{"at":0.7,"color":"#05050500"}]}}",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":90,"stops":[{"at":0,"color":"#05050573"},{"at":0.6,"color":"#05050500"}]}}",
+  "text line 120,842 w1393.33 80/800 lh94 l: [#ffffff]Built in Seoul",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#ffffffa6]05",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink cover C 1`] = `
+[
+  "cover C on #160f0d (dark) "Never lose a file again"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "rect 460,-638 2200×1716 r0 ellipse {"radial":{"stops":[{"at":0,"color":"#ff5a1f6b"},{"at":0.38,"color":"#ff5a1f24"},{"at":0.7,"color":"#ff5a1f00"},{"at":1,"color":"#ff5a1f00"}]}}",
+  "text company 120,104 w820 40/800 lh52 l: [#f2f2f0]Acme Cloud",
+  "text eyebrow 120,560 w1536.67 24/700 lh31 l: [#ff5a1f]COMPANY PROFILE",
+  "text headline 120,623 w1536.67 128/800 lh143 l: [#f2f2f0]Never lose a file again",
+  "text sub 120,802 w1106.67 32/400 lh50 l: [#a3a09e]Cloud backups for small teams",
+  "rect 120,488 96×12 r0 {"solid":"#ff5a1f"}",
+  "line 120,936 → 1800,936 #393331 2",
+  "text company 120,960 w800 22/700 lh29 l: [#777371]Acme Cloud",
+  "text website 1100,960 w700 22/700 lh29 r: [#777371]acmecloud.example",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink proof B 1`] = `
+[
+  "proof B on #160f0d (dark) "What a customer said"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]IN THEIR WORDS",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]What a customer said",
+  "rect 120,505 8×174 r0 {"solid":"#ff5a1f"}",
+  "text quote 184,497 w1329.33 72/700 lh95 l: [#f2f2f0]We got a whole folder ⏎ [#f2f2f0]back in two minutes",
+  "text who 184,731 w1106.67 32/700 lh50 l: [#a3a09e]Jae Kim, Northwind",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]04",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink history B 1`] = `
+[
+  "history B on #160f0d (dark) "Checked by others"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]TRUST",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]Checked by others",
+  "line 120,586 → 653.33,586 #393331 2",
+  "rect 120,639 14×14 r7 {"solid":"#ff5a1f"}",
+  "text head 168,622 w485.33 40/700 lh52 l: [#f2f2f0]ISO 27001",
+  "line 693.33,586 → 1226.67,586 #393331 2",
+  "rect 693.33,639 14×14 r7 {"solid":"#ff5a1f"}",
+  "text head 741.33,622 w485.33 40/700 lh52 l: [#f2f2f0]SOC 2 Type II",
+  "line 1266.67,586 → 1800,586 #393331 2",
+  "rect 1266.67,639 14×14 r7 {"solid":"#ff5a1f"}",
+  "text head 1314.67,622 w485.33 40/700 lh52 l: [#f2f2f0]Startup of the year",
+  "line 120,710 → 1800,710 #393331 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]05",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): ink proof C 1`] = `
+[
+  "proof C on #160f0d (dark) "A design studio"",
+  "rect 0,0 1920×1080 r0 {"solid":"#160f0d"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ff5a1f]A CASE",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#f2f2f0]A design studio",
+  "line 120,544 → 605.33,544 #393331 2",
+  "text label 120,584 w485.33 24/700 lh31 l: [#777371]BEFORE",
+  "text body 120,639 w485.33 32/400 lh50 l: [#a3a09e]A drive failed and a ⏎ [#a3a09e]week of work was gone",
+  "text arrow 631.33,633 w60 44/700 lh57 c: [#777371]→",
+  "line 717.33,544 → 1202.67,544 #393331 2",
+  "text label 717.33,584 w485.33 24/700 lh31 l: [#777371]WHAT WE DID",
+  "text body 717.33,639 w485.33 32/400 lh50 l: [#a3a09e]Hourly backups of ⏎ [#a3a09e]every project folder",
+  "text arrow 1228.67,633 w60 44/700 lh57 c: [#777371]→",
+  "line 1314.67,544 → 1800.00,544 #ff5a1f 4",
+  "text label 1314.67,584 w485.33 24/700 lh31 l: [#ff5a1f]RESULT",
+  "text head 1314.67,639 w485.33 40/700 lh52 l: [#f2f2f0]A lost file comes ⏎ [#f2f2f0]back in minutes",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]05",
+  "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand cover A 1`] = `
+[
+  "cover A on #0a0a0a (dark) "정밀 부품을 제때 만드는 회사"",
+  "image wide.png 0,0 1920×1080 crop 0,0,1920,1080 r0",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":0,"stops":[{"at":0,"color":"#080808e6"},{"at":0.42,"color":"#08080894"},{"at":0.8,"color":"#08080800"}]}}",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":90,"stops":[{"at":0,"color":"#0808089e"},{"at":0.38,"color":"#08080852"},{"at":0.7,"color":"#08080800"}]}}",
+  "rect 0,0 1920×320 r0 {"linear":{"angle":180,"stops":[{"at":0,"color":"#08080866"},{"at":1,"color":"#08080800"}]}}",
+  "rect 120,104 112×112 r14 {"solid":"#ffffff"}",
+  "image logo-square.png 151,135 50×50 crop 0,0,300,300 r0 logo",
+  "text eyebrow 120,553 w1536.67 24/700 lh31 l: [#ffffffd9]회사 소개서",
+  "text headline 120,616 w1536.67 112/800 lh125 l: [#ffffff]정밀 부품을 ⏎ [#ffffff]제때[#ffffff] 만드는 회사",
+  "text sub 120,902 w1106.67 32/400 lh50 l: [#ffffffd9]반도체 장비와 의료기기 부품을 만듭니다",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand about A 1`] = `
+[
+  "about A on #ffffff "반도체 장비와 의료기기에 들어가는 정밀 가공 부품을 설계하고 만듭니다"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1250 24/700 lh31 l: [#1f3a93]회사 소개",
+  "text statement 120,160 w1250 72/700 lh94 l: [#111111]반도체 장비와 의료기기에 들어가는 ⏎ [#1f3a93]정밀 가공 부품[#111111]을 설계하고 만듭니다",
+  "line 120,807 → 510,807 #dedede 2",
+  "text label 120,843 w390 24/700 lh31 l: [#888888]설립",
+  "text value 120,892 w390 40/700 lh52 l: [#111111]2009년",
+  "line 550,807 → 940,807 #dedede 2",
+  "text label 550,843 w390 24/700 lh31 l: [#888888]위치",
+  "text value 550,892 w390 40/700 lh52 l: [#111111]경기도 안산",
+  "line 980,807 → 1370,807 #dedede 2",
+  "text label 980,843 w390 24/700 lh31 l: [#888888]분야",
+  "text value 980,892 w390 40/700 lh52 l: [#111111]정밀 가공",
+  "line 1410,807 → 1800,807 #dedede 2",
+  "text label 1410,843 w390 24/700 lh31 l: [#888888]직원",
+  "text value 1410,892 w390 40/700 lh52 l: [#111111]48명",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]02",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand offer A 1`] = `
+[
+  "offer A on #ffffff "설계부터 납품까지 한 곳에서"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w936 24/700 lh31 l: [#1f3a93]하는 일",
+  "text title 120,160 w936 64/700 lh78 l: [#111111]설계부터 납품까지 한 곳에서",
+  "text sub 120,262 w936 32/400 lh50 l: [#585858]도면 한 장으로 시작해요",
+  "image square.jpg 1152,0 768×1080 crop 69,0,853,1200 r0",
+  "line 120,514 → 1056,514 #dedede 2",
+  "text head 120,540 w300 40/700 lh52 l: [#111111]정밀 가공",
+  "text body 460,544 w596 32/400 lh50 l: [#585858]다섯 축 장비로 아주 작게 깎아요",
+  "line 120,618 → 1056,618 #dedede 2",
+  "text head 120,644 w300 40/700 lh52 l: [#111111]품질 검사",
+  "text body 460,648 w596 32/400 lh50 l: [#585858]모든 부품을 측정기로 확인해요",
+  "line 120,722 → 1056,722 #dedede 2",
+  "text head 120,748 w300 40/700 lh52 l: [#111111]제때 납품",
+  "text body 460,752 w596 32/400 lh50 l: [#585858]약속한 날짜에 맞춰 보내 드려요",
+  "line 120,826 → 1056,826 #dedede 2",
+  "text footer 936,1006 w120 22/700 lh29 r tabular: [#888888]03",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand numbers A 1`] = `
+[
+  "numbers A on #1f3a93 (dark) "고객이 다시 찾는 이유"",
+  "rect 0,0 1920×1080 r0 {"solid":"#1f3a93"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#ffffff]숫자로 보는 회사",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#ffffff]고객이 다시 찾는 이유",
+  "text stat 120,513 w372 112/800 lh112 l tabular: [#ffffff]340[#ffffff 50/700] 곳",
+  "text label 120,661 w372 30/400 lh47 l: [#c5cce3]거래 고객사",
+  "line 524,525 → 524,708 #596daf 2",
+  "text stat 556,513 w372 112/800 lh112 l tabular: [#ffffff]0.02[#ffffff 50/700]%",
+  "text label 556,661 w372 30/400 lh47 l: [#c5cce3]불량률",
+  "line 960,525 → 960,708 #596daf 2",
+  "text stat 992,513 w372 112/800 lh112 l tabular: [#ffffff]99.1[#ffffff 50/700]%",
+  "text label 992,661 w372 30/400 lh47 l: [#c5cce3]납기 준수율",
+  "line 1396,525 → 1396,708 #596daf 2",
+  "text stat 1428,513 w372 112/800 lh112 l tabular: [#ffffff 50/700]+[#ffffff]30[#ffffff 50/700]%",
+  "text label 1428,661 w372 30/400 lh47 l: [#c5cce3]재주문 증가",
+  "text note 120,940 w1680 24/400 lh35 l: [#a1acd2]2025년 12월 기준",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#a1acd2]04",
+  "text footer 120,1006 w600 22/700 lh29 l: [#a1acd2]모래알 커피",
+  "note 출처: 회사 소개.md — "…340곳의 고객사에 납품합니다…"",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand products A 1`] = `
+[
+  "products A on #ffffff "주요 부품"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]제품",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]주요 부품",
+  "image p1.png 120,370 533.33×360 crop 0,30,800,540 r16",
+  "text head 120,766 w533.33 40/700 lh52 l: [#111111]정밀 샤프트",
+  "text body 120,830 w533.33 32/400 lh50 l: [#585858]장비 구동부에 들어가는 축이에요",
+  "image p2.png 693.33,370 533.33×360 crop 0,12,800,540 r16",
+  "text head 693.33,766 w533.33 40/700 lh52 l: [#111111]진공 블록",
+  "text body 693.33,830 w533.33 32/400 lh50 l: [#585858]반도체 공정 챔버용 블록이에요",
+  "image p3.png 1266.67,370 533.33×360 crop 0,316,600,405 r16",
+  "text head 1266.67,766 w533.33 40/700 lh52 l: [#111111]의료용 핀",
+  "text body 1266.67,830 w533.33 32/400 lh50 l: [#585858]수술 기구에 쓰는 작은 핀이에요",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]05",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand products B 1`] = `
+[
+  "products B on #ffffff "맞춤 가공도 해요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]제품",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]맞춤 가공도 해요",
+  "rect 120,432 820×400 r16 {"solid":"#f4f5fa"}",
+  "text numeral 164,476 w200 28/700 lh36 l tabular: [#1f3a93]01",
+  "text head 164,672 w732 40/700 lh52 l: [#111111]시제품 가공",
+  "text body 164,738 w732 32/400 lh50 l: [#585858]도면만 있으면 한 개부터 만들어요",
+  "rect 980,432 820×400 r16 {"solid":"#f4f5fa"}",
+  "text numeral 1024,476 w200 28/700 lh36 l tabular: [#1f3a93]02",
+  "text head 1024,672 w732 40/700 lh52 l: [#111111]소량 양산",
+  "text body 1024,738 w732 32/400 lh50 l: [#585858]적은 수량의 주문도 받아요",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]06",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand process A 1`] = `
+[
+  "process A on #ffffff "주문은 이렇게 진행돼요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]진행 방식",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]주문은 이렇게 진행돼요",
+  "line 120,587 → 1800,587 #dedede 2",
+  "text numeral 120,475 w240 72/700 lh72 l tabular: [#111111]01",
+  "rect 120,579 16×16 r8 {"solid":"#1f3a93"}",
+  "text head 120,631 w374 40/700 lh52 l: [#111111]도면 상담",
+  "text body 120,697 w374 32/400 lh50 l: [#585858]도면을 보고 가공 ⏎ [#585858]방법을 정해요",
+  "text numeral 550,475 w240 72/700 lh72 l tabular: [#111111]02",
+  "rect 550,579 16×16 r8 {"solid":"#1f3a93"}",
+  "text head 550,631 w374 40/700 lh52 l: [#111111]견적",
+  "text body 550,697 w374 32/400 lh50 l: [#585858]사흘 안에 보내 드려요",
+  "text numeral 980,475 w240 72/700 lh72 l tabular: [#111111]03",
+  "rect 980,579 16×16 r8 {"solid":"#1f3a93"}",
+  "text head 980,631 w374 40/700 lh52 l: [#111111]가공",
+  "text body 980,697 w374 32/400 lh50 l: [#585858]전담 팀이 맡아요",
+  "text numeral 1410,475 w240 72/700 lh72 l tabular: [#111111]04",
+  "rect 1410,579 16×16 r8 {"solid":"#1f3a93"}",
+  "text head 1410,631 w374 40/700 lh52 l: [#111111]검사와 납품",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]07",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand proof A 1`] = `
+[
+  "proof A on #ffffff "함께 일하는 고객사"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]고객사",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]함께 일하는 고객사",
+  "line 120,443 → 1800,443 #dedede 2",
+  "line 120,633 → 1800,633 #dedede 2",
+  "line 120,823 → 1800,823 #dedede 2",
+  "line 680,471 → 680,795 #dedede 2",
+  "line 1240,471 → 1240,795 #dedede 2",
+  "text name 152,512 w496 40/700 lh52 c: [#585858]아크메전자",
+  "text name 712,512 w496 40/700 lh52 c: [#585858]누리메디칼",
+  "text name 1272,512 w496 40/700 lh52 c: [#585858]세온테크",
+  "text name 152,702 w496 40/700 lh52 c: [#585858]다온로보틱스",
+  "text name 712,702 w496 40/700 lh52 c: [#585858]한결기계",
+  "text name 1272,702 w496 40/700 lh52 c: [#585858]미래정공",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]08",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand history A 1`] = `
+[
+  "history A on #ffffff "한 걸음씩 걸어온 길"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]연혁",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]한 걸음씩 걸어온 길",
+  "line 120,414 → 1800,414 #dedede 2",
+  "text head 120,442 w390 40/800 lh52 l: [#1f3a93]2009",
+  "text body 550,446 w1250 32/400 lh50 l: [#585858]안산에서 창업",
+  "line 120,522 → 1800,522 #dedede 2",
+  "text head 120,550 w390 40/800 lh52 l: [#1f3a93]2014",
+  "text body 550,554 w1250 32/400 lh50 l: [#585858]의료기기 부품 시작",
+  "line 120,630 → 1800,630 #dedede 2",
+  "text head 120,658 w390 40/800 lh52 l: [#1f3a93]2019",
+  "text body 550,662 w1250 32/400 lh50 l: [#585858]두 번째 공장 준공",
+  "line 120,738 → 1800,738 #dedede 2",
+  "text head 120,766 w390 40/800 lh52 l: [#1f3a93]2025.03",
+  "text body 550,770 w1250 32/400 lh50 l: [#585858]가공 라인 증설",
+  "line 120,846 → 1800,846 #dedede 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]09",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand contact A 1`] = `
+[
+  "contact A on #1f3a93 (dark) "부품 견적이 필요하면 연락 주세요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#1f3a93"}",
+  "rect 120,104 112×112 r14 {"solid":"#ffffff"}",
+  "image logo-square.png 151,135 50×50 crop 0,0,300,300 r0 logo",
+  "text eyebrow 120,341 w1393.33 24/700 lh31 l: [#c5cce3]문의",
+  "text line 120,404 w1393.33 88/800 lh102 l: [#ffffff]부품 견적이 필요하면 ⏎ [#ffffff]연락 주세요",
+  "rect 120,656 213×68 r34 {"solid":"#ffffff"}",
+  "text offer 156,666.50 w159 30/700 lh47 l: [#1f3a93]첫 견적 무료",
+  "line 120,800 → 1800,800 #596daf 2",
+  "text person 120,840 w533.33 32/700 lh50 l: [#ffffff]영업팀 박서준 이사",
+  "text phone 120,894 w533.33 32/400 lh50 l: [#c5cce3]031-555-0142",
+  "text email 693.33,840 w533.33 32/400 lh50 l: [#c5cce3]sales@hanbit.example",
+  "text website 693.33,894 w533.33 32/400 lh50 l: [#c5cce3]hanbit.example",
+  "text address 1266.67,840 w533.33 32/400 lh50 l: [#c5cce3]경기도 안산시 단원구 예시로 12",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#a1acd2]10",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand cover B 1`] = `
+[
+  "cover B on #1f3a93 (dark) "작은 공장의 큰 정밀함"",
+  "rect 0,0 1920×1080 r0 {"solid":"#1f3a93"}",
+  "image portrait.jpg 1152,0 768×1080 crop 0,19,1000,1406 r0",
+  "rect 120,104 112×112 r14 {"solid":"#ffffff"}",
+  "image logo-square.png 151,135 50×50 crop 0,0,300,300 r0 logo",
+  "text headline 120,616 w936 112/800 lh125 l: [#ffffff]작은 공장의 ⏎ [#ffffff]큰 정밀함",
+  "text sub 120,902 w936 32/400 lh50 l: [#c5cce3]정밀 가공 부품 전문",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand needs A 1`] = `
+[
+  "needs A on #ffffff "부품 때문에 일정이 밀린다면"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]이런 고민",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]부품 때문에 일정이 밀린다면",
+  "line 120,505 → 653.33,505 #dedede 2",
+  "text numeral 120,549 w200 64/700 lh64 l tabular: [#1f3a93]01",
+  "text head 120,653 w509.33 40/700 lh52 l: [#111111]납기 지연",
+  "text body 120,725 w509.33 32/400 lh50 l: [#585858]부품이 늦어 조립이 멈춰요",
+  "line 693.33,505 → 1226.67,505 #dedede 2",
+  "text numeral 693.33,549 w200 64/700 lh64 l tabular: [#1f3a93]02",
+  "text head 693.33,653 w509.33 40/700 lh52 l: [#111111]들쭉날쭉한 품질",
+  "text body 693.33,725 w509.33 32/400 lh50 l: [#585858]같은 도면인데 결과가 달라요",
+  "line 1266.67,505 → 1800,505 #dedede 2",
+  "text numeral 1266.67,549 w200 64/700 lh64 l tabular: [#1f3a93]03",
+  "text head 1266.67,653 w509.33 40/700 lh52 l: [#111111]소량 주문 거절",
+  "text body 1266.67,725 w509.33 32/400 lh50 l: [#585858]적은 수량은 받아 주지 않아요",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]03",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand offer B 1`] = `
+[
+  "offer B on #ffffff "세 가지를 약속해요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]하는 일",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]세 가지를 약속해요",
+  "line 120,461 → 1800,461 #dedede 2",
+  "text head 120,493 w533.33 40/700 lh52 l: [#111111]빠른 견적",
+  "text body 693.33,497 w1106.67 32/400 lh50 l: [#585858]도면을 받으면 바로 답해요",
+  "line 120,577 → 1800,577 #dedede 2",
+  "text head 120,609 w533.33 40/700 lh52 l: [#111111]같은 품질",
+  "text body 693.33,613 w1106.67 32/400 lh50 l: [#585858]몇 번을 만들어도 같아요",
+  "line 120,693 → 1800,693 #dedede 2",
+  "text head 120,725 w533.33 40/700 lh52 l: [#111111]소량도 환영",
+  "text body 693.33,729 w1106.67 32/400 lh50 l: [#585858]한 개부터 만들어요",
+  "line 120,809 → 1800,809 #dedede 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]04",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand scene A 1`] = `
+[
+  "scene A on #0a0a0a (dark) "안산 공장의 아침"",
+  "image hall.png 0,0 1920×1080 crop 214,0,2133,1200 r0",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":0,"stops":[{"at":0,"color":"#080808e0"},{"at":0.36,"color":"#08080880"},{"at":0.7,"color":"#08080800"}]}}",
+  "rect 0,0 1920×1080 r0 {"linear":{"angle":90,"stops":[{"at":0,"color":"#08080873"},{"at":0.6,"color":"#08080800"}]}}",
+  "text eyebrow 120,783 w1393.33 24/700 lh31 l: [#ffffffd9]공장",
+  "text line 120,842 w1393.33 80/800 lh94 l: [#ffffff]안산 공장의 아침",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#ffffffa6]05",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand numbers B 1`] = `
+[
+  "numbers B on #ffffff "numbers"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]숫자",
+  "text stat 120,436 w792 188/800 lh188 l tabular: [#111111]340[#111111 85/700] 곳",
+  "text label 120,660 w792 30/400 lh47 l: [#585858]고객사",
+  "line 960,448 → 960,707 #dedede 2",
+  "text stat 1008,436 w792 188/800 lh188 l tabular: [#111111]15[#111111 85/700] 년",
+  "text label 1008,660 w792 30/400 lh47 l: [#585858]업력",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]06",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+  "note 출처: 회사 소개.md — "…340곳의 고객사에 납품합니다…"",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand cover C 1`] = `
+[
+  "cover C on #1f3a93 (dark) "부품이 멈추지 않게"",
+  "rect 0,0 1920×1080 r0 {"solid":"#1f3a93"}",
+  "rect 120,104 112×112 r14 {"solid":"#ffffff"}",
+  "image logo-square.png 151,135 50×50 crop 0,0,300,300 r0 logo",
+  "text eyebrow 120,560 w1536.67 24/700 lh31 l: [#c5cce3]회사 소개서",
+  "text headline 120,623 w1536.67 128/800 lh143 l: [#ffffff]부품이 멈추지 않게",
+  "text sub 120,802 w1106.67 32/400 lh50 l: [#c5cce3]정밀 가공 파트너",
+  "rect 120,488 96×12 r0 {"solid":"#ffffff"}",
+  "line 120,936 → 1800,936 #596daf 2",
+  "text company 120,960 w800 22/700 lh29 l: [#a1acd2]모래알 커피",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand proof B 1`] = `
+[
+  "proof B on #ffffff "고객이 직접 말해요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]고객의 말",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]고객이 직접 말해요",
+  "rect 120,505 8×174 r0 {"solid":"#1f3a93"}",
+  "text quote 184,497 w1329.33 72/700 lh95 l: [#111111]한빛정밀 덕분에 장비 조립 ⏎ [#111111]일정이 두 주 빨라졌어요",
+  "text who 184,731 w1106.67 32/700 lh50 l: [#585858]누리메디칼 구매팀 김하늘 팀장",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]04",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand history B 1`] = `
+[
+  "history B on #ffffff "품질을 인증받았어요"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]인증",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]품질을 인증받았어요",
+  "line 120,517 → 940,517 #dedede 2",
+  "rect 120,570 14×14 r7 {"solid":"#1f3a93"}",
+  "text head 168,553 w772 40/700 lh52 l: [#111111]ISO 9001",
+  "line 980,517 → 1800,517 #dedede 2",
+  "rect 980,570 14×14 r7 {"solid":"#1f3a93"}",
+  "text head 1028,553 w772 40/700 lh52 l: [#111111]ISO 13485",
+  "line 120,641 → 940,641 #dedede 2",
+  "rect 120,694 14×14 r7 {"solid":"#1f3a93"}",
+  "text head 168,677 w772 40/700 lh52 l: [#111111]벤처기업 인증",
+  "line 980,641 → 1800,641 #dedede 2",
+  "rect 980,694 14×14 r7 {"solid":"#1f3a93"}",
+  "text head 1028,677 w772 40/700 lh52 l: [#111111]이노비즈 인증",
+  "line 120,765 → 1800,765 #dedede 2",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]05",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
+
+exports[`the display list a snapshot per kind × variant × theme (made-up companies): brand proof C 1`] = `
+[
+  "proof C on #ffffff "조립 일정을 앞당긴 사례"",
+  "rect 0,0 1920×1080 r0 {"solid":"#ffffff"}",
+  "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]사례",
+  "text title 120,160 w1393.33 64/700 lh78 l: [#111111]조립 일정을 앞당긴 사례",
+  "line 120,573 → 605.33,573 #dedede 2",
+  "text label 120,613 w485.33 24/700 lh31 l: [#888888]이전",
+  "text body 120,668 w485.33 32/400 lh50 l: [#585858]부품이 늦어 조립이 자주 멈췄어요",
+  "text arrow 631.33,662 w60 44/700 lh57 c: [#888888]→",
+  "line 717.33,573 → 1202.67,573 #dedede 2",
+  "text label 717.33,613 w485.33 24/700 lh31 l: [#888888]한 일",
+  "text body 717.33,668 w485.33 32/400 lh50 l: [#585858]전담 팀이 가공 순서를 다시 짰어요",
+  "text arrow 1228.67,662 w60 44/700 lh57 c: [#888888]→",
+  "line 1314.67,573 → 1800.00,573 #1f3a93 4",
+  "text label 1314.67,613 w485.33 24/700 lh31 l: [#1f3a93]결과",
+  "text head 1314.67,668 w485.33 40/700 lh52 l: [#111111]조립 일정이 두 주 빨라졌어요",
+  "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]05",
+  "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
+]
+`;
