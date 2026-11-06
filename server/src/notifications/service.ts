@@ -75,13 +75,14 @@ export class Notifications {
   skillNotice(userId: string, event: SkillNoticeEvent, suggestionId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, suggestionId, createdAt)
   }
-  /** A DM message or an @mention in a room (rooms/service.ts notify). The source is the message id only, never its
-   * text. No second notice of the same kind while one of that room is still unread (one per unread run: a burst of
-   * messages or mentions is one notice and one push); reading the room marks them read. Follows the person's room
-   * setting. */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString()) {
+  /** A DM message, an @mention or a reply in a followed thread in a room (rooms/service.ts notify). The source is the
+   * message id only, never its text. No second notice of the same kind while one of that room's timeline (or, for a
+   * reply, of that thread: `threadRootId`) is still unread (one per unread run: a burst of messages or mentions is one
+   * notice and one push); reading the room, or the thread, marks them read. Follows the person's room setting. */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null) {
     if (!this.active(userId) || at < this.cutoff()) return
-    if (this.ctx.db.query('SELECT 1 FROM room_notices WHERE user_id=? AND room_id=? AND event_type=? AND read_at IS NULL AND suppressed=0 AND created_at>=?').get(userId, roomId, event, this.cutoff())) return
+    if (this.ctx.db.query(`SELECT 1 FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
+      AND m.thread_root_id IS ?`).get(userId, roomId, event, this.cutoff(), threadRootId)) return
     const enabled = eventEnabled(this.preferences(userId), event)
     const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
       .run(newId(), userId, event, messageId, roomId, at, enabled ? 0 : 1)
@@ -343,12 +344,13 @@ export class Notifications {
     // message; never its text
     if (isRoomEvent(row.event_type)) {
       const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, outcome: null }
-      const m = this.ctx.db.query(`SELECT m.room_id, m.author_id, m.seq, m.visibility, m.visible_to, m.deleted_at, rm.visible_from_seq FROM room_messages m
+      // a reply in a thread is seen by whoever sees its root (thread_root_seq), and opens that thread
+      const m = this.ctx.db.query(`SELECT m.room_id, m.author_id, m.seq, m.thread_root_id, m.thread_root_seq, m.visibility, m.visible_to, m.deleted_at, rm.visible_from_seq FROM room_messages m
         JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = ? JOIN rooms r ON r.id = m.room_id AND r.archived_at IS NULL WHERE m.id = ?`)
-        .get(row.user_id, row.source_id) as { room_id: string; author_id: string | null; seq: number; visibility: string; visible_to: string | null; deleted_at: string | null; visible_from_seq: number } | null
-      if (!m || m.deleted_at || m.seq <= m.visible_from_seq || (m.visibility !== 'room' && m.visible_to !== row.user_id)) return { ...base, link: null }
+        .get(row.user_id, row.source_id) as { room_id: string; author_id: string | null; seq: number; thread_root_id: string | null; thread_root_seq: number | null; visibility: string; visible_to: string | null; deleted_at: string | null; visible_from_seq: number } | null
+      if (!m || m.deleted_at || (m.thread_root_seq ?? m.seq) <= m.visible_from_seq || (m.visibility !== 'room' && m.visible_to !== row.user_id)) return { ...base, link: null }
       const from = m.author_id ? (this.ctx.db.query('SELECT name FROM users WHERE id=?').get(m.author_id) as { name: string } | null)?.name ?? null : null
-      return { ...base, link: 'room', room: { id: m.room_id, from } }
+      return { ...base, link: 'room', room: { id: m.room_id, from, ...(m.thread_root_id ? { thread: m.thread_root_id } : {}) } }
     }
     // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting. The
     // service's name with the host of its address (where the member's key would go), while the request is there.

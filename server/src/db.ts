@@ -22,8 +22,8 @@ import { uuidv7 } from '@mycel/shared'
 
 export const MIGRATIONS_DIR = path.join(import.meta.dir, '..', 'migrations')
 /** Raise when this build stops understanding DBs written by older releases' assumptions (see header). 5: group chats
- * and event lines in rooms (250_b_group_rooms.sql). */
-export const SCHEMA_READER_LEVEL = 5
+ * and event lines in rooms (250_b_group_rooms.sql). 6: thread replies in rooms (251_b_room_threads.sql). */
+export const SCHEMA_READER_LEVEL = 6
 
 export class SchemaTooNewError extends Error {
   constructor(public needed: number, public have: number, public migration: string) {

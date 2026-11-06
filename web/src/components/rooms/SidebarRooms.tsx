@@ -8,7 +8,7 @@ import { useId, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { roomBadge } from '../../lib/rooms'
+import { roomBadge, roomUnread } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { PeoplePicker } from './PeoplePicker'
 import { RoomIcon, useRoomTitle } from './RoomIcon'
@@ -44,7 +44,7 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
       return !v
     })
   // unread rooms stay in sight even past the first rows
-  const shown = rooms.filter((r, i) => i < SHOWN || r.unreadCount > 0)
+  const shown = rooms.filter((r, i) => i < SHOWN || roomUnread(r) > 0)
   return (
     <div className="mb-3" data-testid="sidebar-rooms">
       <div className="flex items-center gap-1 pr-1 pl-3">
@@ -80,12 +80,13 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
  * does not count). */
 export function UnreadBadge({ room, className, testId }: { room: Room; className?: string; testId: string }) {
   const t = useT()
-  if (room.unreadCount <= 0) return null
+  const n = roomUnread(room)
+  if (n <= 0) return null
   return (
     <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>
       <span aria-hidden>{roomBadge(room)}</span>
       <span className="sr-only">
-        {t('rooms.unread', { n: room.unreadCount })}
+        {t('rooms.unread', { n })}
         {room.mentioned && `, ${t('rooms.mentionedYou')}`}
       </span>
     </span>
@@ -95,7 +96,7 @@ export function UnreadBadge({ room, className, testId }: { room: Room; className
 function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
   const t = useT()
   const title = useRoomTitle()(room)
-  const unread = room.unreadCount
+  const unread = roomUnread(room)
   return (
     <li>
       <NavLink

@@ -15,15 +15,21 @@ A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your t
 
 ## Skills every team has
 
-Every team gets 18 ready-made skills without installing anything, in the team's language (Korean or English):
+Every team gets 19 ready-made skills without installing anything, in the team's language (Korean or English):
 
 | Folder | Skills |
 |---|---|
 | `skills/general/` | Tasks from notes, Key points, Promo cards, Promo video, Company profile |
 | `skills/marketing/` | Ad copy, Blog and social draft, Campaign plan, SEO brief, Competitor brief, Brand voice review, Weekly report |
-| `skills/work/` | Meeting summary, Weekly roundup, Sales follow-up, Creative brief, Expense check, New hire guide |
+| `skills/work/` | Meeting summary, Weekly roundup, Sales follow-up, Creative brief, Expense check, New hire guide, Natural writing |
 
 They are your team's own files. Skill managers can edit, move or delete them. The server adds each one once. It never replaces an edited skill, never brings back one you deleted, and skips one whose name another team skill already uses.
+
+**Natural writing** rewrites text that reads as AI-written so it sounds like a person wrote it, without changing any fact. The Korean version knows Korean genres (blog, Shorts titles, Instagram, proposals, notices); the English one is based on the open-source "humanizer" skill (MIT License, its notice is inside the skill).
+
+### Optional: Korean HR documents
+
+Owners and admins can add three more skills from **Available skills** with **Add 3 HR document skills (Korea)**: Employment contract, Employment certificate (employment, career, leaving) and Annual leave (days and a leave request). They follow the Korean Labor Standards Act and only make drafts: the company signs, stamps and decides. They read HR records only where the person asking may read them. They go under `skills/hr/` and are never added by themselves.
 
 ## Where skills live
 

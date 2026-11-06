@@ -126,7 +126,7 @@
 - **링크 주소**: 초대 `<origin>/invite/<token>`, 재설정 `<origin>/reset-password/<token>`(D가 이 경로를 쓴다). origin은 요청의 Origin이 이 서버·`publicOrigins`일 때 그것, 아니면 `publicOrigins[0]`, 아니면 요청 주소.
 - **초대 기본 유효 기간 7일**(1·5번 탭; 계약 기본값 72시간을 168시간으로). 1회용(동시 수락도 한 번만), 사용한 초대는 취소할 수 없다. 취소한 초대는 목록에서 뺀다. admin 역할 초대는 owner만.
 - **첫 owner 만들기**: `POST /api/setup`(설정 토큰, 사용자가 0명일 때만, 즉시 트랜잭션 안에서 다시 확인)과 CLI `bun run admin create-owner --username … --name … --team … < 비밀번호`(비밀번호는 stdin으로만). 성공하면 설정 토큰 파일을 지운다. 기본 폴더 `shared/`(everyone 쓰기)·`skills/`(everyone 읽기, admin 역할 쓰기)와 `groups/`·`projects/`·`users/<owner>/`를 만든다.
-- **역할 규칙**: admin을 만들고·바꾸고·지우고·초기화하는 것은 owner만. **계정 삭제는 owner만**(4번 탭 `DELETE /api/admin/users/:id` "owner만"): admin은 member를 비활성화하고 비밀번호를 초기화하는 데까지다. 계약(`auth: 'owner'`), 서버 함수 `deleteUser`, 화면(삭제 버튼은 owner에게만) 세 곳에서 막는다. 전에는 owner가 아닌 admin도 member 계정을 지울 수 있었다(세션 종료·채팅·메모리 정리·개인 폴더 이동). owner 계정은 관리 API로 바꾸거나 지울 수 없고(넘기기만, 비밀번호 재확인), 자기 역할·상태는 바꿀 수 없다. 아이디는 대소문자 구분 없이 유일.
+- **역할 규칙**: admin을 만들고·바꾸고·지우고·초기화하는 것은 owner만. **계정 삭제는 2026-11-06 owner 결정으로 admin도 한다**: admin은 member 계정(활성·비활성)을 지울 수 있고, admin 계정은 owner만 지운다(그 전에는 4번 탭 "owner만"대로 owner만 지웠다). 계약은 `auth: 'admin'`이고 역할은 서버 `guard()`가 본다. 화면은 그 행을 관리할 수 있는 사람(다른 동작과 같은 조건)에게 삭제를 보인다. 누가 지우든 개인 폴더는 owner 개인 폴더로 간다. owner 계정은 관리 API로 바꾸거나 지울 수 없고(넘기기만, 비밀번호 재확인), 자기 계정은 지울 수 없으며 자기 역할·상태도 바꿀 수 없다. 아이디는 대소문자 구분 없이 유일.
 - **계정 삭제는 묘비(tombstone)**: 바로 비활성 + 세션 종료 + 엔진 세션 초기화, 아이디(username)는 풀어서 다시 쓸 수 있게 하고 `users.id`(개인 폴더 이름)는 다시 쓰지 않는다. 채팅·메모리는 `chatTrashRetentionDays`(기본 7일) 뒤 정리하고, 사용량(turns)과 감사 기록의 이름은 남긴다. 개인 폴더는 `transfer`(기본)면 owner 개인 폴더 아래 `보관된 계정/<id>/`(팀 기본 언어)로 옮기고 `.attachments/`는 지운다. `delete`면 함께 지운다. 2번 탭의 "`보관/<이름>/` + owner만 쓰기 규칙"은 admin이 규칙과 상관없이 `users/` 밖 전부 쓰기라 owner 전용이 되지 않으므로, owner 개인 폴더 안에 두는 쪽을 골랐다.
 - **그룹 폴더 이름은 그룹 이름 그대로**(`groups/마케팅`), 이름 규칙에 걸리면 `groups/group-<id 끝 8자리>`. 그룹 이름을 바꿔도 폴더 이름은 그대로다(폴더 이름 바꾸기는 파일 API가 `folders.path`를 고친다). 그룹을 지우면 그 그룹 규칙과 예산이 지워지고 폴더는 남는다. 그래서 새 그룹은 이미 있는 폴더(디스크나 `folders`, 대소문자·유니코드 형태 무시)를 쓰지 않고 `<이름>-2`처럼 새 폴더를 만든다: 옛 그룹 폴더의 파일을 새 그룹이 이어받지 않게.
 - **폴더 경로는 디스크의 실제 이름으로 저장**: 관리자가 `PROJECTS/Apollo`라고 써도 권한 함수와 같은 걷기로 `projects/apollo`를 찾는다. `users/`·`users/**`·`.system`, 파일, 심볼릭 링크, 이름 규칙 위반은 거부. 같은 대상 규칙 두 번, 없는 그룹·사람은 400. 규칙 전부 지우기(`DELETE /api/admin/folders/:id`)는 `folders` 행까지 지우고 디스크 폴더는 남긴다.
@@ -8170,7 +8170,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   `author`, `authorId`, `authorKind` or `visibility` is refused (400), and edit and delete are the author's only (403).
   Message text from another member is data, shown as plain text in the app (never Markdown or HTML); the AI step must
   treat it as untrusted input too, and can rely on `author_id` being the real sender.
-- **KakaoTalk's unread number.** Every message carries `unread`: members who may see it (`visible_from_seq < seq`) and
+- **KakaoTalk's unread number** (removed 2026-11-06: no read receipts, see "스레드와 반응"). Every message carried `unread`: members who may see it (`visible_from_seq < seq`) and
   whose `last_read_seq < seq`. The sender has read their own message (sending moves their read position to it). Reads
   only move forward (`POST /api/rooms/:id/read`, clamped to the room's last seq). Nobody's read position is in any
   response: `room.read` tells the others only "fromSeq < seq <= toSeq has one reader more", so the number updates
@@ -8260,11 +8260,12 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 - **Web.** Desktop and web: a foldable "대화방" group in the sidebar above the AI chats (team rooms, 전체, DMs; one count
   pill per room, "@" in front when one mentions me; "+" opens the people list for a DM); a room opens in the main area at
   `/rooms/:roomId` (the mobile app deep-links there), the list at `/rooms`. The room screen groups consecutive messages
-  by author (avatar, name, time once), shows the unread number beside a message only while it is above 0, quotes a reply
+  by author (avatar, name, time once), shows the unread number beside a message only while it is above 0 (removed, see "스레드와
+  반응"), quotes a reply (replaced by threads)
   (a click scrolls to it), offers reply, edit and delete in one "…" menu per message (always visible on touch screens),
   @mention autocomplete of the room's members, files and images, and one primary action, Send. A message's unread
   number only ever goes down, so the app keeps the lower of two copies (the answer to my own send can arrive after the
-  other person already read it). Text is plain text with line breaks, never Markdown or HTML.
+  other person already read it) (removed with the number, see "스레드와 반응"). Text is plain text with line breaks, never Markdown or HTML.
 - **Phones.** Below 768 px a bottom tab bar with three tabs, 대화 (`/rooms`) · 파일 · 나 (Settings, with the profile
   page from feat/profile), hairline above, one unread count on 대화. The 대화 list starts with a pinned row for the
   AI chat (the product's name; it opens Home), like KakaoTalk's "나와의 채팅"; the AI chat has no tab of its own. Inside
@@ -8589,8 +8590,9 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Not deployed.
 - **App Review screens**: a native "offline" / "cannot reach your team" screen with Try again and Change team address
   (Korean and English by the phone's language). Account deletion starts inside the app: Settings › Profile › 계정 삭제
-  opens `/settings/account/delete` ("계정 삭제 요청"). Admins create accounts and only the owner deletes them, so the
-  person confirms and the owner (only the owner: admins cannot act on it) gets an in-app notice (no OS push) that opens
+  opens `/settings/account/delete` ("계정 삭제 요청"). The request is for the owner (since 2026-11-06 an admin may
+  delete a member's account too, see 역할 규칙 in A, but is not told of requests), so the
+  person confirms and the owner (only the owner) gets an in-app notice (no OS push) that opens
   Admin › Members at that person. Removing that person works as for anyone: the account goes and the personal files
   are archived for the owner (they are not deleted). The owner cannot ask (409; hand over the role first). Requests are
   idempotent, audited, at most five a day (migration 244).
@@ -10600,6 +10602,110 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
   event line or room name in the AI's context, a new conversation after an invite), the permission matrix
   (`inviteRoomMembers`, `removeRoomMember`, `leaveRoom`, and checks on create, rename and invite), and the web tests
   `room-picker`, `room-info`, `rooms-lib`, `rooms-store`, `room-messages`.
+## 스레드와 반응 — threads, reactions, no read receipts (feat/room-threads, 2026-11-06)
+
+The owner: rooms follow Slack almost entirely. Three changes: threads (they replace the quoted reply, "답장"), emoji
+reactions, and no read receipts (KakaoTalk's per-message number goes). The one deliberate difference from Slack stays:
+a later member sees a room from their join on (`visible_from_seq`), threads included.
+
+- **A thread hangs under a message of the timeline.** Any message for the whole room that is not an event line or
+  deleted can get replies (`SendRoomMessageBody.threadRootId`); a reply cannot have a thread of its own, and a private
+  preview or an event line never is a root (400, the same answer whatever is wrong). A reply takes a seq like any
+  message (`room_messages.thread_root_id`, migration 251) but is not in the timeline (`TIMELINE_SQL`), the rooms list's
+  last line, the room's unread count or its place in the list; it lives in the thread (`GET
+  /api/rooms/:id/messages/:messageId/thread`, its root and the replies, paged like the timeline). The root shows the
+  thread under it (`RoomMessage.thread`: the replies I can see, the last one's time, up to 3 people who replied).
+  "대화방에도 보내기" (`alsoInRoom`) puts a reply in the timeline as well, marked "스레드 답글" there and "대화방에도
+  보냄" in the thread, and it counts and notifies there like any message. A deleted root keeps its replies (the thread
+  stays readable) but takes no new ones. The old quoted reply is no longer made by the app; `replyToId` is still
+  accepted (not with `threadRootId`) and old quotes render as before.
+- **A thread follows its root.** `room_messages.thread_root_seq` keeps the root's seq on every reply; `canSee` /
+  `SEE_SQL` go by it, so a member who joined after the root (`visible_from_seq >= root seq`) sees no reply of it, however
+  late it was written: not in the thread (404), not in the timeline (a reply sent to the room too stays hidden from
+  them), not its files (`RoomFiles.open`), sources, reactions, notices (`Notifications.out`), events or the AI's answers.
+  A root's seq never changes (only a private preview moves when posted, and a root is never private). One counter per
+  room: the seqs of the messages a member gets have gaps where messages they cannot see were written (replies in older
+  threads, other people's previews), so they can tell that something was there; what it was, never. No count or position
+  goes further: `Room.lastSeq` is the newest position of the timeline they see, a read never answers past it, and a
+  thread read never past the newest reply of that thread they see.
+- **Following, Slack's way.** `room_thread_follows` (migration 251): the root's author (for an AI answer, the person who
+  asked it) follows from the first reply (everything after the root is new to them), everyone who replies, and people mentioned in a reply (from that reply
+  on), each only while in the room and able to see the root. A new reply notifies its followers and the people it
+  mentions, nobody else, unless the room is muted (`Rooms.notify`): `room.mention` for a mention, else `room.dm` (the
+  push is the same generic line; `room_notices` has a fixed CHECK list and is never rebuilt, so no new code). One notice
+  per unread run and thread (`Notifications.roomNotice` looks for an unread notice whose message is in the same thread,
+  or in the timeline); reading the room reads only the timeline's notices, reading the thread (`POST …/thread/read`)
+  that thread's. A notice of a reply opens its thread: the push path is `/rooms/<room>/t/<root>` (ids only), the notice
+  names the thread (`InboxNotification.room.thread`) and the service worker opens it from the signed-in fetch. In a DM
+  or group chat a thread reply notifies only its followers (the other person when they follow it).
+- **Badges.** Thread replies never raise the room's own unread count. For a follower, a thread with replies after their
+  position is one thing to read: `Room.threadsUnread` (and `nextThreadId`, the one with the newest such reply) counts in
+  the room's badge in the sidebar, the 대화 list and the 대화 tab (a reply sent to the room too counts there once, in
+  the timeline); `Room.mentioned` also covers a followed reply that mentions me. The root shows a dot for them (`RoomThreadSummary.newReplies`), and the room's header a thread mark
+  with a dot that opens the newest one (the room may be long: the badge must lead somewhere). A reply's own author has
+  read the thread up to it.
+- **@트리나 in a thread answers in the thread.** Its context is the thread (the root, always kept, and the replies
+  before the question the asker can see, for the whole room), never the room's other messages; the block says so
+  (`thread="yes"`, the instructions' room section too). Its conversation is that thread's: the session's earlier
+  questions in the same thread (`RoomAi.lastAnswerHere`: each place, the timeline and every thread, keeps its own branch
+  of the person's room session), so the timeline's history never comes into a thread and the reverse. What the answer
+  used counts from the root's seq (`seenSeq`), so a member who joined after the root keeps the answer private ("○○ 님이
+  들어오기 전 대화를 참고했어요") for the room's timeline. In a thread the share rule is the room's over the thread's
+  audience: the members who see its root (`visible_from_seq` < the root's seq; `RoomAi.decide`'s `threadSeq`). Someone
+  who joined after the root never sees the thread or the answer, so they do not keep it private (changed after review:
+  at first every current member counted); a member who sees the root and cannot read what the answer used does, and a
+  posted preview drops the sources they cannot read. An AI answer is never also put in the timeline, so nobody outside
+  that audience can get it. A posted answer or preview stays in its thread, notifies the thread's followers (never the
+  asker) and does not move the room in the list. `RoomAiRun.threadRootId` puts my
+  question's progress under the thread.
+- **Reactions.** Eight fixed emoji (`ROOM_REACTIONS`: 👍 ✅ 👀 🙏 😂 🎉 ❤️ 🔥; anything else 400), one each per person and
+  message (`room_reactions`, migration 251), on messages for the whole room and their replies; never on an event line, a
+  deleted message (its reactions go with it) or a private preview. `PUT …/reactions {emoji, on}`: the same again changes
+  nothing; a change takes from the sending budget (one bucket with messages, invites and renames). They never notify,
+  ring, count as unread, move a room or go to the AI. Chips show the count, mine marked, and who (the first 10 names, then
+  how many more) on hover or a long press; counted for people in the room now (someone leaving takes their reactions,
+  and the threads they followed). Realtime: `room.reactions` to the members who see the message, each with their own
+  `mine`.
+- **No read receipts.** `RoomMessage.unread` is gone, and so is the broadcast that told the others "one reader more".
+  `room.read` now goes to the reader's own windows only, with their position and badge. Nobody's read position is in
+  any response or event for anyone else.
+- **Realtime.** A reply goes (`room.message`) to the members who see its root; the root's summary (`room.thread`) to
+  each of them as they see it (one copy for everyone but followers and the asker of a private preview there); the
+  followers also get their room (`room.updated`) for the badge, the reply's author too (their other windows keep their
+  place in the thread). All of it is `room.*`, so the replay check covers it.
+- **Web.** Desktop: a thread opens as a plain column beside the room (a hairline on its left, its own reply box with the
+  one choice "대화방에도 보내기" under it); phones: the whole screen at `/rooms/:roomId/t/:messageId` (the route keeps the
+  bottom tabs hidden like a room). A message's hover row on computers: react, reply in thread, "…"; on touch screens a
+  long press opens the sheet with the eight emoji on top. Under a message: its chips, and for a root the thread line
+  ("답글 3개 · 마지막 답글 오후 2:10", up to 3 faces, a dot when new for me). The room sound (lib/roomSound.ts) rings
+  for a reply in a thread I follow or that mentions me, like a DM message; any other reply is quiet even in a DM or
+  group chat unless it went to the room too; reactions never ring. All five languages. Checked at 1440 and 390×844,
+  light and dark, ko and en, with names ending in 님 and a very long name; the phone type audit (now also opening a
+  thread) flags nothing.
+- **Independent review (2026-11-06) fixes.** Counts said what the thread rules hide: the AI's "answering" count now
+  counts, per member, only questions they can see (`RoomAi.count`; a question in an old thread is not even a number to a
+  later member), and `Room.lastSeq` is the newest position of the timeline the viewer sees (`lastSeqFor`), not the
+  room's counter, which moved with every reply in a thread they cannot see. A reply sent to the room too counts once
+  for a follower: in the timeline, not again as a thread with news. A read's answer and `room.read` say whether
+  something unread still mentions me (`RoomReadState.mentioned`), so reading the room keeps the "@" of a followed
+  thread's mention. Speed: `SEE_SQL` keeps a plain `m.seq > ?` before the root's rule (a reply's seq is above its
+  root's), so the (room_id, seq) index starts at the member's join (a timeline page of a 100k-message room: 22 ms →
+  0.01 ms), and `threadsUnread` starts from the follow rows (`CROSS JOIN`: 14 ms → 0.01 ms). Left as is: a mention of
+  someone who cannot see the thread is kept in the reply's mentions (they get nothing; dropping it would tell the writer
+  who joined after the root). Second round (coordinator's review): reads clamp to what the reader sees (above), the
+  asker of an AI answer follows its thread, the AI's thread audience, the reply's author gets their own room event, a
+  question in a thread that fails to start says so under the thread (`RoomAiRun.threadRootId`), and the sending
+  budget's clock is injectable (`Rooms.clock`) so its test does not depend on the machine's speed.
+- **Rollback: reader level 6.** An older build knows no `thread_root_id`: it would show every reply in the timeline,
+  count and notify it, and show a root's late replies to a member who joined after the root (it checks the reply's own
+  seq). So 251 declares `min_compatible_reader: 6` and `SCHEMA_READER_LEVEL` is 6; going back means restoring the
+  backup taken before the update.
+- **Tests.** `tests/unit/b-rooms-threads.test.ts` (a reply stays in its thread, what can hold one, a later member sees
+  none of it, members only for every route, followers and mutes, notices that open the thread, realtime, reactions and
+  their limits, one budget, the reader level), `b-rooms-ai.test.ts` "the AI in a thread" (thread-only context, one
+  conversation per place, a later member keeps it private), `b-rooms.test.ts` (no read count, reads go to my windows
+  only), the permission matrix (`listRoomThread`, `markRoomThreadRead`, `reactRoomMessage`), and the web tests
+  `rooms-store`, `room-messages`, `room-thread`, `room-sound`, `push-worker`.
 
 ## K — Knowledge graph: CodeGraph's code map of the team folders, filtered at every question (2026-11-06)
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
@@ -10690,3 +10796,32 @@ owner asked for every skill in the repository to be in every team without anyone
 - Rejected: seeding in `bootstrapOwner` (setup) — every test harness sets up through it, and the welcome steps run
   right after setup anyway; a migration — the skills are files written through the file layer as a person, not rows;
   re-adding a deleted pack skill on update — a delete on purpose must stay.
+
+## DS2 — Natural writing as a default, Korean HR documents as an optional pack (2026-11-06)
+
+넣을 곳: trina-ax `resources/skill-packs/work/{ko,en}/humanizer`, `resources/skill-packs/hr` and
+`server/src/onboarding/skill-packs.ts`, 이유: the owner asked for the company's general-purpose skills to be Trina's
+default skills, accepting that they become public here, leaving out anything internal or with customer data.
+
+- **Natural writing (`work/humanizer`) is a default skill**, added once to every team like the rest of DS (existing
+  teams get it on the next run; the 19th default skill). Korean: a company-written Korean skill condensed into one
+  SKILL.md (genre registers for blog, review, official channels, Shorts, Instagram, proposals and notices; the AI tells
+  and their fixes), without its lint script (a pack ships one SKILL.md) and with **every quoted real title, caption or
+  creator replaced by examples written for this skill**. English: the open-source "humanizer" skill (Siqi Chen, MIT),
+  its pattern list rewritten with our own examples (its Wikipedia-derived examples are left out); its MIT notice is at
+  the end of the SKILL.md a team gets and as `LICENSE` next to it. Both: every fact stays, nothing invented, the
+  original file is never changed.
+- **Korean HR documents (`hr`) are an optional pack** (`OPTIONAL_SKILL_PACKS`): employment contract, employment
+  certificate (employment / career / leaving) and annual leave (days and a leave request), Korean and English. Made
+  general for any Korean company from an industry-specific edition: no industry, clinic or person names, no data; the
+  templates are inline, the leave calculation is in the text (art. 60, with its 5-employee threshold), the minimum wage
+  is 2026's with a pointer to the yearly notice. Drafts only; HR records are read only where the person may; never
+  saved to a wide folder. The server never adds it by itself: Available skills offers owners and admins one quiet line
+  ("인사 서류 스킬 3개 넣기") while no skill is under `skills/hr/`; the install is the pack install route (`id: hr`).
+- **Left out, on purpose:** the local-store SEO skills (third-party paid ranking research quoted throughout, and
+  scripts and a browser a pack cannot ship); the search-exposure method (the company's own unpublished method: the
+  owner decides separately); a PRD test-case generator (low priority); the medical / dental skills (they belong in the
+  medical fork, not here); developer workflows, customer-project rules, internal operations and brand kits, and
+  third-party generators that need paid credits.
+- Rejected: shipping the Korean lint script (a pack is one SKILL.md, and the checks are in the text); making the HR
+  pack a default (labour-law forms only some teams need, and wrong for teams outside Korea).

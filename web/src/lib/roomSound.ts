@@ -3,9 +3,12 @@
 //
 // - What rings: shouldRing below (a pure function; test/unit/room-sound.test.ts). Every message in a DM or a group chat
 //   (any kind but 'team' and 'all'), a message that mentions me in a team room or the everyone room, and an AI answer to
-//   my own question (my private preview, or the answer that went to the room). Never: my own messages, a muted room,
-//   event lines, deleted messages, a message seen before (a replay after a reconnect, the copy of a preview I posted),
-//   or the room this device shows in a visible, focused window.
+//   my own question (my private preview, or the answer that went to the room). A reply in a thread (docs/DECISIONS.md
+//   "스레드와 반응") rings like a DM message when the thread is mine to follow (I wrote the root, replied, or was
+//   mentioned: RoomMessage.following) or it mentions me; any other reply stays quiet, in a DM or a group chat too,
+//   unless it was sent to the room as well (then the room's rule). Reactions never ring (they are no room.message).
+//   Never: my own messages, a muted room, event lines, deleted messages, a message seen before (a replay after a
+//   reconnect, the copy of a preview I posted), or the room this device shows in a visible, focused window.
 // - One sound per device: every tab gets the same events, so a tab rings only when (a) its audio may play, (b) it takes
 //   the device's slot: one sound every COALESCE_MS for all rooms and tabs. Where there is a Web Lock the tab that
 //   rings holds it for COALESCE_MS (the browser's one lock manager decides, at once); without one (plain http, older
@@ -37,7 +40,7 @@ export const LAST_KEY = 'mycel.roomSound.last'
 export const VIEW_KEY = 'mycel.roomSound.view'
 const LOCK_NAME = 'mycel.roomSound'
 
-export type RingMessage = Pick<RoomMessage, 'id' | 'authorKind' | 'author' | 'askedBy' | 'visibility' | 'mentions' | 'createdAt' | 'deletedAt'> & { event?: unknown }
+export type RingMessage = Pick<RoomMessage, 'id' | 'authorKind' | 'author' | 'askedBy' | 'visibility' | 'mentions' | 'createdAt' | 'deletedAt'> & Partial<Pick<RoomMessage, 'threadRootId' | 'alsoInRoom' | 'following'>> & { event?: unknown }
 
 export interface RingInput {
   roomId: string
@@ -68,6 +71,12 @@ export function shouldRing(i: RingInput): boolean {
     return !(posted > REPOST_MS)
   }
   if (m.visibility !== 'room') return false
+  // a reply in a thread: for me when I follow the thread or it mentions me, like a DM message whatever the room; any
+  // other reply only when it went to the room too (then as a message of the room, below)
+  if (m.threadRootId) {
+    if (m.following || m.mentions.includes(meId)) return true
+    if (!m.alsoInRoom) return false
+  }
   if (room.kind === 'team' || room.kind === 'all') return m.mentions.includes(meId)
   // a DM, a group chat, and any kind added later: every message is for its few people
   return true

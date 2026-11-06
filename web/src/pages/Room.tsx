@@ -4,12 +4,15 @@
 // older ones loaded on scrolling up; the message box at the bottom. What I see is marked read (POST
 // /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
-import { Bell, BellOff, ChevronLeft, Loader2 } from 'lucide-react'
+// A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
+// it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
+import { Bell, BellOff, ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
+import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { isUuid7, type RoomMember, type RoomMessage, type RoomQuote } from '@mycel/shared/api'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
-import { newestSeq } from '../lib/rooms'
+import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
@@ -22,15 +25,17 @@ import { RoomComposer } from '../components/rooms/RoomComposer'
 import { RoomMessages } from '../components/rooms/RoomMessages'
 import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
+import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 
 const NO_MESSAGES: RoomMessage[] = []
 const NO_PENDING: PendingSend[] = []
 
 export default function RoomPage() {
-  const { roomId = '' } = useParams()
+  const { roomId = '', messageId } = useParams()
   if (!isUuid7(roomId)) return <RoomNotFound />
-  return <RoomView key={roomId} roomId={roomId} />
+  // the same view with or without a thread: opening one keeps the room as it is (its scroll, its box)
+  return <RoomView key={roomId} roomId={roomId} threadId={messageId && isUuid7(messageId) ? messageId : null} badThread={!!messageId && !isUuid7(messageId)} />
 }
 
 function RoomNotFound() {
@@ -47,21 +52,40 @@ function RoomNotFound() {
   )
 }
 
-function RoomView({ roomId }: { roomId: string }) {
+function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: string | null; badThread: boolean }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
   const meId = me?.user.id ?? null
   const title = useRoomTitle()
+  const navigate = useNavigate()
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId) ?? null)
   const loaded = useRooms((s) => s.loaded)
-  const thread = useRooms((s) => (s.thread?.roomId === roomId ? s.thread : null))
-  const pending = useRooms((s) => s.pending[roomId]) ?? NO_PENDING
+  const timeline = useRooms((s) => (s.timeline?.roomId === roomId ? s.timeline : null))
+  const allPending = useRooms((s) => s.pending[roomId]) ?? NO_PENDING
+  // the timeline's own sends (a thread's are in its panel)
+  const pending = useMemo(() => allPending.filter((p) => !p.threadRootId), [allPending])
   const roomMembers = useRooms((s) => s.members[roomId]) as RoomMember[] | undefined
   const members = useMemo(() => (roomMembers ?? []).map((m) => m.user), [roomMembers])
   const [missing, setMissing] = useState(false)
-  const [reply, setReply] = useState<RoomQuote | null>(null)
   const [showMembers, setShowMembers] = useState(false)
+  // "reply in thread" puts the cursor in the thread's box; a thread opened from its summary line or a link does not
+  const [focusThread, setFocusThread] = useState(false)
+  const location = useLocation()
+  const fromRoom = !!(location.state as { fromRoom?: boolean } | null)?.fromRoom
+  // a thread opened from this room is one step back from it (the back arrow, the browser's back, a phone's back
+  // gesture all close it); one thread replaces another and keeps how the first was reached; a thread opened from a link
+  // or a notice closes to its room
+  const openThread = useCallback((id: string, focus = false) => {
+    setFocusThread(focus)
+    const to = threadOpening(roomId, id, { threadId, fromRoom })
+    navigate(to.path, { replace: to.replace, state: to.state })
+  }, [navigate, roomId, threadId, fromRoom])
+  const closeThread = useCallback(() => {
+    const to = threadClosing(roomId, fromRoom)
+    if (to === -1) navigate(-1)
+    else navigate(to.path, { replace: to.replace })
+  }, [navigate, roomId, fromRoom])
   // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
   const [picker, setPicker] = useState<PickerMode | null>(null)
   usePeopleList()
@@ -78,9 +102,9 @@ function RoomView({ roomId }: { roomId: string }) {
       .fetchRoom(roomId)
       .then((r) => !r && setMissing(true), () => {})
   }, [loaded, room, roomId, missing])
-  const notFound = missing || (!!thread?.error && (isApiError(thread.error, 'not_found') || isApiError(thread.error, 'forbidden')))
+  const notFound = missing || badThread || (!!timeline?.error && (isApiError(timeline.error, 'not_found') || isApiError(timeline.error, 'forbidden')))
 
-  const messages = thread?.messages ?? NO_MESSAGES
+  const messages = timeline?.messages ?? NO_MESSAGES
   // the AI at work here (components/rooms/RoomAiStatus.tsx): the bottom follows its steps too
   const aiKey = useRooms((s) => { const a = s.ai[roomId]; return a ? `${a.answering}:${a.runs.map((r) => `${r.state}${r.steps.length}`).join(',')}` : '' })
   const peerTitle = usePeople((s) => (room?.kind === 'dm' && room.peers[0] ? s.byId[room.peers[0].id]?.title : undefined)) || null
@@ -105,8 +129,10 @@ function RoomView({ roomId }: { roomId: string }) {
     const el = scroller.current
     const s = useRooms.getState()
     const r = s.rooms.find((x) => x.id === roomId)
-    const th = s.thread
+    const th = s.timeline
     if (!el || !r || !th || th.roomId !== roomId || !th.messages.length) return
+    // the timeline out of sight (a phone shows the thread over it): nothing in it is read
+    if (!el.clientHeight) return
     if (document.visibilityState !== 'visible' || !document.hasFocus()) return
     if (el.scrollHeight - el.scrollTop - el.clientHeight > 80) return
     const seq = newestSeq(th.messages)
@@ -128,7 +154,7 @@ function RoomView({ roomId }: { roomId: string }) {
     const el = scroller.current
     if (!el) return
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-    const th = useRooms.getState().thread
+    const th = useRooms.getState().timeline
     if (el.scrollTop < 200 && th?.roomId === roomId && th.nextCursor && !th.loading) {
       const before = el.scrollHeight
       void useRooms
@@ -154,8 +180,12 @@ function RoomView({ roomId }: { roomId: string }) {
     }
   }
 
+  // threads I follow with replies I have not read: the newest of them is one tap away (none open already)
+  const nextThread = room && room.threadsUnread > 0 && room.nextThreadId && room.nextThreadId !== threadId ? room.nextThreadId : null
+
   return (
-    <div className="flex h-full flex-col" data-testid="room">
+    <div className="flex h-full" data-testid="room-page">
+    <div className={clsx('flex h-full min-w-0 flex-1 flex-col', threadId && 'max-md:hidden')} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4">
         <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
           <ChevronLeft size={20} aria-hidden />
@@ -188,6 +218,12 @@ function RoomView({ roomId }: { roomId: string }) {
             </p>
           )}
         </div>
+        {nextThread && (
+          <IconButton label={t('rooms.threadsUnread', { n: room!.threadsUnread })} className="touch-hit relative shrink-0" onClick={() => openThread(nextThread)} data-testid="room-next-thread">
+            <MessagesSquare size={16} aria-hidden />
+            <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
+          </IconButton>
+        )}
         {/* the room's one setting, right here (a menu of one item is one tap too many): the bell shows how it is now */}
         {room && (
           <IconButton label={room.muted ? t('rooms.unmute') : t('rooms.mute')} className="touch-hit shrink-0" onClick={() => void toggleMute()} data-testid="room-mute">
@@ -197,15 +233,15 @@ function RoomView({ roomId }: { roomId: string }) {
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-4">
-          {thread?.loading && messages.length > 0 && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
-          {thread?.loading && !messages.length && <Skeleton lines={5} className="pt-4" />}
-          {!!thread?.error && !notFound && (
+          {timeline?.loading && messages.length > 0 && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {timeline?.loading && !messages.length && <Skeleton lines={5} className="pt-4" />}
+          {!!timeline?.error && !notFound && (
             <div className="pt-4">
-              <ErrorNote onRetry={() => void useRooms.getState().loadNewest(roomId)}>{errorText(thread.error, locale, t('error.network'))}</ErrorNote>
+              <ErrorNote onRetry={() => void useRooms.getState().loadNewest(roomId)}>{errorText(timeline.error, locale, t('error.network'))}</ErrorNote>
             </div>
           )}
-          {thread && !thread.loading && !thread.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
-          <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onReply={setReply} />
+          {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
+          <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} />
           <RoomAiStatus roomId={roomId} />
         </div>
       </div>
@@ -213,14 +249,10 @@ function RoomView({ roomId }: { roomId: string }) {
         roomId={roomId}
         members={members}
         meId={meId}
-        reply={reply}
-        onCancelReply={() => setReply(null)}
-        onReply={setReply}
-        empty={!!thread && !thread.loading && !thread.error && !messages.length && !pending.length}
+        empty={!!timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length}
         onSent={() => {
           stick.current = true
         }}
-        gone={t('rooms.goneUser')}
       />
       <MembersDialog
         open={showMembers}
@@ -234,6 +266,8 @@ function RoomView({ roomId }: { roomId: string }) {
         }}
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
+    </div>
+    {threadId && <ThreadPanel key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} focusBox={focusThread} />}
     </div>
   )
 }

@@ -1,10 +1,12 @@
 // A person asks the team owner to delete their own account (contract: shared/src/api/account-deletion.ts; tables:
-// server/migrations/244_b_account_deletion_requests.sql; App Store review 5.1.1(v)). Team admins make the accounts and
-// only the owner deletes them (admin/users.ts deleteUser), so this deletes nothing itself:
+// server/migrations/244_b_account_deletion_requests.sql; App Store review 5.1.1(v)). The account is deleted in
+// Admin › Members (admin/users.ts deleteUser: the owner, or since 2026-11-06 an admin for a member), so this deletes
+// nothing itself:
 //   - the request is one row per person (one open request at most); asking while one is open changes nothing
 //   - it is told to the owner(s) in their inbox only (notifications/service.ts deletionRequest: the person's id, the
 //     name is read when the inbox is shown; never an OS push), with a link to the person in Admin › Members. Admins
-//     are not told: they cannot delete accounts, and the request is the person's business with the owner
+//     are not told: the request is the person's business with the owner (an admin who deletes that member anyway
+//     closes it, as the owner would)
 //   - opening a request is limited per person and day (asking and cancelling over and over), and audited, like the
 //     cancel; deleting the account marks the request handled (closeDeletionRequest, called by deleteUser)
 //   - the owner cannot ask (409 with a message to make someone else the owner first)
@@ -77,7 +79,7 @@ export function openDeletionRequests(ctx: AppContext): string[] {
     WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL ORDER BY r.requested_at`).all() as { user_id: string }[]).map((r) => r.user_id)
 }
 
-/** The owner deleted the account (inside deleteUser's transaction): an open request is handled. Returns whether there
+/** The account was deleted (inside deleteUser's transaction): an open request is handled. Returns whether there
  * was one; the caller settles the owners' entries after the transaction (settleDeletionRequestNotices). */
 export function closeDeletionRequest(ctx: AppContext, userId: string, by: string, at: string): boolean {
   return ctx.db.query(`UPDATE account_deletion_requests SET handled_at = ?, handled_by = ? WHERE user_id = ? AND ${isOpen}`).run(at, by, userId).changes > 0

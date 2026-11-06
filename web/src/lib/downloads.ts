@@ -20,6 +20,13 @@ export function offeredDownloads(items: DownloadItem[], store: boolean): Downloa
   return store ? [] : items
 }
 
+/** On a Mac or a Windows PC: the installers for this computer, and the ones for the other kind of computer (shown
+ * folded; a Mac person rarely wants the Windows app). Elsewhere (a phone, Linux) nothing is "this computer's". */
+export function splitDownloads(items: DownloadItem[], here: Platform): { computer: boolean; mine: DownloadItem[]; others: DownloadItem[] } {
+  if (here !== 'mac' && here !== 'windows') return { computer: false, mine: [], others: items }
+  return { computer: true, mine: items.filter((d) => d.platform === here), others: items.filter((d) => d.platform !== here) }
+}
+
 /** this computer's platform first, the server's order otherwise */
 export function orderDownloads(items: DownloadItem[], here: Platform): DownloadItem[] {
   return items.map((d, i) => ({ d, i })).sort((a, b) => Number(b.d.platform === here) - Number(a.d.platform === here) || a.i - b.i).map((x) => x.d)

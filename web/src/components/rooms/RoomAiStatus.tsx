@@ -20,15 +20,18 @@ import { Button, IconButton } from '../ui'
 
 const NONE: RoomAi = { answering: 0, runs: [] }
 
-export function RoomAiStatus({ roomId }: { roomId: string }) {
+/** `threadRootId`: under a thread's replies, my questions asked there (the room-wide "answering" line for the others'
+ * questions stays under the timeline: nobody is told where they asked). */
+export function RoomAiStatus({ roomId, threadRootId = null }: { roomId: string; threadRootId?: string | null }) {
   const t = useT()
   const ai = useRooms((s) => s.ai[roomId]) ?? NONE
   const working = ai.runs.filter(runActive)
-  const others = Math.max(0, ai.answering - working.length)
-  if (!working.length && !others) return null
+  const here = working.filter((r) => (r.threadRootId ?? null) === threadRootId)
+  const others = threadRootId ? 0 : Math.max(0, ai.answering - working.length)
+  if (!here.length && !others) return null
   return (
     <div data-testid="room-ai-status">
-      {working.map((r) => (
+      {here.map((r) => (
         <MyRun key={r.turnId} roomId={roomId} run={r} />
       ))}
       {others > 0 && (

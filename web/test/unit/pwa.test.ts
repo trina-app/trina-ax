@@ -59,3 +59,26 @@ test('inside the phone app (react-native-webview bridge) the page registers no s
   expect(insidePhoneApp({ ReactNativeWebView: { postMessage: () => {} } })).toBe(true)
   for (const w of [{}, { ReactNativeWebView: {} }, { ReactNativeWebView: { postMessage: 'x' } }]) expect(insidePhoneApp(w)).toBe(false)
 })
+
+test("a computer's browser picks its install steps: Chrome and Edge from the address bar, Safari on a Mac from File → Add to Dock, Firefox none", async () => {
+  const { browserOf } = await import('../../src/lib/pwa')
+  const { computerFlow } = await import('../../src/components/settings/InstallGuide')
+  const macChrome = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
+  const macSafari = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15'
+  const winEdge = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0'
+  const macFirefox = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0'
+  const winOpera = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 OPR/125.0.0.0'
+  expect(browserOf(macChrome)).toBe('chrome')
+  expect(browserOf(UA.windows)).toBe('chrome')
+  expect(browserOf(macSafari)).toBe('safari')
+  expect(browserOf(winEdge)).toBe('edge')
+  expect(browserOf(macFirefox)).toBe('firefox')
+  expect(browserOf(winOpera)).toBe('chrome')
+  expect(browserOf('Opera/9.80 (Windows NT 6.1) Presto/2.12.388 Version/12.18')).toBe('other')
+  expect(browserOf('')).toBe('other')
+  // Safari's steps only for Safari on a Mac; everything else that can install uses Chrome's and Edge's
+  expect(computerFlow('mac', 'safari')).toBe('safari')
+  expect(computerFlow('mac', 'chrome')).toBe('chromium')
+  expect(computerFlow('windows', 'edge')).toBe('chromium')
+  expect(computerFlow('other', 'safari')).toBe('chromium')
+})
