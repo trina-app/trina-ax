@@ -1,6 +1,6 @@
 // WCAG 2.2 AA checks with axe-core on the main screens (tab 5 "접근성"), in light and dark themes.
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn, adv } from './helpers'
 import { makePng, SVG } from '../../../tests/lib/images'
@@ -151,6 +151,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.goto('/admin/members')
     await expect(page.getByTestId('members-table')).toBeVisible()
     await audit(page, 'admin')
+    await page.goto('/admin/system')
+    await page.getByTestId('health-details').click()
+    await expect(page.getByTestId('diagnostics').locator('[data-status="ok"]').first()).toBeVisible()
+    await audit(page, 'admin system')
     await page.goto('/settings/profile')
     await audit(page, 'settings')
   })
@@ -203,9 +207,8 @@ test('no serious accessibility problems at phone width', async ({ page }) => {
   await audit(page, 'home (phone)')
   await page.goto('/files')
   await expect(page.getByTestId('file-table')).toBeVisible()
-  await expect(page.getByRole('button', { name: '새 폴더' })).toBeVisible()
   await audit(page, 'files (phone)')
-  await page.getByTestId('select-all').click()
+  await longPress(page, page.getByTestId('file-row').first())
   await expect(page.getByTestId('bulk-bar')).toBeVisible()
   await audit(page, 'files selection (phone)')
   await page.goto('/admin/members')
@@ -532,3 +535,11 @@ test('folder permissions by person have no serious accessibility problems at pho
   await page.getByTestId('access-hidden-toggle').click()
   await audit(page, 'folders by person (phone)')
 })
+
+/** A long press with a finger on a file row (Files.tsx, phones): it selects the row. */
+async function longPress(page: Page, target: Locator) {
+  const name = target.locator('button').first()
+  await name.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 10, clientY: 10 })
+  await page.waitForTimeout(800)
+  await name.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 10, clientY: 10 })
+}

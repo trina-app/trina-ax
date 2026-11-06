@@ -146,9 +146,9 @@ export const chatsRoutes: RouteModule = {
     // ---------------- chats ----------------
     kit.handle(API.listChats, ({ query, auth }) => {
       const limit = query.limit ?? 50
-      // the server's own draft chats (the company profile, a team skill) are not the person's conversations: never listed
-      // or found by a search (chat/internal-chats.ts)
-      const where: string[] = ['user_id = ?', notInternalChat(ctx.db)]
+      // a room's AI session (rooms/ai.ts) and the server's own draft chats (the company profile, a team skill) are not
+      // the person's conversations: never listed or found by a search (chat/internal-chats.ts)
+      const where: string[] = ['user_id = ?', 'room_id IS NULL', notInternalChat(ctx.db)]
       const args: (string | number)[] = [auth.user.id]
       where.push(query.trash ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL')
       if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }

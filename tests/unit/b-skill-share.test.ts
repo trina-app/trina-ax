@@ -123,7 +123,7 @@ describe('reading a draft (no server)', () => {
   })
 
   test('tools: only those whose results are the team\'s own count as inside; any other is outside (fails closed)', () => {
-    for (const t of ['read', 'mcp__team__read', 'grep', 'list', 'write', 'edit_files', 'make_file', 'edit_hwp', 'hwp_render', 'share_file', 'artifact', 'promo_video', 'search', 'skill', 'find_skills', 'remember', 'ask_user', 'move_files', 'schedule_create', 'agent', 'engine', 'attachment'])
+    for (const t of ['read', 'mcp__team__read', 'grep', 'list', 'write', 'edit_files', 'make_file', 'edit_hwp', 'hwp_render', 'share_file', 'artifact', 'promo_video', 'intro_deck', 'search', 'skill', 'find_skills', 'remember', 'ask_user', 'move_files', 'schedule_create', 'agent', 'engine', 'attachment'])
       expect({ t, outside: outsideContentTool(t) }).toEqual({ t, outside: false })
     for (const t of ['drive_read', 'drive_search', 'drive_list', 'mcp__team__drive_read', 'web_fetch', 'save_url', 'WebSearch', 'web_search', 'navigate', 'browser_batch', 'generate_video', 'box_shell', 'api_request', 'team_notion__search', 'my_aipm__list', 'mcp__other__read', 'codex:command_execution', 'some_plugin_tool'])
       expect({ t, outside: outsideContentTool(t) }).toEqual({ t, outside: true })

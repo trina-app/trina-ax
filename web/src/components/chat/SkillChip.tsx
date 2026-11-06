@@ -8,7 +8,7 @@ import { useT } from '../../i18n'
 export function SkillChip({ title, name, onRemove }: { title: string; name: string; onRemove?: () => void }) {
   const t = useT()
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-accent-soft py-0.5 pr-2 pl-2 text-[13px] font-medium text-accent-text" title={`/${name}`} data-testid="skill-chip">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-accent-soft py-0.5 pr-2 pl-2 text-label font-medium text-accent-text" title={`/${name}`} data-testid="skill-chip">
       <Sparkles size={13} className="shrink-0" aria-hidden />
       <span className="min-w-0 truncate">{title}</span>
       {onRemove && (

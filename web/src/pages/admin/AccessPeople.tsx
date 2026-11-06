@@ -15,7 +15,8 @@ import { useLocale, useT } from '../../i18n'
 import { Badge, EmptyState, ErrorNote, Field, Skeleton, inputCls } from '../../components/ui'
 import { AccessResults, PrefixForm } from './AccessResults'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
-import { Card, useLoad } from './common'
+import { useLoad } from './common'
+import { InFolderHeader } from './folder-slots'
 
 /** the "someone new" option of the list (not a person id: those are [a-z0-9_-]) */
 const NEW = '+new'
@@ -160,7 +161,7 @@ export default function AccessPeople() {
               </Field>
             </div>
             <fieldset>
-              <legend className="mb-1.5 text-[13px] font-medium text-ink">{t('admin.groups')}</legend>
+              <legend className="mb-1.5 text-label font-medium text-ink">{t('admin.groups')}</legend>
               <GroupChecks groups={groups.data ?? []} value={shown.groupIds} onChange={(g) => choose({ groupIds: g })} />
             </fieldset>
           </div>
@@ -197,8 +198,13 @@ export default function AccessPeople() {
   }
 
   return (
-    <Card title={t('accessView.title')} desc={t('accessView.desc')}>
-      {/* side by side when the card is wide enough, else the list above the answer */}
+    // no card: the people list and the answer sit on the page, split by a hairline; the search is in the page header
+    <section aria-labelledby="access-people-title" data-testid="access-people">
+      <h3 id="access-people-title" className="sr-only">
+        {t('accessView.title')}
+      </h3>
+      <p className="mb-3 text-xs text-muted">{t('accessView.desc')}</p>
+      {/* side by side when the page is wide enough, else the list above the answer */}
       <div className="@container">
         <div className="flex flex-col gap-4 @2xl:flex-row @2xl:gap-0">
           <div ref={picker} className="border-b border-line pb-4 @2xl:w-64 @2xl:shrink-0 @2xl:border-r @2xl:border-b-0 @2xl:pr-4 @2xl:pb-0">
@@ -209,7 +215,7 @@ export default function AccessPeople() {
           </div>
         </div>
       </div>
-    </Card>
+    </section>
   )
 }
 
@@ -290,7 +296,8 @@ function PersonPicker({ users, groups, value, onPick }: { users: User[] | null; 
 
   return (
     <div>
-      <div className="relative">
+      <InFolderHeader slot="filter">
+      <div className="relative w-full sm:w-72">
         <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
         <input
           ref={input}
@@ -305,10 +312,11 @@ function PersonPicker({ users, groups, value, onPick }: { users: User[] | null; 
           placeholder={t('accessView.search')}
           aria-label={t('accessView.search')}
           aria-controls={ids.length ? listId : undefined}
-          className={`${inputCls} pl-9`}
+          className={`${inputCls} h-9 pl-9`}
           data-testid="access-person-search"
         />
       </div>
+      </InFolderHeader>
       {ids.length ? (
         <div id={listId} role="listbox" aria-label={t('accessView.people')} className="scroll-thin mt-2 max-h-72 space-y-0.5 overflow-y-auto overscroll-contain @2xl:max-h-[min(36rem,70vh)]" data-testid="access-person-list">
           {showNew && option(NEW, t('accessView.newPerson'), t('accessView.newPersonHint'), true)}

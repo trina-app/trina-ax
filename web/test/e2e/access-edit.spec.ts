@@ -77,6 +77,9 @@ test('basic access first: "follow the folder above" says what it gives now, the 
   // everyone reads: write → read is a loss, for every active member (Erin is switched off)
   await panel(page).getByTestId('edit-basic-read').click()
   await settled(page)
+  // the counts show; who exactly opens with "Show people"
+  await expect(panel(page).getByTestId('edit-summary')).toContainText(translate('ko', 'accessEdit.lessTitle', { n: 3 }))
+  await panel(page).getByTestId('edit-show-people').click()
   const less = panel(page).getByTestId('edit-less')
   await expect(less.getByRole('heading')).toHaveText(translate('ko', 'accessEdit.lessTitle', { n: 3 }))
   await expect(less.getByTestId('edit-change')).toHaveCount(1)
@@ -120,7 +123,10 @@ test('people and groups: one search adds either, each with read, write or no acc
   // marketing has no rules: it follows the folder above (nothing: only admins)
   await openPanel(page, 'marketing')
   await expect(panel(page).getByTestId('edit-basic-follow').getByRole('radio')).toBeChecked()
-  await expect(panel(page).getByTestId('edit-people')).toContainText(t['accessEdit.namedHint'])
+  // how named rules come first is folded behind "How rules work"
+  await expect(panel(page).getByTestId('edit-how')).not.toContainText(t['accessEdit.namedHint'], { useInnerText: true })
+  await panel(page).getByTestId('edit-how-toggle').click()
+  await expect(panel(page).getByTestId('edit-how')).toContainText(t['accessEdit.namedHint'], { useInnerText: true })
   await panel(page).getByTestId('edit-basic-read').click()
   // Bob, found by his name, with no access
   const add = panel(page).getByTestId('edit-add')
@@ -143,6 +149,7 @@ test('people and groups: one search adds either, each with read, write or no acc
   await expect(panel(page)).toBeVisible()
   await settled(page)
   // Carol (영업팀) writes, Dan reads; Bob stays without access, so he is not in the result
+  await panel(page).getByTestId('edit-show-people').click()
   const more = panel(page).getByTestId('edit-more')
   await expect(more.getByRole('heading')).toHaveText(translate('ko', 'accessEdit.moreTitle', { n: 2 }))
   await expect(more.getByTestId('edit-change').filter({ hasText: 'Carol' })).toContainText(t['access.write'])
@@ -164,6 +171,7 @@ test('people and groups: one search adds either, each with read, write or no acc
   await expect(named(page, 'user:bob')).toHaveCount(0)
   await expect(named(page, `group:${sales.id}`).getByTestId('edit-access-write').getByRole('radio')).toBeFocused()
   await settled(page)
+  await panel(page).getByTestId('edit-show-people').click()
   await expect(panel(page).getByTestId('edit-more').getByTestId('edit-change')).toContainText('Bob')
 
   // a person switched off is named as such; the owner and admins are said to write anyway
@@ -300,7 +308,6 @@ test('guards: shared cannot follow above with nobody named (said, Save waits); a
   await settled(page)
   await expect(panel(page).getByTestId('edit-basic-follow')).toHaveCount(0)
   await expect(panel(page).getByTestId('edit-basic-named').getByRole('radio')).toBeChecked()
-  await expect(panel(page).getByTestId('edit-basic-named')).toContainText(t['accessEdit.basic.namedRootDesc'])
   await panel(page).getByTestId('edit-basic-read').click()
   await settled(page)
   await expect(panel(page).getByTestId('edit-warning')).toHaveAttribute('data-kind', 'root-everyone')
@@ -373,6 +380,7 @@ test('the result waits for the choices to settle, and an older answer never repl
   await expect.poll(() => asked.length).toBe(3)
   await panel(page).getByTestId('edit-basic-named').click()
   await settled(page)
+  await panel(page).getByTestId('edit-show-people').click()
   await expect(panel(page).getByTestId('edit-less').getByTestId('edit-change')).toContainText(t['access.none'])
   await page.waitForTimeout(1800)
   await expect(panel(page).getByTestId('edit-less').getByTestId('edit-change')).toContainText(t['access.none'])
@@ -431,9 +439,11 @@ test('the keyboard: the basic access, the search, a person\'s access and Save by
   await page.keyboard.press('Enter')
   await expect(panel(page).getByRole('heading', { name: t['accessEdit.title'] })).toBeFocused()
   await settled(page)
-  // past the close button, the basic access is one Tab stop; the arrow keys choose
+  // past the close button and "How rules work", the basic access is one Tab stop; the arrow keys choose
   await page.keyboard.press('Tab')
   await expect(page.getByTestId('edit-close')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(panel(page).getByTestId('edit-how-toggle')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(panel(page).getByTestId('edit-basic-write').getByRole('radio')).toBeFocused()
   await page.keyboard.press('ArrowUp')
@@ -464,6 +474,9 @@ test('the keyboard: the basic access, the search, a person\'s access and Save by
   await expect(named(page, 'user:dan').getByTestId('edit-named-remove')).toHaveCSS('outline-offset', '-2px')
   // on to Save
   await settled(page)
+  // "Show people" under the counts, then Cancel and Save
+  await page.keyboard.press('Tab')
+  await expect(panel(page).getByTestId('edit-show-people')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(page.getByTestId('edit-cancel')).toBeFocused()
   await page.keyboard.press('Tab')

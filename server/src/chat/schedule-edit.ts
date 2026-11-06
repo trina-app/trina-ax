@@ -15,7 +15,7 @@ import { HttpError } from '../http/errors'
 import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
 import { needsReview, nextRun, ScheduleInput, type ScheduleRow } from './schedules'
-import { templatePrompt, validateTemplateFolders } from './schedule-templates'
+import { templatePrompt, templateTitle, validateTemplateFolders } from './schedule-templates'
 import { egressOf } from '../tools/egress'
 import { scheduleCard, scheduleOptions, writableConnections } from '../tools/schedules'
 
@@ -115,9 +115,11 @@ export function saveTemplate(ctx: AppContext, rt: ChatRuntime, userId: string, i
     ...(e.time !== s.time || weekday !== s.weekday ? ['schedule'] : []),
     ...(scope.sourcePath !== s.template_source_path ? ['source'] : []), ...(scope.outputPath !== s.template_output_path ? ['output'] : []),
   ]
+  // name and instruction again in the person's language (a template made before it followed the language, or since changed)
+  const lang = rt.userLocale(userId)
   ctx.db.transaction(() => {
-    ctx.db.query(`UPDATE schedules SET time=?, weekday=?, prompt=?, template_source_path=?, template_output_path=?, next_run_at=?, enabled=?, pending_due_at=NULL, retry_at=NULL
-      WHERE id=? AND user_id=?`).run(e.time, weekday, templatePrompt(s.template_id!, { sourcePath: scope.sourcePath, outputPath: scope.outputPath }), scope.sourcePath, scope.outputPath,
+    ctx.db.query(`UPDATE schedules SET title=?, time=?, weekday=?, prompt=?, template_source_path=?, template_output_path=?, next_run_at=?, enabled=?, pending_due_at=NULL, retry_at=NULL
+      WHERE id=? AND user_id=?`).run(templateTitle(s.template_id!, lang), e.time, weekday, templatePrompt(s.template_id!, { sourcePath: scope.sourcePath, outputPath: scope.outputPath }, lang), scope.sourcePath, scope.outputPath,
       next?.toISOString() ?? null, s.enabled && next ? 1 : 0, s.id, userId)
     audit(ctx.db, { actor: userId, action: 'schedule.edited', target: s.id, detail: { changed, template: s.template_id, enabled: !!s.enabled } })
   })()

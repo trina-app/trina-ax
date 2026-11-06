@@ -20,6 +20,7 @@ import { EmptyState, TabPanel } from '../components/ui'
 import { afterAdded, ConnectorDetail, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../components/integrations/ConnectorsView'
 import { DriveCard, DriveDetail, driveLinked } from '../components/integrations/DriveConnector'
 import { useDriveConnection } from '../components/settings/DriveConnection'
+import { SlackAccount } from '../components/settings/SlackAccount'
 import { Button } from '../components/ui'
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
@@ -123,6 +124,8 @@ export default function Integrations() {
               {driveInYours && DRIVE.name.toLowerCase().includes(query.trim().toLowerCase()) && (
                 <ul className="grid gap-3" data-testid="yours-drive"><DriveCard s={drive} /></ul>
               )}
+              {/* Slack (main's Slack connector): the person's own Slack link; its sign-in comes back here (?slack=) */}
+              {!query.trim() && <SlackAccount />}
               {(!query.trim() || shownMine.length > 0) && <section aria-labelledby="integrations-mine">
                 <h3 id="integrations-mine" className="mb-2 text-sm font-semibold">
                   {t('integrations.mine')}

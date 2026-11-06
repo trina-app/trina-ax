@@ -1,0 +1,4 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["src", "../shared/src/cloud-protocol/push-gateway.ts"]
+}

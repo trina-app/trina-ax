@@ -113,7 +113,8 @@ test('desktop app: Settings > Browser shows the same setting; "all" only after t
   // "all": the page only asks; cancelled in the app's dialog, nothing changes
   await page.getByTestId('browser-access-all').check({ force: true }).catch(() => {})
   await expect(page.getByTestId('browser-access-ask')).toBeChecked()
-  expect((await desktop(page)).dialogs).toBe(1)
+  // the page asks the app after its own read of /api/me: wait for the app's dialog, don't read it once
+  await expect.poll(async () => (await desktop(page)).dialogs).toBe(1)
   expect((await desktop(page)).s.siteAccess).toBe('ask')
   await expect(page.getByTestId('browser-all-on')).toHaveCount(0)
 
@@ -122,7 +123,7 @@ test('desktop app: Settings > Browser shows the same setting; "all" only after t
   await page.getByTestId('browser-access-all').click()
   await expect(page.getByTestId('browser-access-all')).toBeChecked()
   await expect(page.getByTestId('browser-all-on')).toBeVisible()
-  expect((await desktop(page)).s.siteAccess).toBe('all')
+  await expect.poll(async () => (await desktop(page)).s.siteAccess).toBe('all')
 
   // a change made in the panel's ⚙ (the app tells the page): the page follows at once
   await page.evaluate(() => {
@@ -136,7 +137,7 @@ test('desktop app: Settings > Browser shows the same setting; "all" only after t
   // remove one site, then clear the rest (asks first)
   await page.getByRole('button', { name: '삭제 naver.com' }).click()
   await expect(page.getByTestId('browser-site')).toHaveCount(2)
-  expect((await desktop(page)).s.always).toEqual(['place.map.kakao.com'])
+  await expect.poll(async () => (await desktop(page)).s.always).toEqual(['place.map.kakao.com'])
   await page.getByTestId('browser-sites-clear').click()
   await page.getByRole('dialog').getByRole('button', { name: '모두 지우기' }).click()
   await expect(page.getByTestId('browser-sites-none')).toBeVisible()

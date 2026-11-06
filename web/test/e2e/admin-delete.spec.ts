@@ -58,7 +58,8 @@ test('folder permissions: an empty rule row goes with the server\'s preview, the
   await choose(page, 'finance')
   await expect(page.getByTestId('folder-detail-delete')).toHaveCount(0)
   await rulesButton.click()
-  await expect(page.getByTestId('edit-panel')).toContainText(t['accessEdit.basicHint'])
+  await page.getByTestId('edit-how-toggle').click()
+  await expect(page.getByTestId('edit-how')).toContainText(t['accessEdit.basicHint'], { useInnerText: true })
   await page.getByTestId('edit-cancel').click()
   await expect(page.getByTestId('edit-panel')).toHaveCount(0)
   await expect(rulesButton).toBeFocused()
@@ -156,7 +157,7 @@ test('folder permissions: an empty rule row goes with the server\'s preview, the
   expect(realErrors(errors).filter((e) => !/status of (409|503)/.test(e))).toEqual([])
 })
 
-test('groups: delete (after a confirm) refreshes the list and focus moves to the next delete', async ({ page }) => {
+test('groups: delete (after a confirm) refreshes the list and focus moves to the next row\'s "…"', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
@@ -164,11 +165,12 @@ test('groups: delete (after a confirm) refreshes the list and focus moves to the
   await page.goto('/admin/groups')
   const groups = page.getByTestId('group-list').locator('li')
   await expect(groups).toHaveCount(3) // 재무팀 and the two above
-  await groups.filter({ hasText: '영업팀' }).getByRole('button', { name: deleteNamed('영업팀'), exact: true }).click()
+  await groups.filter({ hasText: '영업팀' }).getByTestId('member-more').click()
+  await page.getByRole('menu').getByTestId('group-delete').click()
   await page.getByTestId('dialog-confirm').click()
   await expect(groups).toHaveCount(2)
   await expect(groups.filter({ hasText: '영업팀' })).toHaveCount(0)
-  await expect(groups.nth(1).getByRole('button', { name: deleteNamed('운영팀'), exact: true })).toBeFocused()
+  await expect(groups.nth(1).getByRole('button', { name: t['members.actionsFor'].replace('{name}', '운영팀'), exact: true })).toBeFocused()
   expect(realErrors(errors)).toEqual([])
 })
 

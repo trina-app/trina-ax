@@ -1,5 +1,6 @@
 // Small helpers shared by the admin screens.
 import clsx from 'clsx'
+import { Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
@@ -129,22 +130,63 @@ export function PageScope() {
   return <span className="text-xs text-faint" data-testid="page-scope">{t('scope.team')}</span>
 }
 
-export function AdminPageHeader({ title, desc, actions, children, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; testId?: string; className?: string; still?: boolean }) {
+export function AdminPageHeader({ title, desc, actions, children, controls, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; controls?: ReactNode; testId?: string; className?: string; still?: boolean }) {
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 className="flex items-center text-lg font-semibold tracking-tight">{title}</h2>
         <PageScope />
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {desc && <OneLine className="mt-1 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
+      {/* the People pages' search and filters, under the line (like the Claude Console's Members) */}
+      {controls && <div className="mt-3 flex flex-wrap items-center gap-2">{controls}</div>}
     </>
   )
   // still: the header scrolls away with the page, for a page with a sticky part of its own (Folder permissions' detail)
   if (still) return <div className={clsx('mb-3 pb-3', className)} data-testid={testId}>{body}</div>
   return <StickyHeader className={clsx('-mt-3 mb-3 py-3', className)} testId={testId}>{body}</StickyHeader>
 }
+
+/** How many there are, as a small round badge after a page title ("Members 4"). Nothing until the list has loaded. */
+export function CountBadge({ n, testId }: { n: number | null | undefined; testId?: string }) {
+  if (n == null) return null
+  return (
+    <span className="ml-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-subtle px-2 text-xs font-medium text-muted tabular-nums" data-testid={testId}>
+      {n}
+    </span>
+  )
+}
+
+/** A search box for a list on the page (it filters what is already loaded), in the height of the filter pills. */
+export function SearchBox({ value, onChange, label, testId, className }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string }) {
+  return (
+    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-sm:min-h-10 max-sm:w-full', className)}>
+      <Search size={15} className="shrink-0 text-faint" aria-hidden />
+      <input
+        type="search"
+        className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
+        placeholder={label}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          // Escape empties the box first (and does not close anything around it while there is text)
+          if (e.key === 'Escape' && value) {
+            e.stopPropagation()
+            onChange('')
+          }
+        }}
+        data-testid={testId}
+      />
+    </label>
+  )
+}
+
+/** Does `text` contain the search `q` (already trimmed and lower-cased)? Case-insensitive in the person's language. */
+export const matches = (q: string, locale: string, ...texts: (string | null | undefined)[]) =>
+  !q || texts.some((s) => !!s && s.toLocaleLowerCase(locale).includes(q))
 
 /** Cards inside this show as plain page sections (a heading, its line, the content; no box), for a settings page laid
  * out like a document (Team settings). */
@@ -157,7 +199,7 @@ export function Card({ title, actions, children, desc, headingRef, testId }: { t
   const head = title || desc || actions
   if (useContext(FlatCards)) {
     return (
-      <section className="border-t border-line py-6" data-testid={testId}>
+      <section className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId}>
         {head && (
           <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-2">
             <div className="min-w-0 flex-1 max-sm:basis-full">
@@ -208,7 +250,8 @@ export function OneLine({ children, className, testId, twoOnPhone }: { children:
     return () => ro.disconnect()
   }, [children, open])
   return (
-    <div className={clsx('flex items-baseline gap-1.5', className)} data-testid={testId}>
+    // phones with 2 lines: More sits on the last line, right after the cut ("…"), not beside the first
+    <div className={clsx('flex items-baseline gap-1.5', twoOnPhone && 'max-sm:items-end', className)} data-testid={testId}>
       {/* inline-size containment: a line that does not wrap must not widen what holds it (a grid cell, a fieldset) */}
       <p ref={ref} className={clsx('min-w-0 flex-1 [contain:inline-size]', !open && (twoOnPhone ? 'max-sm:line-clamp-2 sm:truncate' : 'truncate'))}>
         {children}

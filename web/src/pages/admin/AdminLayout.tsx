@@ -9,7 +9,7 @@
 // (AdminPageHeader says so). Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
 import clsx from 'clsx'
-import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
@@ -24,6 +24,7 @@ const Engines = lazy(() => import('./Engines'))
 const Integrations = lazy(() => import('./Integrations'))
 const AiApps = lazy(() => import('./AiApps'))
 const Plugins = lazy(() => import('./Plugins'))
+const Slack = lazy(() => import('./Slack'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
 const Usage = lazy(() => import('./Usage'))
 const Audit = lazy(() => import('./Audit'))
@@ -49,6 +50,8 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
       { id: 'connectors', label: 'admin.integrations', icon: Cable },
       { id: 'ai-apps', label: 'aiApps.title', icon: Bot },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
+      // the owner's: the Slack connector acts as each linked person (docs/SLACK.md)
+      { id: 'slack', label: 'slack.admin.title', icon: MessagesSquare, ownerOnly: true },
     ],
   },
   {
@@ -134,6 +137,7 @@ export default function AdminLayout() {
             {section === 'connectors' && <Integrations />}
             {section === 'ai-apps' && <AiApps />}
             {section === 'plugins' && <Plugins />}
+            {section === 'slack' && <Slack />}
             {section === 'usage' && <Usage />}
             {section === 'audit' && <Audit />}
             {section === 'settings' && <TeamSettingsPage />}

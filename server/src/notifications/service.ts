@@ -16,6 +16,9 @@ import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
 
+/** At most this many template notices per 30-second backstop pass (security review 2, #1). */
+const OFFER_BATCH = 500
+
 export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
 /** Source of a "scheduled tasks paused for review" notice: the person and the time of the pause (stable while some of
  * those tasks are confirmed or deleted; a turn or skip id never starts with it). */
@@ -28,19 +31,27 @@ export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' 
 export type DevEnvNoticeEvent = Extract<NotificationEventType, 'dev_env.job' | 'dev_env.box'>
 const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 'skill.suggested' || e === 'skill.reviewed'
 const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
+export type RoomNoticeEvent = Extract<NotificationEventType, 'room.dm' | 'room.mention'>
+const isRoomEvent = (e: NotificationEventType): e is RoomNoticeEvent => e === 'room.dm' || e === 'room.mention'
 export type TemplateNoticeEvent = Extract<NotificationEventType, 'integration.template' | 'integration.template_reconnect'>
 const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => e === 'integration.template' || e === 'integration.template_reconnect'
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isTemplateEvent(e) ? 'integration_template_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
- * through the team invite link (migration 111) and a member's first run of a team skill during the 7-day team goal
- * (migration 223) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are
- * never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'integration_template_notices'] as const
-const INBOX = `(${NOTICE_TABLES.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
+ * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
+ * (migration 223), room notices (a DM message or an @mention, migration 241), a person's request to have their
+ * account deleted (migration 244) and connection templates to connect or reconnect (migration 334) have their own
+ * tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices'] as const
+const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
+const INBOX = union(NOTICE_TABLES)
+/** What the Inbox lists and counts: every notice but the rooms' (a DM message, an @mention). Those still push, and a
+ * push opens its notice by id (get/read below); the unread room messages themselves are the 대화 tab's badge and the
+ * rooms list's, one place for them (docs/DECISIONS.md "대화방의 트리나", UX review). */
+const LISTED = union(NOTICE_TABLES.filter((t) => t !== 'room_notices'))
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -61,6 +72,18 @@ export class Notifications {
   /** A skill suggestion to review, or the review result of an own suggestion. The source is the suggestion id only. */
   skillNotice(userId: string, event: SkillNoticeEvent, suggestionId: string, createdAt = new Date().toISOString()) {
     this.record(userId, event, suggestionId, createdAt)
+  }
+  /** A DM message or an @mention in a room (rooms/service.ts notify). The source is the message id only, never its
+   * text. No second notice of the same kind while one of that room is still unread (one per unread run: a burst of
+   * messages or mentions is one notice and one push); reading the room marks them read. Follows the person's room
+   * setting. */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString()) {
+    if (!this.active(userId) || at < this.cutoff()) return
+    if (this.ctx.db.query('SELECT 1 FROM room_notices WHERE user_id=? AND room_id=? AND event_type=? AND read_at IS NULL AND suppressed=0 AND created_at>=?').get(userId, roomId, event, this.cutoff())) return
+    const enabled = eventEnabled(this.preferences(userId), event)
+    const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
+      .run(newId(), userId, event, messageId, roomId, at, enabled ? 0 : 1)
+    if (r.changes && enabled) this.signal(userId)
   }
   /** A dev environment job ended, or boxd stopped a box. The source is the id of the job or the stop row only. */
   devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
@@ -101,6 +124,36 @@ export class Notifications {
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
   }
+  /** A person asks this owner to delete their account (auth/deletion-requests.ts). The source is the person's id only;
+   * one row per owner and person (UNIQUE, migration 244): asking again after a cancel re-arms it (unread, new time)
+   * instead of adding one, so asking and cancelling over and over never fills the inbox. Shown always: there is no
+   * setting for it, and someone waits for the owner. Never the owner's own request. */
+  deletionRequest(ownerId: string, requesterId: string, createdAt = new Date().toISOString()) {
+    if (ownerId === requesterId) return
+    const again = this.ctx.db.query("UPDATE account_deletion_notices SET read_at=NULL, created_at=?, suppressed=0 WHERE user_id=? AND event_type='account.deletion_request' AND source_id=? AND read_at IS NOT NULL").run(createdAt, ownerId, requesterId)
+    if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
+    this.record(ownerId, 'account.deletion_request', requesterId, createdAt, true)
+  }
+  /** A request that no longer waits (taken back, or the account was deleted): its entries count as read, so no owner is
+   * left with something to do that is gone. The entry stays and says what happened. */
+  settleDeletionRequests(requesterId: string) {
+    const rows = this.ctx.db.query("UPDATE account_deletion_notices SET read_at=? WHERE source_id=? AND read_at IS NULL RETURNING user_id").all(new Date().toISOString(), requesterId) as { user_id: string }[]
+    for (const u of new Set(rows.map((r) => r.user_id))) if (this.active(u)) this.signal(u)
+  }
+  /** Every owner has the entry of every open request: an owner made after the request (owner transfer) gets it too,
+   * and a request still open after the 30 days of the inbox comes back as a new entry. A person who became the owner
+   * since is left out (the owner cannot ask). */
+  private openDeletionRequests() {
+    const db = this.ctx.db
+    const open = db.query(`SELECT r.user_id FROM account_deletion_requests r JOIN users u ON u.id=r.user_id
+      WHERE r.cancelled_at IS NULL AND r.handled_at IS NULL AND u.deleted_at IS NULL AND u.role != 'owner'`).all() as { user_id: string }[]
+    if (!open.length) return
+    const owners = db.query("SELECT id FROM users WHERE role='owner' AND status='active' AND deleted_at IS NULL").all() as { id: string }[]
+    const now = new Date().toISOString()
+    for (const r of open) for (const o of owners) {
+      if (!db.query("SELECT 1 FROM account_deletion_notices WHERE user_id=? AND event_type='account.deletion_request' AND source_id=?").get(o.id, r.user_id)) this.record(o.id, 'account.deletion_request', r.user_id, now, true)
+    }
+  }
   /** During the 7-day team goal (onboarding/goal.ts noteGoalRun): a member ran a team skill for the first time. The
    * source is the turn of that run; the member, the skill's path and how many people had run it then are kept for the
    * text. Once per owner, member and skill (UNIQUE row, migration 223). Shown always: there is no setting for it, and
@@ -138,21 +191,33 @@ export class Notifications {
    * it is for everyone: whatever made it reach them, this finds it. Its maker is not told about their own template. The
    * source is the template's id only, and integration_template_offers keeps a second notice from coming once the first
    * is past its 30 days. Shown always: the person has something to do before their AI can use the service. */
-  offerTemplates(templateId?: string, at = new Date().toISOString()) {
+  offerTemplates(opts: { templateId?: string; userId?: string; limit?: number } = {}, at = new Date().toISOString()): number {
+    // One set-based query (security review 2, #1): templates × active people, the same test as templateCovers in SQL,
+    // so the cost is a single indexed scan instead of 1–3 queries per template and person. Only the pairs still owed a
+    // notice come back, at most `limit` per call: the 30-second backstop stays light however big the team is, and the
+    // events that change who a template reaches (made, its rule changed, a group joined, someone activated) call this
+    // straight away for just that template or person.
     const db = this.ctx.db
-    const templates = db.query(`SELECT id, created_by FROM integration_templates ${templateId ? 'WHERE id = ?' : ''}`).all(...(templateId ? [templateId] : [])) as { id: string; created_by: string | null }[]
-    if (!templates.length) return
-    const people = db.query("SELECT id FROM users WHERE status='active' AND deleted_at IS NULL").all() as { id: string }[]
-    for (const t of templates) {
-      for (const { id: userId } of people) {
-        if (userId === t.created_by) continue
-        if (db.query('SELECT 1 FROM integration_template_offers WHERE template_id=? AND user_id=?').get(t.id, userId)) continue
-        if (!templateCovers(db, t.id, userId)) continue
-        if (db.query('SELECT 1 FROM integrations WHERE template_id=? AND owner_user_id=?').get(t.id, userId)) continue
-        db.query('INSERT OR IGNORE INTO integration_template_offers(template_id,user_id,created_at) VALUES(?,?,?)').run(t.id, userId, at)
-        this.record(userId, 'integration.template', t.id, at, true)
-      }
+    const where: string[] = []
+    const args: (string | number)[] = []
+    if (opts.templateId) { where.push('t.id = ?'); args.push(opts.templateId) }
+    if (opts.userId) { where.push('u.id = ?'); args.push(opts.userId) }
+    args.push(Math.max(1, Math.min(opts.limit ?? OFFER_BATCH, 100_000)))
+    const owed = db.query(`SELECT t.id AS template_id, u.id AS user_id
+      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND (t.created_by IS NULL OR u.id <> t.created_by)
+      WHERE ${where.length ? `${where.join(' AND ')} AND ` : ''}
+        NOT EXISTS (SELECT 1 FROM integration_template_offers o WHERE o.template_id = t.id AND o.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM integrations i WHERE i.template_id = t.id AND i.owner_user_id = u.id)
+        AND EXISTS (SELECT 1 FROM integration_template_access a WHERE a.template_id = t.id AND (a.subject_type = 'everyone'
+          OR (a.subject_type = 'user' AND a.subject_id = u.id)
+          OR (a.subject_type = 'group' AND EXISTS (SELECT 1 FROM group_members g WHERE g.group_id = a.subject_id AND g.user_id = u.id))))
+      ORDER BY t.created_at, t.id, u.id LIMIT ?`).all(...args) as { template_id: string; user_id: string }[]
+    if (!owed.length) return 0
+    const mark = db.query('INSERT OR IGNORE INTO integration_template_offers(template_id,user_id,created_at) VALUES(?,?,?)')
+    for (const r of owed) {
+      if (mark.run(r.template_id, r.user_id, at).changes) this.record(r.user_id, 'integration.template', r.template_id, at, true)
     }
+    return owed.length
   }
   /** A template's address, sign-in method or header changed, so the member's own connection made from it (and their key)
    * was dropped: they connect it again. One notice per member and change. Shown always, like the first one. */
@@ -165,6 +230,7 @@ export class Notifications {
     for (const table of NOTICE_TABLES) db.query(`DELETE FROM ${table} WHERE created_at < ?`).run(this.cutoff())
     this.settleIntegrationRequests(userId)
     this.settleAiRequests(userId)
+    if (!userId) this.openDeletionRequests()
     db.query('DELETE FROM schedule_outcomes WHERE created_at < ?').run(this.cutoff())
     const rows = db.query(`SELECT t.id,t.user_id,t.status,t.ended_at,t.run_outcome FROM turns t
       WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.status='active' AND u.deleted_at IS NULL)
@@ -185,7 +251,7 @@ export class Notifications {
       ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
     for (const row of needs) this.record(row.user_id, 'schedule.failure', row.id, row.created_at, true)
     db.query('DELETE FROM schedule_template_skips WHERE created_at < ?').run(this.cutoff())
-    if (!userId) { try { this.offerTemplates() } catch { this.ctx.log.warn('template notices deferred') } }
+    if (!userId) { try { this.offerTemplates({ limit: OFFER_BATCH }) } catch { this.ctx.log.warn('template notices deferred') } }
     // scheduled tasks nobody confirmed, paused for their owner's review (chat/schedules.ts): one notice per person and
     // pause, shown in the app always (the task stopped running), pushed per the "scheduled task failed" setting
     const reviews = db.query(`SELECT s.user_id, s.review_since FROM schedules s
@@ -257,6 +323,17 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
+    // a room notice links to the room and names who wrote it while the person is still in the room and may see the
+    // message; never its text
+    if (isRoomEvent(row.event_type)) {
+      const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, outcome: null }
+      const m = this.ctx.db.query(`SELECT m.room_id, m.author_id, m.seq, m.visibility, m.visible_to, m.deleted_at, rm.visible_from_seq FROM room_messages m
+        JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = ? JOIN rooms r ON r.id = m.room_id AND r.archived_at IS NULL WHERE m.id = ?`)
+        .get(row.user_id, row.source_id) as { room_id: string; author_id: string | null; seq: number; visibility: string; visible_to: string | null; deleted_at: string | null; visible_from_seq: number } | null
+      if (!m || m.deleted_at || m.seq <= m.visible_from_seq || (m.visibility !== 'room' && m.visible_to !== row.user_id)) return { ...base, link: null }
+      const from = m.author_id ? (this.ctx.db.query('SELECT name FROM users WHERE id=?').get(m.author_id) as { name: string } | null)?.name ?? null : null
+      return { ...base, link: 'room', room: { id: m.room_id, from } }
+    }
     // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting. The
     // service's name with the host of its address (where the member's key would go), while the request is there.
     if (row.event_type === 'integration.request') {
@@ -276,6 +353,15 @@ export class Notifications {
       const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(u ? { joined: { name: u.name } } : {}) }
+    }
+    // the owner sees who asks (a name while the account is there) and where the request is now; while it waits, the
+    // link opens that person in Admin › Members, where the owner deletes the account
+    if (row.event_type === 'account.deletion_request') {
+      const u = this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(row.source_id) as { name: string } | null
+      const q = this.ctx.db.query('SELECT cancelled_at, handled_at FROM account_deletion_requests WHERE user_id=?').get(row.source_id) as { cancelled_at: string | null; handled_at: string | null } | null
+      const state = !q ? null : q.handled_at || !u ? 'handled' as const : q.cancelled_at ? 'cancelled' as const : 'open' as const
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: state === 'open' ? 'admin_members' : null, outcome: null,
+        ...(state ? { deletionRequest: { name: u?.name ?? null, state } } : {}) }
     }
     // who ran which skill first (a name while the account is there) and the count then; no link
     if (row.event_type === 'onboarding.first_run') {
@@ -342,11 +428,11 @@ export class Notifications {
     if (o.cursor && (!cur || !Number.isFinite(Date.parse(cur.t!)))) throw new HttpError('validation')
     if (!this.active(userId)) return { items: [], nextCursor: null, unreadCount: 0 }
     const limit = Math.min(100, Math.max(1, o.limit ?? 30)), db = this.ctx.db, cutoff = this.cutoff()
-    const rows = db.query(`SELECT * FROM ${INBOX} WHERE user_id=? AND suppressed=0 AND created_at>=?
+    const rows = db.query(`SELECT * FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND created_at>=?
       ${cur ? 'AND (created_at<? OR (created_at=? AND id<?))' : ''} ORDER BY created_at DESC,id DESC LIMIT ?`)
       .all(...(cur ? [userId, cutoff, cur.t!, cur.t!, cur.id!, limit + 1] : [userId, cutoff, limit + 1])) as Row[]
     const selected = rows.slice(0, limit), last = selected.at(-1)
-    const { n } = db.query(`SELECT COUNT(*) n FROM ${INBOX} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
+    const { n } = db.query(`SELECT COUNT(*) n FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
     return { items: selected.map(r => this.out(r)), nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null, unreadCount: n }
   }
   get(userId: string, id: string): InboxNotification {
@@ -397,6 +483,16 @@ export function notifyTeamJoined(ctx: AppContext, userIds: Iterable<string>, joi
     catch { ctx.log.warn('team join notification recording failed') }
   }
 }
+export function notifyDeletionRequest(ctx: AppContext, ownerIds: Iterable<string>, requesterId: string) {
+  for (const ownerId of new Set(ownerIds)) {
+    try { notificationsOf(ctx).deletionRequest(ownerId, requesterId) }
+    catch { ctx.log.warn('account deletion request notification recording failed') }
+  }
+}
+export function settleDeletionRequestNotices(ctx: AppContext, requesterId: string) {
+  try { notificationsOf(ctx).settleDeletionRequests(requesterId) }
+  catch { ctx.log.warn('account deletion request notice not marked read') }
+}
 export function settleIntegrationRequestNotice(ctx: AppContext, userId: string) {
   try { notificationsOf(ctx).settleIntegrationRequests(userId) }
   catch { ctx.log.warn('connection request notice not marked read') }
@@ -405,8 +501,11 @@ export function notifyConnectionReconnect(ctx: AppContext, userId: string, sourc
   try { notificationsOf(ctx).connectionReconnect(userId, sourceId, createdAt) }
   catch { ctx.log.warn('connection notification recording deferred') }
 }
-export function notifyTemplateOffers(ctx: AppContext, templateId?: string) {
-  try { notificationsOf(ctx).offerTemplates(templateId) }
+/** A template was made or its rule changed (templateId), or who it reaches may have changed for one person (userId: a
+ * group joined, an account activated) or for many (neither: a group's members changed). Uncapped for one template or
+ * person; a team-wide call does one batch and leaves the rest to the 30-second backstop. */
+export function notifyTemplateOffers(ctx: AppContext, scope: { templateId?: string; userId?: string } = {}) {
+  try { notificationsOf(ctx).offerTemplates({ ...scope, limit: scope.templateId || scope.userId ? 100_000 : OFFER_BATCH }) }
   catch { ctx.log.warn('template notices deferred') }
 }
 export function notifyTemplateReconnect(ctx: AppContext, userId: string, templateId: string, version: number) {

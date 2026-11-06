@@ -68,6 +68,10 @@ export interface ConnectCard {
   /** that connection's version after this card's own last write: a later one is a change made in Settings (a new key,
    * say), which "Not now" must not undo */
   version: number | null
+  /** this card made the connection (it did not exist before): only then may "Not now" remove it. A template connection
+   * the member already had (its key stopped working, say) is theirs, with their tool and write settings: a card that
+   * only offered a new key for it never deletes it (security review 2, #2b) */
+  created: boolean
 }
 
 type ToolOut = { content: McpContent[]; isError?: boolean; summary: string }
@@ -202,7 +206,7 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
-  const kept: ConnectCard = { integrationId: null, running: null, changed: false, version: null }
+  const kept: ConnectCard = { integrationId: null, running: null, changed: false, version: null, created: false }
   exec.connectCards.set(card.requestId, kept)
   let answer: unknown
   try { answer = await exec.waitForPerson(card, { timeoutMs: rt.askUserTimeoutMs() }) } finally { exec.connectCards.delete(card.requestId) }
@@ -239,7 +243,7 @@ export async function finishCard(ctx: AppContext, exec: TurnExec | undefined, au
     // one the person changed in Settings meanwhile (another address, or only a new key) is theirs now: never removed
     // here, and the AI is told it changed
     if (made && (!asShown(made, card) || made.version !== kept.version)) { kept.integrationId = null; kept.changed = true }
-    else if (made && made.status !== 'connected' && !(made.auth === 'oauth' && made.secret_enc)) {
+    else if (made && kept.created && made.status !== 'connected' && !(made.auth === 'oauth' && made.secret_enc)) {
       try { await integrationsOf(ctx).remove(viewer, made.id); kept.integrationId = null } catch { /* left in Settings; the AI is told so */ }
     }
     exec.answer(body.requestId, CONNECT_TOOL, { outcome: 'skipped' } satisfies ConnectOutcome)
@@ -315,7 +319,11 @@ async function connect(ctx: AppContext, exec: TurnExec, viewer: Viewer, body: Ex
     // an admin's template: through its own path (templates.ts connect), which checks it is still for this person and
     // still the version the card showed (409 otherwise), keeps its address, sign-in method and header, and makes or
     // updates this person's own connection from it. A sign-in service is made first and signed in to next.
-    const v = await templatesOf(ctx).connect(viewer, card.template.id, { version: card.template.version, writePolicy: 'ask', ...(secret !== undefined ? { secret } : {}) }, L)
+    // a member who already has this template's connection only gets the new key: their write rule ("never write" too)
+    // and tool settings stay as they chose them (security review 2, #2a); a new one starts at "ask every time"
+    const had = fromTemplate(ctx.db, card.template.id, viewer.id)
+    const v = await templatesOf(ctx).connect(viewer, card.template.id, { version: card.template.version, ...(had ? {} : { writePolicy: 'ask' as const }), ...(secret !== undefined ? { secret } : {}) }, L)
+    if (!had && !kept.integrationId) kept.created = true
     kept.integrationId = v.id
     kept.version = getRow(ctx.db, v.id)?.version ?? null
     // a key that is already there was replaced; a check after a new key happens in update, a sign-in after it
@@ -338,6 +346,7 @@ async function connect(ctx: AppContext, exec: TurnExec, viewer: Viewer, body: Ex
       ...(secret !== undefined ? { secret } : {}), ...(access ? { access } : {}),
     }, card.scope, L)
     kept.integrationId = v.id
+    kept.created = true
   }
   kept.version = getRow(ctx.db, v.id)?.version ?? null
   return stateOfView(v, card.requestId, exec, s.auth === 'oauth')

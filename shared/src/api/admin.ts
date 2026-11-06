@@ -55,6 +55,9 @@ export const UsersResponse = z.object({
    * Only when asked for (`?noAi=1`), and absent when this server does not answer with AI connections (engine.authMode
    * other than managed). */
   noAi: z.array(UserId).optional(),
+  /** The people with an open request to have their account deleted (Settings › Profile › 계정 삭제 요청,
+   * shared/src/api/account-deletion.ts). For the owner only, who deletes accounts; absent for admins. */
+  deletionRequested: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
 /** Hand the owner role to another active member (the old owner becomes admin). */
@@ -469,11 +472,34 @@ export const UsageQuery = z.object({
   to: IsoTime.optional(),
   /** credential: per AI connection (turns.credential_id; a removed connection shows as one row) */
   groupBy: z.enum(['user', 'engine', 'model', 'day', 'group', 'credential', 'skill']).default('user'),
+  /** filters (Admin > Usage's pills): one person, engine, model ('' = the default model), AI connection, or the members
+   * of one group. Rows, totals and series all follow them; facets do not, so the choices stay listed. */
+  user: z.string().min(1).max(200).optional(),
+  engine: z.string().min(1).max(100).optional(),
+  model: z.string().max(200).optional(),
+  credential: z.string().min(1).max(200).optional(),
+  group: z.string().min(1).max(200).optional(),
+  /** series=1: tokens per day in the team time zone, split by the groupBy key (the chart) */
+  series: QueryBool.optional(),
+  /** facets=1: who, which engines, models, AI connections and groups have usage in the range (the filter choices) */
+  facets: QueryBool.optional(),
 })
 /** unpricedTurns: how many of the turns have an amount with an unknown part (the API engine's provider gave no cost and
  * the model has no list price); absent = none */
 export const UsageRow = z.object({ key: z.string(), label: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int(), costUsd: z.number(), unpricedTurns: z.number().int().optional() })
-export const UsageResponse = z.object({ from: IsoTime, to: IsoTime, rows: z.array(UsageRow), totals: UsageRow.omit({ key: true, label: true }) })
+const UsageFacet = z.object({ key: z.string(), label: z.string() })
+/** one day (YYYY-MM-DD in the team time zone) and one groupBy key; skill and group keys may overlap like their rows */
+export const UsageSeriesPoint = z.object({ day: z.string(), key: z.string(), turns: z.number().int(), inputTokens: z.number().int(), outputTokens: z.number().int() })
+export const UsageResponse = z.object({
+  from: IsoTime,
+  to: IsoTime,
+  rows: z.array(UsageRow),
+  totals: UsageRow.omit({ key: true, label: true }),
+  /** with series=1 */
+  series: z.array(UsageSeriesPoint).optional(),
+  /** with facets=1 */
+  facets: z.object({ users: z.array(UsageFacet), engines: z.array(UsageFacet), models: z.array(UsageFacet), credentials: z.array(UsageFacet), groups: z.array(UsageFacet) }).optional(),
+})
 export const AuditQuery = PageQuery.extend({
   source: z.enum(['admin', 'file', 'tool', 'auth']).optional(),
   actor: UserId.optional(),

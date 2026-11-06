@@ -166,6 +166,68 @@ describe('R3: the chat connect card for a template', () => {
   })
 })
 
+describe('security review 2: the card for a template the member already has', () => {
+  test('a new key after a key stopped working keeps their write rule and tool settings; "Not now" never deletes it', async () => {
+    const t = makeTemplate('Kept Desk', ['alice'])
+    const alice = activeUser(h.ctx.db, 'alice')!
+    await templatesOf(h.ctx).connect(alice, t.id, { version: 1, secret: MCP_KEY, writePolicy: 'deny' }, 'en')
+    const row = mineOf(t.id, 'alice')!
+    h.ctx.db.query("UPDATE integrations SET disabled_tools = ?, status = 'needs_auth' WHERE id = ?").run(JSON.stringify(['search_tasks']), row.id)
+    const settings = () => h.ctx.db.query('SELECT write_policy, disabled_tools FROM integrations WHERE id = ?').get(row.id) as { write_policy: string; disabled_tools: string } | null
+    // a mistyped key: the check fails, the card stays for another key
+    const run = await start('alice', { name: 'Kept Desk', template: t.id })
+    const card = await cardOf(run.turnId)
+    const bad = await post('alice', run.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal('wrong-key-0000') })
+    expect(bad.body.state).toBe('retry')
+    expect(settings()).toEqual({ write_policy: 'deny', disabled_tools: JSON.stringify(['search_tasks']) })
+    // "Not now": the connection is theirs from before, so it stays, with their settings
+    await post('alice', run.turnId, { action: 'skip', requestId: card.requestId })
+    expect(settings()).toEqual({ write_policy: 'deny', disabled_tools: JSON.stringify(['search_tasks']) })
+    // a working key later: connected, and still "never write"
+    const again = await start('alice', { name: 'Kept Desk', template: t.id })
+    const card2 = await cardOf(again.turnId)
+    const ok = await post('alice', again.turnId, { action: 'connect', requestId: card2.requestId, sealed: await seal(MCP_KEY) })
+    expect(ok.body.state).toBe('connected')
+    expect(settings()).toEqual({ write_policy: 'deny', disabled_tools: JSON.stringify(['search_tasks']) })
+    await templatesOf(h.ctx).remove(admin(), t.id)
+  })
+
+  test('a card that made a new template connection still removes it on "Not now" after a key that did not work', async () => {
+    const t = makeTemplate('Fresh Desk', ['alice'])
+    const run = await start('alice', { name: 'Fresh Desk', template: t.id })
+    const card = await cardOf(run.turnId)
+    const bad = await post('alice', run.turnId, { action: 'connect', requestId: card.requestId, sealed: await seal('wrong-key-1111') })
+    expect(bad.body.state).toBe('retry')
+    expect(mineOf(t.id, 'alice')).not.toBeNull()
+    await post('alice', run.turnId, { action: 'skip', requestId: card.requestId })
+    expect(mineOf(t.id, 'alice')).toBeNull()
+    await templatesOf(h.ctx).remove(admin(), t.id)
+  })
+})
+
+describe('security review 2: which tasks need a template by its name', () => {
+  test('everyday or short names never match', () => {
+    expect(namesTemplate('Summarise the board for the team', 'the')).toBe(false)
+    expect(namesTemplate('Read my notes', 'Notes')).toBe(false)
+    expect(namesTemplate('Check Jira', 'Jira')).toBe(true)
+    expect(namesTemplate('Check Git', 'Git')).toBe(false)
+  })
+
+  test('a "GitHub" template does not stop a task whose owner reaches GitHub with their own connection', () => {
+    const t = makeTemplate('GitHub', ['alice'])
+    const task = { id: 'no-such-schedule', user_id: 'alice', prompt: 'list my open GitHub issues' }
+    expect(missingTemplateKey(h.ctx.db, task)).toEqual({ templateId: t.id, name: 'GitHub' })
+    const now = new Date().toISOString(), id = crypto.randomUUID()
+    h.ctx.db.query("INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, created_at, updated_at) VALUES (?, 'personal', 'alice', 'alice', 'mcp', 'My GitHub', 'my-github', ?, 'none', 'connected', ?, ?)").run(id, `${svc.base}/mcp-open`, now, now)
+    try {
+      expect(missingTemplateKey(h.ctx.db, task)).toBeNull()
+    } finally {
+      h.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(id)
+      void templatesOf(h.ctx).remove(admin(), t.id)
+    }
+  })
+})
+
 describe('R7: scheduled tasks need the owner\'s own key', () => {
   test('which tasks need a template: one that names it, or one whose run used it', () => {
     expect(namesTemplate('Summarise my Tasks board every morning', 'Tasks')).toBe(true)

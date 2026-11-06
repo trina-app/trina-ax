@@ -5,15 +5,15 @@ import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
-import { Check, ChevronRight, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Check, ChevronRight, Copy, Download, FileText, ImageOff, ExternalLink } from 'lucide-react'
+import { createContext, memo, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
 import rehypeKatex from 'rehype-katex'
 import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { fileUrl, saveBlob, startDownload } from '../lib/api'
+import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown } from '../lib/markdown'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
@@ -123,20 +123,20 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
     }
   }, [lang, code])
   return (
-    <div className="not-prose group my-3 overflow-hidden rounded-lg bg-code-bg text-code-ink">
+    <div className="not-prose group my-3 overflow-hidden rounded-lg bg-code-bg text-code-ink dark:ring-1 dark:ring-line">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-1 text-xs text-[#b9b3a8]">
         <span>{lang ?? t('md.code')}</span>
-        <span className="flex items-center gap-1">
-          <button type="button" className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => void copy(code)} aria-label={copied ? t('common.copied') : t('md.copyCode')}>
+        <span className="flex items-center gap-1 max-md:gap-3">
+          <button type="button" className="touch-hit flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => void copy(code)} aria-label={copied ? t('common.copied') : t('md.copyCode')}>
             {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
             <span>{copied ? t('common.copied') : t('common.copy')}</span>
           </button>
-          <button type="button" className="rounded p-1 hover:bg-white/10 hover:text-white" aria-label={t('md.downloadCode')} title={t('md.downloadCode')} onClick={() => saveBlob(new Blob([code], { type: 'text/plain;charset=utf-8' }), `code.${LANG_EXT[lang ?? ''] ?? 'txt'}`)}>
+          <button type="button" className="touch-hit rounded p-1 hover:bg-white/10 hover:text-white" aria-label={t('md.downloadCode')} title={t('md.downloadCode')} onClick={() => saveBlob(new Blob([code], { type: 'text/plain;charset=utf-8' }), `code.${LANG_EXT[lang ?? ''] ?? 'txt'}`)}>
             <Download size={13} aria-hidden />
           </button>
         </span>
       </div>
-      <pre className="m-0 overflow-x-auto p-3 text-[13px] leading-5">
+      <pre className="m-0 overflow-x-auto p-3 text-code leading-5">
         {html !== null ? <code className="hljs font-mono" dangerouslySetInnerHTML={{ __html: html }} /> : <code className="font-mono">{code}</code>}
       </pre>
     </div>
@@ -166,8 +166,9 @@ function CopyableTable({ children }: { children: ReactNode }) {
     setTimeout(() => setCopied(false), 1500)
   }
   return (
-    // phones (button always shown): the button sits under the table instead of on its top border, over the header row
-    <div className="group relative my-3 max-sm:flex max-sm:flex-col">
+    // the button sits under the table on the right, over nothing (on its top border it covered the last header cell);
+    // phones: always shown, screens with a pointer: on hover or focus, like a quote's copy button
+    <div className="group relative my-3 flex flex-col">
       <div className="relative">
         {/* a wider fade than the tab rows, and a round arrow at the cut edge: the mask alone is faint on the dark page */}
         <div ref={scroller} className="edge-fade peer overflow-x-auto rounded-lg border border-line [--fade:3rem]!" data-testid="md-table-scroll">
@@ -183,7 +184,7 @@ function CopyableTable({ children }: { children: ReactNode }) {
         type="button"
         onClick={copy}
         title={t('md.copyTableHint')}
-        className="absolute -top-2.5 right-2 flex items-center gap-1 max-sm:static max-sm:mt-1.5 max-sm:self-end rounded-md border border-line bg-surface px-1.5 py-0.5 text-xs font-medium text-muted shadow-sm transition hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        className="mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >
         {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
         {copied ? t('common.copied') : t('md.copyTable')}
@@ -227,21 +228,30 @@ const cellText = (n: Element | ElementContent | undefined): string =>
 const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]*(%|[A-Za-z]{1,3})?\)?$/.test(text.trim())
 
 // ---------------- links and images ----------------
-/** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
- *  too, which shows the "can't be previewed" notice and a download button. */
+/** Team files this viewer may open, where the text is shown to people with different access (an AI answer in a team
+ * chat room: RoomMessage.openable). Inside it, a link or picture of any other team file is plain text: no chip to
+ * click, no picture loaded. Absent (null), as in the person's own chats, every team link is a chip. */
+const OpenableFiles = createContext<ReadonlySet<string> | null>(null)
+const openableOk = (set: ReadonlySet<string> | null, path: string) => !set || set.has(path.replace(/^\/+|\/+$/g, ''))
+
+/** A file the AI made or mentioned: a link in the sentence, with a small file icon at the text's height, that opens the
+ *  preview panel (which has the download; a file without a viewer shows the "can't be previewed" notice and a
+ *  download button there). No frame, divider or button of its own: it reads like a word and wraps like one. */
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
+  if (!openableOk(useContext(OpenableFiles), path)) return <span data-testid="team-file-text">{children}</span>
   const canPreview = previewKind(path) !== null
   return (
-    <span className="not-prose my-1 inline-flex max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-surface align-middle text-sm font-medium text-ink shadow-sm">
-      <button type="button" onClick={() => openTeamFile(path, at)} className="inline-flex min-w-0 items-center gap-2 px-3 py-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}>
-        {canPreview ? <Eye size={15} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={15} className="shrink-0 text-accent-text" aria-hidden />}
-        <span className="break-all">{children}</span>
-      </button>
-      <button type="button" onClick={() => startDownload(fileUrl(path), baseName(path))} className="border-l border-line px-2.5 text-muted hover:bg-hover" aria-label={t('common.download')} title={t('common.download')}>
-        <Download size={14} aria-hidden />
-      </button>
-    </span>
+    <button
+      type="button"
+      onClick={() => openTeamFile(path, at)}
+      className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text"
+      title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}
+      data-testid="team-file-chip"
+    >
+      <FileText className="mr-0.5 inline-block size-[0.95em] shrink-0 align-[-0.125em]" aria-hidden />
+      {children}
+    </button>
   )
 }
 
@@ -249,6 +259,8 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
 export function TeamImage({ path, alt, className }: { path: string; alt?: string; className?: string }) {
   const t = useT()
   const [failed, setFailed] = useState(false)
+  const openable = useContext(OpenableFiles)
+  if (!openableOk(openable, path)) return <span className="text-faint" data-testid="team-file-text">[{alt || baseName(path) || t('md.image')}]</span>
   if (!isDisplayableImagePath(path) || failed)
     return (
       <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path)}>
@@ -399,19 +411,21 @@ export function urlTransform(url: string): string {
 }
 
 // A size is chosen here, not overridden through className: Tailwind orders the built stylesheet by its own rules, not by
-// the order in the class attribute, and .text-[15px] comes after .text-xs and .text-sm, so a smaller size put next to it
-// loses (leading-7 and prose-h3:text-[15px] the same way).
+// the order in the class attribute, so of two sizes on one element either may win (leading-7 and prose-h3:text-reading
+// the same way). text-reading is 15px, 17px on phones (index.css).
 const SIZES = {
-  answer: 'text-[15px] leading-7 prose-h1:text-lg prose-h2:text-base prose-h3:text-[15px]',
-  small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs',
+  answer: 'text-reading leading-7 prose-h1:text-lg prose-h2:text-base prose-h3:text-reading',
+  // (inline code is 0.85em; in small text on a phone that would read under 13px, so there it is the text's size)
+  small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs max-md:prose-code:text-[1em]',
 }
 
 /** `copyQuotes`: an assistant answer in the chat, where each top-level quote copies on its own (ad options, drafts). */
-export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean }) {
+export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes, openable }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean; openable?: ReadonlySet<string> }) {
+  if (openable) return <OpenableFiles.Provider value={openable}><Markdown text={text} streaming={streaming} className={className} size={size} copyQuotes={copyQuotes} /></OpenableFiles.Provider>
   return (
     <div
       className={clsx(
-        'answer prose max-w-none break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+        'answer prose max-w-none break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
         SIZES[size],
         className,
       )}

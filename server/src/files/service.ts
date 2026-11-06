@@ -83,6 +83,12 @@ export class TurnFiles {
   readHashes: Map<string, string> = new ReadHashes(this.allReads)
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
+  /** folders whose files' names went to the model in this turn (a listing that showed files, glob): a team chat room's
+   * AI session counts them like reads (chat/turn.ts noteReads; its answers may repeat the names), other chats do not */
+  namePaths = new Set<string>()
+  /** team paths whose own name went to the model, and nothing of what is in them (the sub-folders a listing showed,
+   * chat/turn.ts: every path a room call named): a room session counts each as a name (read-scope.ts {type:'name'}) */
+  listedNames = new Set<string>()
   /** the same files per file with how and where (files/sources.ts): the answer's "참고한 파일" list. Shared by every
    * agent of the turn, so a sub-agent's reads are in it, marked with `agent` */
   readonly sources = new SourceLog()
@@ -240,17 +246,23 @@ export class FileService {
     const r = authorize(this.fx, rules, ctx.user, a.path ?? '', 'list')
     if (!r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a file; use read`, 'not_folder')
     const lines: string[] = []
+    let shownFiles = 0
     const ents = fs.readdirSync(r.abs, { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))
     for (const e of ents) {
       if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
       const c = [...r.segs, e.name]
-      if (e.isDirectory()) { if (rules.canList(ctx.user, c)) lines.push(e.name + '/') }
+      // a sub-folder shows its name only (who else may list it decides who may see that, read-scope.ts {type:'name'})
+      if (e.isDirectory()) { if (rules.canList(ctx.user, c)) { lines.push(e.name + '/'); ctx.files.listedNames.add(c.join('/')) } }
       else if (e.isFile() && atLeast(rules.access(ctx.user, c), 'read')) {
         let st: fs.Stats; try { st = fs.lstatSync(path.join(r.abs, e.name)) } catch { continue }
         if (st.nlink > 1) continue
         lines.push(`${e.name}  (${human(st.size)}, ${st.mtime.toISOString().slice(0, 16).replace('T', ' ')})`)
+        shownFiles++
       }
     }
+    // file names are the folder's own (only its readers see them); a folder the person may only list (the team root for
+    // a member, a folder on the way to theirs) shows sub-folders and nothing of its own
+    if (shownFiles) ctx.files.namePaths.add(r.rel)
     return { text: lines.join('\n') || '(empty folder)', summary: `list ${r.rel || '.'} -> ${lines.length} entries` }
   }
 
@@ -265,6 +277,8 @@ export class FileService {
     const { rules, r, isFile } = this.base(ctx, a.path)
     const res = await globFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office }, r.segs, isFile, a.pattern.normalize('NFC'))
     const text = res.files.length ? res.files.join('\n') + (res.truncated ? '\n(Results are truncated. Use a more specific path or pattern.)' : '') : 'No files found'
+    // the folders the names came from (one per folder: the rules are on folders)
+    for (const f of res.files) ctx.files.namePaths.add(f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '')
     return { text, summary: `glob ${r.rel || '.'} pattern(len=${a.pattern.length}) -> ${res.files.length} files` }
   }
 

@@ -590,3 +590,81 @@ describe('the brief: notices and who connected', () => {
     await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
   })
 })
+
+describe('security review 2', () => {
+  const inbox = async (as: Client) => (await as.call('GET', '/api/notifications?limit=100')).items as any[]
+  const of = async (as: Client, id: string, event = 'integration.template') => (await inbox(as)).filter((n) => n.eventType === event && (n.template?.id === id || n.sourceId.startsWith(id)))
+
+  test('#1 the template backstop is one set query: a big team stays fast, and the same people are told', async () => {
+    const db = h.ctx.db
+    const now = new Date().toISOString()
+    const g = crypto.randomUUID()
+    db.query('INSERT INTO groups (id, name) VALUES (?, ?)').run(g, 'Scale group')
+    const addUser = db.query("INSERT INTO users (id, username, name, password_hash, role, status, must_change_password, locale_follows_team, prefs, created_at) VALUES (?, ?, ?, 'x', 'member', 'active', 0, 1, '{}', ?)")
+    const users: string[] = []
+    db.transaction(() => {
+      for (let i = 0; i < 2000; i++) { const id = `scale-${i}`; users.push(id); addUser.run(id, id, id, now) }
+      for (let i = 0; i < 20; i++) db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)').run(g, users[i]!)
+    })()
+    const tIns = db.query("INSERT INTO integration_templates (id, created_by, kind, name, url, auth, created_at, updated_at) VALUES (?, ?, 'mcp', ?, ?, 'bearer', ?, ?)")
+    const aIns = db.query("INSERT INTO integration_template_access (template_id, subject_type, subject_id) VALUES (?, 'group', ?)")
+    const tids: string[] = []
+    db.transaction(() => { for (let i = 0; i < 50; i++) { const id = crypto.randomUUID(); tids.push(id); tIns.run(id, ids.ada, `Scale ${i}`, `${fake.base}/mcp-key`, now, now); aIns.run(id, g) } })()
+    try {
+      const service = notificationsOf(h.ctx)
+      const t0 = performance.now()
+      const told = service.offerTemplates({ limit: 100_000 })
+      const first = performance.now() - t0
+      // 50 templates x the 20 group members, nobody else (the old loops took seconds here)
+      expect(told).toBe(50 * 20)
+      expect(first).toBeLessThan(1500)
+      const offers = db.query(`SELECT count(*) n, count(DISTINCT user_id) u FROM integration_template_offers WHERE template_id IN (${tids.map(() => '?').join(',')})`).get(...tids) as { n: number; u: number }
+      expect(offers).toEqual({ n: 1000, u: 20 })
+      // the next backstop pass finds nothing owed and is cheap
+      const t1 = performance.now()
+      expect(service.offerTemplates()).toBe(0)
+      expect(performance.now() - t1).toBeLessThan(1000)
+      // a per-pass cap: the backstop never does more than its batch at once
+      db.query(`DELETE FROM integration_template_offers WHERE template_id IN (${tids.map(() => '?').join(',')})`).run(...tids)
+      expect(service.offerTemplates({ limit: 300 })).toBe(300)
+    } finally {
+      db.query(`DELETE FROM integration_templates WHERE id IN (${tids.map(() => '?').join(',')})`).run(...tids)
+      db.query("DELETE FROM users WHERE id LIKE 'scale-%'").run()
+      db.query('DELETE FROM groups WHERE id = ?').run(g)
+    }
+  })
+
+  test('#1 joining a group or being made active again tells them at once, without waiting for the backstop', async () => {
+    const g = await ada.call('POST', '/api/admin/groups', { name: 'Event group', memberIds: [] })
+    const t = await make(tpl({ name: 'Event Board', access: { ...nobody, groups: [g.id] } }))
+    // no reconcile() between: the group change itself offers it
+    await ada.call('PATCH', `/api/admin/groups/${g.id}`, { memberIds: [ids.cara] })
+    expect((await of(cara, t.id)).length).toBe(1)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+
+  test('#4 a template name with hidden text, a double quote or a control character is refused; notes too', async () => {
+    for (const name of ['Wi​ki', 'Tasks‮', 'The "board"', 'Line\nbreak', 'Tab\there']) {
+      const r = await ada.try('POST', '/api/admin/integration-templates', tpl({ name }))
+      expect(r.status).toBe(400)
+    }
+    expect((await ada.try('POST', '/api/admin/integration-templates', tpl({ name: 'Notes test', notes: 'read​ this' }))).status).toBe(400)
+    const t = await make(tpl({ name: 'Plain Name' }))
+    expect((await ada.try('PATCH', `/api/admin/integration-templates/${t.id}`, { name: 'Bad⁦name' })).status).toBe(400)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+
+  test('#5 a new address and a narrower rule at once: only members still covered are asked to reconnect', async () => {
+    const t = await make(tpl({ name: 'Narrowed', access: { ...nobody, users: [ids.bob, ids.cara] } }))
+    const bobRow = (await connect(bob, t.id, { secret: MCP_KEY })).body.id
+    const caraRow = (await connect(cara, t.id, { secret: MCP_KEY })).body.id
+    await ada.call('PATCH', `/api/admin/integration-templates/${t.id}`, { url: `${fake.base}/mcp-open`, access: { ...nobody, users: [ids.bob] } })
+    expect((await of(bob, t.id, 'integration.template_reconnect')).length).toBe(1)
+    expect((await of(cara, t.id, 'integration.template_reconnect')).length).toBe(0)
+    // cara's connection went as "no longer for her", bob's as "moved"
+    const why = (id: string) => JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.delete' AND target = ?").get(id) as { detail: string }).detail).why
+    expect(why(bobRow)).toBe('template_moved')
+    expect(why(caraRow)).toBe('not_covered')
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+})

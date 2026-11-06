@@ -1,6 +1,7 @@
 // Every route module, registered in this order (web last: its catch-all GET serves the app shell).
 // Owners never edit this file: each owns its module file (docs/WORKPLAN.md).
 import { adminRoutes } from './admin'
+import { peopleRoutes } from './people'
 import { artifactsRoutes } from './artifacts'
 import { authRoutes } from './auth'
 import { browserRoutes } from './browser'
@@ -20,8 +21,11 @@ import { onboardingPacksRoutes } from './onboarding-packs'
 import { onboardingRoutes } from './onboarding'
 import { onboardingWelcomeRoutes } from './onboarding-welcome'
 import { promoVideoRoutes } from './promo-video'
+import { introDeckRoutes } from './intro-deck'
 import { onboardingGoalRoutes } from './onboarding-goal'
 import { demoRoutes } from './demo'
+import { roomsRoutes } from './rooms'
+import { slackRoutes } from './slack'
 
 export type { RouteModule } from './module'
 
@@ -30,8 +34,10 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   officeUpdateRoutes, // G (office mode automatic updates)
   authRoutes, // A
   adminRoutes, // A
+  peopleRoutes, // A (profiles and the people directory)
   chatsRoutes, // B
   memoriesRoutes, // B
+  roomsRoutes, // B (team chat rooms, docs/DECISIONS.md "대화방 v1")
   wsRoutes, // B
   browserRoutes, // B
   filesRoutes, // C
@@ -44,7 +50,9 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   onboardingRoutes, // onboarding: the company profile and its drafts (docs/DECISIONS.md "D — Company profile")
   onboardingWelcomeRoutes, // onboarding: the welcome steps' progress (docs/DECISIONS.md "W — Welcome steps")
   promoVideoRoutes, // the company's promo video and its MP4 (docs/DECISIONS.md "V")
+  introDeckRoutes, // the company's intro deck as PowerPoint and PDF (docs/DECISIONS.md "D2")
   onboardingGoalRoutes, // onboarding: the 7-day team goal (docs/DECISIONS.md "G — The 7-day team goal")
+  slackRoutes, // C: the Slack connector (docs/SLACK.md); after chats, whose runtime its questions use
   demoRoutes, // demo company (`bun run demo:company`; 404 unless a development server runs with MYCEL_DEMO)
   webRoutes, // D (catch-all, keep last)
 ]
