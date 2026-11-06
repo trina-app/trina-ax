@@ -239,7 +239,49 @@ describe('Home\'s one card without AI', () => {
       await m.until(() => m.find('welcome-ai-claude'), 'the Claude button')
       expect(m.get('no-ai-card').textContent).toContain(ko('welcome.ai.title'))
       expect(m.get('ai-access-trial').textContent).toBe(ko('aiAccess.banner.trialUsed'))
-      expect(m.find('welcome-ai-other')).not.toBeNull()
+      // the welcome step's three ways, the same here
+      expect(m.find('welcome-ai-chatgpt')).not.toBeNull()
+      expect(m.find('welcome-ai-keys')).not.toBeNull()
+      expect(m.find('welcome-ai-engines')).not.toBeNull()
+      expect(m.find('welcome-ai-other')).toBeNull()
+    } finally { await m.unmount() }
+  })
+  test('the owner\'s three ways each open the existing dialog on that way: ChatGPT\'s sign-in, the two API keys', async () => {
+    const m = await card({ action: 'connect_team' })
+    try {
+      await m.until(() => m.find('welcome-ai-chatgpt'), 'the ways')
+      // ChatGPT: the device sign-in chosen, no list of ways, the terms in one line, the password again
+      await m.click('welcome-ai-chatgpt')
+      await m.until(() => q('credential-submit'), 'the ChatGPT dialog')
+      expect(submit().textContent).toBe(ko('credentials.chatgpt.start'))
+      expect(q('kind-anthropic-oauth')).toBeNull()
+      expect(q('plan-notice')).not.toBeNull()
+      expect(q('credential-password')).not.toBeNull()
+      await act(async () => { body().querySelectorAll('button').find((b) => b.textContent === ko('common.cancel'))?.click() })
+      await m.until(() => !q('credential-submit'), 'closed')
+      // API 키로 연결: only the Claude and OpenAI keys to pick from, no subscription note
+      await m.click('welcome-ai-keys')
+      await m.until(() => q('kind-anthropic-api-key'), 'the key dialog')
+      expect(q('kind-openai-api-key')).not.toBeNull()
+      expect(q('kind-anthropic-oauth')).toBeNull()
+      expect(q('kind-chatgpt')).toBeNull()
+      // picking one: the key field and the password, as in Admin › AI connections' simple form
+      await m.click(tick('kind-openai-api-key'))
+      await m.until(() => q('credential-secret'), 'the key field')
+      expect(q('credential-password')).not.toBeNull()
+    } finally { await m.unmount() }
+  })
+  test('a team that does not share subscriptions: only the key way, as the main button, with no warning about subscriptions in its dialog', async () => {
+    shared = false
+    const m = await card({ action: 'connect_team' })
+    try {
+      await m.until(() => m.find('welcome-ai-keys'), 'the key way')
+      expect(m.find('welcome-ai-claude')).toBeNull()
+      expect(m.find('welcome-ai-chatgpt')).toBeNull()
+      expect(m.get('welcome-ai-keys').className).toContain('bg-accent')
+      await m.click('welcome-ai-keys')
+      await m.until(() => q('kind-anthropic-api-key'), 'the key dialog')
+      expect(q('shared-subscriptions-off')).toBeNull()
     } finally { await m.unmount() }
   })
   test('a member: the owner connects; one ask; their own connection only where the team allows it', async () => {
