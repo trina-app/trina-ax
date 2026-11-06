@@ -165,9 +165,19 @@ export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partia
   return rooms.reduce((n, r) => n + (r.muted ? 0 : roomUnread(r)), 0)
 }
 
-/** A room's badge: "@" when one of the unread messages (or followed replies) mentions me (the count would read as a
- * count of mentions), else the count. */
-export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread'>>) => (r.mentioned ? '@' : badgeText(roomUnread(r)))
+/** A room's one badge: "?" while its AI waits on me (docs/DECISIONS.md "Session markers"), else "@" when one of the
+ * unread messages (or followed replies) mentions me (the count would read as a count of mentions), else the count. */
+export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits'>>) => (r.aiWaits ? '?' : r.mentioned ? '@' : badgeText(roomUnread(r)))
+
+/** Does this room want me (docs/DECISIONS.md "Session markers"): its AI waits on me (a card of my own question), or,
+ * unless I muted it, something unread there is meant for me: an @mention, a message in a DM or group chat, a reply in a
+ * thread I follow. The same things the server gives notices for (rooms/service.ts notify). Plain unread messages in a
+ * team room or the everyone room only make its row bold, as in Slack. Counted once in the one count n. */
+export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits'>>): boolean {
+  if (r.aiWaits) return true
+  if (r.muted || roomUnread(r) <= 0) return false
+  return r.mentioned || (r.threadsUnread ?? 0) > 0 || ((r.kind === 'dm' || r.kind === 'group') && r.unreadCount > 0)
+}
 
 /** Who put a reaction there, for its tooltip: the names given ("가나, 다라"), then how many more ("외 3명"). */
 export function reactionWho(r: { count: number; users: { name: string }[] }, w: { sep: string; more: (names: string, n: number) => string }): string {
