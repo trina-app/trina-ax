@@ -97,9 +97,9 @@ function WelcomeSteps() {
   stepRef.current = step
   const deck = useDeckRun(deckChat, (run) => {
     if (run.state !== 'done' || !deckChat) return
-    // waiting on its progress at the end of the steps: the deck opens; anywhere else the line says so with a toast
+    // waiting on its progress at the end of the steps: the deck opens; anywhere else the line says so (the deck
+    // store's own toast and notification say it too: store/deckBuilds.ts)
     if (stepRef.current === 'invite' && throughSteps.current && !noWaitRef.current) openDeck(deckChat)
-    else toast({ level: 'success', text: t('welcome.deck.ready'), action: { label: t('welcome.deck.open'), run: () => openDeck(deckChat) } })
   })
 
   const open = async () => {

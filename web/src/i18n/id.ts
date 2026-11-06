@@ -3732,6 +3732,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.skills.share_create": "Usulan berbagi skill dibuat",
   "audit.act.skills.share_apply": "Skill dibagikan ke tim",
   "audit.act.skills.share_dismiss": "Usulan berbagi skill ditutup",
+  "welcome.deck.slides": "{n}/{total} slide",
   // ── K end: welcome order ──
   "kg.title": "Grafik pengetahuan",
   "kg.desc": "Membantu AI menemukan isi berkas tim: apa yang tertulis di dokumen dan bagaimana kode saling terhubung. Diperbarui sendiri saat berkas berubah.",

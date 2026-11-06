@@ -34,6 +34,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import { DECK_POLL } from '../../src/components/onboarding/DeckStatus'
+import { useDeckBuilds } from '../../src/store/deckBuilds'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
 import { countedSteps, doneCount, forgetStepsSeen, inviteSkill, isLanding, nextStep, prevStep, readNotesHint, resultSkill, resumeLeft, resumeStep, resumesOnLanding, showInviteBar, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
@@ -229,6 +230,7 @@ afterEach(() => {
   firstResultRefusal = null
   failAttach = 0
   deckAnswer = 'streaming'
+  useDeckBuilds.getState().reset()
   useWelcome.getState().reset()
   useAiAccess.getState().reset()
   // a first-result message this file sent stays "sending" in the chats store: the files after this one (the reload
@@ -1360,6 +1362,35 @@ describe('after the first result', () => {
         await m.until(() => at(m) === `/c/${CHAT}`, 'the deck\'s chat')
       } finally { await m.unmount() }
     } finally { DECK_POLL.ms = 4000 }
+  })
+
+  test('the deck\'s own progress: "회사 소개서 만드는 중 · 4/9장" on the line, what it makes now on the waiting screen; its build done decides', async () => {
+    const slide = (i: number) => ({ kind: i === 0 ? 'cover' : 'about', section: `섹션 ${i + 1}`, figure: null, picture: false, status: i < 4 ? 'done' : i === 4 ? 'working' : 'planned', rev: 0 })
+    const build = { id: 'b1', chatId: CHAT, messageId: null, title: 'Acme 회사 소개서', phase: 'slides', tier: 'standard', slides: Array.from({ length: 9 }, (_, i) => slide(i)), current: 4, startedAt: '2026-11-04T00:00:00.000Z', outlineAt: '2026-11-04T00:01:00.000Z', slidesAt: null, finishedAt: null, artifactId: null, thumbs: false }
+    let phase = 'slides'
+    routes['GET /api/intro-decks/builds'] = () => json(200, { builds: [{ ...build, phase }] })
+    DECK_POLL.ms = 40
+    try {
+      signIn('owner')
+      progress = ran({ steps: { profile: 'done', result: 'done', skills: 'done', files: null, invite: null } })
+      deckAnswer = 'streaming'
+      const m = await app()
+      try {
+        await m.until(() => m.find('welcome-deck-slides'), 'the slide count')
+        expect(m.get('welcome-deck-status').textContent).toContain('회사 소개서 만드는 중 · 4/9장')
+        await m.click(laterButton())
+        await m.until(() => stepOf(m) === 'deck', 'the deck\'s live progress')
+        expect(m.get('welcome-deck-now').textContent).toContain('5장 · 섹션 5 정리하는 중')
+        expect(m.get('welcome-deck-wait-slides').textContent).toBe('4/9장')
+        // the build's event says done (the answer may still be writing its last words): the deck opens
+        phase = 'done'
+        await act(async () => { useDeckBuilds.getState().handleEvent(CHAT, { ...build, phase: 'done', finishedAt: '2026-11-04T00:05:00.000Z', slides: build.slides.map((x) => ({ ...x, status: 'done' })) } as never) })
+        await m.until(() => at(m) === `/c/${CHAT}`, 'the deck\'s chat')
+      } finally { await m.unmount() }
+    } finally {
+      DECK_POLL.ms = 4000
+      delete routes['GET /api/intro-decks/builds']
+    }
   })
 
   test('a landing on the invite while the deck builds: the invite (the line says how the deck goes), no waiting screen', async () => {

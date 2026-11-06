@@ -3732,6 +3732,7 @@ export const ko = {
   "audit.act.skills.share_create": "내 스킬 가져오기 제안 만들기",
   "audit.act.skills.share_apply": "내 스킬을 팀에 공유",
   "audit.act.skills.share_dismiss": "내 스킬 가져오기 제안 닫기",
+  "welcome.deck.slides": "{n}/{total}장",
   // ── K end: welcome order ──
   "kg.title": "지식 그래프",
   "kg.desc": "AI가 팀 파일에서 찾도록 도와요. 문서에 무엇이 쓰여 있는지, 코드가 어떻게 이어지는지요. 파일이 바뀌면 저절로 갱신돼요.",

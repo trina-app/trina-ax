@@ -3692,6 +3692,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.skills.share_create": "Propuesta de compartir skills creada",
   "audit.act.skills.share_apply": "Skills compartidas con el equipo",
   "audit.act.skills.share_dismiss": "Propuesta de compartir skills descartada",
+  "welcome.deck.slides": "{n}/{total} diapositivas",
   // ── K end: welcome order ──
   "kg.title": "Grafo de conocimiento",
   "kg.desc": "Ayuda a la IA a encontrar cosas en los archivos del equipo: lo que dicen los documentos y cómo se conecta el código. Se actualiza solo cuando cambian los archivos.",

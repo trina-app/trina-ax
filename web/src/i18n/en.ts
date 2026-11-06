@@ -3732,6 +3732,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.skills.share_create": "Skill share proposed",
   "audit.act.skills.share_apply": "Skills shared with the team",
   "audit.act.skills.share_dismiss": "Skill share proposal dropped",
+  "welcome.deck.slides": "{n}/{total} slides",
   // ── K end: welcome order ──
   "kg.title": "Knowledge graph",
   "kg.desc": "Lets the AI find things in the team's files: what documents say and how code connects. It updates itself when files change.",

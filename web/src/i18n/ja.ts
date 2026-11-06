@@ -3692,6 +3692,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.skills.share_create": "スキル共有の提案を作成",
   "audit.act.skills.share_apply": "スキルをチームに共有",
   "audit.act.skills.share_dismiss": "スキル共有の提案を閉じる",
+  "welcome.deck.slides": "{n}/{total}枚",
   // ── K end: welcome order ──
   "kg.title": "ナレッジグラフ",
   "kg.desc": "AIがチームのファイルから探すのを助けます。文書に何が書かれているか、コードがどうつながっているか。ファイルが変わると自動で更新されます。",
