@@ -9,16 +9,18 @@
 // an xlsx, a docx, a PDF, a team rule in skills/). Everything goes through the public REST API, the same calls the
 // admin screens make.
 //
-// `--company trina` seeds the fictional 15-person company "트리나" instead (scripts/demo/trina/company.ts; what is in
-// it: scripts/demo/trina/README.md). `bun run demo:trina` starts a server for it and seeds it.
+// `--content <dir>` seeds a demo content folder instead (scripts/demo/company/README.md; the open example is
+// scripts/demo/acme): its owner is an account of its own with a random password (ensureOwnerPassword), everyone else
+// a member. `bun run demo:company` starts a server for a content folder and seeds it.
 //
 // It can run again: what already exists is kept (people, groups, rules, files with the same name, a saved company
 // profile), so a second run only fills in what is missing. On a server that was set up with another owner it stops
 // and says so.
 //
-//   bun run demo:seed [--company demo|trina] [--base http://localhost:19100] [--data <dir with setup-token>]
+//   bun run demo:seed [--content <dir>] [--base http://localhost:19100] [--data <dir with setup-token>]
 // The setup token is read from <data>/setup-token (default: $TEAM_AX_DEV_DIR/data or ~/.team-ax-dev/data), where
 // the dev server writes it while no account exists.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -95,7 +97,7 @@ export interface SeedOptions {
   company?: DemoCompany
   /** sample files from this folder instead of the company's own (and none of its extra files) */
   filesDir?: string
-  /** the owner's password (default: the public demo password; `bun run demo:trina` gives its owner a random one) */
+  /** the owner's password (default: the public demo password; a demo content's owner has a random one) */
   ownerPassword?: string
   locale?: Locale
   log?: (line: string) => void
@@ -304,20 +306,39 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined
 }
 
+/** Where a demo content's owner password is kept: <demo folder>/owner-password, readable by this Mac user only. */
+export const ownerPasswordFile = (home: string) => path.join(home, 'owner-password')
+
+/** The owner's password of a demo content: read from the demo folder, or made (random, 0600) the first time. The demo
+ * people's password is public and the demo may be open to the network, so the owner never has that one.
+ * `created`: show it once. */
+export function ensureOwnerPassword(home: string): { password: string; created: boolean; file: string } {
+  const file = ownerPasswordFile(home)
+  try {
+    const password = fs.readFileSync(file, 'utf8').trim()
+    if (password.length >= 16) return { password, created: false, file }
+  } catch {}
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 })
+  const password = crypto.randomBytes(18).toString('base64url')
+  fs.writeFileSync(file, password + '\n', { mode: 0o600 })
+  fs.chmodSync(file, 0o600)
+  return { password, created: true, file }
+}
+
 if (import.meta.main) {
   const devHome = process.env.TEAM_AX_DEV_DIR ? path.resolve(process.env.TEAM_AX_DEV_DIR) : path.join(os.homedir(), '.team-ax-dev')
   const dataDir = arg('data') ?? process.env.MYCEL_DATA_DIR ?? path.join(devHome, 'data')
   const baseUrl = arg('base') ?? 'http://localhost:19100'
-  const which = arg('company') ?? 'demo'
   let setupToken: string | null = null
   try { setupToken = fs.readFileSync(path.join(dataDir, 'setup-token'), 'utf8').trim() || null } catch {}
   try {
-    if (which !== 'demo' && which !== 'trina') throw new SeedError(`--company ${which}: choose demo or trina`)
-    const trina = which === 'trina' ? await import('./trina/company') : null
-    // 트리나's owner is not a demo person: its password is random, kept in the dev folder (0600)
-    const owner = trina ? trina.ensureOwnerPassword(devHome) : null
-    if (owner?.created) console.log(`[demo] owner ${trina!.TRINA_OWNER}: password ${owner.password} (shown once; kept in ${owner.file})`)
-    const r = await seedDemo({ baseUrl, setupToken, company: trina?.TRINA ?? DEMO_COMPANY, ownerPassword: owner?.password, log: (s) => console.log(`[demo] ${s}`) })
+    if (arg('company')) throw new SeedError('--company is gone: give a demo content folder with --content <dir> (scripts/demo/company/README.md)')
+    const dir = arg('content')
+    const content = dir ? (await import('./company/content')).loadContent(dir) : null
+    // a content's owner is not a demo person: its password is random, kept in the dev folder (0600)
+    const owner = content ? ensureOwnerPassword(devHome) : null
+    if (owner?.created) console.log(`[demo] owner ${content!.company.owner.username}: password ${owner.password} (shown once; kept in ${owner.file})`)
+    const r = await seedDemo({ baseUrl, setupToken, company: content?.seed ?? DEMO_COMPANY, ownerPassword: owner?.password, locale: content?.company.locale, log: (s) => console.log(`[demo] ${s}`) })
     console.log(`[demo] done: ${r.people.length} people, ${r.groups.length} groups, ${r.files.filter((f) => f.uploaded).length} files uploaded (${r.files.length} samples)${r.project ? `, project "${r.project}"` : ''}`)
     const people = r.people.filter((p) => !owner || p.role !== 'owner').map((p) => p.username)
     console.log(`[demo] sign in at ${baseUrl} as ${people.join(' / ')} with the password ${DEMO_PASSWORD}${owner ? ` (the owner's password is in ${owner.file})` : ''}`)

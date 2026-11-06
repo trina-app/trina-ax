@@ -1,14 +1,19 @@
 // New chat. First-time members see which folders their AI can see and three example questions (filled with
 // their folder names, no engine call). Owners and admins get ONE thing at the top: the welcome steps' "continue" row
 // while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a time"); the
-// owner's setup checklist is on Admin › Home. On a demo server (`bun run demo:trina`) a demo person sees only their
-// one line and their questions (components/demo/Demo.tsx).
+// owner's setup checklist is on Admin › Home. While no AI answers the person (GET /api/me/ai-access), everyone gets ONE
+// card instead (components/onboarding/ConnectAi.tsx NoAiCard: the owner connects, anyone else hears that the owner
+// does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
+// row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
+// demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
 // one line each, with nothing else added:
 //   - a member who just joined with a link that carries the lead's files (lib/starter.ts): "민지님이 이번 주 팀 회의록
 //     2개를 올려 뒀어요" above the box, the box holding the skill as a chip ("할 일 정리") and "내 할 일 정리해 줘", the
 //     files attached,
 //     the box's own send button as the one action, and who sees the chat under it; nothing else on Home until it is sent;
+//     a team skill a person made without a form ("S"): "지훈님이 만든 팀 스킬이에요", its title as the chip and
+//     "이 방식대로 해 줘";
 //   - the owner who ended the welcome steps without files: "회의록이 생기면 {팀} 폴더에 놓아 주세요".
 import { Folder, Lock, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -20,6 +25,7 @@ import { clearStarter, heldStarter, markStarterAttached, starterAttached } from 
 import { sendToComposer } from '../lib/teamAttach'
 import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
+import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
 import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
@@ -29,6 +35,7 @@ import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
 import { WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
+import { NoAiCard } from '../components/onboarding/ConnectAi'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
 
 export default function Home() {
@@ -46,7 +53,7 @@ export default function Home() {
   const notes = readNotesHint(useLocation().state)
   const [preset, setPreset] = useState<{ text: string; n: number } | null>(() => (starter ? { text: starterQuestion(starter, t), n: 0 } : prompt ? { text: prompt, n: 0 } : null))
   useEffect(() => {
-    if (!starter || starterAttached(me.user.id)) return
+    if (!starter || !starter.files.length || starterAttached(me.user.id)) return
     // once: the box keeps its chips across a reload by itself
     void sendToComposer('new', starter.files.map((f) => f.path)).then((r) => { if (r.added > 0) markStarterAttached(me.user.id) })
   }, [starter, me.user.id])
@@ -64,12 +71,17 @@ export default function Home() {
   // a demo server's person gets the demo's screen; nothing else shows until it is known whether this is one
   const { ready: demoKnown, demo } = useDemoPersona()
   const extras = demoKnown && !demo
+  // nothing answers this person: one card, no suggestions, no line above the box; the suggestions wait for the answer
+  const ai = useAiAccess()
+  useEffect(() => { void useAiAccess.getState().load() }, [])
+  const noAi = extras && !starter && ai.loaded && !ai.usable
+  const suggest = extras && !projectId && !starter && ai.loaded && ai.usable
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
         <div className="w-full max-w-[720px]">
-          {extras && isAdmin(me) && !starter && <HomeTop owner={isOwner(me)} />}
+          {noAi ? <NoAiCard /> : extras && isAdmin(me) && !starter && ai.loaded && <HomeTop owner={isOwner(me)} />}
           {project && (
             <p className="mb-2 text-center text-sm text-muted">
               <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -88,6 +100,7 @@ export default function Home() {
             autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
             onSent={starter ? () => clearStarter(me.user.id) : undefined}
             skill={starter ? { name: starter.skill.name, title: starter.skill.title } : undefined}
+            aiLine={!noAi}
           />
           {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
           {extras && starter && (
@@ -95,11 +108,11 @@ export default function Home() {
               {starter.by ? t('starter.privateBy', { name: me.user.name, by: starter.by }) : t('starter.private', { name: me.user.name })}
             </p>
           )}
-          {extras && firstTime && !projectId && !starter && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
-          {extras && !projectId && !starter && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {suggest && firstTime && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {suggest && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
           {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
               siblings render twice */}
-          {extras && !projectId && !starter && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          {suggest && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-[11px] text-faint">{t('chat.footer')}</p>
@@ -110,14 +123,16 @@ export default function Home() {
 /** The member's own question ("내 할 일 정리해 줘"); the link's skill goes with it as the box's chip ("할 일 정리"), and
  * sending runs "/meeting-tasks 내 할 일 정리해 줘". */
 export function starterQuestion(s: JoinStarter, t: ReturnType<typeof useT>): string {
-  return t(s.kind === 'brief' ? 'starter.askBrief' : 'starter.askTasks')
+  return t(s.kind === 'brief' ? 'starter.askBrief' : s.kind === 'skill' ? 'starter.askSkill' : 'starter.askTasks')
 }
 
-/** "민지님이 이번 주 팀 회의록 2개를 올려 뒀어요" (the files are in the box below). */
+/** "민지님이 이번 주 팀 회의록 2개를 올려 뒀어요" (the files are in the box below); a team skill without a form
+ * (docs/DECISIONS.md "S"): "지훈님이 만든 팀 스킬이에요" (its title is the box's chip). */
 function StarterLine({ starter }: { starter: JoinStarter }) {
   const t = useT()
   const n = starter.files.length
-  const key: MessageKey = starter.kind === 'brief' ? (starter.by ? 'starter.briefBy' : 'starter.brief') : starter.by ? 'starter.tasksBy' : 'starter.tasks'
+  const key: MessageKey = starter.kind === 'skill' ? (starter.by ? 'starter.skillBy' : 'starter.skill')
+    : starter.kind === 'brief' ? (starter.by ? 'starter.briefBy' : 'starter.brief') : starter.by ? 'starter.tasksBy' : 'starter.tasks'
   return <p className="mb-3 text-center text-sm text-muted" data-testid="starter-line">{t(key, { n, by: starter.by ?? '' })}</p>
 }
 
@@ -138,17 +153,24 @@ function NotesLine({ notes }: { notes: NotesHint }) {
 }
 
 /**
- * The one thing at the top of Home for owners and admins: the owner's "시작 설정 이어하기 (n/2)" while the welcome
- * steps are unfinished (started, neither finished nor hidden), else the goal card. The owner's waits for the steps'
- * progress so the goal card never shows for a moment first; a failed read counts as "nothing to continue".
- * Exported for its test.
+ * The one thing at the top of Home for owners and admins while AI answers them: the owner's "시작 설정 이어하기 (n/2)"
+ * while the welcome steps are unfinished (started, neither finished nor hidden), else the goal card. The owner's waits
+ * for the steps' progress so the goal card never shows for a moment first; a failed read counts as "nothing to
+ * continue". Exported for its test.
  */
 export function HomeTop({ owner }: { owner: boolean }) {
   const loaded = useWelcome((s) => s.loaded)
   const progress = useWelcome((s) => s.progress)
+  const aiReady = useAiAccess((s) => s.loaded && s.usable)
   useEffect(() => {
     if (owner) void useWelcome.getState().load().catch(() => {})
   }, [owner])
+  // the AI step was shown and put off, and AI answers now (Home's card, a chat, Admin, another tab): recorded done, as
+  // the steps themselves do on opening, so the row counts it and leads on to 회사 소개
+  const aiPutOff = owner && aiReady && !!progress && !progress.finishedAt && progress.steps.ai === 'skipped'
+  useEffect(() => {
+    if (aiPutOff) void useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }).catch(() => {})
+  }, [aiPutOff])
   if (!owner) return <HomeGoal />
   if (!loaded) return null
   return showResume(progress) ? <WelcomeResume /> : <HomeGoal />

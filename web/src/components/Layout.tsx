@@ -8,7 +8,7 @@ import { PRODUCT } from '@mycel/shared'
 import { mayReloadNow } from '../lib/reload-guard'
 import { api, API } from '../lib/api'
 import { setNavigator } from '../lib/nav'
-import { closeSidePanel, openArtifact, setSidePanel, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, openArtifact, setSidePanel, typingOnPhone, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
@@ -63,14 +63,16 @@ export default function Layout() {
     return () => window.removeEventListener('keydown', h)
   }, [navigate, setSearchOpen, setDrawer])
 
-  // the AI started writing an artifact in the chat on screen: open it (Claude parity). A new chat's first answer can
-  // start before its page is on screen (the chat page loads lazily and the route changes in a transition), so the
-  // request waits for the chat to show and is used once; moving to another chat drops it. Checking only when the
-  // event arrived lost it on slower machines (e2e on a 2-vCPU Linux server).
+  // the AI started writing an artifact in the chat on screen, or saved a promo video or a card news: open it (Claude
+  // parity). A new
+  // chat's first answer can start before its page is on screen (the chat page loads lazily and the route changes in a
+  // transition), so the request waits for the chat to show and is used once; moving to another chat drops it. Checking
+  // only when the event arrived lost it on slower machines (e2e on a 2-vCPU Linux server). On a phone the panel is a
+  // full-screen sheet (closed by its ✕ or Esc): it never covers a draft being written; the card under the answer opens it.
   useEffect(() => {
     if (!autoOpen) return
     if (location.pathname === `/c/${autoOpen.chatId}`) {
-      openArtifact(autoOpen.chatId, autoOpen.key)
+      if (!typingOnPhone()) openArtifact(autoOpen.chatId, autoOpen.key)
       useChats.setState({ autoOpen: null })
     } else if (location.pathname.startsWith('/c/')) useChats.setState({ autoOpen: null })
   }, [autoOpen, location.pathname])
@@ -162,7 +164,7 @@ export default function Layout() {
   )
 }
 
-/** A demo server (`bun run demo:trina`) shows the demo bar instead of the development-mode banner: one strip, and the
+/** A demo server (`bun run demo:company`) shows the demo bar instead of the development-mode banner: one strip, and the
  * banner's words are in the bar's sheet (components/demo/Demo.tsx). */
 function DemoOrDevBanner() {
   const { info } = useDemoInfo()

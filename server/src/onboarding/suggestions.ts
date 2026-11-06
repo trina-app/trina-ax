@@ -1,14 +1,23 @@
 // The one suggestion under a result (docs/DECISIONS.md "X — Lean onboarding"; contract ResultSuggestion in
 // shared/src/api/onboarding-welcome.ts). At most one line, chosen by state, never two at once:
 //   - the lead's first result keeps the welcome invite bar (decided in the web app, before asking here);
-//   - the same person ran the same team skill for at least the 2nd time (successful answers, never a scheduled run)
-//     and nothing scheduled runs it yet: "매주 이 시간에 자동으로 받을까요?" [예약하기] (the web app sends the request to
-//     the AI, which makes the task through its schedule card: the one way tasks are made);
+//   - the same person ran the same team skill for at least the 2nd time (successful answers, never a scheduled run),
+//     nothing scheduled runs it yet, and its work comes back every week (metadata `recurring: weekly`: the weekly
+//     report, competitor brief and meeting tasks, and team skills drafted from weekly work; never one-off work such as
+//     ad copy or a quote; docs/DECISIONS.md "S"): "매주 이 시간에 자동으로 받을까요?" [예약하기] (the web app sends the
+//     request to the AI, which makes the task through its schedule card: the one way tasks are made);
+//   - an owner's or admin's answer that used team files and ran no team skill, which S's rules let become a team skill
+//     (skill-draft.ts teamSkillOffer): "이 방식대로 팀 스킬로 만들까요?" [팀 스킬로 만들기] (the web app opens the skill
+//     card; docs/DECISIONS.md "W3"); before the PPT: it is the landing's promise, and rarer;
 //   - a long report-like answer (the weekly report, or PPT_SUGGEST_CHARS of prose or more): [PPT로 만들기].
 // A suggestion the person closed never comes back for them (suggestion_dismissals, migration 229, per person).
 import { PPT_SUGGEST_CHARS, REPORT_SKILLS, type ResultSuggestion } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
+import { isRecurring, readSkill, type Skill } from '../chat/skills'
+import type { ChatRuntime } from '../chat/runtime'
+import { RECURRING_PACK_SKILLS } from './skill-packs'
+import { teamSkillOffer } from './skill-draft'
 
 type Db = Pick<AppContext, 'db'>
 
@@ -34,14 +43,24 @@ function scheduled(ctx: Db, userId: string, path: string, name: string): boolean
     WHERE r.skill_path = ? AND t.user_id = ? AND t.schedule_id IS NOT NULL LIMIT 1`).get(path, userId)
 }
 
+/** The skill's work comes back every week: its metadata says `recurring: weekly`. A file without the key (a starter pack
+ * skill installed before the line existed, or one this person cannot read now) is read as the pack says. */
+function recurring(ctx: Pick<AppContext, 'db' | 'files'>, userId: string, path: string): boolean {
+  let s: Skill | null = null
+  try { s = readSkill(ctx.files, ctx.files.principal(userId), path) } catch { s = null }
+  if (s && s.recurring !== undefined) return isRecurring(s)
+  return RECURRING_PACK_SKILLS.has(path)
+}
+
 /** A report: the weekly report skill, or a long answer (prose only: code blocks do not make a slide deck). */
 export function reportLike(content: string, skillName: string | null): boolean {
   if (skillName && (REPORT_SKILLS as readonly string[]).includes(skillName.toLowerCase())) return true
   return content.replace(/```[\s\S]*?(?:```|$)/g, '').trim().length >= PPT_SUGGEST_CHARS
 }
 
-/** The suggestion under one answer of the caller's own chat, or null. 404 for a chat that is not theirs. */
-export function resultSuggestion(ctx: Db, userId: string, chatId: string, messageId: string): ResultSuggestion | null {
+/** The suggestion under one answer of the caller's own chat, or null. 404 for a chat that is not theirs. Without the
+ * chat runtime (`rt`), no team skill is offered. */
+export function resultSuggestion(ctx: AppContext, userId: string, chatId: string, messageId: string, rt?: ChatRuntime): ResultSuggestion | null {
   if (!ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(chatId, userId)) fail('not_found')
   const turn = ctx.db.query('SELECT id, status, schedule_id FROM turns WHERE chat_id = ? AND message_id = ? AND user_id = ?').get(chatId, messageId, userId) as
     { id: string; status: string; schedule_id: string | null } | null
@@ -53,9 +72,10 @@ export function resultSuggestion(ctx: Db, userId: string, chatId: string, messag
     ORDER BY source = 'command' DESC, skill_path LIMIT 1`).get(turn.id) as { path: string; name: string } | null
   if (run) {
     const key = `schedule:${run.path}`
-    if (!no.has(key) && ranTwice(ctx, userId, run.path) && !scheduled(ctx, userId, run.path, run.name))
+    if (!no.has(key) && ranTwice(ctx, userId, run.path) && !scheduled(ctx, userId, run.path, run.name) && recurring(ctx, userId, run.path))
       return { kind: 'schedule', key, skill: { path: run.path, name: run.name } }
   }
+  if (!run && rt && !no.has('team-skill') && teamSkillOffer(ctx, rt, userId, chatId, messageId)) return { kind: 'team-skill', key: 'team-skill' }
   if (!no.has('ppt')) {
     const m = ctx.db.query("SELECT content FROM messages WHERE id = ? AND chat_id = ? AND role = 'assistant'").get(messageId, chatId) as { content: string } | null
     if (m && reportLike(m.content, run?.name ?? null)) return { kind: 'ppt', key: 'ppt' }

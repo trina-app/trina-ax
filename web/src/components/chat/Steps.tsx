@@ -1,6 +1,7 @@
 // What the AI did while answering ("파일 검색 중", web search, browser, artifacts): a compact list under the answer.
 // While streaming the last few steps show; afterwards it folds into "작업 N단계" that opens on click.
-// Web search results are plain links (no favicons: an external image would load by itself).
+// Web search results are plain links (no favicons: an external image would load by itself). A team path names the
+// team's well-known folders in words (stepPlace: "파일 읽기 · 브랜드 이미지 폴더 › 홈페이지-6.jpg"), the path in the tooltip.
 // A step the per-answer time limit cut off (Step.paused) shows as paused like the answer, not as a failure; one the
 // person's Stop cut off (Step.stopped) shows as stopped, like Claude Code's "Interrupted": a grey icon and the words
 // next to the label ("Paused here", "Stopped here"), for sighted readers as well as screen readers (QA 0.2.12 N3).
@@ -12,7 +13,7 @@
 import clsx from 'clsx'
 import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { useState } from 'react'
-import { localizeStep, mediaStepKind } from '@mycel/shared'
+import { localizeStep, mediaStepKind, stepPlace } from '@mycel/shared'
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
 import { useLocale, useT } from '../../i18n'
@@ -37,8 +38,11 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
 
 function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: Step[] }) {
   const t = useT()
-  // the label was written in the language the answer ran in: redraw its words in the language on screen
-  const words = localizeStep(step, useLocale())
+  const locale = useLocale()
+  // the label was written in the language the answer ran in: redraw its words in the language on screen, and the
+  // team's well-known folders in words ("브랜드 이미지 폴더 › a.jpg"; the path itself in the tooltip)
+  const words = localizeStep(step, locale)
+  const place = stepPlace(step, words.label, locale)
   const [open, setOpen] = useState(false)
   const subtask = step.tool === 'agent'
   // a read of a video or an audio file ("Watch video · …") shows a film / sound icon
@@ -65,7 +69,7 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
           <CircleStop size={13} className="shrink-0 text-muted" aria-hidden data-testid="step-stopped" />
         ) : step.status === 'error' ? <CircleAlert size={13} className="shrink-0 text-danger" aria-label={t('steps.failed')} /> : <Check size={13} className="shrink-0 text-ok" aria-label={t('steps.done')} />}
         <Icon size={13} className="shrink-0 text-faint" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">{words.label}</span>
+        <span className="min-w-0 flex-1 truncate" title={place.path}>{place.label}</span>
         {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
         {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
         {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
@@ -143,7 +147,8 @@ export default function Steps({ steps: all, streaming, receipt }: { steps: Step[
   // a team skill on team files, once the answer is done
   const rec = !streaming && receipt && receipt.teamFiles > 0 ? receipt : null
   const skill = useSkillTitle(rec?.skill.path ?? null, rec?.skill.name ?? '')
-  const receiptText = rec ? t('steps.receipt', { skill, n: rec.teamFiles }) : null
+  // a skill someone else made ("S"): "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개"
+  const receiptText = rec ? (rec.skill.by ? t('steps.receiptBy', { by: rec.skill.by, skill, n: rec.teamFiles }) : t('steps.receipt', { skill, n: rec.teamFiles })) : null
   if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-[13px] text-faint" data-testid="steps-receipt">{receiptText}</p> : null
   const { top, kids } = groupSteps(steps)
   // images the AI chose to show (shared browser screenshots) stay visible even when the list is folded

@@ -19,6 +19,7 @@ import { devEnvRoutes } from './dev-env'
 import { onboardingPacksRoutes } from './onboarding-packs'
 import { onboardingRoutes } from './onboarding'
 import { onboardingWelcomeRoutes } from './onboarding-welcome'
+import { promoVideoRoutes } from './promo-video'
 import { onboardingGoalRoutes } from './onboarding-goal'
 import { demoRoutes } from './demo'
 
@@ -42,7 +43,8 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   onboardingPacksRoutes, // recommended skill packs (onboarding stream C)
   onboardingRoutes, // onboarding: the company profile and its drafts (docs/DECISIONS.md "D — Company profile")
   onboardingWelcomeRoutes, // onboarding: the welcome steps' progress (docs/DECISIONS.md "W — Welcome steps")
+  promoVideoRoutes, // the company's promo video and its MP4 (docs/DECISIONS.md "V")
   onboardingGoalRoutes, // onboarding: the 7-day team goal (docs/DECISIONS.md "G — The 7-day team goal")
-  demoRoutes, // demo company (`bun run demo:trina`; 404 unless a development server runs with MYCEL_DEMO)
+  demoRoutes, // demo company (`bun run demo:company`; 404 unless a development server runs with MYCEL_DEMO)
   webRoutes, // D (catch-all, keep last)
 ]

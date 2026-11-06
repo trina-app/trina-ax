@@ -13,7 +13,7 @@ import { M as SYSTEM_TEXT } from '../../server/src/system/messages'
 import { ML as LINUX_TEXT } from '../../server/src/system/messages-linux'
 import { MSG as FILE_TEXT } from '../../server/src/team-files/errors'
 import { pageMessage, type PageKind } from '../../relay/src/pages'
-import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_TEXT } from '@mycel/shared'
+import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_PLACE, STEP_TEXT } from '@mycel/shared'
 import { PERIOD } from '../../server/src/admin/budgets'
 import { T as ENGINE_TEXT } from '../../server/src/admin/engines'
 import { ARCHIVE_DIR } from '../../server/src/admin/users'
@@ -64,6 +64,7 @@ describe('server and relay texts', () => {
     checkTable('steps', STEP_TEXT)
     checkTable('file step verbs', FILE_STEP_VERB)
     checkTable('browser step verbs', BROWSER_STEP_VERB)
+    checkTable('step places', STEP_PLACE)
     checkTable('engines', ENGINE_TEXT)
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
@@ -161,8 +162,17 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/system/update-job.ts': { why: 'update progress lines (ko next to en/id/ja/es)' },
   'server/src/onboarding/profile.ts': { why: 'company profile save refusals (ko next to en/id/ja/es)' },
   'server/src/onboarding/draft.ts': { why: 'company profile draft: the request message, chat title and refusals (ko next to en/id/ja/es)' },
+  'server/src/onboarding/skill-draft.ts': { why: 'team skill draft: the request and rewrite messages, chat title, refusals, the skill file\'s headings and fixed lines, the examples the model gets (ko next to en/id/ja/es)', also: /^\s*(ko: \{ title1:|files: \{ ko:|how: \{ ko:|rules: \{ ko:|ko: \(folder: string, like: string\) =>)/ },
+  'server/src/onboarding/specifics.ts': { why: 'the Korean job titles, words that are no one\'s name, day and money words looked for in a run so they do not stay in a team skill (not screen text)', also: /./ },
+  'server/src/onboarding/brand-assets.ts': { why: 'the Korean word for logo (로고) looked for in a page\'s picture names and labels (not screen text)', also: /^const LOGO_WORD = / },
+  'server/src/onboarding/welcome-result.ts': { why: 'the first result\'s chat title, messages, file names and the company intro file\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ head: \(n\) => / },
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
+  'server/src/promo-video/tool.ts': { why: 'the promo video\'s style names and player words (ko next to en/id/ja/es)', also: /^\s*ko: \{ (ink|play): / },
+  'server/src/promo-video/spec.ts': { why: 'the Korean brand folder names (브랜드/이미지) named in the problems the AI gets back (not screen text)', also: /…\/브랜드\/이미지\// },
+  'server/src/promo-video/layout.ts': { why: 'the Hangul range that picks a Korean line\'s measure (not screen text)', also: /^export const hasHangul = / },
+  'server/src/promo-video/metrics.ts': { why: 'the characters whose widths are measured from the bundled font (not screen text)', also: /^const EXTRA_CHARS = / },
+  'shared/src/api/promo-video.ts': { why: 'Korean examples in the promo_video tool\'s slot descriptions the AI reads (not screen text)', also: /\.describe\(|\b(Text|Line)\(\d+, '/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

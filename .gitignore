@@ -15,3 +15,6 @@ __pycache__/
 *.provisionprofile
 AuthKey_*.p8
 *.p12
+
+# the 트리나 demo content lives in the private trina-ax-core (editions/trina/demo); never commit a copy here
+/editions/trina/demo/

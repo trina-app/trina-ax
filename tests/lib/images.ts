@@ -19,15 +19,20 @@ function crc32(b: Uint8Array): number {
 
 /** A w × h PNG: a coloured square with a white diamond in the middle (easy to tell from the default mark). */
 export function makePng(w = 64, h = 64, rgb: [number, number, number] = [37, 99, 235]): Uint8Array<ArrayBuffer> {
+  return pngOf(w, h, (x, y) => (Math.abs(x - w / 2) / w + Math.abs(y - h / 2) / h < 0.28 ? [255, 255, 255] : rgb))
+}
+
+/** A w × h RGB PNG whose every pixel `at` gives (a wordmark, a pattern). */
+export function pngOf(w: number, h: number, at: (x: number, y: number) => readonly [number, number, number]): Uint8Array<ArrayBuffer> {
   const raw = Buffer.alloc((w * 3 + 1) * h)
   for (let y = 0; y < h; y++) {
     raw[y * (w * 3 + 1)] = 0
     for (let x = 0; x < w; x++) {
       const o = y * (w * 3 + 1) + 1 + x * 3
-      const inside = Math.abs(x - w / 2) / w + Math.abs(y - h / 2) / h < 0.28
-      raw[o] = inside ? 255 : rgb[0]
-      raw[o + 1] = inside ? 255 : rgb[1]
-      raw[o + 2] = inside ? 255 : rgb[2]
+      const [r, g, b] = at(x, y)
+      raw[o] = r
+      raw[o + 1] = g
+      raw[o + 2] = b
     }
   }
   const chunk = (type: string, data: Buffer) => {

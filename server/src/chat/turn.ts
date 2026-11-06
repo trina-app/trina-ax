@@ -70,7 +70,9 @@ import { dummyAuthJson } from '../credentials/codex-home'
 import { afterUsage } from '../admin/budget-watch'
 import type { QueueTiming } from './fair-queue'
 import { RedactingText, redactorFor, type Redactor } from '../integrations/connections/redact'
-import { DraftPages, draftScopeOf, draftSystemPrompt, type DraftTurn } from '../onboarding/draft'
+import { DraftPages, draftScopeOf, draftSystemPrompt, inWebScope, type DraftTurn } from '../onboarding/draft'
+import { BrandCollector } from '../onboarding/brand-assets'
+import { skillDraftOf, skillDraftSystemPrompt, type SkillDraftScope } from '../onboarding/skill-draft'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 
@@ -135,6 +137,12 @@ export class TurnExec {
   /** a company profile draft chat (onboarding/draft.ts): its own instructions, web_fetch only on the typed site, at
    * most 4 pages per answer, no card for anyone; null for every other chat */
   profileDraft: DraftTurn | null = null
+  /** a team skill draft chat (onboarding/skill-draft.ts): its own instructions with the source answer as data, no tool
+   * at all, no card for anyone; null for every other chat */
+  skillDraft: SkillDraftScope | null = null
+  /** a draft chat of either kind: none of the team's instructions, project, attachments, browser, sub-agents or web
+   * search */
+  get restricted(): boolean { return !!this.profileDraft || !!this.skillDraft }
   /** a seeded past chat of the demo replayed this turn: how many days ago it says it was (demo/replay.ts) */
   private replayDaysAgo = 0
   /** office-network hosts the person allowed "once" in this turn */
@@ -291,7 +299,12 @@ export class TurnExec {
     try {
       const draft = draftScopeOf(rt.db, spec.chatId)
       // the pages it opens or is refused are written down as they happen: the profile screen shows them line by line
-      this.profileDraft = draft ? { scope: draft, fetched: new Set(), pages: new DraftPages(rt.db, spec.assistantId, rt.log, () => this.content.length) } : null
+      // and a website's pages are also looked at for the brand's pictures, colours and text (docs/DECISIONS.md "N")
+      const web = draft?.web ?? null
+      const brand = web ? new BrandCollector(rt.db, spec.chatId, { dataDir: rt.ctx.engineConfig.dataDir, log: rt.log, inScope: (u) => inWebScope(web, u) }) : null
+      this.profileDraft = draft ? { scope: draft, fetched: new Set(), pages: new DraftPages(rt.db, spec.assistantId, rt.log, () => this.content.length, brand) } : null
+      // a team skill draft chat runs with no tool at all (fails closed the same way)
+      this.skillDraft = draft ? null : skillDraftOf(rt.db, spec.chatId)
     } catch (e) { rt.log.error('profile draft check failed', { err: e, turn: this.id }); this.error = engineError('crash', spec.locale); return }
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
@@ -313,7 +326,7 @@ export class TurnExec {
     const api = trial ? hostedChatConf(rt.ctx.config) : engine === 'api' ? confs.api ?? null : null
     // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
     // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
-    const asked = this.profileDraft ? null : rt.store.messageRow(spec.userMessageId)
+    const asked = this.restricted ? null : rt.store.messageRow(spec.userMessageId)
     const replay = asked ? demoReplayFor(rt.ctx, {
       username: getUser(rt.db, spec.userId)?.username ?? '', content: asked.content, first: asked.parent_id === null,
       scheduled: spec.clientKind === 'schedule', attachments: hasAttachments(asked),
@@ -327,13 +340,13 @@ export class TurnExec {
     const userMsg = rt.store.messageRow(spec.userMessageId)
     if (!chat || !userMsg) { this.error = engineError('crash', spec.locale); return }
 
-    this.browser = !this.profileDraft && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
+    this.browser = !this.restricted && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
     // dev environment EXPERIMENT (devenv/setting.ts), never in a scheduled run (nobody there answers the credential
     // card), an approved template run (its scope is fixed) or a company profile draft (web_fetch only). The box: a
     // project chat whose box this person may use.
     // srt: any chat of a person in scope, with or without a project; the folder access is the person's (devenv/srt).
-    if (devEnvFlag() && !this.templateScope && !this.profileDraft && spec.clientKind !== 'schedule') {
+    if (devEnvFlag() && !this.templateScope && !this.restricted && spec.clientKind !== 'schedule') {
       const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
       const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
       if (devEnvRunner() === 'srt') { if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project } }
@@ -356,21 +369,21 @@ export class TurnExec {
     }
     if (!resume && userMsg.parent_id === null) this.newSession()
     // a draft chat gets no project (no instructions, no folder): no team content in a card-free web turn
-    const project = this.profileDraft ? null : rt.projectForChat(chat.project_id, this.principal)
+    const project = this.restricted ? null : rt.projectForChat(chat.project_id, this.principal)
     this.projectFolder = project?.folderPath ?? null
     if (rt.projectTaints(project, spec.userId)) this.taint()
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
     // nor attachments (the send refuses them in a draft chat; an older message that has some is sent without them)
-    const atts = this.profileDraft ? [] : await this.attachmentsForTurn(userMsg)
+    const atts = this.restricted ? [] : await this.attachmentsForTurn(userMsg)
     if (this.stopReason) return
 
     // sub-agents (docs/DECISIONS.md "Sub-agents"): Claude only, while the team allows them, never in an approved
     // template run (its scope is fixed); see LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS for confidential chats in office mode
     const confidential = confidentialChat(rt.db, spec.chatId)
-    const webSearch = !this.templateScope && !this.profileDraft && !confidential
-    const subagents = !!claude && !this.templateScope && !this.profileDraft && getTeamSettings(rt.db).aiSubagents
+    const webSearch = !this.templateScope && !this.restricted && !confidential
+    const subagents = !!claude && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
     // the person can use, one line each, the descriptions in the chat's fixed order (so the instructions stay the same
@@ -402,13 +415,15 @@ export class TurnExec {
       this.historyTrimmed = fresh ? historyTrimmed(input.history) : before?.role === 'assistant' && before.history_trimmed === 1
       // a company profile draft: its own short instructions, none of the team's (onboarding/draft.ts)
       if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
+      // a team skill draft: its own instructions, the source answer inside them as data (onboarding/skill-draft.ts)
+      if (this.skillDraft) return skillDraftSystemPrompt(this.skillDraft, { history: input.history })
       if (fresh && sessionId) { try { recordListed(rt.db, spec.chatId, skills, sessionId) } catch (e) { rt.log.warn('skill list record failed', { err: e, turn: this.id }) } }
       return buildTurnPrompt(rt.files, input)
     }
     // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
-    const invoked = this.profileDraft ? null : invokedSkill(skills, userMsg.content)
+    const invoked = this.restricted ? null : invokedSkill(skills, userMsg.content)
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
@@ -422,12 +437,12 @@ export class TurnExec {
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
-    const hints = !invoked && !this.profileDraft && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores, projectFolder: this.projectFolder })) : ''
+    const hints = !invoked && !this.restricted && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores, projectFolder: this.projectFolder })) : ''
     const message = scheduled + continued + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, invoked.input)}\n\n` : '') + composeMessage(userMsg, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
-      if (!resumed || this.profileDraft) return message
+      if (!resumed || this.restricted) return message
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${message}`
@@ -655,7 +670,7 @@ export class TurnExec {
         prepareCodexTurn(codex, chatDir)
         // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
         // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
-        const webSearch = !this.templateScope && !this.profileDraft && !confidentialChat(rt.db, spec.chatId)
+        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false

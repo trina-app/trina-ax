@@ -41,12 +41,15 @@ export function readSkillTitle(raw: string | undefined): string | null {
  * skill to a person uses this; a command the person types or sends stays "/<name>". */
 export const skillTitle = (s: { name: string; title?: string | null }): string => s.title?.trim() || s.name
 /** A skill's description without a lead that only repeats its title: the marketing pack writes "광고 문구 — 알릴 제품과
- * …" so the AI and older screens read the plain name; next to the title the rest is enough. */
+ * …" so the AI and older screens read the plain name; next to the title the rest is enough. The rest starts as a
+ * sentence: "Ad copy — takes what to promote …" reads "Takes what to promote …". */
 export function skillSummary(s: { name: string; title?: string | null; description: string }): string {
   const title = s.title?.trim()
   if (!title) return s.description
   const m = /^\s*(.+?)\s+[—–-]\s+/.exec(s.description)
-  return m && m[1]!.trim().normalize('NFC').toLowerCase() === title.normalize('NFC').toLowerCase() ? s.description.slice(m[0].length) : s.description
+  if (!m || m[1]!.trim().normalize('NFC').toLowerCase() !== title.normalize('NFC').toLowerCase()) return s.description
+  const rest = s.description.slice(m[0].length)
+  return /^[a-z]/.test(rest) ? rest[0]!.toUpperCase() + rest.slice(1) : rest
 }
 export const PopularSkills = z.object({
   items: z.array(SkillInfo.extend({ uses: z.number().int().positive(), users: z.number().int().positive() })).max(10),

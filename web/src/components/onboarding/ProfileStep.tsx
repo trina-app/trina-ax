@@ -1,17 +1,25 @@
 // The company profile step (docs/DECISIONS.md "D — Company profile from the company website"). Standalone: the
 // wave-2 welcome wizard and Admin > Team settings (CompanyProfileCard.tsx) both use it.
 //   website → "읽는 중" (the AI reads it in a chat of this person: server/src/onboarding/draft.ts; each page the server
-//   opens or skips shows as a line as it happens, DraftActivity) → "이렇게 이해했어요":
-//   every field editable, its source page and excerpt under it, a wrong one removed with one click → Save
-//   (PUT /api/onboarding/profile). The AI never saves anything: the person does.
+//   opens or skips shows as a line as it happens, DraftActivity, and so do the images it kept for the brand folder) →
+//   "이렇게 이해했어요": every field editable, its source page and excerpt under it, a wrong one removed with one click,
+//   the brand colours the server found as swatches (remove only; docs/DECISIONS.md "N") → Save
+//   (PUT /api/onboarding/profile). The AI never saves anything itself: the person saves, or, in the welcome steps
+//   (`autoSave`), the page saves a website reading as it came on the person's behalf, unchecked (chat/prompt.ts says
+//   so to the AI).
 // When the site can't be read (or there is none): paste a text (the same draft, from the text) or answer three
-// questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review.
+// questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads, the step
+// offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself.
+// `autoSave` (the welcome steps): a website reading whose draft has a one-line intro is saved as it came, with the
+// same body as the review's save, and the step is done; the welcome page then shows one line of it with "고치기", which
+// opens this review. Only while the team has no saved profile (asked again right before saving): a re-read of a saved
+// profile (다시 읽기 from its review) never overwrites it unseen, it shows the review. Pasted text, a draft without a
+// one-line intro and a save that fails keep the review too.
 // A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { Check, ExternalLink, Globe, Loader2, Minus, X } from 'lucide-react'
-import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileDraftPage, type ProfileField, type ProfileSource } from '@mycel/shared/api'
+import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileDraftPage, type ProfileDraftState, type ProfileField, type ProfileSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { setupSite } from '../../lib/setupLink'
 import { useLocale, useT, type MessageKey } from '../../i18n'
@@ -32,11 +40,13 @@ export interface ProfileStepProps {
   initial?: CompanyProfile | null
   /** the website to start with; default: the one the setup link carried in this tab */
   initialWebsite?: string | null
+  /** save a website draft that has a one-line intro without the review (the welcome steps) */
+  autoSave?: boolean
 }
 
 type Phase =
   | { kind: 'site' }
-  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null }
+  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string }
   | { kind: 'fallback'; unreadable: boolean; error: string | null }
   | { kind: 'paste' }
   | { kind: 'questions' }
@@ -52,6 +62,18 @@ const FIELD_LABEL: Record<ProfileField | 'website', MessageKey> = {
   audience: 'onboarding.profile.f.audience', tone: 'onboarding.profile.f.tone', avoid: 'onboarding.profile.f.avoid',
 }
 const filled = (p: CompanyProfileInput, f: ProfileField) => (f === 'tone' ? p.tone.length > 0 : (p[f] ?? '').trim().length > 0)
+/** What the server collected while reading the website (images for the brand folder, brand colours). */
+export type DraftAssets = NonNullable<ProfileDraftState['assets']>
+/** Brand colours as the profile keeps them: "#rrggbb" in lower case, each once, at most PROFILE_LIMITS.colors; anything
+ * else is left out (a colour is shown as a fill, so only this exact form gets there). */
+export function brandColors(list: readonly string[] | undefined): string[] {
+  const out: string[] = []
+  for (const raw of list ?? []) {
+    const c = raw.trim().toLowerCase()
+    if (/^#[0-9a-f]{6}$/.test(c) && !out.includes(c) && out.length < PROFILE_LIMITS.colors) out.push(c)
+  }
+  return out
+}
 /** chips from "friendly, expert" (commas, line breaks), at most PROFILE_LIMITS.toneCount, no repeats */
 export function toneChips(text: string, have: string[] = []): string[] {
   const out = [...have]
@@ -70,10 +92,13 @@ export function tidyProfile(p: CompanyProfileInput): CompanyProfileInput {
     avoid: p.avoid.trim(), sources: [],
   }
   out.sources = p.sources.filter((s) => filled(out, s.field))
+  // the brand colours only when some are left (profiles without them stay as they were)
+  const colors = brandColors(p.colors)
+  if (colors.length) out.colors = colors
   return out
 }
 
-export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite }: ProfileStepProps) {
+export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite, autoSave }: ProfileStepProps) {
   const t = useT()
   const locale = useLocale()
   const [phase, setPhase] = useState<Phase>(initial ? { kind: 'review' } : { kind: 'site' })
@@ -87,8 +112,11 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   const [answers, setAnswers] = useState({ what: '', who: '', tone: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // the latest props for the reading loop (it starts once per reading)
+  const latest = useRef({ onDone, autoSave, hadProfile: !!initial })
+  latest.current = { onDone, autoSave, hadProfile: !!initial }
   // while reading: the pages the server opened or skipped so far, and whether the AI is writing the profile
-  const [activity, setActivity] = useState<{ steps: ProfileDraftPage[]; writing: boolean }>({ steps: [], writing: false })
+  const [activity, setActivity] = useState<{ steps: ProfileDraftPage[]; writing: boolean; assets: DraftAssets | null }>({ steps: [], writing: false, assets: null })
   const heading = useRef<HTMLHeadingElement>(null)
   // no usable AI: no draft can be made (the questions need none)
   const ai = useAiAccess()
@@ -110,8 +138,8 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
       if (!useAiAccess.getState().usable) { setPhase({ kind: 'fallback', unreadable: false, error: null }); return }
       const r = await api.call(API.startProfileDraft, { body })
       if (r.website) setDraft((d) => ({ ...d, website: r.website }))
-      setActivity({ steps: [], writing: false })
-      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site })
+      setActivity({ steps: [], writing: false, assets: null })
+      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website })
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
@@ -135,13 +163,25 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         const s = await api.call(API.getProfileDraft, { params: { chatId: phase.chatId } })
         if (stopped) return
         if (s.status === 'running') {
-          setActivity({ steps: s.steps ?? [], writing: !!s.writing })
+          setActivity({ steps: s.steps ?? [], writing: !!s.writing, assets: s.assets ?? null })
           schedule(again ? NUDGE_MS : POLL_MS)
           return
         }
         if (s.status === 'done' && s.draft) {
           const d = s.draft
-          setDraft((prev) => named({ ...d, website: d.website || prev.website }))
+          // the brand colours the server found on the pages it opened (a pasted text has none: the draft's own, if any)
+          const colors = brandColors(s.assets?.colors.length ? s.assets.colors : d.colors)
+          const read: CompanyProfileInput = { ...d, website: d.website || phase.website, colors }
+          if (latest.current.autoSave && phase.source === 'website' && d.oneLine.trim()) {
+            // no more reads of this draft (a late step event must not save it twice)
+            stopped = true
+            clearTimeout(timer)
+            // only the team's first profile: one saved before (this step's own, another tab, an admin) is never
+            // overwritten unseen; a read that fails counts as "there may be one"
+            const first = !latest.current.hadProfile && (await api.call(API.getCompanyProfile).then((r) => !r.profile, () => false))
+            if (first) { await saveAsRead(read); return }
+          }
+          setDraft((prev) => named({ ...read, website: read.website || prev.website }))
           setPhase({ kind: 'review' })
           return
         }
@@ -165,6 +205,25 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     if (!w) return setSiteError(t('onboarding.profile.siteInvalid'))
     setSiteError(null)
     void start({ website: w })
+  }
+
+  /** The welcome steps: the website draft saved as it came (only what the pages said: no name is filled in, an empty one
+   * reads as the team's name everywhere), with the save's own body and checks; the step is then done. A save that fails
+   * opens the review with the draft and the reason. */
+  const saveAsRead = async (read: CompanyProfileInput) => {
+    const body = tidyProfile(read)
+    setBusy(true)
+    try {
+      if (body.website && !normalizeWebsite(body.website)) throw new Error(t('onboarding.profile.siteInvalid'))
+      const saved = await api.call(API.saveCompanyProfile, { body })
+      latest.current.onDone(saved)
+    } catch (e) {
+      setDraft(named(read))
+      setError(errorText(e, locale, t('error.network')))
+      setPhase({ kind: 'review' })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const save = async () => {
@@ -215,7 +274,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); readSite() }} data-testid="profile-step-site">
         {head(t('onboarding.profile.siteTitle'), t('onboarding.profile.siteDesc'))}
         <Field label={t('onboarding.profile.siteLabel')} error={siteError}>
-          <input className={inputCls} value={site} onChange={(e) => setSite(e.target.value)} placeholder="acme.co.kr" inputMode="url" autoComplete="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
+          <input className={inputCls} value={site} onChange={(e) => setSite(e.target.value)} placeholder={t('onboarding.profile.sitePlaceholder')} inputMode="url" autoComplete="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
         </Field>
         {note}
         {noAiNote}
@@ -243,18 +302,12 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           )}
         </div>
         <div>
-          <DraftActivity source={phase.source} site={phase.site} steps={activity.steps} writing={activity.writing} />
+          <DraftActivity source={phase.source} site={phase.site} steps={activity.steps} writing={activity.writing} assets={activity.assets} />
           <p className="mt-3 text-xs text-faint">{t('onboarding.profile.readingHint')}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to={`/c/${phase.chatId}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-sm font-medium text-accent-text hover:bg-hover max-sm:min-h-10">
-            {t('onboarding.profile.openChat')}
-          </Link>
-          <Button variant="ghost" onClick={() => setPhase({ kind: 'fallback', unreadable: false, error: null })}>
-            {t('onboarding.profile.stopWaiting')}
-          </Button>
-          <span className="ml-auto">{skip}</span>
-        </div>
+        {/* only "나중에 하기" while it reads (docs/DECISIONS.md "W2"): the chat and the written path are not offered here;
+            a reading that fails opens the fallback (paste a text, three questions) by itself */}
+        {skip && <div className="flex justify-end">{skip}</div>}
       </div>
     )
 
@@ -348,7 +401,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         {(id) => <input id={id} className={inputCls} value={draft.name ?? ''} onChange={(e) => set('name', e.target.value)} maxLength={PROFILE_LIMITS.name} data-testid="profile-name" />}
       </ReviewField>
       <Field label={t('onboarding.profile.f.website')}>
-        <input className={inputCls} value={draft.website} onChange={(e) => setDraft({ ...draft, website: e.target.value })} placeholder="acme.co.kr" inputMode="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
+        <input className={inputCls} value={draft.website} onChange={(e) => setDraft({ ...draft, website: e.target.value })} placeholder={t('onboarding.profile.sitePlaceholder')} inputMode="url" autoCapitalize="none" spellCheck={false} maxLength={PROFILE_LIMITS.website} />
       </Field>
       <ReviewField field="oneLine" value={draft.oneLine} source={sourceOf('oneLine')} hint={fromDraft && !draft.oneLine ? t('onboarding.profile.notFound') : undefined} onClear={() => clear('oneLine')}>
         {(id) => <input id={id} className={inputCls} value={draft.oneLine} onChange={(e) => set('oneLine', e.target.value)} maxLength={PROFILE_LIMITS.oneLine} />}
@@ -360,6 +413,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         {(id) => <textarea id={id} className={`${inputCls} h-auto min-h-16 resize-y py-2`} value={draft.audience} onChange={(e) => set('audience', e.target.value)} maxLength={PROFILE_LIMITS.audience} />}
       </ReviewField>
       <ToneField tone={draft.tone} source={sourceOf('tone')} onChange={(tone) => setDraft((d) => ({ ...d, tone, sources: tone.length ? d.sources : d.sources.filter((s) => s.field !== 'tone') }))} />
+      <ColorsField colors={brandColors(draft.colors)} onChange={(colors) => setDraft((d) => ({ ...d, colors }))} />
       <ReviewField field="avoid" value={draft.avoid} source={sourceOf('avoid')} hint={t('onboarding.profile.avoidHint')} onClear={() => clear('avoid')}>
         {(id) => <textarea id={id} className={`${inputCls} h-auto min-h-16 resize-y py-2`} value={draft.avoid} onChange={(e) => set('avoid', e.target.value)} maxLength={PROFILE_LIMITS.avoid} />}
       </ReviewField>
@@ -396,10 +450,11 @@ const clipTitle = (s: string, max = 40) => (s.length > max ? s.slice(0, max - 1)
 /**
  * What the AI is doing while it drafts the profile: plain lines, newest last, each with a small mark. First what will
  * happen ("공개된 페이지만, acme.co.kr 안에서 최대 4개 읽어요"), then one line per page as the server opened or skipped it
- * (the real addresses, from GET /api/onboarding/profile/draft/:chatId), then "회사 소개 정리 중" while it writes. Pasted
- * text has one line.
+ * (the real addresses, from GET /api/onboarding/profile/draft/:chatId), then the images the server kept from those
+ * pages for the brand folder ("로고와 이미지 3개 가져옴"), then "회사 소개 정리 중" while it writes. Pasted text has one
+ * line.
  */
-export function DraftActivity({ source, site, steps, writing }: { source: 'website' | 'text'; site: string | null; steps: readonly ProfileDraftPage[]; writing: boolean }) {
+export function DraftActivity({ source, site, steps, writing, assets }: { source: 'website' | 'text'; site: string | null; steps: readonly ProfileDraftPage[]; writing: boolean; assets?: Pick<DraftAssets, 'images' | 'logo'> | null }) {
   const t = useT()
   const max = PROFILE_DRAFT_PAGES_MAX
   const spin = <Loader2 size={14} className="animate-spin text-faint" aria-hidden />
@@ -429,9 +484,16 @@ export function DraftActivity({ source, site, steps, writing }: { source: 'websi
         ? line('intro', idle ? spin : <Globe size={14} className="text-faint" aria-hidden />, t('onboarding.profile.activity.intro', { site: site ?? '', max }), 'text-muted', 'profile-activity-intro')
         : line('text', spin, t('onboarding.profile.activity.text'), 'text-ink')}
       {source === 'website' && steps.map(page)}
+      {source === 'website' && assets && assets.images > 0 && line('images', <Check size={14} className="text-ok" aria-hidden />, imagesLine(t, assets), 'text-muted', 'profile-activity-images')}
       {source === 'website' && writing && line('writing', spin, t('onboarding.profile.activity.writing'), 'text-ink', 'profile-activity-writing')}
     </ul>
   )
+}
+
+/** "이미지 4개 가져옴"; with the logo among them "로고와 이미지 3개 가져옴", or "로고 가져옴" when it is the only one. */
+function imagesLine(t: ReturnType<typeof useT>, a: Pick<DraftAssets, 'images' | 'logo'>): string {
+  if (!a.logo) return t('onboarding.profile.activity.images', { n: a.images })
+  return a.images > 1 ? t('onboarding.profile.activity.logoImages', { n: a.images - 1 }) : t('onboarding.profile.activity.logo')
 }
 
 /** One field of the review: its label with a "remove" button, the control, and where the AI found it. */
@@ -500,6 +562,36 @@ function ToneField({ tone, source, onChange }: { tone: string[]; source: Profile
       )}
       <p className="mt-1 text-xs text-faint">{t('onboarding.profile.toneHint')}</p>
       <SourceLine source={source} />
+    </div>
+  )
+}
+
+/** A brand colour as a small round swatch (24px), its hex as its name. Only "#rrggbb" (brandColors) gets here. */
+export function ColorSwatch({ color }: { color: string }) {
+  return <span role="img" aria-label={color} title={color} className="inline-block size-6 shrink-0 rounded-full border border-line" style={{ backgroundColor: color }} data-testid="profile-color-swatch" />
+}
+
+/** The brand colours the server found ("브랜드 색"): swatches, each removed with its own X like a tone chip; no picker and
+ * no way to add one. Hidden when there are none. */
+function ColorsField({ colors, onChange }: { colors: string[]; onChange: (colors: string[]) => void }) {
+  const t = useT()
+  const id = useId()
+  if (!colors.length) return null
+  return (
+    <div role="group" aria-labelledby={`${id}-label`} data-testid="profile-colors">
+      <p id={`${id}-label`} className="mb-1.5 text-[13px] font-medium text-ink">
+        {t('onboarding.profile.f.colors')}
+      </p>
+      <ul className="flex flex-wrap gap-1.5">
+        {colors.map((c) => (
+          <li key={c} className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-subtle py-0.5 pr-0.5 pl-1" data-testid="profile-color" data-color={c}>
+            <ColorSwatch color={c} />
+            <IconButton label={t('onboarding.profile.remove', { name: c })} onClick={() => onChange(colors.filter((x) => x !== c))} data-testid="profile-color-remove">
+              <X size={13} />
+            </IconButton>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
