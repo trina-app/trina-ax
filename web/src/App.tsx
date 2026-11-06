@@ -6,6 +6,7 @@ import { PRODUCT } from '@mycel/shared'
 import { ApiError, errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
+import { useDeckBuilds } from './store/deckBuilds'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
@@ -93,6 +94,7 @@ export function useSessionLifecycle(): boolean {
       stopLive()
       if (status.kind !== 'loading') {
         useChats.getState().reset()
+        useDeckBuilds.getState().reset()
         useSendQueue.getState().reset()
         useProjects.getState().reset()
         useAiAccess.getState().reset()
