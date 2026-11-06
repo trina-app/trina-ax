@@ -275,6 +275,17 @@ describe('cancel', () => {
     await h.api('alice').call(API.devEnvRunStop, { params: { id: falconId, runId: id } })
     expect(out(await p)).toContain('cancelled this command')
   })
+  test('the project page "stop all": another reader does not cancel a waiting command; its owner does', async () => {
+    await shell('bob', chatB).call({ command: 'sleep', job: true, log_name: 'long' })
+    const p = shell('alice', chatFalcon, undefined, { id: falconId, folderPath: 'projects/falcon', name: 'Falcon' }).call({ command: 'echo mine' })
+    await until(() => steps.length === 1)
+    const id = steps[0]!.run.id
+    await h.api('bob').call(API.devEnvBox, { params: { id: falconId }, body: { action: 'stop' } })
+    expect(rows().find((r) => r.id === id)).toMatchObject({ state: 'waiting', foreground: 1 })
+    await h.api('alice').call(API.devEnvBox, { params: { id: falconId }, body: { action: 'stop' } })
+    expect(out(await p)).toContain('cancelled this command')
+    expect(rows().some((r) => r.id === id)).toBe(false)
+  })
   test('the owner cancels a waiting job from the chat', async () => {
     await shell('alice', chatA).call({ command: 'sleep', job: true, log_name: 'long' })
     await shell('bob', chatB).call({ command: 'echo j', job: true, log_name: 'queued' })

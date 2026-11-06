@@ -166,8 +166,11 @@ export const devEnvRoutes: RouteModule = {
       const { p, ref } = project(params.id, auth.user.id)
       if (devEnvRunner() === 'srt') {
         if (!mayUseDevEnv(ctx.db, ctx.files, p.id) && !isAdmin(p)) fail('forbidden')
-        // no box to start again: both stop every run of the project's chats
-        await stopWhere(ctx, (s) => s.projectId === ref.id, 'stopped')
+        // no box to start again: both stop every run of the project's chats. A command that waits in the queue (a
+        // ticket, srt/queue.ts) is cancelled only by its owner, as with the stop of one run: its AI is told "the person
+        // cancelled this command"
+        const tickets = ticketIds(ctx.db)
+        await stopWhere(ctx, (s) => s.projectId === ref.id && (s.userId === p.id || !tickets.has(s.id)), 'stopped')
         audit(ctx.db, { actor: p.id, action: 'dev_env.stop', target: ref.id, detail: { runner: 'srt' } })
         return response(ref.id, ref.folderPath, p)
       }

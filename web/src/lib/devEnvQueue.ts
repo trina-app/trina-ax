@@ -17,30 +17,33 @@ let timer: ReturnType<typeof setTimeout> | null = null
 let busy = false
 
 const emit = () => { for (const l of listeners) l() }
+/** a run that started or ended never waits again: only the others need the poll (an old chat with a stored waiting
+ * job step does not poll for as long as it is open) */
+const needsPoll = () => [...watchers.keys()].some((id) => places.get(id) !== 'gone')
 
 function apply(runs: DevEnvRuns) {
   const next = new Map<string, number | 'gone'>()
   const waiting = new Map(runs.waiting.map((r) => [r.id, r.position ?? 1]))
-  for (const id of watchers.keys()) next.set(id, waiting.get(id) ?? 'gone')
+  for (const id of watchers.keys()) next.set(id, places.get(id) === 'gone' ? 'gone' : waiting.get(id) ?? 'gone')
   places = next
   emit()
 }
 
 async function poll() {
   timer = null
-  if (!watchers.size || busy) return schedule()
+  if (!needsPoll() || busy) return schedule()
   busy = true
   try { apply(await api.call(API.myDevEnvRuns, {})) } catch { /* a server with no srt runner: the step keeps the place it was written with */ } finally { busy = false }
   schedule()
 }
 function schedule() {
-  if (timer || !watchers.size) return
+  if (timer || !needsPoll()) return
   timer = setTimeout(() => void poll(), QUEUE_POLL_MS)
 }
 
 function watch(id: string): () => void {
   watchers.set(id, (watchers.get(id) ?? 0) + 1)
-  if (watchers.get(id) === 1) { if (timer) clearTimeout(timer); timer = null; void poll() }
+  if (watchers.get(id) === 1 && places.get(id) !== 'gone') { if (timer) clearTimeout(timer); timer = null; void poll() }
   return () => {
     const n = (watchers.get(id) ?? 1) - 1
     if (n > 0) watchers.set(id, n)

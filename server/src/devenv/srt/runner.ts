@@ -680,11 +680,11 @@ export async function stopRun(ctx: AppContext, id: string, reason: EndReason = '
 }
 
 /** Stop every run (and waiting job) that matches: a project's, a person's, or all. */
-export async function stopWhere(ctx: AppContext, match: (s: { userId: string; projectId: string | null; chatId: string | null }) => boolean, reason: EndReason): Promise<string[]> {
+export async function stopWhere(ctx: AppContext, match: (s: { id: string; userId: string; projectId: string | null; chatId: string | null }) => boolean, reason: EndReason): Promise<string[]> {
   const people = new Set<string>()
   const rows = ctx.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE ended_at IS NULL`).all() as RunRow[]
-  for (const r of rows) if (match({ userId: r.user_id, projectId: r.project_id, chatId: r.chat_id })) { people.add(r.user_id); await stopRow(ctx, r, reason) }
-  for (const a of active.values()) if (a.kind === 'command' && match(a.space)) { people.add(a.space.userId); a.stopReason = reason; await srtConfig().system.stop(a.runId, a.pid) }
+  for (const r of rows) if (match({ id: r.id, userId: r.user_id, projectId: r.project_id, chatId: r.chat_id })) { people.add(r.user_id); await stopRow(ctx, r, reason) }
+  for (const a of active.values()) if (a.kind === 'command' && match({ ...a.space, id: a.runId })) { people.add(a.space.userId); a.stopReason = reason; await srtConfig().system.stop(a.runId, a.pid) }
   return [...people]
 }
 
