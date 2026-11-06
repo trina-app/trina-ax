@@ -100,9 +100,16 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     add(boxShellTool({
       ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
       redact: (s) => exec.redact(s),
+      unattended: person.unattended,
       confirm: async (question, options, details) => (person.choose
         ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
         : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
+      // the site card: a server card for the person who owns the turn, in each of her windows (not only the one that
+      // sent the turn); a scheduled run gets no card (waitForPerson answers null = not allowed)
+      askSite: async (host, command) => {
+        const answer = await exec.waitForPerson({ kind: 'dev_env_site', requestId: uuidv7(), host, command, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString() }, { timeoutMs: exec.rt.askUserTimeoutMs() })
+        return answer === 'once' || answer === 'always' || answer === 'deny' ? answer : null
+      },
     }))
   }
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))

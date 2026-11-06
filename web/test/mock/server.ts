@@ -235,6 +235,16 @@ export class MockServer {
     return { extraDomains: [] as string[], enabled: false, scope: { mode: 'writers' as 'writers' | 'selected', groupIds: [] as string[], userIds: [] as string[] }, network: 'open' as 'open' | 'offline',
       limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: null as { by: { id: string; name: string } | null; at: string; warningVersion: number } | null }
   }
+  /** the sites a person allowed and her Full internet switch (GET /api/dev-env/sites); per person, like the server */
+  devEnvSites = new Map<string, { sites: { host: string; createdAt: string }[]; full: boolean }>()
+  devEnvSitesOf(userId: string) {
+    if (!this.devEnv?.srt) fail('not_found', 404)
+    const mine = this.devEnvSites.get(userId) ?? { sites: [], full: false }
+    this.devEnvSites.set(userId, mine)
+    const base = { fullAvailable: true, fullWarningVersion: 1, maxSites: 100 }
+    if (this.devEnvTeam.network === 'offline') return { state: 'no_network' as const, sites: [], fullInternet: false, teamSites: [], ...base }
+    return { state: 'on' as const, sites: mine.sites, fullInternet: mine.full, teamSites: ['registry.npmjs.org', 'pypi.org', 'github.com', ...this.devEnvTeam.extraDomains], ...base }
+  }
   devEnvTeamView() {
     if (!this.devEnv) fail('not_found', 404)
     const srt = !!this.devEnv!.srt
@@ -267,6 +277,7 @@ export class MockServer {
     this.popular = []
     this.devEnv = null
     this.devEnvTeam = MockServer.devEnvTeamDefault()
+    this.devEnvSites = new Map()
     this.epoch = uuidv7()
     this.seq = 0
     this.buffer = []
@@ -825,7 +836,9 @@ export class MockServer {
       const siteUrl = 'https://docs.example.co.kr/guide/start'
       const markUrl = 'https://docs.example.co.kr/r/c2fsyxj5ltk4nzy1ndmy'
       // "browsersite": like the in-app browser asking to open an office-network address (once / always / deny)
-      const request: TurnRequest = /browsersite/i.test(prompt)
+      const request: TurnRequest = /devenvsite/i.test(prompt)
+        ? { kind: 'dev_env_site', requestId, host: 'api.openweathermap.org', command: 'curl -s https://api.openweathermap.org/data/2.5/weather?q=Seoul' }
+        : /browsersite/i.test(prompt)
         ? { kind: 'browser_site', requestId, url: 'http://10.0.0.5/intranet/', host: '10.0.0.5', reason: '사내 문서 페이지를 열려고 해요.' }
         : /siteask/i.test(prompt)
         ? { kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
@@ -846,6 +859,11 @@ export class MockServer {
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      if (request.kind === 'dev_env_site' && answer === 'always') {
+        const mine = this.devEnvSites.get(user.id) ?? { sites: [], full: false }
+        if (!mine.sites.some((x) => x.host === request.host)) mine.sites.push({ host: request.host, createdAt: now() })
+        this.devEnvSites.set(user.id, mine)
+      }
       prompt += ` answered:${JSON.stringify(answer)}`
     }
     if (/connecttemplate/i.test(prompt)) {
@@ -1314,6 +1332,19 @@ export class MockServer {
     // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on (srt) needs the
     // current warning accepted
     devEnvTeam: () => this.devEnvTeamView(),
+    myDevEnvSites: (c) => this.devEnvSitesOf(c.user.id),
+    removeMyDevEnvSite: (c) => {
+      const mine = this.devEnvSitesOf(c.user.id) && this.devEnvSites.get(c.user.id)!
+      if (!mine.sites.some((x) => x.host === c.body.host)) fail('not_found', 404)
+      mine.sites = mine.sites.filter((x) => x.host !== c.body.host)
+      return this.devEnvSitesOf(c.user.id)
+    },
+    setMyDevEnvFullInternet: (c) => {
+      const now_ = this.devEnvSitesOf(c.user.id)
+      if (c.body.on && (now_.state !== 'on' || c.body.acceptWarning !== 1)) fail('conflict', 409, 'Accept the Full internet warning first.')
+      this.devEnvSites.get(c.user.id)!.full = c.body.on
+      return this.devEnvSitesOf(c.user.id)
+    },
     updateDevEnvTeam: (c) => {
       const v = this.devEnvTeamView()
       const b = c.body
@@ -2821,6 +2852,8 @@ export class MockServer {
     else if (p === '/__test/dev-env') {
       const by = this.users[0] ? { id: this.users[0].id, name: this.users[0].name } : null
       const run = (id: string, kind: 'job' | 'server', name: string, position: number | null, lastLine: string) => ({ id, kind, name, by, startedAt: now(), runAt: position === null ? now() : null, position, memoryMiB: position === null ? 320 : null, lastLine })
+      if (body.network === 'offline') this.devEnvTeam.network = 'offline'
+      if (Array.isArray(body.sites)) this.devEnvSites.set(this.users[0]!.id, { sites: (body.sites as string[]).map((host) => ({ host, createdAt: now() })), full: false })
       this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped', ...(body.srt ? { srt: { running: [run('r1', 'server', 'npm run dev', null, 'ready on http://localhost:3000')], waiting: [run('r2', 'job', 'render', 1, '')] } } : {}) }
     }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)

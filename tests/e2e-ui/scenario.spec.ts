@@ -45,10 +45,9 @@ test('step 1: first owner, language, groups, members (invite + direct), folder r
   await expect(page.getByRole('heading', { name: 'Create your team' })).toBeVisible()
   await page.getByTestId('setup-locale').selectOption('ko')
   await page.getByTestId('setup-team').fill('Demo Team')
-  await page.getByRole('textbox', { name: '이름', exact: true }).fill(st.owner.name)
+  await page.getByRole('textbox', { name: '내 이름', exact: true }).fill(st.owner.name)
   await page.getByRole('textbox', { name: '아이디' }).fill(st.owner.username)
   await page.getByRole('textbox', { name: '비밀번호', exact: true }).fill(st.owner.password)
-  await page.getByRole('textbox', { name: '비밀번호 확인' }).fill(st.owner.password)
   await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
   await expect(page.getByTestId('composer-input')).toBeVisible()
 

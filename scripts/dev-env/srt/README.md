@@ -13,6 +13,7 @@ drop-in file (`dev-env.conf`) and sets `MYCEL_DEV_ENV_RUNNER=srt`.
 | `uninstall-srt.sh` | (run as root) | removes all of it; `--purge` also deletes `<base>/devenv` |
 | `package.json`, `package-lock.json` | `/opt/trina/srt/<version>/` | the pinned srt and its dependencies, with integrity hashes |
 | `run-wrap` | `/opt/trina/devenv/run-wrap` | rlimits, `oom_score_adj`, the exit file |
+| `srt-full.mjs` | `/opt/trina/srt/<version>/full.mjs` | srt's CLI for a person's Full internet: allows host names only, never an IP address or a local name |
 | `devenv.rules.in` | `/etc/polkit-1/rules.d/60-<ID>-devenv.rules` | the server account may start, stop and reset-failed `trina-dev-<16>.scope` only |
 | `devenv.slice.in` | `/etc/systemd/system/<ID>-devenv.slice` | the ceiling of all runs, from `<base>/root/dev-env.json` |
 

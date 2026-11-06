@@ -151,7 +151,19 @@ export const ConnectServiceRequest = z.object({
   /** when the card closes by itself (the AI then continues without it) */
   expiresAt: z.string().optional(),
 })
-export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest, ConnectServiceRequest])
+/** A dev-environment command needs a site that is not allowed (docs/DECISIONS.md "Dev environment: sites a person
+ * allows"). Raised by the server only (the AI's ask_user cannot make one), for the person who owns the turn, in every
+ * window of hers. once: this answer (a job or dev server keeps it); always: her own list of allowed sites; deny. */
+export const DevEnvSiteRequest = z.object({
+  kind: z.literal('dev_env_site'),
+  requestId: z.string(),
+  /** the host name, checked by the server (no address, no local name, not the team server) */
+  host: z.string(),
+  /** the command that needs it, secrets hidden */
+  command: z.string().optional(),
+  expiresAt: z.string().optional(),
+})
+export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest, ConnectServiceRequest, DevEnvSiteRequest])
 export type TurnRequest = z.infer<typeof TurnRequest>
 
 export const FileChange = z.object({

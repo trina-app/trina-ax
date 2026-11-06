@@ -133,11 +133,11 @@ The setup link sits inside that JSON log line, before the closing `)`. Debug lin
 ### 1.4 Create the team
 
 **Your own team.** Open the `http://127.0.0.1:19100/setup?token=…` link from the log. The setup token field is
-hidden when the token is in the URL. "Create your team" asks for:
-- Team name.
-- **Team language**: English, 한국어, Bahasa Indonesia, 日本語 or Español. The initial suggestion can follow the browser; confirm the intended team default. Picking one also switches the screen.
-- The owner's name, username (letters, digits and `. _ @ -`, 2–64 characters), password (at least 8
-  characters) and **Confirm password**.
+hidden when the token is in the URL. "Create your team" has two groups:
+- **Team**: the team name and the **Team language** (English, 한국어, Bahasa Indonesia, 日本語 or Español). The
+  initial suggestion can follow the browser; confirm the intended team default. Picking one also switches the screen.
+- **Your account · Owner**: your name, username (letters, digits and `. _ @ -`, 2–64 characters) and password (at
+  least 8 characters). There is one password field; **Show password** shows what you typed.
 
 Click **Create team and start**. `127.0.0.1` and `localhost` are separate cookie origins, so keep using
 `http://127.0.0.1:19100` (the setup link's origin); `localhost:19100` asks you to sign in again.
