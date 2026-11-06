@@ -54,6 +54,9 @@ export type ShareOrigin = z.infer<typeof ShareOrigin>
 export const ShareRelPath = z.string().min(1).max(300)
   .refine((p) => !p.startsWith('/') && !p.includes('\\') && !p.includes('\u0000') && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..'), { message: 'a path inside the skill folder' })
 
+/** One file of a skill. A script file (SHARE_SCRIPT_EXTENSIONS) goes up as its path with `text: ''`: the server judges
+ * whether the skill needs it (excluded `scripts`) or goes without it (scriptsDropped), and never keeps a script's
+ * content even when a sender includes it. Other binary files are not sent. */
 export const ShareFileIn = z.object({
   path: ShareRelPath,
   /** a text file as it is */
