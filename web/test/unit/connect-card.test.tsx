@@ -290,6 +290,22 @@ describe('what the card shows', () => {
     expect(title[0]).toContain('[overflow-wrap:anywhere]')
   })
 
+  test('an admin\'s template: "your own key for" the name, from your team, and where the key goes', () => {
+    for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
+      setLocale(locale)
+      const out = html(card({ name: 'Demo Wiki', template: { id: 't1', version: 2 } }))
+      expect(part(out, 'span', 'connect-title')![1]).toBe(esc(translate(locale, 'connect.templateTitle', { name: 'Demo Wiki' })))
+      expect(out).toContain(esc(translate(locale, 'connect.fromTeam')))
+      expect(out).toContain('data-testid="connect-template-note"')
+      // the same address line and key box as any service card
+      expect(out).toContain('data-testid="connect-host"')
+      expect(out).toContain('data-testid="connect-key"')
+    }
+    // a plain card says nothing of a template
+    setLocale('en')
+    expect(html(card())).not.toContain('connect-template-note')
+  })
+
   test('what kind of connection it is, and the header a key goes in', () => {
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const) {
       setLocale(locale)
