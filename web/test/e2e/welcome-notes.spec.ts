@@ -50,6 +50,11 @@ test('a company intro in, the intro deck out; [팀에 공유] invites with that 
   await expect(panel).toHaveCount(0)
   await expect(page.getByTestId('artifact-card')).toContainText('Acme 회사 소개서')
   await expect(page.getByTestId('artifact-card')).toContainText('소개서 · v1')
+  // the deck was built slide by slide (round 2): its steps folded to one row, the slide tried twice no red step, and
+  // the panel closed while it was made stays closed when the deck is saved
+  await expect(page.getByTestId('deck-folded')).toContainText('회사 소개서 · 9장 ·')
+  await expect(page.getByTestId('steps-failed')).toHaveCount(0)
+  await expect(panel).toHaveCount(0)
   // under the answer: one bar, one button: share the skill that made it, as it is
   const drafts: string[] = []
   page.on('request', (r) => { if (r.url().includes('/api/onboarding/skill-draft')) drafts.push(r.url()) })

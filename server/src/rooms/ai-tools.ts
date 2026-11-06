@@ -10,7 +10,7 @@ import { FILE_TOOLS } from '@mycel/shared'
  * private to the person until they post one.
  */
 export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
-  ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'skill', 'find_skills', 'ask_user', 'agent',
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'agent',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
 ])
 
@@ -22,7 +22,7 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
  * signed-in browser (box_shell; the in-app browser is off for room turns as a whole, chat/turn.ts).
  */
 export const ROOM_TOOLS: ReadonlySet<string> = new Set([
-  ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'skill', 'find_skills', 'ask_user',
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
 ])
 
@@ -33,7 +33,7 @@ export const ROOM_TOOLS: ReadonlySet<string> = new Set([
  * people's words, and one of them may tell the AI to change something.
  */
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  'list', 'glob', 'grep', 'read', 'search', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
+  'list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
 ])
 
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */

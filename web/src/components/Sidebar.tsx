@@ -16,6 +16,7 @@ import { useLogout } from '../lib/logout'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useChats } from '../store/chats'
+import { useDeckBuilds } from '../store/deckBuilds'
 import { accessChanged, notificationsChanged, reloadAsked, skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
@@ -294,6 +295,8 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
   const actions = useChatActions()
   // the AI of this chat asked something (ask_user / site / connect_service card) and waits: tab 5 "주의가 필요한 채팅"
   const needsAnswer = useChats((s) => Object.values(s.requests).some((r) => r.chatId === chat.id))
+  // an intro deck finished here while the person was elsewhere (store/deckBuilds.ts): a still dot until it is opened
+  const deckReady = useDeckBuilds((s) => !!s.unseen[chat.id])
   const ref = useRef<HTMLLIElement>(null)
   useEffect(() => {
     if (!menu) return
@@ -326,8 +329,10 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
       >
         {needsAnswer ? (
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
+        ) : chat.runState !== 'idle' ? (
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label={t(chat.runState === 'queued' ? 'chat.queued' : 'chat.running')} />
         ) : (
-          chat.runState !== 'idle' && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label={t(chat.runState === 'queued' ? 'chat.queued' : 'chat.running')} />
+          deckReady && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label={t('deck.progress.ready')} data-testid="deck-ready-dot" />
         )}
         <span className="truncate">{chat.title || t('chat.untitled')}</span>
         {needsAnswer && (

@@ -8,7 +8,7 @@
 //           (or near-black) text at 4.5:1 and are deep or mid start here.
 // Every text colour is solid (mixed with its ground), so a viewer that ignores transparency shows the same; only type
 // over a photograph uses white with alpha.
-import type { DeckTheme } from '@mycel/shared/api'
+import type { DeckTheme, Locale } from '@mycel/shared/api'
 import { contrast, mix, onColor, towardContrast } from '../promo-video/colors'
 import { hsl, lightTo, usableBrand } from '../promo-video/palette'
 
@@ -135,3 +135,14 @@ export function themeFor(asked: DeckTheme | undefined, brand: string | null | un
   if (asked && fits.includes(asked)) return { theme: asked, replaced: false }
   return { theme: fits[0]!, replaced: !!asked }
 }
+
+/** What people call the themes (the answer names a replaced theme this way, never by its id). */
+export const THEME_NAME: Record<Locale, Record<DeckTheme, string>> = {
+  ko: { paper: '밝은 종이', ink: '어두운', brand: '브랜드색' },
+  en: { paper: 'Light paper', ink: 'Dark', brand: 'Brand colour' },
+  id: { paper: 'Kertas terang', ink: 'Gelap', brand: 'Warna merek' },
+  ja: { paper: '明るい紙', ink: 'ダーク', brand: 'ブランドカラー' },
+  es: { paper: 'Papel claro', ink: 'Oscuro', brand: 'Color de marca' },
+}
+/** The font face file the deck's page loads from this server (web/scripts/build-vendor.ts writes it). */
+export const DECK_FONT_CSS = '/vendor/fonts/pretendard.css'

@@ -29,12 +29,13 @@ import { imageSize } from '../uploads/image'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
 import { decode, decodeEntities, htmlToText, pinnedGet, resolveTarget, type ResolveOptions } from '../tools/web-fetch'
 
-/** Images kept aside per draft chat (the logo among them). */
-export const BRAND_IMAGES_MAX = 8
+/** Images kept aside per draft chat (the logo among them): the hero, the OG image and the largest pictures, so the intro
+ * deck has wide pictures for its cover and opening (docs/DECISIONS.md "D2", round 2). */
+export const BRAND_IMAGES_MAX = 12
 /** Bytes per image, as fetched. */
 export const BRAND_IMAGE_BYTES = 6 * 1024 * 1024
 /** Image addresses tried per draft chat (a page full of broken pictures stops here). */
-const FETCH_TRIES_MAX = 24
+const FETCH_TRIES_MAX = 32
 const STYLESHEETS_MAX = 2
 const STYLESHEET_BYTES = 512 * 1024
 /** Characters of each page's text kept for 회사 소개.md. */
@@ -45,8 +46,8 @@ const FETCH_TIMEOUT_MS = 12_000
 /** A content picture smaller than this on its short side is an icon, a thumbnail or a badge. */
 const MIN_SIDE = 300
 const LOGO_MIN_SIDE = 64
-/** Made into a 1,600 px JPEG above these. */
-const RESIZE_SIDE = 2000
+/** Made into a 1,920 px JPEG above these (a full-bleed cover needs 1,600 px of width). */
+const RESIZE_SIDE = 2400
 const RESIZE_BYTES = 1.5 * 1024 * 1024
 /** Pictures larger than this are not kept (and never decoded). */
 export const MAX_PIXELS = 40_000_000
@@ -481,8 +482,8 @@ async function ffmpegPipe(bytes: Buffer, ext: string, args: string[], maxStdout:
   } catch { return null } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
 
-/** A large picture as a 1,600 px JPEG (the card news needs no more, and the preview inlines every picture). */
-export async function downsize(img: { bytes: Buffer; ext: string; width: number; height: number }, max = 1600): Promise<{ bytes: Buffer; ext: 'jpg'; width: number; height: number } | null> {
+/** A large picture as a 1,920 px JPEG (a deck cover needs 1,600 px of width; the preview inlines every picture). */
+export async function downsize(img: { bytes: Buffer; ext: string; width: number; height: number }, max = 1920): Promise<{ bytes: Buffer; ext: 'jpg'; width: number; height: number } | null> {
   const jpeg = await ffmpegPipe(img.bytes, img.ext, ['-frames:v', '1', '-vf', `scale='min(${max},iw)':'min(${max},ih)':force_original_aspect_ratio=decrease`, '-q:v', '3', '-f', 'image2pipe', '-c:v', 'mjpeg', 'pipe:1'], 8 * 1024 * 1024)
   if (!jpeg || imageKind(jpeg) !== 'jpg') return null
   const size = imageSize(jpeg)
