@@ -2,13 +2,13 @@
 // an app with accounts lets people start the deletion inside the app). Owner: A (server/src/auth/deletion-requests.ts,
 // registered by server/src/routes/auth.ts; tables: server/migrations/244_b_account_deletion_requests.sql).
 //
-// The request is for the team owner (accounts are deleted in Admin › Members, DELETE /api/admin/users/:id: by the
-// owner, or since 2026-11-06 by an admin for a member), so this does not delete anything: it tells the owner in their
-// inbox (event 'account.deletion_request', not an OS push), with a link to the person in Admin › Members. One open
-// request per person; asking again while one is open
+// Team admins make the accounts, and the team owner and the admins delete them (Admin › Members, DELETE
+// /api/admin/users/:id; an admin deletes members only), so this does not delete anything: it tells the owner, and the
+// admins when a member asks, in their inbox (event 'account.deletion_request', not an OS
+// push), with a link to the person in Admin › Members. One open request per person; asking again while one is open
 // changes nothing, and asking again after a cancel re-arms the same inbox entry. The owner cannot ask: their account
 // is deleted only after they made someone else the owner (Admin › Team settings). There is no fixed time: the owner
-// is told and handles it; deleting the account closes the request.
+// and the admins are told and one of them handles it; deleting the account closes the request.
 import { z } from 'zod'
 import { IsoTime } from './common'
 import { endpoint } from './endpoint'
@@ -27,9 +27,9 @@ export type RequestAccountDeletionBody = z.infer<typeof RequestAccountDeletionBo
 
 export const ACCOUNT_DELETION = {
   myDeletionRequest: endpoint({ method: 'GET', path: '/api/me/deletion-request', auth: 'user', owner: 'A', response: AccountDeletionRequest,
-    summary: 'Whether I have asked the team owner to delete my account (or am the owner, who cannot ask).' }),
+    summary: 'Whether I have asked the team owner or an admin to delete my account (or am the owner, who cannot ask).' }),
   requestAccountDeletion: endpoint({ method: 'POST', path: '/api/me/deletion-request', auth: 'user', owner: 'A', body: RequestAccountDeletionBody, response: AccountDeletionRequest,
-    summary: 'Ask the team owner to delete my account: tells the owner in the app (metadata only), audited, idempotent. The owner gets 409.' }),
+    summary: 'Ask the team owner or an admin to delete my account: tells the owner (and the admins, when I am a member) in the app (metadata only), audited, idempotent. The owner gets 409.' }),
   cancelAccountDeletion: endpoint({ method: 'DELETE', path: '/api/me/deletion-request', auth: 'user', owner: 'A', response: AccountDeletionRequest,
     summary: 'Take back my open account deletion request (no-op when none is open); audited.' }),
 } as const

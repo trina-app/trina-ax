@@ -9,8 +9,9 @@
 // and a Role filter, then a quiet table (name · username · role · skills switch · "…"). The owner changes a role right
 // in the row; every other action, and "Folders they see", is in the row's "…". Below the md width each member is a
 // stacked row with the same parts. Invites (the team link and the invite links) stay under the table.
-// The owner sees who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge. Removing
-// that person works as for anyone: their personal files go to the owner's archive. The owner's inbox entry opens
+// The owner and the admins see who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge.
+// Removing that person works as for anyone: their personal files go to the owner's archive. The owner removes anyone
+// (one confirm); an admin removes members only and types their password again (ReauthDialog). The inbox entry opens
 // /admin/members?member=<id>: that person's row is marked and scrolled to.
 import { FolderLock, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
@@ -30,7 +31,7 @@ import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
 import { SkillManagerCell, skillsVia, useFolderPeople, useSkillManagers } from './SkillManagers'
-import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, SearchBox, SecretBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, ReauthDialog, SearchBox, SecretBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
@@ -61,6 +62,8 @@ export default function Members() {
   /** a temporary password to hand over, shown once with the sign-in address and the username */
   const [secret, setSecret] = useState<HandoverInfo | null>(null)
   const [resetting, setResetting] = useState<User | null>(null)
+  /** an admin removing a member: asked for their password first */
+  const [removing, setRemoving] = useState<User | null>(null)
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
   // the person an inbox entry points at (?member=<id>): marked, and scrolled to once
@@ -71,7 +74,7 @@ export default function Members() {
     scrolled.current = focusId
     el.scrollIntoView?.({ block: 'center' })
   }, [focusId])
-  /** asked for their account to be deleted (the owner's list only) */
+  /** asked for their account to be deleted (the owner's and the admins' lists) */
   const requested = (u: User) => !!users.data?.deletionRequested?.includes(u.id)
   const navigate = useNavigate()
   // the team invite link: made and managed in a popup (TeamLinkDialog); the page lists it under the members
@@ -108,11 +111,15 @@ export default function Members() {
     if (disabling && !(await confirmDialog({ title: t('members.disableTitle', { name: u.name }), body, confirm: t('members.disable'), danger: true }))) return
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: disabling ? 'disabled' : 'active' } }))) void users.reload()
   }
+  /** the owner removes anyone listed; an admin only a member (the server checks the role again at the moment) */
+  const canRemove = (u: User) => isOwner(me) || u.role === 'member'
+  // personal files are archived for the owner either way; the text only says that this person asked
+  const removeBody = (u: User) => (requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) }))
   const remove = async (u: User) => {
-    // personal files are archived for the owner either way; the text only says that this person asked
-    const body = requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
-    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body, confirm: t('common.delete'), danger: true }))) return
-    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
+    // an admin types their password again in the dialog below
+    if (!isOwner(me)) return setRemoving(u)
+    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: removeBody(u), confirm: t('common.delete'), danger: true }))) return
+    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id }, body: {} }))) await users.reload()
   }
   /** The actions used less often, for the rows this viewer manages (canManage): on a phone in the card's "…" menu with
    * the others, on a wide screen in the row's "…" menu next to Edit and Reset password, so the row keeps one line. */
@@ -121,8 +128,7 @@ export default function Members() {
     u.status === 'active'
       ? { label: t('members.disable'), icon: <UserRoundX size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `disable-member-${u.username}` }
       : { label: t('members.enable'), icon: <UserRoundCheck size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `enable-member-${u.username}` },
-    // anyone who manages this row deletes it (canManage: an admin deletes members, only the owner deletes admins)
-    { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `delete-member-${u.username}` },
+    ...(canRemove(u) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `delete-member-${u.username}` }] : []),
   ]
   // an invite is revoked at once, with no confirm dialog: one at a time, a held key does not repeat it, and the focus goes
   // to the list's title (the next row's button is another revoke)
@@ -401,6 +407,20 @@ export default function Members() {
             setSecret({ name: resetting.name, username: resetting.username, ...r })
             setResetting(null)
             void users.reload()
+          }}
+        />
+      )}
+      {removing && (
+        <ReauthDialog
+          danger
+          title={t('members.removeTitle', { name: removing.name })}
+          body={removeBody(removing)}
+          confirm={t('common.delete')}
+          onClose={() => setRemoving(null)}
+          onConfirm={async (password) => {
+            if (!(await actOk(() => api.call(API.deleteUser, { params: { id: removing.id }, body: { password } })))) return
+            setRemoving(null)
+            await users.reload()
           }}
         />
       )}

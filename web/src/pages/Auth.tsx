@@ -5,7 +5,7 @@ import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import type { InviteInfo, Locale, PasswordResetInfo, TeamLinkInfo } from '@mycel/shared/api'
+import { skillLabel, type InviteInfo, type Locale, type PasswordResetInfo, type TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
@@ -464,12 +464,16 @@ export function TeamJoin() {
   const submit = (v: JoinValues) =>
     void run(async () => {
       const r = await api.call(API.joinTeamLink, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
-      // the lead's files waiting for them (docs/DECISIONS.md "M"): Home fills the box with them and the question
-      if (r.starter) holdStarter(r.me.user.id, r.starter)
-      const next = r.starter ? '/' : joinNext(r.next)
+      // the lead's files waiting for them (docs/DECISIONS.md "M"): Home fills the box with them and the question. A
+      // starter without files (kind 'skill') is not one: every skill opens on its form, whose box starts with the
+      // skill's own example when it has no fields (docs/DECISIONS.md "W5")
+      const files = r.starter && r.starter.kind !== 'skill' ? r.starter : null
+      if (files) holdStarter(r.me.user.id, files)
+      const next = files ? '/' : joinNext(r.next)
       // a team skill a person made: its form says who ("지훈님이 만든 팀 스킬이에요", docs/DECISIONS.md "S")
-      const formPath = !r.starter && r.skillBy && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
-      if (formPath) holdMadeBy(r.me.user.id, formPath, r.skillBy!)
+      const by = r.skillBy ?? (r.starter?.kind === 'skill' ? r.starter.by : null)
+      const formPath = !files && by && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
+      if (formPath) holdMadeBy(r.me.user.id, formPath, by!)
       setAfterJoin(next)
       signedIn(r.me)
       navigate(next, { replace: true })
@@ -490,7 +494,7 @@ export function TeamJoin() {
       </AuthFrame>
     )
   return (
-    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: info.skillTitle ?? info.skillName }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
+    <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
     </AuthFrame>
   )

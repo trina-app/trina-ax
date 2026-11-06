@@ -1,5 +1,5 @@
 // The phone's top bar (below 768 px): it says where you are and holds one action at most, each in one place.
-//   트리나 (Home):  ☰ the AI's history (검색, 프로젝트, 예약 작업, 팀 스킬, 최근 채팅, 삭제한 채팅) · the AI's name
+//   트리나 (Home):  ☰ the AI's history (검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, 삭제한 기록) · the AI's name
 //   대화 (/rooms):   its name · ⊕ a new conversation (the people list)
 //   파일:            none (the Files page's own header is the bar)
 //   a page under a tab (팀 스킬, 프로젝트, 관리자, …): ‹ back · the page's name (the page keeps its heading for screen

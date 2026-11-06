@@ -44,7 +44,8 @@ describe('a skill by its title', () => {
     expect(html).toContain('data-testid="team-link-skill-name">광고 문구<')
     expect(html).not.toContain('ad-copy')
     const older = renderToStaticMarkup(<TeamLinkView data={link({ skill: { path: AD.path, name: 'ad-copy' } })} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
-    expect(older).toContain(esc("'ad-copy' skill"))
+    // without a title: the folder name as words (shared skillLabel), never the raw 'ad-copy'
+    expect(older).toContain(esc("'ad copy' skill"))
   })
 
   test('the link form\'s skill picker lists titles', () => {

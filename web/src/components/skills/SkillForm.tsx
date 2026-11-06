@@ -11,17 +11,26 @@
 //
 // Short on purpose (one primary action, visible without scrolling on a phone): choice fields are chips, and fields
 // marked `advanced` fold under "더 자세히 정하기" (still sent when filled, from the profile too).
+//
+// The one form a person lands on (docs/DECISIONS.md "W5": a member who joins through the invite, the owner's "'{skill}'
+// 먼저 써 보기" at the end of the setup): a skill without fields starts its box with the skill's own example
+// (shared skillExample: its metadata `example`, else the first request its description quotes), never over what the
+// person typed; and while no AI answers this person (GET /api/me/ai-access) the run button's place holds the one
+// connect / ask line the message box shows (AiAccessBanner: 내 AI 연결하기, 팀장에게 알리기, or the owner's AI 연결하기),
+// so the form never runs into a failed answer. Filling the message box ("/" menu, `onCompose`) is unchanged.
 import clsx from 'clsx'
 import { ChevronDown, Play } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, isChoice, skillSummary, skillTitle, type SkillInfo, type SkillInput } from '@mycel/shared/api'
+import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, isChoice, skillExample, skillSummary, skillTitle, type SkillInfo, type SkillInput } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { composeSkillMessage, initialValues, loadPrefill, missingRequired, skillRunBy, withPrefill } from '../../lib/skillForm'
 import { clearMadeBy, heldMadeBy } from '../../lib/starter'
 import { rememberChat } from '../../lib/teamAttach'
 import { useLocale, useT } from '../../i18n'
+import { useAiAccess } from '../../store/aiAccess'
 import { useChats } from '../../store/chats'
+import AiAccessBanner from '../chat/AiAccessBanner'
 import { canChooseEngine, useMeStrict } from '../../store/session'
 import { Button, ErrorNote, Field, Modal, Skeleton, inputCls } from '../ui'
 
@@ -57,8 +66,15 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
   const [list, setList] = useState<SkillInfo[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
-  const [free, setFree] = useState('')
+  const [free, setFreeState] = useState('')
   const typed = useRef(new Set<string>())
+  /** the free box as the person changed it (the skill's example never replaces that) */
+  const freeTyped = useRef(false)
+  const setFree = (v: string) => { freeTyped.current = true; setFreeState(v) }
+  // no AI answers this person: the connect / ask line instead of 실행 (not for the "/" menu, which only fills the box)
+  const ai = useAiAccess()
+  useEffect(() => { if (!onCompose) void ai.load() }, [ai.load, onCompose])
+  const noAi = !onCompose && ai.loaded && !ai.usable
   const [missing, setMissing] = useState<string[]>([])
   const [more, setMore] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -87,6 +103,12 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
 
   // the company profile fills the fields that ask for it, unless the person already typed there
   const inputs = skill?.inputs ?? []
+  // a skill without fields: its box starts with the skill's own example (what people can send as it is); the "/" menu
+  // keeps an empty box (it fills the message box, where the person goes on writing)
+  const example = skill && !skill.inputs?.length && !onCompose ? skillExample(skill) : null
+  useEffect(() => {
+    if (example && !freeTyped.current) setFreeState(example)
+  }, [example])
   // choice fields start on their default (a pick the person already made stays)
   useEffect(() => {
     if (inputs.length) setValues((v) => ({ ...initialValues(inputs), ...v }))
@@ -191,12 +213,20 @@ export function SkillForm({ path, skill: given, onDone, onSkip, skipLabel, onCom
       )}
       <p className="text-xs text-faint">{onCompose ? t('skillForm.noSecrets') : `${t('skillForm.noSecrets')} ${t('skillForm.newChat')}`}</p>
       {error && <ErrorNote>{error}</ErrorNote>}
-      <div className="flex items-center justify-end gap-2 pt-1">
-        {onSkip && <Button variant="ghost" className="mr-auto" onClick={onSkip} data-testid="skill-form-skip">{skipLabel ?? t('skillForm.skip')}</Button>}
-        <Button type="submit" variant="primary" busy={busy} disabled={!ready} data-testid="skill-form-run">
-          <Play size={14} aria-hidden /> {onCompose ? t('skillForm.fill') : (runLabel ?? t('skillForm.run'))}
-        </Button>
-      </div>
+      {noAi ? (
+        // the one line the message box shows, in the run button's place (its own button connects or asks the owner)
+        <div className="space-y-2 pt-1" data-testid="skill-form-no-ai">
+          <AiAccessBanner />
+          {onSkip && <Button variant="ghost" onClick={onSkip} data-testid="skill-form-skip">{skipLabel ?? t('skillForm.skip')}</Button>}
+        </div>
+      ) : (
+        <div className="flex items-center justify-end gap-2 pt-1">
+          {onSkip && <Button variant="ghost" className="mr-auto" onClick={onSkip} data-testid="skill-form-skip">{skipLabel ?? t('skillForm.skip')}</Button>}
+          <Button type="submit" variant="primary" busy={busy} disabled={!ready} data-testid="skill-form-run">
+            <Play size={14} aria-hidden /> {onCompose ? t('skillForm.fill') : (runLabel ?? t('skillForm.run'))}
+          </Button>
+        </div>
+      )}
     </form>
   )
 }
