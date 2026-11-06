@@ -52,12 +52,13 @@ async function open() {
 
 type Box = Awaited<ReturnType<typeof open>>['box']
 
-/** an edit as the browser makes it: beforeinput with the selection it applies to (`caret`: none, the caret there), the
- * new text, the caret after it, input */
-async function edit(box: Box, from: number, to: number, insert: string, inputType: string, caret?: number) {
+/** an edit as the browser makes it: beforeinput with the selection it applies to (`sel`: the caret there, or that
+ * selection; none: the edited range), the new text, the caret after it, input */
+async function edit(box: Box, from: number, to: number, insert: string, inputType: string, sel?: number | [number, number]) {
   await act(async () => {
-    if (caret === undefined) box.setSelectionRange(from, to)
-    else box.setSelectionRange(caret, caret)
+    if (sel === undefined) box.setSelectionRange(from, to)
+    else if (typeof sel === 'number') box.setSelectionRange(sel, sel)
+    else box.setSelectionRange(sel[0], sel[1])
     const b = new FakeEvent('beforeinput', { bubbles: true, cancelable: true }) as FakeEvent & { inputType: string }
     b.inputType = inputType
     box.dispatchEvent(b)
@@ -175,6 +176,30 @@ test("a phone keyboard's deletion into a token (an edit, no key) takes all of it
   }
 })
 
+test('a keyboard that answers Backspace with a deletion of its own (one letter, or the one before) still takes the token', async () => {
+  const { m, box } = await open()
+  try {
+    await typeText(box, 'hi ')
+    await pick(m, box, 'Minj')
+    await backspace(box) // the space
+    // the page selects the token for the browser; this keyboard deletes one letter of it instead
+    expect(await key(box, 'Backspace')).toBe(true)
+    expect([box.selectionStart, box.selectionEnd]).toEqual([3, 13])
+    await edit(box, 12, 13, '', 'deleteContentBackward', [3, 13])
+    expect(box.value).toBe('hi ')
+    expect(tokens(m)).toEqual([])
+    // or the letter before the selection
+    await pick(m, box, 'Minj')
+    await backspace(box)
+    expect(await key(box, 'Backspace')).toBe(true)
+    await edit(box, 2, 3, '', 'deleteContentBackward', [3, 13])
+    expect(box.value).toBe('hi ')
+    expect(tokens(m)).toEqual([])
+  } finally {
+    await m.unmount()
+  }
+})
+
 test('a letter of a token replaced through a selection makes it plain text, and no mention', async () => {
   const { m, box } = await open()
   try {
@@ -250,7 +275,10 @@ test('a Korean IME writing next to a token: no caret moves, no deletion of the t
     }
     // the IME's own Backspace (민 → 미) is not ours
     expect(await key(box, 'Backspace', { composing: true })).toBe(true)
+    // meanwhile the box paints its own letters (index.css data-composing), until the IME is done
+    expect(box.parentElement!.hasAttribute('data-composing')).toBe(true)
     await composition(box, 'compositionend')
+    expect(box.parentElement!.hasAttribute('data-composing')).toBe(false)
     expect(moves).toEqual([])
     expect(box.value).toBe('@Minjaelee민')
     expect(tokens(m)).toEqual(['person:@Minjaelee'])
@@ -328,6 +356,43 @@ test('the edit form: the mentions a message has stand out as on the message, and
     await m.click('room-edit-save')
     await m.until(() => patches.length > 0, 'the edit')
     expect(patches[0]).toEqual({ body: '@Cy Park 확인 부탁해요 @Ben 고마워요', mentions: [CY.id] })
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its mentions through an edit', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  const r = room()
+  const mine = message({ roomId: r.id, seq: 1, author: ME, body: '안녕\r\n@Cy Park 확인', mentions: [CY.id] })
+  const patches: { body: string; mentions: string[] }[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), 'http://team.localhost').pathname
+    if (init?.method === 'PATCH' && path === `/api/rooms/${r.id}/messages/${mine.id}`) {
+      const b = JSON.parse(String(init.body))
+      patches.push(b)
+      return new Response(JSON.stringify({ ...mine, body: b.body, mentions: b.mentions }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    return new Response(JSON.stringify({ error: { code: 'not_found', message: 'no' } }), { status: 404, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  const m = await mount(<RoomMessages roomId={r.id} messages={[mine]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
+  try {
+    const press = (type: string) => m.get('room-message').dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10 }))
+    press('pointerdown')
+    await m.settle(700)
+    await m.settle(450)
+    await m.click('message-edit')
+    const box = m.get('room-edit-input') as Box
+    box.focus()
+    // the text area hands back "\n"
+    expect(box.value).toBe('안녕\n@Cy Park 확인')
+    expect(tokens(m)).toEqual(['person:@Cy Park'])
+    Object.assign(box, { selectionStart: box.value.length, selectionEnd: box.value.length })
+    await typeText(box, '!')
+    expect(tokens(m)).toEqual(['person:@Cy Park'])
+    await m.click('room-edit-save')
+    await m.until(() => patches.length > 0, 'the edit')
+    expect(patches[0]).toEqual({ body: '안녕\n@Cy Park 확인!', mentions: [CY.id] })
   } finally {
     await m.unmount()
   }

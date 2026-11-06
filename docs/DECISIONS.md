@@ -10537,20 +10537,31 @@ rooms.ts), 이유: the room's message box showed a picked "@name" as plain text,
   edit inside one (through a selection) makes it text. A phone keyboard whose Backspace arrives as an edit and no key
   (Android, also as its IME taking back the word) gets the same: a deletion into a token from its edge takes all of it.
   While an IME writes, the box does nothing of its own, except for such a deletion of text from before the IME began.
-- **How it is drawn: the browser's own `<textarea>` with a layer under it** (`components/TokenTextarea.tsx`, generic:
+- **How it is drawn: the browser's own `<textarea>` between two layers** (`components/TokenTextarea.tsx`, generic:
   tokens are ranges with a kind, so the AI chat's box can show `#room` the same way). The text area keeps typing, every
   IME, autocorrect, spell check and undo; while it has text its letters are not painted (`-webkit-text-fill-color:
-  transparent`, index.css), its caret, selection (see-through), the IME's underline and the placeholder are. The layer
-  copies the text area's computed font, padding, borders and wrapping (the touch-screen font size too), its width
-  without a scroll bar and its scroll offset, and draws the same text with the tokens in colour; a token's look may use
-  colour, background and box-shadow only, never anything that moves a letter. Checked in Chromium, WebKit and iOS 26
-  Safari (the simulator): the text area's letters drawn over the layer's land on them, also at 390 and 320 px and
-  scrolled. Forced colours: the text area draws its own letters and the layer hides.
+  transparent`, index.css). The layer under it draws only the tokens' backgrounds, the one over it the letters with the
+  tokens in colour, so what the browser draws stays seen in between: the caret, a selection (see-through), an IME's
+  background, spell check, the placeholder. While an IME writes (compositionstart to compositionend) the text area
+  paints its own letters, because Blink and WebKit draw an IME's default underline in their colour, and the front layer
+  draws only the tokens, on their background over the text area's letters: the same pixels either way (checked in
+  Chromium), so nothing flickers per syllable. The layers copy the text area's computed font, padding, borders,
+  wrapping and colour (the touch-screen font size too; again when a theme class or style on `<html>` changes), its
+  width without a scroll bar and its scroll offset. A token's look may use colour, background and box-shadow only,
+  never anything that moves a letter. Checked in Chromium, WebKit and iOS Safari on the simulator (iOS 26.5): the text
+  area's letters drawn over the layers land on them, also at 390 and 320 px and scrolled; iOS adds no inset of its
+  own. Forced colours: the text area draws its own letters and the layers hide. Texts use "\n" line breaks (an edit of
+  a message with "\r\n" from another app is normalised first).
 - Rejected: `contenteditable` (as Slack) — no rich-input component exists here, and Korean composition, the caret and
   mobile keyboards in a contenteditable are where editors break; the text area gets them right for free. Highlighting
   only the background (the text area's own letters on top, as react-mentions does) — then a mention could not have the
   accent colour of a sent one. Matching "@name" in the text for everyone picked (the old `keptMentions`) — a pasted or
   retyped name would notify someone the box does not show.
-- Known limits: an undo after a token was deleted brings its letters back as text, not as a mention. The syllable an
-  IME is writing is drawn by the layer from each input event (in the same frame); its underline is the text area's own.
+- A keyboard that answers the Backspace (turned into "delete this token") with a deletion of its own, one letter of the
+  token or the letter before it, still takes the token. A person who left the room is no token any more, and the
+  "@트리나" calls are counted with the names that are sent, as the server counts them.
+- Known limits: an undo after a token was deleted brings its letters back as text, not as a mention. On Android a
+  deletion that reaches into a token while the keyboard's IME holds the word rewrites the text through React (the
+  keyboard restarts its input); not tried on a device. A screen reader hears the text as typed, not which names are
+  mentions. A sent message still marks every "@name" of the people it mentions (also a pasted one), as before.
 

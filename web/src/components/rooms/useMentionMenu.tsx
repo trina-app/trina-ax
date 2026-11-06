@@ -12,7 +12,7 @@ import { Sparkles } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import type { UserRef } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { AI_MENTION_ID, aiMatches, insertMention, matchMembers, mentionAt, mentionsIn, mentionTokens, tokenMentions, type MentionToken, type PickedMention } from '../../lib/rooms'
+import { AI_MENTION_ID, aiMatches, insertMention, lineBreaks, matchMembers, mentionAt, mentionsIn, mentionTokens, tokenMentions, type MentionToken, type PickedMention } from '../../lib/rooms'
 import { shiftRanges, type TextEdit } from '../../lib/textTokens'
 import { scrollToShow } from '../chat/SkillMenu'
 import { usePeople } from '../../store/people'
@@ -34,7 +34,8 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
   const byId = usePeople((s) => s.byId)
   // the members by the name the room shows them with (the directory's: a name changed since the list was read)
   const shown = useMemo(() => members.map((m) => ({ ...m, name: byId[m.id]?.name || m.name })), [members, byId])
-  const tokens = useMemo(() => mentionTokens(text, picked, ai), [text, picked, ai])
+  // a person who left the room is no mention any more (the server keeps only members)
+  const tokens = useMemo(() => mentionTokens(text, picked.filter((p) => members.some((m) => m.id === p.id)), ai), [text, picked, ai, members])
   const at = useMemo(() => {
     const a = caret === null ? null : mentionAt(text, caret)
     // right after a person's mention: it is done, no list ("@트리나" typed out still lists the AI: Enter picks it, as
@@ -172,10 +173,11 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
      * the people it mentioned marked again (by the names the room shows and the member list has) */
     putBack: (body: string, ids: string[]) => {
       const people = ids.flatMap((uid) => [...new Set([byId[uid]?.name, members.find((m) => m.id === uid)?.name])].filter((n): n is string => !!n).map((name) => ({ id: uid, name })))
+      const back = lineBreaks(body)
       const typed = text
-      const shift = typed ? body.length + 1 : 0
-      setPicked((p) => [...mentionsIn(body, people), ...(typed ? shiftRanges(p, { from: 0, removed: 0, inserted: shift }) : [])])
-      setText(typed ? `${body}\n${typed}` : body)
+      const shift = typed ? back.length + 1 : 0
+      setPicked((p) => [...mentionsIn(back, people), ...(typed ? shiftRanges(p, { from: 0, removed: 0, inserted: shift }) : [])])
+      setText(typed ? `${back}\n${typed}` : back)
     },
   }
 }

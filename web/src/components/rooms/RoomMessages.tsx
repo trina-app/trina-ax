@@ -21,7 +21,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
-import { aiMentionNames, eventText, groupRuns, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
+import { aiMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
@@ -513,16 +513,19 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
 function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: string; m: RoomMessage; initial: UserRef[]; members: UserRef[]; meId: string | null; onDone: () => void }) {
   const t = useT()
   const locale = useLocale()
-  const [draft, setDraft] = useState(m.body)
+  // the box gives line breaks back as "\n" (a message from another app may have "\r\n"): the mentions' places are counted
+  // in the same text
+  const body0 = useMemo(() => lineBreaks(m.body), [m.body])
+  const [draft, setDraft] = useState(body0)
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   // the mentions it has stand out as they do on the message, and stay mentions while they are whole
-  const [picked] = useState(() => pickedInMessage(m.body, initial))
+  const [picked] = useState(() => pickedInMessage(body0, initial))
   const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked })
   const save = async () => {
     const body = draft.trim()
     if (!body || busy) return
-    if (body === m.body) return onDone()
+    if (body === body0) return onDone()
     setBusy(true)
     try {
       await useRooms.getState().edit(roomId, m.id, body, mention.mentions())

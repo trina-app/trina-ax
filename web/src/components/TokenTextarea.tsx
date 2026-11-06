@@ -3,9 +3,11 @@
 // the phone keyboards and their autocorrect, spell check, undo); two layers draw the same text where it has it. While it
 // has text, the text area's own letters are not drawn (index.css data-token-input). The layer under it draws the tokens'
 // backgrounds, the one over it the letters with the tokens in colour; what the browser draws in between stays seen: the
-// caret, a selection, an IME's marks (an underline, or a background that would hide the syllable being written if the
-// letters were under it), spell check, the placeholder. The layers copy the text area's font, padding, border widths
-// and wrapping, its width without a scroll bar, and its scroll position.
+// caret, a selection, an IME's background (it would hide the syllable being written if the letters were under it),
+// spell check, the placeholder. While an IME writes, the text area paints its own letters (browsers draw an IME's
+// underline in their colour) and the front layer only the tokens, on their background: the same pixels. The layers
+// copy the text area's font, padding, border widths, wrapping and colour (again when the page's theme changes), its
+// width without a scroll bar, and its scroll position.
 //
 // Tokens act as one piece: Backspace at a token's end or Delete at its start takes all of it (a phone keyboard's
 // deletion too, which comes as an edit and not as a key), the arrow keys step over one, and a caret put inside one (a
@@ -13,7 +15,7 @@
 // follow every edit with lib/textTokens.ts shiftRanges(ranges, edit), which drops a token an edit touched. While an IME
 // is writing, the box does nothing of its own (no caret moves, no deletions).
 import clsx from 'clsx'
-import { forwardRef, Fragment, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, type ChangeEvent, type KeyboardEvent, type SyntheticEvent, type TextareaHTMLAttributes } from 'react'
+import { forwardRef, Fragment, useCallback, useImperativeHandle, useLayoutEffect, useRef, type ChangeEvent, type KeyboardEvent, type SyntheticEvent, type TextareaHTMLAttributes } from 'react'
 import { applyEdit, findEdit, snapCaret, tokenEndingAt, tokenParts, tokenStartingAt, wholeTokenEdit, type Before, type TextEdit, type TextRange } from '../lib/textTokens'
 
 export interface TextToken extends TextRange {
@@ -22,6 +24,7 @@ export interface TextToken extends TextRange {
 }
 
 export interface TokenTextareaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'defaultValue' | 'onChange'> {
+  /** with "\n" line breaks, as the text area gives them back (a "\r\n" would put every range after it out of step) */
   value: string
   /** the ranges to stand out and to keep whole (they may not overlap) */
   tokens: readonly TextToken[]
@@ -31,7 +34,7 @@ export interface TokenTextareaProps extends Omit<TextareaHTMLAttributes<HTMLText
    * weight: those move the letters away from where the text area has them */
   tokenClass: (token: TextToken) => string
   /** the outer box's classes (its place in a flex row, …); className is the text area's own. Its background must stay
-   * transparent (the layer is under it): put a background on the outer box or around it */
+   * transparent (a layer is under it): put a background on the outer box or around it */
   containerClassName?: string
 }
 
@@ -62,6 +65,8 @@ export const TokenTextarea = forwardRef<HTMLTextAreaElement, TokenTextareaProps>
   const composing = useRef<number | null>(null)
   /** where the caret goes once the text that took a whole token is in the box */
   const caretNext = useRef<number | null>(null)
+  /** the token a Backspace or Delete selected for the browser to delete */
+  const armed = useRef<TextRange | null>(null)
 
   /** the layers: the text area's metrics, width without its scroll bar, and scroll position */
   const sync = useCallback(() => {
@@ -80,7 +85,8 @@ export const TokenTextarea = forwardRef<HTMLTextAreaElement, TokenTextareaProps>
     }
   }, [])
   useLayoutEffect(sync)
-  useEffect(() => {
+  // (a layout effect: the first paint already has the scroll bar's width)
+  useLayoutEffect(() => {
     const t = box.current
     if (!t) return
     const scrolled = () => {
@@ -89,12 +95,16 @@ export const TokenTextarea = forwardRef<HTMLTextAreaElement, TokenTextareaProps>
     const onBefore = (e: Event) => {
       before.current = { value: t.value, start: t.selectionStart ?? t.value.length, end: t.selectionEnd ?? t.value.length, inputType: (e as InputEvent).inputType }
     }
-    // (the browser's own events: React's stand-ins for these differ between browsers)
+    // (the browser's own events: React's stand-ins for these differ between browsers). While an IME writes, the text
+    // area paints its own letters (the IME's underline takes their colour) and the front layer only the tokens
+    // (index.css data-composing)
     const started = () => {
       composing.current = Math.min(t.selectionStart ?? t.value.length, t.selectionEnd ?? t.value.length)
+      t.parentElement?.setAttribute('data-composing', '')
     }
     const ended = () => {
       composing.current = null
+      t.parentElement?.removeAttribute('data-composing')
     }
     t.addEventListener('scroll', scrolled, { passive: true })
     t.addEventListener('beforeinput', onBefore)
@@ -102,12 +112,16 @@ export const TokenTextarea = forwardRef<HTMLTextAreaElement, TokenTextareaProps>
     t.addEventListener('compositionend', ended)
     const resized = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(sync)
     resized?.observe(t)
+    // the letters' colour is copied: a theme switched on the page (a class or style on <html>) copies it again
+    const themed = typeof MutationObserver === 'undefined' ? null : new MutationObserver(sync)
+    themed?.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
     return () => {
       t.removeEventListener('scroll', scrolled)
       t.removeEventListener('beforeinput', onBefore)
       t.removeEventListener('compositionstart', started)
       t.removeEventListener('compositionend', ended)
       resized?.disconnect()
+      themed?.disconnect()
     }
   }, [sync])
   useLayoutEffect(() => {
@@ -124,9 +138,14 @@ export const TokenTextarea = forwardRef<HTMLTextAreaElement, TokenTextareaProps>
     before.current = null
     const s: Before = { start: b.start, end: b.end, inputType: b.inputType }
     const edit = findEdit(value, next, s)
+    const a = armed.current
+    armed.current = null
     // a deletion into a token from its edge takes the whole token; while an IME writes, only when it reached into the
-    // text from before it began (a phone keyboard taking back the word before the caret), never the IME's own text
-    const whole = composing.current === null || edit.from < composing.current ? wholeTokenEdit(tokens, edit, s) : null
+    // text from before it began (a phone keyboard taking back the word before the caret), never the IME's own text. A
+    // keyboard that answered the Backspace we turned into "delete this token" with a deletion of its own (one letter of
+    // it, or the letter before it) still takes the token
+    const fromKey = a && s.start === a.start && s.end === a.end && next.length < value.length && !(edit.from === a.start && edit.removed === a.end - a.start && edit.inserted === 0)
+    const whole = fromKey ? { from: a.start, removed: a.end - a.start, inserted: 0 } : composing.current === null || edit.from < composing.current ? wholeTokenEdit(tokens, edit, s) : null
     if (whole) {
       caretNext.current = whole.from
       onTextChange(applyEdit(value, whole), whole)
@@ -142,12 +161,13 @@ export const TokenTextarea = forwardRef<HTMLTextAreaElement, TokenTextareaProps>
     const s = t.selectionStart ?? 0
     if (s !== t.selectionEnd) return
     // the whole token selected: the browser's own deletion takes it (and its undo puts it back as text)
-    if (e.key === 'Backspace' && !e.metaKey) {
-      const tok = tokenEndingAt(tokens, s)
-      if (tok) t.setSelectionRange(tok.start, tok.end)
-    } else if (e.key === 'Delete' && !e.metaKey) {
-      const tok = tokenStartingAt(tokens, s)
-      if (tok) t.setSelectionRange(tok.start, tok.end)
+    armed.current = null
+    if ((e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey) {
+      const tok = e.key === 'Backspace' ? tokenEndingAt(tokens, s) : tokenStartingAt(tokens, s)
+      if (tok) {
+        t.setSelectionRange(tok.start, tok.end)
+        armed.current = tok
+      }
     } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
       const rtl = getComputedStyle(t).getPropertyValue('direction') === 'rtl'
       const backward = (e.key === 'ArrowLeft') !== rtl
@@ -176,7 +196,8 @@ export const TokenTextarea = forwardRef<HTMLTextAreaElement, TokenTextareaProps>
   /** one of the two layers: the same text, the tokens marked (index.css: the back one shows only the tokens' backgrounds,
    * the front one only the letters) */
   const layer = (side: 'back' | 'front') => (
-    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden" data-token-layer={side}>
+    // (never translated or selected by the page: the text area's own text is the text)
+    <div aria-hidden translate="no" className="pointer-events-none absolute inset-0 overflow-hidden select-none" data-token-layer={side}>
       <div ref={side === 'back' ? back : front} data-testid={side === 'front' ? 'token-layer' : undefined}>
         {parts.map((p, i) =>
           p.token ? (
@@ -194,7 +215,7 @@ export const TokenTextarea = forwardRef<HTMLTextAreaElement, TokenTextareaProps>
   )
 
   return (
-    <div className={clsx('relative', containerClassName)}>
+    <div className={clsx('relative', containerClassName)} data-token-box="">
       {layer('back')}
       <textarea
         ref={box}

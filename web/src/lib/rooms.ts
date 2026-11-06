@@ -120,6 +120,9 @@ export function insertMention(text: string, start: number, caret: number, name: 
   return { text: text.slice(0, start) + insert + text.slice(caret), caret: start + insert.length }
 }
 
+/** A text with "\n" line breaks only, as a text area gives it back. */
+export const lineBreaks = (text: string) => text.replace(/\r\n?/g, '\n')
+
 /** Where a mention's "@" may stand: at the start, or after a space or an opening mark (the server's "@트리나" check,
  * shared roomAiMentions, and mentionParts go by the same rule). */
 export const mentionCanStart = (text: string, at: number) => at === 0 || /[\s([{"'“‘]/.test(text[at - 1] ?? '')
@@ -134,11 +137,17 @@ export interface MentionToken { start: number; end: number; kind: 'person' | 'ai
  * will take as a call (roomAiMentions with those people's names: a person of that name wins). Text that only looks like
  * a mention (pasted, typed without the list, a picked name broken by an edit) is plain text: it notifies nobody. */
 export function mentionTokens(text: string, picked: readonly PickedMention[], ai: boolean): MentionToken[] {
-  const people = picked.filter((p) => p.name && p.end === p.start + p.name.length + 1 && text.startsWith(`@${p.name}`, p.start) && mentionCanStart(text, p.start))
-  const calls = ai ? roomAiMentions(text, people.map((p) => p.name)) : []
+  let kept = picked.filter((p) => p.name && p.end === p.start + p.name.length + 1 && text.startsWith(`@${p.name}`, p.start) && mentionCanStart(text, p.start))
   // a person's "@name" that an AI name runs past ("@트리" + "나"): the call wins, as on the sent message; the server
-  // asks the AI and the person is not sent (a person whose name goes past the AI name keeps it: roomAiMentions)
-  const kept = people.filter((p) => !calls.some((r) => r.start < p.end && p.start < r.end))
+  // asks the AI and the person is not sent (a person whose name goes past the AI name keeps it: roomAiMentions). The
+  // calls are then counted with the names that are sent, as the server counts them
+  let calls = ai ? roomAiMentions(text, kept.map((p) => p.name)) : []
+  for (let i = 0; i < 3 && ai; i++) {
+    const next = kept.filter((p) => !calls.some((r) => r.start < p.end && p.start < r.end))
+    if (next.length === kept.length) break
+    kept = next
+    calls = roomAiMentions(text, kept.map((p) => p.name))
+  }
   const tokens: MentionToken[] = [...kept.map((p) => ({ start: p.start, end: p.end, kind: 'person' as const, id: p.id })), ...calls.map((r) => ({ start: r.start, end: r.end, kind: 'ai' as const, id: AI_MENTION_ID }))]
   return tokens.sort((a, b) => a.start - b.start)
 }

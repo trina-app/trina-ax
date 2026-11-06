@@ -132,11 +132,15 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 ::selection { background: var(--c-accent-soft); }
 /* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
    its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
-   token's background shows under it), an IME's marks, spell check and placeholder are in between. */
+   token's background shows under it), an IME's background, spell check and placeholder are in between. */
 textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: transparent; }
 textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; background: color-mix(in srgb, var(--c-accent) 24%, transparent); }
 [data-token-layer="back"] > div, [data-token-layer="back"] [data-token] { color: transparent !important; }
-[data-token-layer="front"] [data-token] { background: none !important; box-shadow: none !important; }
+[data-token-box]:not([data-composing]) > [data-token-layer="front"] [data-token] { background: none !important; box-shadow: none !important; }
+/* While an IME writes, the box paints its own letters, so the IME's underline (drawn in their colour) shows; the front
+   layer then draws only the tokens, on their background, over the box's letters there. The same pixels either way. */
+[data-token-box][data-composing] > textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: currentcolor; }
+[data-token-box][data-composing] > [data-token-layer="front"] > div { color: transparent !important; }
 /* with the system's forced colours the box draws its own letters and the layer stays away */
 @media (forced-colors: active) {
   textarea[data-token-input]:not(:placeholder-shown), textarea[data-token-input]::selection { -webkit-text-fill-color: currentcolor; }

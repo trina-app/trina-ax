@@ -142,6 +142,34 @@ test('a Korean IME writing next to a token: each syllable shows, the caret stays
   expect(room.sent[0]).toMatchObject({ body: '@Minjaelee 민재님', mentions: [MJ.id] })
 })
 
+test('while an IME writes, the box paints its own letters (so its underline shows) and the box looks the same', async ({ page }) => {
+  await openRoom(page)
+  const box = page.getByTestId('room-input')
+  await box.click()
+  await pick(page, 'Minj')
+  await page.keyboard.type('민재님 좀 봐 주세요 ')
+  await pick(page, '트리')
+  const composer = page.getByTestId('room-composer')
+  await page.mouse.move(0, 0)
+  const before = await composer.screenshot()
+  await box.dispatchEvent('compositionstart')
+  expect(await box.evaluate((t) => [t.parentElement!.hasAttribute('data-composing'), getComputedStyle(t).webkitTextFillColor !== 'rgba(0, 0, 0, 0)'])).toEqual([true, true])
+  const during = await composer.screenshot()
+  await box.dispatchEvent('compositionend')
+  expect(await box.evaluate((t) => t.parentElement!.hasAttribute('data-composing'))).toBe(false)
+  // the same pixels whoever paints the letters (no flicker at each syllable)
+  const differ = await page.evaluate(async ([a, b]) => {
+    const load = (src: string) => new Promise<HTMLImageElement>((ok) => { const i = new Image(); i.onload = () => ok(i); i.src = src })
+    const [x, y] = await Promise.all([load(a!), load(b!)])
+    const data = (img: HTMLImageElement) => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d')!; g.drawImage(img, 0, 0); return g.getImageData(0, 0, c.width, c.height).data }
+    const p = data(x), q = data(y)
+    let n = 0
+    for (let i = 0; i < p.length; i += 4) if (Math.abs(p[i]! - q[i]!) + Math.abs(p[i + 1]! - q[i + 1]!) + Math.abs(p[i + 2]! - q[i + 2]!) > 60) n++
+    return n / (p.length / 4)
+  }, [`data:image/png;base64,${before.toString('base64')}`, `data:image/png;base64,${during.toString('base64')}`])
+  expect(differ).toBeLessThan(0.002)
+})
+
 for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
   test(`the layer keeps its lines where the box has them (${vp.width}px, a long text that scrolls)`, async ({ page }) => {
     await page.setViewportSize(vp)
@@ -180,6 +208,22 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { w
     expect(front!.token[1]).toBe('rgba(0, 0, 0, 0)')
   })
 }
+
+test('the letters follow a theme switched while the box has text', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' })
+  await openRoom(page)
+  const box = page.getByTestId('room-input')
+  await box.click()
+  await pick(page, 'Minj')
+  await page.keyboard.type('안녕')
+  const colours = () => box.evaluate((t) => [getComputedStyle(t).color, getComputedStyle(t.parentElement!.querySelector('[data-token-layer="front"] > div')!).color])
+  const [light, lightLayer] = await colours()
+  expect(lightLayer).toBe(light)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect.poll(async () => (await colours())[0]).not.toBe(light)
+  const [dark, darkLayer] = await colours()
+  expect(darkLayer).toBe(dark)
+})
 
 test("a thread's reply box: a picked name stands out and the reply mentions them", async ({ page }) => {
   const room = await openRoom(page)
