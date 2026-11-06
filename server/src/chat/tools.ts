@@ -5,7 +5,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
-import type { BrowserToolName, Locale, TurnRequest } from '@mycel/shared/api'
+import type { BrowserToolName, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
@@ -29,7 +29,7 @@ import { recordSkillRead, recordSkillUse } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
-import { boxShellTool } from '../devenv/tool'
+import { BOX_SHELL_TOOL, boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { ROOM_TOOLS } from '../rooms/ai-tools'
@@ -67,6 +67,28 @@ export interface ChatToolSet extends TurnToolSet {
   stepLabel(name: string, input: unknown, locale: Locale): string | null
 }
 
+/** box_shell's waiting state on its step (Step.devEnvRun). The first write of a call finds the call's step through
+ * patchToolStep (it may not exist yet); later writes of the same run go to that step by its id. */
+function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>) => void {
+  const stepOf = new Map<string, string>()
+  /** the newest state of a run whose step was not found yet: one patch per run, so a second write before the step
+   * exists does not land on the step of the next box_shell call (patchToolStep's FIFO) */
+  const pending = new Map<string, NonNullable<Step['devEnvRun']>>()
+  return (run) => {
+    const id = stepOf.get(run.id)
+    if (id) { exec.updateStep(id, { devEnvRun: run }); return }
+    const first = !pending.has(run.id)
+    pending.set(run.id, run)
+    if (!first) return
+    exec.patchToolStep(BOX_SHELL_TOOL, (s) => {
+      stepOf.set(run.id, s.id)
+      const latest = pending.get(run.id) ?? run
+      pending.delete(run.id)
+      return { devEnvRun: latest }
+    })
+  }
+}
+
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
   const tools = new Map<string, Tool>()
@@ -98,6 +120,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (exec.devEnv) {
     const person = turnPerson(exec)
     add(boxShellTool({
+      queueStep: boxShellQueueStep(exec),
       ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
       redact: (s) => exec.redact(s),
       unattended: person.unattended,
