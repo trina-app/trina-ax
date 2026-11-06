@@ -10292,6 +10292,25 @@ items of SK.
   - Not taken: SKIP 3 (setup closed without AI is the owner's "AI 연결부터" rule), 8 (the sidebar footer: feat/phone-nav
     redesigns the sidebar), 15 (the deck's own sources: AI content). FLOW M4 ("{owner}님이 준비한 것: …") is not in this
     build and was not added.
+- **Recheck nits** (a second walk of the steps, fix/onboarding-recheck-nits, 2026-11-07):
+  - *The setup row's count* (changes "The setup row" above: "the counted steps answered here (done or put off)"): put
+    off counted as answered, so a phone's Home read "설정 이어서 하기 · 4/4" with 팀 파일 put off and 내 스킬 waiting for a
+    computer. Now the count is the steps done (`doneCount`; put off is not done), and with one step left here the row
+    names it instead, no count: "남은 일: 팀 파일" (`stepsLeft`: not done, open or put off; on a phone not 내 스킬 while
+    it waits for a computer, which has its own line). One rule (`setupRowWords`) for the sidebar / ☰ drawer row and a
+    phone Home's row, so they agree. Chosen over "남은 일 N개" for several steps: "n/4" stays the approved form.
+  - *회사 소개's "홈페이지 다시 읽기"* shows only when the profile has a website (none after "홈페이지가 없어요" and a
+    pasted text, nor for a saved profile without one).
+  - *내 스킬 after "다른 폴더도 가져오기"*: what went in lists every skill shared in the steps (the progress's
+    `shared.skills`, earlier ones first, each once), then this share's rows; earlier merges, rules and tools are not
+    repeated (the merges have their notice at the end of the steps).
+  - *Readable skill names on the member's way in* (extends "Readable skill names" above): the form's title ("quote maker
+    실행"), the team skills row, its run and menu buttons, the chat chip of what the form sends and the answer's receipt
+    use `skillLabel`. Not changed: the "/" menu (a command: `/quote-maker`), search results, Home's popular skills, the
+    owner's own link skill picker.
+  - *The product's name* in 내 스킬's texts (the phone's line, Claude Code's prompt and connect line, the scripts reason):
+    `{product}` (PRODUCT.displayName) in every language, with particles that do not depend on the name (에, 부터,
+    에서는); before, "트리나" / "Trina" under a header that said the product's name.
 
 ## 대화방 알림 소리 (feat/room-sound, 2026-11-06)
 

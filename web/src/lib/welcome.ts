@@ -5,7 +5,7 @@
 // "저장하고 계속" starts the intro deck once per team) → 내 스킬 → 팀 파일 → 팀원 초대 → the end screen. The intro deck is
 // no step: it is an ordinary chat ("우리 회사 소개서") found by its row in the chat list.
 import { GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, WELCOME_COUNTED, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
-import type { MessageKey } from '../i18n'
+import type { MessageKey, Params } from '../i18n'
 
 /** Where the deck's chat is listed, as the sidebar names that list: the sidebar heading's own message
  * (`sidebar.recents`, Sidebar.tsx), never words of our own. The walk of PR #100 found "트리나 기록" here while the sidebar
@@ -80,15 +80,40 @@ export function countedSteps(p: WelcomeProgress | null, aiReady = true): Welcome
   return ai ? ['ai', ...WELCOME_COUNTED] : [...WELCOME_COUNTED]
 }
 
-/** "2/4" in the setup row: the counted steps answered here (done or put off; the AI step once AI answers; 내 스킬 put
- * off on a phone is not answered on a computer). */
-export function doneCount(p: WelcomeProgress | null, aiReady = true, computer = true): number {
+/** A counted step is done: 회사 소개 saved and answered (profileAnswered), the others (the AI step too) recorded done.
+ * Put off is not done. */
+const stepDone = (p: WelcomeProgress, s: WelcomeStep) => (s === 'profile' ? p.steps.profile === 'done' && profileAnswered(p) : stepState(p, s) === 'done')
+
+/** "2/4" in the setup row: the counted steps done (the AI step once AI answered). A step put off is not counted: with
+ * steps put off the row read "4/4" while something was left (the recheck of onboarding v5). */
+export function doneCount(p: WelcomeProgress | null, aiReady = true): number {
   if (!p) return 0
-  return countedSteps(p, aiReady).filter((s) => (s === 'ai' ? p.steps.ai === 'done' : !openHere(p, s, computer))).length
+  return countedSteps(p, aiReady).filter((s) => stepDone(p, s)).length
+}
+
+/** What is left here, in order: the counted steps not done (open or put off), except 내 스킬 on a phone while it waits
+ * for a computer (`skillsLater`: nothing to do there). One left: the setup row names it ("남은 일: 팀 파일"). */
+export function stepsLeft(p: WelcomeProgress | null, aiReady = true, computer = true): WelcomeStep[] {
+  const counted = countedSteps(p, aiReady)
+  if (!p) return counted
+  return counted.filter((s) => !stepDone(p, s) && !(s === 'skills' && !computer && p.skillsLater))
 }
 
 /** How many steps the progress counts (the "/4", "/5" with the AI step): read it from here, never as a number of its own. */
 export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true) => countedSteps(p, aiReady).length
+
+/** A step by its name on the progress bar ("팀 파일"). */
+const STEP_NAME: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progress.ai', profile: 'welcome.progress.profile', skills: 'welcome.progress.skills', files: 'welcome.progress.files', invite: 'welcome.progress.invite' }
+
+/** The words of the way back to the steps, one rule for the sidebar's (and the ☰ drawer's) setup row and a phone Home's
+ * quiet row, so the two agree: one step left here, it is named ("남은 일: 팀 파일", no count); else "설정 이어서 하기"
+ * with "n/4", the steps done. */
+export function setupRowWords(t: (key: MessageKey, params?: Params) => string, p: WelcomeProgress | null, aiReady = true, computer = true): { text: string; count: string | null } {
+  const left = stepsLeft(p, aiReady, computer)
+  const name = left.length === 1 ? STEP_NAME[left[0]!] : undefined
+  if (name) return { text: t('setupRow.left', { step: t(name) }), count: null }
+  return { text: t('setupRow.resume'), count: `${doneCount(p, aiReady)}/${stepTotal(p, aiReady)}` }
+}
 
 /** Every team's start (POST /api/onboarding/welcome/team): the general pack and the team's own group with its brand
  * folder, while any is missing (the server installs and creates each once, whatever the page asks; a group recorded
@@ -114,10 +139,11 @@ export const skillsWaitForComputer = (p: WelcomeProgress | null) =>
 
 /**
  * The setup row (components/onboarding/SetupRow.tsx; docs/DECISIONS.md "W5"), the owner's one way back to the steps
- * from every page: `hidden`, `resume` ("설정 이어서 하기 · 2/4" → /welcome at its step) or `ai` (while no AI answers:
- * "AI 연결하기", the connect dialog). Never on /welcome itself; while unfinished and not hidden (showResume). Without AI
- * it hides on Home, where the no-AI card stands. On a phone it hides on Home, whose own quiet row under the message box
- * says the same; on a computer it replaces that row. `aiReady`: AI answers the owner (or not known yet).
+ * from every page: `hidden`, `resume` ("설정 이어서 하기 · 2/4", or "남은 일: 팀 파일" with one step left: setupRowWords;
+ * → /welcome at its step) or `ai` (while no AI answers: "AI 연결하기", the connect dialog). Never on /welcome itself;
+ * while unfinished and not hidden (showResume). Without AI it hides on Home, where the no-AI card stands. On a phone it
+ * hides on Home, whose own quiet row under the message box says the same; on a computer it replaces that row.
+ * `aiReady`: AI answers the owner (or not known yet).
  */
 export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean }): 'hidden' | 'resume' | 'ai' {
   if (o.path === '/welcome' || !showResume(p, o.computer)) return 'hidden'

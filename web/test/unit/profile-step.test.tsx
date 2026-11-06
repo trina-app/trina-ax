@@ -379,6 +379,49 @@ describe('colours and images, clicked', () => {
     } finally { await m.unmount() }
   })
 
+  // the recheck of onboarding v5: after "홈페이지가 없어요" and a pasted text the review still offered "홈페이지 다시 읽기"
+  test('"홈페이지 다시 읽기" only with a homepage: none after "홈페이지가 없어요" and a pasted text, nor for a saved profile without one; a website reading keeps it', async () => {
+    const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
+    const TEXT = 'Acme makes quiet desk fans.'
+    // no homepage, a pasted text: nothing to read again
+    calls = []
+    draftState = { status: 'done', website: '', error: null, steps: [], draft: { website: '', name: '', oneLine: TEXT, products: '', audience: '', tone: [], avoid: '', sources: [] } }
+    let m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={noop} skipLabel="나중에 하기" /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-site'), 'the website form')
+      await m.click(button('홈페이지가 없어요'))
+      await m.click(await m.until(() => m.find('profile-step-to-paste'), 'the fallback'))
+      await m.type(m.get('profile-step-paste').querySelector('textarea')!, TEXT)
+      await m.click(m.get('profile-step-paste').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-step-review'), 'the review')
+      expect(button('홈페이지 다시 읽기')).toBeUndefined()
+      expect(m.find('profile-step-read-again')).toBeNull()
+      expect(m.find('profile-step-save')).not.toBeNull()
+    } finally { await m.unmount() }
+    // a saved profile without a website: none either
+    m = await mount(<MemoryRouter><ProfileStep initial={{ ...PROFILE, website: '' }} onDone={noop} /></MemoryRouter>)
+    try {
+      expect(button('홈페이지 다시 읽기')).toBeUndefined()
+    } finally { await m.unmount() }
+    // a website reading: "홈페이지 다시 읽기" reads the same address again
+    calls = []
+    draftState = { status: 'done', website: 'https://acme.example/', error: null, steps: [], draft: { website: 'https://acme.example/', name: '', oneLine: TEXT, products: '', audience: '', tone: [], avoid: '', sources: [] } }
+    m = await mount(<MemoryRouter><ProfileStep onDone={noop} initialWebsite="https://acme.example/" /></MemoryRouter>)
+    try {
+      await m.until(() => !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-step-review'), 'the review')
+      expect(m.get('profile-step-read-again').textContent).toBe('홈페이지 다시 읽기')
+      await m.click('profile-step-read-again')
+      const input = m.get('profile-step-site').querySelector('input') as unknown as { value: string }
+      expect(input.value).toBe('https://acme.example/')
+    } finally { await m.unmount() }
+  })
+
   test('autoSave (the welcome steps): a website draft with a one-line intro is saved as it came, no review; without one, from pasted text, a failed save or without autoSave: the review', async () => {
     const done = (oneLine: string, website = 'https://acme.example/') => ({
       status: 'done', website, error: null, steps: [], assets: { images: 2, logo: true, colors: ['#37ee6a', '#0b140d'] },

@@ -16,6 +16,7 @@
 // link or notice opens /skills/share/:id) as done; and once 내 스킬 is done (the welcome progress), the newest share
 // applied, so 이전 from the next step shows what went in. Under what went in, "다른 폴더도 가져오기" (on a computer)
 // goes back to the picker for a second folder (Claude Code and Codex side by side); the primary stays the next step.
+// What went in lists every skill shared in these steps (the progress's `shared.skills`), not only the last folder's.
 // A picked folder may be Claude's (.claude) or Codex's (.codex, .agents): lib/skillScan.ts tells them apart.
 // Then components/onboarding/SkillShareReview.tsx (checking, the list, what went in). A phone (or a browser that
 // cannot pick folders) gets the phone version: skills live on a computer, so its primary goes on and the step waits
@@ -120,6 +121,9 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
   const [looked, setLooked] = useState(false)
   // 내 스킬 is done (the steps' progress, loaded by pages/Welcome.tsx): a revisit shows what went in
   const done = useWelcome((s) => s.progress?.steps.skills === 'done')
+  // every skill shared in these steps so far (the server keeps them: `shared.skills`): what went in lists them all, not
+  // only the last folder's (다른 폴더도 가져오기, Claude Code and Codex side by side)
+  const sharedSoFar = useWelcome((s) => s.progress?.shared?.skills)
   const doneRef = useRef(done)
   doneRef.current = done
   const input = useRef<HTMLInputElement>(null)
@@ -304,6 +308,7 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
           busy={busy || reading}
           // the welcome steps: setup is not finished while this step is on screen
           inSetup
+          earlier={sharedSoFar}
         />
         {!phone && !fromConnector(share.source) && folderInput}
         {error && <ErrorNote onRetry={error.retry}>{error.text}</ErrorNote>}

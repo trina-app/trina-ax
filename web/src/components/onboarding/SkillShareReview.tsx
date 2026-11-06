@@ -9,7 +9,9 @@
 // the welcome step (components/onboarding/SkillsStep.tsx) and by /skills/share/:id (pages/SkillSharePage.tsx), where
 // the notice about a Claude Code or Codex proposal leads. During the owner's setup (`inSetup`, docs/DECISIONS.md "W5")
 // the done rows have no 열기 (the steps go on; the skill form is a trip away from them), and a merge waits for the end
-// of the setup ("합치기는 설정 끝나고 확인해요"; one Inbox notice then leads to the merge chat).
+// of the setup ("합치기는 설정 끝나고 확인해요"; one Inbox notice then leads to the merge chat). The welcome step passes
+// the skills shared earlier in the setup (`earlier`: another folder, Claude Code or Codex), so what went in lists them
+// all, each once, not only this share's.
 // One primary per screen; on phones the list loses its frame and keeps its hairlines.
 import clsx from 'clsx'
 import { ChevronDown, CircleAlert, CircleCheck, FileCode, FileQuestionMark, FolderOpen, GitMerge, KeyRound, Loader2, Package, Plug, Sparkles, Terminal, Users } from 'lucide-react'
@@ -19,6 +21,7 @@ import type { ApplySkillShare, ShareAction, ShareCandidate, ShareReason, SkillSh
 import { api, API, errorText } from '../../lib/api'
 import { formatRelative } from '../../lib/format'
 import { skillRunLink } from '../../lib/skillForm'
+import { skillNameOf } from '../../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Modal, useMediaQuery } from '../ui'
 
@@ -66,7 +69,7 @@ const EXCLUDED_ORDER: ShareReason[] = ['secret', 'scripts', 'plugin', 'too_big',
 export const connectorApp = (s: SkillShareSource): string | null => (s === 'claude_code' ? 'Claude Code' : s === 'codex' ? 'Codex' : null)
 
 /** The name people read, and on a computer the skill's own name in mono (Claude Code users know it as /weekly-report). */
-function SkillName({ c, phone, muted }: { c: ShareCandidate; phone: boolean; muted?: boolean }) {
+function SkillName({ c, phone, muted }: { c: Pick<ShareCandidate, 'name' | 'title'>; phone: boolean; muted?: boolean }) {
   const title = c.title?.trim() || c.name
   return (
     <span className={clsx('text-sm font-medium break-words', muted ? 'text-muted' : 'text-ink')}>
@@ -96,9 +99,12 @@ export interface SkillShareReviewProps {
   busy?: boolean
   /** the owner's welcome steps are unfinished: no 열기 on what went in, a merge waits for their end */
   inSetup?: boolean
+  /** the skills shared earlier in the welcome steps (the progress's `shared.skills`, in the order they went in): listed
+   * above this share's in what went in, a skill of this share's never twice */
+  earlier?: readonly { path: string; title: string }[]
 }
 
-export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false }: SkillShareReviewProps) {
+export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, earlier }: SkillShareReviewProps) {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -269,12 +275,16 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
   // ---- applied: what went in
   if (share.status === 'applied') {
     const rows = share.candidates.filter((c) => c.applied)
+    // what went in before this share (another folder, Claude Code, Codex): each once, this share's own rows as they are
+    const mine = new Set(share.candidates.map((c) => c.applied?.path).filter(Boolean))
+    const before = (earlier ?? []).filter((s, i, all) => !mine.has(s.path) && all.findIndex((x) => x.path === s.path) === i)
     return (
       <div className="space-y-4" data-testid="skill-review" data-status="applied">
         <div className={frame}>
           <h3 ref={heading} tabIndex={-1} className={clsx('pt-3 pb-1 text-sm font-semibold text-ink outline-none', pad)} data-testid="skills-done">{t('welcome.skills.done')}</h3>
           <ul>
-            {rows.map((c, i) => <DoneRow key={c.name} c={c} phone={phone} first={i === 0} pad={pad} inSetup={inSetup} />)}
+            {before.map((s, i) => <EarlierRow key={s.path} s={s} phone={phone} first={i === 0} pad={pad} />)}
+            {rows.map((c, i) => <DoneRow key={c.name} c={c} phone={phone} first={!before.length && i === 0} pad={pad} inSetup={inSetup} />)}
             {share.rule?.path && (
               <li className={clsx('flex items-start gap-3 border-t border-line py-3', pad)} data-testid="skill-done-row" data-kind="rule">
                 <CircleCheck size={18} className="shrink-0 text-ok" aria-hidden />
@@ -480,6 +490,22 @@ function DoneRow({ c, phone, first, pad, inSetup }: { c: ShareCandidate; phone: 
         <span className="mt-0.5 block text-label text-muted">{line}</span>
       </span>
       {action}
+    </li>
+  )
+}
+
+/** A skill an earlier share of the setup added (the progress keeps its path and the name people read): as an added row
+ * of this share reads, without 열기 (the steps go on). */
+function EarlierRow({ s, phone, first, pad }: { s: { path: string; title: string }; phone: boolean; first: boolean; pad: string }) {
+  const t = useT()
+  const name = skillNameOf(s.path)
+  return (
+    <li className={clsx('flex items-start gap-3 border-line py-3', pad, !first && 'border-t')} data-testid="skill-done-row" data-kind="added" data-name={name}>
+      <CircleCheck size={18} className="shrink-0 text-ok" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <SkillName c={{ name, title: s.title }} phone={phone} />
+        <span className="mt-0.5 block text-label text-muted">{t('welcome.skills.doneAdded')}</span>
+      </span>
     </li>
   )
 }
