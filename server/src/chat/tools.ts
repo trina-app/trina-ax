@@ -111,7 +111,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   for (const t of skillTools(exec)) add(t)
   // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
   // in a confidential or draft chat (add() above keeps those to their own tools)
-  for (const t of roomReadTools(exec)) add(t)
+  // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway)
+  if (!exec.templateRun) for (const t of roomReadTools(exec)) add(t)
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -178,7 +179,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       exec.noteRoomTool(name, args)
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
       const roomNo = await exec.confirmRoomChange(name, args)
-      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (room)` }
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -223,7 +224,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
       const no = await exec.confirmRoomChange(name, args)
-      return no ? { refusal: no, summary: `${name} -> not allowed by the user (room)` } : null
+      return no ? { refusal: no, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` } : null
     },
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
@@ -233,7 +234,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       recordSent(exec.rt.db, exec.spec.chatId, args)
       // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
       const roomNo = await exec.confirmRoomChange(name, args)
-      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (room)` }
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)

@@ -98,9 +98,11 @@ export const LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS = false
  * every 0.3 s and has no other cap, and a sub-agent may take many steps */
 export const SUBTASK_STEPS_KEPT = 30
 
-/** One line of the audit log (tool_events, tool 'agent') for a sub-task's start or end; never its prompt or report. */
-export function subtaskSummary(o: { type: string; description: string; end?: { ok: boolean | 'stopped'; toolUses?: number; ms?: number } }): string {
-  const d = JSON.stringify(o.description.replace(/\s+/g, ' ').slice(0, 80))
+/** One line of the audit log (tool_events, tool 'agent') for a sub-task's start or end; never its prompt or report.
+ * `hideDescription`: the AI's description is left out, only its length is kept (a chat that read team chat rooms: the
+ * AI may name a room or a person there, and admins read this log). */
+export function subtaskSummary(o: { type: string; description: string; end?: { ok: boolean | 'stopped'; toolUses?: number; ms?: number }; hideDescription?: boolean }): string {
+  const d = o.hideDescription ? `(a description of ${o.description.length} characters)` : JSON.stringify(o.description.replace(/\s+/g, ' ').slice(0, 80))
   if (!o.end) return `agent ${o.type} started: ${d}`
   const stats = [o.end.toolUses !== undefined ? `${o.end.toolUses} tool uses` : '', o.end.ms !== undefined ? `${Math.round(o.end.ms / 1000)} s` : ''].filter(Boolean).join(', ')
   return `agent ${o.type} ${o.end.ok === 'stopped' ? 'stopped with the answer' : o.end.ok ? 'done' : 'failed'}: ${d}${stats ? ` (${stats})` : ''}`

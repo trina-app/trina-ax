@@ -50,5 +50,6 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
-  'read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests',
 ])
+/** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
+export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])

@@ -6,9 +6,9 @@
 // stops inside it. What is sent carries the room's id (toWire). Never in a room's own message box.
 import clsx from 'clsx'
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
-import { PRODUCT_NAMED_AFTER_AI, roomRefParts, type Room } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, roomRefParts, roomRefTitle, type Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { deleteToken, insertRoomRef, matchRooms, roomRefAt, tokenRanges, toWire, type PickedRoom, type TokenRange } from '../../lib/roomRefs'
+import { deleteToken, insertRoomRef, keepPicked, matchRooms, roomRefAt, tokenRanges, toWire, type PickedRoom, type TokenRange } from '../../lib/roomRefs'
 import { useRooms } from '../../store/rooms'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { scrollToShow } from './SkillMenu'
@@ -66,10 +66,13 @@ export function useRoomRefMenu({ text, setText, input, initial = [] }: { text: s
 
   const pick = (r: Room) => {
     if (!at || caret === null) return
-    const name = title(r)
+    // the title as the token holds it (no brackets, one line, at most 80 characters): what the box shows after "#"
+    const name = roomRefTitle(title(r))
     const next = insertRoomRef(text, at.start, caret, name)
     setText(next.text)
-    setPicked((p) => (p.some((x) => x.id === r.id && x.title === name) ? p : [...p, { id: r.id, title: name }]))
+    // one room per title: the latest pick wins (two rooms of one name would look the same in the box), and rooms whose
+    // token is no longer in the text are forgotten
+    setPicked((p) => keepPicked([...p.filter((x) => x.title !== name), { id: r.id, title: name }], next.text))
     setCaret(next.caret)
     lastCaret.current = next.caret
     place(next.caret)

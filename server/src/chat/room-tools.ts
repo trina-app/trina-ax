@@ -111,7 +111,7 @@ export function roomReadTools(exec: TurnExec): Tool[] {
  * picture (the same switch, engine check and per-answer budget as a read). */
 async function readRoomFile(exec: TurnExec, files: TurnFiles, a: { room: string; file: string; offset?: number }): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
   const { rt, spec } = exec
-  const found = findRoomFile(rt.db, spec.userId, a.room, a.file)
+  const found = findRoomFile(rt.db, spec.userId, a.room, a.file, rt.timeZone)
   if ('text' in found) return { ...text(found.text), summary: 'room_file -> not found' }
   const { file, message, room, title, author } = found
   addSources(rt.db, spec.chatId, [{ type: 'room', id: room.id, fromSeq: message.thread_root_seq ?? message.seq }])
@@ -154,7 +154,8 @@ async function readRoomFile(exec: TurnExec, files: TurnFiles, a: { room: string;
     }
   } catch (e) {
     signal.throwIfAborted()
-    const why = e instanceof Error ? e.message.slice(0, 200) : 'it could not be converted'
-    return { ...text(`${head}\nThe file could not be read as text: ${why}.`, true), summary: 'room_file -> not converted' }
+    // a converter's message can quote the file: one line, our tags neutralised, inside the file's framing
+    const why = e instanceof Error ? neutralizeTags(e.message.replace(/[\r\n"<>\u2028\u2029]+/g, ' ').slice(0, 200)) : 'it could not be converted'
+    return { ...text(`${head}\nThe file could not be read as text (the converter said: "${why}").`, true), summary: 'room_file -> not converted' }
   }
 }

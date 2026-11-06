@@ -63,6 +63,12 @@ export function tokenRanges(text: string, picked: PickedRoom[]): TokenRange[] {
   return out.sort((a, b) => a.start - b.start)
 }
 
+/** The picked rooms whose token is still in the text (one typed or deleted away is forgotten). */
+export function keepPicked(picked: PickedRoom[], text: string): PickedRoom[] {
+  const used = new Set(tokenRanges(text, picked).map((r) => r.room.id))
+  return picked.filter((p) => used.has(p.id))
+}
+
 /** The text as it is sent: each token as `#[<title>](room:<id>)`. */
 export function toWire(text: string, picked: PickedRoom[]): string {
   let out = '', at = 0

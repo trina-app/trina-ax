@@ -10434,7 +10434,8 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   (migration 254, additive, reader 1) and taints the session. From then on, for the rest of that chat (a new session,
   an edited first message and a restart do not clear it; it is read from the database on every call), every tool call
   outside `ROOMS_SEEN_READ_ONLY_TOOLS` (`rooms/ai-tools.ts`: the room session's read-only tools, the room tools, the
-  scheduled tasks' list, Drive's search, list and read, `find_tools`, the in-app browser's reading tools, `set_title`)
+  scheduled tasks' list, Drive's search, list and read, `find_tools`, `set_title`, and the in-app browser's reading tools
+  only in a turn that has the browser)
   raises the room session's server card (`confirmRoomChange`, its words: "여기에 대화방 메시지(다른 사람이 쓴 글)가
   들어와서, 무언가를 바꾸기 전에 먼저 물어봐요. 트리나가 이 작업을 하려고 해요: …"), the same card with the same
   details (what it does, the file, all of what it writes one click away) and the same rule for skill and instruction
@@ -10452,7 +10453,8 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   "예산"", "대화방 파일 읽기 · 보고서.pdf", in the five languages (`FILE_STEP_VERB`; English "Read conversation").
 - **Limits.** A read gives at most 200 messages, each cut at 4,000 characters, the whole at 60,000 with a line that says
   how to go on (`until=` the oldest shown). A search looks at the newest 20,000 positions of each room (the
-  `(room_id, seq)` index), the 300 rooms with the latest activity, at most 100 results. A file's text at most 40,000
+  `(room_id, seq)` index), the 200 rooms with the latest activity, at most 100 results. A list counts only the 100 rooms
+  it shows, and a room named by its name is matched on its title alone (the counts are read for the match only). A file's text at most 40,000
   characters a call (`offset` reads on), files up to the plan's read limit and 32 MB.
 - **"#" in the AI chat's box.** Typing "#" lists the rooms I am in (group chats, team rooms, the everyone room, 1:1
   chats as "<name> · 1:1"), filtered as I type (titles, and a 1:1 or group chat by a member's name), arrow keys, Enter
@@ -10466,6 +10468,17 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   A sent message shows its tokens as the same chips; editing a message or a waiting message shows "#마케팅" and keeps the
   room. Not in a room's own box: a room's name would reach people who are not in it. Plain words ("마케팅 대화방 봐봐")
   still work through the tools.
+- **Independent review (2026-11-06) fixes.** A sub-task's description (written by the AI, up to 80 characters) went
+  into the `agent` audit line, which admins read: once a chat read rooms only its length is kept. A picked room whose
+  title had brackets, double spaces or more than 80 characters lost its id (the box showed the token's cleaned title,
+  the picker kept the raw one): the picker keeps the token's title. Two rooms of one title (two 김민지 1:1 chats) kept the
+  first pick: one room per title now, the latest pick, and rooms whose token was deleted are forgotten. Approved
+  scheduled templates are no longer offered the tools (their scope refused them at the call). The browser's reading
+  tools skip the card only in a turn that has the browser. A converter's error (it can quote the file) is one line with
+  our tags neutralised. "Several rooms match" gives times in the team's zone; a date's end is the next day's start (a
+  day with a clock change); the person searched for is matched among all accounts in a fixed order. Left: paging back
+  with `until=` skips another message of the very same millisecond; AI-chosen names in other tools' audit lines (a file
+  path, an artifact key) are as they were, and every such change after a room read waited for the person's yes.
 - **Rollback.** Migration 254 is additive (reader level unchanged). An older build has no room tools and ignores the
   mark: in a chat that already holds room content it asks only where it asked before (memories after outside content,
   the wider-audience card). Accepted: going back is rare, and nothing new is read there.

@@ -78,7 +78,7 @@ import { BrandCollector } from '../onboarding/brand-assets'
 import { skillDraftOf, skillDraftSystemPrompt, type SkillDraftScope } from '../onboarding/skill-draft'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
-import { PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import type { RoomTurnContext } from './runtime'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
@@ -139,6 +139,8 @@ export class TurnExec {
   devEnv: { project: { id: string; folderPath: string; name: string } | null } | null = null
   principal: Principal | null = null
   private templateScope = false
+  /** an approved scheduled template's run (its scope is fixed: chat/schedule-templates.ts) */
+  get templateRun(): boolean { return this.templateScope }
   /** a company profile draft chat (onboarding/draft.ts): its own instructions, web_fetch only on the typed site, at
    * most 4 pages per answer, no card for anyone; null for every other chat */
   profileDraft: DraftTurn | null = null
@@ -1021,7 +1023,7 @@ export class TurnExec {
     this.files.subagents = true
     this.subtasks.set(id, { type, description, stats: {}, done: false })
     this.addStep({ id, kind: 'tool', tool: 'agent', label: tr('subtask', this.spec.locale, { d: clip(description, 80) }), status: 'running', subtask: {} })
-    this.auditSubtask(id, subtaskSummary({ type, description }), true)
+    this.auditSubtask(id, subtaskSummary({ type, description, hideDescription: this.roomsSeen }), true)
   }
 
   /** Claude Code's running totals of a sub-agent (task_progress): shown on its sub-task step while it works (S5). */
@@ -1038,7 +1040,7 @@ export class TurnExec {
     t.done = true
     if (stats) t.stats = { ...t.stats, ...stats }
     this.updateStep(id, { ...patch, subtask: subtaskOf(t.stats) })
-    this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok, toolUses: t.stats.toolUses, ms: t.stats.ms } }), ok)
+    this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok, toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), ok)
   }
 
   private auditSubtask(id: string, summary: string, ok: boolean) {
@@ -1337,7 +1339,7 @@ export class TurnExec {
     // a room's session: always; the person's own chat: once a room's messages came into it (chats.rooms_seen), for
     // the rest of the chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")
     const own = !this.room
-    if (own ? ROOMS_SEEN_READ_ONLY_TOOLS.has(tool) || !this.roomsSeen : ROOM_READ_ONLY_TOOLS.has(tool)) return null
+    if (own ? !this.roomsSeen || ROOMS_SEEN_READ_ONLY_TOOLS.has(tool) || (this.browser && ROOMS_SEEN_BROWSER_READ_TOOLS.has(tool)) : ROOM_READ_ONLY_TOOLS.has(tool)) return null
     // a skill, team rule or instruction file changes from a room only with all of its new content on the card
     const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p), this.spec.userId)
     if (!w.shown && w.targets.some(instructionLike)) {
@@ -1677,7 +1679,7 @@ export class TurnExec {
     const cut = new Set(this.runningAtStop)
     for (const s of this.steps) if (s.status === 'running') { cut.add(s.id); s.status = this.stopReason ? 'error' : 'ok'; s.endedAt = new Date().toISOString() }
     // sub-agents the end of the answer cut off (stop, a limit, an error): their end row in the audit
-    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms } }), false) }
+    for (const [id, t] of this.subtasks) if (!t.done) { t.done = true; this.auditSubtask(id, subtaskSummary({ type: t.type, description: t.description, end: { ok: 'stopped', toolUses: t.stats.toolUses, ms: t.stats.ms }, hideDescription: this.roomsSeen }), false) }
     // the per-answer time limit (20 active minutes, or the total time): like the tool-round limit, the answer so far
     // stands and the person may continue; it is not an error. With nothing to continue from (the engine never started
     // or said nothing in all that time) it stays the error it was before 2026-10-30, with "retry".

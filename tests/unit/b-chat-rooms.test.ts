@@ -20,6 +20,7 @@ import { ROOM_TOOLS } from '../../server/src/rooms/ai-tools'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { openDb } from '../../server/src/db'
 import { roomRefsBlock } from '../../server/src/chat/turn'
+import { subtaskSummary } from '../../server/src/chat/subagents'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -245,6 +246,9 @@ describe('limits and search', () => {
     expect(parseWhen('2026-11-01', 'Asia/Seoul')).toBe('2026-10-31T15:00:00.000Z')
     expect(parseWhen('2026-11-01', 'Asia/Seoul', true)).toBe('2026-11-01T15:00:00.000Z')
     expect(parseWhen('yesterday', TZ)).toBeNull()
+    // a day with a clock change is 25 hours there: its end is the next day's start
+    expect(parseWhen('2026-11-01', 'America/New_York')).toBe('2026-11-01T04:00:00.000Z')
+    expect(parseWhen('2026-11-01', 'America/New_York', true)).toBe('2026-11-02T05:00:00.000Z')
     expect(readAs('alice', roomId, { since: 'last week' }).ok).toBe(false)
     // long messages: each cut, and the result stops at its size with a line saying so
     const big = await groupChat('alice', ['erin', 'carol'], 'long messages')
@@ -364,6 +368,12 @@ describe('in a chat', () => {
     // erin never gets a card of alice's
     expect(ws.erin!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
     fs.rmSync(abs(), { force: true })
+  })
+
+  test("a sub-task's description stays out of the audit once a chat read rooms (the AI may name a person there)", () => {
+    expect(subtaskSummary({ type: 'general-purpose', description: 'Summarize the DM with Bob about salary' })).toContain('salary')
+    const hidden = subtaskSummary({ type: 'general-purpose', description: 'Summarize the DM with Bob about salary', end: { ok: true, toolUses: 3 }, hideDescription: true })
+    expect(hidden).toBe('agent general-purpose done: (a description of 38 characters) (3 tool uses)')
   })
 
   test('the audit names no room, person, word or file; no audit_log row at all', async () => {

@@ -5,7 +5,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { roomRefToken, type Locale, type Room, type Step } from '@mycel/shared/api'
-import { deleteToken, fromWire, insertRoomRef, matchRooms, outsideToken, roomRefAt, tokenRanges, toWire } from '../../src/lib/roomRefs'
+import { roomRefTitle } from '@mycel/shared/api'
+import { deleteToken, fromWire, insertRoomRef, keepPicked, matchRooms, outsideToken, roomRefAt, tokenRanges, toWire } from '../../src/lib/roomRefs'
 import { TokenLayer, WithRoomRefs } from '../../src/components/chat/RoomRefMenu'
 import Steps from '../../src/components/chat/Steps'
 import { translate, useLocaleStore } from '../../src/i18n'
@@ -54,6 +55,25 @@ describe('the token', () => {
     expect(toWire('#마케팅', [])).toBe('#마케팅')
     expect(toWire('#마케팅팀 회의', picked)).toBe('#마케팅팀 회의')
     expect(toWire('#마케팅, #마케팅!', picked)).toBe(`${roomRefToken(id(1), '마케팅')}, ${roomRefToken(id(1), '마케팅')}!`)
+  })
+
+  test('a title with brackets, double spaces or over 80 characters keeps its room (the box shows the token\'s own title)', () => {
+    for (const raw of ['[공지] 마케팅', '주간  회의', 'x'.repeat(90)]) {
+      const title = roomRefTitle(raw)
+      const next = insertRoomRef('#', 0, 1, raw)
+      const picked = [{ id: id(1), title }]
+      expect(tokenRanges(next.text, picked)).toHaveLength(1)
+      expect(fromWire(toWire(next.text, picked)).picked).toEqual(picked)
+    }
+  })
+
+  test('rooms whose token went away are forgotten; one room per title', () => {
+    const a = { id: id(1), title: '김민지' }, b = { id: id(3), title: '김민지' }
+    expect(keepPicked([a], '토큰 지움')).toEqual([])
+    expect(keepPicked([a], '#김민지 봐줘')).toEqual([a])
+    // picking another room of the same title replaces the first (the menu keeps one per title)
+    const picked = keepPicked([...[a].filter((x) => x.title !== b.title), b], '#김민지 봐줘')
+    expect(toWire('#김민지 봐줘', picked)).toBe(`${roomRefToken(id(3), '김민지')} 봐줘`)
   })
 
   test('the longest title wins where two overlap; Backspace and Delete take a token whole; the caret never stops in one', () => {
