@@ -2935,6 +2935,8 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.later": "あとで",
   "onboarding.profile.readingHint": "たいてい1分以内に終わります。",
   "skillPack.addMarketing": "マーケティングのスキル{n}つを追加",
+  "skillPack.addHr": "人事書類のスキル{n}つを追加（韓国）",
+  "skillPack.hrHint": "韓国の人事書類のスキルを3つ追加します：雇用契約書、在職・経歴・退職証明書、年次有給休暇。どれも下書きで、署名と決定は会社が行います。追加後に変更できます。",
   "onboarding.profile.understood": "このように理解しました：{line}",
   "onboarding.profile.unreadable": "ホームページから会社紹介を読み取れませんでした。",
   "onboarding.profile.fallbackTitle": "別の方法で作りましょう",

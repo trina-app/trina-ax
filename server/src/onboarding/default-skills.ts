@@ -1,5 +1,6 @@
 // Default skills (docs/DECISIONS.md "DS — Every skill pack is a default"): every skill of the packs in
-// DEFAULT_SKILL_PACKS (general, marketing, work) is in the team without anyone installing it. Each skill is added once,
+// DEFAULT_SKILL_PACKS (general, marketing, work) is in the team without anyone installing it; the optional packs
+// (OPTIONAL_SKILL_PACKS: hr) never are. Each skill is added once,
 // in the team's language (English when the pack has none for it), written as the owner through the same file layer as
 // a pack install (onboarding/skill-packs.ts placeSkill: folder rules decide, version history and the skills/ audit
 // follow, the file event is marked as the pack's, so the owner is not its maker).
