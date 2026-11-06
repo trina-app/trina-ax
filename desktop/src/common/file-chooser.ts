@@ -13,11 +13,18 @@ export interface FileInput {
   multiple: boolean
   /** the input's attributes as CDP DOM.describeNode gives them: [name, value, name, value, ...] */
   attributes?: readonly string[]
+  /** the person's home folder (app.getPath('home')): where a `data-open-at="claude"` folder input opens */
+  home?: string
+  /** the open panel's own line and button for that input, in the app's language */
+  claude?: { message: string; button: string }
 }
 
 export interface OpenDialogChoice {
-  properties: ('openFile' | 'openDirectory' | 'multiSelections')[]
+  properties: ('openFile' | 'openDirectory' | 'multiSelections' | 'showHiddenFiles')[]
   filters?: { name: string; extensions: string[] }[]
+  defaultPath?: string
+  message?: string
+  buttonLabel?: string
 }
 
 /** extensions of the types the team page's inputs ask for (image/*, the team icon's types) */
@@ -50,6 +57,15 @@ export function openDialogChoice(input: FileInput): OpenDialogChoice {
   const attrs = new Map<string, string>()
   const a = input.attributes ?? []
   for (let i = 0; i + 1 < a.length; i += 2) attrs.set(a[i]!.toLowerCase(), a[i + 1]!)
+  // 내 스킬 가져오기 (docs/DECISIONS.md "K"): the page asks for the Claude folder: the panel opens on ~/.claude with
+  // hidden folders shown, and says what it reads; picking the folder is the permission (nothing wider is asked for)
+  if (attrs.has('webkitdirectory') && attrs.get('data-open-at') === 'claude') {
+    return {
+      properties: ['openDirectory', 'showHiddenFiles'],
+      ...(input.home ? { defaultPath: `${input.home.replace(/[\\/]+$/, '')}/.claude` } : {}),
+      ...(input.claude ? { message: input.claude.message, buttonLabel: input.claude.button } : {}),
+    }
+  }
   // a folder upload picks one folder; the page gets the files in it
   if (attrs.has('webkitdirectory')) return { properties: ['openDirectory'] }
   const filters = acceptFilter(attrs.get('accept') ?? '')

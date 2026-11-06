@@ -41,6 +41,8 @@ import SourcesList from './SourcesList'
 import Steps from './Steps'
 import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
+import { WithRoomRefs } from './RoomRefMenu'
+import { fromWire, toWire } from '../../lib/roomRefs'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 
 export { ENGINE_LABEL }
@@ -137,11 +139,12 @@ export function UserText({ content, clamp }: { content: string; clamp: boolean }
   const cmd = splitCommand(content)
   const items = useSkillList(!!cmd)
   const skill = cmd && items ? skillByName(items, cmd.name) : null
-  if (!cmd || !skill) return <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}>{content}</div>
+  // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles
+  if (!cmd || !skill) return <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
   return (
     <div data-testid="user-text-skill">
       <SkillChip title={skillTitle(skill)} name={skill.name} />
-      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}>{cmd.rest}</div>}
+      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={cmd.rest} /></div>}
     </div>
   )
 }
@@ -204,13 +207,14 @@ export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<
 export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(m.content)
+  // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts)
+  const [draft, setDraft] = useState(() => fromWire(m.content).text)
   /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
   const secret = useSecretHold(draft)
   const editRef = useRef<HTMLTextAreaElement>(null)
   const sendEdit = () => {
     setEditing(false)
-    onEdit(m, draft)
+    onEdit(m, toWire(draft, fromWire(m.content).picked))
   }
   const resend = useChats((s) => s.resend)
   const discard = useChats((s) => s.discardLocal)
@@ -309,7 +313,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
             <IconButton
               label={t('chat.edit')}
               onClick={() => {
-                setDraft(m.content)
+                setDraft(fromWire(m.content).text)
                 setEditing(true)
               }}
               data-testid="edit-message"

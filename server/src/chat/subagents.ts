@@ -21,10 +21,11 @@ export const MAX_SUBAGENT_TURNS = 50
  * Tools only the main AI has. Like Claude Code's AskUserQuestion: a sub-agent cannot ask the person (it writes what it
  * does not know into its report and the main AI asks). The chat title, memories (Claude Code subagents do not get the
  * main session's memory), schedules and videos (side effects and cost the person decides on with the main AI) and the
- * desktop browser (one screen of the person's, not to be driven by several agents at once) stay with the main AI.
+ * desktop browser (one screen of the person's, not to be driven by several agents at once) stay with the main AI, and
+ * so do the person's team chat rooms (chat/room-tools.ts: other people's words, read where the person watches).
  * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right.
  */
-export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell'])
+export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file'])
 /** what the read-only Explore helper may use (of the tools the turn has) */
 export const EXPLORE_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
 
@@ -97,9 +98,11 @@ export const LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS = false
  * every 0.3 s and has no other cap, and a sub-agent may take many steps */
 export const SUBTASK_STEPS_KEPT = 30
 
-/** One line of the audit log (tool_events, tool 'agent') for a sub-task's start or end; never its prompt or report. */
-export function subtaskSummary(o: { type: string; description: string; end?: { ok: boolean | 'stopped'; toolUses?: number; ms?: number } }): string {
-  const d = JSON.stringify(o.description.replace(/\s+/g, ' ').slice(0, 80))
+/** One line of the audit log (tool_events, tool 'agent') for a sub-task's start or end; never its prompt or report.
+ * `hideDescription`: the AI's description is left out, only its length is kept (a chat that read team chat rooms: the
+ * AI may name a room or a person there, and admins read this log). */
+export function subtaskSummary(o: { type: string; description: string; end?: { ok: boolean | 'stopped'; toolUses?: number; ms?: number }; hideDescription?: boolean }): string {
+  const d = o.hideDescription ? `(a description of ${o.description.length} characters)` : JSON.stringify(o.description.replace(/\s+/g, ' ').slice(0, 80))
   if (!o.end) return `agent ${o.type} started: ${d}`
   const stats = [o.end.toolUses !== undefined ? `${o.end.toolUses} tool uses` : '', o.end.ms !== undefined ? `${Math.round(o.end.ms / 1000)} s` : ''].filter(Boolean).join(', ')
   return `agent ${o.type} ${o.end.ok === 'stopped' ? 'stopped with the answer' : o.end.ok ? 'done' : 'failed'}: ${d}${stats ? ` (${stats})` : ''}`

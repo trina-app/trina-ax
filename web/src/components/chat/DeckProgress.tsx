@@ -57,6 +57,16 @@ function Rows({ rows }: { rows: DeckRow[] }) {
   )
 }
 
+/** A deck that stopped says so, and how far it got only while that cannot read as finished (the walk of PR #100: "6장
+ * 중 6장" read as complete): some slides of all, "9장 중 3장"; every slide made, it stopped while finishing; none, no
+ * count. */
+function stoppedText(build: DeckBuild | null, t: ReturnType<typeof useT>): string {
+  const n = build?.slides.length ?? 0
+  const k = build ? doneSlides(build) : 0
+  if (!k || !n) return t('deck.progress.stoppedEarly')
+  return k >= n ? t('deck.progress.stoppedFinishing') : t('deck.progress.stopped', { n, k })
+}
+
 /**
  * The block for an answer that makes an intro deck: `build` once the server has the outline, else null while the AI
  * reads the material (the answer's question ran the deck skill). `start`: the answer's start, for the reading part.
@@ -71,7 +81,7 @@ export default function DeckProgress({ build, steps, streaming, start, chatId }:
   const rows = deckRows(build, steps, start, run, t)
   if (run !== 'live') {
     const n = build?.slides.length ?? 0
-    const text = run === 'done' && build ? t('deck.progress.done', { n, time: duration(buildMs(build), t) }) : t('deck.progress.stopped', { n, k: build ? doneSlides(build) : 0 })
+    const text = run === 'done' && build ? t('deck.progress.done', { n, time: duration(buildMs(build), t) }) : stoppedText(build, t)
     return (
       <div className="mb-3" data-testid="deck-progress" data-run={run}>
         <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="touch-hit flex w-full items-center gap-2.5 rounded py-1 text-left text-sm text-muted hover:bg-hover hover:text-ink" data-testid="deck-folded">

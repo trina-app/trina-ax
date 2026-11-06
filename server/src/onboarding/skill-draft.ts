@@ -294,7 +294,7 @@ export function skillFileOf(d: ParsedSkillDraft, o: { name: string; title: strin
 const RR_L = ['g', 'kk', 'n', 'd', 'tt', 'r', 'm', 'b', 'pp', 's', 'ss', '', 'j', 'jj', 'ch', 'k', 't', 'p', 'h']
 const RR_V = ['a', 'ae', 'ya', 'yae', 'eo', 'e', 'yeo', 'ye', 'o', 'wa', 'wae', 'oe', 'yo', 'u', 'wo', 'we', 'wi', 'yu', 'eu', 'ui', 'i']
 const RR_T = ['', 'k', 'k', 'k', 'n', 'n', 'n', 't', 'l', 'k', 'm', 'l', 'l', 'l', 'p', 'l', 'm', 'p', 'p', 't', 't', 'ng', 't', 't', 'k', 't', 'p', 't']
-const romanize = (s: string) => [...s].map((ch) => {
+export const romanize = (s: string) => [...s].map((ch) => {
   const c = ch.codePointAt(0)! - 0xac00
   if (c < 0 || c > 11171) return ch
   return RR_L[Math.floor(c / 588)]! + RR_V[Math.floor((c % 588) / 28)]! + RR_T[c % 28]!

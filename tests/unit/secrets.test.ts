@@ -2,7 +2,7 @@
 // and long random-looking tokens are found and masked; normal Korean / English sentences, file paths, e-mail addresses,
 // dates, UUIDs, names and short ids are not. (A pasted admin token became a chat title on screen, 2026-10-28.)
 import { describe, expect, test } from 'bun:test'
-import { addressHasSecret, findLikelySecrets, findSecrets, hasLikelySecret, hasSecret, looksRandom, maskSecrets, namedKey, secretLabel, secretValue } from '@mycel/shared'
+import { addressHasSecret, findLikelySecrets, findSecrets, hasLikelySecret, hasSecret, keyInAddress, looksRandom, maskSecrets, namedKey, secretLabel, secretValue } from '@mycel/shared'
 
 // made-up values in the shapes of real ones (none of them is a working key). Provider prefixes are joined at run time
 // so that secret scanners (GitHub push protection) do not take this file for a leak.
@@ -243,5 +243,18 @@ describe('likely secrets: more providers, and code that only names a key', () =>
       expect({ url, refused: addressHasSecret(url) }).toEqual({ url, refused: true })
     // the title check would refuse the generated id
     expect(hasSecret('https://mcp.example.com/mcp?instance=a8F3k29dK3xQ7mZ1pL0vR5tY')).toBe(true)
+  })
+
+  test('keyInAddress (an address that goes to every member): a key-like path segment or host label, not a registrable domain', () => {
+    for (const url of ['https://mcp.notion.com/mcp', 'https://api.githubcopilot.com/mcp/', 'https://mcp.linear.app/sse', 'https://mcp.atlassian.com/v1/sse',
+      'https://remote-mcp-server-authless.your-account.workers.dev/sse', 'https://mcp.figma.com/mcp', 'https://docs.mcp.cloudflare.com/sse', 'https://server.smithery.ai/@acme/notes/mcp',
+      'https://mcp.example/api/v2/workspace-tools/sse', 'https://mcp.example.com:8443/mcp', 'https://[::1]/mcp', 'https://127.0.0.1/mcp', 'https://mcp.example.com./mcp'])
+      expect({ url, key: keyInAddress(url) }).toEqual({ url, key: false })
+    for (const url of ['https://Zx9aQ7bR3kLmN2pVt8wYc4.mcp.example.com/mcp', 'https://0f8fad5b-d9cb-469f-a165-70867728950e.mcp.example.com/sse',
+      // letters only: random in the case it was written in (the parsed host is lower case), behind a user or a port too
+      'https://ZxQaBrKmNpVtWyCdEfGhJk.mcp.example.com/mcp', 'https://u@ZxQaBrKmNpVtWyCdEfGhJk.mcp.example.com:8443/mcp', 'https://ZxQaBrKmNpVtWyCdEfGhJk.mcp.example.com\\mcp',
+      'https://5c6de5a19f3b4e7d8a90b1c2.mcp.example.com/mcp', 'https://mcp.example.com/api/mcp/s/Zk9QmX2vR7tLp4Hs8Wc1Ny6Bd3Fg5Ja0/mcp',
+      'https://mcp.example.com/u/0f8fad5b-d9cb-469f-a165-70867728950e/sse', 'https://mcp.example.com/k/tok_live_9xQ2mZ7vL4/mcp', 'https://mcp.example.com/s/%E0%A4%A/mcp', 'not an address'])
+      expect({ url, key: keyInAddress(url) }).toEqual({ url, key: true })
   })
 })
