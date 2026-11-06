@@ -8,10 +8,11 @@ import { sourceKey, sourceOf, widening, type ReadSource } from '../../chat/read-
 import { audit } from '../../admin/audit'
 import { hash, OAuthError } from './policy'
 import { remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
-import { uploadFile, uploadTool } from './upload'
+import { skillWriteTarget, uploadFile, uploadTool } from './upload'
 import { createUploadLink, uploadLinkTool } from './upload-link'
+import { shareSkills, shareSkillsTool } from './share'
 
-const WRITE = new Set(['write', 'edit', 'upload_file', 'create_upload_link'])
+const WRITE = new Set(['write', 'edit', 'upload_file', 'create_upload_link', 'share_skills'])
 const CONNECTOR_ONLY = new Set(['upload_file', 'create_upload_link'])
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as Record<string, unknown>
@@ -28,7 +29,8 @@ export class RemoteTools {
   constructor(readonly ctx: AppContext, readonly oauth: () => RemoteOAuth = () => remoteOAuthOf(ctx)) {}
   list(g: Grant) {
     const scopes = JSON.parse(g.scopes) as string[]
-    return [...[...toolList, uploadTool, uploadLinkTool].filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool]
+    return [...[...toolList, uploadTool, uploadLinkTool].filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool,
+      ...(scopes.includes('mcp:write') ? [shareSkillsTool] : [])]
   }
   private policy(user: string) {
     return hash(JSON.stringify({
@@ -39,7 +41,7 @@ export class RemoteTools {
   async call(token: string, name: string, args: unknown, signal?: AbortSignal) {
     const oauth = this.oauth(), grant = oauth.authenticate(token)
     oauth.rate('tool-user', grant.user_id, 120)
-    if (name !== 'skills_list' && !CONNECTOR_ONLY.has(name) && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
+    if (name !== 'skills_list' && name !== 'share_skills' && !CONNECTOR_ONLY.has(name) && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
     // Bound idle memory; read sources survive eviction/restart in the grant row.
     for (const [id, m] of this.memory) if (!m.queued && m.touched < oauth.now() - 10 * 60_000) this.memory.delete(id)
     let m = this.memory.get(grant.id)
@@ -65,6 +67,13 @@ export class RemoteTools {
         const skills = listSkills(this.ctx.files, user).map(skillInfo)
         return result(JSON.stringify(skills))
       }
+      if (name === 'share_skills') {
+        // a proposal only: nothing reaches the team before the person confirms it in the app (skills/share.ts)
+        const out = shareSkills(this.ctx, oauth, user, args)
+        // counts and the proposal's id, never a skill's name or content
+        audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: !out.isError, via: 'connector', ...out.audit } })
+        return result(out.text, out.isError)
+      }
       if (CONNECTOR_ONLY.has(name)) {
         // Same scope, write rule, skills and widening checks as write. No await before the bytes are placed.
         const out = name === 'upload_file' ? await uploadFile(this.ctx, user, args, JSON.parse(fresh.sources) as ReadSource[]) : createUploadLink(this.ctx, oauth, fresh, user, args)
@@ -76,8 +85,9 @@ export class RemoteTools {
       if (!input.success) return result('Invalid tool input.', true)
       if (WRITE.has(name)) {
         const target = authorize(this.ctx.files.fx, this.ctx.files.rules(), user, (input.data as { file_path: string }).file_path, 'write', { createDirs: true })
-        // A null turn ID normally means a human file API. An external model has no server confirmation card.
-        if (target.segs[0] === 'skills') return result('Skill changes require confirmation inside the team app.', true)
+        // A null turn ID normally means a human file API. An external model has no server confirmation card: no team
+        // skill or rule (skills/), and no personal skill of the person (users/<id>/skills/) either
+        if (skillWriteTarget(target.rel) || skillWriteTarget((input.data as { file_path: string }).file_path)) return result('Skill changes require confirmation inside the team app.', true)
         const sources = JSON.parse(fresh.sources) as ReadSource[]
         if (widening(this.ctx.db, null, target.segs, sources)) return result('Saving here would expose previously read material to more people. Use a folder with the same or narrower access.', true)
       }
