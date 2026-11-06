@@ -120,6 +120,7 @@ export default function TeamSettingsPage() {
                 <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                 <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                 <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
+                <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
                 <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
                   onSaved={(r) => state.setData(r)} />
               </div>
@@ -354,6 +355,22 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
       <Field label={t('teamSettings.answerStepLimit')} hint={t('teamSettings.answerStepLimitHint', { min: ANSWER_STEP_LIMIT_MIN, max: ANSWER_STEP_LIMIT_MAX, def: DEFAULT_ANSWER_STEP_LIMIT })}>
         <input className={`${inputCls} sm:max-w-xs`} type="number" inputMode="numeric" min={ANSWER_STEP_LIMIT_MIN} max={ANSWER_STEP_LIMIT_MAX} step={1} value={text}
           onChange={(e) => { setText(e.target.value); const n = Number(e.target.value); if (inRange(n)) onChange(n) }} onBlur={leave} />
+      </Field>
+    </div>
+  )
+}
+
+/** How long the company intro deck may take (server/src/intro-deck/tiers.ts): 3 minutes (default), 5 or 10. */
+export function DeckTierField({ value, onChange }: { value: TeamSettings['introDeckTier'] | undefined; onChange: (v: TeamSettings['introDeckTier']) => void }) {
+  const t = useT()
+  return (
+    <div className="sm:col-span-2" data-testid="team-deck-tier">
+      <Field label={t('teamSettings.deckTier')} hint={t('teamSettings.deckTierHint')}>
+        <select className={`${inputCls} sm:max-w-xs`} value={value ?? 'quick'} onChange={(e) => onChange(e.target.value as TeamSettings['introDeckTier'])}>
+          <option value="quick">{t('teamSettings.deckTierQuick')}</option>
+          <option value="standard">{t('teamSettings.deckTierStandard')}</option>
+          <option value="deep">{t('teamSettings.deckTierDeep')}</option>
+        </select>
       </Field>
     </div>
   )

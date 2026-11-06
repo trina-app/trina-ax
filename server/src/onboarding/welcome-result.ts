@@ -223,7 +223,7 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
   const chosen = newChatEngine(ctx, auth.user, {}, locale)
   // the deck's longest time budget (intro-deck/tiers.ts) writes its outline and copy with the strongest model the engine
   // offers (Claude Code's "opus" when it is on the list); otherwise the team's choice as for any chat
-  const strong = TIERS[deckTier(ctx.db)].strongModel && chosen.engine === 'claude-code' && claudeModels(ctx.config).some((m) => m.id === 'opus') ? 'opus' : null
+  const strong = TIERS[deckTier(ctx.db, ctx.config.mode === 'dev')].strongModel && chosen.engine === 'claude-code' && claudeModels(ctx.config).some((m) => m.id === 'opus') ? 'opus' : null
   const { engine, model } = { engine: chosen.engine, model: strong ?? chosen.model }
   const id = newId(), now = new Date().toISOString()
   ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")

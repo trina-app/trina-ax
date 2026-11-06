@@ -1,5 +1,6 @@
 // How long a deck may take (docs/DECISIONS.md "D2", round 2, the owner's "3분 5분 10분"): one team setting,
-// `introDeckTier` in the settings table (no screen yet; MYCEL_DECK_TIER overrides it on a dev server), and what each tier
+// `introDeckTier` (owners and admins choose it in Admin › Team settings; MYCEL_DECK_TIER overrides it on a dev server
+// only), and what each tier
 // spends its time on. Every fact rule stays: a number, name or quote only as written in the material or in a page the
 // server itself read again (the site's pages, an outside article with its outlet and date, cited in the notes).
 //   quick    ≈ 3 min: the material saved at setup (≤ 4 pages of the site), outline → slides → one review.
@@ -10,6 +11,7 @@
 //            for the whole answer (outline and copy), two reviews and one headline pass after seeing every slide.
 import type { Database } from 'bun:sqlite'
 import { DeckTier, type DeckTier as Tier } from '@mycel/shared/api'
+import { getTeamSettings } from '../admin/settings'
 
 export interface TierSpec {
   minutes: number
@@ -35,16 +37,10 @@ export const TIERS: Record<Tier, TierSpec> = {
   deep: { minutes: 10, pages: 15, searches: [6, 8], reviews: 2, secondReviewOver: -1, headlines: true, strongModel: true, cutoffMs: 540_000 },
 }
 
-/** The team's tier (the welcome's default is quick until the owner picks). */
-export function deckTier(db: Database): Tier {
-  const env = DeckTier.safeParse(process.env.MYCEL_DECK_TIER)
-  if (env.success) return env.data
-  try {
-    const r = db.query("SELECT value FROM settings WHERE key = 'introDeckTier'").get() as { value: string } | null
-    const v = DeckTier.safeParse(r ? JSON.parse(r.value) : undefined)
-    if (v.success) return v.data
-  } catch { /* the default */ }
-  return 'quick'
+/** The team's tier (quick until an owner or admin picks another). `dev`: a dev server, where MYCEL_DECK_TIER wins. */
+export function deckTier(db: Database, dev = false): Tier {
+  if (dev) { const env = DeckTier.safeParse(process.env.MYCEL_DECK_TIER); if (env.success) return env.data }
+  try { return getTeamSettings(db).introDeckTier } catch { return 'quick' }
 }
 
 /** What the tool description adds for a longer tier (the AI reads it at the start of every answer). */

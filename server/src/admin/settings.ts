@@ -29,6 +29,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   aiSubagents: true,
   /** tool rounds per answer (Claude Code --max-turns; chat/runtime.ts maxEngineTurns) */
   answerStepLimit: DEFAULT_ANSWER_STEP_LIMIT,
+  /** the company intro deck's time budget (intro-deck/tiers.ts): 3 minutes until an owner or admin picks another */
+  introDeckTier: 'quick',
   /** voice input is off until an admin picks OpenRouter (with a key) or this server (docs/DECISIONS.md "Voice input
    * through OpenRouter"); a hosted server with the hosting service's key starts on OpenRouter (getTeamSettings) */
   speechProvider: 'off',

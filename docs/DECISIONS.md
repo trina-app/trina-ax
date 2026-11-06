@@ -9856,8 +9856,9 @@ no numbers slide when the material has no numbers; about twice the AI usage per 
   shows a red failed step. Done while elsewhere: a toast with the cover thumbnail and [열기], a dot on the chat, a
   system notification in the desktop app when the window is not focused. On a phone the preview pages at full width
   instead of stacking; on a computer the deck page shows a thumbnail strip under the stage when there is room.
-- **The time budgets** (the owner's "3분 5분 10분", `intro-deck/tiers.ts`): one team setting `introDeckTier` (no screen;
-  the welcome's default stays `quick` until the owner picks; `MYCEL_DECK_TIER` on a dev server). quick ≈ 3 min as above.
+- **The time budgets** (the owner's "3분 5분 10분", `intro-deck/tiers.ts`): one team setting `introDeckTier`, chosen by
+  owners and admins in Admin › Team settings ("회사 소개서 만들기 시간": 3분 · 기본 / 5분 / 10분, with what each costs);
+  `quick` until someone picks; `MYCEL_DECK_TIER` overrides it on a dev server only. quick ≈ 3 min as above.
   standard ≈ 5 min: a `read` step where the server reads up to 10 pages of the company's own site (the scope of the
   website saved in the profile, the setup draft's rule: that host and its subdomains; fetched like web_fetch), 2–3
   WebSearch searches by the AI, and outside articles used only when listed in the outline's `web_sources` (url, outlet,
@@ -9865,6 +9866,14 @@ no numbers slide when the material has no numbers; about twice the AI usage per 
   reads again: their text joins the material the fact check reads and the speaker notes cite "outlet · date · address";
   a second review round when the first found more than two problems. deep ≈ 10 min: about 15 pages, 6–8 searches, the
   chat made with the strongest model the engine offers (Claude Code's "opus"), two review rounds and a headline pass.
+  - **The web text is outside content like web_fetch's** (the review): the `read` step hands the AI each page through
+    `wrapExternal` (inside `<external_data>`, the page's own such tags defused) and marks the chat `session_tainted`, so
+    `remember` asks first; the outside articles' re-read does the same. The link scan of a page is one bounded pass over
+    its first 256 KB (a hand scan with precomputed next-">" positions, no regular expression over the page: 800 KB of
+    unclosed `<a href` took 24 s with the first regex). An article counts only at the very address the AI opened with
+    web_fetch in this answer (compared exactly, no LIKE), its redirects go through web_fetch's echo guard, and one whose
+    cited date's year is not on the page is dropped with its facts. Calls of one answer run one at a time (an engine may
+    call tools in parallel; two slides at once would each save the state they read).
 
 - **The gate (2026-11-06, real AI on this Mac's Claude Code login, dev servers from code snapshots):** a large
   manufacturer's site, a café with photos, a Korean B2B SaaS, an English SaaS, ax.trina.app, a small AI agency site and a
