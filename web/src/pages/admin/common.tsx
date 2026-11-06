@@ -1,13 +1,14 @@
 // Small helpers shared by the admin screens.
 import clsx from 'clsx'
+import { Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls } from '../../components/ui'
 
-/** AI engines › Team provider settings, scrolled to Usage limits (Engines.tsx reads focus=limits). */
-export const USAGE_LIMITS_LINK = '/admin/engines?tab=team&focus=limits'
+/** Team settings, scrolled to Usage limits (TeamAiSettings.tsx reads #ai-limits). */
+export const USAGE_LIMITS_LINK = '/admin/settings#ai-limits'
 
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const t = useT()
@@ -123,21 +124,69 @@ export function useOneAtATime<K>() {
  * go under it. Engines, Usage and Activity log started this pattern; the other pages use it too now, so all admin
  * pages look the same.
  */
-export function AdminPageHeader({ title, desc, actions, children, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; testId?: string; className?: string; still?: boolean }) {
+/** "For the whole team": every Admin page says so next to its title (Settings pages say "Just for you", SettingsDialog.tsx) */
+export function PageScope() {
+  const t = useT()
+  return <span className="text-xs text-faint" data-testid="page-scope">{t('scope.team')}</span>
+}
+
+export function AdminPageHeader({ title, desc, actions, children, controls, testId, className, still }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children?: ReactNode; controls?: ReactNode; testId?: string; className?: string; still?: boolean }) {
   const body = (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 className="flex items-center text-lg font-semibold tracking-tight">{title}</h2>
+        <PageScope />
         {children}
         {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {desc && <OneLine className="mt-1 text-xs text-muted" twoOnPhone>{desc}</OneLine>}
+      {/* the People pages' search and filters, under the line (like the Claude Console's Members) */}
+      {controls && <div className="mt-3 flex flex-wrap items-center gap-2">{controls}</div>}
     </>
   )
   // still: the header scrolls away with the page, for a page with a sticky part of its own (Folder permissions' detail)
   if (still) return <div className={clsx('mb-3 pb-3', className)} data-testid={testId}>{body}</div>
   return <StickyHeader className={clsx('-mt-3 mb-3 py-3', className)} testId={testId}>{body}</StickyHeader>
 }
+
+/** How many there are, as a small round badge after a page title ("Members 4"). Nothing until the list has loaded. */
+export function CountBadge({ n, testId }: { n: number | null | undefined; testId?: string }) {
+  if (n == null) return null
+  return (
+    <span className="ml-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-subtle px-2 text-xs font-medium text-muted tabular-nums" data-testid={testId}>
+      {n}
+    </span>
+  )
+}
+
+/** A search box for a list on the page (it filters what is already loaded), in the height of the filter pills. */
+export function SearchBox({ value, onChange, label, testId, className }: { value: string; onChange: (v: string) => void; label: string; testId?: string; className?: string }) {
+  return (
+    <label className={clsx('flex h-9 min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-sm focus-within:border-accent focus-within:ring-1 focus-within:ring-accent max-sm:min-h-10 max-sm:w-full', className)}>
+      <Search size={15} className="shrink-0 text-faint" aria-hidden />
+      <input
+        type="search"
+        className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
+        placeholder={label}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          // Escape empties the box first (and does not close anything around it while there is text)
+          if (e.key === 'Escape' && value) {
+            e.stopPropagation()
+            onChange('')
+          }
+        }}
+        data-testid={testId}
+      />
+    </label>
+  )
+}
+
+/** Does `text` contain the search `q` (already trimmed and lower-cased)? Case-insensitive in the person's language. */
+export const matches = (q: string, locale: string, ...texts: (string | null | undefined)[]) =>
+  !q || texts.some((s) => !!s && s.toLocaleLowerCase(locale).includes(q))
 
 /** Cards inside this show as plain page sections (a heading, its line, the content; no box), for a settings page laid
  * out like a document (Team settings). */
@@ -270,12 +319,19 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
   )
 }
 
-/** A group of settings under a plain heading (Team settings): no box, a hairline above every group but the first. */
-export function SettingsSection({ title, desc, children, testId, id }: { title: ReactNode; desc?: ReactNode; children: ReactNode; testId?: string; id?: string }) {
+/** A group of settings under a plain heading (Team settings): no box, a hairline above every group but the first.
+ * `actions`: a button beside the heading (Add limit). `headingRef`: the heading takes the focus when a link opens the
+ * page at this group (#ai-limits). */
+export function SettingsSection({ title, desc, actions, children, testId, id, headingRef }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children: ReactNode; testId?: string; id?: string; headingRef?: Ref<HTMLHeadingElement> }) {
   return (
-    <section id={id} className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
-      <h2 id={id ? `${id}-title` : undefined} className="text-base font-medium">{title}</h2>
-      {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+    <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium focus:outline-none">{title}</h2>
+          {desc && <div className="mt-1 text-sm text-muted">{desc}</div>}
+        </div>
+        {actions}
+      </div>
       <div className="mt-1">{children}</div>
     </section>
   )

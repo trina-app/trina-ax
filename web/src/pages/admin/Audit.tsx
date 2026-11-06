@@ -15,7 +15,7 @@ import {
 } from '../../lib/activity'
 import { currentLocale, DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, Skeleton, StickyHeader } from '../../components/ui'
-import { useLoad } from './common'
+import { PageScope, useLoad } from './common'
 
 const KIND_ICON: Record<ActivityKind, LucideIcon> = { auth: LogIn, admin: ShieldCheck, file: FileText, tool: Wrench }
 const ctl = 'h-8 rounded-lg border border-field-border bg-surface px-2.5 text-label text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent max-sm:min-h-10'
@@ -91,6 +91,7 @@ export default function Audit() {
       <StickyHeader className="-mt-3 mb-1 py-3" testId="activity-header">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="text-lg font-semibold tracking-tight">{t('admin.audit')}</h2>
+          <PageScope />
           <p className="text-xs text-faint max-md:hidden">{t('audit.desc')}</p>
           {active && (
             <button type="button" className="ml-auto text-sm font-medium text-accent-text hover:underline" onClick={clear} data-testid="activity-clear">

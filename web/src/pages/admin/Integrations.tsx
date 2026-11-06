@@ -22,7 +22,7 @@ import { RequestDialog, RequestRow, requestFormOf, shownRequests, useTeamRequest
 import { IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
 import { TemplateRow } from '../../components/integrations/TemplatesView'
 import { toast } from '../../store/ui'
-import { Loadable, useLoad } from './common'
+import { Loadable, PageScope, useLoad } from './common'
 
 export default function AdminIntegrations() {
   const t = useT()
@@ -51,6 +51,7 @@ export default function AdminIntegrations() {
     <>
       <ConnectorsHeader
         title={t('admin.integrations')}
+        scope={<PageScope />}
         tab={tab}
         onTab={setTab}
         query={query}

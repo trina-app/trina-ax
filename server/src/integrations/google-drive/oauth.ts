@@ -14,8 +14,16 @@ export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; no
 const TTL = 10 * 60_000
 const clean = (s: unknown, max: number) => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max) : null
 export class GoogleDrive {
-  readonly config: DriveConfig | null
-  readonly key: string
+  private cfg: DriveConfig | null
+  private cfgKey: string
+  /** the Google client in use (null: Drive is off); an admin's in-app setup replaces it (admin-setup.ts reload()) */
+  get config() { return this.cfg }
+  /** which client a connection or flow was made with: a new client makes old ones reconnect */
+  get key() { return this.cfgKey }
+  /** where the client is read from: MYCEL_GOOGLE_DRIVE_CLIENT_FILE, or <secrets>/integrations/google-drive/client.json */
+  readonly clientFile: string
+  /** the operator points to a client file of their own: the app never writes it (admin-setup.ts) */
+  readonly clientFromEnv: boolean
   readonly store: DriveStore
   readonly transport: GoogleTransport
   readonly now: () => number
@@ -25,14 +33,23 @@ export class GoogleDrive {
   constructor(readonly ctx: AppContext, deps: DriveDeps = {}) {
     this.now = deps.now ?? Date.now
     const dir = path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'google-drive')
-    this.config = deps.config !== undefined ? deps.config : readDriveConfig(process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE ?? path.join(dir, 'client.json'), ctx.config.teamRoot)
-    this.key = this.config ? configKey(this.config) : ''
+    this.clientFromEnv = !!process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE
+    this.clientFile = process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE || path.join(dir, 'client.json')
+    this.cfg = deps.config !== undefined ? deps.config : readDriveConfig(this.clientFile, ctx.config.teamRoot)
+    this.cfgKey = this.cfg ? configKey(this.cfg) : ''
     this.store = new DriveStore(ctx.db, dir, this.now)
     this.transport = new GoogleTransport(deps.fetch)
     const sweep = () => { try { this.store.sweep() } catch { ctx.log.warn('Drive flow cleanup deferred') } }
     sweep()
     const timer = setInterval(sweep, 60_000); timer.unref?.()
     ctx.onClose(() => { clearInterval(timer); for (const set of this.operations.values()) for (const c of set) c.abort() })
+  }
+  /** Read the client file again (after an admin's in-app setup). Connections and flows made with another client then
+   * fail their config_key checks and ask the person to reconnect, as after an operator's change and restart. */
+  reload() {
+    this.cfg = readDriveConfig(this.clientFile, this.ctx.config.teamRoot)
+    this.cfgKey = this.cfg ? configKey(this.cfg) : ''
+    return this.cfg
   }
   status(user: string) {
     const status = this.store.publicConnection(!!this.config, user, this.key)

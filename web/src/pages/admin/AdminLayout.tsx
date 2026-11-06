@@ -3,13 +3,15 @@
 // office mode the automatic update card (docs/OFFICE.md "자동 업데이트").
 //
 // The menu stays where it is while a page scrolls: its own column on wide screens, a strip under the title on narrow
-// ones. It is grouped so what the whole team shares (AI engines, AI connections, external services, plugins) sits
-// apart from people, activity and the server. Home (/admin) comes first: what needs attention, then one line per area
-// (Home.tsx).
+// ones. Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
+// connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
+// (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team
+// (AdminPageHeader says so). Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
+// Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
 import clsx from 'clsx'
-import { Activity, Cable, Cpu, FolderLock, Gauge, House, KeyRound, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Plug, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
-import { Navigate, NavLink, useParams } from 'react-router-dom'
+import { Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { Spinner, useEdgeFade } from '../../components/ui'
@@ -19,8 +21,9 @@ const Members = lazy(() => import('./Members'))
 const Groups = lazy(() => import('./Groups'))
 const Folders = lazy(() => import('./Folders'))
 const Engines = lazy(() => import('./Engines'))
-const Credentials = lazy(() => import('./Credentials'))
 const Integrations = lazy(() => import('./Integrations'))
+const AppConnectors = lazy(() => import('./AppConnectors'))
+const AiApps = lazy(() => import('./AiApps'))
 const Plugins = lazy(() => import('./Plugins'))
 const Slack = lazy(() => import('./Slack'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
@@ -42,11 +45,12 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
     ],
   },
   {
-    label: 'admin.group.shared',
+    label: 'admin.group.connections',
     items: [
-      { id: 'engines', label: 'admin.engines', icon: Cpu },
-      { id: 'credentials', label: 'admin.credentials', icon: KeyRound },
+      { id: 'providers', label: 'admin.providers', icon: Cpu },
       { id: 'integrations', label: 'admin.integrations', icon: Cable },
+      { id: 'app-connectors', label: 'connectors.title', icon: Plug },
+      { id: 'ai-apps', label: 'aiApps.title', icon: Bot },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
       // the owner's: the Slack connector acts as each linked person (docs/SLACK.md)
       { id: 'slack', label: 'slack.admin.title', icon: MessagesSquare, ownerOnly: true },
@@ -60,7 +64,7 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
     ],
   },
   {
-    label: 'admin.group.settings',
+    label: 'admin.group.team',
     items: [
       { id: 'settings', label: 'admin.settings', icon: Settings2 },
       // owner: everything; admins: the storage use (and, in office mode, the automatic update card)
@@ -73,6 +77,7 @@ export default function AdminLayout() {
   const t = useT()
   const me = useMeStrict()
   const { section = '' } = useParams()
+  const { search } = useLocation()
   const nav = useRef<HTMLElement>(null)
   useEdgeFade(nav)
   // the strip of a narrow screen scrolls sideways: bring the open page's link into it
@@ -80,6 +85,12 @@ export default function AdminLayout() {
     nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [section])
   if (!isAdmin(me)) return <Navigate to="/" replace />
+  // the team's AI settings moved from the Providers page's second tab into Team settings: its old address opens them
+  const q = new URLSearchParams(search)
+  if ((section === 'engines' || section === 'providers') && q.get('tab') === 'team') return <Navigate to={q.get('focus') === 'limits' ? '/admin/settings#ai-limits' : '/admin/settings#ai'} replace />
+  // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
+  if (section === 'engines') return <Navigate to={`/admin/providers${search}`} replace />
+  if (section === 'credentials') return <Navigate to="/admin/providers?engine=claude-code" replace />
   const menu = MENU.map((g) => ({ ...g, items: g.items.filter((s) => !s.ownerOnly || isOwner(me)) })).filter((g) => g.items.length)
   if (!menu.some((g) => g.items.some((s) => s.id === section))) return <Navigate to="/admin" replace />
   return (
@@ -121,9 +132,10 @@ export default function AdminLayout() {
             {section === 'members' && <Members />}
             {section === 'groups' && <Groups />}
             {section === 'folders' && <Folders />}
-            {section === 'engines' && <Engines />}
-            {section === 'credentials' && <Credentials />}
+            {section === 'providers' && <Engines />}
             {section === 'integrations' && <Integrations />}
+            {section === 'app-connectors' && <AppConnectors />}
+            {section === 'ai-apps' && <AiApps />}
             {section === 'plugins' && <Plugins />}
             {section === 'slack' && <Slack />}
             {section === 'usage' && <Usage />}

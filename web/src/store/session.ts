@@ -194,5 +194,5 @@ export function useMeStrict(): Me {
 export const isAdmin = (me: Me | null) => me?.user.role === 'admin' || me?.user.role === 'owner'
 export const isOwner = (me: Me | null) => me?.user.role === 'owner'
 /** may pick the AI engine / model (composer picker, "retry with another model", own default): owner and admins always,
- * others when Admin > AI engines allows them. The server enforces it; an older server without the field: admins only. */
+ * others when Admin > AI providers allows them. The server enforces it; an older server without the field: admins only. */
 export const canChooseEngine = (me: Me | null) => !!me && (me.user.canChooseEngine ?? isAdmin(me))

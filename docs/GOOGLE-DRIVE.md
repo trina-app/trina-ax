@@ -1,10 +1,20 @@
 # Personal Google Drive integration
 
-The core server implements one personal connection per team user and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves Settings disabled and does not register the tools. No Google client or account is provisioned by this code.
+The core server implements one personal connection per team user and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves the Google Drive card in Settings › App connectors unavailable ("Not available yet", Connect turned off) and the three tools are not offered. An admin can set the client up in Admin › App connectors (below); the tools are offered as soon as a client is there, without a restart. No Google client or account is provisioned by this code.
+
+## Setting it up in Admin › App connectors
+
+On a self-installed server with a public address (`tunnel.host`), an admin can set Google Drive up without the installer: Admin › App connectors › Google Drive › **Set up**. The dialog shows the redirect URI to register with the Google OAuth web client, `https://<tunnel.host>/api/integrations/google-drive/callback`, and takes the JSON file Google Cloud downloads for that client (its `redirect_uris` must list that URI) or the client ID and secret. The server (`server/src/integrations/google-drive/admin-setup.ts`, `PUT /api/admin/google-drive/client`, admins only):
+
+- writes the same private file as the installer, `<secretsDir>/integrations/google-drive/client.json` (mode `0600`, a new file renamed into place, no links followed; the secrets directories are checked as below), reads it back with the same checks, and puts the earlier file back if that fails;
+- records that the page set it (`settings` `integrations.googleDriveClientByApp`, the client's fingerprint) and audits `drive.client_set` with only `{ replaced }`: never the client ID or secret, which no response or log line carries either;
+- offers the Drive tools from then on (`server/src/tools/drive.ts` registers them always, `available` while a client is set). Replacing the client makes connected members reconnect, as after an operator's change.
+
+The page does not change: a hosted server (the hosting service owns its setup), a server without a public address, a client set through `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`, or a `client.json` the installer or the operator wrote (shown as "Set in the server's own setup"). Only a client set on this page can be replaced there. `GET /api/admin/google-drive` says which applies (`blocked`) and how many active members are connected with the current client.
 
 ## Operator configuration
 
-Put a server-owned, regular, single-link, mode `0600` JSON file at `<secretsDir>/integrations/google-drive/client.json`, or point `MYCEL_GOOGLE_DRIVE_CLIENT_FILE` to an equivalent private file outside the team folder. The configured secrets root and its `integrations/google-drive` directories must be owned by the server account, mode `0700`, and must not be symlinks. Installed office mode uses its existing `config` secrets root; other modes use `secrets` (see `system/layout.ts`). Restart after changing the client configuration.
+Put a server-owned, regular, single-link, mode `0600` JSON file at `<secretsDir>/integrations/google-drive/client.json`, or point `MYCEL_GOOGLE_DRIVE_CLIENT_FILE` to an equivalent private file outside the team folder. The configured secrets root and its `integrations/google-drive` directories must be owned by the server account, mode `0700`, and must not be symlinks. Installed office mode uses its existing `config` secrets root; other modes use `secrets` (see `system/layout.ts`). Restart after changing the client configuration by hand (a change made in Admin › App connectors applies at once).
 
 On Linux, the installer does this: `sudo ./install-linux.sh repair --public-host HOST --google-drive-client FILE`. FILE is the JSON that Google Cloud downloads for a web client (`{"web": {...}}`, the installer picks the redirect URI of HOST) or the format below. The installer checks the file before it changes anything, writes `client.json` with the modes above, never prints the secret, and does not keep the file path: `repair` and `update` without the option leave the installed file as it is.
 

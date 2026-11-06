@@ -102,7 +102,7 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
   await start(page)
   for (const size of [{ width: 1468, height: 700 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    for (const path of ['/admin/engines?tab=team', '/admin/integrations']) {
+    for (const path of ['/admin/settings', '/admin/integrations']) {
       await page.goto(path)
       await expect(page.getByTestId('admin-content')).toBeVisible()
       if (path === '/admin/integrations') await page.getByTestId('connectors-header').getByRole('tab').nth(1).click()
