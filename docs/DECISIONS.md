@@ -10538,21 +10538,26 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   (a new AI chat, with ⇧⌘O) and a search icon (⌘K); one row of icons: 파일, 프로젝트, 예약 작업, 팀 스킬, 알림함 (the count on the bell), 관리자
   for owners and admins only. Each icon is a link named by its label (the Inbox's name carries the count, so a screen
   reader says it), reached by Tab with the focus ring, and shows its name as a tooltip on hover and on keyboard focus
-  (a native `title` shows on hover only). Then **one scroll with two capped sections, no boxes**: **대화** (rooms, group
-  chats, DMs by latest activity, unread in bold with the count, thread replies and mentions counted in, a long name cut
-  with the whole of it on hover, ⊕ 새 대화): the five latest, and beyond them always every room with something unread
-  and the room on screen, then "더 보기 (N)" that opens the rest in place ("접기" closes it); then **트리나 기록** (the
-  AI's name: `aiName`, the product's name in the core edition): the five latest AI chats and every older one that waits
-  for me or has an unseen answer, then "모두 보기" for the whole history with its filters in place (choosing a filter
-  opens it too; "접기"). Each section folds, and each one's whole list stays open or closed, remembered in this browser
+  (a native `title` shows on hover only). Then **one scroll with two strictly capped sections, no boxes**: **대화**
+  (rooms, group chats, DMs by latest activity, unread in bold with the count, thread replies and mentions counted in, a
+  long name cut with the whole of it on hover, ⊕ 새 대화): exactly the five latest, and the room on screen if it is not
+  one of them (six at most), then "더 보기 (N)" that opens the rest in place ("접기" closes it) and, when a hidden room
+  has something unread, carries one pill in the rooms' badge style: "안 읽음 M" (the hidden rooms' unread messages and
+  followed replies added; "@" before it when one of them mentions me; a muted room's count only when no other hidden
+  room has any, grey like its own badge; the screen reader hears "읽지 않은 메시지 M개"), so no count is ever out of
+  sight; then **트리나 기록** (the AI's name: `aiName`, the product's name in the core edition): exactly the five latest AI
+  chats and the chat on screen if it is not one of them, then "모두 보기" for the whole history with its filters in
+  place (choosing a filter opens it too; "접기"), which says "답 필요 K" with a dot when K hidden chats wait for my answer
+  or have an answer I have not seen (the warn colour when one waits, the accent when they are only unseen). Each section folds, and each one's whole list stays open or closed, remembered in this browser
   (`mycel.sidebar.rooms`, `mycel.sidebar.roomsAll`, `mycel.sidebar.recents`, `mycel.sidebar.recentsAll`). The order is
   latest activity; a row moves only when the list changes after a message is sent or received.
-- **Many rooms: capped sections in one scroll** (the owner, 2026-11-06, decided). The AI history must not sink as people
-  chats grow, and the owner chose caps over panes: first the sidebar scrolled as one with a sticky AI heading, then two
-  stacked panes (대화 scrolling on its own, 트리나 기록 pinned at the bottom); both are replaced. With the cap, a team of
-  any size shows five rooms plus the unread ones before 트리나 기록. With 60 rooms of which 9 are unread (13 shown) the
-  e2e sees all 13 rooms and 3 AI chats at 1440×900 and the 13 rooms at 1280×800, the AI chats one scroll down; with
-  nothing unread beyond the five, the AI chats are in sight at both sizes.
+- **Many rooms: strictly capped sections in one scroll** (the owner, 2026-11-06, decided). The AI history must not sink
+  as people chats grow, and the owner chose caps over panes: first the sidebar scrolled as one with a sticky AI heading,
+  then two stacked panes (대화 scrolling on its own, 트리나 기록 pinned at the bottom), then caps that always let unread
+  rooms through. The last one failed on the owner's own account (13 unread rooms): no cap at all, and 트리나 기록 below the
+  fold at 1280. So the cap is strict, five and the open one, and what is hidden is counted on its button instead. With
+  60 rooms (9 unread) the e2e sees the five rooms and all five AI chats without scrolling at 1440×900 and at 1280×800;
+  it holds for any number of rooms and any number unread.
 - **Names: people and the AI never share a word** (the owner, 2026-11-06: no bare "채팅" in navigation). People: 대화 (the
   section, the tab, the /rooms page; one room can still be called a 대화방 in sentences), 새 대화. The AI: 트리나에게 묻기
   (the new-chat button, the chat's new-chat icon, the search palette's action), 트리나 기록 (the desktop section, the
@@ -10572,8 +10577,8 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   newest finished assistant message (done, error or stopped) later than the mark. Older builds ignore the column.
   Rejected: a per-window mark in the browser (gone on reload, wrong on another device).
 - **Removed:** seven text rows (two rows instead), the product's name on top, the team name in the account line, 팀
-  스킬's own count (the Inbox has the suggestion), the cap on rooms and its "모두 보기", the AI chats' date groups and
-  filter in the default view (behind "모두 보기").
+  스킬's own count (the Inbox has the suggestion), the old cap of eight rooms that let every unread one through, the AI
+  chats' date groups and filter in the default view (behind "모두 보기").
 - The phone's drawer keeps its own layout ("Phone navigation: four tabs"); it gets the same dots.
 - Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
   case for the new route.
