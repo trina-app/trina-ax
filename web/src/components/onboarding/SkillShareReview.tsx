@@ -401,6 +401,10 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
               <label htmlFor={`${ids}-tools`} className="min-w-0 flex-1 cursor-pointer">
                 <span className="text-sm font-medium text-ink">{t('welcome.skills.tools', { n: tools.length, names: tools.map((x) => x.name).join(', ') })}</span>
                 <span className="mt-0.5 block text-label text-muted">{t('welcome.skills.toolsNote')}</span>
+                {/* each address as it will be stored, so a key in it can be seen before it goes to the team */}
+                <ul className="mt-1 space-y-0.5 text-label text-muted" data-testid="skills-tools-urls">
+                  {tools.map((x) => <li key={x.name} className="min-w-0 font-mono break-all">{x.name} · {x.url}</li>)}
+                </ul>
               </label>
             </div>
           )}

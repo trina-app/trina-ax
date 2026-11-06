@@ -484,6 +484,8 @@ describe('Claude Code', () => {
       expect(m.find('skill-review-other-folder')).toBeNull()
       expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.tools', { n: 2, names: 'Notion, Linear' }))
       expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.toolsNote'))
+      // each address is shown as it will be stored, so a key in it can be seen
+      expect(text(m, 'skills-tools-urls')).toContain('Notion · ')
       await tick(m, m.get('skills-tools-check'))
       await m.click('skills-share')
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')

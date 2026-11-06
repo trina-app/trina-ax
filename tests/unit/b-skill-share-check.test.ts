@@ -216,11 +216,19 @@ describe('the rule and the tools', () => {
       { name: 'Plain', url: 'http://mcp.example/mcp', auth: 'bearer' },
       { name: 'notion', url: 'https://other.example/mcp', auth: 'oauth' },
       { name: 'BadHeader', url: 'https://h.example/mcp', auth: 'header', header: 'X Key: v' },
+      // a key inside the path: a Zapier-style token, long hex, a UUID, a long mixed value, a percent-encoded one
+      { name: 'PathKey', url: 'https://mcp.zap.example/api/mcp/s/Zk9QmX2vR7tLp4Hs8Wc1Ny6Bd3Fg5Ja0/mcp', auth: 'bearer' },
+      { name: 'Hex', url: 'https://mcp.example/5c6de5a19f3b4e7d8a90b1c2d3e4f5a6/sse', auth: 'bearer' },
+      { name: 'Uuid', url: 'https://mcp.example/u/0f8fad5b-d9cb-469f-a165-70867728950e/sse', auth: 'bearer' },
+      { name: 'Mixed', url: 'https://mcp.example/k/tok_live_9xQ2mZ7vL4/mcp', auth: 'bearer' },
+      { name: 'Encoded', url: 'https://mcp.example/s/Zk9QmX2vR7tLp4Hs8Wc1Ny6Bd3Fg5Ja0%2F/mcp', auth: 'bearer' },
+      { name: 'Words', url: 'https://mcp.example/api/v2/workspace-tools/sse', auth: 'oauth' },
     ])
     expect(tools).toEqual([
       { name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth', header: null, templateId: null, error: null },
       { name: 'Linear', url: 'https://mcp.linear.example/sse', auth: 'header', header: 'X-API-Key', templateId: null, error: null },
       { name: 'BadHeader', url: 'https://h.example/mcp', auth: 'header', header: null, templateId: null, error: null },
+      { name: 'Words', url: 'https://mcp.example/api/v2/workspace-tools/sse', auth: 'oauth', header: null, templateId: null, error: null },
     ])
     const s = { name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth' as const }
     expect(checkShare(share([], { tools: [s], projects: 2 }), []).tools).toEqual([])
