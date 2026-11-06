@@ -346,6 +346,13 @@ export function commandSlotFree(ctx: AppContext): { ok: true } | { ok: false; me
   return commands >= lim.l.maxRunning + 1 ? { ok: false, message: 'busy: the dev environment is busy, try again in a minute' } : { ok: true }
 }
 
+/** Why no command or job can run now (a bad plan file), or null. A command asks before it waits in the queue, so a
+ * broken plan is refused at once and does not look like a full queue (maxRunning 0) for 5 minutes. */
+export function runProblem(ctx: AppContext): string | null {
+  const lim = limitsFor(ctx)
+  return lim.ok ? null : lim.message
+}
+
 /** A foreground command: the call waits for it. The answer has the shape of boxd's exec answer, so tool.ts reads both
  * runners the same way. */
 export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal }): Promise<{ ok: true; value: BoxdExit } | { ok: false; message: string }> {

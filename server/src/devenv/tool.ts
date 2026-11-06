@@ -23,13 +23,13 @@ import { assertStorageRoomForAI } from '../system/storage'
 import { boxd } from './boxd'
 import { jobResultsForAI, jobRuns, newJobName, pollJobs, startJob } from './jobs'
 import { devEnvRunner, devEnvSetting, mayUseBox, mayUseDevEnv, type ProjectRef } from './setting'
-import { commandSlotFree, othersInProject, runCommand, runNameInUse, spaceOf, startServer, submitJob, type Space } from './srt/runner'
+import { othersInProject, runCommand, runNameInUse, spaceOf, startServer, submitJob, type Space } from './srt/runner'
 import { pollSrt, runResultsForAI } from './jobs'
 import path from 'node:path'
 import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from './track'
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
-import { placeInLine, startWaiting } from './srt/runner'
+import { placeInLine, runProblem, startWaiting } from './srt/runner'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
 
 export const BOX_SHELL_TOOL = 'box_shell'
@@ -212,6 +212,8 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
  * The slot is free again with release(). */
 async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; shown: string; timeoutMs: number }): Promise<{ ok: true; release(): void } | { ok: false; message: string; summary: string }> {
   const { ctx } = h
+  const problem = runProblem(ctx)
+  if (problem) return { ok: false, message: `Error: the command could not run (${problem.slice(0, 300)}).`, summary: problem.slice(0, 200) }
   const rowId = addTicket(ctx.db, { space: o.space, turnId: h.turnId, shown: o.shown, cwd: o.cwd })
   const limitMs = commandWaitFor(o.timeoutMs)
   const ended = waitTicket(ctx.db, rowId, h.userId, { signal: h.signal })

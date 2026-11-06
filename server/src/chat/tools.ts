@@ -71,10 +71,21 @@ export interface ChatToolSet extends TurnToolSet {
  * patchToolStep (it may not exist yet); later writes of the same run go to that step by its id. */
 function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>) => void {
   const stepOf = new Map<string, string>()
+  /** the newest state of a run whose step was not found yet: one patch per run, so a second write before the step
+   * exists does not land on the step of the next box_shell call (patchToolStep's FIFO) */
+  const pending = new Map<string, NonNullable<Step['devEnvRun']>>()
   return (run) => {
     const id = stepOf.get(run.id)
     if (id) { exec.updateStep(id, { devEnvRun: run }); return }
-    exec.patchToolStep(BOX_SHELL_TOOL, (s) => { stepOf.set(run.id, s.id); return { devEnvRun: run } })
+    const first = !pending.has(run.id)
+    pending.set(run.id, run)
+    if (!first) return
+    exec.patchToolStep(BOX_SHELL_TOOL, (s) => {
+      stepOf.set(run.id, s.id)
+      const latest = pending.get(run.id) ?? run
+      pending.delete(run.id)
+      return { devEnvRun: latest }
+    })
   }
 }
 
