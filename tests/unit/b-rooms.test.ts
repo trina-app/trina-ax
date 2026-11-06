@@ -342,6 +342,12 @@ test('photos: the place they were taken and the camera are cut out; they stand u
   for (const leak of ['FixtureCam', 'Fixture Phone', 'FIXTURE-COMMENT', 'xmpmeta', '\x88\x25']) expect({ leak, in: text.includes(leak) }).toEqual({ leak, in: false })
   expect(exifOrientation(got)).toBe(6)
   expect(file.size).toBe(got.length)
+  // a TIFF (it can carry GPS like any camera EXIF, and is not cleaned) goes as a plain file: no preview, no thumbnail
+  const tif = new FormData()
+  tif.set('file', new File([fs.readFileSync(path.join(import.meta.dir, '../fixtures/exif/photo-gps.tif'))], 'scan.tif', { type: 'image/tiff' }))
+  const tifRes = await h.fetch(`/api/rooms/${dm.id}/files`, { method: 'POST', body: tif, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
+  expect(tifRes.status).toBe(201)
+  expect(await tifRes.json()).toMatchObject({ name: 'scan.tif', kind: 'other', thumb: false })
   // a file that only claims to be a photo is refused with a reason, and nothing is kept
   const bad = new FormData()
   bad.set('file', new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0, 4, 0, 0])], 'broken.jpg', { type: 'image/jpeg' }))

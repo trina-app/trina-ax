@@ -27,6 +27,13 @@ import { personLocale } from '../files/media-text'
 import { tr } from '../chat/i18n'
 import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from './store'
 
+/** GIF, BMP or SVG by its first bytes (and its name for SVG, which has none): pictures shown as they are. */
+function plainPicture(b: Uint8Array, name: string): boolean {
+  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return true // GIF8
+  if (b.length >= 2 && b[0] === 0x42 && b[1] === 0x4d) return /\.bmp$/i.test(name) // BM
+  return /\.svg$/i.test(name) && /^\s*</.test(Buffer.from(b.subarray(0, 256)).toString('utf8').replace(/^\uFEFF/, ''))
+}
+
 /** An upload not sent in a message within a day is removed. */
 export const UNSENT_FILE_MS = 24 * 3600_000
 /** Room files without a database row are kept this long in .system/rooms-orphans/ (reconcile). */
@@ -68,15 +75,22 @@ export class RoomFiles {
     let headLen = 0
     try { headLen = fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
     let size = fs.statSync(src).size
-    const kind = attachmentKind(clean)
+    const first = head.subarray(0, headLen)
+    // a picture is shown in the room only as one whose metadata can be cut out (JPEG, PNG, WebP, HEIC) or one that
+    // carries no place in practice (GIF, BMP, SVG); anything else named like a picture (a TIFF, which can hold GPS like
+    // any camera EXIF, or bytes that are not what the name says) goes as a plain file, like a document
+    const fmt = imageFormat(first)
+    const kind = attachmentKind(clean) === 'image' && !fmt && !plainPicture(first, clean) ? 'other' : attachmentKind(clean)
     // a file on the team's quarantine list (safe-ops) is kept as a file: no preview is made from it
     const quarantined = this.ctx.files.quarantine.hasHash(sha256)
     // the size it is shown at (a portrait phone photo stored landscape stands upright): from the photo as sent
-    const dims = kind === 'image' && !quarantined ? displaySize(head.subarray(0, headLen)) : null
+    const dims = kind === 'image' && !quarantined ? displaySize(first) : null
     // every member gets the photo: like a messenger, the place it was taken, the camera and other metadata are cut out
-    // first (JPEG, PNG, WebP, HEIC; uploads/metadata.ts PHOTO keeps the colours, an animation and which way up it is)
+    // first (uploads/metadata.ts PHOTO keeps the colours, an animation and which way up it is). It runs here, in the
+    // request: its parsers read each byte at most a few times and HEIC's item tables have a step budget, so even a
+    // crafted 50 MB upload costs tens of milliseconds, about as long as reading and writing the file
     let stored = sha256
-    if (kind === 'image' && !quarantined && imageFormat(head.subarray(0, headLen))) {
+    if (kind === 'image' && !quarantined && fmt) {
       const cleaned = cleanImage(fs.readFileSync(src), PHOTO)
       if (!(cleaned instanceof Uint8Array)) { fs.rmSync(src, { force: true }); return fail('validation', tr('roomPhotoUnreadable', personLocale(this.ctx.db, userId))) }
       fs.writeFileSync(src, cleaned)

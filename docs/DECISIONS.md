@@ -8099,11 +8099,25 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   from before keep their size; the web shows a thumbnail in its own shape once it has loaded (`RoomThumb`), so no
   backfill. Every member gets the original, so a photo's metadata is cut out on upload, as messengers do
   (`uploads/metadata.ts`, the profile photo's cleaner with a messenger's settings): EXIF (with GPS, camera, times),
-  XMP, comments, PNG text chunks, other cameras' extras and anything after a JPEG's end; JPEG, PNG, WebP and HEIC
-  (its EXIF and XMP items are blanked in place). Kept: the picture byte for byte, its colour profile, an animation,
-  and its orientation, written back as the only EXIF tag, so it still stands upright. A file that claims one of these
-  formats but cannot be read is refused with a reason. Not cleaned: GIF and TIFF (rare from phones) and files sent
-  before; profile photos stay as strict as before (no colour profile, no animation, no orientation tag).
+  XMP, comments, PNG text chunks, other cameras' extras and anything after a JPEG's end; JPEG, PNG, WebP and HEIC.
+  Kept: the picture byte for byte, its colour profile, an animation, and its orientation, written back as the only EXIF
+  tag, so it still stands upright. Profile photos stay as strict as before (no colour profile, no animation, no
+  orientation tag).
+  - **Keep-lists, and refusal when unsure (review of bf51a728).** Every format keeps only what draws the picture:
+    JPEG the frame, scan, Huffman, quantisation and restart segments (each checked against its fixed layout), APP0
+    only as JFIF, APP14 only as Adobe, APP2 only as an ICC profile (JFXX, JPGn 0xF0–0xFD, every other APPn and
+    comments go); PNG and WebP their picture chunks, and an animated WebP's frames only their picture chunks; HEIC its
+    picture items (EXIF becomes an empty block, every other item spaces), the parts of mdat they use (the rest zeros)
+    and its item tables and properties (other boxes' payloads zeros). A file that does not read exactly (a box that
+    does not fit, an item table it cannot follow) is refused with a reason instead of being passed on. HEIC's tables
+    are bounded (10,000 items, 1,000 extents an item, 20,000 steps; sizes 0, 4 or 8 only): a crafted 400 KB file whose
+    tables took 45 s is refused in under a millisecond. The cleaner runs in the upload request, not in a worker: every
+    parser is linear (a crafted 50 MB JPEG takes about 80 ms, about as long as hashing it), which a worker would only
+    move. A 24,000-file mutation fuzz threw nothing, kept no metadata and took at most 2 ms a file.
+  - Shown only when cleaned or harmless: GIF, BMP and SVG (no place in practice) are shown as they are; a TIFF (it
+    can hold GPS like any camera EXIF) or a file whose bytes are not the picture its name says goes as a plain file
+    (no preview, no thumbnail), like a document, whose metadata is not cleaned either.
+  - Photos sent before this change keep their metadata: they are not rewritten (no backfill).
 - **The keyboard keeps the newest message in sight (end-to-end run, 2026-11-06).** The page uses
   `interactive-widget=resizes-content`, so a phone's keyboard shrinks the message list from below with its scroll
   position unchanged and no scroll event; the list followed only its content's size, so the newest messages went
