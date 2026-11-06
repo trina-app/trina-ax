@@ -21,10 +21,12 @@ import SettingsDialog from '../../src/components/settings/SettingsDialog'
 import { useBackLink } from '../../src/lib/back'
 import { aiName, hidesTabs, landingPath, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../../src/lib/tabs'
 import { RecentChats } from '../../src/pages/Home'
+import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useInbox } from '../../src/store/inbox'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
+import { useWelcome } from '../../src/store/welcome'
 import { useUi } from '../../src/store/ui'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
 import { room } from './rooms-fixtures'
@@ -44,6 +46,9 @@ const sessionBefore = useSession.getState().status
 const roomsBefore = useRooms.getState()
 const chatsBefore = { chats: useChats.getState().chats, requests: useChats.getState().requests }
 const inboxBefore = useInbox.getState().unread
+// the setup row (onboarding/SetupRow.tsx, in the sidebar and the drawer) reads these: put them back as they were
+const welcomeBefore = (({ loaded, progress }) => ({ loaded, progress }))(useWelcome.getState())
+const aiAccessBefore = (({ loaded, usable, action, requested, trial, sending, failed }) => ({ loaded, usable, action, requested, trial, sending, failed }))(useAiAccess.getState())
 const drawerBefore = useUi.getState().drawerOpen
 const historyBefore = Object.getOwnPropertyDescriptor(globalThis, 'history')
 let inboxCount = 0
@@ -67,6 +72,11 @@ afterAll(() => {
   useSession.setState({ status: sessionBefore })
 })
 afterEach(() => {
+  // reset first: it drops a read still on its way
+  useWelcome.getState().reset()
+  useWelcome.setState(welcomeBefore)
+  useAiAccess.getState().reset()
+  useAiAccess.setState(aiAccessBefore)
   useRooms.setState(roomsBefore, true)
   useChats.setState(chatsBefore)
   useInbox.setState({ unread: inboxBefore })
