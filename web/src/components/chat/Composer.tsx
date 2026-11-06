@@ -9,10 +9,12 @@
 // which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // "/" at the start lists the team skills (SkillMenu).
+// Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach and voice inside it on the left, a round send on
+// the right; the row under it keeps only the engine picker, for people who may choose one.
 // Text that looks like a key or password waits for "Send anyway" (SecretWarning): a message goes to the AI provider
 // and stays in the chat; a service's key belongs in the connect card the AI shows.
 import clsx from 'clsx'
-import { Camera, Check, Clock, CornerDownLeft, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Check, Clock, CornerDownLeft, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -33,7 +35,7 @@ import { useLocale, useT } from '../../i18n'
 import { waitForJob } from '../../store/jobs'
 import { useMe } from '../../store/session'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
-import { IconButton } from '../ui'
+import { IconButton, useMediaQuery } from '../ui'
 import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
 import { SecretWarning, useSecretHold } from './SecretWarning'
@@ -315,6 +317,8 @@ export default function Composer({
   }
   // phones and tablets: "from this device", else "from this computer"
   const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+  // below 768px (the phone top bar and tabs): attach and voice go inside the box, as in a room's box
+  const phone = useMediaQuery('(max-width: 767.98px)')
 
   const removeFile = (f: Pending) => {
     f.abort?.abort()
@@ -417,6 +421,131 @@ export default function Composer({
   // the API engine has one model (the owner's): its name shows even when none was picked
   const shownModel = engine.engine && (engine.model ? models?.[engine.engine]?.find((m) => m.id === engine.model)?.label ?? engine.model : engine.engine === 'api' ? models?.api?.[0]?.label : undefined)
   const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
+
+  // attach (its menu and file inputs) and voice: under the box, or inside it on phones
+  const attachControls = (
+    <>
+      <div
+        className="relative"
+        ref={attachMenuRef}
+        onBlur={(e) => {
+          // focus moving out of the button and its menu (Tab, Shift+Tab) closes the menu; no new target (Safari
+          // does not focus a clicked button) is left to the click-outside handler
+          if (attachMenu && e.relatedTarget && !attachMenuRef.current?.contains(e.relatedTarget as Node)) setAttachMenu(false)
+        }}
+      >
+        <IconButton
+          label={t('composer.attach')}
+          aria-haspopup="menu"
+          aria-expanded={attachMenu}
+          // a click opens the menu; Enter / Space (detail 0) and the arrow keys also put focus on its first item
+          onClick={(e) => (attachMenu ? setAttachMenu(false) : openMenu(e.detail === 0))}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault()
+              openMenu(true)
+            }
+          }}
+          className="touch-hit"
+          data-testid="attach-button"
+        >
+          <Plus size={19} />
+        </IconButton>
+        {attachMenu && (
+          <div
+            role="menu"
+            aria-label={t('composer.attach')}
+            className="absolute bottom-full left-0 z-30 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-1 shadow-lg"
+            onKeyDown={(e) => {
+              const items = menuItems()
+              const i = items.indexOf(document.activeElement as HTMLElement)
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault()
+                items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus()
+              } else if (e.key === 'Home' || e.key === 'End') {
+                e.preventDefault()
+                items[e.key === 'Home' ? 0 : items.length - 1]?.focus()
+              } else if (e.key === 'Tab') setAttachMenu(false)
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2"
+              onClick={() => {
+                setAttachMenu(false)
+                fileRef.current?.click()
+              }}
+              data-testid="attach-computer"
+            >
+              {coarse ? <Smartphone size={16} className="text-muted" aria-hidden /> : <Monitor size={16} className="text-muted" aria-hidden />} {t(coarse ? 'composer.fromDevice' : 'composer.fromComputer')}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:hidden"
+              onClick={() => {
+                setAttachMenu(false)
+                camRef.current?.click()
+              }}
+              data-testid="attach-camera"
+            >
+              <Camera size={16} className="text-muted" aria-hidden /> {t('composer.camera')}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2"
+              onClick={() => {
+                // focus on the attach button first: closing the picker without picking brings it back there
+                attachButton()?.focus()
+                setAttachMenu(false)
+                setPicker(true)
+              }}
+              data-testid="attach-team"
+            >
+              <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t('composer.fromTeam')}
+            </button>
+          </div>
+        )}
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        hidden
+        data-testid="file-input"
+        onChange={(e) => {
+          void addFiles(Array.from(e.target.files ?? []))
+          e.target.value = ''
+        }}
+      />
+      <input
+        ref={camRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={(e) => {
+          void addFiles(Array.from(e.target.files ?? []))
+          e.target.value = ''
+        }}
+      />
+      {mic === 'on' && (
+        <IconButton label={t('voice.start')} onClick={startVoice} disabled={transcribing || sending || recorder.state === 'recording'} className="touch-hit">
+          {transcribing ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
+        </IconButton>
+      )}
+      {mic === 'adminHint' && (
+        <IconButton label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className="text-faint max-md:hidden" data-testid="voice-off-hint">
+          <MicOff size={18} />
+        </IconButton>
+      )}
+    </>
+  )
 
   return (
     <div>
@@ -566,7 +695,8 @@ export default function Composer({
                 <SkillChip title={chosen.title} name={chosen.name} onRemove={() => { setChosen(null); taRef.current?.focus() }} />
               </div>
             )}
-            <div className="flex items-end gap-1 pr-2">
+            <div className={clsx('flex items-end gap-1 pr-2', phone && 'pl-1.5')}>
+              {phone && <div className="flex shrink-0 items-center pb-1.5">{attachControls}</div>}
               <textarea
                 ref={taRef}
                 rows={1}
@@ -592,10 +722,10 @@ export default function Composer({
                 }}
                 placeholder={hint}
                 disabled={transcribing}
-                className={clsx('block max-h-[240px] min-w-0 flex-1 resize-none bg-transparent pb-3 pl-5 text-reading leading-reading outline-none placeholder:text-faint', answering ? 'pt-1.5' : 'pt-3')}
+                className={clsx('block max-h-[240px] min-w-0 flex-1 resize-none bg-transparent pb-3 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3')}
                 data-testid="composer-input"
               />
-              <div className="flex shrink-0 items-center gap-1 pb-2">
+              <div className={clsx('flex shrink-0 items-center gap-1', phone && !running && !answering ? 'pb-1' : 'pb-2')}>
                 {answering
                   ? canSend && (
                       // the AI's question: also how phones (Enter makes a new line there) answer from the box
@@ -622,10 +752,13 @@ export default function Composer({
                       disabled={!canSend}
                       aria-label={t('chat.send')}
                       title={t('chat.send')}
-                      className={clsx('touch-hit flex h-8 w-8 items-center justify-center rounded-lg transition', canSend ? 'text-ink hover:bg-hover' : 'text-faint')}
+                      // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
+                      className={clsx('touch-hit flex items-center justify-center transition', phone
+                        ? clsx('size-10 rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
+                        : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
                       data-testid="send"
                     >
-                      {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
+                      {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
                     </button>
                   )
                 )}
@@ -634,135 +767,19 @@ export default function Composer({
           </>
         )}
       </div>
-      {/* under the box, like Claude's: attach and voice on the left, the engine on the right, the note between */}
-      <div className="flex items-center gap-2 px-1 pt-1.5" data-testid="composer-controls">
+      {/* under the box, like Claude's: attach and voice on the left, the engine on the right, the note between. Phones:
+          attach and voice sit inside the box, as in a room's box, and this row is only there for the engine. */}
+      {(!phone || onEngine) && (
+      <div className="flex items-center gap-2 px-1 pt-1.5 max-md:pt-1" data-testid="composer-controls">
         <div className="flex flex-1 basis-0 items-center gap-0.5">
-          <div
-            className="relative"
-            ref={attachMenuRef}
-            onBlur={(e) => {
-              // focus moving out of the button and its menu (Tab, Shift+Tab) closes the menu; no new target (Safari
-              // does not focus a clicked button) is left to the click-outside handler
-              if (attachMenu && e.relatedTarget && !attachMenuRef.current?.contains(e.relatedTarget as Node)) setAttachMenu(false)
-            }}
-          >
-            <IconButton
-              label={t('composer.attach')}
-              aria-haspopup="menu"
-              aria-expanded={attachMenu}
-              // a click opens the menu; Enter / Space (detail 0) and the arrow keys also put focus on its first item
-              onClick={(e) => (attachMenu ? setAttachMenu(false) : openMenu(e.detail === 0))}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                  e.preventDefault()
-                  openMenu(true)
-                }
-              }}
-              className="touch-hit"
-              data-testid="attach-button"
-            >
-              <Plus size={19} />
-            </IconButton>
-            {attachMenu && (
-              <div
-                role="menu"
-                aria-label={t('composer.attach')}
-                className="absolute bottom-full left-0 z-30 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-1 shadow-lg"
-                onKeyDown={(e) => {
-                  const items = menuItems()
-                  const i = items.indexOf(document.activeElement as HTMLElement)
-                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                    e.preventDefault()
-                    items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus()
-                  } else if (e.key === 'Home' || e.key === 'End') {
-                    e.preventDefault()
-                    items[e.key === 'Home' ? 0 : items.length - 1]?.focus()
-                  } else if (e.key === 'Tab') setAttachMenu(false)
-                }}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  tabIndex={-1}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2"
-                  onClick={() => {
-                    setAttachMenu(false)
-                    fileRef.current?.click()
-                  }}
-                  data-testid="attach-computer"
-                >
-                  {coarse ? <Smartphone size={16} className="text-muted" aria-hidden /> : <Monitor size={16} className="text-muted" aria-hidden />} {t(coarse ? 'composer.fromDevice' : 'composer.fromComputer')}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  tabIndex={-1}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:hidden"
-                  onClick={() => {
-                    setAttachMenu(false)
-                    camRef.current?.click()
-                  }}
-                  data-testid="attach-camera"
-                >
-                  <Camera size={16} className="text-muted" aria-hidden /> {t('composer.camera')}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  tabIndex={-1}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-hover focus-visible:bg-hover sm:py-2"
-                  onClick={() => {
-                    // focus on the attach button first: closing the picker without picking brings it back there
-                    attachButton()?.focus()
-                    setAttachMenu(false)
-                    setPicker(true)
-                  }}
-                  data-testid="attach-team"
-                >
-                  <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t('composer.fromTeam')}
-                </button>
-              </div>
-            )}
-          </div>
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            hidden
-            data-testid="file-input"
-            onChange={(e) => {
-              void addFiles(Array.from(e.target.files ?? []))
-              e.target.value = ''
-            }}
-          />
-          <input
-            ref={camRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            onChange={(e) => {
-              void addFiles(Array.from(e.target.files ?? []))
-              e.target.value = ''
-            }}
-          />
-          {mic === 'on' && (
-            <IconButton label={t('voice.start')} onClick={startVoice} disabled={transcribing || sending || recorder.state === 'recording'} className="touch-hit">
-              {transcribing ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
-            </IconButton>
-          )}
-          {mic === 'adminHint' && (
-            <IconButton label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className="text-faint max-md:hidden" data-testid="voice-off-hint">
-              <MicOff size={18} />
-            </IconButton>
-          )}
+          {!phone && attachControls}
         </div>
         {/* the note under the box: computers only (a phone keeps the bottom for the box and the keyboard) */}
         {footer && <p className="hidden min-w-0 text-center text-micro text-faint md:block">{footer}</p>}
         <div className="flex flex-1 basis-0 items-center justify-end">
           {onEngine && (
             <div className="relative">
-              <button type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
+              <button type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
                 {engineLabel} <ChevronDown size={13} aria-hidden />
               </button>
               {engineMenu && (
@@ -782,6 +799,7 @@ export default function Composer({
           )}
         </div>
       </div>
+      )}
       {error && (
         <p role="alert" className="mt-2 px-2 text-sm text-danger">
           {error}

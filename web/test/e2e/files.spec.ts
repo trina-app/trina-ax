@@ -250,9 +250,13 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const savedDates = new Map<string, string>()
     for (const days of [30, 10]) {
       await page.goto('/admin/settings')
-      await page.getByLabel(t['teamSettings.trashDays'], { exact: true }).fill(String(days))
-      await page.getByRole('button', { name: t['common.save'], exact: true }).click()
-      await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
+      const trashDays = page.getByLabel(t['teamSettings.row.trash'], { exact: true })
+      // Save shows only when something changed (the save bar): 30 days may already be the value
+      if ((await trashDays.inputValue()) !== String(days)) {
+        await trashDays.fill(String(days))
+        await page.getByRole('button', { name: t['common.save'], exact: true }).click()
+        await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
+      }
       await page.goto('/files?path=marketing')
       const names = [`retention-${days}-single.txt`, `retention-${days}-bulk-a.txt`, `retention-${days}-bulk-b.txt`]
       await page.getByTestId('files-input').setInputFiles(names.map((name) => ({ name, mimeType: 'text/plain', buffer: Buffer.from('retention test') })))
@@ -828,5 +832,36 @@ test.describe('phone', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
     await check(page, 'notes.txt').tap()
     await expect(bar(page)).toContainText('4개 선택됨')
+  })
+  test('phone: the file panel keeps open in Files and download behind ⋯, a menu like the app\'s others (arrows, Esc)', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await row(page, 'plan.md').getByRole('button').first().tap()
+    const panel = page.getByTestId('file-panel')
+    await expect(panel.getByRole('heading', { name: 'Plan', exact: true })).toBeVisible()
+    await expect(panel.getByRole('button', { name: '내려받기', exact: true })).toBeHidden()
+    const more = panel.getByTestId('file-panel-more')
+    // from the keyboard: Enter opens it on its first item, the arrows move (and wrap), Esc closes it and gives the
+    // keyboard back to ⋯ while the panel stays
+    await more.focus()
+    await page.keyboard.press('Enter')
+    const items = panel.getByRole('menu').getByRole('menuitem')
+    await expect(items).toHaveText(['파일 화면에서 열기', '내려받기'])
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.last()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('ArrowUp')
+    await expect(items.last()).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(panel.getByRole('menu')).toHaveCount(0)
+    await expect(more).toBeFocused()
+    await expect(panel).toBeVisible()
+    // a tap: the menu as a sheet from the bottom; "파일 화면에서 열기" goes to the file's folder
+    await more.tap()
+    await panel.getByRole('menuitem', { name: '파일 화면에서 열기' }).tap()
+    await expect(page).toHaveURL(/select=plan\.md/)
   })
 })

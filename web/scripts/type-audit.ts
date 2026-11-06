@@ -156,6 +156,8 @@ async function ownerViews(browser: Browser) {
 
   // the shell
   await view(page, 'home', '/')
+  // the goal row under the box, opened (its next step and button); closed it is part of "home"
+  await view(page, 'home:goal-open', '/', { open: click('[data-testid="team-goal-toggle"]'), scope: '[data-testid="team-goal"]' })
   await view(page, 'drawer', '/', { open: click('[data-testid="menu-open"]'), scope: '[data-drawer]' })
   await view(page, 'search', '/', { open: async (p) => { await p.keyboard.press('Control+k') }, scope: '[data-testid="search-palette"]' })
   // a team file attached to the message box: its chip with the folder line
@@ -195,6 +197,8 @@ async function ownerViews(browser: Browser) {
   await view(page, 'files:row-menu', '/files?path=shared', { open: click('[data-testid="file-row"] [aria-haspopup="menu"], [data-testid="file-row"] button[aria-expanded]'), scope: '[role="menu"]' })
   await view(page, 'files:trash', '/files?tab=trash')
   await view(page, 'file-view', `/files/view?path=${encodeURIComponent(file)}`)
+  // the file panel's ⋯ (add to chat, open in Files, download): a sheet from the bottom on phones
+  await view(page, 'file-view:more', `/files/view?path=${encodeURIComponent(file)}`, { open: click('[data-testid="file-panel-more"]'), scope: '[role="menu"]' })
   // projects, schedules, skills, trash, inbox
   await view(page, 'projects', '/projects')
   if (projects[0]) await view(page, 'project', `/projects/${projects[0].id}`)
@@ -209,6 +213,8 @@ async function ownerViews(browser: Browser) {
   await view(page, 'settings', '/settings')
   for (const s of ['profile', 'security', 'usage', 'memory', 'credentials', 'drive', 'integrations', 'connectors', 'notifications', 'apps', 'about'])
     await view(page, `settings:${s}`, `/settings/${s}`)
+  // another device's sign-out asks first (보안·기기; needs a second session of the owner)
+  await view(page, 'settings:security:sign-out', '/settings/security', { open: click('[data-testid="device-sign-out"]'), scope: '[role="dialog"]:has([data-testid="dialog-confirm"])' })
   await view(page, 'settings:schedules', '/settings/schedules')
   await view(page, 'settings:account-delete', '/settings/account/delete')
   // admin: every section
@@ -249,6 +255,8 @@ async function memberViews(browser: Browser) {
   await signIn(ctx, MEMBER)
   const page = await ctx.newPage()
   await view(page, 'member:home', '/')
+  // a first-time member's Home: the folders row opens the list in a sheet (the row and the example rows are in "home")
+  await view(page, 'member:home:folders', '/', { open: click('[data-testid="first-time-folders-open"]'), scope: '[role="dialog"]' })
   await view(page, 'member:drawer', '/', { open: click('[data-testid="menu-open"]'), scope: '[data-drawer]' })
   await view(page, 'member:rooms', '/rooms')
   await view(page, 'member:settings', '/settings')

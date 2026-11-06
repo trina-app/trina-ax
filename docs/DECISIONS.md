@@ -5317,6 +5317,43 @@ stop; a scheduled run skips files over 1 GB.
   the note, an unreadable and a narrower file not inlined, static mode, an artifact), with `sandbox-exfil.spec.ts`
   unchanged.
 
+## Dev environment: one queue, on by default (feat/devenv-queue, 2026-11-06)
+
+Owner decision (Dion): the sandbox is on by default, and when it is full the AI waits, so that the server does not get
+heavy. Code: `server/src/devenv/srt/queue.ts`, `runner.ts`, `tool.ts`; migration 236.
+
+- **One pool, one queue.** Commands (box_shell) and jobs share the `maxRunning` slots of the plan. Before, jobs had
+  `maxRunning` and commands `maxRunning + 1` on their own. When no slot is free, a command or a job waits in one queue
+  for the team: rows of `dev_env_runs` in state `waiting`. A command waits as a ticket: a row with `foreground = 1`
+  (kind `job`, because the kind CHECK cannot change without a rebuild) and no command file. The waiting call runs the
+  command itself when the queue grants the ticket, and the ticket row goes. Dev servers keep their own `maxRunning` and
+  no queue: "Preview is full. Close another preview or wait."
+- **Fair share.** One person holds at most `max(1, floor(maxRunning / 2))` slots while other people wait. Pass 1: of the
+  people under their share, the one who got a slot least recently goes first, with their oldest entry (with one slot
+  this is plain turn-taking). Pass 2: when everyone who waits is at their share, the oldest entry starts anyway; a slot
+  is never idle while someone waits. "Least recently" is kept in memory: after a restart everyone is new.
+- **Wait limits.** A command waits at most 5 minutes (less when its own time limit would pass the engines' 30-minute
+  tool-call limit), then the AI and the person get "The dev environment is full. Try again later." A job keeps its 24
+  hours. The waiting caps of jobs (3 per person, 10 per server) do not count tickets.
+- **Consequence.** With `maxRunning = 1` (Starter), a long job holds the only slot: the commands of every person wait,
+  and time out after 5 minutes, until it ends.
+- **The chat.** The step of the call carries `Step.devEnvRun` (id, kind, state, place). The app shows "Waiting for the
+  dev environment… #2 in line" with the live place (one poll of `GET /api/dev-env/runs`) and a Cancel button
+  (`POST /api/dev-env/runs/:id/stop`, the owner only). A started command goes on in the same call, so the AI continues
+  by itself. A queued job still returns at once; the chat shows its place until it starts, and the AI hears of the
+  result on its next call, as before. A waiting command can be cancelled only by its owner, also on the project page;
+  waiting jobs keep the old rule there (readers of the folder who may use the dev environment, and admins).
+- **Restart.** The rows keep the queue. A ticket whose call went with the old process ends (`end_reason` `lost`) at
+  start and at each poll, with no notice and no result for the AI; its command never runs. An older build reads a
+  ticket as a waiting job with no command file and ends it.
+- **On by default.** No `devEnv.team` row means on, network `open` (Allowed sites only), with a consent of the product
+  (`by: null`) to the current srt warning. Migration 236 writes `{"enabled":false}` for a team that already has people
+  and no row, so no existing team is turned on. A team with a row keeps it. A bad row is off. The server flag
+  (`MYCEL_DEV_ENV=1`, set by `install-srt.sh`) is still needed.
+- **Idle stop.** The default idle stop of a dev server is 10 minutes (was 30). A team that saved its setting keeps the
+  stored value. The box runner's default changes too.
+- **Tests.** `tests/unit/dev-env-queue.test.ts`, `web/test/e2e/devenv-queue.spec.ts`.
+
 ## Dev environment (experiment) (feat/dev-env, 2026-10-31)
 
 Status: EXPERIMENT, off by default, in main since 2026-11-01. The owner approved on 2026-11-02 that the Linux kit ships
@@ -5579,7 +5616,8 @@ later PR removes it.
   and an admin cannot allow them. Private, link-local and metadata ranges and the VM's public IPv4 (IMDS) are denied
   after resolution. srt's warning has version 2, so an owner accepts again before the first srt run.
 - **Queue.** Jobs over `maxRunning` wait (FIFO for the team, 3 per person, 10 for the server, 24 hours). A waiting job
-  checks access again before it starts. Commands over `maxRunning + 1` are refused at once. Dev servers: one per chat,
+  checks access again before it starts. Commands over `maxRunning + 1` are refused at once (replaced on 2026-11-06 by
+  "Dev environment: one queue": commands wait in the same queue). Dev servers: one per chat,
   `maxRunning` on the server. Migration 222 adds the table `dev_env_runs` (a run has a person and a chat, the project
   can be null); `dev_env_jobs` stays for the box.
 - **Plan caps.** The server reads `root/dev-env.json` with a TS port of `parseEntitlement` (fail closed) and cuts each
@@ -9894,6 +9932,27 @@ no numbers slide when the material has no numbers; about twice the AI usage per 
   accent in the mockup was picked by hand; k-means on its pictures finds no colour above the chroma bar); the AI's
   accents are simpler than the mockups' wafer and growth rings; duotone (T3) is not built (it needs a pixel decoder);
   the about slide without a figure (statement and facts) reads sparser than the mockups' hub versions.
+## Home on phones: no cards, the box first (fix/phone-home, 2026-11-06)
+
+The owner, looking at Home in the phone app: "새채팅 페이지도 엄청 정신이 없었네". Below 768px Home keeps the greeting
+and the message box as its first two things and puts everything else in quiet 44px rows under the box, without frames.
+Placement: Team AX core (Home, the message box, the goal card). From 768px Home is as before (Y's card at the top).
+
+- **Y's "one thing" moves under the box on phones.** The setup row or the 7-day goal is the first row under the box:
+  the goal as its title with "0/3 · 7일 남음" under it, which opens the next step (and its button, still never
+  [다시 보내기] on phones) in place; reached as "달성했어요 · names ×". Above the greeting it read as a label of the
+  greeting, and opening it moved the box. A project's new chat ("/?project=") shows neither, on every width.
+- **The folders are one row**, "내 AI가 볼 수 있는 폴더 5개 ›", that opens the list in a sheet; whether the AI may write a
+  folder is an icon, with the words once under the list (the desktop card keeps "쓰기 가능" on each folder). **Two examples** as plain rows with an arrow up to the box: the first and the third (one to look, one to
+  write). Frequent questions, popular skills and the no-AI card lose their frames.
+- **The message box is a room's box on phones**: attach and voice inside it, the round accent send (Enter makes a new
+  line there). The row under it stays only for the engine picker (not moved: that would change how an engine is
+  picked; a later option is the "+" menu).
+- **Honorifics:** a name that already ends with one (대표님, 김민지 씨, 田中様) gets no second 님 / さん from a text,
+  with or without a space before it ("{name} 님에게 답장" reads "대표님에게 답장"); a Korean particle right after it
+  takes the name's last sound ("김민지 씨가"). One helper for the app's texts (i18n `format`) and the team server's
+  texts with a name (Slack's "{name}님의 질문", notices, cards): `shared/src/honorific.ts`. A name with 님 inside it
+  ("김님희") keeps the text's own.
 
 ## W4 — The owner's walk: setup in two groups, the AI ways at once, coming back resumes (fix/setup-form-sections, 2026-11-06)
 - **Setup form.** "어디까지가 팀이고, 어디부터가 팀장 계정인지 모르겠어": the fields sit in two fieldsets under quiet headings

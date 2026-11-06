@@ -14,7 +14,7 @@ const CHECK_KEY = 'mycel.ownerChecklistHidden'
 type Steps = { engine: boolean; folders: boolean; members: boolean; skill: boolean; backup: boolean }
 
 const ITEMS: { step: keyof Steps; label: MessageKey; to: string }[] = [
-  { step: 'engine', label: 'owner.check.engine', to: '/admin/credentials' },
+  { step: 'engine', label: 'owner.check.engine', to: '/admin/providers' },
   { step: 'folders', label: 'owner.check.folders', to: '/admin/folders' },
   { step: 'members', label: 'owner.check.members', to: '/admin/members' },
   { step: 'skill', label: 'owner.check.skill', to: '/skills' },

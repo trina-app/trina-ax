@@ -73,7 +73,7 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
           </p>
         )}
         {u.available && !active && (
-          <div className="rounded-lg border border-line p-3">
+          <div className="border-l-2 border-accent py-1 pl-3">
             <p className="font-medium">{t('officeUpdate.available', { version: u.available.version })}</p>
             {/* a stable release waiting for this Mac's turn in its staged roll-out (later than the next run, or never) */}
             {turn && !u.paused && u.agentInstalled && (

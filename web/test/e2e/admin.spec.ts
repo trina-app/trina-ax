@@ -72,8 +72,10 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   expect(copied).toMatch(/^주소: https:\/\/team\.example\.com\n아이디: carol\n임시 비밀번호: maple2026\n.+까지 로그인해서 새 비밀번호로 바꿔 주세요\.$/)
   await page.getByRole('dialog').getByRole('button', { name: '완료' }).click()
   await expect(page.getByTestId('members-table')).toContainText('비밀번호 변경 필요')
-  // reset is a labelled button in the row, not an icon only
+  // reset password is a labelled item in the row's "…" (not an icon only)
+  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Carol' }).getByTestId('member-more').click()
   await expect(page.getByTestId('reset-password-carol')).toHaveText(/비밀번호 재설정/)
+  await page.keyboard.press('Escape')
 
   // invite link with QR
   await page.getByTestId('invite-new').click()
@@ -104,6 +106,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await panel.getByTestId('edit-basic-read').click()
   const result = panel.getByTestId('edit-result')
   await expect(result).toHaveAttribute('data-ready', 'true')
+  await result.getByTestId('edit-show-people').click()
   await expect(result.getByTestId('edit-more')).toContainText('Bob')
   await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
   await panel.getByTestId('edit-save').click()
@@ -112,7 +115,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
 
   // engines: what is missing, in plain words
-  await page.getByRole('link', { name: 'AI 엔진' }).click()
+  await page.getByTestId('admin-menu').getByRole('link', { name: '제공자', exact: true }).click()
   await expect(page.getByTestId('engine-card').first()).toContainText('연결됨')
   await expect(page.locator('[data-engine="codex"]').getByTestId('engine-detail')).toContainText('codex login --device-auth')
 
@@ -248,8 +251,8 @@ test('system: storage use with what uses it; Team AX Cloud shows the plan and le
   await expect(page.getByRole('button', { name: '연결 방식 바꾸기' })).toHaveCount(0)
   await expect(page.getByTestId('update-managed')).toBeVisible()
   await expect(page.getByTestId('connected-list')).toHaveCount(0)
-  // the plan's maximum for answers at the same time (AI engines > Team provider settings)
-  await page.goto('/admin/engines?tab=team')
+  // the plan's maximum for answers at the same time (Team settings › AI defaults)
+  await page.goto('/admin/settings#ai')
   await expect(page.getByTestId('engines-concurrency')).toHaveAttribute('max', '3')
   expect(realErrors(errors)).toEqual([])
 })
@@ -282,7 +285,7 @@ async function onOfficeMac(page: Page, status: () => object) {
   await page.route('**/api/admin/office-update', (route) => route.fulfill({ json: status() }))
 }
 const legacyHint = (page: Page) => page.getByText(translate('ko', 'teamSettings.updateWindowLegacy', { window: '22:30-00:30', zone: 'Asia/Jakarta' }), { exact: true })
-const plainHint = (page: Page) => page.getByText(DICTS.ko['teamSettings.updateWindowHint'], { exact: true })
+const plainHint = (page: Page) => page.getByText(DICTS.ko['teamSettings.row.updateWindowDesc'], { exact: true })
 
 test('settings: an office Mac says which update window runs while the field is empty, and never writes it in', async ({ page }) => {
   await reset(page)
@@ -512,7 +515,8 @@ for (const locale of ['ko', 'en', 'id'] as const) {
         await revoke.click()
         expect((await deleted).status()).toBe(204)
         await expect(row).toHaveCount(0)
-        await expect(page.getByText(t['members.noInvites'], { exact: true })).toBeVisible()
+        // no link left: the quiet Invite links section goes away (no empty card)
+        await expect(page.getByTestId('invite-links')).toHaveCount(0)
         // No stale cancel button remains to send another DELETE; the document was never reloaded.
         await expect(revoke).toHaveCount(0)
         expect(deletes).toBe(rejectFirst ? 2 : 1)
@@ -586,7 +590,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const created = await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: 'Retention chat' } })
     expect(created.ok()).toBeTruthy()
     await page.goto('/admin/settings')
-    await page.getByLabel(t['teamSettings.chatTrashDays'], { exact: true }).fill('5')
+    await page.getByLabel(t['teamSettings.row.chatTrash'], { exact: true }).fill('5')
     await page.getByRole('button', { name: t['common.save'], exact: true }).click()
     await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
     // no page.goto from here: the dialogs must use the new value without a reload
@@ -625,7 +629,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       if (r.method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings') patches.push(r.postDataJSON())
     })
     await expect(window).toHaveValue('')
-    await expect(page.getByText(t['teamSettings.updateWindowHint'], { exact: true })).toBeVisible()
+    await expect(page.getByText(t['teamSettings.row.updateWindowDesc'], { exact: true })).toBeVisible()
     for (const invalid of ['25:00-26:00', '25:00-01:00', '00:00-25:00', '23:60-01:00', '00:00-23:60']) {
       await window.fill(invalid)
       await expect(error).toBeVisible()

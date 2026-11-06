@@ -243,6 +243,8 @@ export class MockServer {
   codexEnabled = true
   // the API engine: listed like on a real server, off here so chats and Admin Home do not count it
   apiEngineEnabled = false
+  /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
+  driveClient: 'none' | 'app' = 'none'
   /** Admin > AI connections: the team's connections (secrets are opened with the real server sealing code and dropped) */
   credentials: Credential[] = []
   credMemberOwn = true
@@ -370,6 +372,7 @@ export class MockServer {
     this.limitFallback = false
     this.codexEnabled = true
     this.apiEngineEnabled = false
+    this.driveClient = 'none'
     this.credentials = []
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
@@ -433,7 +436,7 @@ export class MockServer {
     for (const u of this.users) u.locale = u.localeChoice ?? this.settings.defaultLocale
   }
 
-  addUser(u: Pick<User, 'id' | 'username' | 'name' | 'role' | 'groupIds'> & { mustChangePassword?: boolean; localeChoice?: Locale | null }, password: string) {
+  addUser(u: Pick<User, 'id' | 'username' | 'name' | 'role' | 'groupIds'> & { mustChangePassword?: boolean; localeChoice?: Locale | null; email?: string | null }, password: string) {
     const user: User = { email: null, status: 'active', mustChangePassword: false, locale: 'ko', localeChoice: null, createdAt: now(), lastSeenAt: null, ...u }
     user.locale = user.localeChoice ?? this.settings.defaultLocale
     this.users.push(user)
@@ -833,6 +836,40 @@ export class MockServer {
       question: lines.join('\n\n'), options: [{ label: '바꾸기', value: 'save' }, { label: '바꾸지 않기', value: 'cancel' }], details }
   }
 
+  /** "devqueue": box_shell on srt waits in the team queue (Step.devEnvRun, server/src/devenv/srt/queue.ts): #2 in line,
+   * then #1, then it starts; GET /api/dev-env/runs gives the live place and POST .../stop cancels it. "slow": each place
+   * holds 4 s; "devqueuefull": it waits too long and ends with the dev environment full; "devqueuejob": a job that
+   * waits (#1) after the answer ends. */
+  async devQueueTurn(chatId: string, user: User, prompt: string, assistant: Message, pub: (ev: ServerEventInput) => void, step: (s: Partial<Step> & Pick<Step, 'id' | 'kind' | 'label'>) => Step) {
+    this.devEnv ??= { box: 'stopped' }
+    const srt = (this.devEnv.srt ??= { running: [], waiting: [] })
+    const id = `dq-${assistant.id.slice(-8)}`
+    const by = { id: user.id, name: user.name }
+    if (/devqueuejob/i.test(prompt)) {
+      // a job: the call returns at once, queued #1; it stays in line after the answer
+      srt.waiting = [...srt.waiting, { id, kind: 'job', name: 'render', by, startedAt: now(), runAt: null, position: 1, memoryMiB: null, lastLine: '', chatId, projectId: null }]
+      const j = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npx remotion render', status: 'ok', endedAt: now(), devEnvRun: { id, kind: 'job', state: 'waiting', position: 1 } })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== j.id), j]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: j } })
+      return
+    }
+    srt.waiting = [...srt.waiting.filter((r) => r.id !== id), { id, kind: 'command', name: 'npm run build', by, startedAt: now(), runAt: null, position: 2, memoryMiB: null, lastLine: '', chatId, projectId: null }]
+    const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+    const q = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run build', devEnvRun: { id, kind: 'command', state: 'waiting', position: 2 } })
+    put(q)
+    const hold = /slow/i.test(prompt) ? 4000 : 1500
+    const waiting = () => srt.waiting.find((r) => r.id === id)
+    for (const place of [2, 1]) {
+      const e = waiting()
+      if (e) e.position = place
+      for (let t = 0; t < hold && waiting() && !this.stopped.has(assistant.turnId!); t += 50) await sleep(50)
+    }
+    const cancelled = !waiting()
+    srt.waiting = srt.waiting.filter((r) => r.id !== id)
+    const end = cancelled ? 'cancelled' as const : /devqueuefull/i.test(prompt) ? 'expired' as const : 'started' as const
+    put({ ...q, status: end === 'started' ? 'ok' : 'error', endedAt: now(), devEnvRun: { id, kind: 'command', state: end, position: null } })
+  }
+
   /** The scripted AI. */
   async runTurn(chatId: string, user: User, prompt: string, assistant: Message) {
     const turnId = assistant.turnId!
@@ -862,6 +899,7 @@ export class MockServer {
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
     }
+    if (/devqueue/i.test(prompt)) await this.devQueueTurn(chatId, user, prompt, assistant, pub, step)
     if (/sub-agent/i.test(prompt)) {
       // a sub-agent (Claude Code's Agent tool): its sub-task step, then its own steps under it (Step.parentId)
       const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
@@ -1462,6 +1500,19 @@ export class MockServer {
       this.devEnvOf(c.user, c.params.id!)
       return { url: `https://preview.example.invalid/${c.body.port}/`, expiresAt: new Date(Date.now() + 600_000).toISOString() }
     },
+    // srt: the caller's runs and their cancel (the chat's waiting line, "devqueue" turns)
+    myDevEnvRuns: (c) => {
+      const srt = this.devEnv?.srt
+      if (!srt) fail('not_found', 404)
+      return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
+    },
+    stopMyDevEnvRun: (c) => {
+      const srt = this.devEnv?.srt
+      if (!srt || ![...srt.running, ...srt.waiting].some((r) => r.id === c.params.runId && r.by?.id === c.user.id)) fail('not_found', 404)
+      srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
+      srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
+      return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
+    },
     listMemories: () => ({ items: this.memories, nextCursor: null }),
     // like server/src/routes/memories.ts: folded to one line, 1–300 characters (the AI's limits), newest first
     createMemory: (c) => {
@@ -1755,7 +1806,7 @@ export class MockServer {
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
-      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null }, c.body.temporaryPassword ?? 'tiger4271')
+      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null, email: c.body.email ?? null }, c.body.temporaryPassword ?? 'tiger4271')
       return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://team.example.com' } }
     },
     updateUser: (c) => {
@@ -2234,12 +2285,30 @@ export class MockServer {
       this.teamIcon = null
       return undefined
     },
-    usage: (c) => ({ from: c.query.from ?? now(), to: c.query.to ?? now(), rows: c.query.groupBy === 'skill'
-      ? [{ key: 'skills/report.md', label: '주간 보고서', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }]
-      : c.query.groupBy === 'model'
-        ? [{ key: 'model-test', label: 'model-test', turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }]
-        : [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }],
-      totals: { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 } }),
+    // like server/src/admin/budgets.ts usage: made-up rows per Group by; with series=1 the same rows spread over the
+    // last three days of the range (tokens per day by key, adding up to the rows), with facets=1 the filter choices.
+    // A person filter (user=bob) keeps only that person's row and totals.
+    usage: (c) => {
+      const rows = c.query.groupBy === 'skill'
+        ? [{ key: 'skills/report.md', label: '주간 보고서', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }]
+        : c.query.groupBy === 'model'
+          ? [{ key: 'model-test', label: 'model-test', turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }]
+          : [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }]
+      const only = c.query.user && c.query.groupBy === 'user' ? rows.filter((r) => r.key === c.query.user) : rows
+      const totals = c.query.user === 'bob' ? { turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 } : { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }
+      const to = new Date(c.query.to ?? now())
+      const day = (back: number) => new Date(to.getTime() - (back + 1) * 86_400_000 + 3600_000).toISOString().slice(0, 10)
+      const split = [0.5, 0.3, 0.2]
+      const series = c.query.series ? only.flatMap((r) => split.map((f, i) => ({ day: day(i), key: c.query.groupBy === 'day' ? 'all' : r.key, turns: Math.round(r.turns * f), inputTokens: Math.round(r.inputTokens * f), outputTokens: Math.round(r.outputTokens * f) }))) : undefined
+      const facets = c.query.facets ? {
+        users: [{ key: 'bob', label: 'Bob' }, { key: 'olga', label: 'Olga' }],
+        engines: [{ key: 'claude-code', label: 'claude-code' }, { key: 'codex', label: 'codex' }],
+        models: [{ key: '', label: '(default)' }, { key: 'model-test', label: 'model-test' }],
+        credentials: [],
+        groups: this.groups.map((g) => ({ key: g.id, label: g.name })),
+      } : undefined
+      return { from: c.query.from ?? now(), to: c.query.to ?? now(), rows: only, totals, ...(series ? { series } : {}), ...(facets ? { facets } : {}) }
+    },
     // like server/src/admin/audit.ts listAudit: newest first, filtered by kind, person, path (file events only) and
     // [from, to); paged by an index cursor. Made-up rows: today's invite first, repeats, a refused AI tool call, a team
     // skill change yesterday, and a sign-in every day before that (enough to scroll and to need "Load more").
@@ -2370,6 +2439,26 @@ export class MockServer {
     getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
+
+    // Google Drive (server/src/routes/drive.ts): this test server has no Google client, like a server not set up for it.
+    // e2e tests that need the other states answer these addresses themselves (test/e2e/drive.spec.ts).
+    myDriveConnection: () => (this.driveClient === 'none'
+      ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }
+      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null }),
+    // Admin › App connectors (integrations/google-drive/admin-setup.ts): this test server has a public address, so an
+    // admin can set Google up; a file must list the redirect URI, like the real server checks.
+    driveAdminStatus: () => this.driveAdminStatus(),
+    setDriveClient: (c) => {
+      const redirect = this.driveAdminStatus().redirectUri!
+      if (c.body.file !== undefined) {
+        let j: { web?: { redirect_uris?: unknown } } | null = null
+        try { j = JSON.parse(c.body.file) } catch { fail('bad_request', 400, 'drive_client_invalid') }
+        if (!j?.web) fail('bad_request', 400, 'drive_client_invalid')
+        if (!Array.isArray(j!.web!.redirect_uris) || !j!.web!.redirect_uris.includes(redirect)) fail('bad_request', 400, 'drive_client_redirect')
+      }
+      this.driveClient = 'app'
+      return this.driveAdminStatus()
+    },
 
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
     listIntegrations: (c) => ({
@@ -2734,6 +2823,11 @@ export class MockServer {
     const state = this.requestState(r)
     if (state !== 'waiting') throw new Fail('conflict', 409, '이 요청은 더 이상 기다리고 있지 않아요.', undefined, { state })
     return r
+  }
+  driveAdminStatus() {
+    const configured = this.driveClient !== 'none'
+    return { configured, source: configured ? 'app' as const : 'none' as const, canSetUp: true, blocked: null,
+      redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0 }
   }
   templateCovers(t: { access: IntegrationAccess }, u: User): boolean {
     return t.access.everyone || t.access.users.includes(u.id) || t.access.groups.some((g) => u.groupIds.includes(g))

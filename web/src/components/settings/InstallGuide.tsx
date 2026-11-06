@@ -1,10 +1,13 @@
 // Settings > Apps: how to add the app to the home screen (iPhone/iPad, Android, computer). The steps for this device
-// come first. An installed app (lib/pwa.ts isStandalone) shows no steps, only the way to turn on push. The desktop
-// app and the phone app do not show this guide: they are already apps (lib/pwa.ts installGuideShown).
+// come first; on phones the other devices' steps open under one "다른 기기" line (computers list them all). An
+// installed app (lib/pwa.ts isStandalone) shows no steps, only the way to turn on push. The desktop app and the phone
+// app do not show this guide: they are already apps (lib/pwa.ts installGuideShown).
+import { ChevronDown } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { guideOrder, isStandalone, platform, useInstallPrompt, type GuidePlatform } from '../../lib/pwa'
 import { useT, type MessageKey } from '../../i18n'
-import { Badge, Button } from '../ui'
+import { Badge, Button, useMediaQuery } from '../ui'
 
 const GUIDE: Record<GuidePlatform, { title: MessageKey; steps: MessageKey[]; note?: MessageKey }> = {
   ios: { title: 'apps.guideIos', steps: ['apps.iosStep1', 'apps.iosStep2', 'apps.iosStep3', 'apps.pushStep'], note: 'apps.iosPushNote' },
@@ -15,6 +18,8 @@ const GUIDE: Record<GuidePlatform, { title: MessageKey; steps: MessageKey[]; not
 export function InstallGuide() {
   const t = useT()
   const install = useInstallPrompt()
+  const [othersOpen, setOthersOpen] = useState(false)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const notifications = (
     <Link to="/settings/notifications" className="text-sm text-accent-text underline">
       {t('apps.openNotifications')}
@@ -27,7 +32,22 @@ export function InstallGuide() {
         {notifications}
       </div>
     )
-  const order = guideOrder(platform())
+  const [here, ...others] = guideOrder(platform())
+  const guide = (g: GuidePlatform, mine: boolean) => (
+    <div key={g} data-testid={`install-guide-${g}`}>
+      <h3 className="text-sm font-semibold">
+        {t(GUIDE[g].title)}
+        {/* phones: in words, not a badge */}
+        {mine && (phone ? <span className="font-normal text-muted"> · {t('apps.thisDevice')}</span> : <Badge tone="accent" className="ml-2">{t('apps.thisDevice')}</Badge>)}
+      </h3>
+      <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-muted">
+        {GUIDE[g].steps.map((k) => (
+          <li key={k}>{t(k, k === 'apps.pushStep' ? { button: t('push.enable') } : undefined)}</li>
+        ))}
+      </ol>
+      {GUIDE[g].note && <p className="mt-1 text-xs text-muted">{t(GUIDE[g].note)}</p>}
+    </div>
+  )
   return (
     <div className="space-y-4" data-testid="install-guide">
       {install.canPrompt && (
@@ -35,20 +55,17 @@ export function InstallGuide() {
           {t('apps.install')}
         </Button>
       )}
-      {order.map((g, i) => (
-        <div key={g} data-testid={`install-guide-${g}`}>
-          <h3 className="text-sm font-semibold">
-            {t(GUIDE[g].title)}
-            {i === 0 && <Badge tone="accent" className="ml-2">{t('apps.thisDevice')}</Badge>}
-          </h3>
-          <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-muted">
-            {GUIDE[g].steps.map((k) => (
-              <li key={k}>{t(k, k === 'apps.pushStep' ? { button: t('push.enable') } : undefined)}</li>
-            ))}
-          </ol>
-          {GUIDE[g].note && <p className="mt-1 text-xs text-muted">{t(GUIDE[g].note)}</p>}
-        </div>
-      ))}
+      {guide(here!, true)}
+      {/* phones: the other devices' steps one tap away, not three guides in a row */}
+      {!phone && others.map((g) => guide(g, false))}
+      {phone && others.length > 0 && (
+        <details className="group" open={othersOpen} onToggle={(e) => setOthersOpen(e.currentTarget.open)} data-testid="install-guide-others">
+          <summary className="-mx-2 flex h-9 cursor-pointer list-none items-center gap-1.5 rounded-lg px-2 text-sm text-muted hover:bg-hover [&::-webkit-details-marker]:hidden">
+            <ChevronDown size={15} className="shrink-0 transition group-open:rotate-180" aria-hidden /> {t('apps.otherDevices')}
+          </summary>
+          {othersOpen && <div className="mt-2 space-y-4">{others.map((g) => guide(g, false))}</div>}
+        </details>
+      )}
       {notifications}
     </div>
   )

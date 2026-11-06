@@ -13,6 +13,8 @@ const ConfigSchema = z.object({
   }),
 }).strict()
 export type DriveConfig = z.infer<typeof ConfigSchema>
+/** The same check readDriveConfig applies, for a client an admin gives in the app (admin-setup.ts). */
+export const parseDriveConfig = (v: unknown): DriveConfig | null => { const r = ConfigSchema.safeParse(v); return r.success ? r.data : null }
 export const configKey = (c: DriveConfig) => crypto.createHash('sha256').update(JSON.stringify(c)).digest('hex')
 export const hash = (s: string) => crypto.createHash('sha256').update(s).digest('hex')
 

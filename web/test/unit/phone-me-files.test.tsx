@@ -3,6 +3,8 @@
 //   linking to the profile, leaves out its own 프로필 row there and starts on its title (no ring on a ←); a computer
 //   keeps its start;
 // - the profile's Save shows only once something changed;
+// - 보안·기기: another device's sign-out icon takes taps from 44px and asks first; this device has no sign-out, only
+//   its "지금 이 기기" label; a computer keeps the worded button (no question, as before);
 // - Files: a long press on a row selects it (the click that ends it does not open the folder), a tap while something
 //   is selected adds or takes a row away, and on a computer a click opens the folder as before.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
@@ -15,6 +17,7 @@ import { useSession } from '../../src/store/session'
 import { BottomTabs } from '../../src/components/BottomTabs'
 import SettingsDialog from '../../src/components/settings/SettingsDialog'
 import SettingsPane from '../../src/pages/Settings'
+import { DialogHost } from '../../src/components/ui'
 import Files from '../../src/pages/Files'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement } from './dom-host'
 
@@ -29,6 +32,9 @@ const tree = (path: string): TreeResponse => ({ path, access: 'write', entries: 
 const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } })
 
 let phone = false
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36'
+const session = (n: number, current = false) => ({ id: `01900000-0000-7000-8000-00000000000${n}`, client: 'web', userAgent: UA, createdAt: '2026-11-05T00:00:00.000Z', lastSeenAt: '2026-11-05T00:00:00.000Z', expiresAt: '2026-12-05T00:00:00.000Z', current })
+const sessions = [session(1, true), session(2)]
 const calls: string[] = []
 const realFetch = globalThis.fetch
 const localeBefore = useLocaleStore.getState().locale
@@ -45,6 +51,8 @@ beforeAll(() => {
     if (key === 'GET /api/me/credentials') return json({ allowed: false, items: [] })
     if (key === 'GET /api/projects') return json({ items: [] })
     if (key === 'GET /api/files/tree') return json(tree(new URL(url, 'http://x').searchParams.get('path') ?? ''))
+    if (key === 'GET /api/me/sessions') return json({ items: sessions })
+    if (key.startsWith('DELETE /api/me/sessions/')) return json({ ok: true })
     return json({ error: { code: 'internal', message: `no route ${key}` } }, 500)
   }) as unknown as typeof fetch
 })
@@ -125,6 +133,57 @@ test('the profile shows Save only after a change', async () => {
   } finally {
     await m.unmount()
   }
+})
+
+describe('보안·기기: signing another device out', () => {
+  const page = () => mount(<MemoryRouter><SettingsPane tab="security" /><DialogHost /></MemoryRouter>)
+  const signedOut = () => calls.filter((c) => c.startsWith('DELETE /api/me/sessions/'))
+
+  test('a phone: this device has its label and no sign-out; another one\'s icon has a 44px touch area and asks first', async () => {
+    phone = true
+    const m = await page()
+    try {
+      await m.until(() => m.find('device-sign-out'), 'the devices')
+      const rows = m.container.querySelectorAll('li').filter((li) => li.querySelector('[data-testid="device-name"]'))
+      expect(rows).toHaveLength(2)
+      expect(rows[0]!.textContent).toContain('지금 이 기기')
+      expect(rows[0]!.querySelector('[data-testid="device-sign-out"]')).toBeNull()
+      const icon = rows[1]!.querySelector('[data-testid="device-sign-out"]')!
+      expect(icon.className).toContain('touch-hit')
+      expect(icon.getAttribute('aria-label')).toContain('로그아웃')
+      // "No": nothing is signed out
+      await m.click(icon)
+      await m.until(() => m.find('dialog-confirm'), 'the question')
+      const dialog = () => m.get('dialog-confirm').closest('[role="dialog"]')!
+      expect(dialog().textContent).toContain('macOS의 Chrome에서 로그아웃할까요?')
+      expect(signedOut()).toEqual([])
+      await m.click(dialog().querySelectorAll('button').find((b) => b.textContent === '취소')!)
+      expect(m.find('dialog-confirm')).toBeNull()
+      expect(signedOut()).toEqual([])
+      // "Sign out": that device only
+      await m.click(icon)
+      await m.until(() => m.find('dialog-confirm'), 'the question')
+      await m.click(m.get('dialog-confirm'))
+      await m.until(() => signedOut().length > 0, 'the sign-out')
+      expect(signedOut()).toEqual([`DELETE /api/me/sessions/${sessions[1]!.id}`])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a computer: the worded button signs out at once, as before', async () => {
+    phone = false
+    const m = await page()
+    try {
+      await m.until(() => m.find('device-sign-out'), 'the devices')
+      expect(m.get('device-sign-out').textContent).toBe('로그아웃')
+      await m.click('device-sign-out')
+      await m.until(() => signedOut().length > 0, 'the sign-out')
+      expect(m.find('dialog-confirm')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
 })
 
 describe('Files rows on a phone', () => {

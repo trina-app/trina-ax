@@ -210,7 +210,8 @@ export function ProjectHome() {
                 testId="project-instructions"
                 icon={<ScrollText size={16} />}
                 label={t('projects.instructions')}
-                action={p.canEdit ? <button type="button" className={sideAction} onClick={() => setEditing(true)}>{t('common.edit')}</button> : undefined}
+                // phones: the same 수정 as in the name's menu above, so not a second button here
+                action={p.canEdit ? <button type="button" className={`${sideAction} max-md:hidden`} onClick={() => setEditing(true)}>{t('common.edit')}</button> : undefined}
               >
                 {p.instructions ? <Markdown text={p.instructions} className="text-sm! leading-6! prose-headings:text-sm!" /> : <p className="text-faint">{t('projects.noInstructions')}</p>}
               </DisclosureRow>
@@ -221,6 +222,8 @@ export function ProjectHome() {
                 meta={files && !files.failed && (files.more ? t('projects.itemsMore', { n: files.entries.length }) : t('projects.items', { n: files.entries.length }))}
                 action={<Link to={folderLink} className={sideAction}>{t('projects.open')}</Link>}
               >
+                {/* phones: the folder's path here, not as a line of its own under the rows */}
+                <p className="mb-2 truncate text-xs text-faint md:hidden" title={p.folderPath || t('files.root')}>{p.folderPath || t('files.root')}</p>
                 {!files && <Skeleton lines={3} />}
                 {files && !files.failed && !files.entries.length && <p className="text-faint">{t('files.emptyReadOnly')}</p>}
                 <ul className="-ml-2 space-y-0.5">
@@ -244,7 +247,7 @@ export function ProjectHome() {
                 )}
               </DisclosureRow>
             </div>
-            <p className="mt-3 truncate text-xs text-faint" title={p.folderPath || t('files.root')}>
+            <p className="mt-3 truncate text-xs text-faint max-md:hidden" title={p.folderPath || t('files.root')}>
               {p.folderPath || t('files.root')}
             </p>
           </aside>

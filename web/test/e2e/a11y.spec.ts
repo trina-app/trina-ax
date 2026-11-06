@@ -2,7 +2,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn } from './helpers'
+import { reset, signIn, adv } from './helpers'
 import { makePng, SVG } from '../../../tests/lib/images'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
@@ -142,15 +142,19 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.goto('/admin')
     await expect(page.getByTestId('admin-attention').or(page.getByTestId('admin-all-good'))).toBeVisible()
     await audit(page, 'admin home')
-    await page.goto('/admin/engines?engine=api')
+    await page.goto('/admin/providers?engine=api')
     await expect(page.getByTestId('engine-details')).toBeVisible()
     await audit(page, 'admin engines')
-    await page.goto('/admin/engines?tab=team')
+    await page.goto('/admin/settings#ai')
     await expect(page.getByTestId('engine-choice')).toBeVisible()
-    await audit(page, 'admin engines (team settings)')
+    await audit(page, 'team settings (AI)')
     await page.goto('/admin/members')
     await expect(page.getByTestId('members-table')).toBeVisible()
     await audit(page, 'admin')
+    await page.goto('/admin/system')
+    await page.getByTestId('health-details').click()
+    await expect(page.getByTestId('diagnostics').locator('[data-status="ok"]').first()).toBeVisible()
+    await audit(page, 'admin system')
     await page.goto('/settings/profile')
     await audit(page, 'settings')
   })
@@ -220,13 +224,13 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
     await signIn(page)
-    for (const s of ['groups', 'folders', 'engines', 'usage', 'audit', 'settings', 'system']) {
+    for (const s of ['groups', 'folders', 'providers', 'usage', 'audit', 'settings', 'system']) {
       await page.goto(`/admin/${s}`)
       await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible()
       await page.waitForTimeout(300)
       await audit(page, `admin/${s}`)
     }
-    for (const s of ['security', 'memory', 'apps']) {
+    for (const s of ['security', 'providers', 'memory', 'apps']) {
       await page.goto(`/settings/${s}`)
       await page.waitForTimeout(300)
       await audit(page, `settings/${s}`)
@@ -265,7 +269,7 @@ async function seedIntegrations(page: Page) {
 }
 
 async function auditIntegrations(page: Page, where: string) {
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   await expect(page.getByTestId('integrations-mine')).toBeVisible()
   await audit(page, `settings/integrations, rows closed${where}`)
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-toggle').click()
@@ -277,12 +281,12 @@ async function auditIntegrations(page: Page, where: string) {
   await page.getByRole('button', { name: 'Notion 추가' }).click()
   await audit(page, `add from discover${where}`)
   await page.keyboard.press('Escape')
-  await page.getByRole('tab', { name: '연결됨' }).click()
+  await page.getByRole('tab', { name: '내 커넥터' }).click()
   await page.getByTestId('integration-add').click()
-  await page.getByTestId('integration-write-deny').check()
+  await (await adv(page, 'integration-write-deny')).check()
   await page.getByTestId('integration-save').click() // shows the field errors
   await audit(page, `integration add (MCP)${where}`)
-  await page.getByTestId('integration-kind-http').check()
+  await (await adv(page, 'integration-kind-http')).check()
   await page.getByTestId('integration-header-custom').check()
   await audit(page, `integration add (API)${where}`)
   await page.keyboard.press('Escape')
@@ -291,13 +295,13 @@ async function auditIntegrations(page: Page, where: string) {
   await expect(page.getByTestId('integration-key-saved')).toBeVisible()
   await audit(page, `integration edit${where}`)
   await page.keyboard.press('Escape')
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await expect(page.getByTestId('team-integrations')).toBeVisible()
   await audit(page, `admin/integrations${where}`)
   await page.getByTestId('integration-add').click()
-  await page.getByTestId('integration-access').getByRole('checkbox', { name: /Olga/ }).uncheck()
-  await page.getByTestId('integration-access').getByRole('checkbox', { name: 'Bob' }).check()
-  await expect(page.getByTestId('integration-access-not-me')).toBeVisible()
+  await (await adv(page, 'integration-access')).getByRole('checkbox', { name: /Olga/ }).uncheck()
+  await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
+  await expect((await adv(page, 'integration-access-not-me'))).toBeVisible()
   await audit(page, `admin integration add${where}`)
   await page.keyboard.press('Escape')
 }

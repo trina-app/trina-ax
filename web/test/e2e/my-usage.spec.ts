@@ -95,6 +95,8 @@ test('Admin > Usage: a title row with Download CSV, compact controls, one-line n
   await expect(header.getByTestId('usage-csv')).toBeVisible()
   const controls = page.getByTestId('usage-controls')
   await expect(controls.getByLabel(t['usage.groupBy'])).toBeVisible()
+  await expect(controls.getByLabel(t['usage.pill.range'])).toBeVisible()
+  await controls.getByLabel(t['usage.pill.range']).selectOption('custom')
   await expect(controls.getByLabel(t['usage.from'])).toBeVisible()
   await expect(controls.getByLabel(t['usage.to'])).toBeVisible()
   // the long notes are one line each until "More"

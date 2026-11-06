@@ -47,7 +47,9 @@ export function useLongPress(onLong: () => void, ms = 500) {
   }
 }
 
-export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0 }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number }) {
+/** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
+ * "…" has */
+export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, muted }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; muted?: boolean }) {
   const [open, setOpen] = useState<null | 'down' | 'up'>(null)
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -105,7 +107,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
         aria-haspopup="menu"
         aria-expanded={!!open}
         onClick={toggle}
-        className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-faint transition hover:bg-hover hover:text-ink max-sm:p-2', buttonClassName)}
+        className={clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', muted ? 'text-muted' : 'text-faint', buttonClassName)}
         data-testid={testId}
       >
         <MoreHorizontal size={16} aria-hidden />

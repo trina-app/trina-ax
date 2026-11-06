@@ -5,31 +5,31 @@
 // template removes their connections. Phone width and accessibility in both themes.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import { reset, signIn } from './helpers'
+import { reset, signIn, adv } from './helpers'
 
 const KEY = 'member-own-' + 'k'.repeat(24)
 const BOB = { username: 'bob', password: 'bob password 1' }
 const modal = (page: Page) => page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') })
 
 async function makeTemplate(page: Page, o: { name?: string; url?: string } = {}) {
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
   const d = modal(page)
   // a new connection is for the team with one key unless the admin picks a template
-  await expect(page.getByTestId('integration-who-team')).toBeChecked()
-  await page.getByTestId('integration-who-template').check()
+  await expect((await adv(page, 'integration-who-team'))).toBeChecked()
+  await (await adv(page, 'integration-who-template')).check()
   // a template takes no key, and has no write rule (each member's own)
   await expect(page.getByTestId('integration-key')).toHaveCount(0)
-  await expect(page.getByTestId('integration-write-ask')).toHaveCount(0)
+  await expect((await adv(page, 'integration-write-ask'))).toHaveCount(0)
   await page.getByTestId('integration-name').fill(o.name ?? 'Tasks')
   await page.getByTestId('integration-url').fill(o.url ?? 'https://mcp.tasks.example/mcp')
   // "no sign-in" is not offered for a template
-  await expect(page.getByTestId('integration-auth-none')).toHaveCount(0)
-  await page.getByTestId('integration-auth-key').check()
+  await expect((await adv(page, 'integration-auth-none'))).toHaveCount(0)
+  await (await adv(page, 'integration-auth-key')).check()
   await expect(page.getByTestId('integration-template-key-note')).toBeVisible()
   await page.getByTestId('integration-notes').fill('Use the key from your Tasks profile.')
-  await page.getByTestId('integration-access-pick').check()
-  await d.getByTestId('integration-access-user').filter({ hasText: 'Bob' }).or(d.getByRole('checkbox', { name: /Bob/ })).first().check()
+  await (await adv(page, 'integration-access-pick')).check()
+  await (await adv(d, 'integration-access-user')).filter({ hasText: 'Bob' }).or(d.getByRole('checkbox', { name: /Bob/ })).first().check()
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integration-templates') && r.method() === 'POST')
   await page.getByTestId('integration-save').click()
   const body = (await sent).postDataJSON()
@@ -52,7 +52,7 @@ test('admin makes a template; the member connects their own key; the admin sees 
   // Bob: "From your team" with the template and Connect
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   const group = page.getByTestId('integrations-from-team')
   await expect(group).toContainText('From your team')
   const tpl = group.getByTestId('template-row').filter({ hasText: 'Tasks' })
@@ -79,14 +79,14 @@ test('admin makes a template; the member connects their own key; the admin sees 
   await expect(page.getByTestId('integration-from-team')).toBeVisible()
   await expect(page.getByTestId('integration-name')).toHaveCount(0)
   await expect(page.getByTestId('integration-url')).toHaveCount(0)
-  await expect(page.getByTestId('integration-write-ask')).toBeVisible()
+  await expect((await adv(page, 'integration-write-ask'))).toBeVisible()
   await modal(page).getByRole('button', { name: 'Cancel' }).click()
 
   // the owner: one connected, and the key is nowhere
   await page.context().clearCookies()
   await signIn(page)
   const admin = page.waitForResponse((r) => r.url().endsWith('/api/admin/integration-templates') && r.request().method() === 'GET')
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   expect(await (await admin).text()).not.toContain(KEY)
   await expect(page.getByTestId('template-admin-row').filter({ hasText: 'Tasks' }).getByTestId('template-badge')).toHaveText('Template · 1 connected')
   expect(errors).toEqual([])
@@ -99,7 +99,7 @@ test('a new address drops the members\' keys; deleting the template removes thei
   // Bob connects
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   await page.getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
   await page.getByTestId('integration-answer-key').fill(KEY)
   await page.getByTestId('integration-answer-connect').click()
@@ -108,7 +108,7 @@ test('a new address drops the members\' keys; deleting the template removes thei
   // the owner moves it: the dialog warns that keys go
   await page.context().clearCookies()
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await page.getByTestId('template-admin-row').filter({ hasText: 'Tasks' }).getByTestId('template-edit').click()
   await expect(modal(page).getByRole('heading', { name: 'Edit template' })).toBeVisible()
   await page.getByTestId('integration-url').fill('https://mcp.tasks2.example/mcp')
@@ -119,7 +119,7 @@ test('a new address drops the members\' keys; deleting the template removes thei
   // Bob connects again, then the owner deletes the template
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   const tpl = page.getByTestId('template-row').filter({ hasText: 'Tasks' })
   await expect(tpl).toBeVisible()
   await tpl.getByTestId('template-connect').click()
@@ -130,7 +130,7 @@ test('a new address drops the members\' keys; deleting the template removes thei
 
   await page.context().clearCookies()
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await page.getByTestId('template-admin-row').filter({ hasText: 'Tasks' }).getByTestId('template-delete').click()
   await expect(page.getByRole('alertdialog').or(page.getByRole('dialog'))).toContainText('1 member\'s connection and key are deleted too.')
   await page.getByRole('button', { name: 'Delete' }).last().click()
@@ -138,7 +138,7 @@ test('a new address drops the members\' keys; deleting the template removes thei
 
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   await expect(page.getByTestId('integrations-from-team')).toHaveCount(0)
 })
 
@@ -149,7 +149,7 @@ test('a member can disconnect; at phone width the group and Connect still work',
   await page.context().clearCookies()
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page, BOB)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   const tpl = page.getByTestId('template-row').filter({ hasText: 'Tasks' })
   await expect(tpl.getByTestId('template-connect')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -178,12 +178,12 @@ for (const scheme of ['light', 'dark'] as const) {
     expect(await axe()).toEqual([])
     // the admin's dialog with the template choice open
     await page.getByTestId('integration-add').click()
-    await page.getByTestId('integration-who-template').check()
+    await (await adv(page, 'integration-who-template')).check()
     expect(await axe()).toEqual([])
     await modal(page).getByRole('button', { name: 'Cancel' }).click()
     await page.context().clearCookies()
     await signIn(page, BOB)
-    await page.goto('/settings/integrations')
+    await page.goto('/settings/connectors')
     await expect(page.getByTestId('template-row')).toHaveCount(1)
     expect(await axe()).toEqual([])
     await page.getByTestId('template-connect').click()
@@ -202,7 +202,7 @@ test('a template that changed while the dialog was open is refused, then shown a
   await signIn(ap)
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   await page.getByTestId('integrations-from-team').getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
   await expect(page.getByTestId('integration-answer-host-warning')).toContainText('mcp.tasks.example')
   const moved = await ap.request.patch(`/api/admin/integration-templates/${tid}`, { data: { url: 'https://mcp.other.example/mcp' }, headers: { 'x-mycel-csrf': '1' } })
@@ -223,19 +223,19 @@ test('a template that changed while the dialog was open is refused, then shown a
 test('a new template is for the whole team unless the admin picks people; the member sees it without any edit', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await page.getByTestId('integration-add').click()
   // one team key starts with only you; choosing a template switches it to everyone, and back again
-  await expect(page.getByTestId('integration-access-everyone')).not.toBeChecked()
-  await page.getByTestId('integration-who-template').check()
-  await expect(page.getByTestId('integration-access-everyone')).toBeChecked()
-  await page.getByTestId('integration-who-team').check()
-  await expect(page.getByTestId('integration-access-everyone')).not.toBeChecked()
-  await page.getByTestId('integration-who-template').check()
-  await expect(page.getByTestId('integration-access-everyone')).toBeChecked()
+  await expect((await adv(page, 'integration-access-everyone'))).not.toBeChecked()
+  await (await adv(page, 'integration-who-template')).check()
+  await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
+  await (await adv(page, 'integration-who-team')).check()
+  await expect((await adv(page, 'integration-access-everyone'))).not.toBeChecked()
+  await (await adv(page, 'integration-who-template')).check()
+  await expect((await adv(page, 'integration-access-everyone'))).toBeChecked()
   await page.getByTestId('integration-name').fill('Wiki')
   await page.getByTestId('integration-url').fill('https://mcp.wiki.example/mcp')
-  await page.getByTestId('integration-auth-key').check()
+  await (await adv(page, 'integration-auth-key')).check()
   const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integration-templates') && r.method() === 'POST')
   await page.getByTestId('integration-save').click()
   expect((await sent).postDataJSON()).toMatchObject({ name: 'Wiki', access: { everyone: true } })
@@ -243,7 +243,7 @@ test('a new template is for the whole team unless the admin picks people; the me
 
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   await expect(page.getByTestId('integrations-from-team').getByTestId('template-row').filter({ hasText: 'Wiki' })).toBeVisible()
 })
 
@@ -255,7 +255,7 @@ test('R4: "N connected" opens who it is for, who connected and when, never a key
   await makeTemplate(page)
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   await page.getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
   await page.getByTestId('integration-answer-key').fill(KEY)
   await page.getByTestId('integration-answer-connect').click()
@@ -263,7 +263,7 @@ test('R4: "N connected" opens who it is for, who connected and when, never a key
 
   await page.context().clearCookies()
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   const answer = page.waitForResponse((r) => /\/api\/admin\/integration-templates\/[^/]+\/members$/.test(r.url()))
   await page.getByTestId('template-admin-row').filter({ hasText: 'Tasks' }).getByTestId('template-badge').click()
   const body = await (await answer).text()
@@ -305,7 +305,7 @@ test('R2 and R7: an inbox notice and a scheduled task that needed the key open t
   await expect(items.filter({ hasText: 'Tasks is ready: connect it with your own key.' })).toBeVisible()
   await expect(items.filter({ hasText: 'A scheduled task did not run: it needs your own key for Tasks.' })).toBeVisible()
   await items.filter({ hasText: 'Tasks is ready' }).getByTestId('notification-template-link').click()
-  await expect(page).toHaveURL(/\/settings\/integrations/)
+  await expect(page).toHaveURL(/\/settings\/connectors/)
   await expect(modal(page).getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()
   await expect(page).not.toHaveURL(/template=/)
   await page.keyboard.press('Escape')

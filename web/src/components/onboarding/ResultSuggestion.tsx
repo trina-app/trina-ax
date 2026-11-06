@@ -10,8 +10,11 @@
 //     (SkillShareCard: the draft, then [팀에 공유] and the invite with that skill; docs/DECISIONS.md "S", "W3": the card
 //     had no entry since the first result shares the pack's own skill).
 // Closing one (X) closes it for good for this person (stored on the server). Acting on one hides it under that answer.
+// From 768px it is a slim box with a primary button; on a phone one frameless line over the message box, its action a
+// text button at the end of the sentence (a box and a big button there sat on top of the message box).
 // The promo video from the intro deck (`deck-video`, docs/DECISIONS.md "D2") is not built yet: the server never sends it
 // while DECK_VIDEO_SUGGESTION is off, and this line shows nothing for it.
+import clsx from 'clsx'
 import { CalendarClock, Presentation, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { SavedSkillDraft, ResultSuggestion as Suggestion } from '@mycel/shared/api'
@@ -22,7 +25,7 @@ import { isOwner, useMe } from '../../store/session'
 import type { ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
-import { Button, IconButton, Modal } from '../ui'
+import { Button, IconButton, Modal, useMediaQuery } from '../ui'
 import { InviteStep } from './InviteStep'
 import { SkillShareCard } from './SkillShareCard'
 import { WelcomeInviteBar } from './WelcomeInviteBar'
@@ -46,6 +49,7 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
   const t = useT()
   const locale = useLocale()
   const owner = isOwner(useMe())
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const welcomeLoaded = useWelcome((s) => s.loaded)
   const progress = useWelcome((s) => s.progress)
   const last = messages.at(-1)
@@ -96,12 +100,24 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
   return (
     <>
       {bar}
-      <div className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-subtle py-1.5 pr-1.5 pl-3 text-sm" data-testid="result-suggestion" data-kind={s.kind}>
-        <Icon size={15} className="shrink-0 text-accent-text max-sm:hidden" aria-hidden />
-        <span className="min-w-0 flex-1 leading-6">{t(words.text)}</span>
-        <Button size="sm" variant="primary" className="shrink-0" onClick={act} data-testid="result-suggestion-act">
-          {t(words.act)}
-        </Button>
+      <div className={clsx('mb-2 flex items-center gap-2 text-sm', !phone && 'rounded-xl border border-line bg-subtle py-1.5 pr-1.5 pl-3')} data-testid="result-suggestion" data-kind={s.kind}>
+        <Icon size={15} className="shrink-0 text-accent-text" aria-hidden />
+        {phone ? (
+          // inline, so a long sentence wraps with its action; the padding widens the tap area without moving the line
+          <p className="min-w-0 flex-1 leading-6 text-muted">
+            {t(words.text)}{' '}
+            <button type="button" className="inline py-2 font-medium whitespace-nowrap text-accent-text underline-offset-2 hover:underline" onClick={act} data-testid="result-suggestion-act">
+              {t(words.act)}
+            </button>
+          </p>
+        ) : (
+          <>
+            <span className="min-w-0 flex-1 leading-6">{t(words.text)}</span>
+            <Button size="sm" variant="primary" className="shrink-0" onClick={act} data-testid="result-suggestion-act">
+              {t(words.act)}
+            </Button>
+          </>
+        )}
         <IconButton label={t('resultTip.close')} onClick={close} data-testid="result-suggestion-close">
           <X size={15} />
         </IconButton>

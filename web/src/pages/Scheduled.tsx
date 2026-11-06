@@ -139,7 +139,8 @@ function ScheduleCard({ s }: { s: Schedule }) {
   const t = useT(), locale = useLocale()
   const waiting = scheduleState(s) === 'review'
   return (
-    <Link to={`/scheduled/${s.id}`} className="block h-full rounded-xl bg-subtle px-4 py-3.5 transition-colors hover:bg-hover" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
+    // one column (phones): a plain row of the list (hairlines between rows, no filled card); two columns keep the cards
+    <Link to={`/scheduled/${s.id}`} className="block h-full rounded-xl bg-subtle px-4 py-3.5 transition-colors hover:bg-hover max-sm:-mx-2 max-sm:rounded-lg max-sm:bg-transparent max-sm:px-2 max-sm:py-3" data-testid="schedule-item" data-review={waiting ? 'waiting' : undefined}>
       <span className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 truncate text-sm font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
@@ -218,7 +219,7 @@ export function ScheduledList() {
         {items && items.length > 0 && (
           <>
             {shown.length ? (
-              <ul className="grid gap-3 sm:grid-cols-2" data-testid="schedule-list">
+              <ul className="grid gap-3 sm:grid-cols-2 max-sm:gap-0 max-sm:divide-y max-sm:divide-line" data-testid="schedule-list">
                 {shown.map((s) => (
                   <li key={s.id} className="min-w-0">
                     <ScheduleCard s={s} />
@@ -353,7 +354,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
                 )}
                 {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
                 {s.lastOutcome === 'needs_key' && s.lastNeed && (
-                  <Link to={`/settings/integrations?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
+                  <Link to={`/settings/connectors?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
                     {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
                   </Link>
                 )}

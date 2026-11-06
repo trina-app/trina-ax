@@ -4,7 +4,7 @@
 // 150 tools" with "check again" for a list an older server cut (docs/DECISIONS.md "Connection tools: deferred, found and
 // called").
 import { expect, test, type Page } from '@playwright/test'
-import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
+import { OWNER, realErrors, reset, signIn, watchConsole, adv } from './helpers'
 
 const row = (page: Page, name: string) => page.getByTestId('integration-row').filter({ has: page.getByText(name, { exact: true }) })
 
@@ -28,12 +28,12 @@ test('External services: every tool of a big service is listed with its switch; 
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page, OWNER)
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   const add = async (name: string, url: string) => {
     await page.getByTestId('integration-add').click()
     await page.getByTestId('integration-name').fill(name)
     await page.getByTestId('integration-url').fill(url)
-    await page.getByTestId('integration-auth-none').check()
+    await (await adv(page, 'integration-auth-none')).check()
     await page.getByTestId('integration-save').click()
     const r = row(page, name)
     await expect(r).toHaveAttribute('data-status', 'connected')

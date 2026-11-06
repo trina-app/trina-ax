@@ -33,8 +33,10 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   expect(card.x + card.width).toBeLessThanOrEqual(PHONE.width)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.width)
   expect(await lines(bob.locator('p').first())).toBe(1)
-  // the owner (yourself) has no menu
-  await expect(page.getByTestId('member-card-olga').getByTestId('member-more')).toHaveCount(0)
+  // the owner (yourself): the "…" has only "Folders they see" (no actions on yourself)
+  await page.getByTestId('member-card-olga').getByTestId('member-more').click()
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['accessView.membersLink']])
+  await page.keyboard.press('Escape')
   // "…" opens the actions inside the screen; Reset password opens its dialog
   await bob.getByTestId('member-more').click()
   const menu = page.getByRole('menu')
@@ -42,7 +44,7 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   const m = await box(menu)
   expect(m.x).toBeGreaterThanOrEqual(0)
   expect(m.x + m.width).toBeLessThanOrEqual(PHONE.width)
-  await expect(menu.getByRole('menuitem')).toHaveText([t['common.edit'], t['members.reset'], t['members.resetLinkButton'], t['members.disable'], t['common.delete']])
+  await expect(menu.getByRole('menuitem')).toHaveText([t['accessView.membersLink'], t['common.edit'], t['members.reset'], t['members.resetLinkButton'], t['members.disable'], t['common.delete']])
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
   await expect(bob.getByTestId('member-more')).toBeFocused()
@@ -59,25 +61,20 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Admin › System at 1280: version and queue share a line, server and free space each take one', async ({ page }) => {
+test('Admin › System at 1280: the server facts are one row each, every value on one line', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/admin/system')
-  const facts = page.getByTestId('system-facts').locator('p')
-  await expect(facts).toHaveCount(4)
-  for (const p of await facts.all()) expect(await lines(p)).toBe(1)
-  // the drive icon sits on the text's first line
-  const disk = facts.nth(3)
-  const icon = await box(disk.locator('svg'))
-  const text = await box(disk.locator('span'))
-  expect(Math.abs(icon.y + icon.height / 2 - (text.y + Math.min(text.height, 20) / 2))).toBeLessThanOrEqual(2)
+  const values = page.getByTestId('system-facts').locator('dd')
+  await expect(values).toHaveCount(3)
+  for (const v of await values.all()) expect(await lines(v)).toBe(1)
 })
 
 test('Admin › MCP: the help line is under the title, before the list', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   const note = page.getByTestId('team-integrations-note')
   await expect(note).toHaveText(t['integrations.admin.desc'])
   const header = await box(page.getByTestId('connectors-header'))

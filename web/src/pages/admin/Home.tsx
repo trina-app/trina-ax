@@ -1,13 +1,14 @@
-// Admin Home (/admin): what needs attention first (an engine that is on but not working, people who cannot use AI, an
+// Admin Home (/admin): what needs attention first (an engine that is on but broken, or not set up while it is the
+// team default or nothing else works; people who cannot use AI, an
 // AI connection or a service to sign in again, a disk filling up, a failed server check), then one card per area with
 // its state in a few words, each opening its page. It reads only what the admin pages already read, with the same
 // ranges (Usage: the last 30 days, as Admin > Usage opens); an area that cannot be read says so on its card and the
 // others still show. Diagnostics are the owner's (Admin > System), so only the owner's Home asks for them. The owner
 // also gets the setup steps still to do (OwnerChecklist; it was on the chat Home before).
-import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, KeyRound, Lock, Puzzle, ScrollText, Users, type LucideIcon } from 'lucide-react'
+import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, Lock, Puzzle, ScrollText, Users, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import type { CredentialState, Locale, UpdateStatus } from '@mycel/shared/api'
+import type { CredentialState, EngineStatus, Locale, UpdateStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatRelative, formatUsd, intlTag, localDay, localDayRange } from '../../lib/format'
 import { turnWhen } from '../../lib/updateTurn'
@@ -21,6 +22,9 @@ import { OwnerChecklist } from './OwnerChecklist'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only) */
 const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
+/** an engine nobody set up: no program or API settings, or no sign-in or AI connection of its kind (the API engine's
+ * not_logged_in is its key refused: set up, and broken) */
+const notSetUp = (e: EngineStatus) => e.status === 'not_installed' || (e.status === 'not_logged_in' && e.id !== 'api')
 
 const names = (list: string[]) => list.slice(0, 3).join(', ') + (list.length > 3 ? ` +${list.length - 3}` : '')
 
@@ -103,7 +107,13 @@ export default function Home() {
   const active = users.data?.items.filter((u) => u.status === 'active') ?? []
   const noAi = users.data ? users.data.items.filter((u) => users.data?.noAi?.includes(u.id)).map((u) => u.name) : []
   const openInvites = invites.data?.filter((i) => !i.usedAt && Date.parse(i.expiresAt) > Date.now()).length ?? 0
-  const badEngines = engines.data?.engines.filter((e) => e.enabled && e.status !== 'ok') ?? []
+  // An engine that is on but never set up (notSetUp) is not a problem while another engine answers: a team on Claude
+  // alone has nothing to fix. It is when it is the team default or when no engine works; a broken engine (error,
+  // untested version, failed lockdown, a refused API key) always is. A connection that stopped working has its own line
+  // below (badCredentials).
+  const anyEngineOk = !!engines.data?.engines.some((e) => e.enabled && e.status === 'ok')
+  const badEngines = engines.data?.engines.filter((e) => e.enabled && e.status !== 'ok'
+    && (!anyEngineOk || e.id === engines.data?.defaultEngine || !notSetUp(e))) ?? []
   const badCredentials = credentials.data?.filter((c) => !c.disabled && CREDENTIAL_PROBLEMS.includes(c.state)) ?? []
   const badServices = services.data?.filter((s) => s.status !== 'connected') ?? []
   const storageBad = !!storage.data && (storage.data.level !== 'ok' || storage.data.writesRefused)
@@ -118,10 +128,10 @@ export default function Home() {
   const canInstall = !!newVersion && !upd?.needsRoot && (!upd?.auto || upd.nextWindow === null || upd.hold === 'rollout' || upd.hold === 'failed')
 
   const attention: { key: string; text: string; to: string; actions?: ReactNode; job?: string | null }[] = [
-    ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/engines' })),
-    ...(noAi.length ? [{ key: 'no-ai', text: t('adminHome.noAi', { count: noAi.length, names: names(noAi) }), to: '/admin/credentials' }] : []),
-    ...badCredentials.map((c) => ({ key: `credential-${c.id}`, text: item(c.label, t(`credentials.state.${c.state}`)), to: '/admin/credentials' })),
-    ...badServices.map((s) => ({ key: `service-${s.id}`, text: item(s.name, t(`integrations.status.${s.status}`)), to: '/admin/integrations' })),
+    ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/providers' })),
+    ...(noAi.length ? [{ key: 'no-ai', text: t('adminHome.noAi', { count: noAi.length, names: names(noAi) }), to: '/admin/providers' }] : []),
+    ...badCredentials.map((c) => ({ key: `credential-${c.id}`, text: item(c.label, t(`credentials.state.${c.state}`)), to: '/admin/providers?engine=claude-code' })),
+    ...badServices.map((s) => ({ key: `service-${s.id}`, text: item(s.name, t(`integrations.status.${s.status}`)), to: '/admin/connectors' })),
     ...(storageBad && storage.data ? [{ key: 'storage', text: t('adminHome.storage', { percent: Math.round(storage.data.percent) }), to: '/admin/system' }] : []),
     ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system' })),
     ...(newVersion && upd ? [{
@@ -199,15 +209,12 @@ export default function Home() {
             line={t('adminHome.members', { count: active.length }) + (openInvites ? ` · ${t('adminHome.invites', { count: openInvites })}` : '')}
             meta={names(active.map((u) => u.name))}
           />
-          <Area id="engines" to="/admin/engines" icon={Cpu} title={t('admin.engines')} state={engines} problems={badEngines.length}
-            line={defaultEngine ? t('adminHome.default', { engine: defaultEngine }) : ''}
+          {/* the engines and the accounts they use are one page (AI providers) */}
+          <Area id="providers" to="/admin/providers" icon={Cpu} title={t('admin.providers')} state={engines} problems={badEngines.length + badCredentials.length + (noAi.length ? 1 : 0)}
+            line={[defaultEngine && t('adminHome.default', { engine: defaultEngine }), t('adminHome.connections', { count: credentials.data?.length ?? 0 })].filter(Boolean).join(' · ')}
             meta={names(engines.data?.engines.filter((e) => e.enabled).map((e) => e.label) ?? [])}
           />
-          <Area id="credentials" to="/admin/credentials" icon={KeyRound} title={t('admin.credentials')} state={credentials} problems={badCredentials.length + (noAi.length ? 1 : 0)}
-            line={t('adminHome.connections', { count: credentials.data?.length ?? 0 })}
-            meta={credentials.data?.length ? t('adminHome.thisMonth', { amount: formatUsd(credentials.data.reduce((s, c) => s + c.month.usd, 0), locale) }) : ''}
-          />
-          <Area id="integrations" to="/admin/integrations" icon={Cable} title={t('admin.integrations')} state={services} problems={badServices.length}
+          <Area id="integrations" to="/admin/connectors" icon={Cable} title={t('admin.integrations')} state={services} problems={badServices.length}
             line={t('adminHome.services', { count: services.data?.length ?? 0 })}
             meta={names(services.data?.map((s) => s.name) ?? [])}
           />

@@ -7,6 +7,7 @@ import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
 import { Button, ErrorNote, Skeleton } from '../ui'
+import { mobilePushApp } from '../../lib/mobile-push'
 import { PushNotifications } from './PushNotifications'
 import { deletionNoticeText } from './AccountDeletion'
 
@@ -26,7 +27,7 @@ export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId'>) =
  * opens its Connect as ?template=. */
 export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'template' | 'needsKey'>) => {
   const template = item.template?.id ?? item.needsKey?.templateId
-  return template ? `/settings/integrations?template=${encodeURIComponent(template)}` : `/settings/integrations?request=${encodeURIComponent(item.sourceId)}`
+  return template ? `/settings/connectors?template=${encodeURIComponent(template)}` : `/settings/connectors?request=${encodeURIComponent(item.sourceId)}`
 }
 
 export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'
@@ -45,6 +46,7 @@ const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
 
 export function Notifications() {
   const t = useT(), locale = useLocale()
+  const app = mobilePushApp()
   const [items, setItems] = useState<InboxNotification[] | null>(null)
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
@@ -90,10 +92,12 @@ export function Notifications() {
     try { await api.call(API.markNotificationRead, { params: { id: item.id } }); if (generation === life.current) await load() }
     catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
   }
-  // Phones: whether alerts reach this phone comes right after the title (it is what matters there); no frames inside
-  // the Settings card, and hints as large as the text they explain.
+  // Phones: in the phone app, whether alerts reach this phone comes right after the title (it is what matters there); a
+  // phone's browser has the inbox first (its push lines only say what it cannot do). No frames inside the Settings
+  // card, and hints as large as the text they explain. The title itself is in the bar above on a phone
+  // (SettingsDialog.tsx), so here it is for screen readers only.
   return <section className="flex flex-col gap-5" data-testid="notifications">
-    <div className="max-md:order-first"><h2 className="text-base font-semibold">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted">{t('notifications.description')}</p></div>
+    <div className="max-md:order-first"><h2 className="text-base font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!items && !error && <Skeleton lines={3} />}
     {/* the inbox comes first: it is what the sidebar's "Inbox" opens; the preferences follow below it */}
@@ -108,9 +112,9 @@ export function Notifications() {
           {item.link === 'room' && item.room && <Link className="text-sm text-accent-text hover:underline" to={`/rooms/${encodeURIComponent(item.room.id)}`} onClick={() => void read(item)} data-testid="notification-room-link">{t('notifications.openRoom')}</Link>}
           {item.link === 'project' && item.devEnv && <Link className="text-sm text-accent-text hover:underline" to={`/projects/${encodeURIComponent(item.devEnv.projectId)}`} onClick={() => void read(item)}>{item.devEnv.projectName}</Link>}
           {item.review && <Link className="text-sm text-accent-text hover:underline" to="/scheduled" onClick={() => void read(item)} data-testid="notification-review-link">{t('settings.schedules')}</Link>}
-          {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/drive" onClick={() => void read(item)}>{t('drive.title')}</Link>}
+          {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/connectors?drive=1" onClick={() => void read(item)}>{t('drive.title')}</Link>}
           {item.link === 'integrations' && <Link className="text-sm text-accent-text hover:underline" to={integrationsLink(item)} onClick={() => void read(item)} data-testid={item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link'}>{item.template || item.needsKey ? t('integrations.template.connectOwn') : t('integrations.title')}</Link>}
-          {item.link === 'admin_credentials' && <Link className="text-sm text-accent-text hover:underline" to="/admin/credentials" onClick={() => void read(item)} data-testid="notification-ai-request-link">{t('aiAccess.connectTeam')}</Link>}
+          {item.link === 'admin_credentials' && <Link className="text-sm text-accent-text hover:underline" to="/admin/providers" onClick={() => void read(item)} data-testid="notification-ai-request-link">{t('aiAccess.connectTeam')}</Link>}
           {item.code === 'team.joined' && <Link className="text-sm text-accent-text hover:underline" to="/admin/members" onClick={() => void read(item)} data-testid="notification-joined-link">{t('admin.members')}</Link>}
           {item.link === 'admin_members' && <Link className="text-sm text-accent-text hover:underline" to={`/admin/members?member=${encodeURIComponent(item.sourceId)}`} onClick={() => void read(item)} data-testid="notification-deletion-link">{t('admin.members')}</Link>}
           {item.link === 'skills' && <Link className="text-sm text-accent-text hover:underline" to={skillsLink(item)} onClick={() => void read(item)}>{t('skills.title')}</Link>}
@@ -124,6 +128,6 @@ export function Notifications() {
       {preferenceKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
       <p className="text-xs text-muted max-md:text-sm">{t('notifications.preferenceHint')}</p>
     </fieldset>}
-    <div className="max-md:-order-1"><PushNotifications /></div>
+    <div className={app ? 'max-md:-order-1' : undefined}><PushNotifications /></div>
   </section>
 }

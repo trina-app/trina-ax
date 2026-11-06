@@ -1,6 +1,7 @@
 // Server texts of the AI connections (ko, en, id, ja, es): the state line under a connection and the notices the owner and
 // admins get. D1 explicitly distinguishes personal connections from shared subscriptions.
 import type { Locale } from '@mycel/shared/api'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -67,7 +68,8 @@ export const CT = {
 } satisfies Record<string, T>
 
 export function ct(key: keyof typeof CT, locale: Locale, vars: Record<string, string> = {}): string {
-  let s = CT[key][locale] ?? CT[key].en
+  // no second honorific after a name that has one ("{name}님의" with 대표님, shared/src/honorific.ts)
+  let s = dropDoubleHonorifics(CT[key][locale] ?? CT[key].en, vars)
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v)
   return s
 }

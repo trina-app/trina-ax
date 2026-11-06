@@ -7,7 +7,7 @@
 | Team AX/Trina 코드 | [LICENSE](../LICENSE), [NOTICE](../NOTICE) | 별도 라이선스·권리 미확정 부분을 새로 허락하지 않음 |
 | 공유 cloud 프로토콜 | [폴더 한정 MIT](../shared/src/cloud-protocol/LICENSE) | ee/cloud 및 shared의 다른 폴더까지 확대하지 않음 |
 | 역사적 Trina 웹사이트 | [Apache-2.0](../editions/trina/branding/LICENSE.website-upstream.txt), [원 저작권 출처](../editions/trina/branding/NOTICE.website-upstream.md) | 새 서버판 전체가 Apache라는 뜻이 아님 |
-| 외부 서비스 로고 | `web/public/icons/connectors`의 39개. 파일별 출처는 아래 [외부 서비스 로고](#외부-서비스-로고-webpubliciconsconnectors) 표 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다. 파일별 출처와 이용 조건은 아직 확인되지 않았다 |
+| 외부 서비스 로고 | `web/public/icons/connectors`의 40개(MCP 서버 39개와 앱 커넥터의 Google Drive). 파일별 출처는 아래 [외부 서비스 로고](#외부-서비스-로고-webpubliciconsconnectors) 표 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다. 파일별 출처와 이용 조건은 아직 확인되지 않았다 |
 | 사이트 글꼴 | 사이트(ax.trina.app)와 함께 비공개 `trina-ax-core`로 옮김. OFL 원문·Trina UI 변경 기록도 그쪽에 있다 | 사이트 배포물에 함께 넣는다 |
 | 사이트 정적 출력 | 비공개 `trina-ax-core`의 `editions/trina/website/public/licenses/` | 실제 dist의 바이트 확인 필요; 대응 소스 제공과 별개 |
 
@@ -37,7 +37,8 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 - 기록에 남은 출처는 묶음 전체에 대한 것뿐이다. 이 문서의 이전 문구는 "svgl.app, Simple Icons와 각 서비스 사이트에서
   받음, 목록은 mcpservers.org 기준"이었고 `docs/INTEGRATIONS.md`는 "svgl.app과 Simple Icons"만 적었다. 커밋 메시지와 PR
   본문에는 출처가 없다. 어느 파일이 어디서 왔는지는 어디에도 기록되지 않았다.
-- 그래서 아래 39개 중 출처가 확인된 파일은 0개, 미확인 39개다. 그중 13개는 파일 형식(`role="img"`,
+- 그래서 처음 넣은 39개 중 출처가 확인된 파일은 0개, 미확인 39개다. 2026-11-05에 더한 `google-drive.svg`(앱 커넥터의
+  Google Drive)와 `claude.svg`(앱 커넥터의 Claude·Claude Code)는 받은 곳과 날짜를 표에 적었다. 그중 13개는 파일 형식(`role="img"`,
   `viewBox="0 0 24 24"`, 서비스 이름의 `<title>`, 한 가지 `fill` 색)이 Simple Icons의 배포 형식과 같다. 이것은 추정이고
   출처 확인이 아니다. `higgsfield.png`, `monday.png`, `calendly.svg`를 포함한 나머지는 파일에서도 단서가 없다.
 - 이용 조건은 출처를 알아야 적을 수 있어서 모두 "미확인"이다. 출처와 무관하게 각 로고는 그 소유자의 상표다.
@@ -52,11 +53,13 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | `brex.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Brex</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `calendly.svg` | 미확인 | 미확인 | viewBox `0 0 841.89 595.28`; Adobe Illustrator 27.5.0(으)로 내보낸 파일(파일 안 주석), 어디서 받았는지는 없음 |
 | `canva.svg` | 미확인 | 미확인 | viewBox `0 0 80 80`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `claude.svg` | https://svgl.app/library/claude-ai-icon.svg (2026-11-05 받음) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Claude 로고는 Anthropic의 상표이고 Anthropic 브랜드 지침을 따른다 | viewBox `0 0 256 257`; 한 가지 `fill`(`#D97757`) path, 스크립트·외부 참조 없음; Settings › App connectors와 Admin › App connectors의 Claude와 Claude Code에 쓴다 |
 | `clickup.svg` | 미확인 | 미확인 | viewBox `0 0 64 64`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `cloudflare.svg` | 미확인 | 미확인 | viewBox `0 0 256 116`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `cloudinary.svg` | 미확인 | 미확인 | viewBox `0 0 256 168`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `figma.svg` | 미확인 | 미확인 | viewBox `0 0 54 80`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `gitlab.svg` | 미확인 | 미확인 | viewBox `0 0 32 32`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `google-drive.svg` | https://svgl.app/library/drive.svg (2026-11-05 받음) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Google Drive 로고는 Google의 상표이고 Google 브랜드 지침을 따른다 | viewBox `0 0 87.3 78`; 여섯 색 path, 스크립트·외부 참조 없음; Settings › App connectors와 Admin › App connectors의 Google Drive에 쓴다 |
 | `higgsfield.png` | 미확인 | 미확인 | PNG 180×180, EXIF는 색 공간과 크기뿐(만든 이·프로그램·날짜 없음) |
 | `indeed.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Indeed</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `intercom.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Intercom</title>`; Simple Icons 배포 형식과 같음(추정) |

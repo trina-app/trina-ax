@@ -1,15 +1,15 @@
-// Admin > AI connections (docs/DECISIONS.md "AI 연결" 3.13): the accounts the team's AI answers with — Claude
-// subscription tokens, API keys, ChatGPT sign-ins — grouped by engine, with their state, who uses them, this month's
-// use and the order they are tried in. Admins see and re-check; only the owner adds, replaces, orders, assigns,
-// limits, switches off and removes (adding and replacing ask for the password again). Tokens and keys are sealed in
-// the browser before they are sent (lib/seal.ts) and never shown again. Settings > AI connections (MyCredentials)
-// is a member's own list, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
+// The accounts the team's AI answers with (docs/DECISIONS.md "AI 연결" 3.13) — Claude subscription tokens, API keys,
+// ChatGPT sign-ins — shown inside each provider's row in Admin › AI providers (pages/admin/Engines.tsx; it was a page of
+// its own, Admin > AI connections, and /admin/credentials leads there): their state, who uses them, this month's use and
+// the order they are tried in. Admins see and re-check; only the owner adds, replaces, orders, assigns, limits,
+// switches off and removes (adding and replacing ask for the password again). Tokens and keys are sealed in the browser
+// before they are sent (lib/seal.ts) and never shown again. Settings › AI providers (MyCredentials) is a member's own
+// accounts by provider, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
 // folded under a small disclosure.
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { DuplicateCredentialParams, type Credential, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
+import { DuplicateCredentialParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
@@ -17,9 +17,8 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, Switch, confirmDialog, inputCls } from '../../components/ui'
-import { AdminPageHeader, Card, Loadable, USAGE_LIMITS_LINK, useAction, useActionOk, useLoad } from './common'
-import { TrialCreditBar } from '../../components/TrialCreditBar'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
@@ -46,7 +45,14 @@ const formatOk = (kind: CredentialKind, s: string, gateway?: Gateway) => kind ==
   : kind === 'anthropic-api-key' ? (gateway ? GATEWAY_KEY_RE.test(s) && !/^sk-ant-/i.test(s) : ANTHROPIC_KEY_RE.test(s))
   : kind === 'openai-api-key' ? OPENAI_KEY_RE.test(s) && !s.startsWith('sk-ant-') : true
 
-export default function Credentials() {
+/** The engines whose accounts are listed here: an engine's provider row in Admin › AI providers shows its family. */
+export const ENGINE_FAMILY: Partial<Record<EngineId, 'claude' | 'codex'>> = { 'claude-code': 'claude', codex: 'codex' }
+export type Family = 'claude' | 'codex'
+
+/** The team's AI accounts for Admin › AI providers (pages/admin/Engines.tsx): the list, what an owner and an admin may
+ * do with each, and the dialogs. Each provider row shows its own family (ProviderAccounts); the settings for members'
+ * own accounts are in the Team provider settings tab (Engines.tsx MemberAccounts). */
+export function useTeamCredentials() {
   const t = useT()
   const me = useMeStrict()
   const owner = isOwner(me)
@@ -57,7 +63,8 @@ export default function Credentials() {
   const trial = useLoad(() => api.call(API.trialCredit).catch(() => ({ credit: null })))
   const groups = useLoad(async () => (owner ? (await api.call(API.listGroups)).items : []), [owner])
   const users = useLoad(async () => (owner ? (await api.call(API.listUsers)).items : []), [owner])
-  const [adding, setAdding] = useState(false)
+  /** the family whose Add account dialog is open */
+  const [adding, setAdding] = useState<Family | null>(null)
   const [editing, setEditing] = useState<Credential | null>(null)
   const [replacing, setReplacing] = useState<Credential | null>(null)
   const [checking, setChecking] = useState<string | null>(null)
@@ -93,94 +100,67 @@ export default function Credentials() {
   }
   const target = (c: Credential) => c.scope === 'personal' ? t('credentials.target.personal', { name: c.owner?.name ?? '' })
     : !c.assignments.length ? t('credentials.target.team') : c.assignments.map((a) => a.name).join(', ')
-
-  return (
+  const d = state.data
+  const dialogs = d && (
     <>
-    <AdminPageHeader
-      title={t('admin.credentials')}
-      desc={t('credentials.desc')}
-      actions={owner ? <Button size="sm" variant="primary" disabled={!state.data} onClick={() => setAdding(true)} data-testid="credential-add"><Plus size={14} aria-hidden /> {t('credentials.add')}</Button> : undefined}
-    />
-    <Loadable state={state}>
-      {(d) => (
-        <>
-          <Card>
-            {trial.data?.credit && <TrialCreditBar credit={trial.data.credit} timeZone={me.server.timeZone} className="mb-4" />}
-            {/* the connections here are for Claude and Codex only; other providers are the API engine's (one key there) */}
-            <p className="mb-4 text-xs text-muted" data-testid="credentials-api-engine-hint">
-              {t('credentials.apiEngineHint')}{' '}
-              <Link to="/admin/engines" className="font-medium text-accent-text underline">{t('credentials.apiEngineHintLink')}</Link>
-            </p>
-            {(['claude', 'codex'] as const).map((fam) => {
-              const list = d.items.filter((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind))
-              return (
-                <section key={fam} className="mb-5" aria-labelledby={`cred-${fam}`}>
-                  <h3 id={`cred-${fam}`} className="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">{t(`credentials.group.${fam}`)}</h3>
-                  {!list.length ? <p className="text-sm text-faint">{t('credentials.none')}</p> : (
-                    <ul className="divide-y divide-line rounded-xl border border-line" data-testid={`credentials-${fam}`}>
-                      {list.map((c, i) => (
-                        <CredentialRow key={c.id} c={c} target={target(c)} owner={owner} checking={checking === c.id}
-                          onCheck={() => check(c)} onEdit={() => setEditing(c)} onReplace={() => setReplacing(c)} onRemove={() => remove(c)}
-                          onToggle={() => patch(c, { disabled: !c.disabled })}
-                          onUp={i > 0 ? () => move(d, c, -1) : undefined} onDown={i < list.length - 1 ? () => move(d, c, 1) : undefined} />
-                      ))}
-                    </ul>
-                  )}
-                </section>
-              )
-            })}
-            <p className="text-xs text-muted">{t('credentials.order')}</p>
-            {/* the usage limits are on AI engines › Team provider settings: a link that opens that tab at the limits */}
-            <p className="mt-2 text-xs text-muted" data-testid="credentials-budget-hint">
-              {t('adminux.credentials.budgetHint')}{' '}
-              <Link to={USAGE_LIMITS_LINK} className="font-medium text-accent-text underline">{t('adminux.usageLimitsLink')}</Link>
-            </p>
-            {owner && (
-              <div className="mt-4 space-y-1">
-                <Switch checked={d.memberOwn} label={t('credentials.memberOwn')} onChange={async (v) => {
-                  const r = await act(() => api.call(API.updateCredentialSettings, { body: { memberOwn: v } }))
-                  if (r) state.setData({ ...d, memberOwn: r.memberOwn })
-                }} />
-                <p className="text-xs text-muted">{t('credentials.memberOwnHint')}</p>
-                <div data-testid="shared-subscriptions-setting" className="pt-3">
-                  <Switch checked={d.sharedSubscriptions} label={t('credentials.sharedSubscriptions')} onChange={async (v) => {
-                    if (v && !(await confirmDialog({ title: t('credentials.sharedRiskTitle'), body: t('credentials.sharedRiskWarning'), confirm: t('credentials.sharedRiskConfirm'), danger: true }))) return
-                    const r = await act(() => api.call(API.updateCredentialSettings, { body: { sharedSubscriptions: v, ...(v ? { acknowledgedSharedSubscriptionRisk: true } : {}) } }))
-                    if (r) void state.reload()
-                  }} />
-                </div>
-                {/* the risk text speaks of sharing that is on, so it shows only while the switch is on */}
-                {d.sharedSubscriptions && <p className="text-xs text-warn">{t('credentials.sharedRiskWarning')}</p>}
-              </div>
-            )}
-            {d.items.some((x) => x.scope === 'personal') && (
-              <section className="mt-5">
-                <h3 className="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">{t('credentials.personalList')}</h3>
-                <ul className="divide-y divide-line rounded-xl border border-line" data-testid="credentials-personal">
-                  {d.items.filter((x) => x.scope === 'personal').map((c) => (
-                    <CredentialRow key={c.id} c={c} target={target(c)} owner={owner} checking={checking === c.id} personal
-                      onCheck={() => check(c)} onEdit={() => {}} onReplace={() => {}} onRemove={() => remove(c)} onToggle={() => patch(c, { disabled: !c.disabled })} />
-                  ))}
-                </ul>
-              </section>
-            )}
-            <p className="mt-4 text-xs text-faint">{t('credentials.costNote', { date: d.pricesAsOf })}</p>
-          </Card>
-          {adding && (
-            <AddCredential allowedKinds={d.allowedKinds} gateway={d.anthropicGateway} sharedSubscriptions={d.sharedSubscriptions} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void state.reload() }} />
-          )}
-          {replacing && (
-            <AddCredential allowedKinds={d.allowedKinds} gateway={d.anthropicGateway} sharedSubscriptions={d.sharedSubscriptions} groups={[]} users={[]} replace={replacing} onClose={() => setReplacing(null)} onDone={() => { setReplacing(null); void state.reload() }} />
-          )}
-          {editing && <EditCredential c={editing} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void state.reload() }} />}
-        </>
+      {adding && (
+        <AddCredential allowedKinds={d.allowedKinds} family={adding} gateway={d.anthropicGateway} sharedSubscriptions={d.sharedSubscriptions} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setAdding(null)} onDone={() => { setAdding(null); void state.reload() }} />
       )}
-    </Loadable>
+      {replacing && (
+        <AddCredential allowedKinds={d.allowedKinds} gateway={d.anthropicGateway} sharedSubscriptions={d.sharedSubscriptions} groups={[]} users={[]} replace={replacing} onClose={() => setReplacing(null)} onDone={() => { setReplacing(null); void state.reload() }} />
+      )}
+      {editing && <EditCredential c={editing} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void state.reload() }} />}
     </>
+  )
+  return { me, owner, state, trial, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
+}
+export type TeamCredentials = ReturnType<typeof useTeamCredentials>
+
+/** One provider's accounts inside its row in Admin › AI providers, in the order they are used, with Add account
+ * (the owner; it opens the same dialog as before, for this provider's kinds only). Admins see and re-check them. */
+export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family }) {
+  const t = useT()
+  const d = tc.state.data
+  if (!d) return null
+  const list = d.items.filter((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind))
+  const kinds = d.allowedKinds.filter((k) => FAMILY[fam].includes(k))
+  return (
+    <div className="mt-3 space-y-2 pl-5" data-testid={`provider-accounts-${fam}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium text-muted">{t('providers.accounts')}</p>
+        {tc.owner && kinds.length > 0 && (
+          <Button size="sm" onClick={() => tc.setAdding(fam)} data-testid={`provider-add-${fam}`}><Plus size={14} aria-hidden /> {t('providers.addAccount')}</Button>
+        )}
+      </div>
+      {!list.length ? <p className="text-xs text-faint" data-testid={`provider-none-${fam}`}>{t('providers.noAccounts')}</p> : (
+        <ul className="divide-y divide-line rounded-xl border border-line" data-testid={`credentials-${fam}`}>
+          {list.map((c, i) => (
+            <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={tc.owner} checking={tc.checking === c.id}
+              onCheck={() => tc.check(c)} onEdit={() => tc.setEditing(c)} onReplace={() => tc.setReplacing(c)} onRemove={() => tc.remove(c)}
+              onToggle={() => tc.patch(c, { disabled: !c.disabled })}
+              onUp={i > 0 ? () => tc.move(d, c, -1) : undefined} onDown={i < list.length - 1 ? () => tc.move(d, c, 1) : undefined} />
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 
-function CredentialRow({ c, target, owner, checking, personal, ownDelete, onCheck, onEdit, onReplace, onRemove, onToggle, onUp, onDown }: {
+/** The accounts members connected for themselves (a list the owner and admins see, never the keys). */
+export function PersonalCredentialList({ tc }: { tc: TeamCredentials }) {
+  const d = tc.state.data
+  if (!d || !d.items.some((x) => x.scope === 'personal')) return null
+  return (
+    <ul className="divide-y divide-line rounded-xl border border-line" data-testid="credentials-personal">
+      {d.items.filter((x) => x.scope === 'personal').map((c) => (
+        <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={tc.owner} checking={tc.checking === c.id} personal
+          onCheck={() => tc.check(c)} onEdit={() => {}} onReplace={() => {}} onRemove={() => tc.remove(c)} onToggle={() => tc.patch(c, { disabled: !c.disabled })} />
+      ))}
+    </ul>
+  )
+}
+
+export function CredentialRow({ c, target, owner, checking, personal, ownDelete, onCheck, onEdit, onReplace, onRemove, onToggle, onUp, onDown }: {
   c: Credential; target: string; owner: boolean; checking: boolean; personal?: boolean
   /** a member's own row (Settings): a delete button instead of the owner's menu */
   ownDelete?: boolean
@@ -269,8 +249,8 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
  * target), named after the kind (no name field), the provider's terms in one line; the password again stays for a
  * team connection (the server checks it on every add, owner-reauth), and one's own needs none, as before.
  */
-export function AddCredential({ allowedKinds, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, onlyKinds, simple, onClose, onDone }: {
-  allowedKinds: CredentialKind[]; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean
+export function AddCredential({ allowedKinds, family, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, onlyKinds, simple, onClose, onDone }: {
+  allowedKinds: CredentialKind[]; /** this provider's kinds only (Add account in its row) */ family?: Family; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean
   /** one way chosen already ("Claude 구독 연결"): the list of ways is not shown (in the simple form, until "다른 방법") */
   initialKind?: CredentialKind
   /** the list shows only these ways ("API 키로 연결": the Claude and OpenAI keys) */
@@ -378,7 +358,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
     }
     onClose()
   }
-  const kinds = (personal ? PERSONAL_KIND_ORDER : KIND_ORDER).filter((k) => (!replace || k === replace.kind) && (!onlyKinds || onlyKinds.includes(k)))
+  const kinds = (personal ? PERSONAL_KIND_ORDER : KIND_ORDER).filter((k) => (!replace || k === replace.kind) && (!family || FAMILY[family].includes(k)) && (!onlyKinds || onlyKinds.includes(k)))
   // moving a member's connection to a team connection picked for other people: that member may be left without AI
   const mover = move?.where === 'personal' && move.ownerId ? users.find((u) => u.id === move.ownerId) : undefined
   const leftOut = !!mover && assignments.length > 0
@@ -387,7 +367,7 @@ export function AddCredential({ allowedKinds, gateway, groups, users, replace, p
   const claudeWaits = login?.kind === 'anthropic-oauth' && (login.state === 'code' || login.state === 'checking')
 
   return (
-    <Modal open onClose={cancelLogin} width={560} title={replace ? (SUBSCRIPTION.has(replace.kind) ? t('credentials.reconnect') : t('credentials.replace')) : t('credentials.add')}
+    <Modal open onClose={cancelLogin} width={560} title={replace ? (SUBSCRIPTION.has(replace.kind) ? t('credentials.reconnect') : t('credentials.replace')) : t('providers.addAccount')}
       footer={login ? (
         <>
           {login.state === 'done' ? <Button variant="primary" onClick={onDone}>{t('common.done')}</Button>
@@ -521,7 +501,8 @@ function CommandLine({ text }: { text: string }) {
   )
 }
 
-/** Claude: open the authorize page (a new tab), paste the code it shows; then the check, then the result */
+/** Claude: open the authorize page (a new tab, or copy its link to another browser), paste the code it shows; then
+ * the check, then the result */
 function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLogin; code: string; onCode: (v: string) => void; onSubmit: () => void; error: string | null }) {
   const t = useT()
   if (l.state === 'starting') return <p className="text-sm text-muted" data-testid="claude-starting">{t('credentials.claude.starting')}</p>
@@ -529,9 +510,13 @@ function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLog
     const bad = code.trim() !== '' && !CLAUDE_CODE_RE.test(code.trim())
     return (
       <div className="space-y-4" data-testid="claude-code">
-        <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
-          {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
-        </a>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
+            {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
+          </a>
+          {/* the same link for another browser (the one signed in to Claude) or another device */}
+          <CopyButton text={l.url} label={t('credentials.claude.copyLink')} showLabel />
+        </div>
         <Field label={t('credentials.claude.code')} error={bad ? t('credentials.claude.codeInvalid') : null}>
           <input className={inputCls} autoComplete="off" spellCheck={false} value={code} disabled={l.state !== 'code'} data-testid="claude-code-input"
             onChange={(e) => onCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSubmit() }} />
@@ -617,30 +602,47 @@ function EditCredential({ c, groups, users, onClose, onSaved }: { c: Credential;
   )
 }
 
-/** Settings > AI connections: one's own connections (shown only while the team allows them). */
+/** Settings › AI providers: one's own accounts, by provider (Claude, Codex), each with Add account while the team allows
+ * members their own (shown only then, or while one is still there). */
 export function MyCredentials() {
   const t = useT()
   const actOk = useActionOk()
   const state = useLoad(() => api.call(API.myCredentials))
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState<Family | null>(null)
   return (
     <Loadable state={state}>
       {(d) => (
-        <Card title={t('settings.credentials')} desc={t('settings.credentials.desc')}
-          actions={d.allowed ? <Button size="sm" onClick={() => setAdding(true)} data-testid="my-credential-add"><Plus size={14} aria-hidden /> {t('credentials.add')}</Button> : undefined}>
-          {!d.items.length ? <p className="text-sm text-faint">{t('credentials.none')}</p> : (
-            <ul className="divide-y divide-line rounded-xl border border-line" data-testid="my-credentials">
-              {d.items.map((c) => (
-                <CredentialRow key={c.id} c={c} target={t('credentials.target.personal', { name: c.owner?.name ?? '' })} owner={false} checking={false} personal ownDelete
-                  onCheck={() => {}} onEdit={() => {}} onReplace={() => {}} onToggle={() => {}}
-                  onRemove={async () => {
-                    if (!(await confirmDialog({ title: t('credentials.deleteConfirm', { label: c.label }), confirm: t('common.delete'), danger: true }))) return
-                    if (await actOk(() => api.call(API.deleteMyCredential, { params: { id: c.id } }))) void state.reload()
-                  }} />
-              ))}
-            </ul>
-          )}
-          {adding && <AddCredential personal allowedKinds={d.allowedKinds} gateway={d.anthropicGateway} groups={[]} users={[]} onClose={() => setAdding(false)} onDone={() => { setAdding(false); void state.reload() }} />}
+        <Card title={t('settings.providers')} desc={t('settings.credentials.desc')}>
+          <div className="space-y-5" data-testid="my-providers">
+            {(['claude', 'codex'] as const).map((fam) => {
+              const kinds = d.allowedKinds.filter((k) => FAMILY[fam].includes(k))
+              const list = d.items.filter((c) => FAMILY[fam].includes(c.kind))
+              if (!kinds.length && !list.length) return null
+              return (
+                <section key={fam} aria-labelledby={`my-cred-${fam}`} data-testid={`my-provider-${fam}`}>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 id={`my-cred-${fam}`} className="text-sm font-medium">{t(`credentials.group.${fam}`)}</h3>
+                    {d.allowed && kinds.length > 0 && (
+                      <Button size="sm" onClick={() => setAdding(fam)} data-testid={`my-credential-add-${fam}`}><Plus size={14} aria-hidden /> {t('providers.addAccount')}</Button>
+                    )}
+                  </div>
+                  {!list.length ? <p className="text-sm text-faint">{t('providers.noAccounts')}</p> : (
+                    <ul className="divide-y divide-line rounded-xl border border-line" data-testid="my-credentials">
+                      {list.map((c) => (
+                        <CredentialRow key={c.id} c={c} target={t('credentials.target.personal', { name: c.owner?.name ?? '' })} owner={false} checking={false} personal ownDelete
+                          onCheck={() => {}} onEdit={() => {}} onReplace={() => {}} onToggle={() => {}}
+                          onRemove={async () => {
+                            if (!(await confirmDialog({ title: t('credentials.deleteConfirm', { label: c.label }), confirm: t('common.delete'), danger: true }))) return
+                            if (await actOk(() => api.call(API.deleteMyCredential, { params: { id: c.id } }))) void state.reload()
+                          }} />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              )
+            })}
+          </div>
+          {adding && <AddCredential personal allowedKinds={d.allowedKinds} family={adding} gateway={d.anthropicGateway} groups={[]} users={[]} onClose={() => setAdding(null)} onDone={() => { setAdding(null); void state.reload() }} />}
         </Card>
       )}
     </Loadable>

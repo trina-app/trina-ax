@@ -285,7 +285,7 @@ function ChatView({ chatId }: { chatId: string }) {
         </IconButton>
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
-        <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8">
+        <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8 max-md:py-4">
           {olderBusy && <Loader2 size={16} className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
           {loading && <Skeleton lines={6} />}
           {loadError && !loading ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
