@@ -23,15 +23,16 @@ export function isTeamAdmin(db: Database, userId: string): boolean {
 /**
  * Take mcp:admin off every connector grant of a person who is no longer an active owner or admin (demoted, disabled,
  * or found so by a tool call). For good: like their invites and reset links, being made admin again does not bring
- * it back; they connect again and tick it. Returns how many grants changed.
+ * it back; they connect again and tick it. `actor`: the admin who made the change (Admin › Members), or null when the
+ * server found it (a tool call). Returns how many grants changed.
  */
-export function dropAdminScope(db: Database, userId: string, reason: 'role' | 'status'): number {
+export function dropAdminScope(db: Database, userId: string, reason: 'role' | 'status', actor: string | null = null): number {
   let n = 0
   for (const g of db.query('SELECT id,scopes FROM remote_mcp_grants WHERE user_id=?').all(userId) as { id: string; scopes: string }[]) {
     const scopes = JSON.parse(g.scopes) as string[]
     if (!scopes.includes(ADMIN_SCOPE)) continue
     db.query('UPDATE remote_mcp_grants SET scopes=? WHERE id=?').run(JSON.stringify(scopes.filter(s => s !== ADMIN_SCOPE)), g.id)
-    audit(db, { actor: null, action: 'remote_mcp.scope_dropped', target: g.id, detail: { scope: ADMIN_SCOPE, user: userId, reason } })
+    audit(db, { actor, action: 'remote_mcp.scope_dropped', target: g.id, detail: { scope: ADMIN_SCOPE, user: userId, reason } })
     n++
   }
   return n

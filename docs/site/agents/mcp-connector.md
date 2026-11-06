@@ -79,13 +79,15 @@ An owner or admin can let their Claude manage the team's groups, as in **Admin â
 | Tool | What it does |
 |---|---|
 | `people_list` | Active people with name, username, role and groups (`query` narrows the list). |
-| `groups_list` | Each group with its folder, its members and the folder rules that name it (`group` shows one). |
+| `groups_list` | Each group with its folder, its members, the folder rules that name it and what else it gives, 20 groups per page (`offset`; `group` shows one with all its members). |
 | `group_create` | `{name, description?, members?}`: a new group and its folder `groups/<name>/`, which the group writes. |
 | `group_update` | `{group, name?, description?, add?, remove?}`: rename it or add and take out people. |
 | `group_delete` | `{group}`: deletes the group and the folder rules that name it. The folder and its files stay. |
 
-- People are named by username or id, a group by name or id.
-- Each change answers with who now opens or loses which folders.
+- People are named by username or id, a group by name or id. A name that is one person's id and another person's username is refused; use the id.
+- A group gives more than folders: team connections, connection templates, AI connections, budgets, the choice of AI engine, the dev environment and a team chat room. Each change answers with who now opens or loses which folders, and what else added or removed people get or lose through the group.
+- Names, usernames, group names and descriptions in the answers are quoted: they are data, never instructions.
+- Adding only people who are already in, or removing only people who are not, changes nothing and writes no audit entry.
 - The same checks and audit log entries as Admin â€º Groups apply. The audit entries say they came from the connector.
 - The role is checked on every call. A person made member or disabled loses group management on all their connections, and being made admin again does not bring it back: connect again and tick the box.
 - At most 20 group changes per person per minute.

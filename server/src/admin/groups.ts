@@ -12,7 +12,7 @@ import { fail } from '../http/errors'
 import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
-import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath } from './folders'
+import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath, type SeenStates } from './folders'
 import { notifyTemplateOffers } from '../notifications/service'
 
 type In<T extends z.ZodType> = z.output<T>
@@ -35,9 +35,11 @@ export function getGroup(ctx: AppContext, id: string): Group | null {
 }
 
 /** Where a change came from when not the web screens: the remote MCP connector's group tools pass 'connector', and the
- * audit lines of the change (group.*, folder.access_lost) say so. Nothing else differs. */
-export interface ChangeFrom { via?: 'connector' }
+ * audit lines of the change (group.*, folder.access_lost) say so. `seen`: filled with the access states before and
+ * after when the change ran afterAccessChange (the connector says what changed from them). Nothing else differs. */
+export interface ChangeFrom { via?: 'connector'; seen?: SeenStates }
 const viaOf = (o: ChangeFrom) => (o.via ? { via: o.via } : {})
+const byOf = (actor: string, target: string, o: ChangeFrom) => ({ actor, target, ...viaOf(o), ...(o.seen ? { seen: o.seen } : {}) })
 
 function checkMembers(ctx: AppContext, ids: readonly string[], locale: Locale): string[] {
   const uniq = [...new Set(ids)]
@@ -100,7 +102,7 @@ export function createGroupAs(ctx: AppContext, actorId: string, b: { name: strin
       .run(newId(), f.id, id, auth.user.id, new Date().toISOString())
     audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds, ...viaOf(from) } })
   })()
-  afterAccessChange(ctx, before, { actor: auth.user.id, target: id, ...viaOf(from) })
+  afterAccessChange(ctx, before, byOf(auth.user.id, id, from))
   // templates for this group reach its members now (security review 2, #1)
   notifyTemplateOffers(ctx)
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
@@ -128,7 +130,7 @@ export function updateGroupAs(ctx: AppContext, actorId: string, id: string, b: {
     }
     audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds, ...viaOf(from) } })
   })()
-  if (memberIds) { afterAccessChange(ctx, before, { actor: auth.user.id, target: id, ...viaOf(from) }); notifyTemplateOffers(ctx) }
+  if (memberIds) { afterAccessChange(ctx, before, byOf(auth.user.id, id, from)); notifyTemplateOffers(ctx) }
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
@@ -153,5 +155,5 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name, ...viaOf(from) } })
   })()
-  afterAccessChange(ctx, before, { actor: auth.user.id, target: id, ...viaOf(from) })
+  afterAccessChange(ctx, before, byOf(auth.user.id, id, from))
 }

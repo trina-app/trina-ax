@@ -262,6 +262,8 @@ export function readLosses(before: AccessState, after: AccessState, extraPaths: 
 }
 
 export interface AccessChange { path: string; before: Access; after: Access }
+/** The states afterAccessChange compared, filled in for a caller that asks (`by.seen`). */
+export interface SeenStates { before?: AccessState; after?: AccessState }
 
 /**
  * readLosses() in both directions: for every person present in both states, each deciding folder where their access
@@ -304,10 +306,12 @@ export function chatsWithEngineSession(db: Database, userId: string): number {
  * After any change that can narrow access (rules, group membership, role): reset the engine sessions of people who
  * lost read access somewhere, tell their open windows, and return who lost what (for the audit record).
  * `created`: folders made on disk by this same request (a new rule folder): nobody knew them before the change.
- * `via`: where the change came from when not the web screens (the audit line says so).
+ * `via`: where the change came from when not the web screens (the audit line says so). `seen`: the caller wants the
+ * two states (the connector's group tools say what changed from them instead of taking them again).
  */
-export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[]; via?: string }): { userId: string; paths: string[]; chatsReset: number }[] {
+export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[]; via?: string; seen?: SeenStates }): { userId: string; paths: string[]; chatsReset: number }[] {
   const after = captureState(ctx.db)
+  if (by.seen) { by.seen.before = before; by.seen.after = after }
   const losses = readLosses(before, after)
   const out: { userId: string; paths: string[]; chatsReset: number }[] = []
   for (const [userId, paths] of losses) {
