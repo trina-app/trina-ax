@@ -13,6 +13,18 @@ A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your t
 
 ![The Team skills page: tabs for available skills, review, suggestions and recent changes, and a list of six team skills](../images/skills/team-skills.webp "Team skills")
 
+## Skills every team has
+
+Every team gets 18 ready-made skills without installing anything, in the team's language (Korean or English):
+
+| Folder | Skills |
+|---|---|
+| `skills/general/` | Tasks from notes, Key points, Promo cards, Promo video, Company profile |
+| `skills/marketing/` | Ad copy, Blog and social draft, Campaign plan, SEO brief, Competitor brief, Brand voice review, Weekly report |
+| `skills/work/` | Meeting summary, Weekly roundup, Sales follow-up, Creative brief, Expense check, New hire guide |
+
+They are your team's own files. Skill managers can edit, move or delete them. The server adds each one once. It never replaces an edited skill, never brings back one you deleted, and skips one whose name another team skill already uses.
+
 ## Where skills live
 
 | Location | Who sees it |

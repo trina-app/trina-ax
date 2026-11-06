@@ -323,7 +323,8 @@ describe('admin routes', () => {
     const ok = await A.json('/api/admin/knowledge-graph', { ...jsonBody({ added: ['tools/scripts'] }, 'PATCH'), as: 'carol' })
     expect(ok.body.added).toEqual(['tools/scripts'])
     await kg.whenIdle()
-    expect((await A.json('/api/admin/knowledge-graph', { as: 'carol' })).body.roots.find((r: { path: string }) => r.path === 'tools/scripts')).toMatchObject({ source: 'added', status: 'ready', symbols: 1 })
+    // every top-level folder is indexed by itself now (documents anywhere are covered): tools/ holds the added folder
+    expect((await A.json('/api/admin/knowledge-graph', { as: 'carol' })).body.roots.find((r: { path: string }) => r.path === 'tools')).toMatchObject({ source: 'auto', status: 'ready', symbols: 1 })
     // no rule on tools/: only admins and the owner read it
     expect(await names('alice', 'buildScript')).toEqual([])
     expect(await names('dana', 'buildScript')).toEqual(['buildScript@tools/scripts/build.ts'])

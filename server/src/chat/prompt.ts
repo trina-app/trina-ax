@@ -277,7 +277,7 @@ export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hi
 /** A change to many files or items (A9 S17, docs/DECISIONS.md "Bulk edits in one call"): the answer said what changed
  * and left out the ones that were already as asked, so the person could not tell them from ones it missed. */
 /** knowledge_explore (knowledge-graph/tool.ts): the code map, for questions about code across the team's folders */
-export const KNOWLEDGE_RULE = 'For questions about code (where something is done, what calls a function, how parts connect), use knowledge_explore first, then read the files it points to; cite the paths it gives. grep is for exact text.'
+export const KNOWLEDGE_RULE = 'For questions about the team\'s documents or code (where something is written or decided, which documents relate, where something is done in code, what calls what), use knowledge_explore first, then read the files it points to; cite the paths and places it gives. grep is for exact text.'
 export const BULK_REPORT_RULE = 'After changing many files or items, also list in your answer the ones you did not change: those already as asked, and those you skipped (with why).'
 
 /** After the answer-language line: the short text between tool calls is in the answer too (docs/DECISIONS.md "One

@@ -47,6 +47,18 @@ import koPromoVideo from '../../../resources/skill-packs/general/ko/promo-video/
 import enPromoVideo from '../../../resources/skill-packs/general/en/promo-video/SKILL.md' with { type: 'text' }
 import koIntroDeck from '../../../resources/skill-packs/general/ko/intro-deck/SKILL.md' with { type: 'text' }
 import enIntroDeck from '../../../resources/skill-packs/general/en/intro-deck/SKILL.md' with { type: 'text' }
+import koWorkMeetingSummary from '../../../resources/skill-packs/work/ko/meeting-summary/SKILL.md' with { type: 'text' }
+import koWorkWeeklyTeamReport from '../../../resources/skill-packs/work/ko/weekly-team-report/SKILL.md' with { type: 'text' }
+import koWorkSalesFollowUp from '../../../resources/skill-packs/work/ko/sales-follow-up/SKILL.md' with { type: 'text' }
+import koWorkBrandBrief from '../../../resources/skill-packs/work/ko/brand-brief/SKILL.md' with { type: 'text' }
+import koWorkExpenseReview from '../../../resources/skill-packs/work/ko/expense-review/SKILL.md' with { type: 'text' }
+import koWorkNewHireGuide from '../../../resources/skill-packs/work/ko/new-hire-guide/SKILL.md' with { type: 'text' }
+import enWorkMeetingSummary from '../../../resources/skill-packs/work/en/meeting-summary/SKILL.md' with { type: 'text' }
+import enWorkWeeklyTeamReport from '../../../resources/skill-packs/work/en/weekly-team-report/SKILL.md' with { type: 'text' }
+import enWorkSalesFollowUp from '../../../resources/skill-packs/work/en/sales-follow-up/SKILL.md' with { type: 'text' }
+import enWorkBrandBrief from '../../../resources/skill-packs/work/en/brand-brief/SKILL.md' with { type: 'text' }
+import enWorkExpenseReview from '../../../resources/skill-packs/work/en/expense-review/SKILL.md' with { type: 'text' }
+import enWorkNewHireGuide from '../../../resources/skill-packs/work/en/new-hire-guide/SKILL.md' with { type: 'text' }
 
 export interface SkillPack {
   /** skill name → its SKILL.md text, per language the pack is written in (English always) */
@@ -73,6 +85,16 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
     },
     folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
   },
+  // everyday work for leads, sales, marketing, finance and HR (docs/DECISIONS.md "DS"), from the README's example skills
+  // rewritten for the team's own files: every one reads only what the person names, drafts, and leaves the decision,
+  // the sending and the paying to a person. No shared/ folders.
+  work: {
+    skills: {
+      ko: { 'meeting-summary': koWorkMeetingSummary, 'weekly-team-report': koWorkWeeklyTeamReport, 'sales-follow-up': koWorkSalesFollowUp, 'brand-brief': koWorkBrandBrief, 'expense-review': koWorkExpenseReview, 'new-hire-guide': koWorkNewHireGuide },
+      en: { 'meeting-summary': enWorkMeetingSummary, 'weekly-team-report': enWorkWeeklyTeamReport, 'sales-follow-up': enWorkSalesFollowUp, 'brand-brief': enWorkBrandBrief, 'expense-review': enWorkExpenseReview, 'new-hire-guide': enWorkNewHireGuide },
+    },
+    folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
+  },
 }
 
 /** The language of a pack's skill text for a team: the team's own, or English. */
@@ -90,7 +112,7 @@ export function earlierPackTexts(text: string): string[] {
 
 /** Pack skills whose work comes back every week (their metadata says `recurring: weekly`): a copy installed before that
  * line existed has no `recurring` key and is read as the pack says (onboarding/suggestions.ts). */
-export const RECURRING_PACK_SKILLS: ReadonlySet<string> = new Set(['skills/general/meeting-tasks/SKILL.md', 'skills/marketing/weekly-report/SKILL.md', 'skills/marketing/competitor-brief/SKILL.md'])
+export const RECURRING_PACK_SKILLS: ReadonlySet<string> = new Set(['skills/general/meeting-tasks/SKILL.md', 'skills/marketing/weekly-report/SKILL.md', 'skills/marketing/competitor-brief/SKILL.md', 'skills/work/weekly-team-report/SKILL.md'])
 
 /** Every skill name a pack has (any pack, any language): a team skill made later never takes one (skill-draft.ts). */
 export const packSkillNames = (): string[] => [...new Set(Object.values(SKILL_PACKS).flatMap((p) => Object.values(p.skills).flatMap((t) => Object.keys(t ?? {}))))]
@@ -98,8 +120,9 @@ export const packSkillNames = (): string[] => [...new Set(Object.values(SKILL_PA
 const refused = (e: unknown) => e instanceof Denied || e instanceof ToolError || e instanceof FileError || e instanceof HttpError
 
 /** One skill file: written when the name is free, otherwise left as it is. A team skill elsewhere with the same
- * skill name blocks it: "/<name>" (and so a form, which runs by name) would run either one. */
-function placeSkill(ctx: AppContext, userId: string, rel: string, name: string, text: string, team: { path: string; name: string }[]): { path: string; status: PackItemStatus; sameNameAs?: string } {
+ * skill name blocks it: "/<name>" (and so a form, which runs by name) would run either one. Also the default skills'
+ * one step (onboarding/default-skills.ts). */
+export function placeSkill(ctx: AppContext, userId: string, rel: string, name: string, text: string, team: { path: string; name: string }[]): { path: string; status: PackItemStatus; sameNameAs?: string } {
   const user = ctx.files.principal(userId)
   // the pack's own file (installed before) is not another skill; on a case-insensitive disk neither is its other spelling
   const fold = (p: string) => (ctx.files.fx.caseInsensitive ? p.normalize('NFC').toLowerCase() : p)

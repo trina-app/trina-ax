@@ -1,16 +1,36 @@
 # Knowledge graph
 
-The knowledge graph is a map of the code in the team's folders. The AI uses it through the `knowledge_explore` tool to
-find functions, classes and how they connect ("where is the order total computed?", "what calls `checkout`?"). It
-updates itself when people upload or change files. Every answer is filtered by the asking person's folder access.
+The knowledge graph is the AI's map of the team's files, in two parts:
 
-CodeGraph makes the map: [github.com/colbymchenry/codegraph](https://github.com/colbymchenry/codegraph), MIT license.
-It is an optional tool on the server. Without it, the knowledge graph is off and Admin says to install it.
+- **Documents** (on by default, nothing to install, every server): the text of the documents people upload (PDF, Word,
+  Excel, PowerPoint, Hangul, Markdown, text, HTML, CSV and more; the formats `server/src/knowledge-graph/documents/`
+  accepts) as searchable passages with their page, sheet, slide or heading, in SQLite FTS5 with Korean and Japanese
+  matching inside words, and links between documents with their reason (same folder, one names or links to the other,
+  shared distinctive terms, the same people). Text comes from the converters the AI's reads use (`files/extract.ts`:
+  pandoc, pdftotext, the Office and Hangul workers; OCR of scanned PDFs on a Mac, as before), isolated and below people's
+  work; a file that fails is recorded with its reason and shown to admins.
+- **Code** (with CodeGraph installed): functions, classes and how they call each other, below.
 
-Code: `server/src/knowledge-graph/` (service, mirror, runner, tool), `server/src/routes/knowledge-graph.ts`,
+The AI uses both through `knowledge_explore`: one question returns document passages with a link to the place, the
+related documents and why, and code symbols with what calls them. It updates itself when people upload, change, move or
+delete files. Every answer is filtered by the asking person's folder access at the moment they ask.
+
+Documents and code are indexed per folder: `projects/<name>`, `groups/<name>`, `users/<id>`, `connected/<name>`,
+`shared/` and every other top-level folder, other project folders, and folders an admin adds. The service lists each
+folder with the file tools' rules (no symbolic or hard links, no server temp names, not quarantined, not chat
+attachments or dependency folders), reads each changed file's bytes itself (the very file it listed) and hands them to
+the index; files over 100 MB are recorded as too big without being read. At most 200 documents per folder run; a big
+folder comes back for the rest after a pause.
+
+The document index lives in `<data>/knowledge-graph/documents/`; turning the documents part off deletes it.
+
+CodeGraph makes the code map: [github.com/colbymchenry/codegraph](https://github.com/colbymchenry/codegraph), MIT license.
+It is an optional tool on the server. Without it the code part is off; documents work anyway.
+
+Code: `server/src/knowledge-graph/` (service, docs-port, documents/, mirror, runner, tool), `server/src/routes/knowledge-graph.ts`,
 `shared/src/api/knowledge-graph.ts`, `web/src/pages/admin/KnowledgeGraph.tsx`. Tests:
-`tests/unit/c-knowledge-graph.test.ts`, `tests/security/lib/knowledge-graph-cases.ts`,
-`web/test/e2e/admin-knowledge-graph.spec.ts`.
+`tests/unit/c-knowledge-graph.test.ts`, `tests/unit/c-knowledge-graph-docs.test.ts`, the documents module's own tests,
+`tests/security/lib/knowledge-graph-cases.ts`, `web/test/e2e/admin-knowledge-graph.spec.ts`.
 
 ## Install CodeGraph
 
@@ -94,6 +114,9 @@ As a converter (`server/src/tools/isolate.ts`), like pandoc:
 
 - macOS `sandbox-exec` / Linux `bwrap`: no network, the only program it may start is the bundle's `node`, writes only
   into the index folder, reads only the bundle and the copy (Linux mounts the copy read-only).
+- **A Linux server without `bwrap` runs CodeGraph without that sandbox**, as it runs the other converters there: the
+  limits below and the fixed environment still apply, the network and file limits do not. Install `bwrap`
+  (bubblewrap) on any server that indexes code people upload.
 - Below people's work (`taskpolicy -c utility` on macOS, `nice` and `ionice` on Linux), a 30-minute limit per run (the
   wall clock may run three times longer while it waits behind people's work), killed above 1.5 GB of memory.
 - Its telemetry, update check and self-download are off (`DO_NOT_TRACK=1`, `CODEGRAPH_TELEMETRY=0`,
@@ -108,18 +131,26 @@ second. A query: about 0.5 s including the sandbox start.
 ## Access: what an answer may show
 
 The indexes hold everything in their folders. What `knowledge_explore` shows is decided at the question, for the person
-asking, with the folder rules as they are then:
+asking, with the folder rules as they are then. The same rules hold for document passages, related documents and code:
 
 - Only folders the person can see anything in are asked (`RuleSet.canList`). Someone else's personal folder never is.
-- Every file the answer names (a match, a caller, a callee) passes `authorize(read)` for that person at that moment, the
+- Every file the answer names (a passage, a related document, a code match, a caller, a callee) passes `authorize(read)` for that person at that moment, the
   same check as the read tool: folder rules, personal folders (owner only, not admins or the team owner), hidden
   sub-folders inside a readable folder, symbolic links, hard links, quarantined files. A file that fails is left out
   without a trace: no name, no count, no "hidden".
 - The lines of code come from the team file itself, read through the same checks (`readRegular`, no link followed). The
-  copy and the index are never shown.
+  copy and the index are never shown for a file the person cannot read now. A related document is named only when the
+  person may read it too, and its reason is made from the two documents' own names and text.
 - `path` narrows the search to one folder. A folder the person cannot read is refused with the same words as a missing
   one ("not found or no access").
 - Losing access works at once: the next question leaves the folder out, without re-indexing.
+- Callers and callees: CodeGraph finds them by a function's name. When another function of that name is in a file the
+  person may not read, the match is shown without its connections (they could be the other one's).
+- A match's signature comes from the index and can hold values (`= "…"`, default arguments): it is shown only while
+  the file itself still has it, so a value taken out of a file is not shown from an older index.
+- An empty answer has one wording, whether or not anything is indexed, and "still being indexed" counts only folders
+  never indexed yet: either could otherwise tell that a folder the person sees only in part has documents or code, or
+  changes, in the part hidden from them.
 - Every file named joins the chat's read scope (`TurnFiles.readPaths`), like a read, so saving that content somewhere
   wider asks first. The matches are the answer's sources.
 - In a team chat room the tool is read-only, and the folders it searched count as read, like `grep` and `search`.
