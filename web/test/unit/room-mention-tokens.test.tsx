@@ -4,7 +4,13 @@
 // an IME writing next to it changes nothing, and what is sent mentions exactly the people whose tokens stand out.
 // The browser's own part of a key (the deletion after Backspace) is played here by the test; e2e room-mentions.spec.ts
 // does the same in Chromium.
-import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
+//
+// Every edit is played the way both of React's change detections see it: the box got "focusin" first (React loaded
+// before a DOM existed, which another test file can cause when all files share one process, watches the focused field
+// and reports a change on keyup/keydown only), then beforeinput, the new value, input and keyup. Waits fail well inside
+// bun's own 5 s, so a failing test ends here and cleans up instead of running on into the next ones; afterEach unmounts
+// whatever is still mounted and puts back every global and store these tests touch.
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { act } from 'react'
 import type { Me } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
@@ -12,7 +18,7 @@ import { RoomComposer } from '../../src/components/rooms/RoomComposer'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { roomDraftMentions, useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
+import { FakeElement, FakeEvent, installDom, mount as mountInDom, removeDom, type Mounted } from './dom-host'
 import { BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const MJ = { id: 'minjae', name: 'Minjaelee' }
@@ -20,13 +26,40 @@ const locale = useLocaleStore.getState().locale
 const status = useSession.getState().status
 const realFetch = globalThis.fetch
 let sent: { mentions: string[]; body: string }[] = []
-beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'ko' }) })
-afterEach(() => {
+/** what is mounted and not unmounted yet */
+const live = new Set<Mounted>()
+/** a wait: well inside bun's 5 s per test */
+const WAIT = 2000
+
+beforeAll(() => { installDom() })
+beforeEach(() => { useLocaleStore.setState({ locale: 'ko' }) })
+afterEach(async () => {
+  for (const m of [...live].reverse()) await m.unmount()
   globalThis.fetch = realFetch
   useSession.setState({ status })
   useRooms.getState().reset()
+  useLocaleStore.setState({ locale })
 })
-afterAll(() => { removeDom(); useLocaleStore.setState({ locale }) })
+afterAll(() => { removeDom() })
+
+async function mount(ui: Parameters<typeof mountInDom>[0]): Promise<Mounted> {
+  const m = await mountInDom(ui)
+  live.add(m)
+  const unmount = m.unmount
+  m.unmount = async () => {
+    if (!live.delete(m)) return
+    await unmount()
+  }
+  return m
+}
+
+/** focus as a person's tap or click does: the field gets "focusin" too */
+async function focus(box: FakeElement) {
+  await act(async () => {
+    box.focus()
+    box.dispatchEvent(new FakeEvent('focusin', { bubbles: true }))
+  })
+}
 
 const setValue = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')!.set!
 
@@ -46,7 +79,7 @@ async function open() {
   useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id })
   const m = await mount(<RoomComposer roomId={r.id} members={[ME, BEN, CY, MJ]} meId={ME.id} onSent={() => {}} />)
   const box = m.get('room-input') as FakeElement & { value: string; selectionStart: number; selectionEnd: number }
-  box.focus()
+  await focus(box)
   return { m, box, roomId: r.id }
 }
 
@@ -97,14 +130,14 @@ const layerText = (m: Mounted) => m.get('token-layer').textContent.replace(/​$
 
 async function pick(m: Mounted, box: Box, query: string) {
   await typeText(box, '@' + query)
-  await m.until(() => m.find('mention-menu'), 'the @ list')
+  await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
   expect(await key(box, 'Enter')).toBe(false)
   await m.settle()
 }
 
 async function send(m: Mounted) {
   await m.click('room-send')
-  await m.until(() => sent.length > 0, 'the send')
+  await m.until(() => sent.length > 0, 'the send', WAIT)
   return sent.at(-1)!
 }
 
@@ -270,6 +303,7 @@ test('a Korean IME writing next to a token: no caret moves, no deletion of the t
         at = at - s.length + next.length
         Object.assign(box, { selectionStart: at, selectionEnd: at })
         box.dispatchEvent(new FakeEvent('input', { bubbles: true }))
+        box.dispatchEvent(Object.assign(new FakeEvent('keyup', { bubbles: true }), { isComposing: true, keyCode: 229 }))
       })
       expect(layerText(m)).toBe(box.value)
     }
@@ -348,13 +382,13 @@ test('the edit form: the mentions a message has stand out as on the message, and
     await m.settle(450)
     await m.click('message-edit')
     const box = m.get('room-edit-input') as Box
-    box.focus()
+    await focus(box)
     Object.assign(box, { selectionStart: box.value.length, selectionEnd: box.value.length })
     // "@Ben" was typed, not picked: it is not a mention there and is none here
     expect(tokens(m)).toEqual(['person:@Cy Park'])
     await typeText(box, ' 고마워요')
     await m.click('room-edit-save')
-    await m.until(() => patches.length > 0, 'the edit')
+    await m.until(() => patches.length > 0, 'the edit', WAIT)
     expect(patches[0]).toEqual({ body: '@Cy Park 확인 부탁해요 @Ben 고마워요', mentions: [CY.id] })
   } finally {
     await m.unmount()
@@ -383,7 +417,7 @@ test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its
     await m.settle(450)
     await m.click('message-edit')
     const box = m.get('room-edit-input') as Box
-    box.focus()
+    await focus(box)
     // the text area hands back "\n"
     expect(box.value).toBe('안녕\n@Cy Park 확인')
     expect(tokens(m)).toEqual(['person:@Cy Park'])
@@ -391,7 +425,7 @@ test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its
     await typeText(box, '!')
     expect(tokens(m)).toEqual(['person:@Cy Park'])
     await m.click('room-edit-save')
-    await m.until(() => patches.length > 0, 'the edit')
+    await m.until(() => patches.length > 0, 'the edit', WAIT)
     expect(patches[0]).toEqual({ body: '안녕\n@Cy Park 확인!', mentions: [CY.id] })
   } finally {
     await m.unmount()
