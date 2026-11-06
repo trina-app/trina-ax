@@ -125,9 +125,8 @@ describe('the card: a title, one line, one button', () => {
       expect(h).not.toContain('김하나')
       await m.click('team-goal-resend')
       expect(copied).toEqual([`민지님, '광고 문구' 한 번 눌러 보세요: ${RUN}`])
-      // phones: no frame of its own, a line under it; a card from sm up
-      expect(h).toContain('border-b border-line')
-      expect(h).toContain('sm:rounded-2xl sm:border')
+      // from 768px a card (phones: one line, below)
+      expect(h).toContain('rounded-2xl border border-line')
     } finally { await m.unmount() }
   })
   test('several waiting: the first named and "외 n명"; nobody ran a skill yet: the team link\'s skill', async () => {
@@ -181,6 +180,37 @@ describe('the card: a title, one line, one button', () => {
       await m.click('team-goal-dismiss')
       expect(hidden).toBe(1)
     } finally { await m.unmount() }
+  })
+  test('phones: one line with the progress, a tap shows the next step; no [다시 보내기] there; reached on one line', async () => {
+    const media = globalThis.matchMedia
+    globalThis.matchMedia = ((q: string) => ({ matches: q === '(max-width: 767.98px)', addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof matchMedia
+    try {
+      let m = await card(goal({ joined: 1, waiting: { first: '민지', more: 0 } }), LINK)
+      try {
+        const toggle = m.get('team-goal-toggle')
+        expect(toggle.textContent).toBe('7일 안에 3명이 같은 스킬 써 보기 · 1/3 · 5일 남음')
+        expect(toggle.getAttribute('aria-expanded')).toBe('false')
+        // no frame, no rule under it
+        expect(m.get('team-goal').className).not.toContain('border')
+        expect(m.get('team-goal-next').closest('[hidden]')).not.toBeNull()
+        await m.click('team-goal-toggle')
+        expect(m.get('team-goal-toggle').getAttribute('aria-expanded')).toBe('true')
+        expect(m.get('team-goal-next').closest('[hidden]')).toBeNull()
+        expect(m.get('team-goal-next').textContent).toBe("민지님이 들어왔지만 '광고 문구'는 아직이에요.")
+        expect(m.find('team-goal-resend')).toBeNull()
+      } finally { await m.unmount() }
+      // one more person: the line opens to [초대 문구 복사]
+      m = await card(goal({ joined: 1, skill: { path: AD, name: '광고 문구', runners: 2, people: ['김하나', '민지'] } }), LINK)
+      try {
+        await m.click('team-goal-toggle')
+        expect(m.find('team-goal-copy-invite')).not.toBeNull()
+      } finally { await m.unmount() }
+      m = await mount(<GoalCard goal={goal({ state: 'reached', reachedAt: '2026-11-04T00:00:00.000Z', skill: { path: AD, name: '광고 문구', runners: 3, people: ['민지', '지훈', 'Olga'] } })} onDismiss={() => {}} link={null} />)
+      try {
+        expect(m.get('team-goal').textContent).toBe('달성했어요 · 민지·지훈·Olga')
+        expect(m.get('team-goal').className).not.toContain('border')
+      } finally { await m.unmount() }
+    } finally { globalThis.matchMedia = media }
   })
   test('English (the static renderer reads English)', () => {
     const h = renderToStaticMarkup(<GoalCard goal={goal({ daysLeft: 1, joined: 1, waiting: { first: 'Minji', more: 0 } })} onDismiss={() => {}} link={LINK} />)

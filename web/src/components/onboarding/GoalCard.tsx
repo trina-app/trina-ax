@@ -4,18 +4,19 @@
 // '광고 문구'는 아직이에요." [다시 보내기] (copies a nudge with the skill form's link); one more person: "한 명만 더 쓰면
 // 달성이에요."; nobody joined: "아직 아무도 안 들어왔어요." — those two with [초대 문구 복사] (the team link's message), or
 // [팀원 초대] while no link works. Reached: "달성했어요 · 민지·지훈·Olga" until dismissed.
-// On phones the card has no frame of its own, only a line under it (fewer boxes; docs/DESIGN-SYSTEM.md), and no
-// [다시 보내기]: an orange button above the greeting there.
+// On phones (below 768px) it is one slim line above the greeting, no frame and no rule: the title with the progress
+// and the days left, which opens the next step and its button in place (never [다시 보내기] there: an orange button
+// above the greeting); reached: "달성했어요 · names" and the way to hide it on one line. From 768px a card.
 import clsx from 'clsx'
-import { Check, CheckCircle2, Copy, UserPlus, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Check, CheckCircle2, ChevronDown, Copy, UserPlus, X } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
 import type { TeamGoal, TeamLinkResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { teamLinkMessage } from '../../lib/team-link'
 import { goalNext, goalNextText, goalProgressText, resendText, runnerNames, skillRunUrl } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { useMe, useMeStrict } from '../../store/session'
-import { Button, IconButton, Modal, useCopy } from '../ui'
+import { Button, IconButton, Modal, useCopy, useMediaQuery } from '../ui'
 import { InviteStep } from './InviteStep'
 
 /** "달성했어요" dismissed in this browser, per team (its start) */
@@ -51,6 +52,9 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
   // undefined while it loads: the one button waits for it rather than change under the finger
   const [link, setLink] = useState<TeamLinkResponse | null | undefined>(given)
   const [linkTick, setLinkTick] = useState(0)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const [shown, setShown] = useState(false)
+  const nextId = useId()
   useEffect(() => {
     if (given !== undefined || goal.state !== 'open') return
     let live = true
@@ -58,18 +62,18 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
     return () => { live = false }
   }, [given, goal.state, linkTick])
   const skill = goal.skill
-  const frame = 'mb-6 border-b border-line pb-5 sm:mb-8 sm:rounded-2xl sm:border sm:bg-surface sm:p-4'
+  const frame = phone ? 'mb-2 text-center' : 'mb-8 rounded-2xl border border-line bg-surface p-4'
 
   if (goal.state === 'reached') {
     return (
       <section className={frame} aria-labelledby="team-goal-title" data-testid="team-goal" data-state="reached">
-        <div className="flex items-center gap-2">
-          <CheckCircle2 size={18} className="shrink-0 text-ok" aria-hidden />
-          <h2 id="team-goal-title" className="min-w-0 flex-1 text-sm">
-            <span className="font-semibold">{t('goal.reachedTitle')}</span>
+        <div className={clsx('flex items-center gap-2', phone && 'min-h-11 justify-center')}>
+          <CheckCircle2 size={phone ? 16 : 18} className="shrink-0 text-ok" aria-hidden />
+          <h2 id="team-goal-title" className={clsx('min-w-0', phone ? 'text-label' : 'flex-1 text-sm')}>
+            <span className={phone ? 'font-medium' : 'font-semibold'}>{t('goal.reachedTitle')}</span>
             {skill && <span className="text-muted" data-testid="team-goal-names"> · {runnerNames(skill.people, skill.runners)}</span>}
           </h2>
-          <IconButton label={t('common.hide')} onClick={onDismiss} data-testid="team-goal-dismiss"><X size={15} aria-hidden /></IconButton>
+          <IconButton label={t('common.hide')} onClick={onDismiss} className="touch-hit" data-testid="team-goal-dismiss"><X size={15} aria-hidden /></IconButton>
         </div>
       </section>
     )
@@ -102,15 +106,33 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
       )
     }
   }
+  const title = <span className={phone ? 'font-medium text-ink' : 'font-semibold'}>{t('goal.title', { days: goal.days, target: goal.target })}</span>
+  const counts = <span className="text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
+  const nextLine = <p className={clsx('text-sm text-muted text-pretty', !phone && 'mt-1')} data-testid="team-goal-next" data-next={next.kind}>{goalNextText(t, locale, next, named?.name ?? null)}</p>
   return (
     <section className={frame} aria-labelledby="team-goal-title" data-testid="team-goal" data-state="open">
-      <h2 id="team-goal-title" className="text-sm">
-        <span className="font-semibold">{t('goal.title', { days: goal.days, target: goal.target })}</span>
-        <span className="text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
-      </h2>
-      <p className="mt-1 text-sm text-muted" data-testid="team-goal-next" data-next={next.kind}>{goalNextText(t, locale, next, named?.name ?? null)}</p>
-      {/* "다시 보내기" (copy the reminder again) stays off phones: an orange button above the greeting there */}
-      <div className={clsx('mt-3 min-h-8', next.kind === 'waiting' && 'max-md:hidden')}>{action}</div>
+      {phone ? (
+        <>
+          {/* one line; a tap opens the next step (and its button, but never "다시 보내기": an orange button above the
+              greeting) */}
+          <h2 id="team-goal-title" className="text-label">
+            <button type="button" onClick={() => setShown((v) => !v)} aria-expanded={shown} aria-controls={nextId} className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-lg px-2 text-balance transition hover:bg-hover" data-testid="team-goal-toggle">
+              <span className="min-w-0">{title}{counts}</span>
+              <ChevronDown size={15} className={clsx('shrink-0 text-faint transition', shown && 'rotate-180')} aria-hidden />
+            </button>
+          </h2>
+          <div id={nextId} hidden={!shown} className="mb-3 px-2">
+            {nextLine}
+            {next.kind !== 'waiting' && action && <div className="mt-3">{action}</div>}
+          </div>
+        </>
+      ) : (
+        <>
+          <h2 id="team-goal-title" className="text-sm">{title}{counts}</h2>
+          {nextLine}
+          <div className="mt-3 min-h-8">{action}</div>
+        </>
+      )}
       {inviting && (
         <Modal open onClose={closeInvite} title={t('goal.title', { days: goal.days, target: goal.target })} width={560}>
           <InviteStep onDone={closeInvite} skillPath={skill?.path ?? null} />

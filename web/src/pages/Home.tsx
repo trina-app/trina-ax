@@ -6,6 +6,8 @@
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
+// Phones (below 768px): the top row is one frameless line above the greeting (the goal opens its next step in place),
+// and a project's new chat ("/?project=") shows no top row: the goal and the setup row are about the team.
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
 // one line each, with nothing else added:
 //   - a member who just joined with a link that carries the lead's files (lib/starter.ts): "민지님이 이번 주 팀 회의록
@@ -83,7 +85,8 @@ export default function Home() {
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
         <div className="w-full max-w-[720px]">
-          {noAi ? <NoAiCard /> : extras && isAdmin(me) && !starter && ai.loaded && <HomeTop owner={isOwner(me)} />}
+          {/* a project's new chat is about that project: the team's goal and setup row stay on Home itself */}
+          {noAi ? <NoAiCard /> : extras && isAdmin(me) && !starter && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />}
           {project && (
             <p className="mb-2 text-center text-sm text-muted">
               <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -92,7 +95,7 @@ export default function Home() {
               · {t('home.inProject')}
             </p>
           )}
-          {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>}
+          {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight text-balance sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>}
           {extras && (starter ? <StarterLine starter={starter} /> : notes && !projectId && <NotesLine notes={notes} />)}
           <NewChatComposer
             projectId={projectId}
