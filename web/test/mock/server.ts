@@ -786,6 +786,40 @@ export class MockServer {
       question: lines.join('\n\n'), options: [{ label: '바꾸기', value: 'save' }, { label: '바꾸지 않기', value: 'cancel' }], details }
   }
 
+  /** "devqueue": box_shell on srt waits in the team queue (Step.devEnvRun, server/src/devenv/srt/queue.ts): #2 in line,
+   * then #1, then it starts; GET /api/dev-env/runs gives the live place and POST .../stop cancels it. "slow": each place
+   * holds 4 s; "devqueuefull": it waits too long and ends with the dev environment full; "devqueuejob": a job that
+   * waits (#1) after the answer ends. */
+  async devQueueTurn(chatId: string, user: User, prompt: string, assistant: Message, pub: (ev: ServerEventInput) => void, step: (s: Partial<Step> & Pick<Step, 'id' | 'kind' | 'label'>) => Step) {
+    this.devEnv ??= { box: 'stopped' }
+    const srt = (this.devEnv.srt ??= { running: [], waiting: [] })
+    const id = `dq-${assistant.id.slice(-8)}`
+    const by = { id: user.id, name: user.name }
+    if (/devqueuejob/i.test(prompt)) {
+      // a job: the call returns at once, queued #1; it stays in line after the answer
+      srt.waiting = [...srt.waiting, { id, kind: 'job', name: 'render', by, startedAt: now(), runAt: null, position: 1, memoryMiB: null, lastLine: '', chatId, projectId: null }]
+      const j = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npx remotion render', status: 'ok', endedAt: now(), devEnvRun: { id, kind: 'job', state: 'waiting', position: 1 } })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== j.id), j]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: j } })
+      return
+    }
+    srt.waiting = [...srt.waiting.filter((r) => r.id !== id), { id, kind: 'command', name: 'npm run build', by, startedAt: now(), runAt: null, position: 2, memoryMiB: null, lastLine: '', chatId, projectId: null }]
+    const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+    const q = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run build', devEnvRun: { id, kind: 'command', state: 'waiting', position: 2 } })
+    put(q)
+    const hold = /slow/i.test(prompt) ? 4000 : 1500
+    const waiting = () => srt.waiting.find((r) => r.id === id)
+    for (const place of [2, 1]) {
+      const e = waiting()
+      if (e) e.position = place
+      for (let t = 0; t < hold && waiting() && !this.stopped.has(assistant.turnId!); t += 50) await sleep(50)
+    }
+    const cancelled = !waiting()
+    srt.waiting = srt.waiting.filter((r) => r.id !== id)
+    const end = cancelled ? 'cancelled' as const : /devqueuefull/i.test(prompt) ? 'expired' as const : 'started' as const
+    put({ ...q, status: end === 'started' ? 'ok' : 'error', endedAt: now(), devEnvRun: { id, kind: 'command', state: end, position: null } })
+  }
+
   /** The scripted AI. */
   async runTurn(chatId: string, user: User, prompt: string, assistant: Message) {
     const turnId = assistant.turnId!
@@ -815,6 +849,7 @@ export class MockServer {
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
     }
+    if (/devqueue/i.test(prompt)) await this.devQueueTurn(chatId, user, prompt, assistant, pub, step)
     if (/sub-agent/i.test(prompt)) {
       // a sub-agent (Claude Code's Agent tool): its sub-task step, then its own steps under it (Step.parentId)
       const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
@@ -1360,6 +1395,19 @@ export class MockServer {
     devEnvPreview: (c) => {
       this.devEnvOf(c.user, c.params.id!)
       return { url: `https://preview.example.invalid/${c.body.port}/`, expiresAt: new Date(Date.now() + 600_000).toISOString() }
+    },
+    // srt: the caller's runs and their cancel (the chat's waiting line, "devqueue" turns)
+    myDevEnvRuns: (c) => {
+      const srt = this.devEnv?.srt
+      if (!srt) fail('not_found', 404)
+      return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
+    },
+    stopMyDevEnvRun: (c) => {
+      const srt = this.devEnv?.srt
+      if (!srt || ![...srt.running, ...srt.waiting].some((r) => r.id === c.params.runId && r.by?.id === c.user.id)) fail('not_found', 404)
+      srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
+      srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
+      return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
     },
     listMemories: () => ({ items: this.memories, nextCursor: null }),
     // like server/src/routes/memories.ts: folded to one line, 1–300 characters (the AI's limits), newest first
