@@ -9,9 +9,10 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillTitle, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
+import { PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillTitle, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
+import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { formatSize } from '../../lib/format'
 import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
@@ -19,11 +20,13 @@ import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
 import { useChats, useQueuePosition } from '../../store/chats'
+import { useAiAccess } from '../../store/aiAccess'
+import { useMe } from '../../store/session'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
 import { Markdown } from '../Markdown'
 import AiAccessButton from './AiAccessButton'
-import { isNoAiReason } from '../../lib/aiAccess'
+import { isNoAiReason, noAiErrorKey } from '../../lib/aiAccess'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
 import ConnectCard from './ConnectCard'
@@ -134,6 +137,61 @@ export function UserText({ content, clamp }: { content: string; clamp: boolean }
   )
 }
 
+/** A form run (a skill's form sent its answers: "/card-news" and "어디에 올릴까요: 인스타그램"), or null: the skill's
+ * chip and the answers. The person picked them, they did not write them, so they are not shown as a message they
+ * typed (docs/DECISIONS.md "W3"). */
+function useFormRun(content: string) {
+  const cmd = splitCommand(content)
+  const items = useSkillList(!!cmd)
+  const skill = cmd && items ? skillByName(items, cmd.name) : null
+  const answers = cmd && skill ? formAnswers(cmd.rest, skill.inputs) : null
+  return skill && answers ? { skill, answers } : null
+}
+
+/** Answers this long or longer (as one line), or with a value of several lines, fold under "전체 보기". */
+export const FORM_RUN_FOLD_CHARS = 140
+
+/** The skill as a chip, the answers as one quiet line under it ("인스타그램 · 신제품 출시"; each answer's label is its
+ * tooltip and is read out), right-aligned like the person's messages, with no bubble. Short answers show in full; long
+ * ones (or a value of several lines) show two lines and "전체 보기", which lists every answer under its label as it was
+ * sent ("접기" folds them again). */
+export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<typeof useFormRun>>; sending?: boolean }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const line = run.answers.map((a) => a.value.replace(/\s+/g, ' ')).join(' · ')
+  const long = line.length >= FORM_RUN_FOLD_CHARS || run.answers.some((a) => a.value.includes('\n'))
+  return (
+    <div className={clsx('flex max-w-[85%] min-w-0 flex-col items-end gap-1 sm:max-w-[80%]', sending && 'opacity-70')} data-testid="user-form-run">
+      <SkillChip title={skillTitle(run.skill)} name={run.skill.name} />
+      {open ? (
+        <dl className="space-y-1 text-right text-[13px] leading-5 [overflow-wrap:anywhere]" data-testid="user-form-answers" data-open="true">
+          {run.answers.map((a, i) => (
+            <div key={i}>
+              <dt className="text-faint">{a.label}</dt>
+              <dd className="whitespace-pre-wrap text-muted">{a.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className={clsx('text-right text-[13px] leading-5 text-muted [overflow-wrap:anywhere]', long && 'line-clamp-2')} data-testid="user-form-answers">
+          {run.answers.map((a, i) => (
+            <span key={i} title={a.label}>
+              {i > 0 && <span aria-hidden> · </span>}
+              <span className="sr-only">{a.label}: </span>
+              {a.value.replace(/\s+/g, ' ')}
+            </span>
+          ))}
+        </p>
+      )}
+      {long && (
+        <button type="button" onClick={() => setOpen((v) => !v)} className="text-xs font-medium text-muted hover:text-ink" aria-expanded={open} data-testid="user-form-answers-toggle">
+          {open ? t('chat.showLess') : t('chat.showAll')}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
@@ -149,6 +207,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
   const discard = useChats((s) => s.discardLocal)
   const long = m.content.length > 1200 || m.content.split('\n').length > 18
   const [open, setOpen] = useState(!long)
+  const run = useFormRun(m.content)
   return (
     <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id}>
       {m.attachments.length > 0 && (
@@ -198,6 +257,8 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
             </Button>
           </div>
         </form>
+      ) : run ? (
+        <FormRun run={run} sending={!!m.local} />
       ) : (
         m.content && (
           <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-[15px] leading-7 sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
@@ -285,7 +346,8 @@ function ArtifactCards({ chatId, messageId, className = 'mt-3' }: { chatId: stri
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">{a.title || a.key}</span>
               <span className="block text-xs text-muted">
-                {t(TYPE_LABEL[a.type])}
+                {/* a promo video (docs/DECISIONS.md "V") is a video to people, whatever page plays it */}
+                {a.key === PROMO_ARTIFACT_KEY ? t('promo.kind') : t(TYPE_LABEL[a.type])}
                 {a.version ? ` · v${a.version}` : ''} · {a.writing ? t('artifact.writing') : t('artifact.clickToOpen')}
               </span>
             </span>
@@ -394,8 +456,12 @@ export function AssistantMessage({
   const thinking = streaming && !m.content && !waitingForYou
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
+  // "no AI": the owner hears what they can do, next to the button (lib/aiAccess.ts noAiErrorKey), only while no AI
+  // answers them (another engine's connection, or one added since, keeps the server's per-engine words)
+  const role = useMe()?.user.role
+  const noAi = useAiAccess((s) => s.loaded && !s.usable)
   const errText = m.error
-    ? reason ? t(`chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
+    ? reason ? t(noAiErrorKey(reason, role, noAi) ?? `chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)

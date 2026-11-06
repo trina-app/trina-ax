@@ -27,6 +27,7 @@ import { QueueStore } from './queue-store'
 import { launcherStatus } from '../native'
 import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
+import { isInternalChat } from './internal-chats'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -559,6 +560,8 @@ export class ChatRuntime {
   }
 
   publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged') {
+    // a draft the server runs for its own work (internal-chats.ts) is not in the person's chat list: no event for it
+    if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
     const chat = r ? this.store.toChat(r, this.runState(chatId)) : null
     // never a stored connection secret of the person in the title (QA B-W5-1)

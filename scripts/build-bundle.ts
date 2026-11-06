@@ -270,7 +270,9 @@ export function assertLinuxHost(arch: string, platform: string = process.platfor
 export const whisperFiles = (arch: LinuxArch) => (arch === 'amd64' ? ['whisper-cli', 'whisper-cli-v2'] : ['whisper-cli'])
 
 /** Every file a Linux version folder must hold (relative paths; the server's own files are checked by name). */
-export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[] }): string[] {
+/** `web`: the web app is in the bundle (web/dist was built; a strict bundle always has it), and with it the fonts that
+ * come only with the web app (BUNDLED_FONTS `withWeb`), whose notices are then required too. */
+export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[]; web?: boolean }): string[] {
   return [
     ...RELEASE_NOTICE_FILES,
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
@@ -278,7 +280,7 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...LINUX_NATIVE.map((n) => `native/${n}`),
     ...LINUX_FONT_FILES.map((f) => `fonts/${f}`),
     // the fonts' notice (scripts/release-notices.ts BUNDLED_FONTS)
-    ...BUNDLED_FONTS.flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
+    ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
     'server/src/hwp-preflight.js',
@@ -405,7 +407,7 @@ export async function buildLinuxBundle(o: {
 
   for (const p of walkDirs(dir)) fs.chmodSync(p, 0o755)
   const absent = new Set(LINUX_ROOT_SCRIPTS.filter(([src]) => missing.includes(src)).map(([, d]) => `root/${d}`))
-  for (const f of linuxBundleFiles({ arch, codexVersion: codexV, whisper: !!o.whisperDir, systemd: units })) {
+  for (const f of linuxBundleFiles({ arch, codexVersion: codexV, whisper: !!o.whisperDir, systemd: units, web: fs.existsSync(web) })) {
     if (!absent.has(f) && !fs.existsSync(path.join(dir, f))) throw new Error(`bundle file ${f} was not written`)
   }
   await writeManifest(dir, o.version)

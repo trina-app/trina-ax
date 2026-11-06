@@ -1,15 +1,19 @@
 // Onboarding N (docs/DECISIONS.md "N — The first result is the company's card news"): while a company profile draft
 // reads the website, the server collects the brand's pictures and colours from the pages it opened itself; the first
 // result places them into the team's brand folder, writes 회사 소개.md when no file was given, and opens the chat. No
-// picture is made anywhere: too few pictures and the skill uses its type-only cards (Higgsfield taken out).
+// picture is made anywhere: too few pictures and the skill uses its type-only cards (Higgsfield taken out). Since "V" the
+// first result runs the promo video skill; the card news stays installed for every team.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, GENERAL_CARDNEWS_SKILL } from '@mycel/shared/api'
+import { API, CARD_NEWS_ARTIFACT_KEY, GENERAL_CARDNEWS_SKILL, GENERAL_PROMO_SKILL } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { noteEgressIp } from '../../server/src/tools/egress'
-import { acceptImage, cssColors, extractPageAssets, imageKind, largestSrc, normColor, rankColors } from '../../server/src/onboarding/brand-assets'
+import { acceptImage, cssColors, dropRepeats, extractPageAssets, imageKind, introText, largestSrc, logoColors, normColor, pageLines, rankColors, unlink } from '../../server/src/onboarding/brand-assets'
+import { htmlToText } from '../../server/src/tools/web-fetch'
+import { which } from '../../server/src/config'
+import { pngOf } from '../lib/images'
 import { cleanColors, cleanProfile, profileFactLines } from '../../server/src/onboarding/profile'
 import { parseDraftAnswer, webScope, type DraftScope } from '../../server/src/onboarding/draft'
 import { introMarkdown } from '../../server/src/onboarding/welcome-result'
@@ -71,6 +75,23 @@ describe('what a page offers (pure)', () => {
     expect(rankColors([{ hex: '#ffffff', weight: 120 }, { hex: '#808080', weight: 120 }, { hex: '#212121', weight: 120 }, { hex: '#05b2f5', weight: 16 }])).toEqual(['#212121'])
     expect(largestSrc('a.jpg 1x, b.jpg 2x')).toBe('b.jpg')
   })
+  // docs/DECISIONS.md "W3": a company site with no theme-color and only UI blues in its style sheets, its logo a wide
+  // wordmark of thin deep-blue letters on white: the logo squeezed into 32 × 32 blended every letter with the white
+  // around it, and that blend, as the logo's colour (150), won
+  test.skipIf(!which('ffmpeg'))('the logo\'s colour is its own, never its letters blended with the white around them (ffmpeg)', async () => {
+    const blue = [0x1f, 0x3a, 0x93] as const, white = [255, 255, 255] as const
+    // a wordmark: 600 × 160, letters of 8 px strokes every 20 px, white around them
+    const wordmark = Buffer.from(pngOf(600, 160, (x, y) => (y >= 40 && y < 120 && x >= 40 && x < 560 && x % 20 < 8 ? blue : white)))
+    const hits = await logoColors(wordmark, 'png')
+    // its own blue, and nothing else: no blend of blue and white
+    expect(hits).toEqual([{ hex: '#1f3a93', weight: 150 }])
+    // the page's own UI blues (a few repeated colours, weak) do not beat it
+    const page = cssColors('.btn{color:#3b82f6}.a{color:#3b82f6}.b{background:#2563eb}.c{border-color:#2563eb}', 0.8)
+    expect(rankColors([...hits, ...page])[0]).toBe('#1f3a93')
+    // a solid icon and a two-colour mark keep both colours, the larger first
+    const two = Buffer.from(pngOf(180, 180, (x) => (x < 120 ? [0x0e, 0x5e, 0x4e] : [0xf5, 0xa6, 0x23])))
+    expect((await logoColors(two, 'png')).map((h) => h.hex)).toEqual(['#0e5e4e', '#f5a623'])
+  })
   test('pictures are judged by their bytes: PNG, JPEG, WebP of a real size; never SVG, HTML or a strip', () => {
     expect(imageKind(png(10, 10))).toBe('png')
     expect(imageKind(jpeg(10, 10))).toBe('jpg')
@@ -104,8 +125,103 @@ describe('what a page offers (pure)', () => {
     expect(md).toContain('홈페이지(https://acme.example/)')
     expect(md).toContain('## 한 줄 소개\n\n조용한 선풍기를 만들어요\n\n출처: https://acme.example/ — "조용한 선풍기"')
     expect(md).toContain('## 브랜드 색\n\n#0e5e4e')
-    expect(md).toContain('### 회사 소개\n\n출처: https://acme.example/about\n\n> 소개\n> 링크 글 2019년에 세웠어요.')
+    expect(md).toContain('### 회사 소개\n\n출처: https://acme.example/about\n\n> 소개\n\n> 링크 글 2019년에 세웠어요.')
     expect(md).not.toContain('## 고객')
+  })
+  // docs/DECISIONS.md "W3": on a company site with CRLF markup, a site menu of nested link lists in a <header>, the
+  // content in <section>s and a footer, the section held only the menu and hundreds of empty "> " lines, the same for
+  // every page, and none of the page's own words
+  const crlf = (s: string) => s.replace(/\n/g, '\r\n')
+  const menu = `<header id="top-menu" class="site_gnb">\n<nav class="gnb-list">\n<ul>\n${['제품', '서비스', '소식', '회사 소개'].map((m) =>
+    `  <li>\n    <span>${m}</span>\n    <ul>\n${[['개요', 'overview'], ['탁상형', 'desk'], ['벽걸이형', 'wall'], ['부품', 'parts']].map(([x, slug]) => `      <li>\n        <a href="/kr/${slug}/">${x}</a>\n      </li>\n\n\n`).join('')}    </ul>\n  </li>\n`).join('')}</ul>\n</nav>\n</header>\n`
+  const shell = (body: string) => crlf(`<!doctype html><html><head><title>Acme</title></head><body>\n<a href="#top" class="skip-nav">본문으로 이동</a>\n${menu}${body}\n<footer class="site-footer"><p>Copyright © Acme. All rights reserved.</p><a href="/privacy">개인정보처리방침</a></footer>\n<div class="cookie-banner"><p>쿠키를 사용합니다</p><button>동의</button></div></body></html>`)
+  const home = shell(`<section class="intro">\n  <h2 class="pc">조용한 바람<br>더 나은 하루</h2><h2 class="mo">조용한 바람 더 나은 하루</h2>\n  <p>\n    Acme는 작은 사무실을 위한\n    조용한 바람을 만들어요.\n  </p>\n</section>\n<section><h3><span>바람 연구소</span> <span>바람 연구소</span></h3><p>더 조용한 날개를 연구해요.</p><a href="/kr/lab/">더 알아보기</a></section>`)
+  const about = shell(`<main><article><header><h1>회사 연혁</h1></header><p>1990년에 세웠어요.</p><aside>관련 글</aside></article></main>`)
+  test('a page\'s own words for 회사 소개.md: no site menu, footer, cookie bar or blank lines; a heading for each screen once', () => {
+    const base = new URL('https://www.acme.example/kr/')
+    // the old reading (web_fetch's text): the menu and blank lines first
+    const old = htmlToText(home, base).text
+    expect(old.startsWith('[본문으로 이동]')).toBe(true)
+    expect(old).toContain('[벽걸이형](https://www.acme.example/kr/wall/)')
+    // carriage returns are line breaks now: no run of blank lines, also for the AI's web_fetch
+    expect(old).not.toContain('\r')
+    expect(old).not.toMatch(/\n{3,}/)
+    const text = introText(home, base)
+    expect(text.split('\n')).toEqual([
+      '조용한 바람 더 나은 하루',
+      'Acme는 작은 사무실을 위한 조용한 바람을 만들어요.',
+      '바람 연구소',
+      '더 조용한 날개를 연구해요.',
+    ])
+    // in main or an article, a header is the content's own; an aside is not
+    expect(introText(about, base).split('\n')).toEqual(['회사 연혁', '1990년에 세웠어요.'])
+    // a page builder that wraps the whole page in one form (ASP.NET Web Forms) keeps its words
+    expect(introText('<body><form id="form1" method="post"><div id="content"><h1>회사 소개</h1><p>1990년에 세웠어요.</p><button>검색</button></div></form></body>', base).split('\n')).toEqual(['회사 소개', '1990년에 세웠어요.'])
+  })
+  test('links in one pass: labels kept, addresses gone; a "[" without its link stays text', () => {
+    expect(unlink('[제품](https://a.example/p) 소개와 [채용](https://a.example/c)')).toEqual({ words: '제품 소개와 채용', outside: ' 소개와 ', links: 2 })
+    expect(unlink('[[x](https://a.example/x) [y] (z) [a](b c)')).toEqual({ words: '[x [y] (z) [a](b c)', outside: '[ [y] (z) [a](b c)', links: 1 })
+    expect(unlink('no links here').links).toBe(0)
+  })
+  test('page lines: links-only lines (a menu) dropped, links reduced to their words, repeats once, a sane length', () => {
+    expect(pageLines('- [제품](https://a.example/p)\r\n\r\n\r\n- [뉴스](https://a.example/n) | [채용](https://a.example/c)\r\n# 소개\r\n[링크 글](https://a.example/x) 2019년에 세웠어요.\r\n›\r\n01\r\n# 소개')).toEqual(['소개', '링크 글 2019년에 세웠어요.'])
+    expect(dropRepeats('조용한 바람 조용한 바람 조용한 바람 더 나은')).toBe('조용한 바람 더 나은')
+    expect(dropRepeats('하하 하하 웃어요')).toBe('하하 하하 웃어요')
+    const long = Array.from({ length: 400 }, (_, i) => `문장 ${i}번은 회사 이야기를 해요.`).join('\n')
+    const lines = pageLines(long, 2000)
+    expect(lines.join('\n').length).toBeLessThanOrEqual(2000)
+    expect(lines[0]).toBe('문장 0번은 회사 이야기를 해요.')
+    expect(pageLines('가'.repeat(5000), 100)).toEqual(['가'.repeat(99) + '…'])
+  })
+  test('회사 소개.md: every page quoted line by line, never an empty quote line; a line another page said is left out', () => {
+    const base = new URL('https://www.acme.example/kr/')
+    // the second page repeats the first one's slogan
+    const pages = [
+      { url: 'https://www.acme.example/kr/', title: 'Acme', text: introText(home, base) },
+      { url: 'https://www.acme.example/kr/about/', title: '회사 연혁', text: introText(shell('<main><h1>조용한 바람 더 나은 하루</h1><p>1990년에 세웠어요.</p></main>'), base) },
+    ]
+    const md = introMarkdown({ locale: 'ko', name: 'Acme', profile: null, pages })
+    expect(md).not.toMatch(/^>\s*$/m)
+    expect(md).not.toContain('벽걸이형')
+    expect(md).not.toContain('Copyright')
+    expect(md).toContain('> 조용한 바람 더 나은 하루\n\n> Acme는 작은 사무실을 위한 조용한 바람을 만들어요.')
+    expect(md.match(/조용한 바람 더 나은 하루/g)!.length).toBe(1)
+    expect(md).toContain('### 회사 연혁\n\n출처: https://www.acme.example/kr/about/\n\n> 1990년에 세웠어요.')
+    // a row kept before this fix (web_fetch's text, CRLF): still no empty quote line and no menu of links
+    const old = introMarkdown({ locale: 'ko', name: 'Acme', profile: null, pages: [{ url: 'https://www.acme.example/kr/', title: 'Acme', text: htmlToText(home, base).text.replace(/\n/g, '\r\n\r\n') }] })
+    expect(old).not.toMatch(/^>\s*$/m)
+    expect(old).not.toContain('벽걸이형')
+    expect(old).toContain('> Acme는 작은 사무실을 위한')
+    // a long page gets its share, not the whole budget
+    const big = { url: 'https://www.acme.example/kr/big/', title: '긴 글', text: Array.from({ length: 300 }, (_, i) => `긴 글 ${i}번째 문장이에요.`).join('\n') }
+    const md2 = introMarkdown({ locale: 'ko', name: 'Acme', profile: null, pages: [big, { url: 'https://www.acme.example/kr/next/', title: '다음', text: '다음 쪽 이야기예요.' }] })
+    expect(md2.slice(md2.indexOf('### 긴 글'), md2.indexOf('### 다음')).length).toBeLessThan(2600)
+    expect(md2).toContain('> 다음 쪽 이야기예요.')
+  })
+  test('the page\'s own words in one pass: a hostile page does not stall the reading', () => {
+    const base = new URL('https://acme.example/')
+    const pages = [
+      '<header>'.repeat(200_000),
+      `<div class="${'gnb '.repeat(1000)}">`.repeat(500),
+      ('<p>' + 'a b '.repeat(150) + '</p>').repeat(3000),
+      ('[x](y) ' + '- '.repeat(50) + '\n').repeat(50_000),
+      // the review's pages: endless "[" (a pattern tried at every "[" took 2.9 s) and "[!](" (1.5 s), in paragraphs and
+      // as lines, plus links that never close, addresses with no ")" and table bars with no end
+      '<p>' + '['.repeat(3 * 1024 * 1024) + '</p>',
+      ('<p>' + '['.repeat(20_000) + '</p>').repeat(150),
+      '<p>' + '[!]('.repeat(700_000) + '</p>',
+      ('[!]('.repeat(5000) + '\n').repeat(150),
+      ('['.repeat(20_000) + '\n').repeat(150),
+      '[' + '](x'.repeat(1_000_000) + ')',
+      ('| '.repeat(10_000) + 'x\n').repeat(150),
+      ('# '.repeat(10_000) + 'x\n').repeat(150),
+    ]
+    for (const page of pages) {
+      const t0 = performance.now()
+      introText(page, base)
+      pageLines(page)
+      expect(performance.now() - t0, page.slice(0, 20)).toBeLessThan(1500)
+    }
   })
 })
 
@@ -179,7 +295,9 @@ describe('the website reading and the first result (the real web_fetch and a loc
     expect((await h.req('alice', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: [] }), headers: { 'content-type': 'application/json' } })).status).toBe(403)
     await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'https://www.acme.example/', name: 'Acme', oneLine: 'Quiet desk fans', products: 'Desk fans', audience: '', tone: [], avoid: '', sources: [], colors: ['#0e5e4e'] } })
     const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    expect(r.skillPath).toBe(GENERAL_CARDNEWS_SKILL)
+    // the first result is the promo video since docs/DECISIONS.md "V" (the card news skill stays installed)
+    expect(r.skillPath).toBe(GENERAL_PROMO_SKILL)
+    expect(fs.existsSync(path.join(h.team, GENERAL_CARDNEWS_SKILL))).toBe(true)
     // names in the team's language (the harness team is English): Brand/Images, logo, website-n, Company intro.md
     expect(r.images.map((p) => path.basename(p))).toEqual(['logo.png', 'website-1.png', 'website-2.jpg'])
     for (const p of r.images) expect(fs.existsSync(path.join(h.team, p))).toBe(true)
@@ -194,7 +312,7 @@ describe('the website reading and the first result (the real web_fetch and a loc
     // the history of the file is the owner's save
     expect((h.ctx.db.query("SELECT user_id FROM file_events WHERE path = ? ORDER BY rowid LIMIT 1").get(r.intro) as { user_id: string }).user_id).toBe('dana')
     const chat = h.ctx.db.query('SELECT title, title_source, user_id FROM chats WHERE id = ?').get(r.chatId) as { title: string; title_source: string; user_id: string }
-    expect(chat).toEqual({ title: '우리 회사 홍보 카드뉴스', title_source: 'user', user_id: 'dana' })
+    expect(chat).toEqual({ title: '우리 회사 홍보 영상', title_source: 'user', user_id: 'dana' })
     // a second start: the pictures are there once, 회사 소개.md is kept as it is (someone may have edited it)
     fs.writeFileSync(path.join(h.team, r.intro!), '# 손본 소개\n')
     const again = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
@@ -211,15 +329,21 @@ describe('the website reading and the first result (the real web_fetch and a loc
     expect((await h.req('dana', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: ['groups/none/x.pdf'] }), headers: { 'content-type': 'application/json' } })).status).toBe(400)
   })
 
-  test('a row from before the skill: "카드뉴스" is added on its own once, and recorded', async () => {
+  test('a row from before the skill: "홍보 영상" is added on its own once, and recorded; the card news is left as it is', async () => {
     const raw = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!
-    const skill = path.join(h.team, GENERAL_CARDNEWS_SKILL)
+    const skill = path.join(h.team, GENERAL_PROMO_SKILL)
     fs.rmSync(path.dirname(skill), { recursive: true, force: true })
-    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, general: { at: raw.general.at, tasksPath: raw.general.tasksPath, briefPath: raw.general.briefPath } })
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, general: { at: raw.general.at, tasksPath: raw.general.tasksPath, briefPath: raw.general.briefPath, cardNewsPath: raw.general.cardNewsPath } })
     const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    expect(r.skillPath).toBe(GENERAL_CARDNEWS_SKILL)
+    expect(r.skillPath).toBe(GENERAL_PROMO_SKILL)
     expect(fs.existsSync(skill)).toBe(true)
-    expect(getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!.general.cardNewsPath).toBe(GENERAL_CARDNEWS_SKILL)
+    const general = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!.general
+    expect(general.promoVideoPath).toBe(GENERAL_PROMO_SKILL)
+    expect(general.cardNewsPath).toBe(GENERAL_CARDNEWS_SKILL)
+    // recorded: deleted again on purpose, it is not brought back
+    fs.rmSync(path.dirname(skill), { recursive: true, force: true })
+    expect((await h.api('dana').call(API.startFirstResult, { body: { files: [] } })).skillPath).toBe(GENERAL_PROMO_SKILL)
+    expect(fs.existsSync(skill)).toBe(false)
   })
 
   test('no picture is made: the first-result chat offers no image tool, also with a Higgsfield key file on the server', async () => {
@@ -255,6 +379,52 @@ describe('a hostile page does not stall the server', () => {
       extractPageAssets(page, base)
       expect(performance.now() - t0, page.slice(0, 20)).toBeLessThan(1500)
     }
+  })
+})
+
+describe('the skill files (docs/DECISIONS.md "W2": the result in front, the answer one line)', () => {
+  const skill = (l: 'ko' | 'en') => fs.readFileSync(path.join(import.meta.dir, `../../resources/skill-packs/general/${l}/card-news/SKILL.md`), 'utf8')
+  const answer = (md: string) => md.slice(md.search(/^## 6\. /m))
+  test('both languages save the cards under the key the web app opens by itself', () => {
+    for (const l of ['ko', 'en'] as const) expect(skill(l)).toContain(`key \`${CARD_NEWS_ARTIFACT_KEY}\``)
+  })
+  test('the answer is one line; the number\'s source is under the cards; the real rules stay', () => {
+    const ko = skill('ko'), en = skill('en')
+    expect(answer(ko)).toContain('한 줄만')
+    expect(answer(en)).toContain('the answer is one line')
+    // no more per-card lines or sources in the answer: they were the long answer under which the cards hid
+    expect(answer(ko)).not.toContain('장마다 한 줄')
+    expect(answer(en)).not.toContain('one line per card (what it says)')
+    for (const md of [ko, en]) {
+      expect(md).toContain('<p class="src">')
+      expect(md).toContain('.src{')
+    }
+    // the brand-folder hint for cards made without a photo, numbers only as written, never a made picture
+    expect(answer(ko)).toContain('브랜드 폴더의 이미지 폴더에 사진을 넣고 다시 만들어 달라고 하시면 사진을 넣어 드려요')
+    expect(answer(en)).toContain('Add photos to the brand images folder and ask me again to put them in')
+    // docs/DECISIONS.md "W3": only for a type-only card, named; the number and closing cards never count; cards that
+    // all have photos get no photo line (a walk got it under cards with photos)
+    for (const md of [answer(ko), answer(en)]) for (const v of ['`type-cover`', '`type-statement`', '`type-points`']) expect(md).toContain(v)
+    expect(answer(ko)).toContain('있을 때만 한 문장을 더해요: "(n)장은 어울리는 사진이 없어 글자로만 만들었어요.')
+    expect(answer(ko)).toContain('4장(숫자)과 5장(마무리)은 원래 사진이 없는 판이라 세지 않아요. 1~3장이 모두 사진을 쓴 판이면 사진 이야기는 하지 않아요.')
+    expect(answer(en)).toContain('Only when one of cards 1–3 uses its type-only version')
+    expect(answer(en)).toContain('"Card (n) had no fitting photo, so it is type only.')
+    expect(answer(en)).toContain('When cards 1–3 all use a photo, say nothing about photos.')
+    expect(answer(ko)).not.toContain('사진 없이 만든 장이 있으면')
+    expect(ko).toContain('숫자는 자료에 숫자로 적힌 것만, 적힌 그대로 써요')
+    expect(en).toContain('Use only numbers written as numbers in the material, exactly as written')
+    expect(ko).toContain('사진을 새로 만들거나, 인터넷·스톡 사진을 가져오거나')
+    expect(en).toContain('Never generate a photo, take one from the web or a stock library')
+  })
+  test('the promo video (the first result since "V") opens by itself too: one line, no internal names', () => {
+    const promo = (l: 'ko' | 'en') => fs.readFileSync(path.join(import.meta.dir, `../../resources/skill-packs/general/${l}/promo-video/SKILL.md`), 'utf8')
+    const said = (md: string) => md.slice(md.search(/^## 7\. /m))
+    const ko = said(promo('ko')), en = said(promo('en'))
+    expect(ko).toContain('한 줄만 써요: "(회사 이름) 홍보 영상을 만들었어요. 바꾸고 싶은 장면이나 말이 있으면 알려 주세요."')
+    expect(en).toContain('the answer is one line')
+    expect(ko).toContain('스킬이나 도구 이름, 칸 이름, 스타일 이름, 색 코드')
+    expect(en).toContain('no skill or tool name, no slot names, no style names, no color codes')
+    for (const md of [ko, en]) expect(md).not.toMatch(/promo_video|\b(bold|editorial|night)\b/)
   })
 })
 

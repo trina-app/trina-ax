@@ -1,14 +1,14 @@
-// The action for "no AI": connect (owner / own connection) or tell the admin (one request, then "알렸어요").
+// The action for "no AI": connect (the owner: the team's; a member the team allows: their own), in the simple dialog
+// in place (components/onboarding/ConnectAi.tsx), or tell the owner (one request, then "알렸어요").
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { aiButton } from '../../lib/aiAccess'
 import { useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
+import { ConnectAiButton } from '../onboarding/ConnectAi'
 import { Button } from '../ui'
 
 export default function AiAccessButton({ size = 'sm' }: { size?: 'sm' | 'md' }) {
   const t = useT()
-  const navigate = useNavigate()
   const { loaded, usable, action, requested, sending, failed, ask, load } = useAiAccess()
   // a chat error never uses an old answer: ask again when the button appears
   useEffect(() => { void load(true) }, [load])
@@ -17,8 +17,8 @@ export default function AiAccessButton({ size = 'sm' }: { size?: 'sm' | 'md' }) 
   const b = aiButton(action, requested)
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
-      {b.kind === 'link' ? (
-        <Button size={size} variant="primary" onClick={() => navigate(b.to)} data-testid="ai-access-button" data-action={action}>{t(b.label)}</Button>
+      {b.kind === 'connect' ? (
+        <ConnectAiButton personal={b.personal} size={size} label={b.label} data-testid="ai-access-button" data-action={action} />
       ) : (
         <Button size={size} variant={b.done ? 'secondary' : 'primary'} disabled={b.done} busy={sending} onClick={() => void ask()} data-testid="ai-access-button" data-action={action}>
           {sending ? t('aiAccess.asking') : t(b.label)}

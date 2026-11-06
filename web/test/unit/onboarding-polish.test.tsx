@@ -38,17 +38,17 @@ describe('a skill by its title', () => {
   })
 
   test('the ready-made message and the link\'s lines name the skill by its title; an older answer without one, by name', () => {
-    const html = renderToStaticMarkup(<TeamLinkView data={link()} inviter="김팀장" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
-    expect(teamLinkMessage(ko, { name: '김팀장', url: URL_, skill: '광고 문구' })).toBe(`김팀장님이 ${PRODUCT.displayName}에서 함께 일하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
-    expect(html).toContain(esc(teamLinkMessage(en, { name: '김팀장', url: URL_, skill: '광고 문구' })))
+    const html = renderToStaticMarkup(<TeamLinkView data={link()} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
+    expect(teamLinkMessage(ko, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })).toBe(`김팀장님이 ${PRODUCT.displayName}에서 Acme에 함께하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(html).toContain(esc(teamLinkMessage(en, { name: '김팀장', team: 'Acme', url: URL_, skill: '광고 문구' })))
     expect(html).toContain('data-testid="team-link-skill-name">광고 문구<')
     expect(html).not.toContain('ad-copy')
-    const older = renderToStaticMarkup(<TeamLinkView data={link({ skill: { path: AD.path, name: 'ad-copy' } })} inviter="김팀장" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
+    const older = renderToStaticMarkup(<TeamLinkView data={link({ skill: { path: AD.path, name: 'ad-copy' } })} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
     expect(older).toContain(esc("'ad-copy' skill"))
   })
 
   test('the link form\'s skill picker lists titles', () => {
-    const html = renderToStaticMarkup(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="김팀장" groups={[]} skills={[AD, PLAIN]} busy={false} onCreate={noop} onRevoke={noop} />)
+    const html = renderToStaticMarkup(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="김팀장" team="Acme" groups={[]} skills={[AD, PLAIN]} busy={false} onCreate={noop} onRevoke={noop} />)
     expect(html).toContain(`<option value="${AD.path}">광고 문구</option>`)
     expect(html).toContain(`<option value="${PLAIN.path}">weekly</option>`)
   })
@@ -81,7 +81,7 @@ describe('a skill by its title', () => {
 
 describe('the team link on a phone: one primary action, no boxes', () => {
   test('"메시지 복사" is the only primary; the link is plain text with quiet "링크만 복사" and "QR 코드"; the message a quote', () => {
-    const html = renderToStaticMarkup(<TeamLinkView data={link()} inviter="김팀장" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
+    const html = renderToStaticMarkup(<TeamLinkView data={link()} inviter="김팀장" team="Acme" groups={[]} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
     const buttons = [...html.matchAll(/<button[^>]*>/g)].map((b) => b[0])
     expect(buttons.filter((b) => b.includes('bg-accent '))).toHaveLength(1)
     expect(buttons.find((b) => b.includes('bg-accent '))).toContain('data-testid="team-link-copy-message"')
@@ -105,7 +105,7 @@ describe('the team link on a phone: one primary action, no boxes', () => {
   test('the groups line: the names; how many while the groups load; "no group" only on a team that has groups', () => {
     const G = { id: '01900000-0000-7000-8000-0000000000aa', name: '디자인팀' }
     const html = (l: TeamLinkResponse, groups: { id: string; name: string }[]) =>
-      renderToStaticMarkup(<TeamLinkView data={l} inviter="김팀장" groups={groups as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
+      renderToStaticMarkup(<TeamLinkView data={l} inviter="김팀장" team="Acme" groups={groups as never} skills={null} busy={false} onCreate={noop} onRevoke={noop} />)
     expect(html(link({ groupIds: [G.id] }), [G])).toContain('data-testid="team-link-groups">디자인팀<')
     expect(html(link({ groupIds: [G.id] }), [])).toContain('data-testid="team-link-groups">1<')
     expect(html(link(), [G])).toContain(en('members.noGroups'))
@@ -114,7 +114,7 @@ describe('the team link on a phone: one primary action, no boxes', () => {
 
   test('two skills that read the same are told apart in the picker', () => {
     const twin: SkillInfo = { path: 'skills/광고-문구.md', name: '광고 문구', description: '' }
-    const html = renderToStaticMarkup(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="김팀장" groups={[]} skills={[AD, twin]} busy={false} onCreate={noop} onRevoke={noop} />)
+    const html = renderToStaticMarkup(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="김팀장" team="Acme" groups={[]} skills={[AD, twin]} busy={false} onCreate={noop} onRevoke={noop} />)
     expect(html).toContain(`>광고 문구 · ${AD.path}</option>`)
     expect(html).toContain(`>광고 문구 · ${twin.path}</option>`)
   })

@@ -38,6 +38,9 @@ const OPENAI_KEY_RE = /^sk-[A-Za-z0-9_-]{20,300}$/
 const GATEWAY_KEY_RE = /^[A-Za-z0-9._-]{20,300}$/
 /** the server's Anthropic-compatible gateway (server.json engine.anthropicGateway), when it has one */
 type Gateway = { label: string } | null | undefined
+/** the name the simple form gives a connection (components/onboarding/ConnectAi.tsx): the kind's, renamed on Admin */
+const simpleLabel = (kind: CredentialKind, gateway?: Gateway) =>
+  kind === 'anthropic-oauth' ? 'Claude' : kind === 'chatgpt' ? 'ChatGPT' : kind === 'openai-api-key' ? 'OpenAI API' : gateway ? gateway.label : 'Claude API'
 const formatOk = (kind: CredentialKind, s: string, gateway?: Gateway) => kind === 'anthropic-oauth' ? CLAUDE_TOKEN_RE.test(s)
   : kind === 'anthropic-api-key' ? (gateway ? GATEWAY_KEY_RE.test(s) && !/^sk-ant-/i.test(s) : ANTHROPIC_KEY_RE.test(s))
   : kind === 'openai-api-key' ? OPENAI_KEY_RE.test(s) && !s.startsWith('sk-ant-') : true
@@ -242,13 +245,20 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
  * Add a connection (owner: the team's; personal: one's own), or put a new token / key on one (replace), or sign the
  * ChatGPT plan or the Claude subscription in again (replace of a subscription connection). Subscriptions connect with
  * a sign-in in the browser; a Claude token made in a terminal can still be pasted (the folded "in a terminal" part).
+ * `simple` is the form "AI 연결" opens outside Admin (components/onboarding/ConnectAi.tsx): for the whole team (no
+ * target), named after the kind (no name field), the provider's terms in one line; the password again stays for a
+ * team connection (the server checks it on every add, owner-reauth), and one's own needs none, as before.
  */
-export function AddCredential({ allowedKinds, family, gateway, groups, users, replace, personal, sharedSubscriptions = false, onClose, onDone }: {
-  allowedKinds: CredentialKind[]; /** this provider's kinds only (Add account in its row) */ family?: Family; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean; onClose: () => void; onDone: () => void
+export function AddCredential({ allowedKinds, family, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, simple, onClose, onDone }: {
+  allowedKinds: CredentialKind[]; /** this provider's kinds only (Add account in its row) */ family?: Family; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean
+  /** one way chosen already ("Claude 구독 연결"): the list of ways is not shown (in the simple form, until "다른 방법") */
+  initialKind?: CredentialKind
+  simple?: boolean
+  onClose: () => void; onDone: () => void
 }) {
   const t = useT()
   const locale = useLocale()
-  const [kind, setKind] = useState<CredentialKind | null>(replace?.kind ?? null)
+  const [kind, setKind] = useState<CredentialKind | null>(replace?.kind ?? initialKind ?? null)
   const [label, setLabel] = useState(replace?.label ?? '')
   const [secret, setSecret] = useState('')
   const [assignments, setAssignments] = useState<CredentialAssignment[]>([])
@@ -266,13 +276,16 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const sending = useRef(false)
   /** the token is already a personal connection the owner may move to the team (409 params.movable) */
   const [move, setMove] = useState<DuplicateCredentialParams | null>(null)
+  /** the simple form opened on one way: "다른 방법" shows the list of ways */
+  const [otherWays, setOtherWays] = useState(false)
   const secure = canSeal()
   const subscription = kind !== null && SUBSCRIPTION.has(kind)
   const sharingBlocked = subscription && !personal && !sharedSubscriptions
   const needsPassword = !personal
   /** a subscription signed in from the browser (ChatGPT always, Claude unless the terminal paste is open) */
   const signIn = kind === 'chatgpt' || (kind === 'anthropic-oauth' && !manual)
-  const ready = kind !== null && !sharingBlocked && (replace || label.trim().length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
+  const name = simple && kind && !replace ? simpleLabel(kind, gateway) : label.trim()
+  const ready = kind !== null && !sharingBlocked && (replace || name.length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
 
   // sign-in progress: the WebSocket event, and a poll in case the socket is down
   useEffect(() => {
@@ -290,7 +303,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
     try {
       if (signIn) {
         const loginKind = kind as CredentialLoginKind
-        const common = { kind: loginKind, label: label.trim() || replace?.label || (loginKind === 'chatgpt' ? 'ChatGPT' : 'Claude'), acknowledgedPlanNotice: true as const, ...(replace ? { reconnectId: replace.id } : {}) }
+        const common = { kind: loginKind, label: name || replace?.label || (loginKind === 'chatgpt' ? 'ChatGPT' : 'Claude'), acknowledgedPlanNotice: true as const, ...(replace ? { reconnectId: replace.id } : {}) }
         setLoginCode('')
         setLogin(personal ? await api.call(API.startMyCredentialLogin, { body: common }) : await api.call(API.startCredentialLogin, { body: { ...common, assignments, password } }))
         return
@@ -302,7 +315,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
         toast({ level: 'success', text: t('credentials.connected') })
       } else {
         const sealed = await sealSecret(key, secret.trim(), 'credential.create')
-        const body = { kind: kind as Exclude<CredentialKind, 'chatgpt'>, label: label.trim(), sealed, ...(subscription ? { acknowledgedPlanNotice: ack } : {}) }
+        const body = { kind: kind as Exclude<CredentialKind, 'chatgpt'>, label: name, sealed, ...(subscription ? { acknowledgedPlanNotice: ack } : {}) }
         const c = personal ? await api.call(API.createMyCredential, { body })
           : await api.call(API.createCredential, { body: { ...body, assignments, password, ...(move?.credentialId ? { moveFrom: move.credentialId } : {}) } })
         toast({ level: 'success', text: move ? t('credentials.moved') : c.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.connected') })
@@ -380,7 +393,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
           <div className="space-y-4">
             {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
             {!personal && !sharedSubscriptions && <p className="text-sm text-warn" data-testid="shared-subscriptions-off">{t('credentials.sharedSubscriptionsOff')}</p>}
-            {!replace && (
+            {!replace && (!initialKind || otherWays) && (
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">{t('credentials.chooseKind')}</legend>
                 {kinds.map((k) => {
@@ -409,7 +422,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                 </a>}
               </p>
             )}
-            {kind && !replace && (
+            {kind && !replace && !simple && (
               <Field label={t('credentials.label')}>
                 <input className={inputCls} value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} data-testid="credential-label" />
               </Field>
@@ -419,8 +432,15 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                 <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
               </Field>
             )}
-            {kind && !replace && !personal && <TargetPicker value={assignments} onChange={setAssignments} groups={groups} users={users} />}
-            {subscription && !replace && (
+            {kind && !replace && !personal && !simple && <TargetPicker value={assignments} onChange={setAssignments} groups={groups} users={users} />}
+            {subscription && !replace && simple && (
+              // the provider's terms in one line: the server still needs this yes (acknowledgedPlanNotice, D23)
+              <label className="flex items-start gap-2 text-sm" data-testid="plan-notice">
+                <input type="checkbox" className="mt-1 shrink-0" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="plan-notice-ack" />
+                <span>{t('aiConnect.terms')}</span>
+              </label>
+            )}
+            {subscription && !replace && !simple && (
               <div className="rounded-lg bg-subtle p-3 text-sm" data-testid="plan-notice">
                 <p>{t('credentials.planNotice')}</p>
                 <label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="plan-notice-ack" /> {t('credentials.planNoticeAck')}</label>
@@ -435,7 +455,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
               </div>
             )}
             {kind && needsPassword && (
-              <Field label={move ? t('credentials.moveReauth') : t('credentials.reauth')}>
+              <Field label={move ? t('credentials.moveReauth') : t('credentials.reauth')} hint={simple && !move ? t('aiConnect.password') : undefined}>
                 <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="credential-password" />
               </Field>
             )}
@@ -458,6 +478,11 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                   </Field>
                 </div>
               </details>
+            )}
+            {simple && initialKind && !replace && !otherWays && (
+              <button type="button" className="text-xs text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" onClick={() => setOtherWays(true)} data-testid="credential-other-ways">
+                {t('welcome.ai.other')}
+              </button>
             )}
           </div>
         )}

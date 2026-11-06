@@ -4,11 +4,12 @@
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
 import AiAccessBanner from '../components/chat/AiAccessBanner'
+import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
+import { chatErrorReason, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
@@ -292,7 +293,8 @@ function ChatView({ chatId }: { chatId: string }) {
           <>
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
-          <AiAccessBanner />
+          {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
+          {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer
             ref={composer}
             draftId={chatId}
@@ -370,3 +372,7 @@ function BrowserToggle() {
     </IconButton>
   )
 }
+
+/** the answer failed because nothing answers this person (the button to connect or ask is on it) */
+const noAiError = (m: { role: string; status?: string; error?: Parameters<typeof chatErrorReason>[0] | null } | undefined) =>
+  !!m && m.role === 'assistant' && m.status === 'error' && !!m.error && isNoAiReason(chatErrorReason(m.error))

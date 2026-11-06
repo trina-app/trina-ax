@@ -53,6 +53,24 @@ if (!result.success) {
 }
 
 const pkgDir = (p: string) => path.dirname(require.resolve(`${p}/package.json`))
+
+// the promo video templates' typeface (docs/DECISIONS.md "V"; OFL-1.1, resources/notices/pretendard): the artifact page
+// loads fonts/promo-video.css (the frame allows fonts from /vendor/ only), the MP4 render reads the same file
+const FONT = path.resolve(WEB, '..', 'resources', 'promo-video', 'fonts', 'PretendardVariable.woff2')
+fs.mkdirSync(path.join(OUT, 'fonts'), { recursive: true })
+fs.copyFileSync(FONT, path.join(OUT, 'fonts', 'PretendardVariable.woff2'))
+fs.writeFileSync(path.join(OUT, 'fonts', 'promo-video.css'),
+  '@font-face{font-family:"Pretendard Promo";src:url("PretendardVariable.woff2") format("woff2");font-weight:45 930;font-style:normal;font-display:block}\n')
+// the promo video's sounds (docs/DECISIONS.md "V"; CC0, resources/promo-video/audio/SOURCES.md): the artifact frame lets a
+// sound in only as a data: address, so each one is a script that puts its address in window.__pvAudio (the player loads
+// them only when the person turns the sound on); the MP4 render reads the files themselves
+const AUDIO = path.resolve(WEB, '..', 'resources', 'promo-video', 'audio')
+fs.mkdirSync(path.join(OUT, 'promo-video'), { recursive: true })
+for (const f of fs.readdirSync(AUDIO).filter((x) => x.endsWith('.m4a'))) {
+  const name = f.replace(/\.m4a$/, '')
+  const data = fs.readFileSync(path.join(AUDIO, f)).toString('base64')
+  fs.writeFileSync(path.join(OUT, 'promo-video', `${name}.js`), `(window.__pvAudio=window.__pvAudio||{})[${JSON.stringify(name)}]="data:audio/mp4;base64,${data}";\n`)
+}
 fs.copyFileSync(path.join(pkgDir('@tailwindcss/browser'), 'dist', 'index.global.js'), path.join(OUT, 'tailwind.js'))
 
 const version = (p: string) => (JSON.parse(fs.readFileSync(path.join(pkgDir(p), 'package.json'), 'utf8')) as { version: string }).version
@@ -62,5 +80,5 @@ const manifest = {
   versions: Object.fromEntries(['react', 'react-dom', 'lucide-react', 'recharts', 'mermaid', '@tailwindcss/browser'].map((p) => [p, version(p)])),
 }
 fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2))
-const total = fs.readdirSync(OUT).reduce((n, f) => n + fs.statSync(path.join(OUT, f)).size, 0)
+const total = fs.readdirSync(OUT).reduce((n, f) => n + (fs.statSync(path.join(OUT, f)).isFile() ? fs.statSync(path.join(OUT, f)).size : 0), 0)
 console.log(`vendor: ${fs.readdirSync(OUT).length} files, ${(total / 1024 / 1024).toFixed(1)} MB → ${path.relative(process.cwd(), OUT)}`)

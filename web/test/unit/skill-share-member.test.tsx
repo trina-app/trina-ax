@@ -156,14 +156,15 @@ describe('a member and a team skill someone made', () => {
   test('the lead\'s message for a skill just made, in every language with the link', () => {
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       const t = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate(l, k, p)
-      const text = teamLinkMessage(t, { name: '올가', url: 'https://acme.example/join#t=x', skill: '견적서 쓰기', made: true })
+      const text = teamLinkMessage(t, { name: '올가', team: 'Acme 영업', url: 'https://acme.example/join#t=x', skill: '견적서 쓰기', made: true })
       expect(text).toContain('견적서 쓰기')
+      expect(text).toContain('Acme 영업')
       expect(text.endsWith('https://acme.example/join#t=x')).toBe(true)
     }
     const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
-    expect(teamLinkMessage(ko, { name: '올가', url: 'u', skill: '견적서 쓰기', made: true })).toBe("우리 팀 '견적서 쓰기' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nu")
+    expect(teamLinkMessage(ko, { name: '올가', team: 'Acme 영업', url: 'u', skill: '견적서 쓰기', made: true })).toBe("Acme 영업에 '견적서 쓰기' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요.\nu")
     // not made here: the usual invitation
-    expect(teamLinkMessage(ko, { name: '올가', url: 'u', skill: '견적서 쓰기' })).toContain('올가님이')
+    expect(teamLinkMessage(ko, { name: '올가', team: 'Acme 영업', url: 'u', skill: '견적서 쓰기' })).toContain('올가님이')
   })
 
   test('the card names a team file, or a folder\'s newest file of the kind the run used', () => {
