@@ -1,5 +1,5 @@
 // The chat screen, like Claude's: answers are plain text with nothing beside them, the newest answer keeps its actions
-// in view (older ones show them on hover or focus, and always on touch screens), the chat's name opens rename and
+// in view (older ones show them on hover or focus; on a phone after a tap), the chat's name opens rename and
 // delete, a file sent with a message is a small card, and the box says "Reply" in a chat that has started. The box
 // holds only the text and a quiet send key; attach, voice and the engine sit in one row under it, with the note.
 import AxeBuilder from '@axe-core/playwright'
@@ -175,15 +175,31 @@ test('on a phone the newest answer shows its actions, an older answer or my mess
   await chatWithTwoAnswers(page)
   expect(await page.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false)
   const answers = page.getByTestId('assistant-message')
+  const mine = page.getByTestId('user-message').first()
   await expect(answers.last().getByTestId('answer-actions')).toBeVisible()
-  // no hover on a phone: the rows of older messages are left out until the message is tapped
-  await expect(answers.first().getByTestId('answer-actions')).toBeHidden()
-  await expect(page.getByTestId('user-message').first().getByTestId('message-actions')).toBeHidden()
+  await expect(answers.last().getByTestId('answer-actions')).toHaveCSS('clip-path', 'none')
+  // no hover on a phone: the actions of older messages are out of sight until the message is tapped (sr-only), but a
+  // screen reader still reads them
+  await expect(answers.first().getByTestId('answer-actions')).toHaveCSS('clip-path', 'inset(50%)')
+  await expect(mine.getByTestId('message-actions')).toHaveCSS('clip-path', 'inset(50%)')
+  expect(await answers.first().ariaSnapshot()).toContain('button "다시 생성"')
+  expect(await mine.ariaSnapshot()).toContain('button "메시지 수정"')
   await answers.first().getByText('first question').tap()
-  await expect(answers.first().getByTestId('answer-actions')).toBeVisible()
+  await expect(answers.first().getByTestId('answer-actions')).toHaveCSS('clip-path', 'none')
+  await expect(answers.first().getByTestId('answer-actions-tap')).toHaveCSS('clip-path', 'none')
   await expect(answers.first().getByTestId('regenerate')).toBeVisible()
-  await page.getByTestId('user-text').first().tap()
-  await expect(page.getByTestId('user-message').first().getByTestId('edit-message')).toBeVisible()
+  await mine.getByTestId('user-text').tap()
+  await expect(mine.getByTestId('message-actions-tap')).toHaveCSS('clip-path', 'none')
+  // the branch switch ("‹ 2 / 2 ›") always shows; the other actions still wait for the tap
+  await mine.getByTestId('edit-message').tap()
+  await page.getByTestId('edit-input').fill('first question, again')
+  await page.getByTestId('edit-send').tap()
+  await expect(page.locator('[data-testid="assistant-message"][data-status="done"]')).toHaveCount(1)
+  const edited = page.getByTestId('user-message').first()
+  await expect(edited.getByTestId('branch-label')).toHaveText('2 / 2')
+  await expect(edited.getByTestId('branch-nav')).toBeVisible()
+  await expect(edited.getByTestId('message-actions')).toHaveCSS('clip-path', 'none')
+  await expect(edited.getByTestId('message-actions-tap')).toHaveCSS('clip-path', 'inset(50%)')
   await expect(page.getByTestId('chat-menu')).toBeVisible()
   // on a phone the note under the message box is left out (the bottom is for the box and the keyboard); the chat's own
   // bar (back, title, new chat) is the only bar
