@@ -57,6 +57,11 @@ describe('where Settings > Browser shows', () => {
     expect(browserSettingsBridge()).toBeNull()
     expect(settingsTabs(false).some((x) => x.id === 'browser')).toBe(false)
   })
+  test('Dev environment sites: only when the dev environment on srt is on for the person, after App connectors', () => {
+    expect(settingsTabs(false, false).some((x) => x.id === 'dev-env-sites')).toBe(false)
+    const ids = settingsTabs(false, false, true).map((x) => x.id)
+    expect(ids.indexOf('dev-env-sites')).toBe(ids.indexOf('connectors') + 1)
+  })
   test('AI connections still comes after what the AI remembers, with or without the Browser tab', () => {
     expect(settingsTabs(true, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'credentials'])
     expect(settingsTabs(false, true).map((x) => x.id).slice(0, 5)).toEqual(['profile', 'security', 'usage', 'memory', 'credentials'])

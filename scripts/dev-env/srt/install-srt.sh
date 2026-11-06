@@ -73,7 +73,7 @@ case "$OS" in
   *) die "this script is for Debian 13 (found $OS)" ;;
 esac
 case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64) ARCH=arm64 ;; *) die "unknown machine $(uname -m)" ;; esac
-for f in "$HERE/package.json" "$HERE/package-lock.json" "$HERE/run-wrap" "$HERE/devenv.rules.in" "$HERE/devenv.slice.in"; do
+for f in "$HERE/package.json" "$HERE/package-lock.json" "$HERE/run-wrap" "$HERE/srt-full.mjs" "$HERE/devenv.rules.in" "$HERE/devenv.slice.in"; do
   [ -f "$f" ] || die "$f is missing"
 done
 grep -q "\"@anthropic-ai/sandbox-runtime\": \"$SRT_VERSION\"" "$HERE/package.json" || die "package.json does not pin srt $SRT_VERSION"
@@ -150,6 +150,9 @@ if [ ! -f "$SRT_DIR/cli.js" ] || ! cmp -s "$HERE/package-lock.json" "$SRT_DIR/pa
   chown -R root:root "$NEW"; chmod -R go-w "$NEW"; chmod 755 "$NEW"
   rm -rf "$SRT_DIR"; mv "$NEW" "$SRT_DIR"
 fi
+# Full internet of one person (srt-full.mjs): srt's CLI with an ask callback that allows every host not denied
+T=$(mktemp); cp "$HERE/srt-full.mjs" "$T"; put_changed "$T" 644 "$SRT_DIR/full.mjs" || true
+"$OPT/node/bin/node" "$SRT_DIR/full.mjs" --self-test >/dev/null || die "full.mjs does not refuse addresses and local names"
 [ -x "$SRT_DIR/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp/$ARCH/apply-seccomp" ] || die "srt has no apply-seccomp for $ARCH"
 [ "$("$OPT/node/bin/node" "$SRT_DIR/cli.js" --version)" = "$SRT_VERSION" ] || die "srt does not answer --version $SRT_VERSION"
 # an older srt folder goes only when no scope uses it

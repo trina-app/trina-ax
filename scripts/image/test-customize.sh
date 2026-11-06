@@ -33,7 +33,7 @@ cp -a "$REPO/scripts/image/customize.sh" "$REPO/scripts/image/files" "$WORK/src/
 # the dev environment on srt, image part (the same files build-ami.sh stages). --no-srt skips it (faster)
 if [[ $SRT == 1 ]]; then
   mkdir -p "$WORK/src/dev-env-srt"
-  for f in install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap devenv.rules.in devenv.slice.in README.md; do
+  for f in install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in README.md; do
     cp -p "$REPO/scripts/dev-env/srt/$f" "$WORK/src/dev-env-srt/"
   done
 fi
@@ -104,6 +104,7 @@ if [[ $SRT == 1 ]]; then
   docker exec "$NAME" bash -c 'set -e
     v=$(sed -n "s/^SRT_VERSION=//p" /usr/lib/mycel/dev-env/srt/install-srt.sh)
     [ "$(/opt/trina/node/bin/node /opt/trina/srt/$v/cli.js --version)" = "$v" ] || { echo "srt $v does not answer"; exit 1; }
+    /opt/trina/node/bin/node /opt/trina/srt/$v/full.mjs --self-test >/dev/null || { echo "srt $v full.mjs missing or allows an address"; exit 1; }
     [ "$(stat -c "%U %a" /opt/trina/devenv/run-wrap)" = "root 755" ] || { echo "run-wrap owner/mode"; exit 1; }
     for p in bubblewrap socat ripgrep polkitd jq python3 ffmpeg chromium build-essential; do dpkg-query -W -f "\${db:Status-Status}" $p | grep -qx installed || { echo "package $p missing"; exit 1; }; done
     [ -z "$(find /opt/trina -perm /022 ! -type l)" ] || { echo "a file in /opt/trina is group/world writable"; exit 1; }
