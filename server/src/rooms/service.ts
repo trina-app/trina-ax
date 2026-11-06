@@ -27,7 +27,7 @@ import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { notificationsOf } from '../notifications/service'
+import { notificationsOf, type RoomNoticeEvent } from '../notifications/service'
 import {
   canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck,
   lastSeqFor, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
@@ -82,8 +82,15 @@ export class Rooms {
       return m ? build(m) : null
     })
   }
-  messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow) {
-    this.fanout(row.room_id, (m) => canSee(row, m) ? { type, data: { roomId: row.room_id, message: messagesOut(this.db, [row], m)[0]! } } : null)
+  /** `notices`: a new message's notices by recipient (notify()): each one's room.message says theirs (the desktop app
+   * tells what the Inbox and push tell, docs/DECISIONS.md "Session markers"). */
+  messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow, notices?: ReadonlyMap<string, RoomNoticeEvent>) {
+    this.fanout(row.room_id, (m) => {
+      if (!canSee(row, m)) return null
+      const message = messagesOut(this.db, [row], m)[0]!
+      const notice = type === 'room.message' ? notices?.get(m.user_id) : undefined
+      return type === 'room.message' ? { type, data: { roomId: row.room_id, message, ...(notice ? { notice } : {}) } } : { type, data: { roomId: row.room_id, message } }
+    })
   }
   /** room.thread: the root's summary to each member who sees the root. It differs from one person to the next only for
    * those who follow it (new replies) or have a private reply in it (an AI answer's preview): the others get one copy. */
@@ -405,9 +412,8 @@ export class Rooms {
       this.markNoticesRead(userId, roomId, seq)
     }
     const row = messageRow(this.db, roomId, id)!
-    this.messageEvent('room.message', row)
+    this.messageEvent('room.message', row, this.notify(row))
     if (root) this.afterReply(root)
-    this.notify(row)
     if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
   }
@@ -619,11 +625,13 @@ export class Rooms {
    * (room.dm too: the push is the same generic line) and the people it mentions, nobody else, unless it was sent to the
    * room as well (then also as a message of the room). Only people who see it. One unread notice of each kind per room
    * (and thread) and person (Notifications.roomNotice). Private messages (the AI's previews) and event lines notify
-   * nobody; an AI answer not the person who asked. The notice is the message id only. */
-  notify(row: MessageRow) {
-    if (row.visibility !== 'room' || row.deleted_at || row.event) return
+   * nobody; an AI answer not the person who asked. The notice is the message id only. Returns who got a notice they
+   * see, and which (Notifications.roomNotice): the room.message to each of them says so. */
+  notify(row: MessageRow): Map<string, RoomNoticeEvent> {
+    const out = new Map<string, RoomNoticeEvent>()
+    if (row.visibility !== 'room' || row.deleted_at || row.event) return out
     const room = roomRow(this.db, row.room_id)
-    if (!room) return
+    if (!room) return out
     const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m))
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
     const picked = room.kind === 'dm' || room.kind === 'group'
@@ -632,10 +640,11 @@ export class Rooms {
     for (const m of ms) {
       if (m.muted) continue
       try {
-        if (mentioned.has(m.user_id)) n.roomNotice(m.user_id, 'room.mention', row.id, row.room_id, row.created_at, row.thread_root_id)
-        else if (followers ? followers.has(m.user_id) || (!!row.also_in_room && picked) : picked) n.roomNotice(m.user_id, 'room.dm', row.id, row.room_id, row.created_at, row.thread_root_id)
+        const event: RoomNoticeEvent | null = mentioned.has(m.user_id) ? 'room.mention' : (followers ? followers.has(m.user_id) || (!!row.also_in_room && picked) : picked) ? 'room.dm' : null
+        if (event && n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id)) out.set(m.user_id, event)
       } catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
+    return out
   }
 
   // ---------------- team rooms and the everyone room ----------------

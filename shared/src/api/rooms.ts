@@ -327,6 +327,9 @@ export const Room = z.object({
   createdAt: IsoTime,
   /** the last message's time, or when the room was made */
   activityAt: IsoTime,
+  /** the room's AI waits on me: a question I asked @트리나 there shows a card for my answer (docs/DECISIONS.md "Session
+   * markers": the room's "?"). Absent = no. */
+  aiWaits: z.literal(true).optional(),
 })
 export type Room = z.infer<typeof Room>
 

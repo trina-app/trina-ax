@@ -42,6 +42,11 @@ export const QUEUE_PER_USER = 3
 export const QUEUE_RETRY_AFTER_S = 30
 /** how often answers held back for memory look again (system/limits.ts memoryAdmission) */
 export const MEMORY_RECHECK_MS = 2000
+/** an answer that ran at least this long is worth telling the person about when it ends (chat.updated notify 'answer';
+ * docs/DECISIONS.md "Session markers"): a shorter one gets its row's marker only */
+export const LONG_ANSWER_MS = 60_000
+/** what a chat.updated asks the apps to tell the person (ServerEvent chat.updated notify) */
+export type ChatNotify = 'card' | 'answer'
 const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
   ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있어요. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
   en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
@@ -61,6 +66,8 @@ export interface ChatRuntimeOptions {
   /** tests: a fixed --max-turns instead of the team setting */
   maxEngineTurns?: number
   purgeIntervalMs?: number
+  /** tests: how long an answer must run before its end is worth telling (default LONG_ANSWER_MS) */
+  longAnswerMs?: number
 }
 
 /**
@@ -76,6 +83,9 @@ export interface RoomTurns {
   step(o: { roomId: string; turnId: string; userId: string }, step: Step): void
   /** The turn ended in any way (answered, stopped, failed, or stopped while it still waited in the queue). */
   ended(turnId: string): void
+  /** A card of the turn opened or closed: the room's "?" for the person who asked there (Room.aiWaits) may have
+   * changed (docs/DECISIONS.md "Session markers"). */
+  waiting?(o: { roomId: string; userId: string }): void
 }
 export interface RoomTurnContext {
   /** the <room_context> block */
@@ -149,6 +159,8 @@ export class ChatRuntime {
   readonly engines: EngineProvider
   readonly turnTimeoutMs: number
   readonly wallTimeoutMs: number
+  /** an answer that ran this long tells the person when it ends (LONG_ANSWER_MS; a test may change it) */
+  longAnswerMs: number
   readonly queueStore: QueueStore
   readonly queueEpoch = newId()
   private queueRevision = 0
@@ -188,6 +200,7 @@ export class ChatRuntime {
     this.engines = o.engines ?? new LocalEngines(ctx)
     this.turnTimeoutMs = o.turnTimeoutMs ?? TURN_TIMEOUT_MS
     this.wallTimeoutMs = o.wallTimeoutMs ?? 45 * 60_000
+    this.longAnswerMs = o.longAnswerMs ?? LONG_ANSWER_MS
     this.queueStore = new QueueStore(ctx.db)
     this.lastConcurrency = this.concurrency()
     // Plan updates can arrive outside the settings route. Lower C never kills existing turns.
@@ -272,6 +285,12 @@ export class ChatRuntime {
   waitsForPerson(chatId: string): boolean {
     const turnId = this.activeTurn(chatId)
     return !!turnId && !!this.execFor(turnId)?.openRequests().some((r) => !r.window)
+  }
+  /** A question this person asked the AI in this room waits on them: its running turn shows a card the room shows (the
+   * AI's question, a confirmation; a connect card is not shown in a room). Memory only, no read (Room.aiWaits). */
+  roomCardOpen(roomId: string, userId: string): boolean {
+    for (const e of this.running.values()) if (e.room?.roomId === roomId && e.spec.userId === userId && e.openRequests().some((r) => r.request.kind !== 'connect_service')) return true
+    return false
   }
   execForMessage(messageId: string): TurnExec | undefined {
     for (const e of this.running.values()) if (e.spec.assistantId === messageId) return e
@@ -637,7 +656,13 @@ export class ChatRuntime {
     })
   }
 
-  publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged') {
+  /**
+   * chat.updated to the person's windows: the chat as the list shows it (its run state, Chat.waiting, unseen and
+   * lastOutcome). `notify`: a live change worth telling the person about (docs/DECISIONS.md "Session markers": a card
+   * opened, a long answer ended). `window`: to that window only (a card only it shows opened there; the chat itself is
+   * the same as everyone's).
+   */
+  publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged', o: { notify?: ChatNotify; window?: string } = {}) {
     // a draft the server runs for its own work (internal-chats.ts) is not in the person's chat list: no event for it
     if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
@@ -646,7 +671,9 @@ export class ChatRuntime {
     const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId)) : null
     // never a stored connection secret of the person in the title (QA B-W5-1)
     if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)
-    this.hub.publish(userId, { type: 'chat.updated', data: { chatId, change, chat } })
+    const ev = { type: 'chat.updated' as const, data: { chatId, change, chat, ...(o.notify ? { notify: o.notify } : {}) } }
+    if (o.window) this.hub.publishTo(userId, o.window, ev)
+    else this.hub.publish(userId, ev)
   }
 
   // ---------------- start / stop ----------------

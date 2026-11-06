@@ -157,6 +157,11 @@ export const Chat = z.object({
   waiting: z.literal(true).optional(),
   /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
+  /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it
+   * failed, a server stop included) or 'paused' (it stopped at the per-answer limit of tool rounds or working time,
+   * Message.stopReason). Absent = it finished normally (or the person stopped it), or no answer finished yet. With
+   * `unseen` it is the row's "?". */
+  lastOutcome: z.enum(['error', 'paused']).optional(),
   /** 내 스킬 가져오기 (docs/DECISIONS.md "W5"): a merge chat made at the end of the welcome steps whose turn waits for its
    * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
    * cards it raises are there while they look. Absent = no. */

@@ -380,6 +380,29 @@ describe('changes asked for in a room', () => {
     expect(fs.readFileSync(abs(), 'utf8')).toBe('original\n')
   })
 
+  test('session markers: while my question waits on its card my room shows "?" (Room.aiWaits) for me only, live and in the list', async () => {
+    fs.writeFileSync(abs(), 'original\n')
+    const roomId = await room(['alice', 'erin'])
+    const fromAlice = ws.alice!.frames.length, fromErin = ws.erin!.frames.length
+    const q = await send('alice', roomId, `@트리나 note it\n${fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'x' } }, { say: 'ok' })}`)
+    const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
+    const live = await ws.alice!.next('room.updated', (f) => f.data.roomId === roomId && f.data.room?.aiWaits === true)
+    expect(ws.alice!.frames.indexOf(live)).toBeGreaterThan(fromAlice)
+    expect((await h.api('alice').call(API.listRooms)).items.find((r) => r.id === roomId)?.aiWaits).toBe(true)
+    expect((await h.api('erin').call(API.listRooms)).items.find((r) => r.id === roomId)?.aiWaits).toBeUndefined()
+    expect(ws.erin!.frames.slice(fromErin).some((f) => f.type === 'room.updated' && f.data.room?.aiWaits)).toBe(false)
+    // a room's AI session is not one of my chats: no chat.updated for it, never in the chat list
+    const session = sessionOf(roomId, 'alice')!
+    expect(ws.alice!.frames.slice(fromAlice).some((f) => f.type === 'chat.updated' && f.data.chatId === session.id)).toBe(false)
+    const mark = ws.alice!.frames.length
+    await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
+    await ws.alice!.next('room.updated', (f) => f.data.roomId === roomId && ws.alice!.frames.indexOf(f) >= mark && !f.data.room?.aiWaits)
+    expect((await h.api('alice').call(API.listRooms)).items.find((r) => r.id === roomId)?.aiWaits).toBeUndefined()
+    await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
+    expect(fs.readFileSync(abs(), 'utf8')).toBe('original\n')
+  })
+
   test('the change goes ahead once the person who asked allows it on the card', async () => {
     fs.writeFileSync(abs(), 'original\n')
     const roomId = await room(['alice', 'erin'])

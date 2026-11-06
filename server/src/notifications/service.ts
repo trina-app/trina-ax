@@ -78,15 +78,18 @@ export class Notifications {
   /** A DM message, an @mention or a reply in a followed thread in a room (rooms/service.ts notify). The source is the
    * message id only, never its text. No second notice of the same kind while one of that room's timeline (or, for a
    * reply, of that thread: `threadRootId`) is still unread (one per unread run: a burst of messages or mentions is one
-   * notice and one push); reading the room, or the thread, marks them read. Follows the person's room setting. */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null) {
-    if (!this.active(userId) || at < this.cutoff()) return
+   * notice and one push); reading the room, or the thread, marks them read. Follows the person's room setting. True
+   * when a notice the person sees was recorded now (the room.message to them says so: the desktop app tells the same
+   * ones, docs/DECISIONS.md "Session markers"). */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null): boolean {
+    if (!this.active(userId) || at < this.cutoff()) return false
     if (this.ctx.db.query(`SELECT 1 FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ?`).get(userId, roomId, event, this.cutoff(), threadRootId)) return
+      AND m.thread_root_id IS ?`).get(userId, roomId, event, this.cutoff(), threadRootId)) return false
     const enabled = eventEnabled(this.preferences(userId), event)
     const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
       .run(newId(), userId, event, messageId, roomId, at, enabled ? 0 : 1)
     if (r.changes && enabled) this.signal(userId)
+    return r.changes > 0 && !!enabled
   }
   /** A dev environment job ended, or boxd stopped a box. The source is the id of the job or the stop row only. */
   devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
