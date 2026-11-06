@@ -315,7 +315,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
             onChange={(e) => setActions((x) => ({ ...x, [c.name]: e.target.value as ShareAction }))}
             disabled={applying}
             aria-label={t('welcome.skills.actionLabel', { name: c.title ?? c.name })}
-            className="h-7 shrink-0 rounded-md border border-field-border bg-surface px-1.5 text-label text-ink max-md:min-h-9"
+            className="touch-hit h-7 shrink-0 rounded-md border border-field-border bg-surface px-1.5 text-label text-ink max-md:min-h-9"
             data-testid="skill-action"
           >
             <option value="merge">{t('welcome.skills.merge')}</option>
