@@ -179,15 +179,33 @@ describe('translations', () => {
     expect(translate('en', 'files.restored', { version: 1 })).toBe('Restored v1.')
     expect(format('{x}(으)로', {}, 'ko')).toBe('{x}(으)로')
   })
+  test('a name that already ends with an honorific does not get a second one: 대표님, never 대표님님', () => {
+    expect(translate('ko', 'home.greeting', { name: '대표님' })).toBe('대표님, 무엇을 도와드릴까요?')
+    expect(translate('ko', 'home.greeting', { name: '김민지 씨' })).toBe('김민지 씨, 무엇을 도와드릴까요?')
+    expect(translate('ko', 'home.greeting', { name: 'Mia' })).toBe('Mia님, 무엇을 도와드릴까요?')
+    expect(translate('ko', 'home.greeting', { name: '김님희' })).toBe('김님희님, 무엇을 도와드릴까요?')
+    expect(translate('ja', 'home.greeting', { name: '田中様' })).toBe('田中様、どのようなお手伝いができますか？')
+    expect(translate('ja', 'home.greeting', { name: '山田さん' })).toBe('山田さん、どのようなお手伝いができますか？')
+    expect(translate('ja', 'home.greeting', { name: '佐藤先生' })).toBe('佐藤先生、どのようなお手伝いができますか？')
+    expect(translate('ja', 'home.greeting', { name: 'Mia' })).toBe('Miaさん、どのようなお手伝いができますか？')
+    // a name in the middle of a sentence, and a value that is not filled in stays as written
+    expect(translate('ko', 'goal.waitingMany', { name: '팀장님', n: 2, skill: "'광고 문구'는" })).toBe("팀장님 외 2명이 들어왔지만 '광고 문구'는 아직이에요.")
+    expect(format('{name}님', {}, 'ko')).toBe('{name}님')
+    // English, Spanish and Indonesian add no honorific of their own: the name stays as it is
+    expect(translate('en', 'home.greeting', { name: '대표님' })).toBe('How can I help you, 대표님?')
+    expect(translate('id', 'home.greeting', { name: 'Bapak Budi' })).toBe('Halo Bapak Budi, ada yang bisa aku bantu?')
+    expect(translate('es', 'home.greeting', { name: 'Sra. García' })).toBe('¿En qué puedo ayudarle, Sra. García?')
+  })
   test('no Korean screen text outside the Korean dictionary (comments aside)', () => {
     const src = path.resolve(import.meta.dir, '../../src')
     // the one place that must recognise a Korean file name: conflict copies made by a Korean team ("충돌 사본")
     // and the Korean object and topic particles after a skill's name (을 / 를, 은 / 는: grammar, not text;
-    // lib/teamGoal.ts objectParticle, topicParticle), and "(으)로" after a filled-in value (i18n/index.ts koRo)
+    // lib/teamGoal.ts objectParticle, topicParticle), "(으)로" after a filled-in value (i18n/index.ts koRo) and the
+    // honorifics a name may already end with (i18n/index.ts HONORIFIC_END)
     const allowed: Record<string, RegExp> = {
       'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/,
       'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/,
-      'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로][^\uAC00-\uD7A3]*)+$/,
+      'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로님씨][^\uAC00-\uD7A3]*)+$/,
     }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {
