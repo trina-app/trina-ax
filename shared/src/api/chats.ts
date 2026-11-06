@@ -122,6 +122,12 @@ export const TurnAnswerBody = z.discriminatedUnion('kind', [
     requestId: z.string().min(1).max(100),
     decision: z.enum(['once', 'always', 'deny']),
   }),
+  /** a dev_env_site card: only the person who owns the turn can answer it (POST /api/turns/:id/answer) */
+  z.object({
+    kind: z.literal('dev_env_site'),
+    requestId: z.string().min(1).max(100),
+    decision: z.enum(['once', 'always', 'deny']),
+  }),
 ])
 export type TurnAnswerBody = z.infer<typeof TurnAnswerBody>
 

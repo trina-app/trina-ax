@@ -22,8 +22,10 @@ import { ToolError } from '../policy/errors'
 import { assertStorageRoomForAI } from '../system/storage'
 import { boxd } from './boxd'
 import { jobResultsForAI, jobRuns, newJobName, pollJobs, startJob } from './jobs'
-import { devEnvRunner, devEnvSetting, mayUseBox, mayUseDevEnv, type ProjectRef } from './setting'
-import { commandSlotFree, othersInProject, runCommand, runNameInUse, spaceOf, startServer, submitJob, type Space } from './srt/runner'
+import { devEnvRunner, devEnvSetting, mayUseBox, mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
+import { commandSlotFree, networkNow, othersInProject, personNetNow, runCommand, runNameInUse, spaceOf, startServer, submitJob, teamHosts, type Space } from './srt/runner'
+import { grantUserSite, siteAllowed } from './sites'
+import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import { pollSrt, runResultsForAI } from './jobs'
 import path from 'node:path'
 import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from './track'
@@ -49,6 +51,7 @@ export const BoxShellInput = z.object({
   background: z.boolean().optional().describe('start a long-running process (a dev server, a watcher) and return at once; its output goes to the log <log_name>.log (the tool text says where)'),
   job: z.boolean().optional().describe('run a long command (a render, a large build) in the background as a job: it returns at once, it has an exit status and a log, and the person gets a notice when it ends'),
   log_name: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).optional().describe('name of the log file for a background command or a job'),
+  request_sites: z.array(z.string().min(1).max(300)).max(5).optional().describe('host names this command needs that are not allowed yet (for example ["api.example.com"]): the person is asked to allow each one before the command runs. Use it only after a command failed because a site was blocked'),
 })
 export type BoxShellInput = z.infer<typeof BoxShellInput>
 
@@ -72,7 +75,8 @@ export const SRT_SHELL_DESCRIPTION = 'Run a shell command in the dev environment
   + 'In a project chat the command starts in the project folder, and changes there are shared with the team and recorded with your name. '
   + 'In a chat with no project it starts in the chat\'s own work folder ($TRINA_WORK), which only this chat uses and which the file tools do not show: copy a result the person needs into their own folder users/<id>, or into another team folder they can write with the file tools. '
   + 'node_modules, .venv and build output are in that folder and use team disk. '
-  + 'The network reaches only allowed sites (npm, PyPI, GitHub and the sites an admin added), or nothing (the team setting). '
+  + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
+  + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
   + 'You cannot change .git/config or .git/hooks. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
   + 'For a dev server use background=true. There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
@@ -118,6 +122,8 @@ export interface BoxShellHost {
   signal: AbortSignal
   /** a server card the person answers (chat/tools.ts turnPerson): the value of the chosen option, or null */
   confirm(question: string, options: { label: string; value: string }[], details: string[]): Promise<string | null>
+  /** the site card (dev_env_site): may the AI reach this host? null: no answer (a scheduled run, timeout, turn ended) */
+  askSite?(host: string, command: string): Promise<'once' | 'always' | 'deny' | null>
   redact(s: string): string
 }
 
@@ -143,7 +149,7 @@ const NO_WINDOW: Window = { changes: [], background: [], conflicts: [] }
 /** The srt runner (MYCEL_DEV_ENV_RUNNER=srt): a command waits for its end; a job starts or waits in the queue; a dev
  * server starts or is refused. In the project folder of a project chat they run in a change window, as with the box.
  * Elsewhere (the chat's work folder) nothing is recorded: that folder is not a team folder. */
-async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space; tracked: ProjectRef | null; cwd: string; what: string; jobName: string | null; notes: string[]; jobNotes: SrtNotes }) {
+async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space; tracked: ProjectRef | null; cwd: string; what: string; jobName: string | null; notes: string[]; jobNotes: SrtNotes; once: Set<string> }) {
   const { ctx } = h
   const { space, cwd, what, jobName, notes } = o
   const background = !!input.background && !jobName
@@ -156,10 +162,10 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   }
   type Out = { kind: 'exit'; r: Awaited<ReturnType<typeof runCommand>> } | { kind: 'job'; r: Awaited<ReturnType<typeof submitJob>> } | { kind: 'server'; r: Awaited<ReturnType<typeof startServer>> }
   const go = async (): Promise<Out> => {
-    const base = { space, turnId: h.turnId, command: input.command, shown, cwd }
+    const base = { space, turnId: h.turnId, command: input.command, shown, cwd, once: [...o.once] }
     if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
     if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background' }) }
-    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal }) }
+    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once] }) }
   }
   let w: Window & { value: Out }
   if (o.tracked) {
@@ -191,11 +197,12 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     : e.signal === 'oom' ? 'Stopped: the command ran out of memory (the team limit).'
     : e.signal === 'stopped' ? 'Stopped.'
     : `Exit code ${e.code}.`
+  if (e.code !== 0 && networkNow(ctx) === 'open' && (BLOCKED_SITE.test(e.stderr) || BLOCKED_SITE.test(e.stdout))) notes.push(blockedHint({ full: personNetNow(ctx, h.userId).full }))
   return answer(h, { notes, head, started, exit: e, w, background: false, what })
 }
 
 /** One box_shell call on the srt runner. */
-async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, firstCall: boolean) {
+async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, firstCall: boolean, once: Set<string>) {
   const { ctx, project } = h
   // never trust the start of the turn alone: the admin may have turned it off, the person may be out of scope now
   if (!mayUseDevEnv(ctx.db, ctx.files, h.userId)) return { ...text('The dev environment is off for you now. Do not try again.', true), summary: `${what} -> off` }
@@ -241,13 +248,62 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
       if (others.length) notes.push('Other people\'s jobs and dev servers in this project (they keep running):\n' + others.slice(0, 20).map((r) => `  ${r.kind} ${r.name}${r.position ? ` (waiting, position ${r.position})` : ''}, by ${r.by}`).join('\n'))
     }
   }
-  return srtShell(h, data, { space, tracked, cwd, what, jobName, notes, jobNotes })
+  if (data.request_sites?.length) {
+    const asked = await askSites(h, data, once)
+    if (asked.refusal) return { ...text(h.redact([...notes, ...asked.notes, asked.refusal].join('\n')), true), summary: `${what} -> ${asked.summary}` }
+    notes.push(...asked.notes)
+  }
+  return srtShell(h, data, { space, tracked, cwd, what, jobName, notes, jobNotes, once })
 }
+
+/** The sites the AI asked for (request_sites): each host is checked; one that is allowed already needs no card; for the
+ * others the person who owns the turn answers a server card. A refusal stops the command. Nothing is asked when the
+ * team (or the plan) set No network. */
+async function askSites(h: BoxShellHost, data: BoxShellInput, once: Set<string>): Promise<{ notes: string[]; refusal?: string; summary?: string }> {
+  const { ctx } = h
+  if (networkNow(ctx) === 'offline') return { notes: [], refusal: 'The team set the dev environment to No network: no site can be allowed, and commands have no network. Do not ask for sites again; tell the person that the command needs the network.', summary: 'sites refused (No network)' }
+  const hosts = teamHosts(ctx)
+  const notes: string[] = []
+  for (const raw of data.request_sites ?? []) {
+    const host = siteFromInput(raw)
+    const why = host ? userSiteProblem(host, hosts) : 'not a host name'
+    if (!host || why) {
+      audit(ctx.db, { actor: h.userId, action: 'dev_env.site_refused', target: null, detail: { host: (host ?? raw).slice(0, 253), why, turnId: h.turnId, chatId: h.chatId ?? null } })
+      return { notes, refusal: `${(host ?? raw).slice(0, 253)} cannot be allowed: ${why}. The command did not run. Do not ask for it again.`, summary: `site ${(host ?? raw).slice(0, 100)} refused (${why})` }
+    }
+    const person = personNetNow(ctx, h.userId)
+    if (siteAllowed(host, { teamSites: teamSetting(ctx.db).extraDomains, person, once })) { notes.push(`${host} is allowed already.`); continue }
+    const decision = h.askSite ? await h.askSite(host, h.redact(data.command.slice(0, 300))) : null
+    if (decision === 'always') {
+      if (grantUserSite(ctx.db, h.userId, host) === 'full') {
+        once.add(host)
+        notes.push(`The person allowed ${host}, for this chat only: their list of allowed sites is full (${DEV_ENV_MAX_USER_SITES}).`)
+      } else notes.push(`The person allowed ${host} (always).`)
+      audit(ctx.db, { actor: h.userId, action: 'dev_env.site_allowed', target: null, detail: { host, scope: 'always', turnId: h.turnId, chatId: h.chatId ?? null } })
+    } else if (decision === 'once') {
+      once.add(host)
+      notes.push(`The person allowed ${host} for this answer.`)
+      audit(ctx.db, { actor: h.userId, action: 'dev_env.site_allowed', target: null, detail: { host, scope: 'once', turnId: h.turnId, chatId: h.chatId ?? null } })
+    } else {
+      audit(ctx.db, { actor: h.userId, action: 'dev_env.site_denied', target: null, detail: { host, answer: decision === null ? 'none' : 'deny', turnId: h.turnId, chatId: h.chatId ?? null } })
+      return { notes, refusal: `The person did not allow ${host}, so the command did not run. Do not ask for ${host} again in this answer; tell the person what does not work without it.`, summary: `site ${host} not allowed` }
+    }
+  }
+  return { notes }
+}
+
+/** srt's proxy refused a connection (HTTP 403 "blocked-by-allowlist"; curl prints "CONNECT tunnel failed, response 403") */
+export const BLOCKED_SITE = /blocked-by-allowlist|Connection blocked by network allowlist|CONNECT tunnel failed, response 403|tunneling socket could not be established, statusCode=403|ProxyError\('Unable to connect to proxy', OSError\('Tunnel connection failed: 403/i
+export const blockedHint = (o: { full: boolean }) => o.full
+  ? 'A connection was blocked. With Full internet only the team server, IP addresses, local names and private addresses are blocked, and the person cannot allow them.'
+  : 'A connection was blocked: the site is not on the allowed list. If the command needs it, call box_shell again with the same command and request_sites set to the host name (not an IP address): the person is asked to allow it.'
 
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
 
 export function boxShellTool(h: BoxShellHost) {
   let firstCall = true
+  /** the sites the person allowed once in this turn (foreground commands; a job or dev server keeps its own copy) */
+  const once = new Set<string>()
   return {
     name: BOX_SHELL_TOOL,
     description: devEnvRunner() === 'srt' ? SRT_SHELL_DESCRIPTION : BOX_SHELL_DESCRIPTION,
@@ -256,7 +312,7 @@ export function boxShellTool(h: BoxShellHost) {
       const a = BoxShellInput.safeParse(args)
       if (!a.success) return { ...text('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), true), summary: 'box_shell -> invalid input' }
       const what = h.redact(`box_shell ${a.data.command.slice(0, 200)}`)
-      if (devEnvRunner() === 'srt') { const first = firstCall; firstCall = false; return srtCall(h, a.data, what, first) }
+      if (devEnvRunner() === 'srt') { const first = firstCall; firstCall = false; return srtCall(h, a.data, what, first, once) }
       const { ctx } = h
       const project = h.project
       // the box runner is offered in project chats only (chat/turn.ts)

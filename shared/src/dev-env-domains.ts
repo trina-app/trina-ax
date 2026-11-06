@@ -73,7 +73,9 @@ export function siteFromInput(raw: string): string | null {
   h = h.split(/[/?#]/, 1)[0]!
   h = h.replace(/^[^@]*@/, '')
   if (h.startsWith('[')) return h.length > 1 ? h : null
-  h = h.replace(/:\d*$/, '').replace(/\.+$/, '')
+  // one colon: a port ("host:443") or scp's path ("github.com:org/repo"); more: an IPv6 address, refused later
+  if (h.split(':').length === 2) h = h.slice(0, h.indexOf(':'))
+  h = h.replace(/\.+$/, '')
   return h || null
 }
 
