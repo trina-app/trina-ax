@@ -352,3 +352,10 @@ test('Android stuck load: the bridge comes back only on the page that was loadin
   expect(stillStuck({ saved: page, current: page, origin, ready: false, failed: false })).toBe(true)
   expect(stillStuck({ saved: 'https://evil.example/', current: 'https://evil.example/', origin, ready: false, failed: false })).toBe(false)
 })
+
+test('Android team-address screen: the form is lifted by the keyboard (it covered the Connect button)', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  // the setup screen pads itself by the keyboard on Android (KeyboardAvoidingView only works on iOS here)
+  expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)\s+return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
+})
+

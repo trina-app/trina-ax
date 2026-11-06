@@ -36,6 +36,18 @@ type PageLook = { dark: boolean; system: boolean }
 function windowLook(page: PageLook | null) {
   if (Platform.OS === 'ios') Appearance.setColorScheme(!page || page.system ? 'unspecified' : page.dark ? 'dark' : 'light')
 }
+/** Android draws edge to edge (target SDK 36), so the window no longer shrinks for the keyboard: a screen lifts itself
+ * by the keyboard's height (React Native reports it without the navigation bar under it). 0 on iOS. */
+function useAndroidKeyboard(): number {
+  const [keyboard, setKeyboard] = useState(0)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return
+    const show = Keyboard.addListener('keyboardDidShow', e => setKeyboard(e.endCoordinates.height))
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboard(0))
+    return () => { show.remove(); hide.remove() }
+  }, [])
+  return keyboard
+}
 const bootstrap = (config: MobileConfig, ready = false) => `if(window.top===window.self){Object.defineProperty(window,'mycelMobile',{value:Object.freeze(${JSON.stringify(config)}),configurable:true});${ready ? "window.dispatchEvent(new Event('mycel:mobile-ready'));" : ''}}true;`
 
 export default function App() {
@@ -93,8 +105,9 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
     } catch { setError(t.saveFailed) }
     finally { setBusy(false) }
   }
-  const i = useSafeAreaInsets(), c = useContext(Look)
-  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={[s.fill, s.setup]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+  // iOS: KeyboardAvoidingView; Android: the form is lifted by the keyboard (it covered the Connect button)
+  const i = useSafeAreaInsets(), c = useContext(Look), keyboard = useAndroidKeyboard()
+  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: keyboard ? keyboard + i.bottom : i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={[s.fill, s.setup]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <Text style={[s.title, { color: c.ink }]}>{product.name}</Text><Text style={[s.hint, { color: c.muted }]}>{t.setupHint}</Text>
     <TextInput style={[s.input, { borderColor: c.field, backgroundColor: c.surface, color: c.ink }]} value={value} onChangeText={setValue} placeholder={t.setupPlaceholder} placeholderTextColor={c.field}
       autoCapitalize="none" autoCorrect={false} keyboardAppearance={c === DARK ? 'dark' : 'light'}
@@ -157,16 +170,9 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
   // (Android's navigation mode). While the app pads the page it sends zero, so the page never pads twice.
   const insetJs = insetScript(pageInsets(selfPadded, insets))
   useEffect(() => { web.current?.injectJavaScript(insetJs) }, [insetJs])
-  // Android draws edge to edge (target SDK 36), so the window no longer shrinks for the keyboard and the page's message
-  // box stayed under it. The app lifts the page by the keyboard (React Native reports its height without the navigation
-  // bar under it); the page then sees a short viewport and drops its own bottom inset (web/src/lib/viewport.ts).
-  const [keyboard, setKeyboard] = useState(0)
-  useEffect(() => {
-    if (Platform.OS !== 'android') return
-    const show = Keyboard.addListener('keyboardDidShow', e => setKeyboard(e.endCoordinates.height))
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboard(0))
-    return () => { show.remove(); hide.remove() }
-  }, [])
+  // Android: the page is lifted by the keyboard (its message box stayed under it); the page then sees a short viewport
+  // and drops its own bottom inset (web/src/lib/viewport.ts)
+  const keyboard = useAndroidKeyboard()
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active') web.current?.injectJavaScript("window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('mycel:mobile-foreground'));true;")
