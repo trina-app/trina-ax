@@ -17,7 +17,7 @@
 // in it, made once with the owner in it. Both are recorded in the row, so the steps never make them again by themselves.
 import { z } from 'zod'
 import {
-  BRAND_IMAGES_FOLDER, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_PROMO_SKILL, GENERAL_TASKS_SKILL, NOTES_FOLDER, PACK_FOLDERS, TeamGroupRef, TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
+  BRAND_IMAGES_FOLDER, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, GENERAL_TASKS_SKILL, NOTES_FOLDER, PACK_FOLDERS, TeamGroupRef, TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
   type Locale, type WelcomePackResult, type WelcomeTeamResult, type WelcomeUpdate,
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -34,7 +34,7 @@ export const WELCOME_SETTING = 'onboarding.welcome'
 type Raw = Record<string, unknown>
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v)
 const PackShape = WelcomeProgress.shape.pack.unwrap()
-const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable(), cardNewsPath: z.string().nullable().optional(), promoVideoPath: z.string().nullable().optional() })
+const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable(), cardNewsPath: z.string().nullable().optional(), promoVideoPath: z.string().nullable().optional(), introDeckPath: z.string().nullable().optional() })
 
 /** The stored row: none, an object, or something that is not an object (`raw` null with `row` true). */
 function stored(ctx: Pick<AppContext, 'db'>): { row: boolean; raw: Raw | null } {
@@ -263,17 +263,18 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
     const tried = typeof raw.generalBlockedAt === 'string'
     if (!tried && skills.some((s) => s.path.startsWith('skills/general/'))) {
       if (tasks) {
-        // the promo video not there yet stays unrecorded: the first result adds it on its own once (promoVideoSkill)
+        // the intro deck not there yet stays unrecorded: the first result adds it on its own once (introDeckSkill)
         const cardNewsPath = generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news')
         const promoVideoPath = generalPath(skills, GENERAL_PROMO_SKILL, 'promo-video')
-        raw.general = { at: now, tasksPath: tasks, briefPath: generalPath(skills, GENERAL_BRIEF_SKILL, 'doc-brief'), ...(cardNewsPath ? { cardNewsPath } : {}), ...(promoVideoPath ? { promoVideoPath } : {}) }
+        const introDeckPath = generalPath(skills, GENERAL_DECK_SKILL, 'intro-deck')
+        raw.general = { at: now, tasksPath: tasks, briefPath: generalPath(skills, GENERAL_BRIEF_SKILL, 'doc-brief'), ...(cardNewsPath ? { cardNewsPath } : {}), ...(promoVideoPath ? { promoVideoPath } : {}), ...(introDeckPath ? { introDeckPath } : {}) }
       }
       else outcome = 'blocked'
     } else {
       install = installSkillPack(ctx, userId, 'general')
       const tasksPath = placed(install, GENERAL_TASKS_SKILL)
       if (tasksPath) {
-        raw.general = { at: now, tasksPath, briefPath: placed(install, GENERAL_BRIEF_SKILL), cardNewsPath: placed(install, GENERAL_CARDNEWS_SKILL), promoVideoPath: placed(install, GENERAL_PROMO_SKILL) }
+        raw.general = { at: now, tasksPath, briefPath: placed(install, GENERAL_BRIEF_SKILL), cardNewsPath: placed(install, GENERAL_CARDNEWS_SKILL), promoVideoPath: placed(install, GENERAL_PROMO_SKILL), introDeckPath: placed(install, GENERAL_DECK_SKILL) }
         delete raw.generalBlockedAt
         outcome = 'installed'
       } else {
@@ -287,20 +288,20 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
   return { progress: save(ctx, raw, now), install, outcome }
 }
 
-/** "/promo-video" for the first result (docs/DECISIONS.md "V"; the card news of "N" before it, still installed with the
- * pack): the recorded path, or once, for a row whose general pack was recorded before the skill existed, the skill
- * installed on its own and recorded (null when blocked). `install` runs only then; a skill recorded and deleted on
- * purpose afterwards is not brought back. */
-export function promoVideoSkill(ctx: AppContext, userId: string, install: () => { path: string; status: string; sameNameAs?: string }): string | null {
+/** "/intro-deck" for the first result (docs/DECISIONS.md "D2"; the promo video of "V" and the card news of "N" before
+ * it, both still installed with the pack): the recorded path, or once, for a row whose general pack was recorded before
+ * the skill existed, the skill installed on its own and recorded (null when blocked). `install` runs only then; a skill
+ * recorded and deleted on purpose afterwards is not brought back. */
+export function introDeckSkill(ctx: AppContext, userId: string, install: () => { path: string; status: string; sameNameAs?: string }): string | null {
   const now = new Date().toISOString()
   const raw = forWrite(ctx, now)
   const general = isObj(raw.general) ? raw.general : null
   if (!general) return null
-  if (typeof general.promoVideoPath === 'string') return general.promoVideoPath
-  if (general.promoVideoPath === null) return null
+  if (typeof general.introDeckPath === 'string') return general.introDeckPath
+  if (general.introDeckPath === null) return null
   const r = install()
   const path = r.status === 'blocked' ? (r.sameNameAs ?? null) : r.path
-  raw.general = { ...general, promoVideoPath: path }
+  raw.general = { ...general, introDeckPath: path }
   save(ctx, raw, now)
   return path
 }

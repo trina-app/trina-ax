@@ -119,7 +119,7 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
               <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-ink">
                 <span className="truncate">{s.title ? skillTitle(s) : `/${s.name}`}</span>
                 {s.title && <span className="shrink-0 font-mono text-xs font-normal text-faint">/{s.name}</span>}
-                {s.personal && <span className="shrink-0 rounded-full bg-hover px-1.5 text-[11px] font-normal text-muted" data-testid="skill-personal">{t('skills.personal')}</span>}
+                {s.personal && <span className="shrink-0 rounded-full bg-hover px-1.5 text-micro font-normal text-muted" data-testid="skill-personal">{t('skills.personal')}</span>}
               </span>
               <span className="truncate text-xs text-muted">{skillSummary(s) || s.path}</span>
             </button>

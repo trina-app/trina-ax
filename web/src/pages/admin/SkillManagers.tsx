@@ -133,26 +133,26 @@ export function SkillManagerCell({ subject, data, via, onChanged }: { subject: S
         <span className="relative h-5 w-9 shrink-0 rounded-full bg-line-strong/60 transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4" aria-hidden />
       </label>
       {viaText && (
-        <span id={viaId} className="text-[11px] text-muted" data-testid="skill-manager-via">
+        <span id={viaId} className="text-micro text-muted" data-testid="skill-manager-via">
           {viaText}
         </span>
       )}
       {locked && (
-        <Link to="/admin/folders?folder=skills" className="text-[11px] text-accent-text hover:underline" data-testid="skill-manager-via-link">
+        <Link to="/admin/folders?folder=skills" className="text-micro text-accent-text hover:underline" data-testid="skill-manager-via-link">
           {t('skillMgr.viaChange')}
         </Link>
       )}
       {own && (
         <span className="flex flex-wrap gap-1" data-testid="skill-manager-scope">
           {grants.map((g) => (
-            <span key={g.path} className="font-mono text-[11px] text-muted">
+            <span key={g.path} className="font-mono text-micro text-muted">
               {shown(g.path)}
             </span>
           ))}
         </span>
       )}
       {own && (
-        <button type="button" className="text-[11px] text-accent-text hover:underline" onClick={() => setOpen(true)}>
+        <button type="button" className="text-micro text-accent-text hover:underline" onClick={() => setOpen(true)}>
           {t('common.edit')}
         </button>
       )}
@@ -210,7 +210,7 @@ function SkillManagerDialog({ subject, data, onClose, onChanged }: { subject: Su
         </p>
         {grants.length > 0 && (
           <div>
-            <p className="mb-1 text-[13px] font-medium">{t('skillMgr.current')}</p>
+            <p className="mb-1 text-label font-medium">{t('skillMgr.current')}</p>
             <ul className="space-y-1">
               {grants.map((g) => (
                 <li key={g.path} className="flex items-center gap-2 text-sm">

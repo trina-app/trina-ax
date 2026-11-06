@@ -20,6 +20,7 @@ import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, Mes
 import { CredentialLogin } from './credentials'
 import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
 import { SkillProblem } from './skills'
+import { Room, RoomAiRun, RoomMessage } from './rooms'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -96,6 +97,8 @@ export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 export const ConfirmDetail = z.object({
   label: z.string(),
   text: z.string(),
+  /** show the first this many characters of `text` and the rest on request ("전체 보기"); absent: all of it */
+  collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
 })
@@ -208,6 +211,25 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** a ChatGPT sign-in this person started (Admin / Settings > AI connections): the device address and code, then the
    * result. Sent to the person who started it only, never to the other admins. */
   ev('credential.login', CredentialLogin),
+  /** room events go to the room's members only (shared/src/api/rooms.ts). A new message (also to the sender's other
+   * windows; dedupe by message id) */
+  ev('room.message', z.object({ roomId: Uuid7, message: RoomMessage })),
+  /** a message was edited or deleted (deleted: body '' and deletedAt set, files gone) */
+  ev('room.message.updated', z.object({ roomId: Uuid7, message: RoomMessage })),
+  /** a member read the messages fromSeq < seq <= toSeq: each of those messages has one unread fewer. Nobody is named;
+   * mine: it was me (another window or device): my unread badge for the room is recounted */
+  ev('room.read', z.object({ roomId: Uuid7, fromSeq: z.number().int().nonnegative(), toSeq: z.number().int().nonnegative(), mine: z.boolean() })),
+  /** added: I am in a new room; members: someone joined or left (reload the members and messages' counts); updated: my
+   * setting or the name changed; removed: I am no longer in it (room null: close it) */
+  ev('room.updated', z.object({ roomId: Uuid7, change: z.enum(['added', 'updated', 'members', 'removed']), room: Room.nullable() })),
+  /** the AI in a room: how many questions it is answering there now, to every member (nobody is named while it works).
+   * An answer that stays private to the person who asked shows on the question itself (RoomMessage.answeredPrivately,
+   * through room.message.updated) */
+  ev('room.ai', z.object({ roomId: Uuid7, answering: z.number().int().nonnegative() })),
+  /** my own question to the AI in a room started, waits, runs or ended (only to the person who asked) */
+  ev('room.ai.run', z.object({ roomId: Uuid7, run: RoomAiRun })),
+  /** a step of my own question's answer (only to the person who asked: labels name files and searches) */
+  ev('room.ai.step', z.object({ roomId: Uuid7, turnId: Uuid7, step: Step })),
   /** the session ended (logout elsewhere, password changed, account disabled); the socket closes with 4401 */
   ev('session.ended', z.object({ reason: z.enum(['logout', 'password_changed', 'disabled', 'expired', 'revoked']) })),
 ])

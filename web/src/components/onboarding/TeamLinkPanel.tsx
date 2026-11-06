@@ -262,7 +262,7 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
     <>
       <div>
         <p className="text-xs font-medium text-muted">{t('teamLink.link')}</p>
-        <p className="mt-1 font-mono text-[13px] leading-5 break-all text-ink select-all" data-testid="team-link-url">{url}</p>
+        <p className="mt-1 font-mono text-label leading-5 break-all text-ink select-all" data-testid="team-link-url">{url}</p>
         <div className="mt-1 -ml-2.5 flex flex-wrap items-center gap-1">
           <CopyQuiet text={url} label={t('teamLink.copyLink')} />
           <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">
@@ -275,7 +275,7 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
           </div>
         )}
       </div>
-      <div className="space-y-1 text-[13px] leading-5 text-muted" data-testid="team-link-facts">
+      <div className="space-y-1 text-label leading-5 text-muted" data-testid="team-link-facts">
         <p>
           {t('teamLink.usesLabel')} <span className="text-ink tabular-nums" data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</span>
           {' · '}{t('teamLink.expiresLabel')} <span className="text-ink" data-testid="team-link-expires">{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}</span>
@@ -419,7 +419,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, starter, seatsLef
     <>
       {groups.length > 0 && (
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('teamLink.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('teamLink.groups')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
       )}

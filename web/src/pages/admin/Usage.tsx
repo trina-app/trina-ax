@@ -99,11 +99,11 @@ export default function Usage() {
                 <table className="w-full text-sm" data-testid="usage-table">
                   <thead>
                     <tr className="border-b border-line text-left text-xs text-faint">
-                      <th className="py-2 pr-3 font-normal">{t(`usage.by.${groupBy}`)}</th>
-                      <th className="py-2 pr-3 text-right font-normal">{t('usage.turns')}</th>
-                      <th className="py-2 pr-3 text-right font-normal">{t('usage.tokens')}</th>
-                      <th className="py-2 pr-3 font-normal">{t('usage.share')}</th>
-                      <th className="py-2 text-right font-normal">{t('usage.cost')}</th>
+                      <th className="py-2 pr-3 font-normal whitespace-nowrap">{t(`usage.by.${groupBy}`)}</th>
+                      <th className="py-2 pr-3 text-right font-normal whitespace-nowrap">{t('usage.turns')}</th>
+                      <th className="hidden py-2 pr-3 text-right font-normal whitespace-nowrap md:table-cell">{t('usage.tokens')}</th>
+                      <th className="hidden py-2 pr-3 font-normal md:table-cell">{t('usage.share')}</th>
+                      <th className="py-2 text-right font-normal whitespace-nowrap">{t('usage.cost')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
@@ -114,8 +114,8 @@ export default function Usage() {
                         <tr key={r.key}>
                           <td className="max-w-[16rem] truncate py-2.5 pr-3" title={r.label || undefined}>{groupBy === 'credential' && r.key === TRIAL_CREDENTIAL_ID ? t('trialCredit.usageLabel') : groupBy === 'credential' && !r.label ? <span className="text-faint">{t('usage.deletedCredential')}</span> : r.label}</td>
                           <td className="py-2.5 pr-3 text-right tabular-nums">{formatNumber(r.turns, locale)}</td>
-                          <td className="py-2.5 pr-3 text-right tabular-nums">{formatNumber(tok, locale)}</td>
-                          <td className="w-48 py-2.5 pr-3">
+                          <td className="hidden py-2.5 pr-3 text-right tabular-nums md:table-cell">{formatNumber(tok, locale)}</td>
+                          <td className="hidden w-48 py-2.5 pr-3 md:table-cell">
                             <div className="flex items-center gap-3">
                               <UsageBar pct={share} />
                               <span className="w-12 text-right text-xs text-muted tabular-nums" data-testid="usage-share">{formatNumber(share / 100, locale, { style: 'percent', maximumFractionDigits: 1 })}</span>
@@ -133,8 +133,8 @@ export default function Usage() {
                     <tr className="border-t border-line font-medium">
                       <td className="py-2.5 pr-3">{t('usage.total')}</td>
                       <td className="py-2.5 pr-3 text-right tabular-nums">{formatNumber(d.totals.turns, locale)}</td>
-                      <td className="py-2.5 pr-3 text-right tabular-nums">{formatNumber(d.totals.inputTokens + d.totals.outputTokens, locale)}</td>
-                      <td />
+                      <td className="hidden py-2.5 pr-3 text-right tabular-nums md:table-cell">{formatNumber(d.totals.inputTokens + d.totals.outputTokens, locale)}</td>
+                      <td className="hidden md:table-cell" />
                       <td className="py-2.5 text-right tabular-nums">
                         {formatUsd(d.totals.costUsd, locale)}
                         {!!d.totals.unpricedTurns && <span className="ml-1 text-warn" title={t('usage.unpricedMark')} aria-label={t('usage.unpricedMark')}>+?</span>}

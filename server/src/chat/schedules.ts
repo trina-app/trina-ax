@@ -1,5 +1,6 @@
 // Scheduled tasks: a person's prompt that the server sends for them on a schedule ("every weekday at 9:00, summarize
-// what changed in shared/회의록"). Each run is a new chat of theirs ("⏰ <title> · <date>") with their own access, as if
+// what changed in shared/회의록"). Each run is a new chat of theirs ("<title> · <date>", no emoji; title_source
+// 'schedule' and the turn's client_kind mark it as a run, not the title) with their own access, as if
 // they had typed it, so the folder rules, budgets and audit apply unchanged — except web addresses: the text is the
 // AI's (tools/schedules.ts), so the message is marked auto_sent and only the addresses the person saw on the schedule's
 // card open without asking (tools/url-gate.ts). A run is unattended: its turn has
@@ -308,7 +309,7 @@ export class Schedules {
     const turn = this.rt.createTurn({
       chat: () => {
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
-          .run(id, s.user_id, project ? s.project_id : null, `⏰ ${s.title} · ${date}`, engine, model, ts, ts)
+          .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, engine, model, ts, ts)
         // the run's message is the AI's text (auto_sent): only the addresses the person saw on the schedule's card open
         // without asking (docs/DECISIONS.md "Outbound web channels")
         rememberUrls(this.db, id, scheduleList(s.allowed_urls), 'allowed')

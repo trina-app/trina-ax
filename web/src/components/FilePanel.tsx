@@ -8,14 +8,15 @@
 import clsx from 'clsx'
 import { Download, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import Papa from 'papaparse'
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, API, fetchFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
 import { useFrameScripts } from '../lib/confidential'
 import { formatSize } from '../lib/format'
+import { splitFrontMatter } from '../lib/markdown'
 import { parentPath } from '../lib/paths'
-import { decodePreviewText, languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
+import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
 import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
@@ -170,8 +171,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
           {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && (
-            <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} className="mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-sm:py-1.5" data-testid="file-ask-ai">
-              <Sparkles size={14} aria-hidden /> {t('files.askAiShort')}
+            <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
+              {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
+              <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
             </button>
           )}
           {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && chatAttach.target && (
@@ -204,7 +206,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           <div className="flex h-full flex-col gap-2 p-3">
             <textarea
               aria-label={t('preview.editorLabel', { name: file.name })}
-              className="min-h-0 flex-1 resize-none rounded-lg border border-field-border bg-surface p-3 font-mono text-[13px] leading-5 text-ink focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
+              className="min-h-0 flex-1 resize-none rounded-lg border border-field-border bg-surface p-3 font-mono text-code leading-5 text-ink focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
               value={editing.draft}
               onChange={(e) => setEditing({ ...editing, draft: e.target.value })}
               spellCheck={false}
@@ -322,13 +324,27 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   const files = useFrameFiles(page, { folder: path === null ? null : parentPath(path), embedIn: path ?? undefined })
   if (text === null) return null
   const cut = blob.size > MAX_TEXT && <p className="px-4 pb-4 text-xs text-faint">{t('preview.truncated')}</p>
-  if (kind === 'markdown')
+  if (kind === 'markdown') {
+    // a leading YAML block (a SKILL.md's name and description): a quiet fields block above the page, not its first line
+    const { body: md, ...fields } = splitFrontMatter(text)
+    const shown = Object.entries(fields).filter(([, v]) => v)
     return (
       <div className="mx-auto min-h-full max-w-3xl bg-surface p-6">
-        <Markdown text={text} />
+        {shown.length > 0 && (
+          <dl className="mb-5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-b border-line pb-4 text-xs" data-testid="md-front-matter">
+            {shown.map(([k, v]) => (
+              <Fragment key={k}>
+                <dt className="font-mono text-faint">{k}</dt>
+                <dd className="min-w-0 text-muted">{v}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        )}
+        <Markdown text={md} />
         {cut}
       </div>
     )
+  }
   if (framed && scripts === null) return null
   if (framed && !files)
     return (
@@ -350,6 +366,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   }
   if (kind === 'csv') {
     const rows = Papa.parse<string[]>(text, { skipEmptyLines: true, delimiter: name.toLowerCase().endsWith('.tsv') ? '\t' : '' }).data.slice(0, 2000)
+    const numbers = numberColumns(rows)
     return (
       <div className="overflow-auto p-4">
         <table className="border-collapse bg-surface text-xs">
@@ -357,7 +374,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
             {rows.map((r, i) => (
               <tr key={i} className={i === 0 ? 'bg-subtle font-semibold' : ''}>
                 {r.map((c, j) => (
-                  <td key={j} className="border border-line px-2.5 py-1.5 whitespace-nowrap">
+                  <td key={j} className={clsx('border border-line px-2.5 py-1.5 whitespace-nowrap', numbers.has(j) && 'text-right tabular-nums')}>
                     {c}
                   </td>
                 ))}
@@ -372,7 +389,7 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   if (kind === 'text' && /\.(txt|log)$/i.test(name))
     return (
       <>
-        <pre className="m-0 min-h-full overflow-auto bg-surface p-4 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-ink">{text}</pre>
+        <pre className="m-0 min-h-full overflow-auto bg-surface p-4 font-mono text-code-file leading-5 whitespace-pre-wrap text-ink">{text}</pre>
         {cut}
       </>
     )

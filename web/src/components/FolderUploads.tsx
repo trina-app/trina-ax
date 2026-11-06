@@ -23,7 +23,7 @@ const stay = (e: BeforeUnloadEvent) => e.preventDefault()
 let guarded = false
 useRuns.subscribe((s) => {
   const on = s.runs.some((r) => r.view.status === 'running')
-  if (on === guarded) return
+  if (on === guarded || typeof window === 'undefined') return
   guarded = on
   if (on) window.addEventListener('beforeunload', stay)
   else window.removeEventListener('beforeunload', stay)

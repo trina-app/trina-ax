@@ -299,11 +299,12 @@ test('a staged font (Noto Sans CJK in the Linux bundle) gets the project notice 
   } finally { f.close() }
 })
 
-test('Pretendard in a server bundle (web/dist copied to web/): its notice and the OFL go in; without the web app nothing is asked', async () => {
+test('Pretendard in a server bundle (web/dist copied to web/, the static TTFs in fonts/): its notice and the OFL go in, also without the web app', async () => {
   const { writeReleaseNotices, BUNDLED_FONTS } = await api(); const f = fixture()
   try {
     const pre = BUNDLED_FONTS.find(b => b.id === 'pretendard')!
-    expect(pre).toMatchObject({ license: 'OFL-1.1', source: 'https://github.com/orioncactus/pretendard', withWeb: true })
+    expect(pre).toMatchObject({ license: 'OFL-1.1', source: 'https://github.com/orioncactus/pretendard', withWeb: false })
+    expect(pre.staged).toContain('fonts/Pretendard-ExtraBold.ttf')
     // the layout scripts/build-bundle.ts writes: <version>/web/vendor/fonts/
     fs.mkdirSync(path.join(f.artifact, 'web/vendor/fonts'), { recursive: true })
     fs.writeFileSync(path.join(f.artifact, 'web/vendor/fonts/PretendardVariable.woff2'), 'synthetic woff2')
@@ -315,12 +316,13 @@ test('Pretendard in a server bundle (web/dist copied to web/): its notice and th
     expect(fs.existsSync(path.join(f.artifact, 'licenses/pretendard/NOTICE.txt'))).toBe(true)
     expect(fs.existsSync(path.join(f.artifact, 'licenses/pretendard/OFL-1.1.txt'))).toBe(true)
   } finally { f.close() }
-  // the Linux bundle's required list asks for its notice only when the web app is in it
-  const { linuxBundleFiles } = await import('../../scripts/build-bundle')
+  // the Linux bundle's required list always asks for its notice: the intro deck's static TTFs are in every one
+  const { linuxBundleFiles, PRETENDARD_STATIC } = await import('../../scripts/build-bundle')
   const files = (web?: boolean) => linuxBundleFiles({ arch: 'arm64', codexVersion: '1.0.0', whisper: false, systemd: [], ...(web === undefined ? {} : { web }) })
   expect(files()).toContain('licenses/pretendard/NOTICE.txt')
   expect(files(true)).toContain('licenses/pretendard/OFL-1.1.txt')
-  expect(files(false).some(x => x.startsWith('licenses/pretendard/'))).toBe(false)
+  expect(files(false)).toContain('licenses/pretendard/NOTICE.txt')
+  for (const ttf of PRETENDARD_STATIC) expect(files(false)).toContain(`fonts/${ttf}`)
   expect(files(false)).toContain('licenses/noto-sans-cjk/NOTICE.txt')
 })
 

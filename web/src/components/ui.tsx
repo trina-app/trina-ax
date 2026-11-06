@@ -29,7 +29,7 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       aria-busy={busy || props['aria-busy'] || undefined}
       className={clsx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-8 px-2.5 text-[13px] max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
+        size === 'sm' ? 'h-8 px-2.5 text-label max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
         // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
         // (a busy one, with its spinner, keeps the accent: it is working, not off)
@@ -68,14 +68,14 @@ export const inputCls =
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
  * tied to the control with aria-describedby. */
-export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }) {
+export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: ReactNode }) {
   const id = useId()
   const note = error || hint
   const control = note && isValidElement(children) ? cloneElement(children as React.ReactElement<{ 'aria-describedby'?: string; 'aria-invalid'?: boolean }>, { 'aria-describedby': id, 'aria-invalid': error ? true : undefined }) : children
   return (
     <div className="block">
       <label className="block">
-        <span className="mb-1.5 block text-[13px] font-medium text-ink">{label}</span>
+        <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
         {control}
       </label>
       {hint && !error && (
@@ -147,7 +147,7 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: 'neutr
   return (
     <span
       className={clsx(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap',
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-micro font-medium whitespace-nowrap',
         tone === 'neutral' && 'bg-subtle text-muted',
         tone === 'accent' && 'bg-accent-soft text-accent-text',
         tone === 'warn' && 'bg-warn-soft text-warn',
@@ -248,11 +248,12 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl"
+        // phones: below the status bar; without a footer the body keeps clear of the home indicator itself
+        className={clsx('flex max-h-[min(92dvh,calc(100dvh-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !footer && 'max-sm:pb-[var(--safe-bottom)]')}
         style={{ maxWidth: width }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-2.5 pr-2.5 pl-5 sm:py-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-2.5 pr-2.5 pl-5 max-sm:pr-3 max-sm:pl-4 sm:py-3">
           <h2 id={titleId} className="min-w-0 font-semibold">
             {title}
           </h2>
@@ -260,8 +261,8 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
             <X size={18} />
           </IconButton>
         </div>
-        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div>}
+        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5 max-sm:px-4">{children}</div>
+        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))] max-sm:px-4">{footer}</div>}
       </div>
     </div>,
     typeof document === 'undefined' ? null : document.body,
@@ -272,7 +273,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
 // ---------------- confirm / prompt dialogs (promise based) ----------------
 type DialogReq = { returnTo: HTMLElement | null } & (
   | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; danger?: boolean; resolve: (ok: boolean) => void }
-  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
+  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
 )
 
 const useDialogs = create<{ req: DialogReq | null; set: (r: DialogReq | null) => void }>((set) => ({ req: null, set: (req) => set({ req }) }))
@@ -289,7 +290,8 @@ export function confirmDialog(o: { title: string; body?: ReactNode; confirm: str
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
 }
-export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
+/** `select`: the first characters of `initial` that start selected (a file name without its extension). */
+export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; select?: number; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'prompt', initial: '', ...o, returnTo, resolve }))
 }
@@ -298,11 +300,19 @@ export function DialogHost() {
   const t = useT()
   const req = useDialogs((s) => s.req)
   const setReq = useDialogs((s) => s.set)
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => (req?.kind === 'prompt' ? req.initial : ''))
   const [touched, setTouched] = useState(false)
-  useEffect(() => {
+  // a new dialog starts from its own text in the first frame, so the field is focused (Modal) with it in place
+  const [shownReq, setShownReq] = useState(req)
+  if (shownReq !== req) {
+    setShownReq(req)
     if (req?.kind === 'prompt') setValue(req.initial)
     setTouched(false)
+  }
+  const input = useRef<HTMLInputElement>(null)
+  // after Modal focused the field (a child's layout effect runs first)
+  useLayoutEffect(() => {
+    if (req?.kind === 'prompt' && req.select !== undefined) input.current?.setSelectionRange(0, req.select)
   }, [req])
   if (!req) return null
   const close = (ok: boolean) => {
@@ -338,7 +348,7 @@ export function DialogHost() {
           }}
         >
           <Field label={req.label} error={value || touched ? problem : null}>
-            <input data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
+            <input ref={input} data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
           </Field>
         </form>
       )}
@@ -347,12 +357,63 @@ export function DialogHost() {
 }
 
 // ---------------- toasts ----------------
+/** Phones: how far above the window's bottom edge the highest bottom bar starts (the tab bar, a message box: marked
+ * data-bottom-bar), so toasts sit above it instead of over it. null on wider screens or with no bar on screen. While a
+ * toast shows it is measured again, one frame after anything that can move the bars has settled: a resize of the
+ * window or the visual viewport (the phone keyboard), a bar resizing, and the page changing under it (another route
+ * mounts another bar). */
+function useBottomBarLift(toasts: unknown[]) {
+  const [lift, setLift] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    if (!toasts.length) return
+    let frame = 0
+    let watched: HTMLElement[] = []
+    let last: number | null | undefined
+    const bars = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => later())
+    const measure = () => {
+      frame = 0
+      const phone = typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches
+      const els = phone ? [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')] : []
+      // watch the bars only when they are other elements than before: observing again makes the observer report again,
+      // which would measure again every frame
+      if (els.length !== watched.length || els.some((el, i) => el !== watched[i])) {
+        bars?.disconnect()
+        for (const el of els) bars?.observe(el)
+        watched = els
+      }
+      const tops = els.map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top)
+      const next = tops.length ? Math.max(0, window.innerHeight - Math.min(...tops)) : null
+      if (next !== last) setLift((last = next))
+    }
+    // after layout has settled: a resize or a route change is measured on the next frame, not in the middle of it
+    const later = () => { if (!frame) frame = requestAnimationFrame(measure) }
+    measure()
+    const page = typeof MutationObserver === 'undefined' ? null : new MutationObserver(later)
+    page?.observe(document.body, { childList: true, subtree: true })
+    window.addEventListener('resize', later)
+    window.visualViewport?.addEventListener('resize', later)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      bars?.disconnect()
+      page?.disconnect()
+      window.removeEventListener('resize', later)
+      window.visualViewport?.removeEventListener('resize', later)
+    }
+  }, [toasts])
+  return lift
+}
+
 export function Toaster() {
   const t = useT()
   const toasts = useUi((s) => s.toasts)
   const dismiss = useUi((s) => s.dismiss)
+  const lift = useBottomBarLift(toasts)
   return (
-    <div className="pointer-events-none fixed right-3 bottom-3 left-3 z-[60] flex flex-col items-end gap-2 sm:left-auto sm:w-96" aria-live="polite">
+    <div
+      className="pointer-events-none fixed right-3 bottom-[calc(0.75rem+var(--safe-bottom))] left-3 z-[60] flex flex-col items-end gap-2 sm:left-auto sm:w-96"
+      style={lift === null ? undefined : { bottom: `calc(${lift}px + 0.5rem)` }}
+      aria-live="polite"
+    >
       {toasts.map((x) => (
         <div
           key={x.id}
@@ -538,7 +599,7 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
           onClick={() => onChange(it.id)}
           className={clsx(
             'rounded-md font-medium whitespace-nowrap focus-visible:-outline-offset-2',
-            segmented ? 'px-3 py-1 text-[13px]' : 'px-2.5 py-1 text-xs',
+            segmented ? 'px-3 py-1 text-label' : 'px-2.5 py-1 text-xs',
             segmented ? (value === it.id ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink') : value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover',
           )}
         >

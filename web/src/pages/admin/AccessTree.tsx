@@ -547,7 +547,7 @@ export default function AccessTree() {
     row.scrollIntoView({ block: 'nearest' })
   })
   const backButton = (
-    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
+    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
       <ArrowLeft size={15} aria-hidden /> {t('accessTree.back')}
     </button>
   )
@@ -1066,7 +1066,7 @@ function Tree({ data, ruled, open, busy, failed, selected, onToggle, onMore, onR
               setActive(r.key)
               void activate(r)
             }}
-            className="flex cursor-pointer items-center gap-1.5 rounded-lg py-2 pr-2 text-[13px] font-medium text-muted transition-[background-color,color] hover:bg-hover hover:text-ink focus-visible:-outline-offset-2 max-sm:min-h-10"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg py-2 pr-2 text-label font-medium text-muted transition-[background-color,color] hover:bg-hover hover:text-ink focus-visible:-outline-offset-2 max-sm:min-h-10"
             data-testid={r.kind === 'more' ? 'tree-more' : 'tree-failed'}
           >
             <Indent />
@@ -1166,11 +1166,11 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
           )}
         </div>
         {personal ? (
-          <p className="mt-0.5 text-[13px] leading-5 text-muted">
+          <p className="mt-0.5 text-label leading-5 text-muted">
             {t('accessTree.personal.who')} <span className="text-xs text-faint">· {t('accessTree.personal.fixed')}</span>
           </p>
         ) : (
-          <p className="mt-0.5 text-[13px] leading-5">
+          <p className="mt-0.5 text-label leading-5">
             <span className={own || n.path === '' ? 'text-ink' : 'text-muted'} data-testid="tree-who">
               {whoSeesText(t, n, members)}
             </span>
@@ -1358,7 +1358,7 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
           ))}
           <div className="mt-4">
             <h4 className="text-xs font-semibold text-muted">{t('accessTree.people')}</h4>
-            <p className="mt-1 text-[13px] text-ink">{whoSeesText(t, n, members)}</p>
+            <p className="mt-1 text-label text-ink">{whoSeesText(t, n, members)}</p>
             {sourceSaysSomething(n) && <p className="text-xs text-faint">{sourceText(t, n, members)}</p>}
             <People answer={answer} path={n.path} names={names} />
           </div>

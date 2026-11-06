@@ -1,15 +1,15 @@
 // The welcome steps for the owner who just made the team (docs/DECISIONS.md "W — Welcome steps", "X — Lean
 // onboarding", "M — One meeting note, everyone's own tasks", "N — The first result is the company's card news", "W2 —
-// AI connection first", "V — The first result is the company's promo video"): AI 연결 (only while no AI answers the
-// owner) → 회사 소개 → 첫 결과, then the team invite.
+// AI connection first", "V — The first result is the company's promo video", "D2 — The first result is the company's
+// intro deck"): AI 연결 (only while no AI answers the owner) → 회사 소개 → 첫 결과, then the team invite.
 // 회사 소개 and 첫 결과 need AI, so without it the AI step opens in front of them, never in front of the invite; "나중에
 // 하기" there leaves the steps (Home shows its connect card). 회사 소개 saves a website reading with a one-line intro by
 // itself (ProfileStep autoSave) and goes on; 첫 결과 opens with one line of what was saved, "이렇게 이해했어요: … · 고치기",
-// whose 고치기 opens the full review in a dialog. The first result is the company's own promo video: the lead
+// whose 고치기 opens the full review in a dialog. The first result is the company's own intro deck: the lead
 // drops a company intro or a team deck into the team's brand folder (groups/<team>/브랜드/), or goes on without one
 // ("자료 없이 만들게요": the server writes 회사 소개.md there from the website reading); POST
 // /api/onboarding/welcome/first-result makes the chat and says which team files to attach, and the general skill
-// "/promo-video" makes the video from them in that chat, which opens it beside the chat by itself. Under the answer
+// "/intro-deck" makes the deck from them in that chat, which opens it beside the chat by itself. Under the answer
 // the chat offers to share that skill with the
 // team (components/onboarding/WelcomeInviteBar.tsx: the invite with it). Every step can be put off; the progress is
 // kept on the server (store/welcome.ts), so the steps resume where they stopped, on any device, from the entry on Home.
@@ -259,7 +259,7 @@ function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProg
   )
 }
 
-/** The first result, for every team: the company's promo video, from the files the lead drops into the team's brand
+/** The first result, for every team: the company's intro deck, from the files the lead drops into the team's brand
  * folder or, without any, from the website reading. AI is asked for again here (a run without it would only fail in
  * the chat): without it the AI step comes back (WelcomeSteps' gate). On top, the line of the saved profile. */
 function ResultStep({ progress, busy, profile, onProfile, onRan }: { progress: WelcomeProgress; busy: boolean; profile: CompanyProfile | null | undefined; onProfile: (p: CompanyProfile | null) => void; onRan: (chatId: string) => void; onSkip: () => void }) {
@@ -284,7 +284,7 @@ function ResultStep({ progress, busy, profile, onProfile, onRan }: { progress: W
 
 /**
  * Above the first result, one quiet line of what the company profile says: "이렇게 이해했어요: {한 줄 소개} · 고치기".
- * Here because the website reading went straight on (saved without the review), and the promo video without files is
+ * Here because the website reading went straight on (saved without the review), and the intro deck without files is
  * made from that profile: the owner sees what was kept before anything is made from it. 고치기 opens the full review
  * (the same step as Admin › Team settings) in a dialog; saving there changes the line. No one-line intro: no line.
  */
@@ -364,11 +364,11 @@ function TeamReach({ team, groupId }: { team: string; groupId: string | null }) 
   }
   return (
     <div className="space-y-1">
-      <p className="text-[13px] leading-5 text-muted" data-testid="welcome-files-who">
+      <p className="text-label leading-5 text-muted" data-testid="welcome-files-who">
         {!reach ? t('welcome.files.who', { team }) : reach.viewers <= 1 ? t('welcome.files.whoAlone', { team }) : t('welcome.files.whoCount', { team, n: reach.viewers })}
       </p>
       {reach && reach.outside.length > 0 && (
-        <p className="text-[13px]">
+        <p className="text-label">
           <button type="button" className={quietLink} disabled={adding} onClick={() => void add()} data-testid="welcome-files-add-members">
             {t('welcome.files.addMembers', { n: reach.outside.length })}
           </button>
@@ -389,12 +389,13 @@ interface Picked {
   error?: string
 }
 
-/** The company's promo video (docs/DECISIONS.md "V"; the card news of "N" before it): the files the lead picks go into
- * the team's brand folder (groups/<team>/브랜드/, only this team sees it), then the server starts the first result (POST
- * /api/onboarding/welcome/first-result: its chat, the team files to attach, the skill) and "/promo-video 우리 회사 홍보
- * 영상 만들어 줘" goes into that chat with the files attached by reference. "자료 없이 만들게요" is the same
- * without files: the server writes 회사 소개.md from the website reading and gives that to attach. One primary action
- * (pick files; a drop works too on a computer), one quiet line on who sees what, one text link without files. */
+/** The company's intro deck (docs/DECISIONS.md "D2"; the promo video of "V" and the card news of "N" before it): the
+ * files the lead picks go into the team's brand folder (groups/<team>/브랜드/, only this team sees it), then the server
+ * starts the first result (POST /api/onboarding/welcome/first-result: its chat, the team files to attach, the skill) and
+ * "/intro-deck 우리 회사 소개서 만들어 줘" goes into that chat with the files attached by reference. "자료 없이
+ * 만들게요" is the same without files: the server writes 회사 소개.md from the website reading and gives that to attach.
+ * One primary action (pick files; a drop works too on a computer), one quiet line on who sees what, one text link
+ * without files. */
 function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void }) {
   const t = useT()
   const locale = useLocale()
@@ -455,7 +456,7 @@ function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgr
       const engine = choose ? me.user.prefs.engine : undefined
       const model = choose ? (me.user.prefs.model ?? null) : undefined
       const attachments = await Promise.all(r.files.map((path) => api.call(API.attachTeamFile, { body: { chatId, path } })))
-      await useChats.getState().send({ chatId, content: `/${skillNameOf(r.skillPath)} ${t('welcome.video.question')}`, attachments, author: { id: me.user.id, name: me.user.name }, projectId: null, engine, model })
+      await useChats.getState().send({ chatId, content: `/${skillNameOf(r.skillPath)} ${t('welcome.deck.question')}`, attachments, author: { id: me.user.id, name: me.user.name }, projectId: null, engine, model })
       rememberChat(me.user.id, chatId)
       onRan(chatId)
     } catch (e) {
@@ -526,7 +527,7 @@ function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgr
             ))}
           </ul>
         )}
-        {cut && <p className="text-[13px] text-muted" data-testid="welcome-files-cut">{t('welcome.files.max', { n: WELCOME_FILES_MAX })}</p>}
+        {cut && <p className="text-label text-muted" data-testid="welcome-files-cut">{t('welcome.files.max', { n: WELCOME_FILES_MAX })}</p>}
         {error && <ErrorNote onRetry={busy ? undefined : () => void run()}>{error}</ErrorNote>}
       </div>
       <p className="text-sm">
@@ -539,7 +540,7 @@ function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgr
 }
 
 /** Then the invite (stream E's step) when the steps open on it (the bar under the first result was left for later):
- * people who join land on the first result's skill, the promo video, as it is (lib/welcome.ts inviteSkill). The link
+ * people who join land on the first result's skill, the intro deck, as it is (lib/welcome.ts inviteSkill). The link
  * is made as the step opens, so the message and its one copy button are there at once (docs/DECISIONS.md "W2"); once
  * the result was made, an open link that leads elsewhere is changed to that skill (same address). */
 function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void }) {

@@ -1,12 +1,13 @@
 // The one suggestion under a result (docs/DECISIONS.md "X — Lean onboarding"; server/src/onboarding/suggestions.ts):
 // the same person running the same team skill for the 2nd time gets "매주 이 시간에 자동으로 받을까요?" when its work
 // comes back every week (metadata `recurring: weekly`, "S"), a long report-like answer gets [PPT로 만들기], never both,
-// and a suggestion the person closed never comes back for them.
+// and a suggestion the person closed never comes back for them. The promo video from the intro deck (`deck-video`,
+// docs/DECISIONS.md "D2") is in the contract but never offered while DECK_VIDEO_SUGGESTION is off.
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
-import { PPT_SUGGEST_CHARS } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, PPT_SUGGEST_CHARS, ResultSuggestion } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -126,4 +127,22 @@ test('only weekly work: never one-off work such as ad copy; the metadata decides
   expect(await ask(owner, twice({ path: TASKS, name: 'meeting-tasks' }))).toBeNull()
   skillFile(TASKS, '  recurring: weekly\n')
   expect((await ask(owner, twice({ path: TASKS, name: 'meeting-tasks' })))?.kind).toBe('schedule')
+})
+
+test('the promo video from the intro deck: off, so never offered (not under a deck, not under a long one); its key is valid', async () => {
+  const { owner, ownerId } = await setup()
+  expect(DECK_VIDEO_SUGGESTION).toBe(false)
+  const DECK = { path: 'skills/general/intro-deck/SKILL.md', name: 'intro-deck' }
+  const deck = (content = '회사 소개서를 만들었어요.') => {
+    const a = answer(ownerId, { skill: DECK, content })
+    h.ctx.db.query("INSERT INTO artifacts (id, chat_id, message_id, key, version, type, title, content) VALUES (?, ?, ?, ?, 1, 'html', 'Acme 회사 소개서', '<p>deck</p>')")
+      .run(crypto.randomUUID(), a.chatId, a.messageId, DECK_ARTIFACT_KEY)
+    return a
+  }
+  expect(await ask(owner, deck())).toBeNull()
+  // a long answer under a deck still gets what it got before (never the video line)
+  expect(await ask(owner, deck('가'.repeat(PPT_SUGGEST_CHARS)))).toEqual({ kind: 'ppt', key: 'ppt' })
+  // the contract knows the kind (for when it is on), and its key can be closed
+  expect(ResultSuggestion.parse({ kind: 'deck-video', key: 'deck-video' })).toEqual({ kind: 'deck-video', key: 'deck-video' })
+  expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key: 'deck-video' })).status).toBe(204)
 })
