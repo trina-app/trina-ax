@@ -30,7 +30,7 @@ import { audit } from '../admin/audit'
 import { notificationsOf } from '../notifications/service'
 import {
   canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck,
-  threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
+  lastSeqFor, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
@@ -57,6 +57,8 @@ const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_s
 export class Rooms {
   private lastSync = 0
   private sendBudget = new Map<string, { tokens: number; at: number }>()
+  /** the sending budget's clock (tests fix it) */
+  clock: () => number = () => Date.now()
   /** when each person made their group chats in the last hour (GROUPS_PER_HOUR) */
   private groupsMade = new Map<string, number[]>()
   constructor(readonly ctx: AppContext) {}
@@ -404,15 +406,15 @@ export class Rooms {
     }
     const row = messageRow(this.db, roomId, id)!
     this.messageEvent('room.message', row)
-    if (root) this.afterReply(root, userId)
+    if (root) this.afterReply(root)
     this.notify(row)
     if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
   }
 
   /** Inside the reply's transaction: its author follows the thread and has read it up to the reply; the root's author
-   * follows it from its first reply on (everything after the root is new to them); people mentioned in it who see it
-   * follow it from this reply on. Only people in the room now. */
+   * (for an AI answer: the person who asked it) follows it from its first reply on (everything after the root is new to
+   * them); people mentioned in it who see it follow it from this reply on. Only people in the room now. */
   follow(root: MessageRow, authorId: string | null, seq: number, mentioned: readonly string[] = []) {
     const db = this.db, now = nowIso()
     const ms = new Map(members(db, root.room_id).map((m) => [m.user_id, m]))
@@ -422,16 +424,17 @@ export class Rooms {
       add.run(root.id, authorId, root.room_id, seq, now)
       db.query('UPDATE room_thread_follows SET last_read_seq = ? WHERE root_id = ? AND user_id = ? AND last_read_seq < ?').run(seq, root.id, authorId, seq)
     }
-    if (root.author_kind === 'user' && may(root.author_id)) add.run(root.id, root.author_id, root.room_id, root.seq, now)
+    const owner = root.author_kind === 'ai' ? root.asked_by : root.author_id
+    if (may(owner)) add.run(root.id, owner, root.room_id, root.seq, now)
     for (const u of mentioned) if (may(u)) add.run(root.id, u, root.room_id, seq - 1, now)
   }
 
-  /** After a reply came or went: the root's summary to everyone who sees it, and to the followers (but `except`, who
-   * wrote it) their room as they see it now (the threads with new replies count in its badge). */
-  afterReply(root: MessageRow, except: string | null = null) {
+  /** After a reply came or went: the root's summary to everyone who sees it, and to the followers their room as they see
+   * it now (the threads with new replies count in its badge), the reply's author too: their other windows and devices
+   * follow their place in the thread. */
+  afterReply(root: MessageRow) {
     this.threadEvent(root)
     const followers = new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(root.id) as { user_id: string }[]).map((r) => r.user_id))
-    if (except) followers.delete(except)
     if (followers.size) this.roomEvent(root.room_id, 'updated', followers)
   }
 
@@ -494,7 +497,10 @@ export class Rooms {
   markThreadRead(userId: string, roomId: string, rootId: string, seq: number): RoomThreadReadState {
     const { room, me } = this.mine(userId, roomId)
     const root = this.rootFor(roomId, rootId, me)
-    const to = Math.min(seq, room.last_seq)
+    // never past the newest reply I can see: the room's counter (and the thread's other people's previews) are not mine
+    // to learn
+    const newest = (this.db.query("SELECT MAX(seq) s FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND (visibility = 'room' OR visible_to = ?)").get(roomId, root.id, userId) as { s: number | null }).s
+    const to = Math.min(seq, newest ?? root.seq)
     const moved = this.db.query('UPDATE room_thread_follows SET last_read_seq = ? WHERE root_id = ? AND user_id = ? AND last_read_seq < ?').run(to, root.id, userId, to).changes > 0
     this.markThreadNoticesRead(userId, roomId, root.id, to)
     if (moved) {
@@ -526,7 +532,7 @@ export class Rooms {
 
   /** One token per new message (a resend of the same clientMessageId above costs none) and per reaction change. */
   private takeSendToken(userId: string) {
-    const now = Date.now()
+    const now = this.clock()
     const b = this.sendBudget.get(userId) ?? { tokens: SEND_BURST, at: now }
     b.tokens = Math.min(SEND_BURST, b.tokens + ((now - b.at) / 1000) * SEND_PER_SECOND)
     b.at = now
@@ -568,7 +574,9 @@ export class Rooms {
   markRead(userId: string, roomId: string, seq: number): RoomReadState {
     const { room, me } = this.mine(userId, roomId)
     const from = Math.max(me.last_read_seq, me.visible_from_seq)
-    const to = Math.min(seq, room.last_seq)
+    // never past the newest position of the timeline I can see (Room.lastSeq): the room's own counter moves with replies
+    // in threads I cannot see and other people's previews
+    const to = Math.min(seq, lastSeqFor(this.db, room.id, me))
     if (to > from) {
       this.db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ? AND last_read_seq < ?').run(to, roomId, userId, to)
       this.readEvent(roomId, userId)

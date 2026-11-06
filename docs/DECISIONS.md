@@ -10313,9 +10313,13 @@ a later member sees a room from their join on (`visible_from_seq`), threads incl
   `SEE_SQL` go by it, so a member who joined after the root (`visible_from_seq >= root seq`) sees no reply of it, however
   late it was written: not in the thread (404), not in the timeline (a reply sent to the room too stays hidden from
   them), not its files (`RoomFiles.open`), sources, reactions, notices (`Notifications.out`), events or the AI's answers.
-  A root's seq never changes (only a private preview moves when posted, and a root is never private).
-- **Following, Slack's way.** `room_thread_follows` (migration 251): the root's author follows from the first reply
-  (everything after the root is new to them), everyone who replies, and people mentioned in a reply (from that reply
+  A root's seq never changes (only a private preview moves when posted, and a root is never private). One counter per
+  room: the seqs of the messages a member gets have gaps where messages they cannot see were written (replies in older
+  threads, other people's previews), so they can tell that something was there; what it was, never. No count or position
+  goes further: `Room.lastSeq` is the newest position of the timeline they see, a read never answers past it, and a
+  thread read never past the newest reply of that thread they see.
+- **Following, Slack's way.** `room_thread_follows` (migration 251): the root's author (for an AI answer, the person who
+  asked it) follows from the first reply (everything after the root is new to them), everyone who replies, and people mentioned in a reply (from that reply
   on), each only while in the room and able to see the root. A new reply notifies its followers and the people it
   mentions, nobody else, unless the room is muted (`Rooms.notify`): `room.mention` for a mention, else `room.dm` (the
   push is the same generic line; `room_notices` has a fixed CHECK list and is never rebuilt, so no new code). One notice
@@ -10336,9 +10340,13 @@ a later member sees a room from their join on (`visible_from_seq`), threads incl
   questions in the same thread (`RoomAi.lastAnswerHere`: each place, the timeline and every thread, keeps its own branch
   of the person's room session), so the timeline's history never comes into a thread and the reverse. What the answer
   used counts from the root's seq (`seenSeq`), so a member who joined after the root keeps the answer private ("○○ 님이
-  들어오기 전 대화를 참고했어요"). The share rule is the room's, with every current member (fail closed, though members
-  who cannot see the thread would never see the answer). A posted answer or preview stays in its thread, notifies the
-  thread's followers (never the asker) and does not move the room in the list. `RoomAiRun.threadRootId` puts my
+  들어오기 전 대화를 참고했어요") for the room's timeline. In a thread the share rule is the room's over the thread's
+  audience: the members who see its root (`visible_from_seq` < the root's seq; `RoomAi.decide`'s `threadSeq`). Someone
+  who joined after the root never sees the thread or the answer, so they do not keep it private (changed after review:
+  at first every current member counted); a member who sees the root and cannot read what the answer used does, and a
+  posted preview drops the sources they cannot read. An AI answer is never also put in the timeline, so nobody outside
+  that audience can get it. A posted answer or preview stays in its thread, notifies the thread's followers (never the
+  asker) and does not move the room in the list. `RoomAiRun.threadRootId` puts my
   question's progress under the thread.
 - **Reactions.** Eight fixed emoji (`ROOM_REACTIONS`: 👍 ✅ 👀 🙏 😂 🎉 ❤️ 🔥; anything else 400), one each per person and
   message (`room_reactions`, migration 251), on messages for the whole room and their replies; never on an event line, a
@@ -10353,7 +10361,8 @@ a later member sees a room from their join on (`visible_from_seq`), threads incl
   any response or event for anyone else.
 - **Realtime.** A reply goes (`room.message`) to the members who see its root; the root's summary (`room.thread`) to
   each of them as they see it (one copy for everyone but followers and the asker of a private preview there); the
-  followers also get their room (`room.updated`) for the badge. All of it is `room.*`, so the replay check covers it.
+  followers also get their room (`room.updated`) for the badge, the reply's author too (their other windows keep their
+  place in the thread). All of it is `room.*`, so the replay check covers it.
 - **Web.** Desktop: a thread opens as a plain column beside the room (a hairline on its left, its own reply box with the
   one choice "대화방에도 보내기" under it); phones: the whole screen at `/rooms/:roomId/t/:messageId` (the route keeps the
   bottom tabs hidden like a room). A message's hover row on computers: react, reply in thread, "…"; on touch screens a
@@ -10373,7 +10382,10 @@ a later member sees a room from their join on (`visible_from_seq`), threads incl
   root's), so the (room_id, seq) index starts at the member's join (a timeline page of a 100k-message room: 22 ms →
   0.01 ms), and `threadsUnread` starts from the follow rows (`CROSS JOIN`: 14 ms → 0.01 ms). Left as is: a mention of
   someone who cannot see the thread is kept in the reply's mentions (they get nothing; dropping it would tell the writer
-  who joined after the root).
+  who joined after the root). Second round (coordinator's review): reads clamp to what the reader sees (above), the
+  asker of an AI answer follows its thread, the AI's thread audience, the reply's author gets their own room event, a
+  question in a thread that fails to start says so under the thread (`RoomAiRun.threadRootId`), and the sending
+  budget's clock is injectable (`Rooms.clock`) so its test does not depend on the machine's speed.
 - **Rollback: reader level 6.** An older build knows no `thread_root_id`: it would show every reply in the timeline,
   count and notify it, and show a root's late replies to a member who joined after the root (it checks the reply's own
   seq). So 251 declares `min_compatible_reader: 6` and `SCHEMA_READER_LEVEL` is 6; going back means restoring the

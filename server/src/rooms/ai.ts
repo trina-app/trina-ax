@@ -140,7 +140,7 @@ export class RoomAi implements RoomTurns {
       const locale = p.locale ?? rt.userLocale(userId)
       const error: ApiErrorBody = e && typeof e === 'object' && 'body' in e && typeof (e as { body: unknown }).body === 'function'
         ? (e as { body: (l: Locale) => ApiErrorBody }).body(locale) : engineError('crash', locale)
-      this.ctx.services.realtime.publish(userId, { type: 'room.ai.run', data: { roomId, run: { turnId: newId(), roomId, questionId: q.id, state: 'error', position: 0, steps: [], error, createdAt: nowIso() } } })
+      this.ctx.services.realtime.publish(userId, { type: 'room.ai.run', data: { roomId, run: { turnId: newId(), roomId, questionId: q.id, ...(q.thread_root_id ? { threadRootId: q.thread_root_id } : {}), state: 'error', position: 0, steps: [], error, createdAt: nowIso() } } })
     }
   }
 
@@ -288,7 +288,7 @@ export class RoomAi implements RoomTurns {
     const scope = this.scopeOf(t.chat_id)
     const q = messageRow(db, t.room_id, t.question_id)
     // a question in a thread: who sees it is who sees the root (seenSeq)
-    const d = this.decide(t.room_id, t.chat_id, scope, q ? seenSeq(q) : undefined)
+    const d = this.decide(t.room_id, t.chat_id, scope, q ? seenSeq(q) : undefined, q?.thread_root_seq ?? undefined)
     const body = msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content
     const id = newId(), now = nowIso()
     // asked in a thread: answered in it (a reply, not in the timeline; the room keeps its place in the list)
@@ -338,11 +338,14 @@ export class RoomAi implements RoomTurns {
    * - a team connection, a web page or search, any tool outside the team-file tools: never
    * Paths the person could not open themselves are not in the scope (chat/turn.ts noteRoomTool: such a call answered
    * as it would for anyone). A member added later counts from then on: the next answer is decided with them.
+   * `threadSeq`: the answer goes into the thread of the root with this seq (and only there: an AI answer is never also
+   * put in the timeline), so its audience is the members who see that root; someone who joined after the root never
+   * sees the thread or the answer. Every other check stays, over them.
    */
-  decide(roomId: string, chatId: string, scope?: TurnScope, questionSeq?: number): Decision {
+  decide(roomId: string, chatId: string, scope?: TurnScope, questionSeq?: number, threadSeq?: number): Decision {
     const db = this.db, rules = this.ctx.files.rules()
     // an account that cannot be loaded (disabled, deleted, still listed) reads nothing: it fails every check
-    const readers = this.readers(roomId)
+    const readers = this.readers(roomId, threadSeq)
     const people = readers.map((r) => r.who)
     const used = scope ?? this.scopeOf(chatId)
     let outside = used.outside
@@ -404,7 +407,7 @@ export class RoomAi implements RoomTurns {
     const scope = t ? storedScope(t.scope) : undefined
     if (t && scope) {
       const asked = messageRow(db, roomId, t.question_id)
-      const d = this.decide(roomId, t.chat_id, scope, asked ? seenSeq(asked) : undefined)
+      const d = this.decide(roomId, t.chat_id, scope, asked ? seenSeq(asked) : undefined, m.thread_root_seq ?? undefined)
       const now = d.post ? null : decisionJson(d)
       if (now && now !== t.decision) {
         db.query('UPDATE room_ai_turns SET decision = ? WHERE turn_id = ?').run(now, t.turn_id)
@@ -417,7 +420,8 @@ export class RoomAi implements RoomTurns {
     }
     // else a preview from before each question kept its own scope (migration 246): the session's scope now is a later
     // question's, so it is never decided from that; the reasons the person was shown stand, and are not overwritten
-    const people = this.readers(roomId).map((r) => r.who)
+    // a preview in a thread is posted to those who see its root: the sources they cannot read leave its list
+    const people = this.readers(roomId, m.thread_root_seq ?? undefined).map((r) => r.who)
     const rules = this.ctx.files.rules(), fx = this.ctx.files.fx
     const readable = (p: Principal | null, rel: string) => { if (!p) return false; try { const a = authorize(fx, rules, p, rel, 'read'); return !a.st?.isDirectory() && !!visiblePath(fx, rules, p, a.rel) } catch { return false } }
     const rows = db.query('SELECT ord, path FROM room_message_sources WHERE message_id = ?').all(m.id) as { ord: number; path: string }[]
@@ -445,7 +449,7 @@ export class RoomAi implements RoomTurns {
     }
     const row = messageRow(db, roomId, m.id)!
     rooms.messageEvent('room.message', row)
-    if (root) rooms.afterReply(root, userId)
+    if (root) rooms.afterReply(root)
     rooms.notify(row)
     // the question no longer says "answered to … only": the answer is there
     const q = t ? messageRow(db, roomId, t.question_id) : null
@@ -533,9 +537,10 @@ export class RoomAi implements RoomTurns {
     return { turnId: t.turn_id, roomId: t.room_id, questionId: t.question_id, ...(thread ? { threadRootId: thread } : {}), state, position, steps, error, createdAt: t.created_at }
   }
 
-  /** The room's members now, each with what they may read (null: nothing). */
-  private readers(roomId: string): Reader[] {
-    return members(this.db, roomId).map((member) => ({ member, who: loadPrincipal(this.db, member.user_id) }))
+  /** The room's members now, each with what they may read (null: nothing); with `threadSeq`, those who see the root at
+   * that seq (a thread's audience). */
+  private readers(roomId: string, threadSeq?: number): Reader[] {
+    return members(this.db, roomId).filter((m) => threadSeq === undefined || m.visible_from_seq < threadSeq).map((member) => ({ member, who: loadPrincipal(this.db, member.user_id) }))
   }
   private names(ids: (string | null)[]): Map<string, string> {
     const want = [...new Set(ids.filter((x): x is string => !!x))]

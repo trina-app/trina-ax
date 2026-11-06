@@ -193,6 +193,15 @@ export function plainLine(md: string): string {
     .trim()
 }
 
+/** Opening a thread from the room page (pages/Room.tsx): a new history entry from the room, marked as reached from it;
+ * from an open thread it replaces that one and keeps how it was reached (a thread opened from a link or a notice stays
+ * unmarked, so closing it never steps back out of the room). */
+export function threadOpening(roomId: string, rootId: string, open: { threadId: string | null; fromRoom: boolean }): { path: string; replace: boolean; state: { fromRoom: boolean } } {
+  return { path: `/rooms/${roomId}/t/${rootId}`, replace: !!open.threadId, state: { fromRoom: open.threadId ? open.fromRoom : true } }
+}
+/** Closing it: one step back when the room is that step, else to the room in place of the thread. */
+export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: string; replace: true } => (fromRoom ? -1 : { path: `/rooms/${roomId}`, replace: true })
+
 /** "99+" past 99, like the Inbox count. */
 export const badgeText = (n: number) => (n > 99 ? '99+' : String(n))
 

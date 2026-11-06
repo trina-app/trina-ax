@@ -12,7 +12,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
-import { newestSeq } from '../lib/rooms'
+import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
@@ -72,14 +72,20 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // "reply in thread" puts the cursor in the thread's box; a thread opened from its summary line or a link does not
   const [focusThread, setFocusThread] = useState(false)
   const location = useLocation()
+  const fromRoom = !!(location.state as { fromRoom?: boolean } | null)?.fromRoom
   // a thread opened from this room is one step back from it (the back arrow, the browser's back, a phone's back
-  // gesture all close it); one thread replaces another; a thread opened from a link closes to its room
+  // gesture all close it); one thread replaces another and keeps how the first was reached; a thread opened from a link
+  // or a notice closes to its room
   const openThread = useCallback((id: string, focus = false) => {
     setFocusThread(focus)
-    navigate(`/rooms/${roomId}/t/${id}`, { replace: !!threadId, state: { fromRoom: true } })
-  }, [navigate, roomId, threadId])
-  const fromRoom = !!(location.state as { fromRoom?: boolean } | null)?.fromRoom
-  const closeThread = useCallback(() => (fromRoom ? navigate(-1) : navigate(`/rooms/${roomId}`, { replace: true })), [navigate, roomId, fromRoom])
+    const to = threadOpening(roomId, id, { threadId, fromRoom })
+    navigate(to.path, { replace: to.replace, state: to.state })
+  }, [navigate, roomId, threadId, fromRoom])
+  const closeThread = useCallback(() => {
+    const to = threadClosing(roomId, fromRoom)
+    if (to === -1) navigate(-1)
+    else navigate(to.path, { replace: to.replace })
+  }, [navigate, roomId, fromRoom])
   // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
   const [picker, setPicker] = useState<PickerMode | null>(null)
   usePeopleList()

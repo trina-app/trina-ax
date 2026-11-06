@@ -9,7 +9,7 @@ import path from 'node:path'
 import { ROOM_REACTIONS, ROOM_REACTION_NAMES } from '@mycel/shared/api'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { pushPathOf } from '../../server/src/notifications/push-events'
-import { SEND_BURST } from '../../server/src/rooms/service'
+import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
 import { newId } from '../../server/src/db'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
@@ -170,12 +170,37 @@ test('a thread follows its root: a member who joined after the root sees none of
   // not even as a number: her room's position stays where it was (the room's own counter moved four times)
   expect(await roomOf(pia.client, g.id)).toMatchObject({ unreadCount: 0, threadsUnread: 0, mentioned: false, lastSeq: piaStart.lastSeq })
   expect((h.ctx.db.query('SELECT last_seq FROM rooms WHERE id = ?').get(g.id) as { last_seq: number }).last_seq).toBeGreaterThan(piaStart.lastSeq)
+  // nor as the answer to a read past the end: it stops at the newest position she can see, never the room's counter
+  const read = await pia.client.call('POST', `/api/rooms/${g.id}/read`, { seq: 1_000_000 })
+  expect(read.lastReadSeq).toBe(piaStart.lastSeq)
   // a root after her join is hers like any message, with its thread
   const fresh = await send(mia.client, g.id, 'NEW-ROOT')
   await reply(nora.client, g.id, fresh.id, 'NEW-REPLY')
   expect((await thread(pia.client, g.id, fresh.id)).items.map((m: any) => m.body)).toEqual(['NEW-REPLY'])
+  // she follows it (a reply of hers); replies in the old thread move the counter: her thread read stops at that
+  // thread's newest reply
+  const piaReply = await reply(pia.client, g.id, fresh.id, "PIA-REPLY")
+  await reply(nora.client, g.id, old.id, 'LATE-REPLY again')
+  await reply(nora.client, g.id, old.id, 'LATE-REPLY and again')
+  expect((await pia.client.call('POST', `/api/rooms/${g.id}/messages/${fresh.id}/thread/read`, { seq: 1_000_000 })).lastReadSeq).toBe(piaReply.seq)
+  expect((await pia.client.call('POST', `/api/rooms/${g.id}/read`, { seq: 1_000_000 })).lastReadSeq).toBe(fresh.seq)
   // the old members still see everything
-  expect((await thread(nora.client, g.id, old.id)).items).toHaveLength(4)
+  expect((await thread(nora.client, g.id, old.id)).items).toHaveLength(6)
+})
+
+test('a thread under an AI answer: the person who asked it follows it like the author of a message', async () => {
+  const { mia, nora, otto, teamRoom, reply, unreadNotices } = await setup()
+  const team = await teamRoom(mia.client)
+  // an AI answer to mia's question (the AI writes it; put in directly here)
+  const answer = newId()
+  h.ctx.db.transaction(() => {
+    const seq = (h.ctx.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(team.id) as { last_seq: number }).last_seq
+    h.ctx.db.query("INSERT INTO room_messages (id, room_id, seq, author_kind, asked_by, visibility, body, mentions, created_at) VALUES (?, ?, ?, 'ai', ?, 'room', 'THE ANSWER', '[]', ?)").run(answer, team.id, seq, mia.id, new Date().toISOString())
+  })()
+  const r = await reply(nora.client, team.id, answer, 'about the answer')
+  expect(unreadNotices(mia.id).map((n) => n.source_id)).toEqual([r.id])
+  expect(unreadNotices(otto.id)).toEqual([])
+  expect(await teamRoom(mia.client)).toMatchObject({ threadsUnread: 1, nextThreadId: answer })
 })
 
 test('members only: the thread routes and reactions answer 404 to anyone outside the room, admins included', async () => {
@@ -318,8 +343,10 @@ test('realtime: a reply goes to those who see its root, the summary to each as t
   const forOtto = summaries.find((e) => e.target === otto.id)!.data as any
   expect(forMia.data).toMatchObject({ roomId: team.id, rootId: root.id, thread: { replyCount: 1, newReplies: true } })
   expect(forOtto.data.thread).toMatchObject({ replyCount: 1, newReplies: false })
-  // the follower's badge comes as their room; the others' rooms did not change
-  expect(hub.to('room.updated').map((e) => e.target)).toEqual([mia.id])
+  // the follower's badge comes as their room, and the author's (their other windows keep their place in the thread);
+  // the others' rooms did not change
+  expect(hub.to('room.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
+  expect((hub.to('room.updated').find((e) => e.target === nora.id)!.data as any).data.room).toMatchObject({ threadsUnread: 0 })
   for (const e of hub.events) expect([mia.id, nora.id, otto.id]).toContain(e.target)
   expect(hub.events.some((e) => e.target === ada.id)).toBe(false)
   hub.clear()
@@ -407,6 +434,9 @@ test(`reactions name the first ${ROOM_REACTION_NAMES} people and count everyone 
 
 test('replies and reactions take from the one sending budget', async () => {
   const { mia, nora, send } = await setup()
+  // the budget's clock stands still: nothing refills, however slow the machine
+  const t0 = Date.now()
+  roomsOf(h.ctx).clock = () => t0
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   const root = await send(nora.client, dm.id, 'root')
   for (let i = 0; i < SEND_BURST / 2; i++) await send(mia.client, dm.id, `reply ${i}`, { threadRootId: root.id })
@@ -417,9 +447,13 @@ test('replies and reactions take from the one sending budget', async () => {
     if (r.status === 429) break
     expect(r.status).toBe(200)
   }
-  // the replies took half of it: the reactions ran out at the other half (give or take the refill of a second)
-  expect(i).toBeGreaterThanOrEqual(SEND_BURST / 2)
-  expect(i).toBeLessThan(SEND_BURST)
+  // the replies took half of it: the reactions ran out at exactly the other half
+  expect(i).toBe(SEND_BURST / 2)
+  // a reaction that changes nothing costs nothing, even now
+  expect((await mia.client.try('PUT', `/api/rooms/${dm.id}/messages/${root.id}/reactions`, { emoji: '👍', on: false })).status).toBe(200)
+  // a second later one more
+  roomsOf(h.ctx).clock = () => t0 + 1000
+  expect((await mia.client.try('PUT', `/api/rooms/${dm.id}/messages/${root.id}/reactions`, { emoji: '👍', on: true })).status).toBe(200)
   const over = await mia.client.try('POST', `/api/rooms/${dm.id}/messages`, { body: 'one too many', clientMessageId: cm(), threadRootId: root.id })
   expect(over.status).toBe(429)
   expect(over.body.error).toMatchObject({ code: 'rate_limited', retryAfter: expect.any(Number) })
