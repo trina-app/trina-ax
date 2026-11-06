@@ -8,10 +8,12 @@
 // the row, its run button and its menu. With no skill at all, owners and admins can install the recommended pack in
 // one click (POST /api/onboarding/packs/marketing/install); members read that an admin can. A team that has skills but
 // none under skills/marketing/ (every team that walked the welcome steps has the general pack) gets one quiet line under
-// the list for owners and admins: "마케팅 스킬 7개 넣기", the same install on a click.
+// the list for owners and admins: "마케팅 스킬 7개 넣기", the same install on a click. The optional packs, which the server
+// never adds by itself (OPTIONAL_SKILL_PACKS: hr), get the same kind of line while none of their skills is in the team:
+// "인사 서류 스킬 3개 넣기".
 import { FileText, MessageSquarePlus, MoreHorizontal, PackagePlus, Play, ScrollText, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { skillSummary, skillTitle, WELCOME_PACK_SKILLS, type SkillInfo, type SkillPackId } from '@mycel/shared/api'
+import { HR_PACK_SKILLS, skillSummary, skillTitle, WELCOME_PACK_SKILLS, type SkillInfo, type SkillPackId } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { navigateTo } from '../lib/nav'
 import { parentPath } from '../lib/paths'
@@ -72,6 +74,8 @@ export function AvailableSkills({ query }: { query: string }) {
 
 /** The marketing pack's skills live here (the server installs a pack under skills/<id>/). */
 const MARKETING_FOLDER = `skills/${'marketing' satisfies SkillPackId}/`
+/** The optional HR pack's skills live here. */
+const HR_FOLDER = `skills/${'hr' satisfies SkillPackId}/`
 
 /** The list without the data load (null: still loading). Personal skills get a section of their own. */
 export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | null; query?: string }) {
@@ -85,25 +89,28 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
   if (!shown.length) return <EmptyState icon={<Sparkles size={22} />} title={t('skills.noMatch', { q: query.trim() })} />
   // no marketing skill in the team yet: owners and admins can add the pack (not while searching)
   const offerMarketing = admin && !q && !items.some((s) => !s.personal && s.path.startsWith(MARKETING_FOLDER))
+  const offerHr = admin && !q && !items.some((s) => !s.personal && s.path.startsWith(HR_FOLDER))
   return (
     <div className="space-y-6" data-testid="skill-list">
       <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal)} folders={admin} onRun={setRunning} />
       <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} folders={admin} onRun={setRunning} />
       {offerMarketing && <MarketingPackLine />}
+      {offerHr && <HrPackLine />}
       {running && <SkillFormDialog path={running.path} skill={running} onClose={() => setRunning(null)} />}
     </div>
   )
 }
 
-/** Install the marketing pack on a click and say what happened (only what is missing goes in; nothing is replaced). */
-function usePackInstall() {
+/** Install a pack (the marketing pack unless said) on a click and say what happened (only what is missing goes in;
+ * nothing is replaced). */
+function usePackInstall(id: SkillPackId = 'marketing') {
   const t = useT()
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
   const install = async () => {
     setBusy(true)
     try {
-      const r = await api.call(API.installSkillPack, { params: { id: 'marketing' } })
+      const r = await api.call(API.installSkillPack, { params: { id } })
       const created = r.skills.filter((s) => s.status === 'created').length
       const blocked = r.skills.filter((s) => s.status === 'blocked').length
       toast({ level: blocked ? 'warn' : 'success', text: [created ? t('skillPack.installed', { n: created }) : t('skillPack.already'), blocked ? t('skillPack.blocked', { n: blocked }) : ''].filter(Boolean).join(' ') })
@@ -126,6 +133,20 @@ function MarketingPackLine() {
       <button type="button" className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink disabled:opacity-50"
         title={t('skillPack.adminHint')} disabled={busy} onClick={() => void install()} data-testid="skill-pack-marketing">
         {t('skillPack.addMarketing', { n: WELCOME_PACK_SKILLS })}
+      </button>
+    </p>
+  )
+}
+
+/** Under the list, one quiet text button: "인사 서류 스킬 3개 넣기" (the optional HR pack; what goes in is its tooltip). */
+function HrPackLine() {
+  const t = useT()
+  const { busy, install } = usePackInstall('hr')
+  return (
+    <p className="text-[13px]">
+      <button type="button" className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink disabled:opacity-50"
+        title={t('skillPack.hrHint')} disabled={busy} onClick={() => void install()} data-testid="skill-pack-hr">
+        {t('skillPack.addHr', { n: HR_PACK_SKILLS })}
       </button>
     </p>
   )

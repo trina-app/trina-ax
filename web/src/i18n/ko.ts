@@ -2974,6 +2974,8 @@ export const ko = {
   "onboarding.profile.later": "나중에 할게요",
   "onboarding.profile.readingHint": "보통 1분 안에 끝나요.",
   "skillPack.addMarketing": "마케팅 스킬 {n}개 넣기",
+  "skillPack.addHr": "인사 서류 스킬 {n}개 넣기",
+  "skillPack.hrHint": "근로계약서, 재직·경력·퇴직증명서, 연차 계산·신청서 스킬 세 개를 넣어요. 모두 초안이고, 서명과 결정은 회사가 해요. 넣은 뒤에 고칠 수 있어요.",
   "onboarding.profile.understood": "이렇게 이해했어요: {line}",
   "onboarding.profile.unreadable": "홈페이지에서 회사 소개를 읽지 못했어요.",
   "onboarding.profile.fallbackTitle": "다른 방법으로 만들어요",

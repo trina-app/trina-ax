@@ -400,7 +400,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `POST` | `/api/onboarding/packs/:id/install` | Admin | Install a recommended skill pack (id: marketing, general or work) as the caller: its skills under skills/<id>/ and its team folders under shared/, in the team language. Adds only what is missing; never replaces a file. |
+| `POST` | `/api/onboarding/packs/:id/install` | Admin | Install a recommended skill pack (id: marketing, general, work or hr) as the caller: its skills under skills/<id>/ and its team folders under shared/, in the team language. Adds only what is missing; never replaces a file. |
 
 ## Onboarding (company profile)
 

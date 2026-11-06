@@ -10380,3 +10380,32 @@ owner asked for every skill in the repository to be in every team without anyone
 - Rejected: seeding in `bootstrapOwner` (setup) — every test harness sets up through it, and the welcome steps run
   right after setup anyway; a migration — the skills are files written through the file layer as a person, not rows;
   re-adding a deleted pack skill on update — a delete on purpose must stay.
+
+## DS2 — Natural writing as a default, Korean HR documents as an optional pack (2026-11-06)
+
+넣을 곳: trina-ax `resources/skill-packs/work/{ko,en}/humanizer`, `resources/skill-packs/hr` and
+`server/src/onboarding/skill-packs.ts`, 이유: the owner asked for the company's general-purpose skills to be Trina's
+default skills, accepting that they become public here, leaving out anything internal or with customer data.
+
+- **Natural writing (`work/humanizer`) is a default skill**, added once to every team like the rest of DS (existing
+  teams get it on the next run; the 19th default skill). Korean: a company-written Korean skill condensed into one
+  SKILL.md (genre registers for blog, review, official channels, Shorts, Instagram, proposals and notices; the AI tells
+  and their fixes), without its lint script (a pack ships one SKILL.md) and with **every quoted real title, caption or
+  creator replaced by examples written for this skill**. English: the open-source "humanizer" skill (Siqi Chen, MIT),
+  its pattern list rewritten with our own examples (its Wikipedia-derived examples are left out); its MIT notice is at
+  the end of the SKILL.md a team gets and as `LICENSE` next to it. Both: every fact stays, nothing invented, the
+  original file is never changed.
+- **Korean HR documents (`hr`) are an optional pack** (`OPTIONAL_SKILL_PACKS`): employment contract, employment
+  certificate (employment / career / leaving) and annual leave (days and a leave request), Korean and English. Made
+  general for any Korean company from an industry-specific edition: no industry, clinic or person names, no data; the
+  templates are inline, the leave calculation is in the text (art. 60, with its 5-employee threshold), the minimum wage
+  is 2026's with a pointer to the yearly notice. Drafts only; HR records are read only where the person may; never
+  saved to a wide folder. The server never adds it by itself: Available skills offers owners and admins one quiet line
+  ("인사 서류 스킬 3개 넣기") while no skill is under `skills/hr/`; the install is the pack install route (`id: hr`).
+- **Left out, on purpose:** the local-store SEO skills (third-party paid ranking research quoted throughout, and
+  scripts and a browser a pack cannot ship); the search-exposure method (the company's own unpublished method: the
+  owner decides separately); a PRD test-case generator (low priority); the medical / dental skills (they belong in the
+  medical fork, not here); developer workflows, customer-project rules, internal operations and brand kits, and
+  third-party generators that need paid credits.
+- Rejected: shipping the Korean lint script (a pack is one SKILL.md, and the checks are in the text); making the HR
+  pack a default (labour-law forms only some teams need, and wrong for teams outside Korea).
