@@ -10,7 +10,7 @@
 // when the person presses Stop ends stopped, Step.stopped);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -340,7 +340,7 @@ export class MockServer {
   uploadDelayMs = 0
   private uploadAnswer = () => new Promise<void>((done) => setTimeout(done, this.uploadDelayMs))
 
-  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string } = {}) {
+  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
     this.uploadDelayMs = 0
     this.setupNeeded = !!o.setup
@@ -436,6 +436,11 @@ export class MockServer {
     this.downloadOnly.clear()
     this.connection = defaultConnection()
     if (!this.setupNeeded) this.seed()
+    // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
+    if (o.withAdmin && !this.setupNeeded) {
+      this.addUser({ id: 'dana', username: 'dana', name: 'Dana', role: 'admin', groupIds: [], localeChoice: this.usersFollowTeam ? null : 'ko' }, 'dana password 1')
+      this.addUser({ id: 'eve', username: 'eve', name: 'Eve', role: 'admin', groupIds: [], localeChoice: this.usersFollowTeam ? null : 'ko' }, 'eve password 1')
+    }
     for (const u of this.users) if (u.username === o.mustChange) u.mustChangePassword = true
   }
 
@@ -1853,6 +1858,13 @@ export class MockServer {
       return u
     },
     deleteUser: (c) => {
+      const target = this.users.find((u) => u.id === c.params.id) ?? fail('not_found', 404)
+      const me = c.user
+      // as the server: an admin removes a member only, with their password again
+      if (me.role === 'admin') {
+        if (target.role !== 'member') fail('forbidden', 403)
+        if (c.body?.password !== this.passwords.get(me.username)) fail('forbidden', 403, 'wrong password')
+      }
       this.users = this.users.filter((u) => u.id !== c.params.id)
       return undefined
     },
@@ -3332,7 +3344,7 @@ export class MockServer {
 
   async testControl(p: string, req: Request): Promise<Response> {
     const body = (await req.json().catch(() => ({}))) as Json
-    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined })
+    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)

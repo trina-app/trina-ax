@@ -48,8 +48,8 @@ export const InboxNotification = z.object({
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
    * older servers omit it */
   joined: z.object({ name: z.string() }).optional(),
-  /** 'account.deletion_request' only (owners): who asked for their account to be deleted, by display name while the
-   * account is there (null once it is deleted), and where the request is now: open (waits for the owner; link
+  /** 'account.deletion_request' only (owners and admins): who asked for their account to be deleted, by display name while the
+   * account is there (null once it is deleted), and where the request is now: open (waits for the owner or an admin; link
    * 'admin_members' opens that person in Admin › Members, sourceId is their id), cancelled (they took it back) or
    * handled (the account was deleted); older servers omit it */
   deletionRequest: z.object({ name: z.string().nullable(), state: z.enum(['open', 'cancelled', 'handled']) }).optional(),

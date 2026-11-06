@@ -214,7 +214,7 @@ function Profile() {
               </span>
             )}
           </Row>
-          {/* the team owner deletes accounts: this asks them (App Store review 5.1.1(v)) */}
+          {/* the team owner and the admins delete accounts: this asks them (App Store review 5.1.1(v)) */}
           <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
             <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline sm:text-right" data-testid="account-deletion-link">
               {t('accountDeletion.title')}

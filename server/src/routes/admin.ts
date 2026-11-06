@@ -68,13 +68,14 @@ export const adminRoutes: RouteModule = {
       let problems = {}
       if (query.noAi) try { problems = getChatRuntime(ctx).engines.get().problems } catch { /* no chat runtime: none known */ }
       const noAi = query.noAi ? withoutAi(ctx, { problems }) : null
-      // who asked for their account to be deleted: the owner's only (the request is for the owner)
-      const deletionRequested = auth.user.role === 'owner' ? openDeletionRequests(ctx) : null
+      // who asked for their account to be deleted: for the owner and the admins, who delete accounts (an admin sees
+      // the members' requests only: an admin's own is the owner's to handle)
+      const deletionRequested = openDeletionRequests(ctx, auth.user.role === 'owner' ? undefined : 'member')
       return { items: listUsers(ctx), ...(noAi ? { noAi: noAi.ids, noAiUntil: noAi.until } : {}), ...(deletionRequested ? { deletionRequested } : {}) }
     })
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))
     kit.handle(API.updateUser, ({ c, params, body }) => updateUser(c, ctx, params.id, body))
-    kit.handle(API.deleteUser, ({ c, params, query }) => deleteUser(c, ctx, params.id, query.personalFolder))
+    kit.handle(API.deleteUser, ({ c, params, query, body }) => deleteUser(c, ctx, params.id, query.personalFolder, body.password))
     kit.handle(API.resetPassword, ({ c, params, body }) => resetPassword(c, ctx, params.id, body))
     kit.handle(API.createResetLink, ({ c, params, auth }) => {
       guardResetLink(c, ctx, params.id)
