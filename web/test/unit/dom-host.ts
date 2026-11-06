@@ -3,7 +3,8 @@
 // a form's submit from its submit button or requestSubmit. Installed only around the tests that use it
 // (installDom / removeDom), so other tests keep seeing no `window`; mount() renders into it and clicks, types and waits
 // inside act(). What it does not do: layout, CSS, selection (a text field keeps only its selectionStart and End), real
-// navigation. The browser itself is covered by the e2e specs.
+// navigation. The browser itself is covered by the e2e specs. Every test file starts from the same place whatever ran
+// before it (test/unit/preload.ts: React DOM loaded with a document, fresh stores, the usual globals, no document left).
 import { act, type ReactNode } from 'react'
 const HTML_NS = 'http://www.w3.org/1999/xhtml'
 
@@ -308,8 +309,19 @@ export function installDom(): FakeWindowHandle & { document: FakeDocument } {
   return Object.assign(handle, { document: doc })
 }
 
+/** Is a fake document installed now (test/unit/preload.ts takes away one a file left behind)? */
+export const domInstalled = () => saved !== null
+
+/** React roots mounted and not unmounted yet: removeDom unmounts them, so a component a test left behind (one that timed
+ * out, say) stops its effects and timers before the next test or file */
+const roots = new Set<{ unmount(): void }>()
+
 export function removeDom() {
   if (!saved) return
+  for (const r of [...roots]) {
+    roots.delete(r)
+    try { act(() => r.unmount()) } catch { /* its document is going anyway */ }
+  }
   for (const [k, d] of saved) {
     if (d) Object.defineProperty(globalThis, k, d)
     else delete (globalThis as Record<string, unknown>)[k]
@@ -329,12 +341,17 @@ export interface Mounted {
   type(el: string | FakeElement, text: string): Promise<void>
   /** the rendered page, for a failure message */
   html(): string
-  /** wait (letting effects, timers and fetches run) until `fn` gives something truthy */
+  /** wait (letting effects, timers and fetches run) until `fn` gives something truthy; at most `ms`, 4 s by default:
+   * less than bun's 5 s for a test, so a wait that fails ends inside its test (which then cleans up) and not after it,
+   * running on into the next one */
   until<T>(fn: () => T | null | undefined | false, what: string, ms?: number): Promise<T>
   /** let pending work run for `ms` */
   settle(ms?: number): Promise<void>
   unmount(): Promise<void>
 }
+
+/** how long until() waits by default (see Mounted.until) */
+const UNTIL_MS = 4000
 
 export async function mount(ui: ReactNode): Promise<Mounted> {
   const doc = globalThis.document as unknown as FakeDocument
@@ -343,6 +360,7 @@ export async function mount(ui: ReactNode): Promise<Mounted> {
   const container = doc.createElement('div')
   doc.body.appendChild(container)
   const root = createRoot(container as unknown as Element)
+  roots.add(root)
   await act(async () => root.render(ui))
   // the whole body, not only the container: a dialog (ui.tsx Modal) is rendered into <body> through a portal
   const find = (id: string) => doc.body.querySelector(`[data-testid="${id}"]`)
@@ -370,7 +388,7 @@ export async function mount(ui: ReactNode): Promise<Mounted> {
     },
     html: () => doc.body.innerHTML,
     settle,
-    until: async (fn, what, ms = 5000) => {
+    until: async (fn, what, ms = UNTIL_MS) => {
       const end = Date.now() + ms
       for (;;) {
         const v = fn()
@@ -380,6 +398,7 @@ export async function mount(ui: ReactNode): Promise<Mounted> {
       }
     },
     unmount: async () => {
+      if (!roots.delete(root)) return
       await act(async () => root.unmount())
       container.parentNode?.removeChild(container)
     },
