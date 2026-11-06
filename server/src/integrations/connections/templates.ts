@@ -20,7 +20,7 @@ import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
 import { fail } from '../../http/errors'
-import { cleanNotes, fieldError, integrationsOf, normUrl, obviouslyPrivate, oneLine } from './service'
+import { cleanNotes, fieldError, hiddenText, integrationsOf, normUrl, obviouslyPrivate, oneLine } from './service'
 import { activeUser, bareUrl, getRow, isAdmin, selectRows, templateCovers, view, type Row, type Viewer } from './store'
 import { say } from './text'
 import { notifyTemplateOffers } from '../../notifications/service'
@@ -99,8 +99,12 @@ export class ConnectionTemplates {
     return rows.map((t) => this.adminView(t))
   }
 
-  private check(L: Locale, v: { name: string; url: string; auth: TemplateRow['auth']; kind: TemplateRow['kind']; authHeader?: string | null; access?: IntegrationAccess }) {
+  private check(L: Locale, v: { name: string; url: string; auth: TemplateRow['auth']; kind: TemplateRow['kind']; authHeader?: string | null; notes?: string | null; access?: IntegrationAccess }) {
     if (!SHOWS.test(oneLine(v.name))) fieldError(L, 'name', 'requestNoName')
+    // the name reaches every member's AI (tools.ts, as `name "…"`) and their chat card: nothing hidden, no quote that
+    // ends the AI's quotation, no control characters (security review 2, #4)
+    if (hiddenText(v.name) || /["\u0000-\u001f\u007f]/.test(v.name)) fieldError(L, 'name', 'templateNameHidden')
+    if (v.notes && hiddenText(v.notes)) fieldError(L, 'notes', 'templateNotesHidden')
     if (v.auth === 'oauth' && v.kind !== 'mcp') fieldError(L, 'auth', 'oauthMcpOnly')
     if (obviouslyPrivate(normUrl(v.url))) fieldError(L, 'url', 'private_address')
     // the address goes with every member's key: a key in it (or any query, where one hides easily) would reach and be
@@ -132,7 +136,7 @@ export class ConnectionTemplates {
       setTemplateAccess(this.db, t.id, input.access ?? { everyone: true, groups: [], users: [] })
     })()
     audit(this.db, { actor: viewer.id, action: 'integration_template.create', target: t.id, detail: auditDetail(t, { access: templateAccess(this.db, t.id) }) })
-    notifyTemplateOffers(this.ctx, t.id)
+    notifyTemplateOffers(this.ctx, { templateId: t.id })
     return this.adminView(t)
   }
 
@@ -146,7 +150,7 @@ export class ConnectionTemplates {
     if (patch.notes !== undefined) next.notes = cleanNotes(patch.notes)
     if (next.auth === 'header') next.auth_header = patch.authHeader !== undefined ? patch.authHeader : t.auth_header
     else next.auth_header = null
-    next.auth_header = this.check(L, { name: next.name, url: next.url, auth: next.auth, kind: next.kind, authHeader: next.auth_header, access: patch.access })
+    next.auth_header = this.check(L, { name: next.name, url: next.url, auth: next.auth, kind: next.kind, authHeader: next.auth_header, notes: next.notes, access: patch.access })
     // a key is never sent to another address or in another way than the member connected it for
     const moved = next.url !== t.url || next.auth !== t.auth || next.auth_header !== t.auth_header
     const changed = (['name', 'url', 'auth', 'auth_header', 'notes'] as const).filter((k) => next[k] !== t[k])
@@ -169,10 +173,17 @@ export class ConnectionTemplates {
     if (changed.length || accessChanged) {
       audit(this.db, { actor: viewer.id, action: 'integration_template.update', target: id, detail: auditDetail(next, { changed: [...changed, ...(accessChanged ? ['access'] : [])], ...(accessChanged ? { access: { before, after } } : {}), ...(moved ? { keysDropped: true } : {}) }) })
     }
-    if (moved) await this.svc.dropFromTemplate(madeFrom(this.db, id), viewer.id, 'template_moved')
+    if (moved) {
+      // members the new rule leaves out lose their connection as "no longer for them", with no "connect it again"
+      // notice: only those still covered are asked to reconnect (security review 2, #5)
+      const rows = madeFrom(this.db, id)
+      const gone = rows.filter((r) => !r.owner_user_id || !templateCovers(this.db, id, r.owner_user_id))
+      if (gone.length) await this.svc.dropFromTemplate(gone, viewer.id, 'not_covered')
+      await this.svc.dropFromTemplate(rows.filter((r) => !gone.includes(r)), viewer.id, 'template_moved')
+    }
     else if (accessChanged) await this.sweep(id)
     // people it reaches now for the first time are told it is there
-    if (accessChanged) notifyTemplateOffers(this.ctx, id)
+    if (accessChanged) notifyTemplateOffers(this.ctx, { templateId: id })
     return this.adminView(getTemplate(this.db, id)!)
   }
 

@@ -16,6 +16,9 @@ import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
 
+/** At most this many template notices per 30-second backstop pass (security review 2, #1). */
+const OFFER_BATCH = 500
+
 export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
 /** Source of a "scheduled tasks paused for review" notice: the person and the time of the pause (stable while some of
  * those tasks are confirmed or deleted; a turn or skip id never starts with it). */
@@ -188,21 +191,33 @@ export class Notifications {
    * it is for everyone: whatever made it reach them, this finds it. Its maker is not told about their own template. The
    * source is the template's id only, and integration_template_offers keeps a second notice from coming once the first
    * is past its 30 days. Shown always: the person has something to do before their AI can use the service. */
-  offerTemplates(templateId?: string, at = new Date().toISOString()) {
+  offerTemplates(opts: { templateId?: string; userId?: string; limit?: number } = {}, at = new Date().toISOString()): number {
+    // One set-based query (security review 2, #1): templates × active people, the same test as templateCovers in SQL,
+    // so the cost is a single indexed scan instead of 1–3 queries per template and person. Only the pairs still owed a
+    // notice come back, at most `limit` per call: the 30-second backstop stays light however big the team is, and the
+    // events that change who a template reaches (made, its rule changed, a group joined, someone activated) call this
+    // straight away for just that template or person.
     const db = this.ctx.db
-    const templates = db.query(`SELECT id, created_by FROM integration_templates ${templateId ? 'WHERE id = ?' : ''}`).all(...(templateId ? [templateId] : [])) as { id: string; created_by: string | null }[]
-    if (!templates.length) return
-    const people = db.query("SELECT id FROM users WHERE status='active' AND deleted_at IS NULL").all() as { id: string }[]
-    for (const t of templates) {
-      for (const { id: userId } of people) {
-        if (userId === t.created_by) continue
-        if (db.query('SELECT 1 FROM integration_template_offers WHERE template_id=? AND user_id=?').get(t.id, userId)) continue
-        if (!templateCovers(db, t.id, userId)) continue
-        if (db.query('SELECT 1 FROM integrations WHERE template_id=? AND owner_user_id=?').get(t.id, userId)) continue
-        db.query('INSERT OR IGNORE INTO integration_template_offers(template_id,user_id,created_at) VALUES(?,?,?)').run(t.id, userId, at)
-        this.record(userId, 'integration.template', t.id, at, true)
-      }
+    const where: string[] = []
+    const args: (string | number)[] = []
+    if (opts.templateId) { where.push('t.id = ?'); args.push(opts.templateId) }
+    if (opts.userId) { where.push('u.id = ?'); args.push(opts.userId) }
+    args.push(Math.max(1, Math.min(opts.limit ?? OFFER_BATCH, 100_000)))
+    const owed = db.query(`SELECT t.id AS template_id, u.id AS user_id
+      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND (t.created_by IS NULL OR u.id <> t.created_by)
+      WHERE ${where.length ? `${where.join(' AND ')} AND ` : ''}
+        NOT EXISTS (SELECT 1 FROM integration_template_offers o WHERE o.template_id = t.id AND o.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM integrations i WHERE i.template_id = t.id AND i.owner_user_id = u.id)
+        AND EXISTS (SELECT 1 FROM integration_template_access a WHERE a.template_id = t.id AND (a.subject_type = 'everyone'
+          OR (a.subject_type = 'user' AND a.subject_id = u.id)
+          OR (a.subject_type = 'group' AND EXISTS (SELECT 1 FROM group_members g WHERE g.group_id = a.subject_id AND g.user_id = u.id))))
+      ORDER BY t.created_at, t.id, u.id LIMIT ?`).all(...args) as { template_id: string; user_id: string }[]
+    if (!owed.length) return 0
+    const mark = db.query('INSERT OR IGNORE INTO integration_template_offers(template_id,user_id,created_at) VALUES(?,?,?)')
+    for (const r of owed) {
+      if (mark.run(r.template_id, r.user_id, at).changes) this.record(r.user_id, 'integration.template', r.template_id, at, true)
     }
+    return owed.length
   }
   /** A template's address, sign-in method or header changed, so the member's own connection made from it (and their key)
    * was dropped: they connect it again. One notice per member and change. Shown always, like the first one. */
@@ -236,7 +251,7 @@ export class Notifications {
       ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
     for (const row of needs) this.record(row.user_id, 'schedule.failure', row.id, row.created_at, true)
     db.query('DELETE FROM schedule_template_skips WHERE created_at < ?').run(this.cutoff())
-    if (!userId) { try { this.offerTemplates() } catch { this.ctx.log.warn('template notices deferred') } }
+    if (!userId) { try { this.offerTemplates({ limit: OFFER_BATCH }) } catch { this.ctx.log.warn('template notices deferred') } }
     // scheduled tasks nobody confirmed, paused for their owner's review (chat/schedules.ts): one notice per person and
     // pause, shown in the app always (the task stopped running), pushed per the "scheduled task failed" setting
     const reviews = db.query(`SELECT s.user_id, s.review_since FROM schedules s
@@ -486,8 +501,11 @@ export function notifyConnectionReconnect(ctx: AppContext, userId: string, sourc
   try { notificationsOf(ctx).connectionReconnect(userId, sourceId, createdAt) }
   catch { ctx.log.warn('connection notification recording deferred') }
 }
-export function notifyTemplateOffers(ctx: AppContext, templateId?: string) {
-  try { notificationsOf(ctx).offerTemplates(templateId) }
+/** A template was made or its rule changed (templateId), or who it reaches may have changed for one person (userId: a
+ * group joined, an account activated) or for many (neither: a group's members changed). Uncapped for one template or
+ * person; a team-wide call does one batch and leaves the rest to the 30-second backstop. */
+export function notifyTemplateOffers(ctx: AppContext, scope: { templateId?: string; userId?: string } = {}) {
+  try { notificationsOf(ctx).offerTemplates({ ...scope, limit: scope.templateId || scope.userId ? 100_000 : OFFER_BATCH }) }
   catch { ctx.log.warn('template notices deferred') }
 }
 export function notifyTemplateReconnect(ctx: AppContext, userId: string, templateId: string, version: number) {
