@@ -192,11 +192,11 @@ describe('translations', () => {
     expect(translate('ko', 'goal.waitingMany', { name: '팀장님', n: 2, skill: "'광고 문구'는" })).toBe("팀장님 외 2명이 들어왔지만 '광고 문구'는 아직이에요.")
     expect(format('{name}님', {}, 'ko')).toBe('{name}님')
     // with a space before the honorific ("{name} 님"), as in about 18 Korean and 9 Japanese texts
-    expect(translate('ko', 'rooms.replyTo', { name: '대표님' })).toBe('대표님에게 답장')
+    expect(translate('ko', 'rooms.aiAnsweredTo', { name: '대표님' })).toBe('대표님에게만 답했어요')
     expect(translate('ko', 'notifications.event.room.dmNamed', { name: '대표님' })).toBe('대표님이 메시지를 보냈어요.')
-    expect(translate('ko', 'rooms.replyTo', { name: '김님희' })).toBe('김님희 님에게 답장')
+    expect(translate('ko', 'rooms.aiAnsweredTo', { name: '김님희' })).toBe('김님희 님에게만 답했어요')
     expect(translate('ko', 'notifications.event.room.dmNamed', { name: '김님희' })).toBe('김님희 님이 메시지를 보냈어요.')
-    expect(translate('ko', 'rooms.replyTo', { name: '이민준' })).toBe('이민준 님에게 답장')
+    expect(translate('ko', 'rooms.aiAnsweredTo', { name: '이민준' })).toBe('이민준 님에게만 답했어요')
     // the particle after it follows the name's last sound: 씨 ends in a vowel
     expect(translate('ko', 'notifications.event.room.dmNamed', { name: '김민지 씨' })).toBe('김민지 씨가 메시지를 보냈어요.')
     expect(translate('ko', 'demo.start', { name: '김민지 씨' })).toBe('김민지 씨로 시작하기')

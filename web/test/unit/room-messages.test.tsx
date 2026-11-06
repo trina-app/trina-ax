@@ -1,6 +1,6 @@
 // How a room's messages are shown (components/rooms/RoomMessages.tsx): another member's words as plain text (never
-// HTML), the @names they mention stand out, the unread number only while someone has not read it, deleted and edited
-// messages say so, and one avatar and name per run of one author.
+// HTML), the @names they mention stand out, no read count anywhere, deleted and edited messages say so, one avatar and
+// name per run of one author, a root's thread line, reactions, and a reply sent to the room too.
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
@@ -12,7 +12,7 @@ import { at, BEN, CY, ME, message } from './rooms-fixtures'
 import { uuidv7 } from '@mycel/shared/api'
 
 const R = uuidv7()
-const render = (ms: ReturnType<typeof message>[]) => renderToStaticMarkup(<RoomMessages roomId={R} messages={ms} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+const render = (ms: ReturnType<typeof message>[]) => renderToStaticMarkup(<RoomMessages roomId={R} messages={ms} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
 const count = (html: string, s: string) => html.split(s).length - 1
 
 test("another member's text stays text: HTML is escaped, line breaks kept, mentions marked", () => {
@@ -23,15 +23,14 @@ test("another member's text stays text: HTML is escaped, line breaks kept, menti
   expect(html).toMatch(/<span class="font-medium text-accent-text">@Cy Park<\/span>/)
 })
 
-test('the unread number shows only above 0; deleted and edited messages say so', () => {
+test('no read count on any message; deleted and edited messages say so', () => {
   const html = render([
-    message({ roomId: R, seq: 1, body: 'two have not read', unread: 2 }),
-    message({ roomId: R, seq: 2, body: 'all read', unread: 0 }),
+    message({ roomId: R, seq: 1, body: 'one' }),
+    message({ roomId: R, seq: 2, body: 'two', authorKind: 'ai', author: null, askedBy: BEN }),
     message({ roomId: R, seq: 3, body: 'fixed', editedAt: at(4) }),
     message({ roomId: R, seq: 4, body: '', deletedAt: at(5) }),
   ])
-  expect(count(html, 'data-testid="message-unread"')).toBe(1)
-  expect(html).toContain(translate('en', 'rooms.unreadBy', { n: 2 }))
+  expect(html).not.toContain('message-unread')
   expect(html).toContain(translate('en', 'rooms.edited'))
   expect(html).toContain(translate('en', 'rooms.deleted'))
   // a deleted message has no menu (nothing to answer, edit or delete)
@@ -152,7 +151,7 @@ test("someone else's question answered privately says so under the question, nam
   const q = message({ roomId: R, seq: 1, author: BEN, body: '@Trina budget?', answeredPrivately: true })
   const later = message({ roomId: R, seq: 2, author: CY, body: 'meanwhile' })
   installDom()
-  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
     const html = m.html()
     expect(count(html, 'data-testid="room-ai-private-for"')).toBe(1)
@@ -166,12 +165,12 @@ test("someone else's question answered privately says so under the question, nam
   }
 })
 
-test('touch screens: no "…" on every message; a long press opens its menu (reply, copy, edit and delete my own)', async () => {
+test('touch screens: no hover row on every message; a long press opens its menu (reactions, reply in thread, copy, edit and delete my own)', async () => {
   const html = render([message({ roomId: R, seq: 1, author: ME, body: 'mine' })])
   // the button stays for the mouse (on hover) and goes on phones and touch screens
   expect(html).toMatch(/<button[^>]*class="[^"]*pointer-coarse:hidden max-sm:hidden[^"]*"[^>]*data-testid="message-menu"/)
   installDom()
-  const m = await mount(<RoomMessages roomId={R} messages={[message({ roomId: R, seq: 1, author: ME, body: 'mine' })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  const m = await mount(<RoomMessages roomId={R} messages={[message({ roomId: R, seq: 1, author: ME, body: 'mine' })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
     const press = (type: string, o: Record<string, unknown> = {}) => {
       const e = Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10, ...o })
@@ -181,31 +180,24 @@ test('touch screens: no "…" on every message; a long press opens its menu (rep
     press('pointerdown')
     press('pointermove', { clientY: 60 })
     await m.settle(700)
-    expect(m.find('message-reply')).toBeNull()
-    // held still: the menu
+    expect(m.find('message-reply-thread')).toBeNull()
+    // held still: the menu, with the reactions on top
     press('pointerdown')
     await m.settle(700)
-    expect(['message-reply', 'message-copy', 'message-edit', 'message-delete'].map((id) => !!m.find(id))).toEqual([true, true, true, true])
+    expect(['message-reply-thread', 'message-copy', 'message-edit', 'message-delete', 'reaction-strip'].map((id) => !!m.find(id))).toEqual([true, true, true, true, true])
   } finally {
     await m.unmount()
     removeDom()
   }
 })
 
-test("an AI answer's unread number sits by its time, not on a line of its own under the answer", () => {
-  const a = message({ roomId: R, seq: 2, authorKind: 'ai', author: null, askedBy: BEN, body: 'long **answer**', unread: 2 })
-  const html = render([a])
-  expect(count(html, 'data-testid="message-unread"')).toBe(1)
-  expect(html.indexOf('data-testid="message-unread"')).toBeLessThan(html.indexOf('<strong>answer</strong>'))
-  expect(html).toMatch(/<\/time><span[^>]*data-testid="message-unread"/)
-})
 
 test('my stopped question says so under that question, not at the end of the room', async () => {
   const q = message({ roomId: R, seq: 1, author: ME, body: '@Trina table please' })
   const later = message({ roomId: R, seq: 2, author: BEN, body: 'meanwhile' })
   installDom()
   useRooms.setState({ ai: { [R]: { answering: 0, runs: [{ turnId: uuidv7(), roomId: R, questionId: q.id, state: 'stopped', position: 0, steps: [], error: null, createdAt: q.createdAt }] } } })
-  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  const m = await mount(<RoomMessages roomId={R} messages={[q, later]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
     const html = m.html()
     expect(count(html, 'data-testid="room-ai-ended"')).toBe(1)
@@ -250,7 +242,7 @@ test("a photo's thumbnail takes its own shape once loaded (an older row with a l
   const file = { id: uuidv7(), name: 'IMG_0001.jpg', size: 1000, mime: 'image/jpeg', kind: 'image', width: 1600, height: 1200, thumb: true }
   const m0 = message({ roomId: R, seq: 1, author: BEN, body: '', files: [file] as never })
   installDom()
-  const m = await mount(<RoomMessages roomId={R} messages={[m0]} pending={[]} meId={ME.id} members={[ME, BEN]} onReply={() => {}} />)
+  const m = await mount(<RoomMessages roomId={R} messages={[m0]} pending={[]} meId={ME.id} members={[ME, BEN]} onThread={() => {}} />)
   try {
     const img = m.get('room-image').querySelector('img')!
     // before it loads: the box from the stored size (landscape)
@@ -270,7 +262,7 @@ test('a name changed since the messages were read shows at once: the directory h
   const q = message({ roomId: R, seq: 1, author: BEN, body: 'first' })
   const reply = message({ roomId: R, seq: 2, author: CY, body: 'hi @Ben', mentions: [BEN.id], replyTo: { id: q.id, author: BEN, excerpt: 'first', fileCount: 0, deleted: false } })
   installDom()
-  const m = await mount(<RoomMessages roomId={R} messages={[q, reply]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onReply={() => {}} />)
+  const m = await mount(<RoomMessages roomId={R} messages={[q, reply]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
     expect(m.html()).toMatch(/>Ben</)
     // Ben renames himself: the directory reloads (profile_changed), the messages and the members still say "Ben"
@@ -289,7 +281,7 @@ test('a name changed since the messages were read shows at once: the directory h
 })
 
 // ---------------- group chats and room names (docs/DECISIONS.md "그룹 대화와 방 이름") ----------------
-test('an event line is one quiet line in the middle: no avatar, menu, unread number; a room name stays text', () => {
+test('an event line is one quiet line in the middle: no avatar, menu, reactions or thread; a room name stays text', () => {
   const html = render([
     message({ roomId: R, seq: 1, body: 'hello' }),
     message({ roomId: R, seq: 2, body: '', author: BEN, event: { type: 'renamed', name: '<b>Plan</b>' } }),
@@ -317,4 +309,102 @@ test('phones: the first message after an event line keeps its time unless the me
   ])
   // seq 3 is a minute after seq 1 (the event line's time does not count): shown; seq 5 has seq 3's minute: once
   expect(sameTimeAsAbove(runs, minute)).toEqual([false, false, false, false, true])
+})
+
+// ---------------- threads and reactions (docs/DECISIONS.md "스레드와 반응") ----------------
+test("a root's thread line: up to 3 faces, the count, the last reply's time, a dot only for a followed thread with new replies; a tap opens it", async () => {
+  const quiet = message({ roomId: R, seq: 1, body: 'root', thread: { replyCount: 3, lastReplyAt: at(9), repliers: [CY, BEN], newReplies: false } })
+  const fresh = message({ roomId: R, seq: 2, author: CY, body: 'another root', thread: { replyCount: 1, lastReplyAt: at(10), repliers: [BEN], newReplies: true } })
+  const html = render([quiet, fresh, message({ roomId: R, seq: 3, author: ME, body: 'no thread' })])
+  expect(count(html, 'data-testid="room-thread-line"')).toBe(2)
+  expect(html).toContain(translate('en', 'rooms.threadReplies', { n: 3 }))
+  expect(count(html, 'data-new=""')).toBe(1)
+  expect(count(html, translate('en', 'rooms.threadNew'))).toBe(1)
+  // in the thread itself the root has no line of its own, and replies none
+  const inThread = renderToStaticMarkup(<RoomMessages roomId={R} messages={[quiet]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} variant="root" />)
+  expect(inThread).not.toContain('room-thread-line')
+  expect(inThread).not.toContain('message-thread')
+  installDom()
+  const opened: [string, boolean | undefined][] = []
+  const m = await mount(<RoomMessages roomId={R} messages={[quiet]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={(id, focus) => opened.push([id, focus])} />)
+  try {
+    await m.click('room-thread-line')
+    // the hover row's "reply in thread" puts the cursor in the thread's box
+    await m.click('message-thread')
+    expect(opened).toEqual([[quiet.id, undefined], [quiet.id, true]])
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})
+
+test('a reply sent to the room too: marked as a thread reply in the timeline (a tap opens its thread), "also sent" in the thread', async () => {
+  const root = uuidv7()
+  const loud = message({ roomId: R, seq: 5, body: 'to everyone', threadRootId: root, alsoInRoom: true })
+  expect(render([loud])).toContain('data-testid="room-thread-reply-mark"')
+  // a reply has no thread of its own: no "reply in thread"
+  expect(render([loud])).not.toContain('data-testid="message-thread"')
+  const inThread = renderToStaticMarkup(<RoomMessages roomId={R} messages={[loud]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} variant="reply" threadRootId={root} />)
+  expect(inThread).toContain(translate('en', 'rooms.alsoSent'))
+  expect(inThread).not.toContain('room-thread-reply-mark')
+  installDom()
+  const opened: string[] = []
+  const m = await mount(<RoomMessages roomId={R} messages={[loud]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={(id) => opened.push(id)} />)
+  try {
+    await m.click('room-thread-reply-mark')
+    expect(opened).toEqual([root])
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})
+
+test('reactions: a chip per emoji with its count, mine marked and pressed, who reacted in its tooltip; none on deleted messages or event lines', async () => {
+  const reactions = [{ emoji: '👍' as const, count: 12, mine: true, users: [ME, BEN] }, { emoji: '🎉' as const, count: 1, mine: false, users: [CY] }]
+  const html = render([
+    message({ roomId: R, seq: 1, body: 'liked', reactions }),
+    message({ roomId: R, seq: 2, body: '', deletedAt: at(3), reactions }),
+    message({ roomId: R, seq: 3, body: '', author: BEN, event: { type: 'left' }, reactions }),
+  ])
+  expect(count(html, 'data-testid="reaction-chip"')).toBe(2)
+  expect(count(html, 'aria-pressed="true"')).toBe(1)
+  expect(html).toContain('>12<')
+  // the names the server gave and how many more: "Ada, Ben and 10 more"
+  expect(html).toContain(translate('en', 'rooms.groupNamesMore', { names: 'Ada, Ben', n: 10 }))
+  expect(html).toContain('🎉 Cy Park')
+  // the hover row's react button on a message that takes reactions only
+  expect(count(html, 'data-testid="message-react"')).toBe(1)
+  // a tap puts mine on or takes it off
+  installDom()
+  const calls: string[] = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push(`${init?.method} ${new URL(String(input), 'http://team.localhost').pathname} ${init?.body}`)
+    return new Response(JSON.stringify({ reactions: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  const msg = message({ roomId: R, seq: 1, body: 'liked', reactions })
+  const m = await mount(<RoomMessages roomId={R} messages={[msg]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
+  try {
+    const chips = m.container.querySelectorAll('[data-testid="reaction-chip"]')
+    await m.click(chips[0] as never)
+    await m.click(chips[1] as never)
+    await m.settle(10)
+    expect(calls).toEqual([
+      `PUT /api/rooms/${R}/messages/${msg.id}/reactions ${JSON.stringify({ emoji: '👍', on: false })}`,
+      `PUT /api/rooms/${R}/messages/${msg.id}/reactions ${JSON.stringify({ emoji: '🎉', on: true })}`,
+    ])
+  } finally {
+    globalThis.fetch = realFetch
+    await m.unmount()
+    useRooms.getState().reset()
+    removeDom()
+  }
+})
+
+test("a room's badge counts the threads I follow with new replies; '@' when one of them mentions me", async () => {
+  const { UnreadBadge } = await import('../../src/components/rooms/SidebarRooms')
+  const { room } = await import('./rooms-fixtures')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">2</span>')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 1, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">3</span>')
+  expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0, threadsUnread: 1, mentioned: true })} testId="b" />)).toContain('<span aria-hidden="true">@</span>')
 })

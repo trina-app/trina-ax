@@ -186,6 +186,8 @@ function Gate() {
           {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}
           <Route path="rooms" element={<Rooms />} />
           <Route path="rooms/:roomId" element={<RoomPage />} />
+          {/* a thread of a room (beside it on computers, over it on phones; a room notice of a reply links here) */}
+          <Route path="rooms/:roomId/t/:messageId" element={<RoomPage />} />
           <Route path="files" element={<Files />} />
           <Route path="files/view" element={<FileView />} />
           <Route path="projects" element={<ProjectList />} />

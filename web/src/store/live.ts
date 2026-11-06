@@ -79,6 +79,9 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       return
     case 'room.message.updated':
     case 'room.read':
+    case 'room.thread':
+    // a reaction never rings (nor counts anywhere)
+    case 'room.reactions':
     case 'room.updated':
     case 'room.ai':
     case 'room.ai.run':

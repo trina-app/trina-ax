@@ -156,14 +156,25 @@ export function newestSeq(messages: RoomMessage[]): number {
   return messages.at(-1)?.seq ?? 0
 }
 
+/** A room's count for me: its unread messages, and the threads I follow there with replies I have not read (each one
+ * thing to read). Thread replies never count otherwise (docs/DECISIONS.md "스레드와 반응"). */
+export const roomUnread = (r: Pick<Room, 'unreadCount'> & Partial<Pick<Room, 'threadsUnread'>>) => r.unreadCount + (r.threadsUnread ?? 0)
+
 /** The total for the 대화 tab: every room's own badge, added; a muted room's never (its badge is grey). */
-export function totalUnread(rooms: Pick<Room, 'unreadCount' | 'muted'>[]): number {
-  return rooms.reduce((n, r) => n + (r.muted ? 0 : r.unreadCount), 0)
+export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread'>>)[]): number {
+  return rooms.reduce((n, r) => n + (r.muted ? 0 : roomUnread(r)), 0)
 }
 
-/** A room's badge: "@" when one of the unread messages mentions me (the count would read as a count of mentions),
- * else the count. */
-export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'>) => (r.mentioned ? '@' : badgeText(r.unreadCount))
+/** A room's badge: "@" when one of the unread messages (or followed replies) mentions me (the count would read as a
+ * count of mentions), else the count. */
+export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread'>>) => (r.mentioned ? '@' : badgeText(roomUnread(r)))
+
+/** Who put a reaction there, for its tooltip: the names given ("가나, 다라"), then how many more ("외 3명"). */
+export function reactionWho(r: { count: number; users: { name: string }[] }, w: { sep: string; more: (names: string, n: number) => string }): string {
+  const names = r.users.map((u) => u.name).join(w.sep)
+  const more = r.count - r.users.length
+  return more > 0 ? w.more(names, more) : names
+}
 
 /** An AI answer's Markdown as one plain line for the rooms list: no #, **, list marks, backticks or link addresses (the
  * excerpt may end inside a link). */

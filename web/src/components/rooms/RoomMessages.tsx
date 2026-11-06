@@ -1,34 +1,39 @@
 // The messages of a room, oldest first: one author's messages close together share one avatar, name and time
-// (lib/rooms.ts groupRuns; on phones the time only when it differs from the one above), a date line starts each day,
-// and each message shows how many members have not read it yet (only when some have not, like KakaoTalk's number). A
-// message's text is another member's words: plain text with its line breaks, never HTML or Markdown; the @names it
-// mentions stand out. "…" on a message (on hover; a long press on touch screens) answers or copies it, and edits or
-// deletes one's own. Images show as thumbnails that open in the side panel; other files are chips that download.
+// (lib/rooms.ts groupRuns; on phones the time only when it differs from the one above), and a date line starts each
+// day. Nobody is shown who has read what (docs/DECISIONS.md "스레드와 반응": no read receipts). A message's text is
+// another member's words: plain text with its line breaks, never HTML or Markdown; the @names it mentions stand out.
+// On a computer a message's hover row has a reaction, "reply in thread" and "…" (copy, edit and delete one's own); on a
+// touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
+// (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
+// thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
+// list shows a thread's root and replies (variant). Images show as thumbnails that open in the side panel; other files
+// are chips that download.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
 // 있어요"), and above its one action (post it to the room, an outline button) who would see it then. An event line (a
 // rename, people invited, someone left or taken out: RoomMessage.event) is one quiet line in the middle, nothing more:
-// no avatar, menu, unread number or reply.
+// no avatar, menu, reaction or thread.
 import clsx from 'clsx'
-import { Copy, CornerUpLeft, Download, FileText, Lock, Pencil, Sparkles, Trash2 } from 'lucide-react'
+import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
-import { aiMentionNames, eventText, groupRuns, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
+import { aiMentionNames, eventText, groupRuns, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
-import { quoteOf, useRooms, type PendingSend } from '../../store/rooms'
+import { useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
 import { MenuButton, useLongPress } from './MenuButton'
+import { reactable, ReactionChips, ReactionPicker, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { useMentionMenu } from './useMentionMenu'
 
@@ -80,7 +85,12 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
   )
 }
 
-export function RoomMessages({ roomId, messages, pending, meId, members, onReply }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onReply: (q: RoomQuote) => void }) {
+/** Where the list is: the room's timeline, or the thread panel's root, or its replies. */
+export type ListVariant = 'timeline' | 'root' | 'reply'
+
+/** `threadRootId`: the thread of a 'reply' list (my questions asked there that ended without an answer show under it).
+ * `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day. */
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, variant = 'timeline', threadRootId = null, dayBefore = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
@@ -110,7 +120,9 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
     ...ended.filter((r) => r.questionId === m.id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
     ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={nameOf(m.author) ?? t('rooms.goneUser')} />] : []),
   ]
-  const orphans = ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
+  // my ended questions not on this list: under the timeline the timeline's, under a thread's replies that thread's
+  const place = variant === 'reply' ? threadRootId : null
+  const orphans = variant === 'root' ? [] : ended.filter((r) => !loaded.has(r.questionId) && (r.threadRootId ?? null) === place).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
   // phones: a run's time only when it differs from the run above it ("오전 11:56" once for four messages of that minute)
   const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])
 
@@ -120,7 +132,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
         const first = run.messages[0]!
         return (
           <Fragment key={run.key}>
-            {run.newDay && (
+            {run.newDay && !(i === 0 && dayBefore && localDayKey(dayBefore) === localDayKey(first.createdAt)) && (
               <div role="separator" className="flex items-center gap-3 py-3 text-micro font-medium text-faint">
                 <span className="h-px flex-1 bg-line" aria-hidden />
                 {dayOf(first.createdAt, locale)}
@@ -136,8 +148,6 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
                   </time>
-                  {/* an AI answer is long Markdown: its unread number sits by the time, not on a line of its own */}
-                  {first.authorKind === 'ai' && !first.deletedAt && <Unread n={first.unread} />}
                 </p>
                 {run.messages.map((m) => (
                   <Fragment key={m.id}>
@@ -152,9 +162,9 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
                       flash={flash === m.id}
                       onEdit={() => setEditing(m.id)}
                       onEditDone={() => setEditing(null)}
-                      onReply={() => onReply(quoteOf(m))}
+                      onThread={onThread}
+                      variant={variant}
                       onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
-                      headed={m === first}
                     />
                     {after(m)}
                   </Fragment>
@@ -202,21 +212,34 @@ function RunAvatar({ m }: { m: RoomMessage }) {
   return user ? <Avatar user={user} size={32} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
 
-/** How many members have not read a message yet (only above 0), quiet like the time: orange is kept for mentions and
- * actions. */
-function Unread({ n }: { n: number }) {
+/** A root's thread under it: up to 3 faces, "답글 3개", the last reply's time; a dot when a thread I follow has replies I
+ * have not read. One tap opens the thread. */
+function ThreadLine({ m, onOpen }: { m: RoomMessage; onOpen: () => void }) {
   const t = useT()
-  if (n <= 0) return null
+  const locale = useLocale()
+  const th = m.thread
+  if (!th || th.replyCount <= 0) return null
   return (
-    <span className="ml-1.5 text-micro font-medium text-faint tabular-nums" data-testid="message-unread">
-      <span aria-hidden>{n}</span>
-      <span className="sr-only">{t('rooms.unreadBy', { n })}</span>
-    </span>
+    <button type="button" onClick={onOpen} className="touch-hit group/thread mt-1 -ml-1 flex max-w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left text-xs hover:bg-hover" data-testid="room-thread-line" data-new={th.newReplies ? '' : undefined}>
+      {th.repliers.length > 0 && (
+        <span className="flex shrink-0 gap-0.5" aria-hidden>
+          {th.repliers.map((u) => <ReplierFace key={u.id} user={u} />)}
+        </span>
+      )}
+      {th.newReplies && <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-hidden />}
+      <span className="shrink-0 font-medium text-accent-text group-hover/thread:underline">{t('rooms.threadReplies', { n: th.replyCount })}</span>
+      {th.newReplies && <span className="sr-only">{t('rooms.threadNew')}</span>}
+      {th.lastReplyAt && <span className="truncate text-faint">· {t('rooms.threadLast', { time: timeOf(th.lastReplyAt, locale) })}</span>}
+    </button>
   )
 }
 
-/** `headed`: the first message of its run (the run's name and time are above it) */
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onEdit, onEditDone, onReply, onJump, headed = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; onEdit: () => void; onEditDone: () => void; onReply: () => void; onJump?: () => void; headed?: boolean }) {
+function ReplierFace({ user }: { user: UserRef }) {
+  const u = useAvatarOf(user)
+  return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
+}
+
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onEdit, onEditDone, onThread, variant, onJump }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; variant: ListVariant; onJump?: () => void }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -231,9 +254,16 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   // "@트리나" stands out like a person's name (the server asked the AI for it)
   const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...aiMentionNames(m.body, mentioned)]), [m.body, mentioned, ai])
   const [press, setPress] = useState(0)
+  const pressedAt = useRef(0)
   const menuOn = !deleted && !editing && (m.visibility === 'room' || removable)
-  // a touch screen: no "…" on every message; a long press opens its menu
-  const longPress = useLongPress(() => setPress((n) => n + 1))
+  // a thread under it: only a message of the timeline for everyone, and only from the timeline (no thread in a thread)
+  const threadOn = variant === 'timeline' && !!onThread && !m.threadRootId && m.visibility === 'room' && !deleted
+  const reactOn = reactable(m) && !editing
+  // a touch screen: no hover row on every message; a long press opens its menu (with the reactions on top)
+  const longPress = useLongPress(() => {
+    pressedAt.current = Date.now()
+    setPress((n) => n + 1)
+  })
   const { copy } = useCopy()
   const copyText = async () => {
     await copy(m.body)
@@ -247,26 +277,30 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
       .remove(roomId, m.id)
       .catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   }
-  const meta = (
-    <>
-      {m.editedAt && !deleted && <span className="ml-1 text-xs text-faint">{t('rooms.edited')}</span>}
-      {!deleted && <Unread n={m.unread} />}
-    </>
-  )
+  const meta = m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint">{t('rooms.edited')}</span> : null
   return (
     <div
       id={messageDomId(m.id)}
-      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 pr-10 transition pointer-coarse:pr-2 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] max-sm:pr-2', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle')}
+      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle')}
       data-testid="room-message"
       data-ai={ai ? '' : undefined}
       data-visibility={m.visibility}
       {...(menuOn ? longPress : {})}
     >
+      {/* a reply sent to the room too: in the timeline it says it belongs to a thread (a tap opens it); in the thread it
+          says it went to the room as well */}
+      {m.alsoInRoom && m.threadRootId && (variant === 'timeline' && onThread ? (
+        <button type="button" onClick={() => onThread(m.threadRootId!)} className="mb-0.5 flex items-center gap-1 text-xs text-faint hover:text-ink hover:underline" data-testid="room-thread-reply-mark">
+          <MessageSquareText size={12} aria-hidden />
+          {t('rooms.threadReplyMark')}
+        </button>
+      ) : variant === 'reply' ? (
+        <p className="mb-0.5 text-xs text-faint" data-testid="room-also-sent">{t('rooms.alsoSent')}</p>
+      ) : null)}
       {ai ? <AskedBy roomId={roomId} m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
       {ai && !deleted ? (
         <>
           <Markdown text={m.body} className="min-w-0" openable={openable} />
-          {!headed && m.unread > 0 && <p className="leading-5">{meta}</p>}
           {!!m.sourceCount && (
             <SourcesList chatId={roomId} messageId={m.id} count={m.sourceCount} load={(signal) => api.call(API.roomMessageSources, { params: { id: roomId, messageId: m.id }, signal })} />
           )}
@@ -292,25 +326,47 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
             </p>
           )}
           {m.files.length > 0 && <Files roomId={roomId} files={m.files} />}
-          {!m.body && (m.unread > 0 || m.editedAt) && <p className="leading-5">{meta}</p>}
+          {!m.body && m.editedAt && <p className="leading-5">{meta}</p>}
         </>
       )}
+      {!deleted && <ReactionChips roomId={roomId} m={m} />}
+      {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine m={m} onOpen={() => onThread(m.id)} />}
+      {/* computers: a quiet row on hover (react, reply in thread, "…"); touch screens and phones: a long press */}
       {menuOn && (
+        // (the row stays in the page on touch screens, its buttons hidden: the long-press sheet opens from it)
+        <div className="absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-lg p-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 sm:pointer-fine:border sm:pointer-fine:border-line sm:pointer-fine:bg-surface sm:pointer-fine:shadow-sm" data-testid="message-actions">
+          {reactOn && <ReactionPicker roomId={roomId} m={m} className="pointer-coarse:hidden max-sm:hidden" />}
+          {threadOn && (
+            <button type="button" onClick={() => onThread!(m.id, true)} aria-label={t('rooms.replyInThread')} title={t('rooms.replyInThread')} className="inline-flex items-center justify-center rounded-md p-1.5 text-faint transition hover:bg-hover hover:text-ink pointer-coarse:hidden max-sm:hidden" data-testid="message-thread">
+              <MessageSquareText size={16} aria-hidden />
+            </button>
+          )}
         <MenuButton
           label={t('rooms.messageMenu')}
-          className="absolute top-0 right-1"
-          // desktop: shown on hover; touch screens and phones: hidden, a long press opens the menu
-          buttonClassName="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 pointer-coarse:hidden max-sm:hidden"
           testId="message-menu"
+          buttonClassName="pointer-coarse:hidden max-sm:hidden"
           openSignal={press}
+          header={reactOn ? (close) => (
+            <ReactionStrip
+              className="justify-between"
+              mine={(m.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji)}
+              onPick={(e) => {
+                // the finger lifting after the long press is no pick
+                if (Date.now() - pressedAt.current < 400) return
+                close()
+                void useRooms.getState().react(roomId, m.id, e, !(m.reactions ?? []).some((r) => r.emoji === e && r.mine))
+              }}
+            />
+          ) : undefined}
           items={[
             // a private preview has one action on it (post it); putting it away is in this menu, like any message
-            ...(m.visibility === 'room' ? [{ label: t('rooms.reply'), icon: <CornerUpLeft size={14} aria-hidden />, onSelect: onReply, testId: 'message-reply' }] : []),
+            ...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []),
             ...(m.body ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copyText(), testId: 'message-copy' }] : []),
             ...(mine && !ai ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
             ...(removable ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' }] : []),
           ]}
         />
+        </div>
       )}
     </div>
   )

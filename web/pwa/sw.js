@@ -140,9 +140,11 @@ self.addEventListener('push', event => {
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return
       // a room notice opens its room: the id comes from the signed-in fetch of the notice, never from the payload
       const roomId = item.link === 'room' && opaqueId(item.room?.id) ? item.room.id : undefined
+      // a reply in a thread opens that thread (its root's id, from the same signed-in fetch)
+      const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
-      await self.registration.showNotification(title, { body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId } : { notificationId: payload.notificationId } })
+      await self.registration.showNotification(title, { body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}) } : { notificationId: payload.notificationId } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -158,8 +160,8 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil((async () => {
     // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
     // id stored at show time from the authenticated notice; the room page checks membership again).
-    const roomId = event.notification.data?.roomId
-    const target = new URL(opaqueId(roomId) ? `/rooms/${roomId}` : '/settings/notifications', self.location.origin).href
+    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId
+    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : '/settings/notifications', self.location.origin).href
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     const existing = clients.find(client => new URL(client.url).origin === self.location.origin)
     if (existing) { await existing.navigate(target); await existing.focus() }

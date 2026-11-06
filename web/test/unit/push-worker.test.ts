@@ -171,6 +171,22 @@ test('a room notice opens its room; the room id comes from the signed-in notice,
   await odd.clickShown()
   expect(odd.navigated).toEqual(['https://team.example/settings/notifications'])
 
+  // a reply in a thread opens that thread, its id from the notice too; a thread id that is no opaque id opens the room
+  const rootId = '0190f5a0-0000-7000-8000-000000000002'
+  const reply = worker()
+  reply.configure({ messages: messages as any })
+  reply.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben', thread: rootId } })
+  await reply.push({ ...payload, code: 'room.dm', threadId: 'evil' })
+  expect(reply.shown[0]!.options.data).toEqual({ notificationId: 'event-1', roomId, threadId: rootId })
+  await reply.clickShown()
+  expect(reply.navigated).toEqual([`https://team.example/rooms/${roomId}/t/${rootId}`])
+  const badThread = worker()
+  badThread.configure({ messages: messages as any })
+  badThread.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben', thread: '../x' } })
+  await badThread.push({ ...payload, code: 'room.dm' })
+  await badThread.clickShown()
+  expect(badThread.navigated).toEqual([`https://team.example/rooms/${roomId}`])
+
   // the room preference off: nothing shows
   const off = worker()
   off.configure({ messages: messages as any })
