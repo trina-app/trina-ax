@@ -23,9 +23,11 @@ with OAuth (`server/src/connectors/remote-mcp/`, routes in `server/src/routes/re
 has a public origin for it: `server.json` `appConnectors: true` with `tunnel.host` (the Linux installer:
 `--public-host HOST --app-connectors`), or the environment variable `MYCEL_REMOTE_MCP_ORIGIN`, which wins when it is
 set. Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` scope also
-`write`, `edit`, `upload_file` and `create_upload_link`. All of them use the person's current folder permissions.
-With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_list`, `group_create`, `group_update` and
-`group_delete` (`remote-mcp/groups.ts`).
+`write`, `edit`, `upload_file`, `create_upload_link` and `share_skills`. All of them use the person's current folder
+permissions. No write reaches `skills/` (team skills and rules) or `users/<id>/skills/` (the person's own skills): the
+team app changes them only after its own confirmation, which an outside model cannot give (any letter case; the link's
+`PUT` too). With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_list`, `group_create`,
+`group_update` and `group_delete` (`remote-mcp/groups.ts`).
 
 - Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
   is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
@@ -36,6 +38,16 @@ With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_li
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
+- `share_skills` (내 스킬 가져오기, docs/DECISIONS.md "SK"): Claude Code sends the person's own Claude skills (from
+  `~/.claude/skills`, the projects' `.claude/skills` it knows and `~/.claude/commands`), the names of those it left out
+  (plugin skills, a skill with a key: names only), CLAUDE.md as text and its remote MCP servers (https addresses only, no
+  key). It makes a share proposal of the person (`server/src/skills/share.ts`, the same as `POST /api/skill-shares`) and
+  answers `{ proposalId, url, status: "pending" }` with the link `<origin>/skills/share/<id>`; the person gets a notice
+  with that link. The server checks every skill again (secrets, scripts, plugin, size, personal paths), an AI turn without
+  tools judges them, and nothing reaches the team before the person presses [팀에 공유] in the app (the MCP servers
+  become connection templates, below, each member connecting their own key). Owners and admins only: a member is told
+  to use "스킬로 제안" in the app. At most 50 skills and 5 proposals a minute; a call may be larger than the usual 1 MiB
+  (like `upload_file`).
 - Group tools: an owner's or admin's connection only; a member never gets `mcp:admin`, and an app's request for it
   is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
   their grants for good. The changes call the Admin › Groups server functions (same checks, same audit lines plus

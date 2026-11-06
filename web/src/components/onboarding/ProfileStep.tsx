@@ -7,14 +7,16 @@
 //   (PUT /api/onboarding/profile). The AI never saves anything itself: the person saves, or, in the welcome steps
 //   (`autoSave`), the page saves a website reading as it came on the person's behalf, unchecked (chat/prompt.ts says
 //   so to the AI).
-// When the site can't be read (or there is none): paste a text (the same draft, from the text) or answer three
-// questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads, the step
-// offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself.
+// When the site can't be read (or there is none): paste a text (the same draft, from the text; the one primary) or
+// answer three questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads,
+// the step offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself,
+// naming what could not be read (the website or the pasted text) with "다시 시도", which reads the same input again.
 // `autoSave` (the welcome steps): a website reading whose draft has a one-line intro is saved as it came, with the
 // same body as the review's save, and the step is done; the welcome page then shows one line of it with "고치기", which
 // opens this review. Only while the team has no saved profile (asked again right before saving): a re-read of a saved
 // profile (다시 읽기 from its review) never overwrites it unseen, it shows the review. Pasted text, a draft without a
-// one-line intro and a save that fails keep the review too.
+// one-line intro and a save that fails keep the review too. There the review's one button is "저장하고 계속"
+// (`continueWith`): it saves and goes on (the intro deck), with the deck line under it; Admin › Team settings keeps 저장.
 // A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
@@ -42,12 +44,26 @@ export interface ProfileStepProps {
   initialWebsite?: string | null
   /** save a website draft that has a one-line intro without the review (the welcome steps) */
   autoSave?: boolean
+  /** the address typed, as its reading starts (the welcome steps keep it on the server, so it is there when the owner
+   * leaves mid-reading and comes back) */
+  onRead?: (website: string) => void
+  /** The welcome steps: the review's save goes on too (one button, "저장하고 계속": docs/DECISIONS.md "W5"), with
+   * `extra` above the buttons (the intro files link) and `note` right under the button (the deck starts now, where it
+   * will be). `onSaved` (the deck) runs after the save while the button is busy; what fails stays on the review with
+   * its reason, and the same button saves again and goes on. No toast: the next step says it. Without it (Admin › Team
+   * settings, 고치기): the plain 저장. */
+  continueWith?: { label: string; note?: ReactNode; extra?: ReactNode; disabled?: boolean; onSaved: (profile: CompanyProfile) => Promise<void> }
 }
+
+/** what a draft is read from: the website, or the text the person pasted */
+type DraftInput = { website: string } | { text: string }
 
 type Phase =
   | { kind: 'site' }
-  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string }
-  | { kind: 'fallback'; unreadable: boolean; error: string | null }
+  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string; input: DraftInput }
+  /** `failed`: a reading that did not give a draft (what it read, the answer's error); null: chosen ("홈페이지가 없어요",
+   * 뒤로) or no AI */
+  | { kind: 'fallback'; failed: { input: DraftInput; error: string | null } | null }
   | { kind: 'paste' }
   | { kind: 'questions' }
   | { kind: 'review' }
@@ -98,7 +114,7 @@ export function tidyProfile(p: CompanyProfileInput): CompanyProfileInput {
   return out
 }
 
-export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite, autoSave }: ProfileStepProps) {
+export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite, autoSave, onRead, continueWith }: ProfileStepProps) {
   const t = useT()
   const locale = useLocale()
   const [phase, setPhase] = useState<Phase>(initial ? { kind: 'review' } : { kind: 'site' })
@@ -129,17 +145,17 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     heading.current?.focus()
   }, [phase.kind])
 
-  const start = async (body: { website: string } | { text: string }) => {
+  const start = async (body: DraftInput) => {
     setBusy(true)
     setError(null)
     try {
       // asked again right before: a draft without AI would only fail after a while
       await useAiAccess.getState().load(true)
-      if (!useAiAccess.getState().usable) { setPhase({ kind: 'fallback', unreadable: false, error: null }); return }
+      if (!useAiAccess.getState().usable) { setPhase({ kind: 'fallback', failed: null }); return }
       const r = await api.call(API.startProfileDraft, { body })
       if (r.website) setDraft((d) => ({ ...d, website: r.website }))
       setActivity({ steps: [], writing: false, assets: null })
-      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website })
+      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website, input: body })
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
@@ -185,7 +201,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           setPhase({ kind: 'review' })
           return
         }
-        setPhase({ kind: 'fallback', unreadable: true, error: s.status === 'failed' ? s.error : null })
+        setPhase({ kind: 'fallback', failed: { input: phase.input, error: s.status === 'failed' ? s.error : null } })
         // the answer may have failed for want of AI (the trial credit ran out): the fallback then offers the button
         if (s.status === 'failed') void useAiAccess.getState().load(true)
       } catch {
@@ -204,6 +220,8 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     const w = normalizeWebsite(site)
     if (!w) return setSiteError(t('onboarding.profile.siteInvalid'))
     setSiteError(null)
+    // kept by the caller as the reading starts: leaving mid-reading and coming back finds the address again
+    onRead?.(w)
     void start({ website: w })
   }
 
@@ -233,8 +251,12 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     setError(null)
     try {
       const saved = await api.call(API.saveCompanyProfile, { body })
-      toast({ level: 'success', text: t('onboarding.profile.saved') })
-      onDone(saved)
+      // the welcome steps: saved and on in one press (the deck); the next step says it, no toast
+      if (continueWith) await continueWith.onSaved(saved)
+      else {
+        toast({ level: 'success', text: t('onboarding.profile.saved') })
+        onDone(saved)
+      }
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
@@ -282,7 +304,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <Button type="submit" variant="primary" busy={busy} disabled={!site.trim() || noAi}>
             {t('onboarding.profile.read')}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', unreadable: false, error: null })} disabled={busy}>
+          <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', failed: null })} disabled={busy}>
             {t('onboarding.profile.noSite')}
           </Button>
           <span className="ml-auto">{skip}</span>
@@ -311,30 +333,49 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
       </div>
     )
 
-  if (phase.kind === 'fallback')
+  if (phase.kind === 'fallback') {
+    const failed = phase.failed
     return (
       <div className="space-y-4" data-testid="profile-step-fallback">
         {head(t('onboarding.profile.fallbackTitle'), t(noAi ? 'onboarding.profile.noAi' : 'onboarding.profile.fallbackDesc'))}
-        {phase.unreadable && (
-          <p role="status" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
-            {t('onboarding.profile.unreadable')}
-            {phase.error ? ` ${phase.error}` : ''}
-          </p>
+        {/* what could not be read, in its own words (the website or the pasted text), and "다시 시도" with the same
+            input (a draft needs AI: without one, the connect banner instead) */}
+        {failed && (
+          <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="profile-step-unreadable">
+            <span className="min-w-0 flex-[1_1_12rem]">
+              {t('text' in failed.input ? 'onboarding.profile.unreadableText' : 'onboarding.profile.unreadable')}
+              {failed.error ? ` ${failed.error}` : ''}
+            </span>
+            {!noAi && (
+              <Button size="sm" variant="secondary" className="ml-auto" busy={busy} onClick={() => void start(failed.input)} data-testid="profile-step-retry">
+                {t('common.retry')}
+              </Button>
+            )}
+          </div>
         )}
+        {note}
         {noAi && <div data-testid="profile-step-no-ai"><AiAccessBanner /></div>}
-        <div className={noAi ? 'grid gap-2' : 'grid gap-2 sm:grid-cols-2'}>
-          {/* pasted text is read by the AI too: without one only the questions are left */}
-          {!noAi && <Button onClick={() => setPhase({ kind: 'paste' })}>{t('onboarding.profile.paste')}</Button>}
-          <Button variant={noAi ? 'primary' : 'secondary'} onClick={toQuestions}>{t('onboarding.profile.answer')}</Button>
+        {/* one primary: pasting what the company does (pasted text is read by the AI too: without one, the questions) */}
+        <div className="flex flex-wrap items-center gap-2">
+          {!noAi && (
+            <Button variant="primary" className="max-sm:w-full" disabled={busy} onClick={() => setPhase({ kind: 'paste' })} data-testid="profile-step-to-paste">
+              {t('onboarding.profile.paste')}
+            </Button>
+          )}
+          <Button variant={noAi ? 'primary' : 'ghost'} className="max-sm:w-full" disabled={busy} onClick={toQuestions} data-testid="profile-step-to-questions">
+            {t('onboarding.profile.answer')}
+          </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" onClick={() => setPhase({ kind: 'site' })}>
-            {t('onboarding.profile.tryAgain')}
+          {/* "주소 다시 넣기" only after a website could not be read; else (no homepage, a pasted text) the address is new */}
+          <Button variant="ghost" onClick={() => setPhase({ kind: 'site' })} disabled={busy} data-testid="profile-step-to-site">
+            {t(failed && 'website' in failed.input ? 'onboarding.profile.tryAgain' : 'onboarding.profile.enterSite')}
           </Button>
           <span className="ml-auto">{skip}</span>
         </div>
       </div>
     )
+  }
 
   if (phase.kind === 'paste')
     return (
@@ -349,7 +390,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <Button type="submit" variant="primary" busy={busy} disabled={!text.trim() || noAi}>
             {t('onboarding.profile.makeDraft')}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', unreadable: false, error: null })} disabled={busy}>
+          <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', failed: null })} disabled={busy}>
             {t('onboarding.profile.back')}
           </Button>
           <span className="ml-auto">{skip}</span>
@@ -379,7 +420,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <Button type="submit" variant="primary" disabled={!any}>
             {t('onboarding.profile.next')}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', unreadable: false, error: null })}>
+          <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', failed: null })}>
             {t('onboarding.profile.back')}
           </Button>
           <span className="ml-auto">{skip}</span>
@@ -418,14 +459,17 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         {(id) => <textarea id={id} className={`${inputCls} h-auto min-h-16 resize-y py-2`} value={draft.avoid} onChange={(e) => set('avoid', e.target.value)} maxLength={PROFILE_LIMITS.avoid} />}
       </ReviewField>
       {note}
+      {continueWith?.extra}
+      {/* the welcome steps: the note sits right under the one button (on a phone: the button, the note, then the rest) */}
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" busy={busy} disabled={nothing} onClick={() => void save()}>
-          {t('onboarding.profile.save')}
+        <Button variant="primary" className={continueWith ? 'max-sm:w-full' : undefined} busy={busy} disabled={nothing || !!continueWith?.disabled} onClick={() => void save()} data-testid="profile-step-save">
+          {continueWith?.label ?? t('onboarding.profile.save')}
         </Button>
-        <Button variant="ghost" onClick={() => { setSite(draft.website || site); setPhase({ kind: 'site' }) }} disabled={busy}>
+        <Button variant="ghost" className="max-sm:order-2" onClick={() => { setSite(draft.website || site); setPhase({ kind: 'site' }) }} disabled={busy}>
           {t('onboarding.profile.readAgain')}
         </Button>
-        <span className="ml-auto">{skip}</span>
+        <span className="ml-auto max-sm:order-2">{skip}</span>
+        {continueWith?.note && <div className="w-full max-sm:order-1">{continueWith.note}</div>}
       </div>
     </div>
   )

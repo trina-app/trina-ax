@@ -7,7 +7,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { isMap, isScalar, parseDocument } from 'yaml'
-import { parseSkillInputs, readSkillTitle, type SkillInput } from '@mycel/shared/api'
+import { parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular } from '../files/store'
 import type { Principal } from '../policy/access'
@@ -17,7 +17,14 @@ import { authorize } from '../policy/authorize'
  * `title`: the name people read (metadata `title`, "광고 문구"), only when valid; "/<name>" still runs the skill.
  * `recurring`: metadata `recurring` as written, only when the key is there ("weekly": the work comes back every week,
  * docs/DECISIONS.md "S"; isRecurring). Server side only: listings (skillInfo) leave it out. */
-export interface SkillInfo { path: string; name: string; description: string; inputs?: SkillInput[]; title?: string; recurring?: string }
+export interface SkillInfo { path: string; name: string; description: string; inputs?: SkillInput[]; title?: string; recurring?: string; example?: string }
+
+/** metadata `example` (docs/DECISIONS.md "W5": a request a skill's form starts with): one line of at most
+ * SKILL_EXAMPLE_MAX characters without control or text-direction characters, else none. */
+export function readSkillExample(raw: string | undefined): string | null {
+  const v = raw?.trim()
+  return v && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(v) && [...v].length <= SKILL_EXAMPLE_MAX ? v : null
+}
 export interface Skill extends SkillInfo { body: string }
 
 const SKILLS_DIR = 'skills'
@@ -49,8 +56,8 @@ function skillRootLength(parts: readonly string[]): number | null {
 export const isPersonalSkill = (rel: string) => skillRootLength(rel.split('/')) === 3
 /** The metadata a listing shows (no body). `personal` is set only for a personal skill, `inputs` only for a skill
  * with a valid form, `title` only for a skill with one. */
-export const skillInfo = ({ path: p, name, description, inputs, title }: SkillInfo): SkillInfo & { personal?: true } =>
-  ({ path: p, name, description, ...(isPersonalSkill(p) ? { personal: true as const } : {}), ...(inputs ? { inputs } : {}), ...(title ? { title } : {}) })
+export const skillInfo = ({ path: p, name, description, inputs, title, example }: SkillInfo): SkillInfo & { personal?: true } =>
+  ({ path: p, name, description, ...(isPersonalSkill(p) ? { personal: true as const } : {}), ...(inputs ? { inputs } : {}), ...(title ? { title } : {}), ...(example ? { example } : {}) })
 const hasFrontmatter = (text: string) => /^\uFEFF?---[ \t]*(?:\r?\n|$)/.test(text)
 
 /** Decode the standard metadata without constructing JS objects or expanding aliases. Only the root and the
@@ -75,6 +82,8 @@ function standardFields(header: string): { fields: Map<string, string>; metadata
           if (pair.key.value === 'inputs' && !scalar(pair.value)) { inputsNotText = true; continue }
           // a title that is not text (left empty, a number, a list) is no title: the skill loads and shows its name
           if (pair.key.value === 'title' && !scalar(pair.value)) continue
+          // and an example that is not text is no example
+          if (pair.key.value === 'example' && !scalar(pair.value)) continue
           if (!scalar(pair.value)) return null
           metadata.set(pair.key.value, pair.value.value)
         }
@@ -117,7 +126,7 @@ function withoutInputs(header: string): string | null {
 export type SkillProblem = 'too_large' | 'header' | 'location' | 'name' | 'name_folder' | 'description' | 'compatibility'
 /** `inputs` / `badInputs`: a SKILL.md's form (metadata `inputs`), when it declares one: the list when valid, else why
  * not (the skill still loads, without a form: skillIssues reports `inputs`). */
-export type SkillCheck = { ok: true; name: string; description: string; body: string; inputs?: SkillInput[]; badInputs?: string; title?: string; recurring?: string } | { ok: false; problem: SkillProblem }
+export type SkillCheck = { ok: true; name: string; description: string; body: string; inputs?: SkillInput[]; badInputs?: string; title?: string; recurring?: string; example?: string } | { ok: false; problem: SkillProblem }
 
 /** The skill's work comes back every week (metadata `recurring: weekly`). */
 export const isRecurring = (s: Pick<SkillInfo, 'recurring'>): boolean => s.recurring?.trim().toLowerCase() === 'weekly'
@@ -210,7 +219,8 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
     // the name people read: one line, at most SKILL_TITLE_MAX characters; any other value is left out (the name shows)
     const title = readSkillTitle(header.metadata.get('title'))
     const recurring = header.metadata.get('recurring')
-    const ok = { ok: true as const, name, description: description.trim(), body: t.slice(m[0].length), ...(title ? { title } : {}), ...(recurring !== undefined ? { recurring: recurring.trim() } : {}) }
+    const example = readSkillExample(header.metadata.get('example'))
+    const ok = { ok: true as const, name, description: description.trim(), body: t.slice(m[0].length), ...(title ? { title } : {}), ...(recurring !== undefined ? { recurring: recurring.trim() } : {}), ...(example ? { example } : {}) }
     if (oversized) return { ...ok, badInputs: `with this form the header is ${oversized} bytes, over the ${HEADER_MAX / 1024} KB limit (a Korean letter takes 3 bytes): shorten the labels and placeholders` }
     if (header.inputsNotText) return { ...ok, badInputs: INPUTS_NOT_TEXT }
     const raw = header.metadata.get('inputs')
@@ -229,9 +239,9 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   return { ok: true, name, description: (fields.description ?? '').slice(0, LEGACY_DESCRIPTION_MAX), body: t.slice(m[0].length) }
 }
 
-export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string; inputs?: SkillInput[]; title?: string; recurring?: string } | null {
+export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string; inputs?: SkillInput[]; title?: string; recurring?: string; example?: string } | null {
   const r = checkSkill(text, rel)
-  return r.ok ? { name: r.name, description: r.description, body: r.body, ...(r.inputs ? { inputs: r.inputs } : {}), ...(r.title ? { title: r.title } : {}), ...(r.recurring !== undefined ? { recurring: r.recurring } : {}) } : null
+  return r.ok ? { name: r.name, description: r.description, body: r.body, ...(r.inputs ? { inputs: r.inputs } : {}), ...(r.title ? { title: r.title } : {}), ...(r.recurring !== undefined ? { recurring: r.recurring } : {}), ...(r.example ? { example: r.example } : {}) } : null
 }
 
 /** Why the form of a skill that loads does not parse (metadata `inputs`), or null: no form, or a valid one. */

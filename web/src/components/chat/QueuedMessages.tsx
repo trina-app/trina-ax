@@ -9,6 +9,8 @@ import type { QueuedMessage } from '../../lib/sendQueue'
 import { useSendQueue } from '../../store/sendQueue'
 import { Button, IconButton, inputCls, useAnnounce } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
+import { WithRoomRefs } from './RoomRefMenu'
+import { fromWire, toWire } from '../../lib/roomRefs'
 
 export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: string; onFocusComposer: () => void }) {
   const t = useT()
@@ -83,19 +85,20 @@ export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: st
 
 function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: { item: QueuedMessage; editing: boolean; onEdit: () => void; onCancelEdit: () => void; onSave: (content: string) => void; onRemove: () => void }) {
   const t = useT()
-  const [draft, setDraft] = useState(item.content)
+  // "#" room tokens: "#<title>" in the box, kept with their rooms when saved (lib/roomRefs.ts)
+  const [draft, setDraft] = useState(() => fromWire(item.content).text)
   const row = useRef<HTMLLIElement>(null)
   const backToEdit = () => requestAnimationFrame(() => row.current?.querySelector<HTMLElement>('[data-testid="outbox-edit"]')?.focus())
   const canSave = draft.trim().length > 0 || item.attachments.length > 0
   /** the edited text looks like a key: saving it waits for "Send anyway" (SecretWarning); it goes when the answer ends */
   const secret = useSecretHold(draft)
   const save = () => {
-    onSave(draft)
+    onSave(toWire(draft, fromWire(item.content).picked))
     backToEdit()
   }
   const cancel = () => {
     secret.release()
-    setDraft(item.content)
+    setDraft(fromWire(item.content).text)
     onCancelEdit()
     backToEdit()
   }
@@ -163,7 +166,7 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
       ) : (
         item.content && (
           <div className="max-w-full min-w-0 rounded-3xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-reading leading-7 text-muted max-md:leading-reading" data-testid="outbox-text">
-            <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]">{item.content}</div>
+            <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={item.content} /></div>
           </div>
         )
       )}
@@ -172,7 +175,7 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
           <IconButton
             label={t('outbox.edit')}
             onClick={() => {
-              setDraft(item.content)
+              setDraft(fromWire(item.content).text)
               onEdit()
             }}
             data-testid="outbox-edit"

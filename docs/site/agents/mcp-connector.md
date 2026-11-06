@@ -26,7 +26,7 @@ The connector is off until the server has a public HTTPS address for it. Use one
 Open **Settings › AI apps**. It shows the connector address, which ends in `/mcp`.
 
 #### Add it to Claude
-Choose **Connect** next to Claude, Claude Code or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in.
+Choose **Connect** next to Claude, Claude Code or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex, run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`).
 
 #### Sign in and allow
 Claude opens a Trina AX sign-in. Check the request, tick what else Claude may do, and choose **Allow**.
@@ -65,11 +65,13 @@ your own account such as **Google Drive**, is **Settings › App connectors** ([
 | Scope | Tools |
 |---|---|
 | `mcp:read` | `list`, `glob`, `grep`, `read`, `skills_list` |
-| `mcp:write` | also `write`, `edit`, `upload_file`, `create_upload_link` |
+| `mcp:write` | also `write`, `edit`, `upload_file`, `create_upload_link`, `share_skills` (owners and admins) |
 | `mcp:admin` | also `people_list`, `groups_list`, `group_create`, `group_update`, `group_delete` (owners and admins only) |
 
 - `upload_file` takes base64 bytes in the call. Use it for small files, up to about 50 KB.
 - `create_upload_link` returns a one-time `PUT <origin>/connector-uploads/<token>` address for a larger file: at most 50 MiB, valid 10 minutes, one path. Upload with `curl -T "<local file>" "<url>"`.
+- `share_skills` sends the person's own Claude Code or Codex skills as a share proposal (`app`: `claude` or `codex`). Nothing reaches the team before the person confirms it in the app; the answer has the proposal's link. Skills with a key are listed by name only. Members are told to use **Suggest as a skill** in the app.
+- No write reaches `skills/` or a person's own `users/<id>/skills/`: the app changes skills only after its own confirmation.
 - Saving to a wider audience is refused. File and skill contents are untrusted data.
 
 ## Group management (owners and admins)

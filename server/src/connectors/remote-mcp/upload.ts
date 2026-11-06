@@ -11,6 +11,7 @@ import { componentC } from '../../team-files/component'
 import { FileError } from '../../team-files/errors'
 import { fileEvent, sha256 } from '../../files/store'
 import { assertStorageRoomForAI } from '../../system/storage'
+import { inSkills } from '../../skills/guard'
 
 /** Largest decoded upload through the connector. */
 export const UPLOAD_MAX_BYTES = 20 * 1024 * 1024
@@ -42,6 +43,19 @@ export type UploadOutcome = { text: string; isError?: boolean; audit: Record<str
 export const fail = (text: string, audit: Record<string, unknown> = {}): UploadOutcome => ({ text, isError: true, audit })
 export const isOutcome = (v: Authorized | UploadOutcome): v is UploadOutcome => 'text' in v
 
+const fold = (s: string) => s.normalize('NFC').toLowerCase()
+/**
+ * A path a connector may not write: the team skills and rules (skills/…) and a person's own skills (users/<id>/skills/…),
+ * which the team app changes only after its confirmation (skills/guard.ts). Compared without letter case or Unicode
+ * form, on the path as given and as resolved, so a case-insensitive team folder cannot be used to miss it.
+ */
+export function skillWriteTarget(rel: string): boolean {
+  const segs = rel.replace(/\\/g, '/').split('/').filter((s) => s !== '' && s !== '.')
+  if (!segs.length) return false
+  if (inSkills(segs.join('/'))) return true
+  return fold(segs[0]!) === 'users' && segs.length >= 3 && fold(segs[2]!) === 'skills'
+}
+
 /**
  * The checks of write for a connector upload target: the current folder rules, no skills/ target, the read-scope
  * widening check with the grant's sources, not a folder, and (when the size is known) the storage check. This
@@ -51,7 +65,7 @@ export function checkUploadTarget(ctx: AppContext, user: Principal, filePath: st
   const target = authorize(ctx.files.fx, ctx.files.rules(), user, filePath, 'write', { createDirs: true })
   const rel = target.rel
   // A null turn ID normally means a human file API. An external model has no server confirmation card.
-  if (target.segs[0] === 'skills') return fail('Skill changes require confirmation inside the team app.', { path: rel })
+  if (skillWriteTarget(rel) || skillWriteTarget(filePath)) return fail('Skill changes require confirmation inside the team app.', { path: rel })
   if (widening(ctx.db, null, target.segs, sources)) return fail('Saving here would expose previously read material to more people. Use a folder with the same or narrower access.', { path: rel })
   if (target.exists && target.st!.isDirectory()) return fail(`'${rel}' is a folder.`, { path: rel })
   // No per-turn write budget: the grant's TurnFiles live as long as the connection is in use, so it never resets.

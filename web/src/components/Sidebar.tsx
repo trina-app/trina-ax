@@ -33,6 +33,7 @@ import { Avatar } from './Avatar'
 import { useChatActions } from './chat/chatActions'
 import { ChatStateDot, isUnused, NeedsAnswerLabel } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
+import { SetupRow } from './onboarding/SetupRow'
 import { useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 
@@ -197,6 +198,12 @@ export default function Sidebar() {
           </NavLink>
         </div>
       )}
+
+      {/* the owner's way back to the welcome steps (onboarding/SetupRow.tsx), above 트리나 기록 and outside the scroll, so
+          no number of rooms or chats moves it out of sight */}
+      <div className="mt-3 px-2 empty:hidden">
+        <SetupRow onNavigate={close} />
+      </div>
 
       {/* one scroll, like Slack's: 대화 (a computer) and 트리나 기록, each capped at five with the rest behind its button */}
       <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide} data-testid="sidebar-scroll">
