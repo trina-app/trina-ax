@@ -12,7 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access } from '../../server/src/policy/access'
 import { folderView } from '../../server/src/devenv/srt/access'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 
 const ID = 'mycel'
 const BASE = `/var/lib/${ID}`
@@ -89,14 +89,14 @@ process.env.MYCEL_LEAK = `${CANARY}-env`
 // ---- one run, as the runner does it (no scope) ----
 const SRT_NAMES = new Set([...SRT_DENY_FILES, ...SRT_DENY_DIRS.flatMap((d) => d.split('/').map((_, i, a) => a.slice(0, i + 1).join('/')))])
 let n = 0
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: typeof ALICE | typeof CAROL } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: typeof ALICE | typeof CAROL } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const work = o.work ? WORK : null
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
   const start = work ? null : o.start ?? 'projects/one'
   const who = o.who ?? ALICE
   const view = folderView(RULES, who, { start })
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -106,7 +106,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const settingsFile = path.join(devenvPaths(BASE).run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 }); sh(`chown ${SRV} ${settingsFile}`)
   const exitFile = path.join(personLogs(BASE, who.id), `${runId}.exit`)
-  const argv = ['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', ...wrappedArgv({ exitFile, settingsFile, command })]
+  const argv = ['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', ...wrappedArgv({ exitFile, settingsFile, command, full: isFull(settings) })]
   // as the runner: srt's protected names exist in the cwd before the run (placeholders.ts), owned by the server account
   const release = holdPlaceholders(cwd)
   sh(`chown -h ${SRV}:${SRV} ${[...SRT_NAMES].map((n) => `'${path.join(cwd, n)}'`).join(' ')} 2>/dev/null || true`)
@@ -178,6 +178,14 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A18', what: 'see the server process', cmd: `ps axww; cat /proc/${process.pid}/cmdline; ls /proc/${process.pid}/root/opt/mycel`, check: (r) => (r.out.includes('srt-attack.ts') ? 'the server process is visible' : null) },
   { id: 'A19', what: 'new namespaces, mount, chroot', cmd: 'unshare -U true || unshare -Urm true || mount -t tmpfs x /mnt || chroot / true', check: failsQuietly },
   { id: 'A20', what: 'a process left behind ends with the run', cmd: 'setsid nohup sleep 7777 >/dev/null 2>&1 & echo started', check: ok, after: () => { Bun.sleepSync(1000); return Bun.spawnSync(['pgrep', '-f', 'sleep 7777']).exitCode === 0 ? 'sleep 7777 still runs' : null } },
+  // sites a person allows (always or once) and Full internet: the deny lists stay in force (docs/DECISIONS.md "Dev
+  // environment: sites a person allows")
+  { id: 'A12c', what: 'a site the person allowed works in her run', cmd: 'curl -fsS -m 20 -o /dev/null -w "%{http_code}" https://example.com/', check: both(ok, has('200')), o: { user: ['example.com'] } },
+  { id: 'A12d', what: 'a site another person allowed: not in this run', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://example.com/', check: failsQuietly, o: { who: CAROL, user: [] } },
+  { id: 'A12e', what: 'Full internet: a site on no list works', cmd: 'curl -fsS -m 20 -o /dev/null -w "%{http_code}" https://example.com/', check: both(ok, has('200')), o: { full: true } },
+  { id: 'A13f', what: 'Full internet: metadata, private ranges, names that resolve inside, the VM address', cmd: 'curl -fsS -m 5 http://169.254.169.254/latest/meta-data/ || curl -fsS -m 5 http://10.11.12.13/ || curl -fsS -m 5 http://private.attack.test/ || curl -fsS -m 5 http://loop.attack.test:8099/ || curl -fsS -m 5 http://203.0.113.7/ || curl -fsS -m 5 http://metadata.google.internal/ || curl -fsS -m 5 http://[fd00::1]/ || curl -fsS -m 5 http://2852039166/ || curl -fsS -m 5 http://192.168.1.1/ || curl -fsS -m 5 http://100.64.0.1/', check: failsQuietly, o: { full: true } },
+  { id: 'A14f', what: 'Full internet: the Trina server port and host name', cmd: 'curl -fsS -m 5 http://127.0.0.1:8099/ || curl -fsS -m 5 http://localhost:8099/ || curl -fsS -m 5 https://team.trina.test/ || curl -fsS -m 5 --noproxy "*" https://1.1.1.1/', check: failsQuietly, o: { full: true } },
+  { id: 'A27f', what: 'offline wins over Full internet and allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://example.com/ || curl -fsS -m 10 -o /dev/null https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline', full: true, user: ['example.com'] } },
   { id: 'A27', what: 'offline: nothing, also the allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline' } },
 ]
 

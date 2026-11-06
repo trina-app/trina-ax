@@ -13,7 +13,7 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_RANGES, RUN_ID_RE, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
+import { DENIED_NAMES, DENIED_RANGES, RUN_ID_RE, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -233,9 +233,36 @@ describe('the srt settings file', () => {
     const s = srtSettings(input)
     expect(s.network.allowedDomains).toEqual([...DEV_ENV_DEFAULT_DOMAINS, 'api.example.net'])
     expect(s.network.strictAllowlist).toBe(true)
-    expect(s.network.deniedDomains).toEqual(['team.trina.app'])
+    expect(s.network.deniedDomains).toEqual(['team.trina.app', ...DENIED_NAMES])
     expect(s.network.deniedResolvedAddresses).toEqual([...DENIED_RANGES, '3.3.3.3'])
     expect(srtSettings({ ...input, network: 'offline' }).network.allowedDomains).toEqual([])
+  })
+  test('the person\'s sites join the list of her run; Full internet turns the strict list off; the deny lists stay', () => {
+    const s = srtSettings({ ...input, userDomains: ['example.com', 'API.example.net', '*.cdn.example.org'] })
+    expect(s.network.allowedDomains).toEqual([...DEV_ENV_DEFAULT_DOMAINS, 'api.example.net', 'example.com', '*.cdn.example.org'])
+    expect(s.network.strictAllowlist).toBe(true)
+    expect(isFull(s)).toBe(false)
+    const f = srtSettings({ ...input, full: true })
+    expect(isFull(f)).toBe(true)
+    expect(f.network.deniedResolvedAddresses).toEqual([...DENIED_RANGES, '3.3.3.3'])
+    expect(f.network.deniedDomains).toEqual(['team.trina.app', ...DENIED_NAMES])
+    expect(settingsProblems(f, input)).toEqual([])
+  })
+  test('No network wins over the person\'s sites and over Full internet', () => {
+    const s = srtSettings({ ...input, network: 'offline', userDomains: ['example.com'], full: true })
+    expect(s.network.allowedDomains).toEqual([])
+    expect(s.network.strictAllowlist).toBe(true)
+    expect(isFull(s)).toBe(false)
+  })
+  test('the check refuses a run that lost a denied range or name, or allows an address or a denied host', () => {
+    const s = srtSettings(input)
+    const net = (n: Partial<typeof s.network>) => ({ ...s, network: { ...s.network, ...n } })
+    expect(settingsProblems(net({ deniedResolvedAddresses: ['3.3.3.3'] }), input).join()).toContain('a denied range is missing: 10.0.0.0/8')
+    expect(settingsProblems(net({ deniedDomains: ['team.trina.app'] }), input).join()).toContain('a denied name is missing')
+    expect(settingsProblems(net({ allowedDomains: ['169.254.169.254'] }), input).join()).toContain('not a host name')
+    expect(settingsProblems(net({ allowedDomains: ['*'] }), input).join()).toContain('not a host name')
+    expect(settingsProblems(net({ allowedDomains: ['trina.app'] }), input).join()).toContain('covers a denied host')
+    expect(settingsProblems(net({ allowedDomains: ['*.trina.app'] }), input).join()).toContain('covers a denied host')
   })
   test('server paths outside the base folder are hidden too (a wrong base in the env fails closed)', () => {
     const sp = ['/srv/trina/data', '/srv/trina/secrets', BASE + '/data']
@@ -265,6 +292,16 @@ describe('the srt settings file', () => {
   test('the programs a run executes are outside every base folder', () => {
     for (const p of Object.values(SRT_PATHS)) expect(p.startsWith('/var/lib/')).toBe(false)
     expect(SRT_PATHS.cli).toBe(`/opt/trina/srt/${SRT_VERSION}/cli.js`)
+    expect(SRT_PATHS.cliFull).toBe(`/opt/trina/srt/${SRT_VERSION}/full.mjs`)
+  })
+  test('install-srt.sh puts full.mjs next to cli.js and checks it refuses addresses', () => {
+    const sh = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt.sh'), 'utf8')
+    expect(sh).toContain('put_changed "$T" 644 "$SRT_DIR/full.mjs"')
+    expect(sh).toContain('"$SRT_DIR/full.mjs" --self-test')
+    const w = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/srt-full.mjs'), 'utf8')
+    // the callback allows only with strictAllowlist false, and never an address or a loopback name
+    expect(w).toContain("config?.network?.strictAllowlist === false ? ask : undefined")
+    expect(w).toContain('isIP(h)')
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
@@ -291,6 +328,9 @@ describe('the argv of a run', () => {
     for (const p of ['MemoryMax=1536M', 'MemorySwapMax=0', 'CPUQuota=150%', 'TasksMax=512', 'OOMPolicy=kill', 'RuntimeMaxSec=150']) expect(a).toContain(p)
     expect(a.some((x) => x.startsWith('MemoryHigh'))).toBe(false)
     expect(a.slice(a.indexOf('--') + 1)).toEqual([SRT_PATHS.runWrap, '/x.exit', '--', SRT_PATHS.node, SRT_PATHS.cli, '--settings', '/s.json', '-c', 'npm test; rm -rf /'])
+    const f = scopeArgv({ runId, id: 'mycel', limits: { cpus: 1, memoryMiB: 512, pids: 64, runtimeMaxSec: 60 }, exitFile: '/x.exit', settingsFile: '/s.json', command: 'true', full: true })
+    expect(f).toContain(SRT_PATHS.cliFull)
+    expect(f).not.toContain(SRT_PATHS.cli)
   })
   test('the polkit rule allows the same unit names as the runner, and no .service', () => {
     const rule = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv.rules.in'), 'utf8')
