@@ -18,6 +18,8 @@ export function storeTheme(t: Theme) {
 
 let media: MediaQueryList | null = null
 let current: Theme = 'system'
+/** The theme in use: light, dark, or system (follows the device). */
+export const currentTheme = (): Theme => current
 
 export function applyTheme(t: Theme) {
   current = t
@@ -29,6 +31,8 @@ export function applyTheme(t: Theme) {
   // index.html has one per system scheme; the chosen look wins over the system's, so both get its colour
   const color = themeColor(dark)
   for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute('content', color)
+  // the phone app colours its status bar text by the page's look (lib/mobile.ts, appearance-v1)
+  window.dispatchEvent?.(new Event('mycel:theme'))
 }
 
 /** The browser bar colour: the page background (--c-canvas) of the look in use, so it follows the edition's theme

@@ -30,7 +30,7 @@ test('make the team link, copy the message, join with it, land on the skill; a r
   await audit(page, 'members, the open team link')
   await page.getByRole('button', { name: '메시지 복사' }).click()
   const message = await page.evaluate(() => navigator.clipboard.readText())
-  expect(message).toContain('함께 일하자고 초대했어요.')
+  expect(message).toContain('에 함께하자고 초대했어요.')
   expect(message).toContain("'광고 문구' 스킬을 같이 써 보자고 해요.")
   expect(message.endsWith(url)).toBe(true)
 

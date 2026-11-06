@@ -19,15 +19,20 @@ function crc32(b: Uint8Array): number {
 
 /** A w × h PNG: a coloured square with a white diamond in the middle (easy to tell from the default mark). */
 export function makePng(w = 64, h = 64, rgb: [number, number, number] = [37, 99, 235]): Uint8Array<ArrayBuffer> {
+  return pngOf(w, h, (x, y) => (Math.abs(x - w / 2) / w + Math.abs(y - h / 2) / h < 0.28 ? [255, 255, 255] : rgb))
+}
+
+/** A w × h RGB PNG whose every pixel `at` gives (a wordmark, a pattern). */
+export function pngOf(w: number, h: number, at: (x: number, y: number) => readonly [number, number, number]): Uint8Array<ArrayBuffer> {
   const raw = Buffer.alloc((w * 3 + 1) * h)
   for (let y = 0; y < h; y++) {
     raw[y * (w * 3 + 1)] = 0
     for (let x = 0; x < w; x++) {
       const o = y * (w * 3 + 1) + 1 + x * 3
-      const inside = Math.abs(x - w / 2) / w + Math.abs(y - h / 2) / h < 0.28
-      raw[o] = inside ? 255 : rgb[0]
-      raw[o + 1] = inside ? 255 : rgb[1]
-      raw[o + 2] = inside ? 255 : rgb[2]
+      const [r, g, b] = at(x, y)
+      raw[o] = r
+      raw[o + 1] = g
+      raw[o + 2] = b
     }
   }
   const chunk = (type: string, data: Buffer) => {
@@ -46,12 +51,13 @@ export function makePng(w = 64, h = 64, rgb: [number, number, number] = [37, 99,
   return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]))
 }
 
-/** A JPEG header: SOI, a JFIF APP0 segment, an EXIF-like APP1 segment, then a baseline frame header with the size. */
+/** A JPEG header: SOI, a JFIF APP0 segment, an EXIF-like APP1 segment, then a baseline frame header with the size, and
+ * the end-of-image marker as the file's last two bytes (as browsers write it). */
 export function makeJpeg(w = 64, h = 64, sof = 0xc0): Uint8Array<ArrayBuffer> {
   const app0 = [0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]
   const app1 = [0xff, 0xe1, 0x00, 0x08, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00]
   const frame = [0xff, sof, 0x00, 0x11, 0x08, h >> 8, h & 0xff, w >> 8, w & 0xff, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01]
-  return new Uint8Array([0xff, 0xd8, ...app0, ...app1, 0xff, 0xff, ...frame, 0xff, 0xd9, ...new Array(32).fill(0)])
+  return new Uint8Array([0xff, 0xd8, ...app0, ...app1, 0xff, 0xff, ...frame, 0xff, 0xd9])
 }
 
 const le32 = (n: number) => [n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >>> 24) & 0xff]

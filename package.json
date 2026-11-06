@@ -44,6 +44,7 @@
     "build:web": "bun run --cwd web build",
     "test:web": "bun run --cwd web test",
     "typecheck:web": "bun run --cwd web typecheck",
+    "typecheck:mobile": "npm ci --prefix mobile --ignore-scripts --no-audit --no-fund && npm --prefix mobile run typecheck",
     "e2e:web": "bun run --cwd web build && bun run --cwd web e2e",
     "test:desktop:e2e": "bun run --cwd desktop test:e2e",
     "test:fast": "bun run scripts/test-all.ts --no-relay",

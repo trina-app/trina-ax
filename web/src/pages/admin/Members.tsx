@@ -9,10 +9,13 @@
 // and a Role filter, then a quiet table (name · username · role · skills switch · "…"). The owner changes a role right
 // in the row; every other action, and "Folders they see", is in the row's "…". Below the md width each member is a
 // stacked row with the same parts. Invites (the team link and the invite links) stay under the table.
+// The owner sees who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge. Removing
+// that person works as for anyone: their personal files go to the owner's archive. The owner's inbox entry opens
+// /admin/members?member=<id>: that person's row is marked and scrolled to.
 import { FolderLock, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
-import { useId, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useCallback, useId, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
@@ -60,6 +63,16 @@ export default function Members() {
   const [resetting, setResetting] = useState<User | null>(null)
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
+  // the person an inbox entry points at (?member=<id>): marked, and scrolled to once
+  const focusId = useSearchParams()[0].get('member')
+  const scrolled = useRef<string | null>(null)
+  const focusRow = useCallback((el: HTMLElement | null) => {
+    if (!el || scrolled.current === focusId) return
+    scrolled.current = focusId
+    el.scrollIntoView?.({ block: 'center' })
+  }, [focusId])
+  /** asked for their account to be deleted (the owner's list only) */
+  const requested = (u: User) => !!users.data?.deletionRequested?.includes(u.id)
   const navigate = useNavigate()
   // the team invite link: made and managed in a popup (TeamLinkDialog); the page lists it under the members
   const teamLink = useLoad(() => api.call(API.getTeamLink))
@@ -96,7 +109,9 @@ export default function Members() {
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: disabling ? 'disabled' : 'active' } }))) void users.reload()
   }
   const remove = async (u: User) => {
-    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
+    // personal files are archived for the owner either way; the text only says that this person asked
+    const body = requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
+    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body, confirm: t('common.delete'), danger: true }))) return
     if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
   }
   /** The actions used less often: on a phone in the card's "…" menu with the others, on a wide screen in the row's
@@ -214,7 +229,7 @@ export default function Members() {
             return phone ? (
               <ul className="divide-y divide-line border-y border-line" data-testid="members-list">
                 {list.map((u) => (
-                  <li key={u.id} className={clsx('flex items-start gap-2 py-3.5 text-sm', u.status === 'disabled' && 'opacity-60')} data-testid={`member-card-${u.username}`}>
+                  <li key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx('flex items-start gap-2 py-3.5 text-sm', u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')} data-testid={`member-card-${u.username}`}>
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{u.name}</p>
                       <p className="truncate text-xs text-faint">
@@ -223,7 +238,7 @@ export default function Members() {
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {roleCell(u)}
-                        <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} />
+                        <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
                       </div>
                       <div className="mt-2 flex items-start gap-3 text-xs">
                         <span className="pt-0.5 text-muted">{t('skillMgr.column')}</span>
@@ -238,7 +253,7 @@ export default function Members() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" data-testid="members-table">
                   <thead>
-                    <tr className="border-b border-line text-left text-[13px] whitespace-nowrap text-muted">
+                    <tr className="border-b border-line text-left text-label whitespace-nowrap text-muted">
                       <th scope="col" className="py-2.5 pr-4 font-medium">{t('auth.name')}</th>
                       <th scope="col" className="py-2.5 pr-4 font-medium">{t('auth.username')}</th>
                       <th scope="col" className="py-2.5 pr-4 font-medium">{t('members.role')}</th>
@@ -252,11 +267,11 @@ export default function Members() {
                   </thead>
                   <tbody className="divide-y divide-line">
                     {list.map((u) => (
-                      <tr key={u.id} className={clsx(u.status === 'disabled' && 'opacity-60')}>
+                      <tr key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}>
                         <td className="py-3.5 pr-4">
                           <span className="flex flex-wrap items-center gap-1.5">
                             <span className="font-medium text-ink">{u.name}</span>
-                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} />
+                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
                           </span>
                           {u.groupIds.length > 0 && <span className="mt-0.5 block text-xs text-faint">{u.groupIds.map(groupName).join(', ')}</span>}
                         </td>
@@ -396,11 +411,12 @@ export default function Members() {
 type RoleFilter = 'all' | User['role']
 
 /** What needs the admin's eye, next to the name: disabled, a temporary password, no AI. (The role has its own column.) */
-function AttentionBadges({ user: u, noAi }: { user: User; noAi: boolean }) {
+function AttentionBadges({ user: u, noAi, requested = false }: { user: User; noAi: boolean; requested?: boolean }) {
   const t = useT()
   return (
     <>
       {u.status === 'disabled' && <Badge tone="danger">{t('members.disabled')}</Badge>}
+      {requested && <span className="inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{t('accountDeletion.badge')}</Badge></span>}
       {u.mustChangePassword && <TempPasswordBadge user={u} />}
       {noAi && <NoAiBadge />}
     </>
@@ -504,7 +520,7 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
           <RoleSelect value={role} onChange={setRole} disabled={!isOwner(me)} />
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
         <Field label={t('members.validDays')}>
@@ -607,7 +623,7 @@ function TempPasswordField({ value, onChange, serverError, hint }: { value: stri
   const error = problem ? t(problem) : serverError ?? null
   return (
     <div>
-      <label htmlFor={`${id}-input`} className="mb-1.5 block text-[13px] font-medium text-ink">
+      <label htmlFor={`${id}-input`} className="mb-1.5 block text-label font-medium text-ink">
         {t('members.tempPassword')}
       </label>
       <div className="flex items-center gap-1">
@@ -783,7 +799,7 @@ function AddMember({ groups, onClose, onCreated }: { groups: Group[]; onClose: (
           <RoleSelect value={f.role} onChange={(role) => set({ role })} disabled={!isOwner(me)} />
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={f.groupIds} onChange={(groupIds) => set({ groupIds })} />
         </div>
         <NewPersonPreview role={f.role} groupIds={f.groupIds} groups={groups} />
@@ -848,7 +864,7 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
           </select>
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
       </div>

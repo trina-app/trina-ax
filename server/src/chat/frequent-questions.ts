@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { notInternalChat } from './internal-chats'
 
 const DAYS = 30, CHAT_LIMIT = 200, MESSAGE_LIMIT = 10_000, QUESTION_LIMIT = 2000
 export interface FrequentQuestion { question: string; count: number; lastUsedAt: string }
@@ -7,8 +8,8 @@ export interface FrequentQuestion { question: string; count: number; lastUsedAt:
 export function frequentQuestions(db: Database, userId: string, now = new Date()): { items: FrequentQuestion[]; days: 30; sampled: boolean } {
   const from = new Date(now.getTime() - DAYS * 86400_000).toISOString(), to = now.toISOString()
   const chats = db.query(`SELECT c.id, c.active_leaf_id FROM chats c JOIN users u ON u.id=c.user_id
-    WHERE c.user_id=? AND c.deleted_at IS NULL AND u.status='active' AND u.deleted_at IS NULL
-      AND c.updated_at>=? AND c.active_leaf_id IS NOT NULL
+    WHERE c.user_id=? AND c.deleted_at IS NULL AND c.room_id IS NULL AND u.status='active' AND u.deleted_at IS NULL
+      AND c.updated_at>=? AND c.active_leaf_id IS NOT NULL AND ${notInternalChat(db, 'c.id')}
     ORDER BY c.updated_at DESC,c.id DESC LIMIT ?`).all(userId, from, CHAT_LIMIT + 1) as { id: string; active_leaf_id: string }[]
   const row = db.query(`SELECT id,parent_id,role,author_id,created_at,
       CASE WHEN length(content)<=? THEN content ELSE '' END AS content,

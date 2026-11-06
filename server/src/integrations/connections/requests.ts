@@ -14,6 +14,7 @@ import { getTeamSettings, teamDefaultLocale } from '../../admin/settings'
 import { fail } from '../../http/errors'
 import { notifyIntegrationRequest, settleIntegrationRequestNotice } from '../../notifications/service'
 import { cleanNotes, fieldError, integrationsOf, normUrl, obviouslyPrivate, oneLine } from './service'
+import { sharedAddressProblem } from './templates'
 import { getRequest, getRow, isAdmin, REQUEST_COLUMNS, requestAuditDetail, view, type RequestRow, type Viewer } from './store'
 import { say, type TextKey } from './text'
 
@@ -96,6 +97,9 @@ export class ConnectionRequests {
     if (input.auth === 'oauth' && input.kind !== 'mcp') fieldError(L, 'auth', 'oauthMcpOnly')
     const url = normUrl(input.url)
     if (obviouslyPrivate(url)) fieldError(L, 'url', 'private_address')
+    // the address goes with the member's own key: the admin's key in it would reach the member and be sent with every
+    // call they make (a plain query, e.g. an instance id, stays allowed here as it was: a request is for one person)
+    if (sharedAddressProblem(input.url) === 'secret') fieldError(L, 'url', 'requestAddressKey')
     this.sweep()
     const now = this.now(), at = iso(now)
     const waiting = (this.db.query("SELECT user_id, url FROM integration_requests WHERE state = 'pending' AND expires_at > ?").all(at) as { user_id: string; url: string }[])
@@ -188,6 +192,8 @@ export class ConnectionRequests {
         const made = r.integration_id ? getRow(this.db, r.integration_id) : null
         if (made && made.scope === 'personal' && made.owner_user_id === viewer.id && made.url === r.url && made.auth === 'oauth') return view(this.db, made, viewer, L)
       } else if (answer.secret === undefined) fieldError(L, 'secret', 'no_secret')
+      // a request made before addresses were checked: a key in its address is not passed on to the member
+      if (sharedAddressProblem(r.url) === 'secret') fieldError(L, 'url', 'requestAddressKey')
       const created = await this.svc.create(viewer, {
         kind: r.kind, name: r.name, url: r.url, auth: r.auth, authHeader: r.auth_header, notes: r.notes, writePolicy: answer.writePolicy ?? 'ask',
         ...(answer.secret !== undefined ? { secret: answer.secret } : {}),

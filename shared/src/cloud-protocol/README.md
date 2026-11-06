@@ -23,6 +23,7 @@ here as `@mycel/shared/cloud-protocol` and only adds what the control plane and 
 | `release.ts` | `server/<channel>.json` and `server/<version>/release.json` (the server's `ReleaseFeed` + optional fields) | control-plane 3.7.1, linux-runtime 3.6.3 |
 | `relay-ops.ts` | relay operator API: types, `opsSigningString`, the `Authorization: MycelRelayOps` header, scopes, plain validators. **Erasable TypeScript, no zod** (the relay loads it with Node type stripping) | control-plane 3.6.2 |
 | `relay-ops-schema.ts` | zod mirrors of the operator API bodies for the control plane | control-plane 3.6.2 |
+| `push-gateway.ts` | push gateway API (`push-gateway/`, team server → native push): `POST /v1/send` body (`parsePushGatewaySend`, strict), the `Authorization: MycelPush` header, `pushGatewaySigningString`, error codes and their status. **Erasable TypeScript, no imports at all** (Node and Bun load it as it is) | `push-gateway/README.md` |
 | `signing.ts` | canonical JSON (signed JSON documents, e.g. ax-hostd job `cpSig`) and the signing strings (`register`, `rotate`, `reattach`) | control-plane 3.5.2, isolation §6.1 |
 | `vectors.ts`, `vectors/vectors.json` | test vectors for other implementations (Go: mycel-enroll, ax-hostd): canonical JSON, signatures from a fixed RFC 8032 test seed, tenant-command gate cases, enroll documents | — |
 

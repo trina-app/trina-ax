@@ -4,13 +4,20 @@
 //   opens or skips shows as a line as it happens, DraftActivity, and so do the images it kept for the brand folder) →
 //   "이렇게 이해했어요": every field editable, its source page and excerpt under it, a wrong one removed with one click,
 //   the brand colours the server found as swatches (remove only; docs/DECISIONS.md "N") → Save
-//   (PUT /api/onboarding/profile). The AI never saves anything: the person does.
+//   (PUT /api/onboarding/profile). The AI never saves anything itself: the person saves, or, in the welcome steps
+//   (`autoSave`), the page saves a website reading as it came on the person's behalf, unchecked (chat/prompt.ts says
+//   so to the AI).
 // When the site can't be read (or there is none): paste a text (the same draft, from the text) or answer three
-// questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review.
+// questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads, the step
+// offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself.
+// `autoSave` (the welcome steps): a website reading whose draft has a one-line intro is saved as it came, with the
+// same body as the review's save, and the step is done; the welcome page then shows one line of it with "고치기", which
+// opens this review. Only while the team has no saved profile (asked again right before saving): a re-read of a saved
+// profile (다시 읽기 from its review) never overwrites it unseen, it shows the review. Pasted text, a draft without a
+// one-line intro and a save that fails keep the review too.
 // A draft is an AI answer: with no AI the person can use (GET /api/me/ai-access, stream A), the step says so with A's
 // connect button instead of starting one, and the three questions (no AI needed) stay open.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { Check, ExternalLink, Globe, Loader2, Minus, X } from 'lucide-react'
 import { normalizeWebsite, PROFILE_DRAFT_PAGES_MAX, PROFILE_FIELDS, PROFILE_LIMITS, PROFILE_TEXT_MAX, profileName, type CompanyProfile, type CompanyProfileInput, type ProfileDraftPage, type ProfileDraftState, type ProfileField, type ProfileSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -33,11 +40,13 @@ export interface ProfileStepProps {
   initial?: CompanyProfile | null
   /** the website to start with; default: the one the setup link carried in this tab */
   initialWebsite?: string | null
+  /** save a website draft that has a one-line intro without the review (the welcome steps) */
+  autoSave?: boolean
 }
 
 type Phase =
   | { kind: 'site' }
-  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null }
+  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string }
   | { kind: 'fallback'; unreadable: boolean; error: string | null }
   | { kind: 'paste' }
   | { kind: 'questions' }
@@ -89,7 +98,7 @@ export function tidyProfile(p: CompanyProfileInput): CompanyProfileInput {
   return out
 }
 
-export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite }: ProfileStepProps) {
+export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initialWebsite, autoSave }: ProfileStepProps) {
   const t = useT()
   const locale = useLocale()
   const [phase, setPhase] = useState<Phase>(initial ? { kind: 'review' } : { kind: 'site' })
@@ -103,6 +112,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   const [answers, setAnswers] = useState({ what: '', who: '', tone: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // the latest props for the reading loop (it starts once per reading)
+  const latest = useRef({ onDone, autoSave, hadProfile: !!initial })
+  latest.current = { onDone, autoSave, hadProfile: !!initial }
   // while reading: the pages the server opened or skipped so far, and whether the AI is writing the profile
   const [activity, setActivity] = useState<{ steps: ProfileDraftPage[]; writing: boolean; assets: DraftAssets | null }>({ steps: [], writing: false, assets: null })
   const heading = useRef<HTMLHeadingElement>(null)
@@ -127,7 +139,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
       const r = await api.call(API.startProfileDraft, { body })
       if (r.website) setDraft((d) => ({ ...d, website: r.website }))
       setActivity({ steps: [], writing: false, assets: null })
-      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site })
+      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website })
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
@@ -159,7 +171,17 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           const d = s.draft
           // the brand colours the server found on the pages it opened (a pasted text has none: the draft's own, if any)
           const colors = brandColors(s.assets?.colors.length ? s.assets.colors : d.colors)
-          setDraft((prev) => named({ ...d, website: d.website || prev.website, colors }))
+          const read: CompanyProfileInput = { ...d, website: d.website || phase.website, colors }
+          if (latest.current.autoSave && phase.source === 'website' && d.oneLine.trim()) {
+            // no more reads of this draft (a late step event must not save it twice)
+            stopped = true
+            clearTimeout(timer)
+            // only the team's first profile: one saved before (this step's own, another tab, an admin) is never
+            // overwritten unseen; a read that fails counts as "there may be one"
+            const first = !latest.current.hadProfile && (await api.call(API.getCompanyProfile).then((r) => !r.profile, () => false))
+            if (first) { await saveAsRead(read); return }
+          }
+          setDraft((prev) => named({ ...read, website: read.website || prev.website }))
           setPhase({ kind: 'review' })
           return
         }
@@ -183,6 +205,25 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     if (!w) return setSiteError(t('onboarding.profile.siteInvalid'))
     setSiteError(null)
     void start({ website: w })
+  }
+
+  /** The welcome steps: the website draft saved as it came (only what the pages said: no name is filled in, an empty one
+   * reads as the team's name everywhere), with the save's own body and checks; the step is then done. A save that fails
+   * opens the review with the draft and the reason. */
+  const saveAsRead = async (read: CompanyProfileInput) => {
+    const body = tidyProfile(read)
+    setBusy(true)
+    try {
+      if (body.website && !normalizeWebsite(body.website)) throw new Error(t('onboarding.profile.siteInvalid'))
+      const saved = await api.call(API.saveCompanyProfile, { body })
+      latest.current.onDone(saved)
+    } catch (e) {
+      setDraft(named(read))
+      setError(errorText(e, locale, t('error.network')))
+      setPhase({ kind: 'review' })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const save = async () => {
@@ -264,15 +305,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <DraftActivity source={phase.source} site={phase.site} steps={activity.steps} writing={activity.writing} assets={activity.assets} />
           <p className="mt-3 text-xs text-faint">{t('onboarding.profile.readingHint')}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to={`/c/${phase.chatId}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-sm font-medium text-accent-text hover:bg-hover max-sm:min-h-10">
-            {t('onboarding.profile.openChat')}
-          </Link>
-          <Button variant="ghost" onClick={() => setPhase({ kind: 'fallback', unreadable: false, error: null })}>
-            {t('onboarding.profile.stopWaiting')}
-          </Button>
-          <span className="ml-auto">{skip}</span>
-        </div>
+        {/* only "나중에 하기" while it reads (docs/DECISIONS.md "W2"): the chat and the written path are not offered here;
+            a reading that fails opens the fallback (paste a text, three questions) by itself */}
+        {skip && <div className="flex justify-end">{skip}</div>}
       </div>
     )
 
@@ -444,7 +479,7 @@ export function DraftActivity({ source, site, steps, writing, assets }: { source
   }
   const idle = steps.length === 0 && !writing
   return (
-    <ul className="space-y-1.5 text-[13px]" aria-label={t('onboarding.profile.activity.label')} aria-live="polite" data-testid="profile-activity">
+    <ul className="space-y-1.5 text-label" aria-label={t('onboarding.profile.activity.label')} aria-live="polite" data-testid="profile-activity">
       {source === 'website'
         ? line('intro', idle ? spin : <Globe size={14} className="text-faint" aria-hidden />, t('onboarding.profile.activity.intro', { site: site ?? '', max }), 'text-muted', 'profile-activity-intro')
         : line('text', spin, t('onboarding.profile.activity.text'), 'text-ink')}
@@ -469,7 +504,7 @@ function ReviewField({ field, value, source, hint, onClear, children }: { field:
   return (
     <div>
       <div className="mb-1.5 flex min-h-8 items-center justify-between gap-2">
-        <label htmlFor={id} className="text-[13px] font-medium text-ink">
+        <label htmlFor={id} className="text-label font-medium text-ink">
           {name}
         </label>
         {value.trim() && (
@@ -494,13 +529,13 @@ function ToneField({ tone, source, onChange }: { tone: string[]; source: Profile
   const add = () => { if (next.trim()) { onChange(toneChips(next, tone)); setNext('') } }
   return (
     <div role="group" aria-labelledby={`${id}-label`}>
-      <p id={`${id}-label`} className="mb-1.5 text-[13px] font-medium text-ink">
+      <p id={`${id}-label`} className="mb-1.5 text-label font-medium text-ink">
         {t('onboarding.profile.f.tone')}
       </p>
       {tone.length > 0 && (
         <ul className="mb-2 flex flex-wrap gap-1.5">
           {tone.map((x) => (
-            <li key={x} className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-subtle py-0.5 pr-0.5 pl-2.5 text-[13px] text-ink">
+            <li key={x} className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-subtle py-0.5 pr-0.5 pl-2.5 text-label text-ink">
               {x}
               <IconButton label={t('onboarding.profile.remove', { name: x })} onClick={() => onChange(tone.filter((y) => y !== x))}>
                 <X size={13} />
@@ -544,7 +579,7 @@ function ColorsField({ colors, onChange }: { colors: string[]; onChange: (colors
   if (!colors.length) return null
   return (
     <div role="group" aria-labelledby={`${id}-label`} data-testid="profile-colors">
-      <p id={`${id}-label`} className="mb-1.5 text-[13px] font-medium text-ink">
+      <p id={`${id}-label`} className="mb-1.5 text-label font-medium text-ink">
         {t('onboarding.profile.f.colors')}
       </p>
       <ul className="flex flex-wrap gap-1.5">

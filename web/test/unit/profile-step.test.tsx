@@ -2,7 +2,9 @@
 // field with its source page and excerpt and a way to remove it; only http(s) sources become links; tone stays at
 // four chips; what is saved is trimmed and keeps sources only for fields that still have a value. The reading lines
 // ("R"), and what the server collected while reading ("N"): the images line, the brand colours as swatches that can
-// only be removed, saved with the profile, and shown in Admin › Team settings.
+// only be removed, saved with the profile, and shown in Admin › Team settings. While it reads, only "later" ("W2").
+// In the welcome steps (autoSave) a website draft with a one-line intro is saved as it came, without the review, only
+// while the team has no saved profile.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
@@ -190,7 +192,7 @@ describe('colours and images, clicked', () => {
     'GET /api/me/ai-access': () => json(200, { usable: true, action: 'connect_team', requested: false }),
     'GET /api/onboarding/profile': () => json(200, { profile: saved }),
     'PUT /api/onboarding/profile': (b) => json(200, { ...b, updatedAt: '2026-11-05T00:00:00.000Z' }),
-    'POST /api/onboarding/profile/draft': () => json(201, { chatId: CHAT, website: 'https://acme.example/', site: 'acme.example' }),
+    'POST /api/onboarding/profile/draft': (b) => json(201, b.text ? { chatId: CHAT, website: '', site: null } : { chatId: CHAT, website: 'https://acme.example/', site: 'acme.example' }),
     [`GET /api/onboarding/profile/draft/${CHAT}`]: () => json(200, draftState),
   }
   const realFetch = globalThis.fetch
@@ -286,6 +288,132 @@ describe('colours and images, clicked', () => {
       await m.until(() => puts().length, 'saved')
       expect(puts()[0].colors).toEqual(['#37ee6a', '#f5f9f2'])
     } finally { await m.unmount() }
+  })
+
+  test('while it reads, only "later" (docs/DECISIONS.md "W2"): no chat link, no "write it myself"; a reading that fails opens the fallback by itself', async () => {
+    calls = []
+    draftState = { status: 'running', website: 'https://acme.example/', draft: null, error: null, steps: [page({ url: 'https://acme.example/', status: 'ok', title: 'Acme' })], writing: false }
+    let skipped = 0
+    const m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={() => { skipped++ }} skipLabel="나중에 하기" initialWebsite="https://acme.example/" /></MemoryRouter>)
+    try {
+      await m.until(() => !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      const reading = m.get('profile-step-reading')
+      expect(reading.querySelectorAll('button').map((b: any) => b.textContent)).toEqual(['나중에 하기'])
+      expect(reading.querySelectorAll('a')).toEqual([])
+      expect(m.html()).not.toContain('대화로 보기')
+      expect(m.html()).not.toContain('직접 쓸게요')
+      await m.click(reading.querySelectorAll('button')[0]!)
+      expect(skipped).toBe(1)
+      // the reading fails: the pasted text and the three questions open without a click
+      draftState = { status: 'failed', website: 'https://acme.example/', draft: null, error: '홈페이지를 열지 못했어요', steps: [] }
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-step-fallback'), 'the fallback')
+      expect(m.html()).toContain('홈페이지에서 회사 소개를 읽지 못했어요.')
+    } finally { await m.unmount() }
+  })
+
+  test('autoSave (the welcome steps): a website draft with a one-line intro is saved as it came, no review; without one, from pasted text, a failed save or without autoSave: the review', async () => {
+    const done = (oneLine: string, website = 'https://acme.example/') => ({
+      status: 'done', website, error: null, steps: [], assets: { images: 2, logo: true, colors: ['#37ee6a', '#0b140d'] },
+      draft: { website, name: '', oneLine, products: ' Desk fans ', audience: '', tone: ['friendly'], avoid: '', sources: [
+        { field: 'oneLine', url: 'https://acme.example/about', excerpt: 'Quiet desk fans' }, { field: 'audience', url: 'https://acme.example/', excerpt: 'offices' }] },
+    })
+    const putRoute = routes['PUT /api/onboarding/profile']!
+    const run = async (o: { autoSave?: boolean; oneLine: string; text?: boolean; putFails?: boolean }) => {
+      calls = []
+      draftState = done(o.oneLine, o.text ? '' : 'https://acme.example/')
+      if (o.putFails) routes['PUT /api/onboarding/profile'] = () => json(500, { error: { code: 'internal', message: '저장하지 못했어요' } })
+      let saved: CompanyProfile | null = null
+      const m = await mount(<MemoryRouter><ProfileStep onDone={(p) => { saved = p }} onSkip={noop} skipLabel="나중에 하기" initialWebsite="https://acme.example/" autoSave={o.autoSave} /></MemoryRouter>)
+      try {
+        await m.until(() => !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+        if (o.text) {
+          const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
+          await m.click(button('홈페이지가 없어요'))
+          await m.until(() => m.find('profile-step-fallback'), 'the fallback')
+          await m.click(button('소개 글 붙여 넣기'))
+          await m.until(() => m.find('profile-step-paste'), 'the paste form')
+          await m.type(m.get('profile-step-paste').querySelector('textarea')!, 'Acme makes quiet desk fans.')
+          await m.click(m.get('profile-step-paste').querySelector('button[type="submit"]')!)
+        } else await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+        await m.until(() => m.find('profile-step-reading'), 'reading')
+        chatActivity.emit(CHAT)
+        await m.until(() => saved || m.find('profile-step-review'), 'saved or the review')
+        // a late step event of the same draft saves nothing twice
+        chatActivity.emit(CHAT)
+        await m.settle(400)
+        const values = m.container.querySelectorAll('input').map((i) => (i as unknown as { value: string }).value)
+        return { saved: saved as CompanyProfile | null, review: !!m.find('profile-step-review'), html: m.html(), values, puts: puts() }
+      } finally {
+        await m.unmount()
+        routes['PUT /api/onboarding/profile'] = putRoute
+      }
+    }
+    // the welcome steps: saved as it came, once, with the save's own body: trimmed, sources only for filled fields, the
+    // colours the server found; no company name filled in (an empty one reads as the team's name everywhere)
+    const auto = await run({ autoSave: true, oneLine: ' Acme makes quiet desk fans. ' })
+    expect(auto.review).toBe(false)
+    expect(auto.puts).toEqual([{ website: 'https://acme.example/', name: '', oneLine: 'Acme makes quiet desk fans.', products: 'Desk fans', audience: '', tone: ['friendly'], avoid: '',
+      sources: [{ field: 'oneLine', url: 'https://acme.example/about', excerpt: 'Quiet desk fans' }], colors: ['#37ee6a', '#0b140d'] }])
+    expect(auto.saved).toMatchObject({ oneLine: 'Acme makes quiet desk fans.' })
+    // no one-line intro: the review, nothing saved
+    const noLine = await run({ autoSave: true, oneLine: '  ' })
+    expect(noLine.review).toBe(true)
+    expect(noLine.puts).toEqual([])
+    // pasted text: the review
+    const pasted = await run({ autoSave: true, oneLine: 'Acme makes quiet desk fans.', text: true })
+    expect(pasted.review).toBe(true)
+    expect(pasted.puts).toEqual([])
+    // the save fails: the review with the draft and the reason
+    const failed = await run({ autoSave: true, oneLine: 'Acme makes quiet desk fans.', putFails: true })
+    expect(failed.review).toBe(true)
+    expect(failed.saved).toBeNull()
+    expect(failed.html).toContain('저장하지 못했어요')
+    expect(failed.values).toContain('Acme makes quiet desk fans.')
+    // Admin › Team settings (no autoSave): the review, as before
+    const admin = await run({ oneLine: 'Acme makes quiet desk fans.' })
+    expect(admin.review).toBe(true)
+    expect(admin.puts).toEqual([])
+  })
+
+  test('autoSave never overwrites a saved profile: a re-read from its review, or one saved meanwhile in another tab, shows the review and saves nothing', async () => {
+    const draftDone = { status: 'done', website: 'https://acme.example/', error: null, steps: [], assets: { images: 0, logo: false, colors: [] },
+      draft: { website: 'https://acme.example/', name: '', oneLine: 'A newer reading', products: '', audience: '', tone: [], avoid: '', sources: [] } }
+    const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
+    const read = async (m: Awaited<ReturnType<typeof mount>>) => {
+      await m.until(() => m.find('profile-step-site') && !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-step-review'), 'the review')
+      await m.settle(300)
+    }
+    // the owner's saved profile, re-read from its review ("홈페이지 다시 읽기"): the review with the new reading
+    calls = []
+    draftState = draftDone
+    saved = PROFILE
+    let done: CompanyProfile | null = null
+    let m = await mount(<MemoryRouter><ProfileStep initial={PROFILE} onDone={(p) => { done = p }} onSkip={noop} skipLabel="나중에 하기" autoSave /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-review'), 'the saved review')
+      await m.click(button('홈페이지 다시 읽기'))
+      await read(m)
+      expect(puts()).toEqual([])
+      expect(done).toBeNull()
+      expect(m.container.querySelectorAll('input').map((i) => (i as unknown as { value: string }).value)).toContain('A newer reading')
+    } finally { await m.unmount() }
+    // none when the step opened, but one saved meanwhile (another tab, an admin): asked again right before, the review
+    calls = []
+    saved = PROFILE
+    m = await mount(<MemoryRouter><ProfileStep onDone={(p) => { done = p }} onSkip={noop} skipLabel="나중에 하기" initialWebsite="https://acme.example/" autoSave /></MemoryRouter>)
+    try {
+      await read(m)
+      expect(calls.filter((c) => c.key === 'GET /api/onboarding/profile').length).toBeGreaterThan(0)
+      expect(puts()).toEqual([])
+      expect(done).toBeNull()
+    } finally { await m.unmount(); saved = null }
   })
 
   test('Admin › Team settings: the saved colours as a row of swatches; none, no row', async () => {

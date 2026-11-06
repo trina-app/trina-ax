@@ -11,7 +11,7 @@ export type Tone = 'muted' | 'warn' | 'danger'
 /** How a last-run result reads: a clean success stays quiet, problems and failures stand out. */
 export function outcomeTone(o: Schedule['lastOutcome']): Tone {
   if (o === 'problems') return 'warn'
-  if (o === 'error' || o === 'stopped' || o === 'interrupted' || o === 'budget_exceeded' || o === 'user_unavailable') return 'danger'
+  if (o === 'error' || o === 'stopped' || o === 'interrupted' || o === 'budget_exceeded' || o === 'user_unavailable' || o === 'needs_key') return 'danger'
   return 'muted'
 }
 
@@ -47,7 +47,9 @@ export const outcomeLabel = (s: Schedule, t: T) => (s.lastOutcome ? t(`scheduleT
 /** Why the last run did not succeed, in plain words, with the next step ("…then use Run now to try again"); empty for a
  *  success or before the first run. The API gives only the outcome code, not the error text, so this explains the code. */
 export const outcomeReason = (s: Schedule, t: T) =>
-  s.lastOutcome && s.lastOutcome !== 'done' ? t(`scheduled.reason.${s.lastOutcome}` as MessageKey) : ''
+  // a run that needed the owner's own key for an admin's template names it ("…your own key for Demo Wiki…")
+  s.lastOutcome === 'needs_key' ? t('scheduled.reason.needs_keyNamed', { name: s.lastNeed?.name ?? '' })
+    : s.lastOutcome && s.lastOutcome !== 'done' ? t(`scheduled.reason.${s.lastOutcome}` as MessageKey) : ''
 
 /** The card's dim line, like Claude's: "Paused · Weekdays (Mon–Fri) at 09:00". The last result has its own line under
  *  it (outcomeLabel), so a long repeat never cuts it off. */

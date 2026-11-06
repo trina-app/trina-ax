@@ -62,7 +62,7 @@ export default function Groups() {
             return (
               <>
                 {/* the column names of the rows below (each row reads on its own, so this is for the eye only) */}
-                <div aria-hidden className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_7rem_2.5rem] gap-4 border-b border-line py-2.5 text-[13px] font-medium text-muted md:grid">
+                <div aria-hidden className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_7rem_2.5rem] gap-4 border-b border-line py-2.5 text-label font-medium text-muted md:grid">
                   <span>{t('auth.name')}</span>
                   <span>{t('groups.members')}</span>
                   <span className="leading-tight">{t('skillMgr.column')}</span>
@@ -77,7 +77,7 @@ export default function Groups() {
                       </span>
                       {/* a phone: the menu sits next to the name, the members and the switch go under them */}
                       <span className="min-w-0 text-muted max-md:col-span-2 max-md:row-start-2">
-                        <span className="block text-[13px]">{t('groups.memberCount', { n: g.memberIds.length })}</span>
+                        <span className="block text-label">{t('groups.memberCount', { n: g.memberIds.length })}</span>
                         <span className="block truncate text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
                       </span>
                       <span className="flex items-center gap-3 max-md:col-span-2 max-md:row-start-3">
@@ -155,7 +155,7 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
           <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />
         </Field>
         <fieldset>
-          <legend className="mb-1.5 text-[13px] font-medium">{t('groups.members')}</legend>
+          <legend className="mb-1.5 text-label font-medium">{t('groups.members')}</legend>
           <div className="max-h-60 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
             {users.map((u) => (
               <label key={u.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-hover">

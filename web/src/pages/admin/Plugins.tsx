@@ -135,7 +135,7 @@ function PlanDialog({ plan, onClose, onDone }: { plan: PluginPlan; onClose: () =
             <ul className="text-xs text-muted">{plan.components.map((c) => <li key={c.name}>{c.name}{c.version ? ` ${c.version}` : ''} · {c.license}</li>)}</ul>
           </div>
         )}
-        <p className="font-mono text-[11px] break-all text-faint">{t('plugins.prompt.digest', { digest: plan.manifestSha256.slice(0, 16) })}</p>
+        <p className="font-mono text-micro break-all text-faint">{t('plugins.prompt.digest', { digest: plan.manifestSha256.slice(0, 16) })}</p>
       </div>
     </Modal>
   )

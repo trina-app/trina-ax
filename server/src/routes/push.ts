@@ -8,4 +8,7 @@ export function registerPush(kit: RouteKit, ctx: AppContext) {
   kit.handle(PUSH.subscribePush, ({ c, auth, body }) => { c.header('Cache-Control', 'no-store'); return service.subscribe(auth.user.id, auth.session.id, body) })
   kit.handle(PUSH.updatePushSettings, ({ c, auth, body }) => { c.header('Cache-Control', 'no-store'); return service.setEnabled(auth.user.id, auth.session.id, body.enabled, body.consent) })
   kit.handle(PUSH.unsubscribePush, ({ auth, params }) => service.unsubscribe(auth.user.id, auth.session.id, params.id))
+  kit.handle(PUSH.registerPushDevice, ({ c, auth, body }) => { c.header('Cache-Control', 'no-store'); return service.registerDevice(auth.user.id, auth.session.id, body) })
+  kit.handle(PUSH.unregisterPushDevice, ({ auth, params }) => service.unsubscribe(auth.user.id, auth.session.id, params.id, 'native'))
+  kit.handle(PUSH.removePushDevice, ({ params, body }) => { service.removeDevice(params.id, body) })
 }

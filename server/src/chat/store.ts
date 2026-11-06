@@ -13,6 +13,8 @@ export interface ChatRow {
   active_leaf_id: string | null; created_at: string; updated_at: string; deleted_at: string | null
   /** where the title came from (title.ts): 'auto' | 'ai' | 'user' | 'schedule' | 'legacy' */
   title_source: string
+  /** migration 242: the AI session of this person in a team chat room (rooms/ai.ts); never one of their chats on screen */
+  room_id: string | null
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -32,7 +34,7 @@ export interface ProjectRow {
   trashed_with: string | null
 }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with'
 
@@ -105,10 +107,11 @@ export class ChatStore {
   chatRow(id: string): ChatRow | null {
     return this.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE id = ?`).get(id) as ChatRow | null
   }
-  /** own chat (optionally including the trash) */
+  /** own chat (optionally including the trash). A room's AI session is not a chat of the person's: the chat routes
+   * answer not_found for it (it is asked, stopped and read through the room, rooms/ai.ts) */
   ownChat(userId: string, id: string, o: { deleted?: boolean } = {}): ChatRow | null {
     const r = this.chatRow(id)
-    if (!r || r.user_id !== userId) return null
+    if (!r || r.user_id !== userId || r.room_id) return null
     if (!o.deleted && r.deleted_at) return null
     return r
   }

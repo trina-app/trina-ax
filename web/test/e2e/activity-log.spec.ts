@@ -133,7 +133,8 @@ test('grouped by day, repeats folded into one row that opens, and each row has i
 
   // an AI tool call: who, the tool, and that it was refused
   const tool = rows(page).filter({ hasText: 'salaries' })
-  await expect(tool).toContainText('Bob · AI used read')
+  // the tool in words, like the chat's steps, and the file it worked on
+  await expect(tool).toContainText('Bob · AI used Read · hr/salaries.xlsx')
   await expect(tool).toContainText(t['audit.denied'])
 
   // older rows page in

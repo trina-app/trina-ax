@@ -26,6 +26,7 @@ import { assertSeatFree } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
+import { notifyTemplateOffers } from '../notifications/service'
 
 export const RESET_TTL_MS = 24 * 3600_000
 /** A temporary password (admin "add member" / "new temporary password") stops working this long after it was set. */
@@ -335,6 +336,7 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   }
   if (ok! === 'gone') fail('gone', msg('linkInvalid', locale))
   ensurePersonalFolder(ctx.files.fx.root, id)
+  notifyTemplateOffers(ctx, { userId: id })
   return a.signIn(c, id, b.client, b.tokenMode)
 }
 class UsernameTaken extends Error {}

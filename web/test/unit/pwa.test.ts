@@ -2,7 +2,7 @@
 // push needs the Home Screen app.
 import { describe, expect, test } from 'bun:test'
 import { DESKTOP_BRIDGE_GLOBAL } from '@mycel/shared'
-import { guideOrder, installGuideShown, platformOf, pushNeedsInstall, standaloneOf } from '../../src/lib/pwa'
+import { guideOrder, insidePhoneApp, installGuideShown, platformOf, pushNeedsInstall, standaloneOf } from '../../src/lib/pwa'
 
 const UA = {
   iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
@@ -53,4 +53,9 @@ describe('install guide', () => {
       delete g[DESKTOP_BRIDGE_GLOBAL]
     }
   })
+})
+
+test('inside the phone app (react-native-webview bridge) the page registers no service worker', () => {
+  expect(insidePhoneApp({ ReactNativeWebView: { postMessage: () => {} } })).toBe(true)
+  for (const w of [{}, { ReactNativeWebView: {} }, { ReactNativeWebView: { postMessage: 'x' } }]) expect(insidePhoneApp(w)).toBe(false)
 })

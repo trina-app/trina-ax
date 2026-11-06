@@ -28,6 +28,15 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   // per member and address)
   createIntegrationRequest: { build: async c => { const me = await c.get('/api/me'); return c.post('/api/admin/integration-requests', { userId: me.json?.user?.id ?? 'nobody', kind: 'http', name: 'Matrix', url: `https://integration-matrix.invalid/api/${crypto.randomUUID()}`, auth: 'bearer' }) }, scope: 'byLevel' },
   withdrawIntegrationRequest: { build: c => c.post(`/api/admin/integration-requests/${NONE}/withdraw`, {}), scope: 'nobody' },
+  // an admin's template, each member connects their own key (tests/unit/c-integration-templates.test.ts: only members it
+  // is for see or connect it, admins included; the key never reaches an admin; changes drop the members' keys)
+  listIntegrationTemplates: { build: c => c.get('/api/integration-templates'), scope: 'self' },
+  connectIntegrationTemplate: { build: c => c.post(`/api/integration-templates/${NONE}/connect`, { version: 1, secret: 'matrix-key-value' }), scope: 'nobody' },
+  listTeamIntegrationTemplates: { build: c => c.get('/api/admin/integration-templates'), scope: 'byLevel' },
+  createIntegrationTemplate: { build: c => c.post('/api/admin/integration-templates', { kind: 'http', name: 'Matrix', url: `https://integration-matrix.invalid/api/${crypto.randomUUID()}`, auth: 'bearer', access: { everyone: false, groups: [], users: [] } }), scope: 'byLevel' },
+  updateIntegrationTemplate: { build: c => c.patch(`/api/admin/integration-templates/${NONE}`, { name: 'x' }), scope: 'nobody' },
+  deleteIntegrationTemplate: { build: c => c.del(`/api/admin/integration-templates/${NONE}`), scope: 'nobody' },
+  listIntegrationTemplateMembers: { build: c => c.get(`/api/admin/integration-templates/${NONE}/members`), scope: 'nobody' },
 }
 // GET /api/integrations/oauth/callback: state, session and person binding are tested in tests/unit/c-integrations-oauth.test.ts
 export const INTEGRATION_RAW_COVERED = ['RAW GET INTEGRATION_CALLBACK']

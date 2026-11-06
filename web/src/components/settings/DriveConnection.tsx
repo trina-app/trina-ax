@@ -142,7 +142,7 @@ export function DriveConnection() {
     {error && <ErrorNote>{t('drive.failed')}</ErrorNote>}
     {revokeWarning && <p role="status" className="text-sm text-muted">{t('drive.revokeWarning')}</p>}
     {!connection && !loadFailed && <Skeleton lines={3} />}
-    {connection && !connection.configured && <p>{t('drive.notConfigured')}</p>}
+    {connection && !connection.configured && <p className="text-sm text-muted">{t('drive.notConfigured')}</p>}
     {connection?.configured && <>
       <p data-testid="drive-status">{t(`drive.status.${connection.status}`)}</p>
       {connection.account && <p className="text-sm">{connection.account.name} {connection.account.email}</p>}

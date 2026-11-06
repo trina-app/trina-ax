@@ -5,6 +5,7 @@
 // outside until it is listed here (fails closed). Built from the tools' own name lists where they export one; the
 // engines run nothing else (Claude Code's lockdown: our tools, WebSearch, the Agent tool; engine/claude.ts).
 import { EDIT_FILES_TOOL, FILE_TOOLS } from '@mycel/shared'
+import { DECK_TOOL, PROMO_TOOL } from '@mycel/shared/api'
 import { C_TOOL_NAMES } from '../tools'
 import { FILE_MOVE_TOOL_NAMES } from '../tools/file-moves'
 import { SCHEDULE_TOOL_NAMES } from '../tools/schedules'
@@ -20,6 +21,10 @@ export function teamContentTools(): ReadonlySet<string> {
   ...Object.keys(FILE_TOOLS), EDIT_FILES_TOOL, ...C_TOOL_NAMES.filter((n) => !C_OUTSIDE.has(n)), ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES,
   // the chat's own tools (chat/tools.ts) and the team search (tools/search.ts)
   'skill', 'find_skills', 'remember', 'forget', 'ask_user', 'connect_service', 'set_title', 'search',
+  // the promo video (promo-video/tool.ts): it reads team files and makes the chat's artifact, nothing from outside
+  PROMO_TOOL,
+  // the intro deck (intro-deck/tool.ts): the same, team files in, the chat's artifact out
+  DECK_TOOL,
   // a sub-task: its own steps are checked one by one
   'agent', 'Agent', 'Task',
   // steps the server writes itself

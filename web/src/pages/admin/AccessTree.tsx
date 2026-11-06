@@ -548,7 +548,7 @@ export default function AccessTree() {
     row.scrollIntoView({ block: 'nearest' })
   })
   const backButton = (
-    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
+    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
       <ArrowLeft size={15} aria-hidden /> {t('accessTree.back')}
     </button>
   )
@@ -1078,7 +1078,7 @@ function Tree({ data, ruled, open, busy, failed, selected, onToggle, onMore, onR
               setActive(r.key)
               void activate(r)
             }}
-            className="flex cursor-pointer items-center gap-1.5 rounded-lg py-2 pr-2 text-[13px] font-medium text-muted transition-[background-color,color] hover:bg-hover hover:text-ink focus-visible:-outline-offset-2 max-sm:min-h-10"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg py-2 pr-2 text-label font-medium text-muted transition-[background-color,color] hover:bg-hover hover:text-ink focus-visible:-outline-offset-2 max-sm:min-h-10"
             data-testid={r.kind === 'more' ? 'tree-more' : 'tree-failed'}
           >
             <Indent />
@@ -1181,12 +1181,12 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
           )}
         </div>
         {personal ? (
-          <p className="text-xs leading-5 text-muted">
-            {t('accessTree.personal.who')} <span className="text-faint">· {t('accessTree.personal.fixed')}</span>
+          <p className="mt-0.5 text-label leading-5 text-muted">
+            {t('accessTree.personal.who')} <span className="text-xs text-faint">· {t('accessTree.personal.fixed')}</span>
           </p>
         ) : (
-          <p className="text-xs leading-5">
-            <span className={own || n.path === '' ? 'text-ink/80' : 'text-muted'} data-testid="tree-who">
+          <p className="mt-0.5 text-label leading-5">
+            <span className={own || n.path === '' ? 'text-ink' : 'text-muted'} data-testid="tree-who">
               {whoSeesText(t, n, members)}
             </span>
             {/* where it comes from only when a parent's rule decides (a folder's own rules need no "this folder's rules"
@@ -1204,7 +1204,7 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
         {risks.length > 0 && (
           <span className="mt-1 flex flex-wrap gap-1">
             {risks.map((r) => (
-              <span key={r} className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn" data-testid="tree-risk">
+              <span key={r} className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-1.5 py-0.5 text-micro font-medium text-warn" data-testid="tree-risk">
                 <TriangleAlert size={11} className="shrink-0" aria-hidden />
                 {r}
               </span>

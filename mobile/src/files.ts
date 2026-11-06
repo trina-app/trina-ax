@@ -3,6 +3,8 @@ import { Directory, File, Paths } from 'expo-file-system'
 import * as Crypto from 'expo-crypto'
 import * as Sharing from 'expo-sharing'
 import type { TransferIO } from './bridge'
+import type { InstallDeps } from './install'
+import * as SecureStore from 'expo-secure-store'
 const cache = () => new Directory(Paths.cache, 'team-ax-transfers')
 export function clearDownloadCache() { const root = cache(); if (root.exists) root.delete() }
 export function fileTransferIO(): TransferIO {
@@ -35,5 +37,17 @@ export function fileTransferIO(): TransferIO {
       const item = open.get(id); open.delete(id)
       if (item?.dir.exists) item.dir.delete()
     },
+  }
+}
+
+/** The reinstall marker (src/install.ts): a file the app's deletion removes, next to an id in the keychain, which iOS
+ * keeps, and the launches that tried the sign-out since. */
+export function reinstallDeps(): InstallDeps {
+  const marker = () => new File(Paths.document, 'team-ax-installed')
+  const slot = (key: string) => ({ get: () => SecureStore.getItemAsync(key), set: (v: string | null) => v === null ? SecureStore.deleteItemAsync(key) : SecureStore.setItemAsync(key, v) })
+  return {
+    keychain: slot('team-ax.install'), tries: slot('team-ax.install-signouts'),
+    marker: { exists: () => marker().exists, create: () => { marker().create() }, remove: () => { const f = marker(); if (f.exists) f.delete() } },
+    newId: () => Crypto.randomUUID(),
   }
 }

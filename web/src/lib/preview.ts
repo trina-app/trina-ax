@@ -87,3 +87,18 @@ export function iconKind(name: string, folder = false): FileIconKind {
   if (['txt', 'md', 'log'].includes(e)) return 'text'
   return 'other'
 }
+
+/** A number or amount as a CSV cell holds it ("1200", "3,100", "-12.5", "45%", "₩9,900"); not a date ("2026-07"). */
+const isNumberText = (s: string) => /^[-+−]?[$€£¥₩]?\d[\d,]*(\.\d+)?%?$/.test(s.trim())
+
+/** The columns of a CSV preview whose cells under the first row (the header) are all numbers: shown right-aligned,
+ * the header cell too. Empty cells don't count either way. */
+export function numberColumns(rows: string[][]): Set<number> {
+  const out = new Set<number>()
+  const width = rows.reduce((w, r) => Math.max(w, r.length), 0)
+  for (let j = 0; j < width; j++) {
+    const cells = rows.slice(1).map((r) => (r[j] ?? '').trim()).filter(Boolean)
+    if (cells.length && cells.every(isNumberText)) out.add(j)
+  }
+  return out
+}
