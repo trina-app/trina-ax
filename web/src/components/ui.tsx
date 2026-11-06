@@ -556,10 +556,10 @@ export function Tabs<T extends string>({ value, onChange, items, label, segmente
 /** `hideLabel`: the label is for screen readers only (a row whose name is already beside the switch). */
 /** `id` with `external`: the switch has no text of its own; a `<label htmlFor={id}>` elsewhere on its row names it (a
  * settings row with the words on the left and the switch on the right). */
-export function Switch({ checked, onChange, label, disabled, hideLabel, testId, id, external }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; hideLabel?: boolean; testId?: string; id?: string; external?: boolean }) {
+export function Switch({ checked, onChange, label, disabled, hideLabel, testId, id, external, describedBy }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; hideLabel?: boolean; testId?: string; id?: string; external?: boolean; describedBy?: string }) {
   return (
-    <label className={clsx('inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
-      <input id={id} type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} data-testid={testId} />
+    <label className={clsx('relative inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
+      <input id={id} type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} data-testid={testId} aria-describedby={describedBy} />
       <span className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4 dark:peer-checked:after:bg-accent-ink" aria-hidden />
       {!(external && id) && <span className={hideLabel ? 'sr-only' : undefined}>{label}</span>}
     </label>

@@ -250,9 +250,13 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const savedDates = new Map<string, string>()
     for (const days of [30, 10]) {
       await page.goto('/admin/settings')
-      await page.getByLabel(t['teamSettings.trashDays'], { exact: true }).fill(String(days))
-      await page.getByRole('button', { name: t['common.save'], exact: true }).click()
-      await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
+      const trashDays = page.getByLabel(t['teamSettings.row.trash'], { exact: true })
+      // Save shows only when something changed (the save bar): 30 days may already be the value
+      if ((await trashDays.inputValue()) !== String(days)) {
+        await trashDays.fill(String(days))
+        await page.getByRole('button', { name: t['common.save'], exact: true }).click()
+        await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
+      }
       await page.goto('/files?path=marketing')
       const names = [`retention-${days}-single.txt`, `retention-${days}-bulk-a.txt`, `retention-${days}-bulk-b.txt`]
       await page.getByTestId('files-input').setInputFiles(names.map((name) => ({ name, mimeType: 'text/plain', buffer: Buffer.from('retention test') })))
