@@ -3674,6 +3674,9 @@ export const id: Record<MessageKey, string> = {
   "teamLink.sharedMany": "'{a}' dan lainnya ({n} semuanya)",
   "teamLink.landing": "Yang bergabung mulai dari '{skill}'",
   "teamLink.landingChange": "Ubah",
+  "audit.act.skills.share_create": "Usulan berbagi skill dibuat",
+  "audit.act.skills.share_apply": "Skill dibagikan ke tim",
+  "audit.act.skills.share_dismiss": "Usulan berbagi skill ditutup",
   // ── K end: welcome order ──
   "kg.title": "Grafik pengetahuan",
   "kg.desc": "Peta kode di folder tim, agar AI bisa menemukan fungsi dan hubungannya. Diperbarui sendiri saat berkas berubah.",

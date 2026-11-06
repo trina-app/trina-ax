@@ -3634,6 +3634,9 @@ export const es: Record<MessageKey, string> = {
   "teamLink.sharedMany": "'{a}' y otras ({n} en total)",
   "teamLink.landing": "Quien se une empieza por '{skill}'",
   "teamLink.landingChange": "Cambiar",
+  "audit.act.skills.share_create": "Propuesta de compartir skills creada",
+  "audit.act.skills.share_apply": "Skills compartidas con el equipo",
+  "audit.act.skills.share_dismiss": "Propuesta de compartir skills descartada",
   // ── K end: welcome order ──
   "kg.title": "Grafo de conocimiento",
   "kg.desc": "Un mapa del código de las carpetas del equipo, para que la IA encuentre funciones y cómo se conectan. Se actualiza solo cuando cambian los archivos.",

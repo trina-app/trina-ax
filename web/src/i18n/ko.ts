@@ -3674,6 +3674,9 @@ export const ko = {
   "teamLink.sharedMany": "'{a}' 등 {n}개",
   "teamLink.landing": "들어오면 '{skill}'부터 열려요",
   "teamLink.landingChange": "바꾸기",
+  "audit.act.skills.share_create": "내 스킬 가져오기 제안 만들기",
+  "audit.act.skills.share_apply": "내 스킬을 팀에 공유",
+  "audit.act.skills.share_dismiss": "내 스킬 가져오기 제안 닫기",
   // ── K end: welcome order ──
   "kg.title": "지식 그래프",
   "kg.desc": "팀 폴더에 있는 코드의 지도예요. AI가 함수와 그 연결을 찾을 수 있어요. 파일이 바뀌면 저절로 갱신돼요.",

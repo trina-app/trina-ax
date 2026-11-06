@@ -3674,6 +3674,9 @@ export const en: Record<MessageKey, string> = {
   "teamLink.sharedMany": "'{a}' and others ({n} in all)",
   "teamLink.landing": "People who join start with '{skill}'",
   "teamLink.landingChange": "Change",
+  "audit.act.skills.share_create": "Skill share proposed",
+  "audit.act.skills.share_apply": "Skills shared with the team",
+  "audit.act.skills.share_dismiss": "Skill share proposal dropped",
   // ── K end: welcome order ──
   "kg.title": "Knowledge graph",
   "kg.desc": "A map of the code in the team's folders, so the AI can find functions and how they connect. It updates itself when files change.",

@@ -3634,6 +3634,9 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.sharedMany": "「{a}」など{n}個",
   "teamLink.landing": "参加すると「{skill}」から開きます",
   "teamLink.landingChange": "変更",
+  "audit.act.skills.share_create": "スキル共有の提案を作成",
+  "audit.act.skills.share_apply": "スキルをチームに共有",
+  "audit.act.skills.share_dismiss": "スキル共有の提案を閉じる",
   // ── K end: welcome order ──
   "kg.title": "ナレッジグラフ",
   "kg.desc": "チームのフォルダーにあるコードの地図です。AIが関数とそのつながりを見つけられます。ファイルが変わると自動で更新されます。",
