@@ -177,6 +177,9 @@ async function ownerViews(browser: Browser) {
     await view(page, `room:${r.kind}:sheet`, `/rooms/${r.id}`, { open: longPress('[data-testid="room-message"]'), scope: '[role="menu"]' })
     // the name opens the room's info in every kind (a DM's too: its 초대하기)
     await view(page, `room:${r.kind}:members`, `/rooms/${r.id}`, { open: click('[data-testid="room-members-button"]'), scope: '[role="dialog"]' })
+    // a thread (docs/DECISIONS.md "스레드와 반응"): the whole screen on a phone
+    const root = (await api<List<{ id: string; thread?: unknown }>>(page, `/api/rooms/${r.id}/messages`))?.items.find((m) => m.thread)
+    if (root) await view(page, `room:${r.kind}:thread`, `/rooms/${r.id}/t/${root.id}`, { wait: '[data-testid="room-thread"]' })
   }
   await view(page, 'room:not-found', '/rooms/01a1abcb-0000-7000-8000-000000000000')
   for (const [i, c] of chats.entries()) {

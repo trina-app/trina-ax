@@ -1,7 +1,8 @@
 // A "…" button with a small menu (a message's reply / copy / edit / delete): arrow keys move, Esc closes and gives the
 // keyboard back, a click or a touch outside closes. Opens upward when it would run off the bottom. On a touch screen
 // the button is hidden and a long press on the message opens the same menu (`openSignal`, useLongPress). Below 768px the
-// menu is a bottom sheet with 48px rows.
+// menu is a bottom sheet with 48px rows. `header`: something above the rows where there is no hover row to hold it (a
+// message's reactions on a touch screen); hidden where a mouse points.
 import clsx from 'clsx'
 import { MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
@@ -49,7 +50,7 @@ export function useLongPress(onLong: () => void, ms = 500) {
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, muted }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; muted?: boolean }) {
+export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, muted, header }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; muted?: boolean; header?: (close: () => void) => ReactNode }) {
   const [open, setOpen] = useState<null | 'down' | 'up'>(null)
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -121,11 +122,13 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           role="menu"
           aria-label={label}
           className={clsx(
-            'z-30 border border-line bg-surface shadow-lg md:absolute md:right-0 md:w-44 md:rounded-lg md:p-1',
+            'z-30 border border-line bg-surface shadow-lg md:absolute md:right-0 md:rounded-lg md:p-1',
+            header ? 'md:w-max md:min-w-44' : 'md:w-44',
             'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
             open === 'up' ? 'md:bottom-full md:mb-1' : 'md:top-full md:mt-1',
           )}
         >
+          {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(null))}</div>}
           {items.map((it) => (
             <button
               key={it.label}

@@ -144,7 +144,7 @@ test('a room\'s ‹ goes back to the list; from a notice it replaces the room wi
   const now = new Date().toISOString()
   const room = {
     id, kind: 'dm', name: null, canRename: false, managerId: null, groupId: null, memberCount: 2, peers: [{ id: 'bob', name: '박서준 마케팅본부 콘텐츠전략파트 시니어 매니저님' }],
-    unreadCount: 5, mentioned: false, lastReadSeq: 0, lastSeq: 5, muted: false, createdAt: now, activityAt: now,
+    unreadCount: 5, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastSeq: 5, muted: false, createdAt: now, activityAt: now,
     lastMessage: { id: uuidv7(), seq: 5, author: { id: 'bob', name: '박서준님' }, excerpt: '내일 회의 자료 올렸어요', fileCount: 0, deleted: false, createdAt: now },
   }
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: [room] } }) : r.fallback()))
@@ -178,4 +178,72 @@ test('a room\'s ‹ goes back to the list; from a notice it replaces the room wi
   await page.getByTestId('room-back').click()
   await expect(page).toHaveURL(/\/rooms$/)
   expect(await historyLength(page)).toBe(opened)
+})
+
+test('a thread on a phone: the phone\'s back goes thread → room → 대화 → Home, ‹ walks the same steps, and from a notice nothing loops', async ({ page }) => {
+  await reset(page)
+  const id = uuidv7(), rootId = uuidv7()
+  const now = new Date().toISOString()
+  const bob = { id: 'bob', name: '박서준님' }
+  const room = {
+    id, kind: 'group', name: '상세페이지 리뉴얼', canRename: true, managerId: 'olga', groupId: null, memberCount: 3, peers: [bob],
+    unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 3, lastSeq: 3, muted: false, createdAt: now, activityAt: now,
+    lastMessage: { id: rootId, seq: 1, author: bob, excerpt: '시안 B로 갈까요?', fileCount: 0, deleted: false, createdAt: now },
+  }
+  const msg = (seq: number, body: string, o: object = {}) => ({ id: seq === 1 ? rootId : uuidv7(), roomId: id, seq, authorKind: 'user', author: bob, askedBy: null, visibility: 'room', body, replyTo: null, mentions: [], files: [], createdAt: now, editedAt: null, deletedAt: null, ...o })
+  const root = msg(1, '시안 B로 갈까요?', { thread: { replyCount: 2, lastReplyAt: now, repliers: [bob], newReplies: false } })
+  await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: [room] } }) : r.fallback()))
+  await page.route(`**/api/rooms/${id}`, (r) => r.fulfill({ json: room }))
+  await page.route(`**/api/rooms/${id}/messages*`, (r) => r.fulfill({ json: { items: [root], nextCursor: null } }))
+  await page.route(`**/api/rooms/${id}/messages/${rootId}/thread*`, (r) => r.fulfill({ json: { root, items: [msg(2, '좋아요', { threadRootId: rootId }), msg(3, '그렇게 해요', { threadRootId: rootId })], nextCursor: null } }))
+  await page.route(`**/api/rooms/${id}/messages/${rootId}/thread/read`, (r) => r.fulfill({ json: { lastReadSeq: 3, room } }))
+  await page.route(`**/api/rooms/${id}/members`, (r) => r.fulfill({ json: { items: [] } }))
+  await page.route(`**/api/rooms/${id}/ai`, (r) => r.fulfill({ json: { answering: 0, mine: [] } }))
+  await page.route(`**/api/rooms/${id}/read`, (r) => r.fulfill({ json: room }))
+  await signIn(page)
+  const thread = new RegExp(`/rooms/${id}/t/${rootId}$`), inRoom = new RegExp(`/rooms/${id}$`)
+  const open = async () => {
+    await page.getByTestId('tab-chats').click()
+    await expect(page).toHaveURL(/\/rooms$/)
+    await page.getByTestId('rooms-row').first().click()
+    await expect(page).toHaveURL(inRoom)
+    await page.getByTestId('room-thread-line').click()
+    await expect(page).toHaveURL(thread)
+    await expect(page.getByTestId('room-thread')).toBeVisible()
+  }
+
+  // the phone's own back (Android: the WebView's history): thread → room → 대화 → Home, never the thread again
+  await open()
+  await page.goBack()
+  await expect(page).toHaveURL(inRoom)
+  await expect(page.getByTestId('room-thread')).toHaveCount(0)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/rooms$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+
+  // the app's own ‹ (the thread's, then the room's) walks the same steps without adding any
+  await open()
+  const before = await historyLength(page)
+  await page.getByTestId('thread-back').click()
+  await expect(page).toHaveURL(inRoom)
+  await page.getByTestId('room-back').click()
+  await expect(page).toHaveURL(/\/rooms$/)
+  expect(await historyLength(page)).toBe(before)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/$/)
+
+  // a thread opened from a notice (a new page): ‹ puts the room in its place, then the list in the room's
+  await page.goto(`/rooms/${id}/t/${rootId}`)
+  await expect(page.getByTestId('room-thread')).toBeVisible()
+  const opened = await historyLength(page)
+  await page.getByTestId('thread-back').click()
+  await expect(page).toHaveURL(inRoom)
+  await page.getByTestId('room-back').click()
+  await expect(page).toHaveURL(/\/rooms$/)
+  expect(await historyLength(page)).toBe(opened)
+  // back leaves for the page before the notice (Home), not the thread or the room
+  await page.goBack()
+  await expect(page).not.toHaveURL(/\/rooms\//)
 })

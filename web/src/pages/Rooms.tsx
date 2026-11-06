@@ -9,7 +9,7 @@ import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Locale, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { dateBucket, formatDate, intlTag } from '../lib/format'
-import { plainLine } from '../lib/rooms'
+import { plainLine, roomUnread } from '../lib/rooms'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
 import { useMe } from '../store/session'
@@ -97,7 +97,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
   const nameOf = useNameOf()
   const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
-  const unread = room.unreadCount
+  const unread = roomUnread(room)
   return (
     <Link to={`/rooms/${room.id}`} className={className} data-testid="rooms-row">
       <RoomIcon room={room} size={40} tile />

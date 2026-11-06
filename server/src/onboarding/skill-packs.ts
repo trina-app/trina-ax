@@ -59,6 +59,14 @@ import enWorkSalesFollowUp from '../../../resources/skill-packs/work/en/sales-fo
 import enWorkBrandBrief from '../../../resources/skill-packs/work/en/brand-brief/SKILL.md' with { type: 'text' }
 import enWorkExpenseReview from '../../../resources/skill-packs/work/en/expense-review/SKILL.md' with { type: 'text' }
 import enWorkNewHireGuide from '../../../resources/skill-packs/work/en/new-hire-guide/SKILL.md' with { type: 'text' }
+import koWorkHumanizer from '../../../resources/skill-packs/work/ko/humanizer/SKILL.md' with { type: 'text' }
+import enWorkHumanizer from '../../../resources/skill-packs/work/en/humanizer/SKILL.md' with { type: 'text' }
+import koHrLaborContract from '../../../resources/skill-packs/hr/ko/labor-contract/SKILL.md' with { type: 'text' }
+import koHrEmploymentCertificate from '../../../resources/skill-packs/hr/ko/employment-certificate/SKILL.md' with { type: 'text' }
+import koHrAnnualLeave from '../../../resources/skill-packs/hr/ko/annual-leave/SKILL.md' with { type: 'text' }
+import enHrLaborContract from '../../../resources/skill-packs/hr/en/labor-contract/SKILL.md' with { type: 'text' }
+import enHrEmploymentCertificate from '../../../resources/skill-packs/hr/en/employment-certificate/SKILL.md' with { type: 'text' }
+import enHrAnnualLeave from '../../../resources/skill-packs/hr/en/annual-leave/SKILL.md' with { type: 'text' }
 
 export interface SkillPack {
   /** skill name → its SKILL.md text, per language the pack is written in (English always) */
@@ -87,11 +95,21 @@ export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
   },
   // everyday work for leads, sales, marketing, finance and HR (docs/DECISIONS.md "DS"), from the README's example skills
   // rewritten for the team's own files: every one reads only what the person names, drafts, and leaves the decision,
-  // the sending and the paying to a person. No shared/ folders.
+  // the sending and the paying to a person. No shared/ folders. "humanizer" (natural writing) came later, from two
+  // open-source writing skills rewritten with examples of our own (the English one keeps its MIT notice).
   work: {
     skills: {
-      ko: { 'meeting-summary': koWorkMeetingSummary, 'weekly-team-report': koWorkWeeklyTeamReport, 'sales-follow-up': koWorkSalesFollowUp, 'brand-brief': koWorkBrandBrief, 'expense-review': koWorkExpenseReview, 'new-hire-guide': koWorkNewHireGuide },
-      en: { 'meeting-summary': enWorkMeetingSummary, 'weekly-team-report': enWorkWeeklyTeamReport, 'sales-follow-up': enWorkSalesFollowUp, 'brand-brief': enWorkBrandBrief, 'expense-review': enWorkExpenseReview, 'new-hire-guide': enWorkNewHireGuide },
+      ko: { 'meeting-summary': koWorkMeetingSummary, 'weekly-team-report': koWorkWeeklyTeamReport, 'sales-follow-up': koWorkSalesFollowUp, 'brand-brief': koWorkBrandBrief, 'expense-review': koWorkExpenseReview, 'new-hire-guide': koWorkNewHireGuide, humanizer: koWorkHumanizer },
+      en: { 'meeting-summary': enWorkMeetingSummary, 'weekly-team-report': enWorkWeeklyTeamReport, 'sales-follow-up': enWorkSalesFollowUp, 'brand-brief': enWorkBrandBrief, 'expense-review': enWorkExpenseReview, 'new-hire-guide': enWorkNewHireGuide, humanizer: enWorkHumanizer },
+    },
+    folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
+  },
+  // Korean HR documents (docs/DECISIONS.md "DS"): optional (OPTIONAL_SKILL_PACKS), added from Available skills by an
+  // owner or admin. Drafts only: the company signs, stamps and decides; HR records are read only where the person may.
+  hr: {
+    skills: {
+      ko: { 'labor-contract': koHrLaborContract, 'employment-certificate': koHrEmploymentCertificate, 'annual-leave': koHrAnnualLeave },
+      en: { 'labor-contract': enHrLaborContract, 'employment-certificate': enHrEmploymentCertificate, 'annual-leave': enHrAnnualLeave },
     },
     folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
   },

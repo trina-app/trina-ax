@@ -20,7 +20,7 @@ import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, Mes
 import { CredentialLogin } from './credentials'
 import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
 import { SkillProblem } from './skills'
-import { Room, RoomAiRun, RoomMessage } from './rooms'
+import { Room, RoomAiRun, RoomMessage, RoomReaction, RoomThreadSummary } from './rooms'
 import { DeckBuild } from './intro-deck'
 
 export const WS_PATH = '/api/ws'
@@ -224,9 +224,14 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('room.message', z.object({ roomId: Uuid7, message: RoomMessage })),
   /** a message was edited or deleted (deleted: body '' and deletedAt set, files gone) */
   ev('room.message.updated', z.object({ roomId: Uuid7, message: RoomMessage })),
-  /** a member read the messages fromSeq < seq <= toSeq: each of those messages has one unread fewer. Nobody is named;
-   * mine: it was me (another window or device): my unread badge for the room is recounted */
-  ev('room.read', z.object({ roomId: Uuid7, fromSeq: z.number().int().nonnegative(), toSeq: z.number().int().nonnegative(), mine: z.boolean() })),
+  /** I read the room in another window or on another device: my position and my badge for it. Only to me (nobody is
+   * told who has read what) */
+  ev('room.read', z.object({ roomId: Uuid7, lastReadSeq: z.number().int().nonnegative(), unreadCount: z.number().int().nonnegative(), mentioned: z.boolean().optional() })),
+  /** a thread's summary under its root changed (a reply came or went, I read it), as each member who sees the root sees
+   * it (thread null: no replies left I can see) */
+  ev('room.thread', z.object({ roomId: Uuid7, rootId: Uuid7, thread: RoomThreadSummary.nullable() })),
+  /** the reactions on a message changed, as each member who sees the message sees them */
+  ev('room.reactions', z.object({ roomId: Uuid7, messageId: Uuid7, reactions: z.array(RoomReaction) })),
   /** added: I am in a new room; members: someone joined or left (reload the members and messages' counts); updated: my
    * setting or the name changed; removed: I am no longer in it (room null: close it) */
   ev('room.updated', z.object({ roomId: Uuid7, change: z.enum(['added', 'updated', 'members', 'removed']), room: Room.nullable() })),

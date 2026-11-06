@@ -9,12 +9,19 @@
 // archives it. Rooms.sync never changes who is in one, except that a disabled or deleted account leaves. Not audited,
 // like DMs. Renames, invites and leaves are event lines (store.ts): a seq in the room, no unread, notice or AI.
 //
+// Threads and reactions (docs/DECISIONS.md "스레드와 반응"): send() with threadRootId writes a reply in the thread of a
+// message of the timeline; it takes a seq but stays out of the timeline (unless sent to the room too), moves my place in
+// the thread, not in the room, and makes me follow the thread (the root's author and people mentioned in it follow it
+// too). New replies notify the followers (room notices, as DM messages and mentions do) and mark the root for them;
+// nobody else is notified and no badge goes up for them. Reactions (react) take from the sending budget and notify
+// nobody. Nobody is told who read what: room.read goes to the reader's own windows only.
+//
 // The AI (rooms/ai.ts, docs/DECISIONS.md "대화방의 트리나"): send() is the one place a person's message is written,
 // and a message that calls the AI ("@트리나 …") starts its turn there, checked before the message is written. The
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { ROOM_GROUP_MAX, type Locale, type Room, type RoomMember, type RoomMessage, type RoomReadState, type ServerEventInput } from '@mycel/shared/api'
+import { ROOM_GROUP_MAX, type Locale, type Room, type RoomMember, type RoomMessage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -22,7 +29,8 @@ import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
 import { notificationsOf } from '../notifications/service'
 import {
-  canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, roomOut, roomRow, SEE_SQL, setRoomPathCheck, unreadCount,
+  canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck,
+  lastSeqFor, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
@@ -42,11 +50,15 @@ export const SEND_PER_SECOND = 1
 export const GROUPS_PER_HOUR = 10
 const HOUR_MS = 3_600_000
 
-export interface SendInput { body: string; replyToId?: string | null; mentions: string[]; fileIds: string[]; clientMessageId: string }
+export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; fileIds: string[]; clientMessageId: string }
+/** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
+const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, muted: 0 }
 
 export class Rooms {
   private lastSync = 0
   private sendBudget = new Map<string, { tokens: number; at: number }>()
+  /** the sending budget's clock (tests fix it) */
+  clock: () => number = () => Date.now()
   /** when each person made their group chats in the last hour (GROUPS_PER_HOUR) */
   private groupsMade = new Map<string, number[]>()
   constructor(readonly ctx: AppContext) {}
@@ -71,8 +83,30 @@ export class Rooms {
     })
   }
   messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow) {
-    const ms = members(this.db, row.room_id)
-    this.fanout(row.room_id, (m) => canSee(row, m) ? { type, data: { roomId: row.room_id, message: messagesOut(this.db, [row], m, ms)[0]! } } : null, ms)
+    this.fanout(row.room_id, (m) => canSee(row, m) ? { type, data: { roomId: row.room_id, message: messagesOut(this.db, [row], m)[0]! } } : null)
+  }
+  /** room.thread: the root's summary to each member who sees the root. It differs from one person to the next only for
+   * those who follow it (new replies) or have a private reply in it (an AI answer's preview): the others get one copy. */
+  threadEvent(root: MessageRow) {
+    const db = this.db
+    const ms = members(db, root.room_id)
+    const own = new Set([
+      ...(db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(root.id) as { user_id: string }[]).map((r) => r.user_id),
+      ...(db.query("SELECT visible_to FROM room_messages WHERE thread_root_id = ? AND visibility = 'private'").all(root.id) as { visible_to: string }[]).map((r) => r.visible_to),
+    ])
+    const base = threadSummary(db, root.room_id, root.id, { ...NOBODY, room_id: root.room_id })
+    this.fanout(root.room_id, (m) => {
+      if (!canSee(root, m)) return null
+      const thread = own.has(m.user_id) ? threadSummary(db, root.room_id, root.id, m) : base
+      return { type: 'room.thread', data: { roomId: root.room_id, rootId: root.id, thread } }
+    }, ms)
+  }
+  /** room.reactions: the message's reactions to each member who sees it (only `mine` differs between them). */
+  reactionsEvent(m: MessageRow) {
+    const base = reactionsOf(this.db, [m.id], NOBODY).get(m.id) ?? []
+    const by = new Map<string, Set<string>>()
+    for (const r of this.db.query('SELECT emoji, user_id FROM room_reactions WHERE message_id = ?').all(m.id) as { emoji: string; user_id: string }[]) (by.get(r.emoji) ?? by.set(r.emoji, new Set()).get(r.emoji)!).add(r.user_id)
+    this.fanout(m.room_id, (x) => canSee(m, x) ? { type: 'room.reactions', data: { roomId: m.room_id, messageId: m.id, reactions: base.map((r): RoomReaction => ({ ...r, mine: !!by.get(r.emoji)?.has(x.user_id) })) } } : null)
   }
   /** room.updated to each member, with the room as they see it. */
   roomEvent(roomId: string, change: 'added' | 'updated' | 'members', only?: ReadonlySet<string>) {
@@ -250,8 +284,7 @@ export class Rooms {
     const run = () => {
       const lines: string[] = []
       for (const o of out) {
-        this.db.query('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(roomId, o.userId)
-        this.db.query('DELETE FROM room_notices WHERE room_id = ? AND user_id = ?').run(roomId, o.userId)
+        this.forgetMember(roomId, o.userId)
         // the maker who leaves (or is taken out, or whose account goes) gives up the manager role for good: invited
         // back, they are a member like the others (store.ts managerOf)
         this.db.query("UPDATE rooms SET created_by = NULL WHERE id = ? AND kind = 'group' AND created_by = ?").run(roomId, o.userId)
@@ -278,6 +311,11 @@ export class Rooms {
     const room = roomRow(this.db, roomId)
     if (room) this.fanout(roomId, (m) => ({ type: 'room.updated', data: { roomId, change: 'members', room: roomOut(this.db, room, m) } }))
     for (const id of r.lines) this.messageEvent('room.message', messageRow(this.db, roomId, id)!)
+  }
+
+  /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go. */
+  private forgetMember(roomId: string, userId: string) {
+    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
   }
 
   /** Only active accounts of this team; one that is not (disabled, deleted, unknown) refuses the whole request without
@@ -309,23 +347,34 @@ export class Rooms {
     const cur = decodeCursor(o.cursor, ['s'])
     if (o.cursor && (!cur || !/^\d+$/.test(cur.s))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
     const limit = Math.min(200, Math.max(1, o.limit ?? 50))
-    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
-      .all(...(cur ? [roomId, me.visible_from_seq, userId, Number(cur.s), limit + 1] : [roomId, me.visible_from_seq, userId, limit + 1])) as MessageRow[]
+    // the timeline: replies that stay in their thread are not in it (listThread)
+    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} AND ${TIMELINE_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
+      .all(...(cur ? [roomId, ...seeArgs(me), Number(cur.s), limit + 1] : [roomId, ...seeArgs(me), limit + 1])) as MessageRow[]
     const page = rows.slice(0, limit).reverse()
     return { items: messagesOut(this.db, page, me), nextCursor: rows.length > limit && page[0] ? encodeCursor({ s: String(page[0].seq) }) : null }
   }
 
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
-   * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it. */
+   * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it.
+   * With threadRootId it is a reply in that message's thread (see the top of this file). */
   send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}): RoomMessage {
     const { me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
+    // a reply goes in a thread or quotes (an older app), never both; "also to the room" is a thread reply's
+    if (b.threadRootId && b.replyToId) fail('validation', undefined, { fields: { 'body.replyToId': 'not with threadRootId' } })
+    if (b.alsoInRoom && !b.threadRootId) fail('validation', undefined, { fields: { 'body.alsoInRoom': 'only with threadRootId' } })
     this.takeSendToken(userId)
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
       // an event line is not a message to answer
       if (!q || !canSee(q, me) || q.event) fail('validation', undefined, { fields: { 'body.replyToId': 'not in this room' } })
+    }
+    let root: MessageRow | null = null
+    if (b.threadRootId) {
+      root = messageRow(this.db, roomId, b.threadRootId)
+      // the same answer whatever is wrong (not there, not one I see, an event line, a reply itself, deleted, private)
+      if (!root || !canSee(root, me) || !threadable(root) || root.deleted_at) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
     const mentions = this.validMentions(roomId, userId, b.mentions)
     const fileIds = [...new Set(b.fileIds)]
@@ -337,23 +386,56 @@ export class Rooms {
     const people = mentions.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${mentions.map(() => '?').join(',')})`).all(...mentions) as { name: string }[]).map((r) => r.name) : []
     const ask = roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
     const now = nowIso(), id = newId()
-    let fromSeq = 0, seq = 0
+    // a reply that stays in its thread does not bring the room to the top of the list
+    const inTimeline = !root || !!b.alsoInRoom
+    let seq = 0
     this.db.transaction(() => {
-      seq = (this.db.query('UPDATE rooms SET last_seq = last_seq + 1, activity_at = ? WHERE id = ? RETURNING last_seq').get(now, roomId) as { last_seq: number }).last_seq
-      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at)
-        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now)
+      seq = (this.db.query(`UPDATE rooms SET last_seq = last_seq + 1${inTimeline ? ', activity_at = ?' : ''} WHERE id = ? RETURNING last_seq`).get(...(inTimeline ? [now, roomId] : [roomId])) as { last_seq: number }).last_seq
+      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room)
+        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0)
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
-      // sending means I have seen the room up to here (KakaoTalk): my read position moves to my message
-      fromSeq = Math.max(me.last_read_seq, me.visible_from_seq)
-      this.db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ?').run(seq, roomId, userId)
+      // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
+      // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)
+      if (root) this.follow(root, userId, seq, mentions)
+      else this.db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ? AND last_read_seq < ?').run(seq, roomId, userId, seq)
     })()
-    if (fromSeq < seq - 1) this.readEvent(roomId, userId, fromSeq, seq - 1)
-    this.markNoticesRead(userId, roomId, seq)
+    if (root) this.markThreadNoticesRead(userId, roomId, root.id, seq)
+    else {
+      this.readEvent(roomId, userId)
+      this.markNoticesRead(userId, roomId, seq)
+    }
     const row = messageRow(this.db, roomId, id)!
     this.messageEvent('room.message', row)
+    if (root) this.afterReply(root)
     this.notify(row)
     if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
+  }
+
+  /** Inside the reply's transaction: its author follows the thread and has read it up to the reply; the root's author
+   * (for an AI answer: the person who asked it) follows it from its first reply on (everything after the root is new to
+   * them); people mentioned in it who see it follow it from this reply on. Only people in the room now. */
+  follow(root: MessageRow, authorId: string | null, seq: number, mentioned: readonly string[] = []) {
+    const db = this.db, now = nowIso()
+    const ms = new Map(members(db, root.room_id).map((m) => [m.user_id, m]))
+    const add = db.query('INSERT OR IGNORE INTO room_thread_follows (root_id, user_id, room_id, last_read_seq, created_at) VALUES (?, ?, ?, ?, ?)')
+    const may = (u: string | null): u is string => !!u && !!ms.get(u) && canSee(root, ms.get(u)!)
+    if (may(authorId)) {
+      add.run(root.id, authorId, root.room_id, seq, now)
+      db.query('UPDATE room_thread_follows SET last_read_seq = ? WHERE root_id = ? AND user_id = ? AND last_read_seq < ?').run(seq, root.id, authorId, seq)
+    }
+    const owner = root.author_kind === 'ai' ? root.asked_by : root.author_id
+    if (may(owner)) add.run(root.id, owner, root.room_id, root.seq, now)
+    for (const u of mentioned) if (may(u)) add.run(root.id, u, root.room_id, seq - 1, now)
+  }
+
+  /** After a reply came or went: the root's summary to everyone who sees it, and to the followers their room as they see
+   * it now (the threads with new replies count in its badge), the reply's author too: their other windows and devices
+   * follow their place in the thread. */
+  afterReply(root: MessageRow) {
+    this.threadEvent(root)
+    const followers = new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(root.id) as { user_id: string }[]).map((r) => r.user_id))
+    if (followers.size) this.roomEvent(root.room_id, 'updated', followers)
   }
 
   edit(userId: string, roomId: string, messageId: string, b: { body: string; mentions: string[] }): RoomMessage {
@@ -374,19 +456,83 @@ export class Rooms {
     const now = nowIso()
     const noticed = this.db.transaction(() => {
       this.db.query("UPDATE room_messages SET body = '', mentions = '[]', deleted_at = ? WHERE id = ?").run(now, m.id)
-      // an AI answer's "참고한 파일" go with it
+      // an AI answer's "참고한 파일" go with it, and the reactions on it (a deleted message takes none)
       this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
+      this.db.query('DELETE FROM room_reactions WHERE message_id = ?').run(m.id)
       if (m.author_kind === 'ai' && m.asked_by !== userId) audit(this.db, { actor: userId, action: 'room.ai_delete', target: m.id, detail: roomAuditRef(roomRow(this.db, roomId)!) })
       return (this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ? RETURNING user_id').all(m.id, roomId) as { user_id: string }[]).map((r) => r.user_id)
     })()
     roomFilesOf(this.ctx).removeForMessage(m.id)
     for (const u of new Set(noticed)) this.notifySignal(u)
     this.messageEvent('room.message.updated', messageRow(this.db, roomId, messageId)!)
+    // a reply that goes: its thread has one fewer (the root's summary, the followers' badges)
+    const root = m.thread_root_id ? messageRow(this.db, roomId, m.thread_root_id) : null
+    if (root) this.afterReply(root)
   }
 
-  /** One token per new message (a resend of the same clientMessageId above costs none). */
+  // ---------------- threads ----------------
+  /** The root of a thread `me` may open: a message of the timeline they see, for the whole room (deleted or not: its
+   * replies stay readable). Anything else: 404, the same as a message that is not there. */
+  private rootFor(roomId: string, rootId: string, me: MemberRow): MessageRow {
+    const root = messageRow(this.db, roomId, rootId)
+    if (!root || !canSee(root, me) || !threadable(root)) return fail('not_found')
+    return root
+  }
+
+  /** A thread: its root and a page of the replies I can see (the newest `limit`, oldest first; the cursor for older). */
+  thread(userId: string, roomId: string, rootId: string, o: { cursor?: string; limit?: number }): RoomThreadPage {
+    const { me } = this.mine(userId, roomId)
+    const root = this.rootFor(roomId, rootId, me)
+    const cur = decodeCursor(o.cursor, ['s'])
+    if (o.cursor && (!cur || !/^\d+$/.test(cur.s))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+    const limit = Math.min(200, Math.max(1, o.limit ?? 50))
+    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id = ? AND ${SEE_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
+      .all(...(cur ? [roomId, root.id, ...seeArgs(me), Number(cur.s), limit + 1] : [roomId, root.id, ...seeArgs(me), limit + 1])) as MessageRow[]
+    const page = rows.slice(0, limit).reverse()
+    return { root: messagesOut(this.db, [root], me)[0]!, items: messagesOut(this.db, page, me), nextCursor: rows.length > limit && page[0] ? encodeCursor({ s: String(page[0].seq) }) : null }
+  }
+
+  /** My place in a thread I follow moves forward to seq (never back); its notices up to there count as read. My own
+   * windows get the root's summary and the room's badge; nobody else hears of it. */
+  markThreadRead(userId: string, roomId: string, rootId: string, seq: number): RoomThreadReadState {
+    const { room, me } = this.mine(userId, roomId)
+    const root = this.rootFor(roomId, rootId, me)
+    // never past the newest reply I can see: the room's counter (and the thread's other people's previews) are not mine
+    // to learn
+    const newest = (this.db.query("SELECT MAX(seq) s FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND (visibility = 'room' OR visible_to = ?)").get(roomId, root.id, userId) as { s: number | null }).s
+    const to = Math.min(seq, newest ?? root.seq)
+    const moved = this.db.query('UPDATE room_thread_follows SET last_read_seq = ? WHERE root_id = ? AND user_id = ? AND last_read_seq < ?').run(to, root.id, userId, to).changes > 0
+    this.markThreadNoticesRead(userId, roomId, root.id, to)
+    if (moved) {
+      this.ctx.services.realtime.publish(userId, { type: 'room.thread', data: { roomId, rootId: root.id, thread: threadSummary(this.db, roomId, root.id, me) } })
+      this.roomEvent(roomId, 'updated', new Set([userId]))
+    }
+    const f = this.db.query('SELECT last_read_seq FROM room_thread_follows WHERE root_id = ? AND user_id = ?').get(root.id, userId) as { last_read_seq: number } | null
+    return { lastReadSeq: f?.last_read_seq ?? 0, room: roomOut(this.db, room, memberRow(this.db, roomId, userId)!) }
+  }
+
+  // ---------------- reactions ----------------
+  /** Put my reaction on a message I can see, or take it off (on: false). The same again changes nothing and costs
+   * nothing; a change takes from the sending budget. Event lines, deleted messages and private previews take none.
+   * Never a notice, an unread count or anything for the AI. */
+  react(userId: string, roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean): { reactions: RoomReaction[] } {
+    const { me } = this.mine(userId, roomId)
+    const m = messageRow(this.db, roomId, messageId)
+    if (!m || !canSee(m, me)) return fail('not_found')
+    if (m.event || m.deleted_at || m.visibility !== 'room') fail('validation', undefined, { fields: { 'params.messageId': 'not a message to react to' } })
+    const has = !!this.db.query('SELECT 1 FROM room_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').get(m.id, userId, emoji)
+    if (has !== on) {
+      this.takeSendToken(userId)
+      if (on) this.db.query('INSERT OR IGNORE INTO room_reactions (room_id, message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?, ?)').run(roomId, m.id, userId, emoji, nowIso())
+      else this.db.query('DELETE FROM room_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').run(m.id, userId, emoji)
+      this.reactionsEvent(m)
+    }
+    return { reactions: reactionsOf(this.db, [m.id], me).get(m.id) ?? [] }
+  }
+
+  /** One token per new message (a resend of the same clientMessageId above costs none) and per reaction change. */
   private takeSendToken(userId: string) {
-    const now = Date.now()
+    const now = this.clock()
     const b = this.sendBudget.get(userId) ?? { tokens: SEND_BURST, at: now }
     b.tokens = Math.min(SEND_BURST, b.tokens + ((now - b.at) / 1000) * SEND_PER_SECOND)
     b.at = now
@@ -428,45 +574,66 @@ export class Rooms {
   markRead(userId: string, roomId: string, seq: number): RoomReadState {
     const { room, me } = this.mine(userId, roomId)
     const from = Math.max(me.last_read_seq, me.visible_from_seq)
-    const to = Math.min(seq, room.last_seq)
+    // never past the newest position of the timeline I can see (Room.lastSeq): the room's own counter moves with replies
+    // in threads I cannot see and other people's previews
+    const to = Math.min(seq, lastSeqFor(this.db, room.id, me))
     if (to > from) {
       this.db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ? AND last_read_seq < ?').run(to, roomId, userId, to)
-      this.readEvent(roomId, userId, from, to)
+      this.readEvent(roomId, userId)
       this.markNoticesRead(userId, roomId, to)
     }
     const now = memberRow(this.db, roomId, userId)!
-    return { lastReadSeq: Math.max(now.last_read_seq, now.visible_from_seq), unreadCount: unreadCount(this.db, roomId, now).n }
+    return this.readState(roomId, now)
   }
 
-  /** Someone read fromSeq < seq <= toSeq: the others are not told who; my own windows recount my badge. */
-  readEvent(roomId: string, userId: string, fromSeq: number, toSeq: number) {
-    this.fanout(roomId, (m) => ({ type: 'room.read', data: { roomId, fromSeq, toSeq, mine: m.user_id === userId } }))
+  /** My read position moved: my own windows and devices get it with my badge for the room. Nobody else is told (no
+   * read receipts: docs/DECISIONS.md "스레드와 반응"). */
+  readEvent(roomId: string, userId: string) {
+    const me = memberRow(this.db, roomId, userId)
+    if (!me) return
+    this.ctx.services.realtime.publish(userId, { type: 'room.read', data: { roomId, ...this.readState(roomId, me) } })
+  }
+  /** My position, my badge and whether something unread (a message or a followed reply) still mentions me. */
+  private readState(roomId: string, me: MemberRow): RoomReadState {
+    const unread = unreadCount(this.db, roomId, me)
+    return { lastReadSeq: Math.max(me.last_read_seq, me.visible_from_seq), unreadCount: unread.n, mentioned: unread.mentioned || threadsUnread(this.db, roomId, me).mentioned }
   }
 
-  /** My notices of this room up to `seq` count as read (the inbox and a pending push follow). */
+  /** My notices of this room's timeline up to `seq` count as read (the inbox and a pending push follow); a thread's
+   * own replies are read in the thread (markThreadNoticesRead). */
   markNoticesRead(userId: string, roomId: string, seq: number) {
     const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL
-      AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, roomId, seq)
+      AND source_id IN (SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, roomId, seq)
+    if (r.changes) this.notifySignal(userId)
+  }
+  /** My notices of the replies in this thread up to `seq` count as read. */
+  markThreadNoticesRead(userId: string, roomId: string, rootId: string, seq: number) {
+    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL
+      AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, roomId, rootId, seq)
     if (r.changes) this.notifySignal(userId)
   }
 
   // ---------------- notices ----------------
   /** A DM or group chat message notifies the others (code room.dm: a conversation of picked people, as Slack's group
-   * DMs), an @mention each person mentioned; nobody who muted the room. One unread notice of each kind per room and
-   * person (Notifications.roomNotice). Private messages (the AI's previews) and event lines notify nobody; an AI answer
-   * not the person who asked. The notice is the message id only. */
+   * DMs), an @mention each person mentioned; nobody who muted the room. A reply in a thread notifies its followers
+   * (room.dm too: the push is the same generic line) and the people it mentions, nobody else, unless it was sent to the
+   * room as well (then also as a message of the room). Only people who see it. One unread notice of each kind per room
+   * (and thread) and person (Notifications.roomNotice). Private messages (the AI's previews) and event lines notify
+   * nobody; an AI answer not the person who asked. The notice is the message id only. */
   notify(row: MessageRow) {
     if (row.visibility !== 'room' || row.deleted_at || row.event) return
     const room = roomRow(this.db, row.room_id)
     if (!room) return
     const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m))
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
+    const picked = room.kind === 'dm' || room.kind === 'group'
+    const followers = row.thread_root_id ? new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(row.thread_root_id) as { user_id: string }[]).map((r) => r.user_id)) : null
     const n = notificationsOf(this.ctx)
     for (const m of ms) {
       if (m.muted) continue
       try {
-        if (mentioned.has(m.user_id)) n.roomNotice(m.user_id, 'room.mention', row.id, row.room_id, row.created_at)
-        else if (room.kind === 'dm' || room.kind === 'group') n.roomNotice(m.user_id, 'room.dm', row.id, row.room_id, row.created_at)
+        if (mentioned.has(m.user_id)) n.roomNotice(m.user_id, 'room.mention', row.id, row.room_id, row.created_at, row.thread_root_id)
+        else if (followers ? followers.has(m.user_id) || (!!row.also_in_room && picked) : picked) n.roomNotice(m.user_id, 'room.dm', row.id, row.room_id, row.created_at, row.thread_root_id)
       } catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
   }
@@ -534,8 +701,7 @@ export class Rooms {
       const add = db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
       for (const a of toAdd) { add.run(a.user_id, now, a.room_id); (added.get(a.room_id) ?? added.set(a.room_id, []).get(a.room_id)!).push(a.user_id) }
       for (const r of toRemove) {
-        db.query('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(r.room_id, r.user_id)
-        db.query('DELETE FROM room_notices WHERE room_id = ? AND user_id = ?').run(r.room_id, r.user_id)
+        this.forgetMember(r.room_id, r.user_id)
         ;(removed.get(r.room_id) ?? removed.set(r.room_id, []).get(r.room_id)!).push(r.user_id)
       }
       for (const id of new Set([...added.keys(), ...removed.keys()])) {
