@@ -18,7 +18,7 @@ import { useT } from '../i18n'
 import { reloadAsked } from '../store/live'
 import { EmptyState, TabPanel } from '../components/ui'
 import { afterAdded, ConnectorDetail, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../components/integrations/ConnectorsView'
-import { DriveCard, DriveDetail, driveLinked } from '../components/integrations/DriveConnector'
+import { DriveCard, DriveDetail, driveLinked, drivePersonalAllowed } from '../components/integrations/DriveConnector'
 import { useDriveConnection } from '../components/settings/DriveConnection'
 import { SlackAccount } from '../components/settings/SlackAccount'
 import { Button } from '../components/ui'
@@ -63,14 +63,17 @@ export default function Integrations() {
   }, [params, setParams])
   const panels = useId()
   const DRIVE = APP_CONNECTORS[0]
-  const driveOn = !!drive.connection?.configured
-  const driveCard = { id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: t('drive.cardDesc'), state: driveLinked(drive.connection) ? 'added' as const : driveOn || !drive.connection ? 'available' as const : 'off' as const }
+  // members connect their own only while the admin allows it; a Drive the team shares with them needs no Connect
+  const driveOn = !!drive.connection?.configured && drivePersonalAllowed(drive.connection)
+  const teamShares = drive.connection?.teamShares ?? []
+  const driveCard = { id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: teamShares.length && !driveOn ? t('drive.teamShared', { name: teamShares.map((x) => x.name).join(', ') }) : t('drive.cardDesc'),
+    state: driveLinked(drive.connection) || (teamShares.length > 0 && !driveOn) ? 'added' as const : driveOn || !drive.connection ? 'available' as const : 'off' as const }
   // "just sign in": Drive's + goes straight to Google, on its page so the person sees it finish
   const connectDrive = () => { setTab('discover'); setOpen({ kind: 'drive' }); if (!driveLinked(drive.connection) && driveOn) drive.start() }
   const back = () => setOpen(null)
   // Drive shows in Yours once it is linked or on its way (the steps of a sign-in in progress), and right after a
   // disconnect whose revocation at Google could not be done (the row says so)
-  const driveInYours = driveLinked(drive.connection) || drive.d.inProgress || drive.revokeWarning
+  const driveInYours = driveLinked(drive.connection) || drive.d.inProgress || drive.revokeWarning || teamShares.length > 0
   return (
     <section data-testid="integrations">
       <ConnectorsHeader title={t('integrations.title')} tab={tab} onTab={(x) => { setTab(x); setOpen(null) }} query={query} onQuery={setQuery} onAdd={state.data?.personalAllowed ? () => setDialog({}) : undefined} panels={panels} />

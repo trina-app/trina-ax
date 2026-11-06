@@ -19,7 +19,8 @@ import { useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
 import { Badge, EmptyState, TabPanel } from '../../components/ui'
 import { afterAdded, ConnectorDetail, ConnectorDiscover, ConnectorsHeader, matchesQuery, SplitAction, type ConnectorTab } from '../../components/integrations/ConnectorsView'
-import { DriveAdminDetail, DriveSetupDialog } from '../../components/integrations/DriveConnector'
+import { DriveAdminDetail, driveAdminLine, driveAdminOn, DriveSetupDialog } from '../../components/integrations/DriveConnector'
+import { DriveAdminSettings } from '../../components/integrations/DriveShares'
 import { useSearchParams } from 'react-router-dom'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
 import { RequestDialog, RequestRow, requestFormOf, shownRequests, useTeamRequests } from '../../components/integrations/RequestDialog'
@@ -89,7 +90,11 @@ export default function AdminIntegrations() {
           const tpls = templates.data ?? []
           if (tab === 'discover') {
             const d = drive.data
-            if (open?.kind === 'drive' && d) return <DriveAdminDetail status={d} onSetUp={() => setDriveSetup(true)} onBack={back} />
+            if (open?.kind === 'drive' && d) return (
+              <DriveAdminDetail status={d} onSetUp={() => setDriveSetup(true)} onBack={back}>
+                <DriveAdminSettings status={d} onStatus={(st) => drive.setData(st)} />
+              </DriveAdminDetail>
+            )
             if (open?.kind === 'mcp') {
               const c = open.c
               const have = [...list, ...tpls].find((i) => canonicalService(i.url) === canonicalService(c.url))
@@ -106,7 +111,8 @@ export default function AdminIntegrations() {
                   description={t('connectors.mcp.about', { name: c.name })} tools={tools} />
               )
             }
-            const driveCard = d ? [{ id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: d.configured ? t('appConnectors.connectedMembers', { count: d.connectedMembers }) : t('connectors.setUpOnceLine'), state: d.configured ? 'added' as const : 'available' as const }] : []
+            // a Google client alone is "Ready to set up", not on: on is members connecting their own, or a share
+            const driveCard = d ? [{ id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: d.configured && !driveAdminOn(d) ? t('driveAdmin.ready') : driveAdminLine(t, d), state: driveAdminOn(d) ? 'added' as const : 'available' as const }] : []
             return <ConnectorDiscover connected={[...list, ...tpls]} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})}
               builtIns={driveCard} onOpenBuiltIn={() => setOpen({ kind: 'drive' })} onAddBuiltIn={() => { setOpen({ kind: 'drive' }); if (d?.canSetUp && !d.configured) setDriveSetup(true) }}
               onOpen={(c) => setOpen({ kind: 'mcp', c })} />

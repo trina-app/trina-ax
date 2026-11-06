@@ -33,6 +33,7 @@
 // slides. POST /__test/deck-pace {ms, thumbs?: false, tier?: 'standard' | 'deep'} sets the time per step (default 40 ms),
 // whether pictures exist and the budget (the longer ones read the site first: phase "reading"), until the next reset.
 import { z } from 'zod'
+import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -141,6 +142,8 @@ interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; 
 interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
 interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File }
 type Handler = (c: Ctx) => unknown | Promise<unknown>
+/** Folders below the mock share account's top level, found by the folder picker's search */
+const DRIVE_SUBFOLDERS = [{ id: 'folder-finance-q3', name: 'Finance Q3', kind: 'folder' as const }, { id: 'folder-contracts', name: 'Contracts', kind: 'folder' as const }]
 
 const enc = new TextEncoder()
 const dec = new TextDecoder()
@@ -245,6 +248,12 @@ export class MockServer {
   apiEngineEnabled = false
   /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
   driveClient: 'none' | 'app' = 'none'
+  /** Admin › Connectors › Google Drive: "Members can connect their own Google Drive" (off for a new team, like the server) */
+  driveMembers = false
+  /** Drives shared with the team (server/src/integrations/google-drive/shares.ts); never a token here either */
+  driveShares: MockDriveShare[] = []
+  /** a share sign-in under way: its flow id, and which share it signs in again for */
+  driveShareFlow: { id: string; shareId: string | null; polls: number } | null = null
   /** Admin > AI connections: the team's connections (secrets are opened with the real server sealing code and dropped) */
   credentials: Credential[] = []
   credMemberOwn = true
@@ -373,6 +382,9 @@ export class MockServer {
     this.codexEnabled = true
     this.apiEngineEnabled = false
     this.driveClient = 'none'
+    this.driveMembers = false
+    this.driveShares = []
+    this.driveShareFlow = null
     this.credentials = []
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
@@ -2442,9 +2454,69 @@ export class MockServer {
 
     // Google Drive (server/src/routes/drive.ts): this test server has no Google client, like a server not set up for it.
     // e2e tests that need the other states answer these addresses themselves (test/e2e/drive.spec.ts).
-    myDriveConnection: () => (this.driveClient === 'none'
-      ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }
-      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null }),
+    myDriveConnection: (c) => (this.driveClient === 'none'
+      ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, teamShares: [] }
+      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers,
+          teamShares: this.driveShares.filter((x) => x.status === 'connected' && this.driveShareCovers(x, c.user)).map((x) => ({ id: x.id, name: x.name, folders: x.folders, wholeDrive: x.wholeDrive })) }),
+    authorizeDrive: () => {
+      if (!this.driveMembers) fail('forbidden', 403, 'drive_members_off')
+      return { flowId: 'personal-flow', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic', expiresAt: new Date(Date.now() + 600_000).toISOString() }
+    },
+    // the share sign-in (mock Google): pending once, then the synthetic account is back
+    driveFlow: (c) => {
+      const f = this.driveShareFlow
+      if (!f || f.id !== c.params.id) fail('not_found', 404, 'drive_not_found')
+      return { flowId: f!.id, state: f!.polls++ < 1 ? 'pending' : 'ready', account: { name: 'Admin Fixture', email: 'drive-admin@example.test' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), reason: null }
+    },
+    cancelDriveFlow: () => { this.driveShareFlow = null; return undefined },
+    setDriveMembers: (c) => { this.driveMembers = c.body.on; return this.driveAdminStatus() },
+    listDriveShares: () => ({ items: this.driveShares.map((x) => ({ ...x, usedBy: this.driveShareUsers(x) })) }),
+    authorizeDriveShare: (c) => {
+      this.driveShareFlow = { id: 'share-flow-' + uuidv7(), shareId: c.body.shareId ?? null, polls: 0 }
+      return { flowId: this.driveShareFlow.id, authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic-share', expiresAt: new Date(Date.now() + 600_000).toISOString() }
+    },
+    completeDriveShareFlow: (c) => {
+      const f = this.driveShareFlow
+      if (!f || f.id !== c.params.id) fail('not_found', 404, 'drive_not_found')
+      this.driveShareFlow = null
+      const at = now(), me = { id: c.user.id, name: c.user.name }
+      if (f!.shareId) {
+        const x = this.driveShares.find((y) => y.id === f!.shareId)
+        if (!x) fail('not_found', 404, 'drive_not_found')
+        Object.assign(x!, { status: 'connected', reason: null, owner: me, updatedAt: at })
+        return { ...x!, usedBy: this.driveShareUsers(x!) }
+      }
+      const name = (c.body.name ?? '').trim() || 'Company Drive'
+      if (this.driveShares.some((y) => y.name.toLowerCase() === name.toLowerCase())) fail('conflict', 409, 'drive_name_taken')
+      const x: MockDriveShare = { id: uuidv7(), name, account: { name: 'Admin Fixture', email: 'drive-admin@example.test' }, owner: me, folders: [], wholeDrive: false,
+        access: { everyone: false, groups: [], users: [] }, status: 'connected', reason: null, usedBy: 0, createdAt: at, updatedAt: at }
+      this.driveShares.push(x)
+      return x
+    },
+    driveShareFolders: (c) => {
+      const q = (c.query.q ?? '').trim().toLowerCase()
+      const all = q ? [...this.driveTopFolders(), ...DRIVE_SUBFOLDERS] : this.driveTopFolders()
+      return { items: all.filter((f) => !q || f.name.toLowerCase().includes(q)) }
+    },
+    updateDriveShare: (c) => {
+      const x = this.driveShares.find((y) => y.id === c.params.id)
+      if (!x) fail('not_found', 404, 'drive_not_found')
+      const b = c.body
+      if (b.name !== undefined && this.driveShares.some((y) => y.id !== x!.id && y.name.toLowerCase() === b.name!.trim().toLowerCase())) fail('conflict', 409, 'drive_name_taken')
+      const known = [...this.driveTopFolders(), ...DRIVE_SUBFOLDERS]
+      if (b.folders && b.folders.some((id: string) => !known.some((f) => f.id === id))) fail('bad_request', 400, 'drive_folder_invalid')
+      if (b.name !== undefined) x!.name = b.name.trim()
+      if (b.wholeDrive !== undefined) x!.wholeDrive = b.wholeDrive
+      if (b.folders) x!.folders = x!.wholeDrive ? [] : b.folders.map((id: string) => known.find((f) => f.id === id)!)
+      if (b.access) x!.access = b.access
+      x!.updatedAt = now()
+      return { ...x!, usedBy: this.driveShareUsers(x!) }
+    },
+    stopDriveShare: (c) => {
+      if (!this.driveShares.some((y) => y.id === c.params.id)) fail('not_found', 404, 'drive_not_found')
+      this.driveShares = this.driveShares.filter((y) => y.id !== c.params.id)
+      return { stopped: true, revocation: 'revoked' }
+    },
     // Admin › App connectors (integrations/google-drive/admin-setup.ts): this test server has a public address, so an
     // admin can set Google up; a file must list the redirect URI, like the real server checks.
     driveAdminStatus: () => this.driveAdminStatus(),
@@ -2827,7 +2899,17 @@ export class MockServer {
   driveAdminStatus() {
     const configured = this.driveClient !== 'none'
     return { configured, source: configured ? 'app' as const : 'none' as const, canSetUp: true, blocked: null,
-      redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0 }
+      redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0,
+      membersCanConnect: this.driveMembers, sharesOn: configured ? this.driveShares.filter((x) => x.status === 'connected').length : 0 }
+  }
+  driveTopFolders(): MockDriveFolder[] {
+    return [{ id: 'drive-team', name: 'Team Drive', kind: 'drive' }, { id: 'folder-finance', name: 'Finance', kind: 'folder' }, { id: 'folder-hr', name: 'HR', kind: 'folder' }, { id: 'folder-marketing', name: 'Marketing', kind: 'folder' }]
+  }
+  driveShareCovers(x: MockDriveShare, u: User): boolean {
+    return x.access.everyone || x.access.users.includes(u.id) || x.access.groups.some((g) => u.groupIds.includes(g))
+  }
+  driveShareUsers(x: MockDriveShare): number {
+    return this.users.filter((u) => u.status === 'active' && this.driveShareCovers(x, u)).length
   }
   templateCovers(t: { access: IntegrationAccess }, u: User): boolean {
     return t.access.everyone || t.access.users.includes(u.id) || t.access.groups.some((g) => u.groupIds.includes(g))

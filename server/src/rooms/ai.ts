@@ -308,7 +308,7 @@ export class RoomAi implements RoomTurns {
     const folders = new Set<string>()
     const joined = new Set<string>()
     for (const s of used.sources) {
-      if (s.type === 'integration') { outside = true; continue }
+      if (s.type === 'integration' || s.type === 'drive_share') { outside = true; continue }
       if (s.type === 'room') {
         if (s.id !== roomId) { const v = roomViewers(db, s.id, undefined, s.fromSeq); if (!people.every((p) => !!p && v.has(p.id))) outside = true; continue }
         // messages written before someone joined: they never saw them, and the answer may repeat them

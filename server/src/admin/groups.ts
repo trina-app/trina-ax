@@ -130,6 +130,7 @@ export function deleteGroup(c: Context<AppEnv>, ctx: AppContext, id: string): vo
     // team connections' and templates' rules: a group nobody can see any more would block every later change of them
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name } })
   })()
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })

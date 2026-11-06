@@ -19,7 +19,7 @@ import { API, type SealedSecret, type SealPurpose } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
-import { DRIVE_CONFIG, FakeGoogleDrive } from '../lib/fake-google-drive'
+import { DRIVE_CONFIG, FakeGoogleDrive, membersMayConnect } from '../lib/fake-google-drive'
 import { sealSecret } from '../../web/src/lib/seal'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
@@ -196,7 +196,7 @@ describe('connect_service without a card', () => {
   test('personal connections off, Drive already connected: answers only', async () => {
     h.ctx.db.query("UPDATE settings SET value='false' WHERE key='personalIntegrations'").run()
     const drive = new FakeGoogleDrive()
-    const d = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: drive.fetch })
+    const d = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: drive.fetch }); membersMayConnect(h.ctx.db)
     const now = new Date().toISOString(), later = new Date(Date.now() + 3600_000).toISOString()
     h.ctx.db.query("INSERT INTO sessions(id,user_id,token_hash,client,created_at,last_seen_at,expires_at) VALUES('cs-drive','alice','cs-drive-hash','web',?,?,?)").run(now, now, later)
     try {
@@ -435,9 +435,19 @@ describe('the card, finished in other ways', () => {
     expect(leaksIn([t.turnId])).toEqual([])
   })
 
+  test('Google Drive with members not allowed to connect their own: no card, and it says so', async () => {
+    googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: new FakeGoogleDrive().fetch }); membersMayConnect(h.ctx.db, false)
+    try {
+      const t = await start('alice', { name: 'My Drive', target: 'google_drive' })
+      const m = await doneOf(t.messageId)
+      expect(cards(t.turnId)).toEqual([])
+      expect(m.content).toContain('has not let members connect their own Google Drive')
+    } finally { membersMayConnect(h.ctx.db); googleDriveOf(h.ctx, { config: null }) }
+  })
+
   test('Google Drive: done before it is connected keeps the card; done after it says connected', async () => {
     const drive = new FakeGoogleDrive()
-    const d = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: drive.fetch })
+    const d = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: drive.fetch }); membersMayConnect(h.ctx.db)
     session('alice', 'cs-drive-card')
     try {
       const t = await start('alice', { name: 'My Drive', target: 'google_drive', why: 'to read your files' })

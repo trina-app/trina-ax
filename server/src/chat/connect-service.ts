@@ -150,6 +150,10 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     let d: ReturnType<ReturnType<typeof googleDriveOf>['status']>
     try { d = googleDriveOf(rt.ctx).status(spec.userId) } catch { return early('Google Drive cannot be connected for this account now.', 'drive unavailable') }
     if (!d.configured) return early('Google Drive is not set up on this team server: an admin or the server\'s operator has to set it up first (docs/INTEGRATIONS.md). Tell the person; no card was shown.', 'drive not configured')
+    if (d.personalAllowed === false) {
+      const shared = (d.teamShares ?? []).map((x) => `"team:${x.name}"`)
+      return early(`This team's admin has not let members connect their own Google Drive, so no card was shown.${shared.length ? ` The team shares ${shared.length === 1 ? 'a Drive' : 'Drives'} with this person: use the Drive tools (${DRIVE_TOOL_NAMES.join(', ')}) with source ${shared.join(' or ')}.` : ' Tell the person to ask an admin.'}`, 'drive members off', false)
+    }
     if (d.status === 'connected') return early(`Google Drive is already connected for this person. Its tools (${DRIVE_TOOL_NAMES.join(', ')}) are yours in this chat; if you do not have them now, from the person's next message.`, 'drive connected', false)
     card = { kind: 'connect_service', requestId: uuidv7(), target, name: 'Google Drive', scope: 'personal', ...(why ? { why } : {}), expiresAt: expiresAt() }
   } else {
