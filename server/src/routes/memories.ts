@@ -23,7 +23,8 @@ import { installPush } from '../notifications/push-service'
 import { needsReview, type ScheduleRow } from '../chat/schedules'
 import { awaitingReview, confirmReview, reviewCard } from '../chat/schedule-review'
 import { editCard, saveTask, saveTemplate } from '../chat/schedule-edit'
-import { approveSuggestion, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview } from '../skills/suggestions'
+import { approveSuggestion, contributeSkills, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview, CONTRIBUTE_BODY_MAX } from '../skills/suggestions'
+import { suggestersOf } from '../skills/author'
 
 type Row = { id: string; text: string; source_chat_id: string | null; created_at: string }
 
@@ -131,7 +132,10 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.listSkills, ({ auth }) => {
       let p
       try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      return { items: listSkills(ctx.files, p).map(skillInfo) }
+      const items = listSkills(ctx.files, p)
+      // a skill a member suggested keeps their name ("민준 님이 제안", docs/DECISIONS.md "MC")
+      const by = suggestersOf(ctx.db, items.filter((s) => !s.path.startsWith('users/')).map((s) => s.path))
+      return { items: items.map((s) => { const i = skillInfo(s); const who = by.get(s.path); return who ? { ...i, suggestedBy: who } : i }) }
     })
     // R2-SKILL-03: the entries that do not load, so the skills and files screens can warn (readable entries only)
     kit.handle(API.listSkillIssues, ({ auth }) => {
@@ -144,6 +148,8 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.listSkillSuggestions, ({ query, auth }) => listSuggestions(ctx, auth.user.id, query))
     kit.handle(API.getSkillSuggestion, ({ params, auth }) => getSuggestion(ctx, auth.user.id, params.id))
     kit.handle(API.createSkillSuggestion, ({ c, body, auth }) => createSuggestion(ctx, auth.user.id, body, c.get('locale')))
+    // members contribute: skill folders from their own computer as one batch (docs/DECISIONS.md "MC")
+    kit.handle(API.contributeSkills, ({ c, body, auth }) => contributeSkills(ctx, auth.user.id, body, c.get('locale')), { jsonLimit: CONTRIBUTE_BODY_MAX })
     kit.handle(API.approveSkillSuggestion, ({ c, params, body, auth }) => approveSuggestion(ctx, auth.user.id, params.id, body, c.get('locale')))
     kit.handle(API.rejectSkillSuggestion, ({ c, params, body, auth }) => rejectSuggestion(ctx, auth.user.id, params.id, body.note, c.get('locale')))
   },

@@ -4,7 +4,10 @@
 //   description quotes), which is what 실행 sends; what the person typed is never replaced; the "/" menu (onCompose)
 //   keeps an empty box;
 // - while no AI answers the person (GET /api/me/ai-access), the run button's place holds the one connect / ask line
-//   the message box shows (내 AI 연결하기 for connect_own, 팀장에게 알리기 for ask_owner); the "/" menu keeps its button.
+//   the message box shows (내 AI 연결하기 for connect_own, 팀장에게 알리기 for ask_owner); the "/" menu keeps its button;
+// - a skill without a title is named on the member's way in as the invite and the goal card name it (shared
+//   skillLabel: "quote maker", never "quote-maker"): the form's title, the team skills row and its run button, the
+//   chip of what the form sends, the answer's receipt; the "/" command keeps the folder name.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import { skillExample, type SkillInfo } from '@mycel/shared/api'
@@ -12,7 +15,12 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useSession } from '../../src/store/session'
-import { SkillForm } from '../../src/components/skills/SkillForm'
+import { SkillForm, SkillFormDialog } from '../../src/components/skills/SkillForm'
+import { AvailableSkillsList } from '../../src/components/AvailableSkills'
+import { UserMessage, UserText } from '../../src/components/chat/Messages'
+import Steps from '../../src/components/chat/Steps'
+import { forgetSkillList } from '../../src/lib/skillTitles'
+import { CHAT, msg } from './fixtures'
 import { installDom, mount, removeDom } from './dom-host'
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -166,5 +174,50 @@ describe('no AI answers the person', () => {
       await m.until(() => m.find('skill-form-run'), 'the fill button')
       expect(m.find('skill-form-no-ai')).toBeNull()
     } finally { await m.unmount() }
+  })
+})
+
+// the recheck of onboarding v5: the member's form read "quote-maker 실행" while the invite and the goal said 'quote maker'
+describe('a skill without a title, on the member\'s way in', () => {
+  const QUOTE: SkillInfo = { path: 'skills/quote-maker/SKILL.md', name: 'quote-maker', description: 'Quotes from the team template', inputs: [{ name: 'customer', label: '고객사' }] }
+  const body = () => (globalThis.document as any).body
+
+  test('the form\'s title, the team skills row and its run button, the chip of what it sends and the answer\'s receipt say "quote maker"', async () => {
+    forgetSkillList()
+    skills = [QUOTE]
+    try {
+      // the form the invite opens (/skills?run=): its title
+      let m = await mount(<MemoryRouter><SkillFormDialog path={QUOTE.path} skill={QUOTE} onClose={() => {}} /></MemoryRouter>)
+      try {
+        await m.until(() => m.find('skill-input-customer'), 'the form')
+        expect(body().querySelector('[role="dialog"]').querySelector('h2').textContent).toBe('quote maker 실행')
+      } finally { await m.unmount() }
+      // the team skills page behind it: the row and its run button
+      m = await mount(<MemoryRouter><AvailableSkillsList items={[QUOTE]} /></MemoryRouter>)
+      try {
+        expect(m.get('skill-use').textContent).toContain('quote maker')
+        expect(m.get('skill-run').getAttribute('aria-label')).toBe('quote maker 실행')
+        expect(m.get('skill-more').getAttribute('aria-label')).toBe('quote maker 스킬 메뉴')
+        expect(m.html()).not.toContain('quote-maker 실행')
+      } finally { await m.unmount() }
+      // what the form sends ("/quote-maker" and the answers) and a typed question: the chip
+      m = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content: '/quote-maker\n고객사: Acme' }), local: undefined } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></MemoryRouter>)
+      try {
+        await m.until(() => m.find('user-form-run'), 'the run')
+        expect(m.get('skill-chip').textContent).toBe('quote maker')
+        // the command stays the folder name (the chip's tooltip)
+        expect(m.get('skill-chip').getAttribute('title')).toBe('/quote-maker')
+      } finally { await m.unmount() }
+      m = await mount(<UserText content="/quote-maker 이번 주 견적 정리해 줘" clamp />)
+      try {
+        await m.until(() => m.find('skill-chip'), 'the chip')
+        expect(m.get('skill-chip').textContent).toBe('quote maker')
+      } finally { await m.unmount() }
+      // the answer's receipt
+      m = await mount(<Steps steps={[]} streaming={false} receipt={{ skill: { path: QUOTE.path, name: QUOTE.name, by: '지훈' }, teamFiles: 1 }} />)
+      try {
+        await m.until(() => m.find('steps-receipt')?.textContent === "지훈님의 팀 스킬 'quote maker' · 팀 파일 1개", 'the receipt')
+      } finally { await m.unmount() }
+    } finally { forgetSkillList() }
   })
 })

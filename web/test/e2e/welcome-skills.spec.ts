@@ -6,6 +6,7 @@
 // 팀 파일 shows what went in; 팀 파일 is put off; the invite names ONE skill, the first shared, and its link opens it;
 // then 준비 끝났어요 with the owner's own run of that skill.
 import { expect, test } from '@playwright/test'
+import { PRODUCT } from '@mycel/shared'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 /** A .claude folder: skills, a plugin, a command, CLAUDE.md, and what must never be opened. */
@@ -44,7 +45,7 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 공
   await expect(page.getByTestId('welcome-progress')).toContainText('2/4 내 스킬')
   await expect(page.getByRole('heading', { name: 'Claude Code나 Codex에서 쓰던 스킬, 팀도 쓰게 할까요?' })).toBeVisible()
   await expect(page.getByTestId('skills-promise')).toBeVisible()
-  await expect(page.getByTestId('skills-cc-prompt')).toContainText('내 스킬 중 팀에 공유할 만한 걸 트리나에 올려 줘')
+  await expect(page.getByTestId('skills-cc-prompt')).toContainText(`내 스킬 중 팀에 공유할 만한 걸 ${PRODUCT.displayName}에 올려 줘`)
   await expect(page.getByTestId('setup-row')).toHaveCount(0)
   await page.getByTestId('skills-find').click()
   // the list: recommended ones ticked with a reason each, the folded rows, CLAUDE.md as a rule, one primary

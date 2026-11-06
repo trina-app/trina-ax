@@ -23,8 +23,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { PRODUCT } from '@mycel/shared'
 import type { ApplySkillShare, ShareCandidate, SkillShare } from '@mycel/shared/api'
-import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
+import { DICTS, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { SkillsStep } from '../../src/components/onboarding/SkillsStep'
 import SkillSharePage from '../../src/pages/SkillSharePage'
 import { useSession } from '../../src/store/session'
@@ -72,6 +73,8 @@ let failApply = 0
 let mergeLater = false
 /** the owner's welcome progress (GET /api/onboarding/welcome); null: none */
 let welcome: { finishedAt: string | null } | null = null
+/** the next proposal the server makes (a second folder: its own id and skills); null: the usual one */
+let nextShare: Partial<SkillShare> | null = null
 let calls: { key: string; url: string; body: any }[] = []
 const called = (key: string) => calls.filter((c) => c.key === key)
 const applyTo = (s: SkillShare, b: ApplySkillShare): SkillShare => ({
@@ -90,7 +93,7 @@ const applyTo = (s: SkillShare, b: ApplySkillShare): SkillShare => ({
 function route(method: string, path: string, body: any): Response {
   if (method === 'GET' && path === '/api/connectors/remote') return json(200, { ...remote, resource: remote.configured ? remote.resource : null, items: [] })
   if (method === 'POST' && path === '/api/skill-shares') {
-    created = shareOf({ status: startChecking ? 'checking' : 'ready', ai: startChecking ? 'pending' : 'done', where: body.where })
+    created = shareOf({ status: startChecking ? 'checking' : 'ready', ai: startChecking ? 'pending' : 'done', where: body.where, ...nextShare })
     return json(201, created)
   }
   if (method === 'GET' && path === '/api/skill-shares') return json(200, { items: ccItems })
@@ -158,6 +161,7 @@ afterEach(() => {
   failApply = 0
   mergeLater = false
   welcome = null
+  nextShare = null
   useWelcome.getState().reset()
   useUi.setState({ toasts: [] })
   calls = []
@@ -555,6 +559,30 @@ describe('phones', () => {
     } finally { await m.unmount() }
   })
 
+  // the recheck of onboarding v5: the phone's text said "트리나" under a header that says the product's name
+  test('the phone version names the product as the header does, in every line ({product}: PRODUCT.displayName)', async () => {
+    chrome()
+    phoneWidth()
+    const m = await step()
+    try {
+      await m.until(() => m.find('skills-cc'), 'the Claude Code line')
+      const all = text(m, 'skills-step')
+      expect(all).toContain(`컴퓨터에서 ${PRODUCT.displayName}에 들어오면`)
+      expect(text(m, 'skills-cc-prompt')).toBe(`내 스킬 중 팀에 공유할 만한 걸 ${PRODUCT.displayName}에 올려 줘`)
+      expect(all).toContain(`Claude Code나 Codex에 ${PRODUCT.displayName}부터 연결해요`)
+      expect(all).not.toContain('트리나')
+    } finally { await m.unmount() }
+  })
+
+  test('no 내 스킬 text writes a product name of its own, in any language', () => {
+    for (const [locale, dict] of Object.entries(DICTS)) {
+      for (const [key, value] of Object.entries(dict)) {
+        if (key.startsWith('welcome.skills.')) expect({ locale, key, named: /트리나|Trina|トリナ/.test(value) }).toEqual({ locale, key, named: false })
+      }
+    }
+    expect(translate('en', 'welcome.skills.reason.scripts')).toBe(`Needs scripts to run · ${PRODUCT.displayName} doesn't run scripts`)
+  })
+
   test('a browser that cannot pick folders (no picker, no webkitdirectory) gets the phone version', async () => {
     const m = await step()
     try {
@@ -869,6 +897,56 @@ describe('coming back to the step (walk M3, SHOULD 10)', () => {
       expect(p.get('skill-review').getAttribute('data-status')).toBe('applied')
       expect(p.find('skills-more')).toBeNull()
     } finally { await p.unmount() }
+  })
+})
+
+// the recheck of onboarding v5: after 다른 폴더도 가져오기 the finished step listed only the last folder's skills
+describe('what went in lists every skill shared in the setup', () => {
+  const SECOND = '01900000-0000-7000-8000-0000000005f1'
+  /** the progress as pages/Welcome.tsx reads it again after an apply: the server keeps every skill shared (shared.skills) */
+  const sharedSoFar = (skills: { path: string; title: string }[]) => useWelcome.setState({ loaded: true, progress: { ...WELCOME_ROW, steps: { ...WELCOME_ROW.steps, skills: 'done' }, finishedAt: null, shared: { at: hourAgo(), skills, landing: skills[0]!.path } } as never })
+  const doneRows = () => ((globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]).map((r) => `${r.getAttribute('data-kind')}:${r.getAttribute('data-name')}`)
+  const applied = (m: Mounted) => m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')
+
+  test('a second folder after 다른 폴더도 가져오기: the first folder\'s skills, then the second\'s, each once', async () => {
+    chrome()
+    const m = await step()
+    try {
+      await findAndList(m)
+      await m.click('skills-share')
+      await applied(m)
+      const first = [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고' }, { path: 'skills/quote-draft/SKILL.md', title: '견적서 초안' }]
+      // read again after the apply: this share's own skills are not listed twice
+      await act(async () => { sharedSoFar(first) })
+      expect(doneRows()).toEqual(['added:weekly-report', 'added:quote-draft', 'merge:meeting-notes'])
+      await m.click('skills-more')
+      // Codex's folder: one skill of its own, no title from the AI (the server records it as words)
+      nextShare = { id: SECOND, app: 'codex', where: '.agents', rule: null, candidates: [cand('standup-notes', '', 'recommended', 'team_any', { title: null })] }
+      await findAndList(m)
+      await m.click('skills-share')
+      await applied(m)
+      // before the progress is read again, and after it: the same list, nothing twice
+      expect(doneRows()).toEqual(['added:weekly-report', 'added:quote-draft', 'added:standup-notes'])
+      await act(async () => { sharedSoFar([...first, { path: 'skills/standup-notes/SKILL.md', title: 'standup notes' }]) })
+      expect(doneRows()).toEqual(['added:weekly-report', 'added:quote-draft', 'added:standup-notes'])
+      const list = text(m, 'skill-review')
+      expect(list).toContain('주간 업무 보고')
+      expect(list).toContain('견적서 초안')
+      // the earlier rows read like this share's: their title, the name on a computer, no 열기 during the setup
+      expect(list).toContain('/weekly-report')
+      expect(m.find('skill-done-open')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('a revisit (이전 from 팀 파일) shows every skill shared, not only the newest share\'s', async () => {
+    chrome()
+    ccItems = [shareOf({ id: SECOND, status: 'applied', createdAt: hourAgo(), updatedAt: hourAgo(), candidates: [cand('standup-notes', '스탠드업 정리', 'recommended', 'team_any', { applied: { status: 'added', path: 'skills/standup-notes/SKILL.md', chatId: null, error: null } })] })]
+    sharedSoFar([{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고' }, { path: 'skills/standup-notes/SKILL.md', title: '스탠드업 정리' }])
+    const m = await step()
+    try {
+      expect(m.get('skill-review').getAttribute('data-status')).toBe('applied')
+      expect(doneRows()).toEqual(['added:weekly-report', 'added:standup-notes'])
+    } finally { await m.unmount() }
   })
 })
 

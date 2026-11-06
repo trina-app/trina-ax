@@ -34,6 +34,7 @@ type Scope =
   | 'shared'          // shared/: every signed-in person
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
+  | 'members'         // members only: owners and admins have their own way (members contribute, docs/DECISIONS.md "MC")
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
   | 'room-group'      // the group chat of alice, erin and frank: alice and erin (frank still has to change his password)
@@ -68,6 +69,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
+    case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
     case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
     case 'nobody': return false
   }
@@ -227,6 +229,8 @@ export const SPECS: Record<string, Spec> = {
   getSkillSuggestion: { build: (c, w) => c.get(`/api/skills/suggestions/${w.ids.suggestion}`), scope: 'suggestion-alice' },
   // from alice's own file: nobody else may turn it into a suggestion (it would copy her file to the managers)
   createSkillSuggestion: { build: (c) => c.post('/api/skills/suggestions', { source: { kind: 'file', path: 'users/alice/todo.md' }, targetFolder: 'skills', name: 'from alice file', content: 'x' }), scope: 'users-alice' },
+  // members contribute their own skill folders (docs/DECISIONS.md "MC"); owners and admins bring theirs with 내 스킬 가져오기
+  contributeSkills: { build: (c) => c.post('/api/skills/suggestions/batch', { skills: [{ name: 'matrix-skill', files: [{ path: 'SKILL.md', text: '---\nname: matrix-skill\ndescription: matrix\n---\n# Steps\n1. Read.\n' }] }] }), scope: 'members' },
   approveSkillSuggestion: { build: (c, w) => c.post(`/api/skills/suggestions/${w.ids.suggestion}/approve`, { targetFolder: 'skills', name: 'approved by matrix', description: '', content: 'steps' }), scope: 'skills-manager',
     check: (r, w, who) => { if (!['owner', 'admin'].includes(who) && r.status < 300) throw new Error(`${who} registered a skill suggestion`) } },
   rejectSkillSuggestion: { build: (c, w) => c.post(`/api/skills/suggestions/${w.ids.suggestion}/reject`, { note: 'no' }), scope: 'skills-manager',

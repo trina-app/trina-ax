@@ -465,9 +465,12 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
         <Button variant="primary" className={continueWith ? 'max-sm:w-full' : undefined} busy={busy} disabled={nothing || !!continueWith?.disabled} onClick={() => void save()} data-testid="profile-step-save">
           {continueWith?.label ?? t('onboarding.profile.save')}
         </Button>
-        <Button variant="ghost" className="max-sm:order-2" onClick={() => { setSite(draft.website || site); setPhase({ kind: 'site' }) }} disabled={busy}>
-          {t('onboarding.profile.readAgain')}
-        </Button>
+        {/* only with a homepage to read again: not after "홈페이지가 없어요" and a pasted text (the recheck of v5) */}
+        {!!draft.website.trim() && (
+          <Button variant="ghost" className="max-sm:order-2" onClick={() => { setSite(draft.website); setPhase({ kind: 'site' }) }} disabled={busy} data-testid="profile-step-read-again">
+            {t('onboarding.profile.readAgain')}
+          </Button>
+        )}
         <span className="ml-auto max-sm:order-2">{skip}</span>
         {continueWith?.note && <div className="w-full max-sm:order-1">{continueWith.note}</div>}
       </div>

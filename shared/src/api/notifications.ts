@@ -73,6 +73,10 @@ export const InboxNotification = z.object({
   /** 'skills.merge_waiting' only (the owner, at the end of the welcome steps): how many skills wait to be merged into
    * team skills; link 'chat' opens the one merge chat (chatId); older servers omit it */
   merges: z.object({ n: z.number().int().positive() }).optional(),
+  /** 'skill.suggested' for a batch of skill folders a member sent (docs/DECISIONS.md "MC"; for the owners and admins):
+   * who sent it, while their account is there, and how many skills it held. "민준 님이 스킬 2개를 팀에 올리자고 했어요";
+   * the link opens Skills › 검토 at that person. Never a skill's name. Older servers omit it */
+  contribution: z.object({ name: z.string().nullable(), n: z.number().int().positive() }).optional(),
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
