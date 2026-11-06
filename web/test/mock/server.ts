@@ -75,8 +75,8 @@ class Fail extends Error {
 }
 /** the Claude sign-in's authorize address (tests/lib/fake-claude-login.ts has the same shape) */
 const MOCK_CLAUDE_AUTHORIZE = 'https://claude.com/cai/oauth/authorize?code=true&client_id=mock&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=mock&code_challenge_method=S256&state=good-state'
-const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>): never => {
-  throw new Fail(code, status, msg, fields)
+const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>, params?: Record<string, string | number | boolean>): never => {
+  throw new Fail(code, status, msg, fields, params)
 }
 /** Like server/src/admin/users.ts temporaryFor: a typed temporary password must be ASCII, 8+ and not a common one. */
 function checkTemp(pw: string | undefined): void {
@@ -188,6 +188,16 @@ export class MockServer {
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
+  /** a saved welcome row: finished once 회사 소개 is answered (put off, or saved with the deck started or a first result
+   * answered) and 내 스킬, 팀 파일 and the invite are each done or put off, not while 내 스킬 waits for a computer
+   * (server/src/onboarding/welcome.ts welcomeFinished, docs/DECISIONS.md "W5") */
+  welcomeSaved(p: WelcomeProgress, at: string): WelcomeProgress {
+    const st = p.steps
+    const profile = st.profile === 'skipped' || (st.profile === 'done' && (!!p.resultChatId || st.result !== null))
+    if (!p.finishedAt && profile && st.skills && st.files && st.invite && !p.skillsLater) p.finishedAt = at
+    p.updatedAt = at
+    return p
+  }
   /** the saved company profile, and the website readings (server/src/onboarding/draft.ts, short: no chat of the list) */
   companyProfile: import('@mycel/shared/api').CompanyProfile | null = null
   profileDrafts = new Map<string, { userId: string; website: string; reads: number }>()
@@ -1963,17 +1973,19 @@ export class MockServer {
       }
       if (b.teamType) p.teamType = b.teamType
       if (b.step) {
+        // 회사 소개 put off on an old row whose profile was saved without a deck: the deck is put off (server: welcome.ts)
+        if (b.step.id === 'profile' && b.step.state === 'skipped' && p.steps.profile === 'done' && !p.resultChatId && (p.steps.result ?? null) === null) p.steps.result = 'skipped'
         if (b.step.state === 'done' || p.steps[b.step.id] !== 'done') p.steps[b.step.id] = b.step.state
-        if (b.step.id === 'result' && b.step.state === 'done' && p.steps.invite === 'skipped') p.steps.invite = null
         if (b.step.id === 'skills') delete p.skillsLater
       }
-      // 내 스킬 put off on a phone (docs/DECISIONS.md "K"); the invite's landing skill among the shared ones
+      // 내 스킬 put off on a phone (docs/DECISIONS.md "SK"); the invite's landing skill among the shared ones
       if (b.skillsLater && !b.step && p.steps.skills !== 'done') { p.steps.skills = 'skipped'; p.skillsLater = true }
       if (b.landing !== undefined) {
         if (!p.shared?.skills.some((x) => x.path === b.landing)) fail('validation', 400)
         p.shared = { ...p.shared!, landing: b.landing }
       }
       if (b.inviteShown && !p.inviteShownAt) p.inviteShownAt = at
+      if (b.doneShown && !p.doneShownAt) p.doneShownAt = at
       if (b.site) p.site = b.site
       if (b.dismissed !== undefined) p.dismissedAt = b.dismissed ? (p.dismissedAt ?? at) : null
       // "자료 없이 해 볼게요" without the marketing pack: the result and the invite put off, the steps finished
@@ -1982,10 +1994,8 @@ export class MockServer {
         p.steps.invite ??= 'skipped'
         p.finishedAt ??= at
       }
-      if (!p.finishedAt && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite && !p.skillsLater) p.finishedAt = at
-      p.updatedAt = at
-      this.welcome = p
-      return { progress: p }
+      this.welcome = this.welcomeSaved(p, at)
+      return { progress: this.welcome }
     },
     installWelcomePack: (c) => {
       const at = now()
@@ -2038,6 +2048,12 @@ export class MockServer {
     startFirstResult: (c) => {
       const at = now()
       const p = this.welcome
+      // once per team (docs/DECISIONS.md "W5"): a deck that started answers 409 deck_started before anything else; a
+      // chat made whose message never went is handed out again
+      const had = p?.resultChatId ? this.chats.find((x) => x.id === p.resultChatId && !x.deletedAt) : undefined
+      if (had && this.messages.some((m) => m.chatId === had.id)) fail('conflict', 409, '회사 소개서는 이미 만들기 시작했어요.', undefined, { reason: 'deck_started' })
+      // the team's start when it is missing (the server's own setupWelcomeTeam), as for "저장하고 계속" without files
+      if (p && (!p.general || !p.teamGroup?.brandFolder)) this.handlers.setupWelcomeTeam!({ ...c, body: {} })
       const g = p?.teamGroup
       if (!p || !p.general || !g?.brandFolder) fail('conflict', 409, '팀 폴더가 아직 없어요. 시작 설정을 다시 열어 주세요.')
       const files = (c.body as import('@mycel/shared/api').StartFirstResult).files
@@ -2054,7 +2070,8 @@ export class MockServer {
         intro = `${g!.brandFolder}/회사 소개.md`
         this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p!.site ? ` · ${p!.site}` : ''}\n`)
       }
-      const chat = (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 소개서' } }) as { body: Chat }).body
+      const chat = had ?? (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 소개서' } }) as { body: Chat }).body
+      p!.resultChatId = chat.id
       p!.updatedAt = at
       return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.introDeckPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
     },
@@ -2835,7 +2852,7 @@ export class MockServer {
     listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
     getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }),
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
-    // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "K") ----------------
+    // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "SK") ----------------
     // The team connector is on here (GET /api/connectors/remote: configured, at this server's /mcp), so the welcome
     // step shows its Claude Code line. A share proposal is a fixed, realistic one whatever was sent (the server's
     // checks and AI are not mocked): 10 candidates from a folder (3 recommended: one with a file, one similar to a team
@@ -2888,11 +2905,11 @@ export class MockServer {
         listRemoteConnectors: (c) => ({ configured: true, resource: `${new URL(c.req.url).origin}/mcp`, items: [] }),
         createSkillShare: (c) => {
           const b = c.body as import('@mycel/shared/api').CreateSkillShare
-          const cc = b.source === 'claude_code'
+          const cc = b.source === 'claude_code' || b.source === 'codex'
           const at = now()
           const share: Share = {
-            id: uuidv7(), source: b.source, status: 'checking', where: cc ? null : b.where ?? '.claude', projects: cc ? b.projects ?? 2 : null,
-            createdAt: at, expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString(), ai: 'pending', candidates: fixture(cc),
+            id: uuidv7(), source: b.source, app: b.source === 'codex' ? 'codex' : b.app ?? 'claude', status: 'checking', where: cc ? null : b.where ?? '.claude', projects: cc ? b.projects ?? 2 : null,
+            createdAt: at, updatedAt: at, expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString(), ai: 'pending', candidates: fixture(cc),
             rule: { lines: 5, dropped: 12, path: null, text: '- 보고서는 결론부터 짧게 써요\n- 숫자는 표로 정리해요\n- 고객 이름은 회사 공식 표기를 따라요\n- 일정은 YYYY-MM-DD로 적어요\n- 모르면 추측하지 말고 물어봐요' },
             tools: cc ? [{ name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', header: null, templateId: null, error: null }, { name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', header: null, templateId: null, error: null }] : [],
             landing: null,
@@ -2916,9 +2933,12 @@ export class MockServer {
             const x = candidates.find((y) => y.name === s.name && y.group !== 'excluded') ?? fail('validation', 400, `${s.name}: 공유할 수 없는 스킬이에요.`)
             const title = x.title ?? x.name
             if (s.action === 'merge' && (x.sameName || x.similar)) {
+              const target = (x.sameName ?? x.similar)!.path
+              // while the owner's welcome steps are unfinished a merge waits for their end (docs/DECISIONS.md "W5")
+              if (this.welcome && !this.welcome.finishedAt && c.user.role === 'owner') { x.applied = { status: 'later', path: target, chatId: null, error: null }; continue }
               const chat: Chat = { id: uuidv7(), projectId: null, title: `${title} 합치기`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
               this.chats.push(chat)
-              x.applied = { status: 'merge', path: null, chatId: chat.id, error: null }
+              x.applied = { status: 'merge', path: target, chatId: chat.id, error: null }
             } else {
               const name = s.action === 'separate' ? s.as ?? `${x.name}-2` : x.name
               const path = `skills/${name}/SKILL.md`
@@ -2931,13 +2951,20 @@ export class MockServer {
           if (rule?.path && b.rule) put(rule.path, rule.text)
           const tools = r.share.tools.map((x) => (b.tools?.includes(x.name) ? { ...x, templateId: uuidv7() } : x))
           const landing = (added.find((x) => x.recommended) ?? added[0])?.path ?? null
-          r.share = { ...r.share, status: 'applied', candidates, rule, tools, landing }
-          if (this.welcome && added.length) this.welcome = { ...this.welcome, shared: { at: now(), skills: added.map(({ path, title }) => ({ path, title })), landing } }
+          r.share = { ...r.share, status: 'applied', candidates, rule, tools, landing, updatedAt: now() }
+          // applying a share anywhere marks 내 스킬 done for the owner (server: onboarding/welcome.ts recordShared)
+          if (this.welcome && c.user.role === 'owner') {
+            const w = { ...this.welcome, steps: { ...this.welcome.steps, skills: 'done' as const } }
+            delete w.skillsLater
+            if (added.length) w.shared = { at: this.welcome.shared?.at ?? now(), skills: [...(this.welcome.shared?.skills ?? []), ...added.map(({ path, title }) => ({ path, title }))], landing: this.welcome.shared?.landing ?? landing }
+            this.welcome = this.welcomeSaved(w, now())
+          }
           return r.share
         },
         dismissSkillShare: (c) => {
           const r = mine(c)
-          if (r.share.status === 'checking' || r.share.status === 'ready') r.share = { ...r.share, status: 'dismissed' }
+          // the names and descriptions go with it (server: skills/share.ts close)
+          if (r.share.status === 'checking' || r.share.status === 'ready') r.share = { ...r.share, status: 'dismissed', candidates: [], rule: null, tools: [], updatedAt: now() }
           return undefined
         },
       }

@@ -18,24 +18,19 @@ export function readJoinToken(loc: { pathname: string; search: string; hash: str
 }
 
 /** The text a leader pastes into KakaoTalk or Slack: who invites, to which team (`team`: the team's name, so the
- * message says where the link leads; docs/DECISIONS.md "W3"), and the skill to try together when the link names one
- * (`shared`: the skills shared from 내 스킬 가져오기, the link's own first: they are named together);
- * `made`: the team skill they just made ("Acme에 '견적서 쓰기' 스킬을 만들어 뒀어요…"). `name` is the person copying it
- * (they are the one sending it). A link with a starter says what is waiting instead, in the lead's own voice: this
- * week's meeting notes and everyone's own tasks (`tasks`), or the team's files and what each person needs from them
- * (`brief`); the link on its own line. */
-export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; starter?: StarterKind | null; made?: boolean; shared?: readonly string[] | null }): string {
+ * message says where the link leads; docs/DECISIONS.md "W3"), and the ONE skill to try together when the link names one
+ * (the skill the link opens: several shared skills are never listed, docs/DECISIONS.md "W5"); `ownAi`: people who join
+ * sign in to their own AI (the link's `memberAi` is `connect_own`), so the message says "본인 AI 계정이 필요해요" before
+ * they hit it; `made`: the team skill they just made ("Acme에 '견적서 쓰기' 스킬을 만들어 뒀어요…"). `name` is the
+ * person copying it (they are the one sending it). A link with a starter says what is waiting instead, in the lead's
+ * own voice: this week's meeting notes and everyone's own tasks (`tasks`), or the team's files and what each person
+ * needs from them (`brief`); the link on its own line. */
+export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; starter?: StarterKind | null; made?: boolean; ownAi?: boolean }): string {
   if (o.starter) return t(o.starter === 'brief' ? 'teamLink.messageBrief' : 'teamLink.messageNotes', { url: o.url })
   // a team skill the lead just made from their own work (docs/DECISIONS.md "S"), in their voice
   if (o.made && o.skill) return t('teamLink.messageMade', { team: o.team, skill: o.skill, url: o.url })
-  // the skills the lead shared from 내 스킬 가져오기 (docs/DECISIONS.md "K"), the one the link opens first: two are
-  // named, three or more as "'a' 등 n개"; one is the usual skill message
-  if (o.shared && o.shared.length >= 2) {
-    const [a, b] = o.shared
-    const skills = o.shared.length === 2 ? t('teamLink.sharedTwo', { a: a!, b: b! }) : t('teamLink.sharedMany', { a: a!, n: o.shared.length })
-    return t('teamLink.messageShared', { name: o.name, team: o.team, url: o.url, skills })
-  }
-  return o.skill ? t('teamLink.messageSkill', { name: o.name, team: o.team, url: o.url, skill: o.skill }) : t('teamLink.message', { name: o.name, team: o.team, url: o.url })
+  if (o.skill) return t(o.ownAi ? 'teamLink.messageSkillOwnAi' : 'teamLink.messageSkill', { name: o.name, team: o.team, url: o.url, skill: o.skill })
+  return t(o.ownAi ? 'teamLink.messageOwnAi' : 'teamLink.message', { name: o.name, team: o.team, url: o.url })
 }
 
 /** Where to go after joining: only the skill form the server named (`/skills?run=<path>`), anything else is Home. */

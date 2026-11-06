@@ -199,8 +199,8 @@ export interface TeamLinkViewProps {
   starter?: TeamLinkStarter | null
   /** `fixedSkillPath` is a team skill the lead just made: the message says so ("{팀}에 '…' 스킬을 만들어 뒀어요") */
   made?: boolean
-  /** the skills shared from 내 스킬 가져오기 (docs/DECISIONS.md "K"): the message names them, one line says which the link
-   * opens first, with 바꾸기 among them */
+  /** the skills shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK"): one line says which the link opens first, with
+   * 바꾸기 among them (the message names that one only: docs/DECISIONS.md "W5") */
   shared?: InviteShared | null
   /** the groups a new link starts with (the team's own group); a link before keeps its own */
   defaultGroupIds?: string[]
@@ -266,9 +266,11 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   const skillName = link.skill ? (link.skill.title ?? link.skill.name) : null
   // a starter with no file left that a newcomer could read leads nowhere: the usual message
   const waiting = link.starter && link.starter.files > 0 ? link.starter : null
-  // the shared skills, while the link opens one of them (the landing one; a link that leads elsewhere says its own skill)
+  // the shared skills, while the link opens one of them (the landing one; a link that leads elsewhere says its own
+  // skill): the line under the message says which opens first, with 바꾸기
   const sharedHere = shared && link.skill && shared.options.some((o) => o.path === link.skill!.path) ? shared : null
-  const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, starter: waiting?.kind, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, shared: sharedHere?.titles })
+  // one skill only (the one the link opens), and "본인 AI 계정이 필요해요" when people who join sign in to their own AI
+  const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, starter: waiting?.kind, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, ownAi: link.memberAi === 'connect_own' })
   const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
   // the groups line: always when the link puts people in groups; "그룹 없음" only on a team that has groups
   const showGroups = link.groupIds.length > 0 || groups.length > 0
@@ -341,7 +343,7 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   )
 }
 
-/** "들어오면 '{스킬}'부터 열려요 · 바꾸기" (docs/DECISIONS.md "K"): the shared skill the link opens; 바꾸기 (only with two
+/** "들어오면 '{스킬}'부터 열려요 · 바꾸기" (docs/DECISIONS.md "SK"): the shared skill the link opens; 바꾸기 (only with two
  * or more) is a plain select of the shared skills, and the link changes to the one picked (same address). */
 function LandingLine({ shared, skill }: { shared: InviteShared; skill: string }) {
   const t = useT()

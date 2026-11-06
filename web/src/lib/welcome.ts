@@ -1,83 +1,94 @@
 // The welcome steps (pages/Welcome.tsx; docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting
-// note, everyone's own tasks", "W2 — AI connection first", "K — 내 스킬 가져오기"): which step to open, what the Home entry counts, what
-// leaving the first step installs, which skill the invite under the first answer shares, and where the owner goes
-// right after /setup.
-import { GENERAL_TASKS_SKILL, WELCOME_COUNTED, WELCOME_STEPS, type Message, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
+// note, everyone's own tasks", "W2 — AI connection first", "SK — 내 스킬 가져오기", "W5 — Onboarding v5"): which step to
+// open, what the setup row counts, what leaving the first step installs, which skill the invite and the end screen
+// point at, and where the owner goes right after /setup. The steps: AI 연결 (only while no AI answers) → 회사 소개 (its
+// "저장하고 계속" starts the intro deck once per team) → 내 스킬 → 팀 파일 → 팀원 초대 → the end screen. The intro deck is
+// no step: it is an ordinary chat ("우리 회사 소개서") found by its row in the chat list.
+import { PRODUCT } from '@mycel/shared'
+import { GENERAL_TASKS_SKILL, PRODUCT_NAMED_AFTER_AI, WELCOME_COUNTED, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
+import type { MessageKey } from '../i18n'
+
+/** The AI's name in "{name} 기록" (the AI's chat list: "트리나 기록"): the AI's own name where the product is named after
+ * it (the Trina edition), else the product's short name (the core edition). The same rule as the sidebar's own label. */
+export const historyName = (t: (key: MessageKey) => string): string => (PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.shortName)
 
 /** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
-const AFTER_AI = WELCOME_STEPS.filter((s) => s !== 'ai')
+const ORDER: readonly WelcomeStep[] = WELCOME_COUNTED
 
 /** A step's state; absent (a row from before 내 스킬 / 팀 파일, an older server) reads as open. */
 export const stepState = (p: WelcomeProgress, s: WelcomeStep) => p.steps[s] ?? null
 
+/** 회사 소개 is answered: put off, or saved with the intro deck started (`resultChatId`). A row from before (회사 소개
+ * saved, the old "first result" step never answered, no deck: docs/DECISIONS.md "W5", old row (a)) is still open, so it
+ * resumes on 회사 소개 and its "저장하고 계속" starts the deck; one whose first result was answered either way (done:
+ * just a chat; put off: no deck) is answered. */
+export const profileAnswered = (p: WelcomeProgress) =>
+  p.steps.profile === 'skipped' || (p.steps.profile === 'done' && (!!p.resultChatId || stepState(p, 'result') !== null))
+
 /**
- * Whether a step is open on this device: not done or put off; and 내 스킬 가져오기 put off on a phone (`skillsLater`:
- * skills live on a computer, docs/DECISIONS.md "K") is open again on a computer. `computer` false: a phone.
+ * Whether a step is open on this device: not done or put off (회사 소개: profileAnswered); and 내 스킬 가져오기 put off
+ * on a phone (`skillsLater`: skills live on a computer, docs/DECISIONS.md "SK") is open again on a computer. `computer`
+ * false: a phone.
  */
 export const openHere = (p: WelcomeProgress, s: WelcomeStep, computer = true) =>
-  stepState(p, s) === null || (s === 'skills' && computer && !!p.skillsLater && p.steps.skills !== 'done')
+  s === 'profile' ? !profileAnswered(p)
+    : stepState(p, s) === null || (s === 'skills' && computer && !!p.skillsLater && p.steps.skills !== 'done')
 
-/** Where the steps resume once AI answers: the first step after the AI step still open here; with none left, the first
- * counted step that was put off ("later" is now; on a phone not 내 스킬, which waits for a computer); null when
- * everything is done (or finished). */
+/** Where the steps resume once AI answers: the first step still open here; with none left, the first counted step that
+ * was put off ("later" is now; on a phone not 내 스킬, which waits for a computer); null when everything is done (or
+ * finished). */
 function resumeWithAi(p: WelcomeProgress | null, computer: boolean): WelcomeStep | null {
   if (p?.finishedAt) return null
-  if (!p) return AFTER_AI[0]!
-  const open = AFTER_AI.find((s) => openHere(p, s, computer))
+  if (!p) return ORDER[0]!
+  const open = ORDER.find((s) => openHere(p, s, computer))
   if (open) return open
   return WELCOME_COUNTED.find((s) => stepState(p, s) !== 'done' && !(s === 'skills' && !computer && p.skillsLater)) ?? null
 }
 
-/** The steps the AI step holds back: 회사 소개 and the intro deck need AI; 내 스킬 (its checks work without AI), 팀 파일
- * and the invite do not. */
-const needsAi = (s: WelcomeStep | null) => s === 'profile' || s === 'result'
+/** The steps the AI step holds back: 회사 소개 (the website reading and the intro deck are AI answers); 내 스킬 (its
+ * checks work without AI), 팀 파일 and the invite do not. */
+export const needsAi = (s: WelcomeStep | null) => s === 'profile'
 
 /**
  * Where the steps resume. Without an AI that answers the owner (`aiReady` false: GET /api/me/ai-access), the AI step
- * in front of 회사 소개 and the intro deck, never in front of the later steps. `computer` false on a phone.
+ * in front of 회사 소개, never in front of the later steps. `computer` false on a phone.
  */
 export function resumeStep(p: WelcomeProgress | null, aiReady = true, computer = true): WelcomeStep | null {
   const s = resumeWithAi(p, computer)
   return !aiReady && needsAi(s) ? 'ai' : s
 }
 
-/** After a step: the next one in order that is still open here; null (back to Home) when none is left after it, so a
- * step put off never comes straight back. */
+/** After a step: the next one in order that is still open here; null (the end) when none is left after it, so a step
+ * put off never comes straight back. */
 export function nextStep(p: WelcomeProgress, from: WelcomeStep, computer = true): WelcomeStep | null {
-  const order: readonly WelcomeStep[] = from === 'ai' ? AFTER_AI : AFTER_AI.slice(AFTER_AI.indexOf(from) + 1)
+  const order = from === 'ai' ? ORDER : ORDER.slice(ORDER.indexOf(from) + 1)
   return order.find((s) => openHere(p, s, computer)) ?? null
 }
 
-/** The step before (the AI step is never gone back to: it is over once AI answers). The intro deck is not gone back to
- * from the steps after it once it started (it builds on the server; its chat is a click away on the status line). */
-export function prevStep(from: WelcomeStep, p?: WelcomeProgress | null): WelcomeStep | null {
+/** The step before (the AI step is never gone back to: it is over once AI answers). 회사 소개 can be gone back to at
+ * any time: once the deck started its "저장하고 계속" only saves (docs/DECISIONS.md "W5"). */
+export function prevStep(from: WelcomeStep): WelcomeStep | null {
   if (from === 'ai') return null
-  const before = AFTER_AI[AFTER_AI.indexOf(from) - 1] ?? null
-  if (before === 'result' && p?.resultChatId && p.steps.result === 'done') return null
-  return before
+  return ORDER[ORDER.indexOf(from) - 1] ?? null
 }
 
 /** The steps the progress counts: the AI step while it is needed (the steps would open on it) or once it was shown
- * (recorded), then 회사 소개, the intro deck, 내 스킬 and 팀 파일; an owner whose AI answered from the start never sees it
- * (four steps). */
+ * (recorded), then 회사 소개, 내 스킬, 팀 파일 and 팀원 초대; an owner whose AI answered from the start never sees it
+ * ("n/4"). */
 export function countedSteps(p: WelcomeProgress | null, aiReady = true): WelcomeStep[] {
   const ai = (p?.steps.ai ?? null) !== null || resumeStep(p, aiReady) === 'ai'
   return ai ? ['ai', ...WELCOME_COUNTED] : [...WELCOME_COUNTED]
 }
 
-/** "1/4" on the Home entry: the counted steps done */
-export const doneCount = (p: WelcomeProgress | null, aiReady = true) => (p ? countedSteps(p, aiReady).filter((s) => p.steps[s] === 'done').length : 0)
+/** "2/4" in the setup row: the counted steps answered here (done or put off; the AI step once AI answers; 내 스킬 put
+ * off on a phone is not answered on a computer). */
+export function doneCount(p: WelcomeProgress | null, aiReady = true, computer = true): number {
+  if (!p) return 0
+  return countedSteps(p, aiReady).filter((s) => (s === 'ai' ? p.steps.ai === 'done' : !openHere(p, s, computer))).length
+}
 
 /** How many steps the progress counts (the "/4", "/5" with the AI step): read it from here, never as a number of its own. */
 export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true) => countedSteps(p, aiReady).length
-
-/** What Home's row names: the invite alone left (every counted step done), 내 스킬 alone left (the rest done; put off on
- * a phone or here), else the count. */
-export function resumeLeft(p: WelcomeProgress, aiReady = true): 'invite' | 'skills' | 'count' {
-  const left = countedSteps(p, aiReady).filter((s) => p.steps[s] !== 'done')
-  if (!left.length) return 'invite'
-  return left.length === 1 && left[0] === 'skills' ? 'skills' : 'count'
-}
 
 /** Every team's start (POST /api/onboarding/welcome/team): the general pack and the team's own group with its brand
  * folder, while any is missing (the server installs and creates each once, whatever the page asks; a group recorded
@@ -91,9 +102,23 @@ export function skillNameOf(path: string | null | undefined): string {
   return file === 'SKILL.md' ? (parts.at(-2) ?? '') : file.replace(/\.md$/, '')
 }
 
-/** The Home entry shows while the steps were started and are neither finished nor hidden, and have a step to open on
+/** The setup is unfinished here: the steps were started, are neither finished nor hidden, and have a step to open on
  * this device (on a phone, 내 스킬 put off for a computer is not one). */
 export const showResume = (p: WelcomeProgress | null, computer = true) => !!p && !p.finishedAt && !p.dismissedAt && resumeStep(p, true, computer) !== null
+
+/**
+ * The setup row (components/onboarding/SetupRow.tsx; docs/DECISIONS.md "W5"), the owner's one way back to the steps
+ * from every page: `hidden`, `resume` ("설정 이어서 하기 · 2/4" → /welcome at its step) or `ai` (while no AI answers:
+ * "AI 연결하기", the connect dialog). Never on /welcome itself; while unfinished and not hidden (showResume). Without AI
+ * it hides on Home, where the no-AI card stands. On a phone it hides on Home, whose own quiet row under the message box
+ * says the same; on a computer it replaces that row. `aiReady`: AI answers the owner (or not known yet).
+ */
+export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean }): 'hidden' | 'resume' | 'ai' {
+  if (o.path === '/welcome' || !showResume(p, o.computer)) return 'hidden'
+  const home = o.path === '/'
+  if (!o.aiReady) return home ? 'hidden' : 'ai'
+  return home && !o.computer ? 'hidden' : 'resume'
+}
 
 /**
  * Coming back resumes the steps (docs/DECISIONS.md "W4"): an owner who left them unfinished lands on them instead of
@@ -132,36 +157,12 @@ export const resumesOnLanding = (p: WelcomeProgress | null, computer = true) => 
 export const isLanding = (l: { key: string; state: unknown; search?: string }) =>
   (l.key === 'default' && !l.search) || (l.state as { landing?: unknown } | null)?.landing === true
 
-/** The invite bar on the first-result chat: until the invite is done or put off. */
-export const showInviteBar = (p: WelcomeProgress | null, chatId: string) => !!p && p.resultChatId === chatId && p.steps.invite === null
-
-/**
- * The skill that made the first result, to share as it is (docs/DECISIONS.md "W2 — AI connection first"): the run the
- * server recorded for the answer (`receipt`: the path the 7-day goal counts), else the first question's "/name" among
- * the skills these steps recorded (the intro deck, the promo video, the card news, the meeting notes skills, the ad
- * copy); null when neither says.
- */
-export function resultSkill(messages: Pick<Message, 'role' | 'content' | 'receipt'>[], p: WelcomeProgress | null): string | null {
-  const ran = messages.find((m) => m.role === 'assistant' && m.receipt)?.receipt?.skill.path
-  if (ran) return ran
-  const name = /^\/([^\s/]+)/.exec(messages.find((m) => m.role === 'user')?.content.trim() ?? '')?.[1]
-  if (!name || !p) return null
-  const recorded = [p.general?.introDeckPath, p.general?.promoVideoPath, p.general?.cardNewsPath, p.general?.tasksPath, p.general?.briefPath, p.pack?.skillPath]
-  return recorded.find((path): path is string => !!path && skillNameOf(path) === name) ?? null
-}
-
-/** The skill the invite carries: the shared skill the owner brought from 내 스킬 가져오기 (`shared.landing`, the first
- * recommended one unless they changed it; docs/DECISIONS.md "K"), else the first result's, the intro deck
- * (docs/DECISIONS.md "D2"), so a teammate's run counts for the 7-day goal; else the promo video or the card news (a row
- * whose first result ran one of them), the marketing pack's ad copy, the meeting notes skill (rows from before them). */
-export const inviteSkill = (p: WelcomeProgress): string | null => p.shared?.landing ?? p.general?.introDeckPath ?? p.general?.promoVideoPath ?? p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
-
-/** The shared skills' names for the invite message, the landing skill first (docs/DECISIONS.md "K"); none: []. */
-export function sharedTitles(p: WelcomeProgress | null): string[] {
-  const all = p?.shared?.skills ?? []
-  const first = all.find((x) => x.path === p?.shared?.landing)
-  return [...(first ? [first] : []), ...all.filter((x) => x !== first)].map((x) => x.title)
-}
+/** The skill everything points at (the invite, the end screen's "먼저 써 보기", the 7-day goal: docs/DECISIONS.md "W5"):
+ * the skill the owner shared first from 내 스킬 가져오기 (`shared.landing`, the first recommended one unless they changed
+ * it on the invite), else the general pack's 할 일 정리; never the intro deck (it is the owner's own first result, not
+ * something a teammate runs). The server's landing (server/src/onboarding/welcome.ts landingSkill) is the same rule.
+ * null: neither (the team's start was blocked). */
+export const inviteSkill = (p: WelcomeProgress): string | null => p.shared?.landing ?? p.general?.tasksPath ?? null
 
 /** Home's one line after "자료 없이 해 볼게요" (router state): where meeting notes go. */
 export interface NotesHint { folder: string; team: string }

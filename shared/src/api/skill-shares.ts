@@ -1,4 +1,4 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K — 내 스킬 가져오기"): an owner or admin brings the skills they use with Claude to
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"): an owner or admin brings the skills they use with Claude to
 // the team, from a picked .claude folder (the browser or the desktop app) or from Claude Code through the team
 // connector (the `share_skills` tool). Nothing reaches the team before [팀에 공유]: the candidates wait as a share
 // proposal staged outside the team files, the server checks every one of them (shape, secrets, scripts, plugin, size,
@@ -42,11 +42,20 @@ export const SHARE_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp'] as c
  * AI to run one is excluded (`scripts`); otherwise they are left out and the skill goes without them. */
 export const SHARE_SCRIPT_EXTENSIONS = ['py', 'sh', 'bash', 'zsh', 'js', 'mjs', 'cjs', 'ts', 'rb', 'pl', 'php', 'ps1', 'bat', 'cmd', 'go', 'rs', 'java', 'kt', 'swift', 'lua', 'r', 'exe', 'bin', 'dylib', 'so', 'dll', 'jar'] as const
 
-export const SkillShareSource = z.enum(['browser', 'desktop', 'claude_code'])
+/** How a share arrived: a folder picked or dropped in the browser or the desktop app, or sent through the team
+ * connector by Claude Code or by Codex (`share_skills`). */
+export const SkillShareSource = z.enum(['browser', 'desktop', 'claude_code', 'codex'])
 export type SkillShareSource = z.infer<typeof SkillShareSource>
+/** The connector's sources (an app sent it, the person did not pick a folder). */
+export const CONNECTOR_SHARE_SOURCES = ['claude_code', 'codex'] as const satisfies readonly SkillShareSource[]
+/** Whose folder the skills came from: Claude's (~/.claude, a project's .claude) or Codex's (~/.codex: skills, custom
+ * prompts as commands, AGENTS.md as the rule, config.toml's remote MCP servers as tools; docs/DECISIONS.md "W5"). */
+export const ShareApp = z.enum(['claude', 'codex'])
+export type ShareApp = z.infer<typeof ShareApp>
 
-/** Where a candidate came from: ~/.claude/skills (user), a project's .claude/skills (project), a plugin's skills
- * (plugin: always excluded), ~/.claude/commands/*.md (command: listed under 그 밖에). */
+/** Where a candidate came from: ~/.claude/skills or ~/.codex/skills (user), a project's .claude/skills or
+ * .codex/skills (project), a plugin's skills (plugin: always excluded), ~/.claude/commands/*.md or Codex's
+ * ~/.codex/prompts/*.md (command: listed under 그 밖에). */
 export const ShareOrigin = z.enum(['user', 'project', 'plugin', 'command'])
 export type ShareOrigin = z.infer<typeof ShareOrigin>
 
@@ -101,13 +110,16 @@ export type ShareToolIn = z.infer<typeof ShareToolIn>
 
 export const CreateSkillShare = z.object({
   source: SkillShareSource,
+  /** whose folder: absent = claude (a Codex connector share is always codex) */
+  app: ShareApp.optional(),
   /** how the sender names where it looked (".claude", ".claude/skills"): the list's source line */
   where: z.string().max(100).optional(),
   skills: z.array(ShareSkillIn).max(SKILL_SHARE_LIMITS.skills),
   excluded: z.array(ShareExcludedIn).max(SKILL_SHARE_LIMITS.excluded).optional(),
-  /** CLAUDE.md as it is: the server keeps only the lines that fit the team, as one team rule */
+  /** CLAUDE.md (Codex: AGENTS.md) as it is: the server keeps only the lines that fit the team, as one team rule */
   rule: z.object({ text: z.string().min(1).max(SKILL_SHARE_LIMITS.ruleInBytes) }).strict().optional(),
-  /** Claude Code only: its remote MCP servers */
+  /** remote MCP servers (Claude Code's own list, or a picked .codex folder's config.toml read in the browser), each
+   * without a key; the server checks them again for every source */
   tools: z.array(ShareToolIn).max(SKILL_SHARE_LIMITS.tools).optional(),
   /** Claude Code only: how many project folders it looked in */
   projects: z.number().int().min(0).max(100).optional(),
@@ -172,8 +184,11 @@ export const ShareCandidate = z.object({
   similar: TeamSkillRef.nullable(),
   /** the default action ("merge" when sameName or similar, else "add") */
   action: ShareAction,
-  /** after [팀에 공유]: added (path), merge (a chat with the confirmation card: chatId), failed (error, localized) */
-  applied: z.object({ status: z.enum(['added', 'merge', 'failed']), path: z.string().nullable(), chatId: z.string().nullable(), error: z.string().nullable() }).nullable(),
+  /** after [팀에 공유]: added (path), merge (the merge chat, a restricted turn that asks before it saves: chatId; path: the
+   * team skill), later (a merge chosen while the owner's welcome steps were unfinished: it waits for their end, then one
+   * merge chat for all of them and one Inbox notice; path: the team skill, chatId null until then), failed (error,
+   * localized) */
+  applied: z.object({ status: z.enum(['added', 'merge', 'later', 'failed']), path: z.string().nullable(), chatId: z.string().nullable(), error: z.string().nullable() }).nullable(),
 })
 export type ShareCandidate = z.infer<typeof ShareCandidate>
 
@@ -189,11 +204,15 @@ export type ShareTool = z.infer<typeof ShareTool>
 export const SkillShare = z.object({
   id: z.string(),
   source: SkillShareSource,
+  /** whose folder (shares from before: claude) */
+  app: ShareApp,
   status: SkillShareStatus,
   where: z.string().nullable(),
   /** Claude Code: project folders it looked in */
   projects: z.number().int().nullable(),
   createdAt: IsoTime,
+  /** the last change (judged, applied, dismissed): the welcome step shows a share applied since it opened as done */
+  updatedAt: IsoTime,
   expiresAt: IsoTime,
   /** pending: the AI turn runs · done · none: no AI answers the person (nothing pre-ticked) · failed: it did not answer
    * usably (nothing pre-ticked) */

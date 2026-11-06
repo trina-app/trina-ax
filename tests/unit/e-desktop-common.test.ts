@@ -485,7 +485,7 @@ describe("the team page's file chooser (Mac App Store build)", () => {
     expect(openDialogChoice({ multiple: false })).toEqual({ properties: ['openFile'] })
     expect(openDialogChoice({ multiple: true, attributes: ['type', 'file', 'multiple', ''] })).toEqual({ properties: ['openFile', 'multiSelections'] })
     expect(openDialogChoice({ multiple: true, attributes: ['webkitdirectory', '', 'accept', '.png'] })).toEqual({ properties: ['openDirectory'] })
-    // 내 스킬 가져오기 (docs/DECISIONS.md "K"): the Claude folder, hidden folders shown, the panel's own line and button
+    // 내 스킬 가져오기 (docs/DECISIONS.md "SK"): the Claude folder, hidden folders shown, the panel's own line and button
     const claude = { message: 'Reads only the skills and CLAUDE.md', button: 'Find in this folder' }
     expect(openDialogChoice({ multiple: true, attributes: ['webkitdirectory', '', 'data-open-at', 'claude'], home: '/Users/alex/', claude }))
       .toEqual({ properties: ['openDirectory', 'showHiddenFiles'], defaultPath: '/Users/alex/.claude', message: claude.message, buttonLabel: claude.button })

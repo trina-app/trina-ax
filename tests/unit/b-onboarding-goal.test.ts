@@ -210,7 +210,7 @@ describe('the card and the owners\' notice', () => {
     expect(await goal()).toMatchObject({ state: 'reached', skill: { runners: 3 } })
   })
 
-  test('the skill the invite opens (shared from 내 스킬, docs/DECISIONS.md "K") is counted while it has as many runners as the top one, even with none', async () => {
+  test('the skill the invite opens (shared from 내 스킬, docs/DECISIONS.md "SK") is counted while it has as many runners as the top one, even with none', async () => {
     const abs = path.join(h.ctx.config.teamRoot, SEO.path)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, '---\nname: seo-brief\ndescription: 검색 광고 정리\nmetadata:\n  title: 검색 광고 정리\n---\nWrite.\n')

@@ -1,4 +1,4 @@
-// Route module "skill-shares" (docs/DECISIONS.md "K — 내 스킬 가져오기"). Implements: SKILL_SHARES
+// Route module "skill-shares" (docs/DECISIONS.md "SK — 내 스킬 가져오기"). Implements: SKILL_SHARES
 // (shared/src/api/skill-shares.ts): an owner's or admin's share proposals of their own Claude skills, created from a
 // picked .claude folder (Claude Code sends them through the connector's share_skills tool instead), read, applied and
 // dismissed by the person who made them only. Members get 403 from the endpoints' `auth: 'admin'` (their way stays

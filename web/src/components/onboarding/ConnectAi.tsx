@@ -7,7 +7,7 @@
 // the provider's terms in one line, the password again for a team connection; one's own as in Settings). No connection
 // logic here. When the dialog is done, GET /api/me/ai-access is asked again: every "no AI" place reads that store, so
 // they all move on together; a connection saved that cannot answer yet says so.
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { CredentialKind } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -127,10 +127,11 @@ export function ConnectAiPanel({ disabled }: { disabled?: boolean }) {
 /**
  * One button that opens the same dialog: "AI 연결하기" (the team's, Claude chosen while the team allows a shared Claude
  * subscription, else every way) or, with `personal`, "내 AI 연결하기" (one's own, every way). `quiet`: a text link, for a
- * second way under another action.
+ * second way under another action. `row`: a plain button with these classes and `children` as its content (the setup
+ * row in the sidebar, SetupRow.tsx).
  */
-export function ConnectAiButton({ personal = false, size = 'sm', quiet, label, ...props }: {
-  personal?: boolean; size?: 'sm' | 'md'; quiet?: boolean; label?: MessageKey
+export function ConnectAiButton({ personal = false, size = 'sm', quiet, label, row, children, ...props }: {
+  personal?: boolean; size?: 'sm' | 'md'; quiet?: boolean; label?: MessageKey; row?: string; children?: ReactNode
 } & Record<`data-${string}`, string>) {
   const t = useT()
   const locale = useLocale()
@@ -159,7 +160,9 @@ export function ConnectAiButton({ personal = false, size = 'sm', quiet, label, .
   }
   return (
     <>
-      {quiet ? (
+      {row ? (
+        <button type="button" className={row} disabled={loading || checking} aria-busy={loading || checking || undefined} onClick={() => void start()} {...props}>{children ?? text}</button>
+      ) : quiet ? (
         <button type="button" className={quietLink} disabled={loading || checking} onClick={() => void start()} {...props}>{text}</button>
       ) : (
         <Button size={size} variant="primary" busy={loading || checking} onClick={() => void start()} {...props}>{text}</Button>

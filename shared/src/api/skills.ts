@@ -26,8 +26,24 @@ export const SkillInfo = z.object({
   /** the name people read ("광고 문구"): a SKILL.md's metadata `title`, one line of at most SKILL_TITLE_MAX characters.
    * Absent: people read `name`. Commands still run by name ("/ad-copy"): show it through skillTitle(). */
   title: z.string().optional(),
+  /** a request people can send as it is ("내 할 일 정리해 줘"): the header's metadata `example`, one line of at most
+   * SKILL_EXAMPLE_MAX characters. Absent: skillExample() takes the first quoted request of the description */
+  example: z.string().optional(),
 })
 export type SkillInfo = z.infer<typeof SkillInfo>
+/** The longest metadata `example` (characters); a longer one is ignored. */
+export const SKILL_EXAMPLE_MAX = 200
+/**
+ * The request a skill's form starts with when the skill has no fields of its own (docs/DECISIONS.md "W5": a member who
+ * lands on the skill sees what it does by what they can send): its metadata `example`, else the first request its
+ * description quotes ("…처럼 물을 때 써요": "내 할 일 정리해 줘"), else null (the box starts empty). One line.
+ */
+export function skillExample(s: { description: string; example?: string | null }): string | null {
+  const own = s.example?.trim()
+  if (own && !/[\r\n]/.test(own) && [...own].length <= SKILL_EXAMPLE_MAX) return own
+  const m = /["“「『]([^"”」』\r\n]{2,120})["”」』]/.exec(s.description)
+  return m ? m[1]!.trim() || null : null
+}
 /** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
 export const SKILL_TITLE_MAX = 60
 /** A SKILL.md's metadata `title` as people read it, or null when it is not one: empty, more than one line, longer

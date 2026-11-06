@@ -1,4 +1,4 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K — 내 스킬 가져오기"): the deterministic checks of a share proposal. Pure (no
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"): the deterministic checks of a share proposal. Pure (no
 // context, no disk): the server is the authority for every source (a picked .claude folder in the browser or the
 // desktop app, or Claude Code through the connector), so whatever a sender pre-filtered is checked again here.
 // Each candidate skill gets one outcome:
@@ -424,8 +424,10 @@ function before(c: Omit<ShareCandidate, 'group' | 'reason' | 'detail' | 'action'
 
 /**
  * Check a share as sent: every skill (names made valid and unique, files, secrets, scripts, plugin, size, header,
- * personal paths, a team skill of the same name), the names the sender left out, CLAUDE.md, and (Claude Code only) the
- * remote MCP servers and project count. Excluded candidates keep no file; a secret's content is never kept.
+ * personal paths, a team skill of the same name), the names the sender left out, CLAUDE.md (Codex: AGENTS.md), the
+ * remote MCP servers (from every source: Claude Code's list, or a picked .codex folder's config.toml read in the browser;
+ * each checked here again: https only, no user, password, query, fragment or key) and (the connector only) the project
+ * count. Excluded candidates keep no file; a secret's content is never kept.
  */
 export function checkShare(body: CreateSkillShare, team: readonly TeamSkillRef[]): CheckedShare {
   const used = new Set<string>()
@@ -450,12 +452,12 @@ export function checkShare(body: CreateSkillShare, team: readonly TeamSkillRef[]
     const detail = e.reason === 'secret' && e.kind && KIND.test(e.kind) ? e.kind : null
     candidates.push(before({ name, origin: e.origin ?? 'user', project: null, description: '', excluded: { reason: e.reason, detail }, personalPath: false, files: [], scriptsDropped: 0, sameName: null }))
   }
-  const cc = body.source === 'claude_code'
+  const connector = body.source === 'claude_code' || body.source === 'codex'
   return {
     candidates, files,
     rule: body.rule ? cleanRuleInput(body.rule.text) : null,
-    tools: cc ? cleanTools(body.tools) : [],
+    tools: cleanTools(body.tools),
     where: (() => { const w = oneLine(body.where, 100); return w && !secretKind(w) ? w : null })(),
-    projects: cc && body.projects !== undefined ? body.projects : null,
+    projects: connector && body.projects !== undefined ? body.projects : null,
   }
 }

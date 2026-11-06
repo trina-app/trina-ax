@@ -96,7 +96,7 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
       const text = resendText(t, locale, { first: next.first, more: next.more, skill: named?.name ?? null, url: skillRunUrl(base, named?.path ?? null) })
       action = <CopyAction text={text} label={t('goal.resend')} testId="team-goal-resend" />
     } else if (open) {
-      const message = teamLinkMessage(t, { name: me?.user.name ?? '', team: me?.team.name ?? '', url: open.url!, skill: open.skill ? (open.skill.title ?? open.skill.name) : null })
+      const message = teamLinkMessage(t, { name: me?.user.name ?? '', team: me?.team.name ?? '', url: open.url!, skill: open.skill ? (open.skill.title ?? open.skill.name) : null, ownAi: open.memberAi === 'connect_own' })
       action = <CopyAction text={message} label={t('goal.copyInvite')} testId="team-goal-copy-invite" />
     } else {
       action = (

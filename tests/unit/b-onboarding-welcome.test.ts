@@ -1,7 +1,8 @@
 // Onboarding wave 2 (welcome steps, docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"): the progress is one
 // settings row of the team that the owner writes and owners and admins read, so the steps resume on another device; the
 // marketing pack is installed once by these steps and never again by themselves (installing again would restore what
-// someone deleted). Two counted steps now (profile, result); a `team` step of an older row is kept, not read.
+// someone deleted). v5 (docs/DECISIONS.md "W5"): 회사 소개, 내 스킬, 팀 파일 and the invite are counted, the first result
+// is no step any more; a `team` step of an older row is kept, not read.
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -65,31 +66,35 @@ test('nothing until the steps start; then each step is kept on the server and re
   expect((await owner.try('PATCH', '/api/onboarding/welcome', { finished: true })).status).toBe(400)
 })
 
-test('done stays done, the first result must be the owner\'s own chat and brings a put-off invite back, then it is finished', async () => {
+test('done stays done; the result chat must be the owner\'s own; finished once 회사 소개, 내 스킬, 팀 파일 and the invite are each answered (v5)', async () => {
   const { owner, ownerId, mia } = await setup()
   const patch = async (b: unknown) => (await owner.call('PATCH', '/api/onboarding/welcome', b)).progress
+  await patch({ step: { id: 'profile', state: 'skipped' } })
+  // going back and saving it does count; putting it off again does not undo a done step
   await patch({ step: { id: 'profile', state: 'done' } })
-  // going back and putting it off again does not undo it
   expect((await patch({ step: { id: 'profile', state: 'skipped' } })).steps.profile).toBe('done')
-  await patch({ step: { id: 'result', state: 'skipped' } })
-  const offInvite = await patch({ step: { id: 'invite', state: 'skipped' } })
-  expect(offInvite.finishedAt).toBeNull()
 
   // a chat of someone else, or none, is refused
   expect((await owner.try('PATCH', '/api/onboarding/welcome', { resultChatId: chatOf(mia.id) })).status).toBe(404)
   expect((await owner.try('PATCH', '/api/onboarding/welcome', { resultChatId: 'no-such-chat' })).status).toBe(404)
   const chat = chatOf(ownerId)
-  const ran = await patch({ step: { id: 'result', state: 'done' }, resultChatId: chat })
-  expect(ran.resultChatId).toBe(chat)
-  // the invite put off before there was a result is offered again (the bar on that chat)
-  expect(ran.steps.invite).toBeNull()
-  expect(ran.finishedAt).toBeNull()
+  expect((await patch({ resultChatId: chat })).resultChatId).toBe(chat)
 
+  // the invite put off is not brought back by anything (the deck chat has no invite bar any more)
+  expect((await patch({ step: { id: 'invite', state: 'skipped' } })).steps.invite).toBe('skipped')
   const shown = await patch({ inviteShown: true })
   expect(shown.inviteShownAt).not.toBeNull()
   expect((await patch({ inviteShown: true })).inviteShownAt).toBe(shown.inviteShownAt)
-  const done = await patch({ step: { id: 'invite', state: 'done' } })
+  // not finished while 내 스킬 and 팀 파일 are open
+  expect((await patch({ step: { id: 'invite', state: 'done' } })).finishedAt).toBeNull()
+  expect((await patch({ step: { id: 'skills', state: 'skipped' } })).finishedAt).toBeNull()
+  const done = await patch({ step: { id: 'files', state: 'done' } })
   expect(done.finishedAt).not.toBeNull()
+
+  // the end screen shows once
+  const f = await patch({ doneShown: true })
+  expect(f.doneShownAt).not.toBeNull()
+  expect((await patch({ doneShown: true })).doneShownAt).toBe(f.doneShownAt)
 
   // hiding the Home entry and showing it again
   expect((await patch({ dismissed: true })).dismissedAt).not.toBeNull()
@@ -198,7 +203,7 @@ test('the pack already installed from the Skills page: recorded without installi
   expect(fs.existsSync(path.join(root, 'skills/marketing/seo-brief'))).toBe(false)
 })
 
-test('"마케팅 스킬 7개": the number the first step says is the pack\'s own; a row from before (team step) finishes on two steps', async () => {
+test('"마케팅 스킬 7개": the number the first step says is the pack\'s own; a row from before (team step) finishes once its later steps are answered', async () => {
   for (const texts of Object.values(SKILL_PACKS.marketing.skills)) expect(Object.keys(texts!).length).toBe(WELCOME_PACK_SKILLS)
   const { owner, ownerId } = await setup()
   // a row written while the team type was a step: its `team` step is kept and no longer read
@@ -208,7 +213,10 @@ test('"마케팅 스킬 7개": the number the first step says is the pack\'s own
   })
   const patch = async (b: unknown) => (await owner.call('PATCH', '/api/onboarding/welcome', b)).progress
   await patch({ step: { id: 'result', state: 'done' }, resultChatId: chatOf(ownerId) })
-  const done = await patch({ step: { id: 'invite', state: 'skipped' } })
+  // v5 recounts (docs/DECISIONS.md "W5"): 내 스킬 and 팀 파일, absent from that row, are open until answered
+  expect((await patch({ step: { id: 'invite', state: 'skipped' } })).finishedAt).toBeNull()
+  await patch({ step: { id: 'skills', state: 'skipped' } })
+  const done = await patch({ step: { id: 'files', state: 'skipped' } })
   expect(done.finishedAt).not.toBeNull()
   expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).steps.team).toBeNull()
 })

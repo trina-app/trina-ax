@@ -1,4 +1,4 @@
-// Where a share proposal's kept files wait until [팀에 공유] (docs/DECISIONS.md "K — 내 스킬 가져오기"): the server's
+// Where a share proposal's kept files wait until [팀에 공유] (docs/DECISIONS.md "SK — 내 스킬 가져오기"): the server's
 // data folder, <data>/skill-shares/<share id>/, OUTSIDE the team files, so nothing shows in Files, reaches a search or
 // a chat, or is read by anyone's AI before the person applies it. Folders 0700, files 0600. Layout:
 //   skills/<candidate name>/<path inside the skill folder>   the kept files (never a script's content, never a skill

@@ -1,15 +1,18 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K — 내 스킬 가져오기"): one share proposal (shared/src/api/skill-shares.ts) as the
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"): one share proposal (shared/src/api/skill-shares.ts) as the
 // owner checks it: while the server checks it (`checking`) the skills found so far with skeleton reasons and "그만 찾기";
-// then one list (the recommended skills ticked, "그 밖에" and "빠진 것" folded under them), the CLAUDE.md rule line and,
-// for Claude Code, the tools line, both unticked; [팀에 공유 · N개] applies what is ticked; then what went in (a
-// merge waits in a chat for its confirmation). Used by the welcome step (components/onboarding/SkillsStep.tsx) and
-// by /skills/share/:id (pages/SkillSharePage.tsx), where the notice about a Claude Code proposal leads.
+// then one list (the recommended skills ticked, "그 밖에" and "빠진 것" folded under them), the CLAUDE.md (Codex:
+// AGENTS.md) rule line and the tools line (Claude Code's servers, or a .codex folder's config.toml), both unticked;
+// [팀에 공유 · N개] applies what is ticked; then what went in (a merge waits in a chat for its confirmation). Used by
+// the welcome step (components/onboarding/SkillsStep.tsx) and by /skills/share/:id (pages/SkillSharePage.tsx), where
+// the notice about a Claude Code or Codex proposal leads. During the owner's setup (`inSetup`, docs/DECISIONS.md "W5")
+// the done rows have no 열기 (the steps go on; the skill form is a trip away from them), and a merge waits for the end
+// of the setup ("합치기는 설정 끝나고 확인해요"; one Inbox notice then leads to the merge chat).
 // One primary per screen; on phones the list loses its frame and keeps its hairlines.
 import clsx from 'clsx'
 import { ChevronDown, CircleAlert, CircleCheck, FileCode, FileQuestionMark, FolderOpen, GitMerge, KeyRound, Loader2, Package, Plug, Sparkles, Terminal, Users } from 'lucide-react'
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import type { ApplySkillShare, ShareAction, ShareCandidate, ShareReason, SkillShare } from '@mycel/shared/api'
+import type { ApplySkillShare, ShareAction, ShareCandidate, ShareReason, SkillShare, SkillShareSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatRelative } from '../../lib/format'
 import { skillRunLink } from '../../lib/skillForm'
@@ -56,6 +59,9 @@ export function reasonText(t: ReturnType<typeof useT>, c: ShareCandidate): strin
 const EXCLUDED_ICON: Partial<Record<ShareReason, typeof KeyRound>> = { secret: KeyRound, scripts: FileCode, plugin: Plug, too_big: Package, not_skill: FileQuestionMark }
 const EXCLUDED_ORDER: ShareReason[] = ['secret', 'scripts', 'plugin', 'too_big', 'not_skill']
 
+/** The app that sent a share through the team connector, by its own name; null for a picked folder. */
+export const connectorApp = (s: SkillShareSource): string | null => (s === 'claude_code' ? 'Claude Code' : s === 'codex' ? 'Codex' : null)
+
 /** The name people read, and on a computer the skill's own name in mono (Claude Code users know it as /weekly-report). */
 function SkillName({ c, phone, muted }: { c: ShareCandidate; phone: boolean; muted?: boolean }) {
   const title = c.title?.trim() || c.name
@@ -83,9 +89,11 @@ export interface SkillShareReviewProps {
   /** "다른 폴더" on the source line of a picked folder; absent: no link */
   onOtherFolder?: () => void
   busy?: boolean
+  /** the owner's welcome steps are unfinished: no 열기 on what went in, a merge waits for their end */
+  inSetup?: boolean
 }
 
-export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, busy }: SkillShareReviewProps) {
+export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, busy, inSetup = false }: SkillShareReviewProps) {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -144,7 +152,8 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
   const folds = open ?? { other: recommended.length === 0, excluded: false }
   const chosen = share.candidates.filter((c) => c.group !== 'excluded' && ticked?.[c.name])
   const rule = share.rule && share.rule.lines > 0 && share.rule.text.trim() ? share.rule : null
-  const tools = share.source === 'claude_code' ? share.tools : []
+  // the server checked each address again (https, no key, no query) for every source
+  const tools = share.tools
   const anything = chosen.length > 0 || (ruleOn && !!rule) || (toolsOn && tools.length > 0)
 
   const stop = () => {
@@ -180,7 +189,8 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
 
   // ---- the source line
   const n = share.candidates.length
-  const where = <span className="font-mono">{share.source === 'claude_code' ? 'Claude Code' : share.where ?? '.claude'}</span>
+  const sender = connectorApp(share.source)
+  const where = <span className="font-mono">{sender ?? share.where ?? ((share.app ?? 'claude') === 'codex' ? '.codex' : '.claude')}</span>
   let source: ReactNode
   if (share.status === 'checking') {
     source = (
@@ -189,12 +199,12 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
         <span>{withNodes(t('welcome.skills.scanning', { n }), { where })}</span>
       </p>
     )
-  } else if (share.source === 'claude_code') {
+  } else if (sender) {
     const time = formatRelative(share.createdAt, locale)
     source = (
-      <p className="flex items-start gap-2 text-label leading-5 text-muted" data-testid="skill-review-source" data-state="cc">
+      <p className="flex items-start gap-2 text-label leading-5 text-muted" data-testid="skill-review-source" data-state={share.source === 'codex' ? 'codex' : 'cc'}>
         <Terminal size={15} className="mt-0.5 shrink-0 text-faint" aria-hidden />
-        <span>{share.projects ? t('welcome.skills.foundCc', { time, n, p: share.projects }) : t('welcome.skills.foundCcNoProjects', { time, n })}</span>
+        <span>{share.projects ? t('welcome.skills.foundCc', { app: sender, time, n, p: share.projects }) : t('welcome.skills.foundCcNoProjects', { app: sender, time, n })}</span>
       </p>
     )
   } else {
@@ -259,7 +269,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
         <div className={frame}>
           <h3 ref={heading} tabIndex={-1} className={clsx('pt-3 pb-1 text-sm font-semibold text-ink outline-none', pad)} data-testid="skills-done">{t('welcome.skills.done')}</h3>
           <ul>
-            {rows.map((c, i) => <DoneRow key={c.name} c={c} phone={phone} first={i === 0} pad={pad} />)}
+            {rows.map((c, i) => <DoneRow key={c.name} c={c} phone={phone} first={i === 0} pad={pad} inSetup={inSetup} />)}
             {share.rule?.path && (
               <li className={clsx('flex items-start gap-3 border-t border-line py-3', pad)} data-testid="skill-done-row" data-kind="rule">
                 <CircleCheck size={18} className="shrink-0 text-ok" aria-hidden />
@@ -389,7 +399,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
             <div className="flex items-start gap-3" data-testid="skills-rule">
               <input id={`${ids}-rule`} type="checkbox" checked={ruleOn} onChange={(e) => setRuleOn(e.target.checked)} disabled={applying} className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark]" data-testid="skills-rule-check" />
               <span className="min-w-0 flex-1">
-                <label htmlFor={`${ids}-rule`} className="cursor-pointer text-sm font-medium text-ink">{t('welcome.skills.rule', { n: rule.lines })}</label>
+                <label htmlFor={`${ids}-rule`} className="cursor-pointer text-sm font-medium text-ink">{t('welcome.skills.rule', { n: rule.lines, file: share.app === 'codex' ? 'AGENTS.md' : 'CLAUDE.md' })}</label>
                 <button type="button" className={clsx(quietLink, 'touch-hit ml-2 text-label')} onClick={() => setRuleShown(true)} aria-haspopup="dialog" data-testid="skills-rule-view">{t('welcome.skills.ruleView')}</button>
                 <span className="mt-0.5 block text-label text-muted">{rule.dropped > 0 ? t('welcome.skills.ruleNote', { m: rule.dropped }) : t('welcome.skills.ruleNoteAll')}</span>
               </span>
@@ -428,7 +438,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
   )
 }
 
-function DoneRow({ c, phone, first, pad }: { c: ShareCandidate; phone: boolean; first: boolean; pad: string }) {
+function DoneRow({ c, phone, first, pad, inSetup }: { c: ShareCandidate; phone: boolean; first: boolean; pad: string; inSetup: boolean }) {
   const t = useT()
   const a = c.applied!
   const into = c.sameName?.title ?? c.similar?.title ?? c.detail ?? ''
@@ -438,7 +448,12 @@ function DoneRow({ c, phone, first, pad }: { c: ShareCandidate; phone: boolean; 
   if (a.status === 'added') {
     icon = <CircleCheck size={18} className="shrink-0 text-ok" aria-hidden />
     line = c.reason === 'with_file' && c.detail ? t('welcome.skills.doneWithFile', { file: c.detail }) : t('welcome.skills.doneAdded')
-    if (a.path) action = <Link to={skillRunLink(a.path)} className={clsx(quietLink, 'touch-hit shrink-0 text-label')} data-testid="skill-done-open">{t('welcome.skills.open')}</Link>
+    // during the setup the steps go on: the skill opens from the end screen or the team skills afterwards
+    if (a.path && !inSetup) action = <Link to={skillRunLink(a.path)} className={clsx(quietLink, 'touch-hit shrink-0 text-label')} data-testid="skill-done-open">{t('welcome.skills.open')}</Link>
+  } else if (a.status === 'later') {
+    // a merge into a team skill waits for the end of the setup (then one Inbox notice leads to the merge chat)
+    icon = <GitMerge size={18} className="shrink-0 text-faint" aria-hidden />
+    line = t('welcome.skills.mergeLater', { x: into })
   } else if (a.status === 'merge') {
     icon = <GitMerge size={18} className="shrink-0 text-accent-text" aria-hidden />
     line = t('welcome.skills.merged', { x: into })

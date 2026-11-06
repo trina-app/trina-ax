@@ -1,4 +1,4 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K — 내 스킬 가져오기"): the AI's recommendation for a share proposal. There is no
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"): the AI's recommendation for a share proposal. There is no
 // AI call outside a chat turn (chat/turn.ts), so the judgement IS a turn, run like the team skill draft (onboarding/
 // skill-draft.ts): a new chat of the person, marked in skill_share_judges, every turn of it restricted (no tool at all:
 // the always-listed file tools are refused; no team rules, skills, memories, project, attachments, browser,
@@ -223,10 +223,12 @@ export function judgedCandidates(cands: readonly ShareCandidate[], answer: Judge
 /** The rule of a judged share as the API shows it (no path until it is saved). */
 export const shareRuleOf = (r: JudgeAnswer['rule']): ShareRule | null => (r ? { lines: r.lines, dropped: r.dropped, text: r.text, path: null } : null)
 
-/** sendMessage / editMessage (routes/chats.ts): a judge chat takes no attachments (its turn reads no file). */
+/** sendMessage / editMessage (routes/chats.ts): a judge chat takes no attachments (its turn reads no file), and nor
+ * does a merge chat (skills/share-merge.ts: its turn reads only the team skills it merges into). */
 export function refuseShareJudgeAttachments(db: Database, chatId: string, ids: readonly string[]): void {
   if (!ids.length) return
   let marked = false
   try { marked = !!db.query('SELECT 1 FROM skill_share_judges WHERE chat_id = ?').get(chatId) } catch { marked = false }
+  if (!marked) { try { marked = !!db.query('SELECT 1 FROM skill_share_merges WHERE chat_id = ? LIMIT 1').get(chatId) } catch { marked = false } }
   if (marked) throw new HttpError('validation', undefined, { fields: { 'body.attachmentIds': 'skill_share_judge' }, params: { reason: 'skill_share_judge' } })
 }

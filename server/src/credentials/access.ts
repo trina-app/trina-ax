@@ -10,6 +10,7 @@ import { canChooseEngine, choosableEngines, engineOn, teamDefault, type Person }
 import type { EngineConfs } from '../chat/engines'
 import { hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
 import { hostedChatState } from './hosted-chat'
+import { memberOwnAllowed } from './policy'
 
 type Ctx = Pick<AppContext, 'db' | 'config'>
 export interface AccessOptions {
@@ -58,6 +59,26 @@ export function connectionRoute(ctx: Ctx, p: { id: string }, engine: CredEngine,
     return own.skipped.some((s) => s.why === 'limited') ? 'own' : other
   }
   return state === 'active' ? 'trial' : 'own'
+}
+
+/**
+ * What AI a person who joins through the team link would have (docs/DECISIONS.md "W5": the invite message says
+ * "본인 AI 계정이 필요해요" for `connect_own`): `ready` when a team connection for everyone or for one of the link's
+ * groups answers the engines a new member gets, the API engine or the hosting service's active trial credit answers
+ * them, or the server does not answer with AI connections; else `connect_own` while the team allows personal
+ * connections, `ask_owner` when it does not. The same candidates as a turn (credentials/resolve.ts), for someone with
+ * no account yet.
+ */
+export function newMemberAi(ctx: Ctx, groups: readonly string[], o: AccessOptions = {}): 'ready' | 'connect_own' | 'ask_owner' {
+  if (!isManaged(ctx.config)) return 'ready'
+  const now = o.now ?? new Date()
+  const allowed = allowedCredentialKinds(ctx.config)
+  const p: Person = { id: '\u0000new-person', role: 'member' }
+  const engines = enginesAnswering(ctx, p, o.problems)
+  const ready = engines.some((e) => e === 'api' || hasCredentialSoonFor(ctx.db, p.id, e, allowed, now, groups))
+    || (engines.some((e) => e !== 'api') && hostedChatState(ctx.db, now) === 'active')
+  if (ready) return 'ready'
+  return memberOwnAllowed(ctx.db) ? 'connect_own' : 'ask_owner'
 }
 
 /** The ids of the active people who cannot use AI now, in the members list's order; null when this server does not

@@ -262,13 +262,18 @@ describe('the top of Home: one thing', () => {
     } finally { await m.unmount() }
   }
 
-  test('setup unfinished: only "시작 설정 이어하기 (n/2)", no dots, no goal card', async () => {
+  test('setup unfinished: on a phone only the quiet "설정 이어서 하기 · n/4" row, no goal card; on a computer the goal card (the sidebar\'s setup row stands for the steps, docs/DECISIONS.md "W5")', async () => {
     welcome = fresh(); teamGoal = goal()
-    const t = await top('owner')
-    // the count and the total are lib/welcome.ts's (the steps decide how many there are)
-    expect(t.resume).toBe(`시작 설정 이어하기 (1/${stepTotal()})`)
-    expect(t.resume).toBe(translate('ko', 'home.setupResume', { n: 1, total: stepTotal() }))
-    expect({ ...t, resume: null }).toEqual({ resume: null, goal: null, dots: false })
+    const media = globalThis.matchMedia
+    globalThis.matchMedia = ((q: string) => ({ matches: q === '(max-width: 767.98px)', addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof matchMedia
+    try {
+      const t = await top('owner')
+      // the count and the total are lib/welcome.ts's (the steps decide how many there are): 회사 소개 saved without a deck
+      // is not answered yet (an old row), so 0 of them
+      expect(t.resume).toBe(`${translate('ko', 'setupRow.resume')} · 0/${stepTotal()}`)
+      expect({ ...t, resume: null }).toEqual({ resume: null, goal: null, dots: false })
+    } finally { globalThis.matchMedia = media }
+    expect(await top('owner')).toEqual({ resume: null, goal: 'open', dots: false })
   })
   test('setup finished or hidden: only the goal card; an admin gets the card at once', async () => {
     teamGoal = goal()

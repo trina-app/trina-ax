@@ -1,4 +1,4 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K"), the welcome step (components/onboarding/SkillsStep.tsx), its list
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK"), the welcome step (components/onboarding/SkillsStep.tsx), its list
 // (SkillShareReview.tsx) and /skills/share/:id (pages/SkillSharePage.tsx), rendered and clicked against a small fake of
 // the server (GET/POST /api/skill-shares…, GET /api/connectors/remote):
 // - the computer's empty step: [내 스킬 찾기], the hidden-folder hint (⌘ ⇧ . read as words), the promise; the Claude
@@ -11,6 +11,11 @@
 //   그만 찾기 and 나중에 하기 drop the proposal; an apply that fails offers 다시 시도;
 // - a Claude Code proposal that arrives while the step waits shows itself (its source line, the tools line);
 // - phones: the phone version ([다음] puts the step off), and a Claude Code proposal there too.
+// docs/DECISIONS.md "W5" (the step's exits): the hint and the one-line block name Claude Code and Codex (both
+// commands under 연결 방법); a Codex proposal shows like Claude Code's; the live notice about a proposal is held back
+// only while the step is on screen; a share applied elsewhere since the step opened shows as done; during the setup
+// what went in has no 열기 and a merge waits ("합치기는 설정 끝나고 확인해요"); /skills/share/:id goes back to /welcome
+// while the owner's setup is unfinished and to the team skills after it.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -19,6 +24,8 @@ import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { SkillsStep } from '../../src/components/onboarding/SkillsStep'
 import SkillSharePage from '../../src/pages/SkillSharePage'
 import { useSession } from '../../src/store/session'
+import { toast, useUi } from '../../src/store/ui'
+import { useWelcome } from '../../src/store/welcome'
 import type { DirectoryHandleLike } from '../../src/lib/skillScan'
 import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
 
@@ -46,7 +53,7 @@ const candidates = (cc = false): ShareCandidate[] => [
   cand('frontend-design', 'frontend-design', 'excluded', 'plugin', { origin: 'plugin' }),
 ]
 const shareOf = (o: Partial<SkillShare> = {}): SkillShare => ({
-  id: ID, source: 'browser', status: 'ready', where: '.claude', projects: null, createdAt: new Date().toISOString(), expiresAt: '2026-11-13T00:00:00.000Z',
+  id: ID, source: 'browser', app: 'claude', status: 'ready', where: '.claude', projects: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: '2026-11-13T00:00:00.000Z',
   ai: 'done', candidates: candidates(o.source === 'claude_code'), rule: { lines: 5, dropped: 12, text: '- 보고서는 결론부터 써요\n- 숫자는 표로 정리해요', path: null }, tools: [], landing: null, ...o,
 })
 
@@ -57,6 +64,10 @@ let created: SkillShare | null = null
 let startChecking = false
 let ccItems: SkillShare[] = []
 let failApply = 0
+/** the server's answer to a merge: started now (a chat) or waiting for the end of the owner's setup */
+let mergeLater = false
+/** the owner's welcome progress (GET /api/onboarding/welcome); null: none */
+let welcome: { finishedAt: string | null } | null = null
 let calls: { key: string; url: string; body: any }[] = []
 const called = (key: string) => calls.filter((c) => c.key === key)
 const applyTo = (s: SkillShare, b: ApplySkillShare): SkillShare => ({
@@ -64,7 +75,7 @@ const applyTo = (s: SkillShare, b: ApplySkillShare): SkillShare => ({
   candidates: s.candidates.map((c) => {
     const x = b.skills.find((y) => y.name === c.name)
     if (!x) return c
-    if (x.action === 'merge') return { ...c, applied: { status: 'merge', path: null, chatId: MERGE_CHAT, error: null } }
+    if (x.action === 'merge') return { ...c, applied: mergeLater ? { status: 'later', path: c.similar?.path ?? null, chatId: null, error: null } : { status: 'merge', path: null, chatId: MERGE_CHAT, error: null } }
     const name = x.action === 'separate' ? `${c.name}-2` : c.name
     return { ...c, applied: { status: 'added', path: `skills/${name}/SKILL.md`, chatId: null, error: null } }
   }),
@@ -92,8 +103,14 @@ function route(method: string, path: string, body: any): Response {
     if (failApply-- > 0) return json(500, { error: { code: 'internal', message: '지금은 넣지 못했어요' } })
     return json(200, applyTo(s, body))
   }
+  if (method === 'GET' && path === '/api/onboarding/welcome') return json(200, { progress: welcome ? { ...WELCOME_ROW, ...welcome } : null })
   if (method === 'GET' && path === '/api/admin/users') return json(200, { items: [{ id: 'olga', username: 'olga', name: '올가', email: null, role: 'owner', status: 'active' }] })
   return json(404, { error: { code: 'not_found', message: `no route ${method} ${path}` } })
+}
+
+const WELCOME_ROW = {
+  startedAt: '2026-11-06T00:00:00.000Z', updatedAt: '2026-11-06T00:00:00.000Z', teamType: null,
+  steps: { profile: 'done', result: null, skills: null, files: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null,
 }
 
 // ---- a picked .claude folder (Chrome's handle)
@@ -135,6 +152,10 @@ afterEach(() => {
   startChecking = false
   ccItems = []
   failApply = 0
+  mergeLater = false
+  welcome = null
+  useWelcome.getState().reset()
+  useUi.setState({ toasts: [] })
   calls = []
   clip = ''
   picker = null
@@ -199,6 +220,8 @@ describe('the empty step on a computer', () => {
       expect(hint.querySelector('[aria-hidden]')!.textContent).toBe('⌘⇧.')
       expect(hint.querySelector('[class="sr-only"]')!.textContent).toBe(ko('welcome.skills.keysMac'))
       expect(hint.textContent).toContain('.claude')
+      // Codex's folders beside Claude's (its settings in .codex, its skills in .agents)
+      expect(hint.textContent).toContain('(Codex는 .codex나 .agents)')
       expect(text(m, 'skills-promise')).toBe(ko('welcome.skills.promise'))
       await m.click('skills-later')
       expect(events).toEqual(['skip'])
@@ -223,6 +246,10 @@ describe('the empty step on a computer', () => {
       expect(m.get('skills-cc-how-toggle').getAttribute('aria-expanded')).toBe('true')
       expect(text(m, 'skills-cc-command')).toContain('claude mcp add --transport http trina-ax https://acme.example/mcp')
       expect(text(m, 'skills-cc-mcp')).toContain('/mcp')
+      // Codex reaches the same connector: one command adds it and signs in
+      expect(text(m, 'skills-cc')).toContain(ko('welcome.skills.cc.lead'))
+      expect(text(m, 'skills-cc-codex-command')).toContain('codex mcp add trina-ax --url https://acme.example/mcp')
+      expect(text(m, 'skills-cc-how')).toContain(ko('welcome.skills.cc.codexStep'))
     } finally { await m.unmount() }
   })
 
@@ -251,7 +278,7 @@ describe('the desktop app', () => {
     const m = await step()
     try {
       expect(text(m, 'skills-find')).toContain(ko('welcome.skills.findDesktop'))
-      expect(text(m, 'skills-hint')).toBe(ko('welcome.skills.hintDesktop').replace('{folder}', '.claude').replace('{button}', ko('welcome.skills.desktopButton')))
+      expect(text(m, 'skills-hint')).toBe(ko('welcome.skills.hintDesktop').replace('{folder}', '.claude').replace('{codex}', '.codex').replace('{agents}', '.agents').replace('{button}', ko('welcome.skills.desktopButton')))
       expect(m.get('skills-hint').querySelectorAll('kbd')).toHaveLength(0)
       const input = m.get('skills-input')
       expect(input.getAttribute('data-open-at')).toBe('claude')
@@ -331,7 +358,7 @@ describe('a picked folder', () => {
       expect(rowOf(m, 'frontend-design').textContent).toContain(ko('welcome.skills.reason.plugin'))
       // the rule line, unticked; the who line; [팀에 공유 · 3개] and 나중에 하기
       expect((m.get('skills-rule-check') as unknown as { checked: boolean }).checked).toBe(false)
-      expect(text(m, 'skills-rule')).toContain(ko('welcome.skills.rule', { n: 5 }))
+      expect(text(m, 'skills-rule')).toContain(ko('welcome.skills.rule', { n: 5, file: 'CLAUDE.md' }))
       expect(text(m, 'skills-rule')).toContain(ko('welcome.skills.ruleNote', { m: 12 }))
       expect(m.find('skills-tools')).toBeNull()
       expect(text(m, 'skills-who')).toBe(ko('welcome.skills.who', { team: 'Acme' }))
@@ -369,7 +396,9 @@ describe('a picked folder', () => {
       const done = (globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]
       expect(done.map((r) => `${r.getAttribute('data-kind')}:${r.getAttribute('data-name') ?? ''}`)).toEqual(['added:weekly-report', 'added:meeting-notes', 'added:my-schedule', 'rule:'])
       expect(done[0]!.textContent).toContain(ko('welcome.skills.doneAdded'))
-      expect(done[0]!.querySelector('a')!.getAttribute('href')).toBe('/skills?run=skills%2Fweekly-report%2FSKILL.md')
+      // the steps go on: no 열기 during the setup (the skill opens from the end screen or the team skills)
+      expect(done[0]!.querySelector('a')).toBeNull()
+      expect(m.find('skill-done-open')).toBeNull()
       expect(done[3]!.textContent).toContain(ko('welcome.skills.ruleName'))
       await m.until(() => m.find('skills-done-who'), 'the who line')
       expect(text(m, 'skills-done-who')).toBe(ko('welcome.skills.doneWho', { team: 'Acme' }))
@@ -472,8 +501,9 @@ describe('Claude Code', () => {
     const m = await step()
     try {
       await m.until(() => called('GET /api/skill-shares').length > 0, 'the first look')
+      // every source is asked for: Claude Code's and Codex's proposals, and a share applied elsewhere
       const asked = called('GET /api/skill-shares')[0]!.url
-      expect(new URL(asked, 'http://x').searchParams.get('source')).toBe('claude_code')
+      expect(new URL(asked, 'http://x').searchParams.get('source')).toBeNull()
       expect(m.find('skill-review')).toBeNull()
       ccItems = [shareOf({ id: CC_ID, source: 'claude_code', where: null, projects: 2, tools: [{ name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', header: null, templateId: null, error: null }, { name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', header: null, templateId: null, error: null }] }), ...ccItems]
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the proposal', 6000)
@@ -590,6 +620,147 @@ describe('/skills/share/:id', () => {
       await m.click('skills-later')
       expect(text(m, 'where')).toBe('/skills')
       expect(called(`POST /api/skill-shares/${CC_ID}/dismiss`)).toHaveLength(0)
+    } finally { await m.unmount() }
+  })
+})
+
+describe('the exits of the step (docs/DECISIONS.md "W5")', () => {
+  const meOf = (role: 'owner' | 'admin') => ({
+    user: { id: 'olga', username: 'olga', name: '올가', email: null, role, locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} },
+    groups: [], team: { name: 'Acme', defaultLocale: 'ko' },
+    session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: true },
+  })
+  const page = (id: string, role: 'owner' | 'admin') => {
+    useSession.setState({ status: { kind: 'signed-in', me: meOf(role) } } as never)
+    return mount(
+      <MemoryRouter initialEntries={[`/skills/share/${id}`]}>
+        <Routes>
+          <Route path="/skills/share/:id" element={<SkillSharePage />} />
+          <Route path="*" element={<Where />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+  const shown = () => useUi.getState().toasts.map((x) => x.text)
+  const addedRow = (c: ShareCandidate): ShareCandidate => (c.name === 'weekly-report' ? { ...c, applied: { status: 'added', path: 'skills/weekly-report/SKILL.md', chatId: null, error: null } } : c)
+
+  test('the live notice about a Claude Code or Codex proposal is held back only while the step is on screen; other toasts show', async () => {
+    chrome()
+    const open = ko('notice.openSkills')
+    const run = () => {}
+    const m = await step()
+    try {
+      await m.until(() => m.find('skills-cc'), 'the Claude Code line')
+      await act(async () => {
+        toast({ level: 'info', text: 'Claude Code에서 스킬 3개를 공유하자고 했어요 · 확인', action: { label: open, run } })
+        toast({ level: 'info', text: 'Codex에서 스킬 2개를 공유하자고 했어요 · 확인', action: { label: open, run } })
+      })
+      expect(shown()).toEqual([])
+      // a team skill change, a plain notice: as always
+      await act(async () => {
+        toast({ level: 'info', text: "'주간 보고' 스킬이 바뀌었어요", action: { label: open, run } })
+        toast({ level: 'info', text: '저장했어요' })
+      })
+      expect(shown()).toEqual(["'주간 보고' 스킬이 바뀌었어요", '저장했어요'])
+    } finally { await m.unmount() }
+    // the step is gone (the steps went on, or another page): the notice shows again
+    toast({ level: 'info', text: 'Codex에서 스킬 2개를 공유하자고 했어요 · 확인', action: { label: open, run } })
+    expect(shown()).toContain('Codex에서 스킬 2개를 공유하자고 했어요 · 확인')
+  })
+
+  test('a Codex proposal shows like Claude Code\'s: its sender in the source line, its tools, no 다른 폴더', async () => {
+    chrome()
+    ccItems = [shareOf({ id: CC_ID, source: 'codex', app: 'codex', where: null, projects: 1, tools: [{ name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', header: null, templateId: null, error: null }] })]
+    const m = await step()
+    try {
+      await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the proposal', 6000)
+      expect(m.get('skill-review-source').getAttribute('data-state')).toBe('codex')
+      expect(text(m, 'skill-review-source')).toContain('Codex가 찾아서 보냈어요')
+      expect(text(m, 'skill-review-source')).toContain('스킬 10개 (프로젝트 1곳 포함)')
+      expect(m.find('skill-review-other-folder')).toBeNull()
+      expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.tools', { n: 1, names: 'Linear' }))
+    } finally { await m.unmount() }
+  })
+
+  test('a share applied elsewhere since the step opened (its link, its notice) shows as done, without 열기; an older one does not', async () => {
+    chrome()
+    ccItems = [shareOf({ id: '01900000-0000-7000-8000-0000000005be', source: 'claude_code', status: 'applied', updatedAt: '2026-11-01T00:00:00.000Z', candidates: candidates(true).map(addedRow) })]
+    const m = await step()
+    try {
+      await m.until(() => called('GET /api/skill-shares').length > 0, 'the first look')
+      await m.settle(30)
+      expect(m.get('skills-step').getAttribute('data-state')).toBe('empty')
+      ccItems = [shareOf({ id: CC_ID, source: 'browser', status: 'applied', updatedAt: new Date(Date.now() + 1000).toISOString(), candidates: candidates().map(addedRow) }), ...ccItems]
+      await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'the share as done', 6000)
+      expect(text(m, 'skills-done')).toBe(ko('welcome.skills.done'))
+      expect(m.find('skill-done-open')).toBeNull()
+      await m.click('skills-done-next')
+      expect(events).toEqual(['next'])
+    } finally { await m.unmount() }
+  })
+
+  test('during the setup a merge into a team skill waits: "합치기는 설정 끝나고 확인해요", no chat to open', async () => {
+    chrome()
+    mergeLater = true
+    const m = await step()
+    try {
+      await findAndList(m)
+      await m.click('skills-share')
+      await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')
+      const done = (globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]
+      const later = done.find((r) => r.getAttribute('data-name') === 'meeting-notes')!
+      expect(later.getAttribute('data-kind')).toBe('later')
+      expect(later.textContent).toContain(ko('welcome.skills.mergeLater', { x: '할 일 정리' }))
+      expect(later.querySelector('a')).toBeNull()
+      expect(m.find('skill-done-review')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('/skills/share/:id while the owner\'s setup is unfinished: no 열기, and both ways go back to /welcome', async () => {
+    welcome = { finishedAt: null }
+    ccItems = [shareOf({ id: CC_ID, source: 'claude_code', where: null })]
+    let m = await page(CC_ID, 'owner')
+    try {
+      await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the proposal')
+      await m.click('skills-later')
+      expect(text(m, 'where')).toBe('/welcome')
+    } finally { await m.unmount() }
+    useWelcome.getState().reset()
+    m = await page(CC_ID, 'owner')
+    try {
+      await m.until(() => m.find('skills-share'), 'the list')
+      await m.click('skills-share')
+      await m.until(() => m.find('skills-done-next'), 'what went in')
+      expect(m.find('skill-done-open')).toBeNull()
+      expect(text(m, 'skills-done-next')).toBe(ko('skillShare.page.toSetup'))
+      await m.click('skills-done-next')
+      expect(text(m, 'where')).toBe('/welcome')
+    } finally { await m.unmount() }
+  })
+
+  test('/skills/share/:id after the setup (or for an admin): 열기 on what went in, and the primary opens the team skills', async () => {
+    welcome = { finishedAt: '2026-11-06T01:00:00.000Z' }
+    ccItems = [shareOf({ id: CC_ID, source: 'claude_code', where: null })]
+    const m = await page(CC_ID, 'owner')
+    try {
+      await m.until(() => m.find('skills-share'), 'the list')
+      await m.click('skills-share')
+      await m.until(() => m.find('skills-done-next'), 'what went in')
+      expect(m.get('skill-done-open').getAttribute('href')).toBe('/skills?run=skills%2Fweekly-report%2FSKILL.md')
+      expect(text(m, 'skills-done-next')).toBe(ko('skillShare.page.toSkills'))
+      await m.click('skills-done-next')
+      expect(text(m, 'where')).toBe('/skills')
+    } finally { await m.unmount() }
+  })
+
+  test('a picked .codex folder\'s share reads its folder and offers its tools (no longer Claude Code\'s only)', async () => {
+    ccItems = [shareOf({ id: CC_ID, source: 'browser', app: 'codex', where: '.codex', tools: [{ name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'bearer', header: null, templateId: null, error: null }] })]
+    const m = await page(CC_ID, 'admin')
+    try {
+      await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the proposal')
+      expect(m.get('skill-review-source').getAttribute('data-state')).toBe('folder')
+      expect(text(m, 'skill-review-source')).toContain(ko('welcome.skills.found', { n: 10 }).replace('{where}', '.codex'))
+      expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.tools', { n: 1, names: 'Notion' }))
     } finally { await m.unmount() }
   })
 })

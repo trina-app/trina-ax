@@ -1,19 +1,22 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K — 내 스킬 가져오기"): share proposals of an owner or admin. Contract:
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"): share proposals of an owner or admin. Contract:
 // shared/src/api/skill-shares.ts; routes: routes/skill-shares.ts; Claude Code: connectors/remote-mcp/share.ts.
 //   create   the candidates are checked (share-check.ts), the kept files staged outside the team files (share-stage.ts)
 //            and the AI's judgement started as a restricted turn of the person (share-judge.ts) when an AI answers them
-//            and their budget allows; otherwise nothing is pre-ticked (ai "none"). A Claude Code proposal tells its
-//            person at once (a realtime notice with a link to it).
+//            and their budget allows; otherwise nothing is pre-ticked (ai "none"). A proposal Claude Code or Codex sent
+//            through the connector tells its person at once (a realtime notice with a link to it).
 //   read     GET and the list evaluate the judgement when they read a share still "checking": its answer read once,
 //            the final groups written, the judge chat deleted. A share belongs to its person: anyone else gets 404.
 //   apply    what the person ticked, written as them (FileService.humanSave, like approving a suggestion: folder
 //            rules, versions, the skills/ change log and the owner/admin notices), per skill: add (skills/<name>/), a
-//            separate name, or merge (a normal chat of theirs asks the AI to merge into the team skill and save it, so
-//            the skill-write confirmation card asks them first; nothing changes before that); the CLAUDE.md lines as a
-//            team rule (skills/<일하는-방식>.md, no header); remote MCP servers as connection templates (no key).
-//            Idempotent per skill; the welcome steps learn the skills added (onboarding/welcome.ts recordShared).
-//   dismiss  나중에 하기: its staged files go. A share expires after SKILL_SHARE_LIMITS.days (read, create sweep).
-import { SKILL_SHARE_LIMITS, errorMessage, skillTitle, IntegrationTemplateInput, type ApplySkillShare, type CreateSkillShare, type Locale, type Role, type ShareCandidate, type ShareRule, type ShareTool, type SkillShare, type SkillShareSource, type SkillShareStatus } from '@mycel/shared/api'
+//            separate name, or merge (share-merge.ts: a restricted merge chat of theirs, the candidate as data in its
+//            instructions, only the team skill readable and writable there, the skill-write card before any save;
+//            while the owner's welcome steps are under way the merge waits for their end: "later"); the CLAUDE.md
+//            (Codex: AGENTS.md) lines as a team rule (skills/<일하는-방식>.md, no header); remote MCP servers as
+//            connection templates (no key). Idempotent per skill; the welcome steps learn what went in, and 내 스킬
+//            is done (onboarding/welcome.ts recordShared).
+//   dismiss  나중에 하기: its staged files go. A share expires after SKILL_SHARE_LIMITS.days (read, create sweep). A
+//            dismissed or expired share keeps nothing of what it proposed (close).
+import { SKILL_SHARE_LIMITS, errorMessage, skillTitle, IntegrationTemplateInput, type ApplySkillShare, type CreateSkillShare, type Locale, type Role, type ShareApp, type ShareCandidate, type ShareRule, type ShareTool, type SkillShare, type SkillShareSource, type SkillShareStatus } from '@mycel/shared/api'
 import { Locale as LocaleSchema } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ChatRuntime } from '../chat/runtime'
@@ -37,6 +40,7 @@ import { recordShared } from '../onboarding/welcome'
 import { checkShare, freeName, renamedSkillMd, type TeamSkillRef } from './share-check'
 import { judgedCandidates, parseShareJudge, shareRuleOf } from './share-judge'
 import { readStagedFiles, removeStage, stagedIds, writeStage } from './share-stage'
+import { mergeWaits, queueMerge, startMergeChat, startStaleMerges } from './share-merge'
 
 /** The body limit of POST /api/skill-shares (the server's own request cap): a picked folder of up to 200 skills. */
 export const SKILL_SHARE_BODY_MAX = 50 * 1024 * 1024
@@ -48,8 +52,12 @@ const DAY = 86_400_000
 interface Row {
   id: string; created_by: string; source: SkillShareSource; status: SkillShareStatus; ai: SkillShare['ai']; where_label: string | null
   projects: number | null; result: string; created_at: string; expires_at: string; updated_at: string
+  /** 'codex' for a share Codex sent through the connector (the source column's CHECK has no 'codex': migration 252) */
+  source_detail: string | null
 }
-const COLS = 'id, created_by, source, status, ai, where_label, projects, result, created_at, expires_at, updated_at'
+const COLS = 'id, created_by, source, status, ai, where_label, projects, result, created_at, expires_at, updated_at, source_detail'
+/** The columns a new share is written with (source_detail last). */
+const INSERT_COLS = COLS
 /** What `result` holds (no file content: the files are staged). */
 interface Result {
   candidates: ShareCandidate[]
@@ -58,6 +66,8 @@ interface Result {
   ruleIn: { lines: number; dropped: number } | null
   tools: ShareTool[]
   landing: string | null
+  /** whose folder (absent on shares from before: Claude's) */
+  app?: ShareApp
 }
 const OPEN = "('checking','ready')"
 
@@ -136,6 +146,10 @@ const TEXT = {
     ko: '이 도구 주소로는 연결 템플릿을 만들 수 없어요.', en: 'A connection template cannot be made from this tool address.',
     id: 'Template koneksi tidak bisa dibuat dari alamat alat ini.', ja: 'このツールのアドレスでは接続テンプレートを作れません。', es: 'No se puede crear una plantilla de conexión con esta dirección.',
   },
+  proposedCodex: {
+    ko: 'Codex에서 스킬 {n}개를 공유하자고 했어요 · 확인', en: 'Codex proposed sharing {n} skills · Review',
+    id: 'Codex mengusulkan berbagi {n} skill · Periksa', ja: 'Codex からスキル {n} 件の共有の提案があります · 確認', es: 'Codex propuso compartir {n} habilidades · Revisar',
+  },
   proposed: {
     ko: 'Claude Code에서 스킬 {n}개를 공유하자고 했어요 · 확인', en: 'Claude Code proposed sharing {n} skills · Review',
     id: 'Claude Code mengusulkan berbagi {n} skill · Periksa', ja: 'Claude Code からスキル {n} 件の共有の提案があります · 確認', es: 'Claude Code propuso compartir {n} habilidades · Revisar',
@@ -154,13 +168,18 @@ function localeOf(ctx: AppContext, id: string): Locale {
 
 const readResult = (r: Row): Result => JSON.parse(r.result) as Result
 const rowOf = (ctx: AppContext, id: string) => ctx.db.query(`SELECT ${COLS} FROM skill_shares WHERE id = ?`).get(id) as Row | null
+/** How it arrived: the source column, or 'codex' kept beside it (migration 252). */
+const sourceOf = (r: Row): SkillShareSource => (r.source_detail === 'codex' ? 'codex' : r.source)
+/** What a dismissed or expired share keeps of what it proposed: nothing (the audit rows keep the counts). */
+const EMPTY: Result = { candidates: [], rule: null, ruleIn: null, tools: [], landing: null }
 
 function toShare(r: Row): SkillShare {
   const res = readResult(r)
+  const source = sourceOf(r)
   return {
-    id: r.id, source: r.source, status: r.status, where: r.where_label, projects: r.projects,
-    createdAt: new Date(r.created_at).toISOString(), expiresAt: new Date(r.expires_at).toISOString(), ai: r.ai,
-    candidates: res.candidates, rule: res.rule, tools: res.tools, landing: res.landing,
+    id: r.id, source, app: source === 'codex' ? 'codex' : res.app ?? 'claude', status: r.status, where: r.where_label, projects: r.projects,
+    createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(Number.isFinite(Date.parse(r.updated_at)) ? r.updated_at : r.created_at).toISOString(), expiresAt: new Date(r.expires_at).toISOString(), ai: r.ai,
+    candidates: res.candidates ?? [], rule: res.rule ?? null, tools: res.tools ?? [], landing: res.landing ?? null,
   }
 }
 
@@ -262,10 +281,11 @@ function settle(ctx: AppContext, rt: ChatRuntime, r: Row): Row {
   return rowOf(ctx, r.id) ?? r
 }
 
-/** Close a share for good (dismissed or expired): its staged files and judge chat go, its rule's text too. */
+/** Close a share for good (dismissed or expired): its staged files and judge chat go, and nothing of what it proposed
+ * stays (no skill name, title, description, file name, rule or tool: the review of PR #100). */
 function close(ctx: AppContext, rt: ChatRuntime | null, r: Row, status: 'dismissed' | 'expired'): boolean {
   const res = readResult(r)
-  const next: Result = { ...res, rule: res.rule ? { ...res.rule, text: '' } : null }
+  const next: Result = { ...EMPTY, ...(res.app ? { app: res.app } : {}) }
   const done = ctx.db.query(`UPDATE skill_shares SET status = ?, ai = CASE ai WHEN 'pending' THEN 'failed' ELSE ai END, result = ?, updated_at = ? WHERE id = ? AND status IN ${OPEN}`)
     .run(status, JSON.stringify(next), new Date().toISOString(), r.id)
   removeStage(ctx, r.id)
@@ -284,6 +304,8 @@ function sweep(ctx: AppContext, rt: ChatRuntime | null): void {
   if (rt) {
     const left = ctx.db.query("SELECT j.chat_id FROM skill_share_judges j JOIN skill_shares s ON s.id = j.share_id WHERE s.status != 'checking'").all() as { chat_id: string }[]
     for (const j of left) purgeJudge(ctx, rt, j.chat_id)
+    // merges that waited for welcome steps which no longer hold them (finished another way, hidden, the owner changed)
+    startStaleMerges(ctx, rt)
   }
 }
 
@@ -300,9 +322,11 @@ export function createSkillShare(ctx: AppContext, rt: ChatRuntime | null, who: S
   const me = ctx.files.principal(who.id)
   const checked = checkShare(body, teamRefs(ctx, me))
   const id = newId(), now = new Date()
-  const res: Result = { candidates: checked.candidates, rule: null, ruleIn: checked.rule ? { lines: checked.rule.lines, dropped: checked.rule.dropped } : null, tools: checked.tools, landing: null }
-  ctx.db.query(`INSERT INTO skill_shares (${COLS}) VALUES (?,?,?,'checking','pending',?,?,?,?,?,?)`)
-    .run(id, who.id, body.source, checked.where, checked.projects, JSON.stringify(res), now.toISOString(), new Date(now.getTime() + SKILL_SHARE_LIMITS.days * DAY).toISOString(), now.toISOString())
+  const app: ShareApp = body.source === 'codex' ? 'codex' : body.app ?? 'claude'
+  const res: Result = { candidates: checked.candidates, rule: null, ruleIn: checked.rule ? { lines: checked.rule.lines, dropped: checked.rule.dropped } : null, tools: checked.tools, landing: null, app }
+  // a Codex share keeps 'claude_code' in the source column (its CHECK) and 'codex' beside it (migration 252)
+  ctx.db.query(`INSERT INTO skill_shares (${INSERT_COLS}) VALUES (?,?,?,'checking','pending',?,?,?,?,?,?,?)`)
+    .run(id, who.id, body.source === 'codex' ? 'claude_code' : body.source, checked.where, checked.projects, JSON.stringify(res), now.toISOString(), new Date(now.getTime() + SKILL_SHARE_LIMITS.days * DAY).toISOString(), now.toISOString(), body.source === 'codex' ? 'codex' : null)
   try {
     writeStage(ctx, id, checked.files, checked.rule)
   } catch (e) {
@@ -312,7 +336,7 @@ export function createSkillShare(ctx: AppContext, rt: ChatRuntime | null, who: S
   }
   const kept = checked.candidates.filter((c) => c.group !== 'excluded').length
   audit(ctx.db, { actor: who.id, action: 'skills.share_create', target: id, detail: {
-    source: body.source, via: o.via, candidates: checked.candidates.length, kept, excluded: checked.candidates.length - kept,
+    source: body.source, app, via: o.via, candidates: checked.candidates.length, kept, excluded: checked.candidates.length - kept,
     rule: !!checked.rule, tools: checked.tools.length, projects: checked.projects,
   } })
   // the AI's judgement: only when there is something to judge and an AI answers the person
@@ -326,10 +350,10 @@ export function createSkillShare(ctx: AppContext, rt: ChatRuntime | null, who: S
     }
   }
   const share = toShare(rowOf(ctx, id)!)
-  if (body.source === 'claude_code') {
+  if (body.source === 'claude_code' || body.source === 'codex') {
     const L = localeOf(ctx, who.id)
     try {
-      ctx.services.realtime.publish(who.id, { type: 'notice', data: { level: 'info', code: 'skill_share', message: fill(TEXT.proposed[L], { n: kept }), link: `/skills/share/${id}` } })
+      ctx.services.realtime.publish(who.id, { type: 'notice', data: { level: 'info', code: 'skill_share', message: fill(TEXT[body.source === 'codex' ? 'proposedCodex' : 'proposed'][L], { n: kept }), link: `/skills/share/${id}` } })
     } catch (err) { ctx.log.warn('skill share notice failed', { err: err instanceof Error ? err.message : String(err) }) }
   }
   return share
@@ -342,7 +366,7 @@ export function listSkillShares(ctx: AppContext, rt: ChatRuntime, userId: string
   const where = ['created_by = ?']
   const args: string[] = [userId]
   if (q.status) { where.push('status = ?'); args.push(q.status) }
-  if (q.source) { where.push('source = ?'); args.push(q.source) }
+  if (q.source) { where.push("(CASE WHEN source_detail = 'codex' THEN 'codex' ELSE source END) = ?"); args.push(q.source) }
   const rows = ctx.db.query(`SELECT ${COLS} FROM skill_shares WHERE ${where.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ${LIST_MAX}`).all(...args) as Row[]
   return rows.map(toShare)
 }
@@ -407,33 +431,6 @@ function writeSkill(ctx: AppContext, userId: string, locale: Locale, shareId: st
   return `${folder}/SKILL.md`
 }
 
-/** A normal chat of the caller whose first message asks the AI to merge the candidate into the team skill and save it
- * with write: the skill-write card (chat/turn.ts confirmSkillWrite) asks them before anything changes. */
-function startMerge(ctx: AppContext, rt: ChatRuntime, auth: { user: ShareCaller }, locale: Locale, c: ShareCandidate, target: { path: string; title: string }, text: string): string {
-  const b = budgetBlock(ctx.db, auth.user.id, locale)
-  if (b) throw refused('budget_exceeded', b.message, 'budget')
-  const L = rt.userLocale(auth.user.id)
-  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length))
-  const fence = '`'.repeat(longest + 1)
-  const content = `${fill(TEXT.mergeAsk[L], { name: c.title ?? c.name, path: target.path })}\n\n${fence}markdown\n${text.replace(/\s+$/, '')}\n${fence}`
-  const { engine, model } = newChatEngine(ctx, auth.user, {}, locale)
-  const id = newId(), now = new Date().toISOString()
-  ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
-    .run(id, auth.user.id, `${TEXT.mergeTitle[L]} · ${target.title}`.slice(0, 120), engine, model ?? null, now, now)
-  const chat = rt.store.chatRow(id)!
-  try {
-    const te = turnEngine(ctx, auth.user, chat, {}, locale, (e) => rt.defaultModelFor(e))
-    rt.createTurn({ chat, userId: auth.user.id, locale: L, windowId: null, clientKind: null, engine: te.engine, model: te.model,
-      ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
-      user: { parentId: null, content, attachments: [], clientMessageId: `ssm-${id}` } })
-  } catch (e) {
-    ctx.db.query('DELETE FROM chats WHERE id = ?').run(id)
-    throw e
-  }
-  rt.publishChat(auth.user.id, id, 'created')
-  return id
-}
-
 /** The team rule as a file without a header (skills/<일하는-방식>.md; "-2" … when the name is taken). */
 function writeRule(ctx: AppContext, me: Principal, userId: string, text: string): string {
   const base = RULE_NAME[teamDefaultLocale(ctx.db)]
@@ -477,7 +474,7 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
   if (body.rule && !res.rule?.text) fields['body.rule'] = 'no team rule in this share'
   ;(body.tools ?? []).forEach((t, i) => { if (!res.tools.some((x) => x.name === t)) fields[`body.tools.${i}`] = 'not a tool of this share' })
   if (Object.keys(fields).length) fail('validation', undefined, { fields })
-  const doneAlready = () => body.skills.every((s) => ['added', 'merge'].includes(byName.get(s.name)?.applied?.status ?? ''))
+  const doneAlready = () => body.skills.every((s) => ['added', 'merge', 'later'].includes(byName.get(s.name)?.applied?.status ?? ''))
     && (!body.rule || !!res.rule?.path) && (body.tools ?? []).every((t) => !!res.tools.find((x) => x.name === t)?.templateId)
   if (row.status === 'applied') {
     if (doneAlready()) return toShare(row)
@@ -491,21 +488,32 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
     const failures: Failure[] = []
     let went = 0
     const addedNow: ShareCandidate[] = []
+    // merges: while the owner's welcome steps are under way they wait for their end (one merge chat then); otherwise
+    // one restricted merge chat for the merges of this request (share-merge.ts)
+    const waits = mergeWaits(ctx.db, auth.user.id)
+    const merges: { c: ShareCandidate; target: { path: string; title: string }; text: string }[] = []
     // a name for "separate": no team skill, none of the caller's own, no pack skill (a later install would be blocked)
     // and no folder has it
     const names = [...listSkills(ctx.files, me).map((s) => s.name), ...team.map((t) => t.name), ...packSkillNames()]
     const taken = (n: string) => names.some((x) => sameSkillName(x, n)) || existsFor(ctx, me, `skills/${n}`)
     for (const s of body.skills) {
       const c = byName.get(s.name)!
-      if (c.applied?.status === 'added' || c.applied?.status === 'merge') continue
+      if (c.applied?.status === 'added' || c.applied?.status === 'merge' || c.applied?.status === 'later') continue
       try {
         if (s.action === 'merge') {
           const target = c.sameName ?? c.similar!
           if (!readSkill(ctx.files, me, target.path)) throw refused('conflict', fill(TEXT.mergeGone[locale], { title: target.title }), 'merge_gone')
           const staged = readStagedFiles(ctx, id, c.name, c.files.slice(0, 1))
           if (!staged?.length) throw refused('conflict', TEXT.stagedGone[locale], 'staged_gone')
-          const chatId = startMerge(ctx, rt, auth, locale, c, target, staged[0]!.data.toString('utf8'))
-          c.applied = { status: 'merge', path: target.path, chatId, error: null }
+          const text = staged[0]!.data.toString('utf8')
+          if (waits) {
+            queueMerge(ctx.db, { userId: auth.user.id, shareId: id, name: c.name, title: c.title ?? c.name, target, text })
+            c.applied = { status: 'later', path: target.path, chatId: null, error: null }
+          } else {
+            // started together after the loop; a failure there marks these rows
+            merges.push({ c, target, text })
+            continue
+          }
         } else {
           let name = c.name
           if (s.action === 'separate') {
@@ -526,6 +534,18 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
         if (f.code === 'internal') ctx.log.warn('skill share apply failed', { share: id, err: e instanceof Error ? e.message : String(e) })
         failures.push(f)
         c.applied = { status: 'failed', path: null, chatId: null, error: f.message }
+      }
+      save(ctx, id, res)
+    }
+    if (merges.length) {
+      try {
+        const chatId = startMergeChat(ctx, rt, auth.user, merges.map((m) => ({ shareId: id, name: m.c.name, title: m.c.title ?? m.c.name, targetPath: m.target.path, targetTitle: m.target.title, text: m.text })))
+        for (const m of merges) m.c.applied = { status: 'merge', path: m.target.path, chatId, error: null }
+        went += merges.length
+      } catch (e) {
+        const f = failureOf(e, locale, merges[0]!.target.path)
+        if (f.code === 'internal') ctx.log.warn('skill share merge not started', { share: id, err: e instanceof Error ? e.message : String(e) })
+        for (const m of merges) { failures.push(f); m.c.applied = { status: 'failed', path: null, chatId: null, error: f.message } }
       }
       save(ctx, id, res)
     }
@@ -556,9 +576,11 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
     const status: SkillShareStatus = failures.length ? 'ready' : 'applied'
     save(ctx, id, res, status)
     if (status === 'applied') removeStage(ctx, id)
-    recordShared(ctx, auth.user.id, addedNow.map((c) => ({ path: c.applied!.path!, title: c.title ?? c.name, recommended: c.group === 'recommended' })))
+    // 내 스킬 is done once anything of a share went in, wherever it was applied (the welcome step or /skills/share/:id)
+    recordShared(ctx, auth.user.id, addedNow.map((c) => ({ path: c.applied!.path!, title: c.title ?? c.name, recommended: c.group === 'recommended' })), went > 0)
     audit(ctx.db, { actor: auth.user.id, action: 'skills.share_apply', target: id, detail: {
       added: addedNow.map((c) => c.applied!.path), merge: body.skills.filter((s) => byName.get(s.name)?.applied?.status === 'merge').map((s) => byName.get(s.name)!.applied!.path),
+      later: body.skills.filter((s) => byName.get(s.name)?.applied?.status === 'later').map((s) => byName.get(s.name)!.applied!.path),
       failed: body.skills.filter((s) => byName.get(s.name)?.applied?.status === 'failed').map((s) => s.name),
       rule: res.rule?.path ?? null, tools: (body.tools ?? []).filter((n) => res.tools.find((x) => x.name === n)?.templateId).length, failures: failures.length, status,
     } })

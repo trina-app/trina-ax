@@ -4,7 +4,8 @@
 // its state in a few words, each opening its page. It reads only what the admin pages already read, with the same
 // ranges (Usage: the last 30 days, as Admin > Usage opens); an area that cannot be read says so on its card and the
 // others still show. Diagnostics are the owner's (Admin > System), so only the owner's Home asks for them. The owner
-// also gets the setup steps still to do (OwnerChecklist; it was on the chat Home before).
+// also gets the setup steps still to do (OwnerChecklist; it was on the chat Home before), or, while the welcome steps
+// are unfinished, only "시작 설정 다시 보기" when the setup row was hidden (OwnerSetup, docs/DECISIONS.md "W5").
 import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, Lock, Puzzle, ScrollText, Users, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -18,7 +19,7 @@ import { Badge, Button } from '../../components/ui'
 import { actionLabel } from './Audit'
 import { AdminPageHeader, useAction, useLoad } from './common'
 import { JobLine, useUpdateInstall } from './jobs'
-import { OwnerChecklist } from './OwnerChecklist'
+import { OwnerSetup } from './OwnerChecklist'
 
 /** AI connection states an admin should act on (a member's own connection is theirs to fix, so team ones only) */
 const CREDENTIAL_PROBLEMS: CredentialState[] = ['expiring', 'expired', 'invalid', 'needs_reconnect', 'over_limit']
@@ -198,7 +199,7 @@ export default function Home() {
         </section>
       )}
 
-      {owner && <OwnerChecklist />}
+      {owner && <OwnerSetup />}
 
       <section aria-labelledby="admin-home-areas">
         <h2 id="admin-home-areas" className="mb-2 text-sm font-semibold">

@@ -1,11 +1,11 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K"; server/src/skills/share.ts, routes/skill-shares.ts): share proposals over the
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK"; server/src/skills/share.ts, routes/skill-shares.ts): share proposals over the
 // API. Owners and admins only (members 403 on every endpoint), each share its person's alone (another admin: 404); a
 // skill with a secret never written anywhere (the staging folder, the database, the data folder); the kept files staged
 // 0700 outside the team files; apply as the person through the file layer (versions, file events, the skills/ change
 // log, the audit row without content), the AI's title in the header, a separate name, the team rule without a header,
 // connection templates without a key, the welcome steps' shared skills; idempotent; 409 on a folder that appeared
-// meanwhile; merge through a normal chat with the skill-write card (nothing changes before it); dismiss and expiry
-// delete the staged files; no AI (a budget block): nothing pre-ticked.
+// meanwhile; merge through a restricted merge chat with the skill-write card (nothing changes before it; "W5"); dismiss
+// and expiry delete the staged files; no AI (a budget block): nothing pre-ticked.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -216,7 +216,9 @@ describe('skill shares over the API', () => {
     expect(fs.readFileSync(path.join(h.team, 'skills/proposal/notes.md'), 'utf8')).toBe('theirs')
   })
 
-  test('merge: a normal chat of the person asks the AI to merge and save with write; nothing changes before the card', async () => {
+  test('merge: a restricted merge chat of the person (docs/DECISIONS.md "W5"); the request names the skills, never their text; nothing changes before the card', async () => {
+    // outside the welcome steps (finished): the merge starts at once (b-skill-share-v5.test.ts: it waits during them)
+    setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: new Date().toISOString(), steps: { profile: 'done', result: 'done', skills: 'done', files: 'done', invite: 'done' }, resultChatId: null, finishedAt: new Date().toISOString() })
     const team = path.join(h.team, 'skills/general/todo-list/SKILL.md')
     const before = fs.readFileSync(team, 'utf8')
     const s = await judged(await create({ skills: [{ name: 'todo-list', origin: 'user', files: [{ path: 'SKILL.md', text: md('todo-list', '# 내 할 일\n```\nkeep ``` fences\n```\n') }] }] }),
@@ -233,9 +235,11 @@ describe('skill shares over the API', () => {
     expect(chat.title).toContain('스킬 합치기')
     const msgs = (await h.api('dana').call(API.listMessages, { params: { id: row.chatId! } })).items
     const first = msgs.find((m) => m.role === 'user')!.content
-    expect(first).toContain('`skills/general/todo-list/SKILL.md`')
-    expect(first).toContain('````markdown\n---\nname: todo-list')
-    expect(first).toContain('keep ``` fences')
+    expect(first).toContain("'할 일' → '할 일 정리'")
+    expect(first).not.toContain('keep ``` fences')
+    // the candidate's text waits in the merge's own row (the share's staged files are gone)
+    expect((h.ctx.db.query('SELECT text FROM skill_share_merges WHERE chat_id = ?').get(row.chatId!) as { text: string }).text).toContain('keep ``` fences')
+    expect(fs.existsSync(stageDir(h.ctx, s.id))).toBe(false)
     // the chat is the person's ordinary chat (listed), and the team skill is untouched until a confirmation
     expect((await h.api('dana').call(API.listChats, { query: {} })).items.map((c) => c.id)).toContain(row.chatId!)
     await waitFor(() => (h.ctx.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'assistant' AND status != 'streaming'").get(row.chatId!) ? true : null), { timeoutMs: 30_000 })

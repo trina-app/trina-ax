@@ -1,4 +1,4 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K"; server/src/skills/share.ts): share proposals are owners' and admins' (members
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK"; server/src/skills/share.ts): share proposals are owners' and admins' (members
 // 403 from the endpoints' admin level), and each is its person's alone. Dana's proposal (made once, on the first case
 // that needs it) names a skill carrying a canary: the list of anyone else must not show it. Reading, applying or
 // dropping a proposal that is not the caller's is the same as one that does not exist (404), so those cases use an id

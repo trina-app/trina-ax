@@ -1,4 +1,4 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K"; server/src/skills/share-judge.ts): the AI's judgement of a share proposal.
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK"; server/src/skills/share-judge.ts): the AI's judgement of a share proposal.
 // Reading its answer defensively (unknown names, second entries, wrong types, extra keys, injected text, bad JSON), the
 // final groups the server makes (the checks always win), the material fenced as data, and the real turn on the fake
 // engine: restricted like a team skill draft (its own instructions, no tool besides the refused file tools, no
@@ -211,6 +211,7 @@ describe('the judge turn', () => {
     ])
     // written once: a later change of the (deleted) answer changes nothing
     h.ctx.db.query("UPDATE skill_shares SET updated_at = 'x' WHERE id = ?").run(s.id)
-    expect((await h.api('dana').call(API.listSkillShares, { query: { status: 'ready' } })).items.find((x) => x.id === s.id)).toEqual(got)
+    // (a time that does not read shows as the share's creation)
+    expect((await h.api('dana').call(API.listSkillShares, { query: { status: 'ready' } })).items.find((x) => x.id === s.id)).toEqual({ ...got, updatedAt: got.createdAt })
   })
 })

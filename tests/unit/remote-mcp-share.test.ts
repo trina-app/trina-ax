@@ -1,4 +1,4 @@
-// App connectors: share_skills (docs/DECISIONS.md "K — 내 스킬 가져오기"; server/src/connectors/remote-mcp/share.ts) and
+// App connectors: share_skills (docs/DECISIONS.md "SK — 내 스킬 가져오기"; server/src/connectors/remote-mcp/share.ts) and
 // the personal skills hole. share_skills is listed with the write scope only; an owner or admin gets a share proposal
 // (nothing in the team before they confirm it in the app), a realtime notice with its link, and an audit row with counts
 // only; a member is refused with the in-app way (스킬로 제안); the strict input refuses key fields and too many skills;
@@ -56,8 +56,27 @@ test('share_skills is listed with the write scope only, and tells Claude Code wh
   for (const s of ['skills_list', '~/.claude/skills', '~/.claude/commands', 'CLAUDE.md', '"excluded"', 'reason "secret"', 'reason "plugin"', '"text": ""', 'stdio', 'Nothing changes until the team lead confirms in the app', '스킬로 제안'])
     expect(tool.description, s).toContain(s)
   const schema = tool.inputSchema as { properties: Record<string, unknown>; additionalProperties: boolean; required?: string[] }
-  expect(Object.keys(schema.properties).sort()).toEqual(['excluded', 'picked', 'projects', 'rule', 'skills', 'tools', 'where'])
+  expect(Object.keys(schema.properties).sort()).toEqual(['app', 'excluded', 'picked', 'projects', 'rule', 'skills', 'tools', 'where'])
   expect(schema.additionalProperties).toBe(false)
+  // Codex's places too (docs/DECISIONS.md "W5"), and a schema small enough that Codex does not compact it (5,000 bytes)
+  for (const s of ['"app": "codex"', '~/.agents/skills', '~/.codex/skills', '.system', '~/.codex/prompts', '~/.codex/AGENTS.md', 'config.toml', 'bearer_token_env_var'])
+    expect(tool.description, s).toContain(s)
+  expect(JSON.stringify(tool.inputSchema).length).toBeLessThan(5000)
+})
+
+test('Codex sends with app "codex": the proposal is Codex\'s (source and app), its own notice; the stored row keeps the old CHECK', async () => {
+  const f = await setup('codex')
+  const r = await f.tools.call(f.token, 'share_skills', { ...proposal, app: 'codex', where: '~/.codex' })
+  expect(r.isError).toBeUndefined()
+  const out = JSON.parse(r.content[0]!.text.split('\n\n')[0]!) as { proposalId: string }
+  // the source column's CHECK knows no codex: claude_code there, codex beside it (migration 252)
+  expect(f.h.ctx.db.query('SELECT source, source_detail FROM skill_shares WHERE id = ?').get(out.proposalId)).toEqual({ source: 'claude_code', source_detail: 'codex' })
+  const notice = f.h.hub.events.find((e) => e.kind === 'publish' && (e.data as { data: { code: string } }).data?.code === 'skill_share')!
+  expect((notice.data as { data: { message: string } }).data.message).toMatch(/^Codex/)
+  const audit = (f.h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'remote_mcp.tool'").all() as { detail: string }[]).map((x) => JSON.parse(x.detail)).find((d) => d.tool === 'share_skills')
+  expect(audit).toMatchObject({ app: 'codex' })
+  const share = JSON.parse((f.h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.share_create' AND target = ?").get(out.proposalId) as { detail: string }).detail)
+  expect(share).toMatchObject({ source: 'codex', app: 'codex', via: 'connector' })
 })
 
 test('an owner\'s proposal: pending with its link, nothing in the team, a notice with the link, an audit row with counts only', async () => {

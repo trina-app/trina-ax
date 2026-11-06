@@ -62,6 +62,41 @@ describe('the ready-made message', () => {
   })
 })
 
+describe('one skill, and the own-AI clause (docs/DECISIONS.md "W5")', () => {
+  const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
+  test('Korean: "본인 AI 계정이 필요해요" before the link sentence, with and without a skill; never without ownAi', () => {
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리', ownAi: true })).toBe(`김하나님이 ${PRODUCT.displayName}에서 Acme에 함께하자고 초대했어요. '할 일 정리' 스킬을 같이 써 보자고 해요. 본인 AI 계정이 필요해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, ownAi: true })).toBe(`김하나님이 ${PRODUCT.displayName}에서 Acme에 함께하자고 초대했어요. 본인 AI 계정이 필요해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리' })).not.toContain('본인 AI')
+  })
+  test('every language: the clause is there only with ownAi, and the message still ends with the whole link', () => {
+    for (const { id } of LOCALES) {
+      const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
+      for (const skill of [null, 'ad-copy']) {
+        const plain = teamLinkMessage(t, { name: 'Ana', team: 'Acme', url: URL_, skill })
+        const own = teamLinkMessage(t, { name: 'Ana', team: 'Acme', url: URL_, skill, ownAi: true })
+        expect({ id, skill, ok: own !== plain && own.endsWith(URL_) && own.includes('Ana') && (!skill || own.includes(skill)) && own.length > plain.length }).toEqual({ id, skill, ok: true })
+      }
+    }
+  })
+  test('the panel: several skills shared, the message names the one the link opens (the line under it says so); connect_own adds the clause', () => {
+    const weekly = 'skills/weekly-report/SKILL.md', quote = 'skills/quote-draft/SKILL.md'
+    const data: TeamLinkResponse = { ...LINK, link: { ...LINK.link!, skill: { path: weekly, name: 'weekly-report', title: 'Weekly report' } } }
+    const shared = { landing: weekly, options: [{ path: weekly, title: 'Weekly report' }, { path: quote, title: 'Quote draft' }], onLanding: noop }
+    const render = (d: TeamLinkResponse) => renderToStaticMarkup(<TeamLinkView data={d} inviter="Olga" team="Acme" groups={[]} skills={null} shared={shared} busy={false} folded onCreate={noop} onRevoke={noop} />)
+    const message = (html: string) => /data-testid="team-link-message">([^<]*)</.exec(html)?.[1] ?? ''
+    let html = render(data)
+    expect(message(html)).toBe(`Olga invited you to Acme on ${PRODUCT.displayName} to try the &#x27;Weekly report&#x27; skill together. You can join right away with this link: ${URL_.replace(/&/g, '&amp;')}`)
+    expect(message(html)).not.toContain('Quote draft')
+    expect(html).toContain('data-testid="team-link-landing"')
+    expect(message(html)).not.toContain('own AI account')
+    html = render({ ...data, link: { ...data.link!, memberAi: 'connect_own' } })
+    expect(message(html)).toContain("You&#x27;ll need your own AI account. You can join right away")
+    // a team whose AI answers everyone (or an older server): no clause
+    for (const memberAi of ['ready', 'ask_owner', undefined] as const) expect(message(render({ ...data, link: { ...data.link!, memberAi } }))).not.toContain('own AI account')
+  })
+})
+
 const LINK: TeamLinkResponse = {
   link: { id: '01900000-0000-7000-8000-000000000001', url: URL_, groupIds: [], skill: { path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy' }, maxUses: 10, uses: 3, createdBy: { id: 'olga', name: 'Olga' }, createdAt: '2026-11-04T00:00:00.000Z', expiresAt: '2026-11-18T00:00:00.000Z', state: 'active' },
   seats: { used: 4, limit: 10 },

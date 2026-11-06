@@ -31,7 +31,7 @@ import { freeName } from '../team-files/place'
 import { assetDir, BRAND_PAGE_TEXT_MAX, pageLines, stagedAssets, type BrandAssetRow } from './brand-assets'
 import { readCompanyProfile } from './profile'
 import { installPackSkill } from './skill-packs'
-import { brandFoldersOf, introDeckSkill, readWelcome, setupWelcomeTeam } from './welcome'
+import { brandFoldersOf, deckChatFor, introDeckSkill, readWelcome, setupWelcomeTeam } from './welcome'
 
 const TEXT = {
   title: { ko: '우리 회사 소개서', en: 'Our company profile', id: 'Profil perusahaan kami', ja: '会社紹介資料', es: 'Presentación corporativa' },
@@ -51,6 +51,13 @@ const TEXT = {
     id: 'Belum ada profil perusahaan. Baca situs web di langkah sebelumnya, atau tambahkan berkas profil perusahaan.',
     ja: 'まだ会社紹介がありません。前のステップでホームページを読むか、会社紹介の資料を追加してください。',
     es: 'Aún no hay perfil de la empresa. Lea el sitio web en el paso anterior o añada un archivo de presentación.',
+  },
+  started: {
+    ko: '회사 소개서는 이미 만들기 시작했어요. \'우리 회사 소개서\'에 있어요.',
+    en: 'The company profile was already started. It is in \'Our company profile\'.',
+    id: 'Profil perusahaan sudah mulai dibuat. Ada di \'Profil perusahaan kami\'.',
+    ja: '会社紹介資料はすでに作り始めています。「会社紹介資料」にあります。',
+    es: 'La presentación corporativa ya se empezó. Está en \'Presentación corporativa\'.',
   },
   badFile: {
     ko: '올린 파일을 찾을 수 없어요. 다시 올려 주세요.',
@@ -189,8 +196,14 @@ function ownerFile(ctx: AppContext, userId: string, rel: string, locale: Locale)
   throw new HttpError('validation', TEXT.badFile[locale], { fields: { 'body.files': 'not_found' } })
 }
 
+/** The deck's chat was started before (its message is in): saving 회사 소개 again starts no second deck. */
+const deckStarted = (locale: Locale) => new HttpError('conflict', TEXT.started[locale], { params: { reason: 'deck_started' } })
+
 export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInfo, locale: Locale, body: StartFirstResult): FirstResultStarted {
   const userId = auth.user.id
+  // once per team (docs/DECISIONS.md "W5"): a deck that started is never started again, before anything is written
+  const before = readWelcome(ctx)?.resultChatId
+  if (before && ctx.db.query('SELECT 1 FROM chats c WHERE c.id = ? AND c.user_id = ? AND c.deleted_at IS NULL AND EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = c.id)').get(before, userId)) throw deckStarted(locale)
   let p = readWelcome(ctx)
   // the team's start (pack and group) when it is missing or from before the brand folder
   if (!p?.general || !p.teamGroup?.brandFolder) p = setupWelcomeTeam(ctx, userId, locale).progress
@@ -225,10 +238,16 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
   // offers (Claude Code's "opus" when it is on the list); otherwise the team's choice as for any chat
   const strong = TIERS[deckTier(ctx.db, ctx.config.mode === 'dev')].strongModel && chosen.engine === 'claude-code' && claudeModels(ctx.config).some((m) => m.id === 'opus') ? 'opus' : null
   const { engine, model } = { engine: chosen.engine, model: strong ?? chosen.model }
-  const id = newId(), now = new Date().toISOString()
-  ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
-    .run(id, userId, TEXT.title[locale], engine, model ?? null, now, now)
-  audit(ctx.db, { actor: userId, action: 'onboarding.first_result', target: id, detail: { files: files.length, intro: !!intro, images: images.length } })
-  rt.publishChat(userId, id, 'created')
+  // the chat, recorded in the steps' row in the same step (a chat whose message never went is handed out again)
+  const made = deckChatFor(ctx, userId, () => {
+    const id = newId(), now = new Date().toISOString()
+    ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
+      .run(id, userId, TEXT.title[locale], engine, model ?? null, now, now)
+    return id
+  })
+  if (made.kind === 'started') throw deckStarted(locale)
+  const id = made.chatId
+  audit(ctx.db, { actor: userId, action: 'onboarding.first_result', target: id, detail: { files: files.length, intro: !!intro, images: images.length, ...(made.kind === 'reuse' ? { reused: true } : {}) } })
+  if (made.kind === 'new') rt.publishChat(userId, id, 'created')
   return { chatId: id, title: TEXT.title[locale], skillPath: skillPath ?? GENERAL_DECK_SKILL, files, intro, imagesFolder, images }
 }

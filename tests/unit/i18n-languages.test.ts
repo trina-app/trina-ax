@@ -189,6 +189,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/intro-deck/html.ts': { why: 'the deck pager\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ slide: / },
   'server/src/intro-deck/spec.ts': { why: 'the Korean superlatives a deck may use only when its sources do (a word list the check matches, not screen text), and the notes\' source label', also: /^export const SUPERLATIVES = / },
   'server/src/skills/share.ts': { why: '내 스킬 가져오기: the judge and merge chats\' titles and requests, refusals, the notice and the team rule\'s file name (ko next to en/id/ja/es)' },
+  'server/src/skills/share-merge.ts': { why: '내 스킬 가져오기 v5: the merge chat\'s title and its fixed request (ko next to en/id/ja/es), and the Inbox words its comments quote' },
   'server/src/skills/share-judge.ts': { why: 'the example title the skill share judge gets (ko next to en/id/ja/es)' },
   'server/src/skills/share-check.ts': { why: 'Korean words that tell the AI to run a script (matched in a SKILL.md, not screen text)', also: /^\s*\/스크립트\[/ },
   'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },

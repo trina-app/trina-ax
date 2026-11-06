@@ -1,4 +1,4 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K"; server/src/skills/share-check.ts): the deterministic checks of a share
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK"; server/src/skills/share-check.ts): the deterministic checks of a share
 // proposal, without a server: names made valid and unique, the header made valid (anchors, aliases, tags and huge
 // headers refused), secrets in any file or a secret file name (the content dropped), scripts the SKILL.md needs (or
 // left out and counted), plugin, size, not a skill, paths that leave the folder, personal paths, a team skill of the same
@@ -206,7 +206,7 @@ describe('the rule and the tools', () => {
     expect(long.text.endsWith('x')).toBe(true)
   })
 
-  test('remote MCP servers: https only, no key, query or user in the address; header names only; Claude Code only', () => {
+  test('remote MCP servers: https only, no key, query or user in the address; header names only; from every source (projects: the connector only)', () => {
     const tools = cleanTools([
       { name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth' },
       { name: 'Linear', url: 'https://mcp.linear.example/sse', auth: 'header', header: 'X-API-Key' },
@@ -231,8 +231,11 @@ describe('the rule and the tools', () => {
       { name: 'Words', url: 'https://mcp.example/api/v2/workspace-tools/sse', auth: 'oauth', header: null, templateId: null, error: null },
     ])
     const s = { name: 'Notion', url: 'https://mcp.notion.example/mcp', auth: 'oauth' as const }
-    expect(checkShare(share([], { tools: [s], projects: 2 }), []).tools).toEqual([])
+    // every source sends tools now (a picked .codex folder's config.toml, docs/DECISIONS.md "W5"), each checked again
+    // here; the project count stays the connector's
+    expect(checkShare(share([], { tools: [s, { name: 'Leaky', url: 'https://mcp.example/mcp?api_key=sk-abcDEF1234567890abcdef12', auth: 'bearer' }], projects: 2 }), [])).toMatchObject({ tools: [{ name: 'Notion' }], projects: null })
     expect(checkShare(share([], { source: 'claude_code', tools: [s], projects: 2 }), [])).toMatchObject({ tools: [{ name: 'Notion' }], projects: 2 })
+    expect(checkShare(share([], { source: 'codex', app: 'codex', tools: [s], projects: 1 }), [])).toMatchObject({ tools: [{ name: 'Notion' }], projects: 1 })
   })
 })
 

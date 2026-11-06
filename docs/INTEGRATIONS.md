@@ -38,7 +38,7 @@ team app changes them only after its own confirmation, which an outside model ca
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
-- `share_skills` (내 스킬 가져오기, docs/DECISIONS.md "K"): Claude Code sends the person's own Claude skills (from
+- `share_skills` (내 스킬 가져오기, docs/DECISIONS.md "SK"): Claude Code sends the person's own Claude skills (from
   `~/.claude/skills`, the projects' `.claude/skills` it knows and `~/.claude/commands`), the names of those it left out
   (plugin skills, a skill with a key: names only), CLAUDE.md as text and its remote MCP servers (https addresses only, no
   key). It makes a share proposal of the person (`server/src/skills/share.ts`, the same as `POST /api/skill-shares`) and

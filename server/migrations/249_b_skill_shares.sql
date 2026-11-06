@@ -1,5 +1,5 @@
 -- min_compatible_reader: 1
--- Component B: 내 스킬 가져오기 (docs/DECISIONS.md "K — 내 스킬 가져오기"; server/src/skills/share.ts). An owner or admin
+-- Component B: 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"; server/src/skills/share.ts). An owner or admin
 -- brings the skills they use with Claude to the team, from a picked .claude folder or from Claude Code (the connector's
 -- share_skills tool). Nothing reaches the team before they press [팀에 공유]:
 --   skill_shares: one share proposal of one person (only they see and apply it). `result` holds what the server made of

@@ -1,4 +1,4 @@
-// 내 스킬 가져오기, the welcome step (docs/DECISIONS.md "K — 내 스킬 가져오기"; pages/Welcome.tsx renders the eyebrow,
+// 내 스킬 가져오기, the welcome step (docs/DECISIONS.md "SK — 내 스킬 가져오기"; pages/Welcome.tsx renders the eyebrow,
 // the progress bar and the focus; this is the heading and what is under it). Three ways in, one list:
 //  - a computer's browser: [내 스킬 찾기] opens the folder window (Chrome, Edge: showDirectoryPicker; Safari, Firefox:
 //    <input webkitdirectory>, whose hint asks for .claude/skills), and a folder dropped on the step works everywhere.
@@ -6,20 +6,25 @@
 //  - the Mac App Store app (storeApp(), the one build that answers the page's file inputs itself): [이 컴퓨터에서 찾기]
 //    is an <input webkitdirectory data-open-at="claude">, which it answers with its own window opened at the home
 //    folder, .claude shown and picked; any other desktop build picks like a browser (proposals say "desktop");
-//  - Claude Code (only when this server has the connector on): one line to paste; the step asks the server every few
-//    seconds for a proposal Claude Code sent (GET /api/skill-shares?source=claude_code) and shows it as it arrives,
-//    on a phone too.
+//  - Claude Code or Codex (only when this server has the connector on; both reach it as a remote MCP server with
+//    OAuth, docs/DECISIONS.md "W5"): one line to paste in either; the step asks the server every few seconds for a
+//    proposal one of them sent (GET /api/skill-shares, the connector's sources) and shows it as it arrives, on a phone
+//    too. The same look finds a share applied elsewhere since the step opened (its link or notice opens
+//    /skills/share/:id): the step then shows it as done. While the step is on screen the live notice about a proposal
+//    is held back (store/ui.ts holdToasts): the step lists it itself.
+// A picked folder may be Claude's (.claude) or Codex's (.codex, .agents): lib/skillScan.ts tells them apart.
 // Then components/onboarding/SkillShareReview.tsx (checking, the list, what went in). A phone (or a browser that
 // cannot pick folders) gets the phone version: skills live on a computer, so its primary goes on and the step waits
 // there. The person closing the folder window changes nothing.
 import clsx from 'clsx'
 import { ArrowRight, Check, Copy, FolderOpen, Laptop, Loader2, Terminal } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import type { CreateSkillShare, SkillShare } from '@mycel/shared/api'
+import { CONNECTOR_SHARE_SOURCES, type CreateSkillShare, type SkillShare, type SkillShareSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { isDesktop, storeApp } from '../../lib/desktop'
 import { canPickHandle, canPickInput, droppedFolder, fromFiles, pickClaudeFolder, scanFolder, type ScanDir } from '../../lib/skillScan'
 import { useLocale, useT } from '../../i18n'
+import { holdToasts, type Toast } from '../../store/ui'
 import { CONNECTOR_NAME, CopyLine } from '../integrations/AiAppConnect'
 import { Button, ErrorNote, useMediaQuery } from '../ui'
 import { quietLink, SkillShareReview, withNodes } from './SkillShareReview'
@@ -27,7 +32,16 @@ import { quietLink, SkillShareReview, withNodes } from './SkillShareReview'
 /** How often the empty step asks whether Claude Code sent a proposal. */
 export const CLAUDE_CODE_POLL_MS = 3000
 /** A proposal made this long before the step opened still counts as new (the server's clock and this one differ). */
-const CLOCK_SLACK_MS = 30_000
+export const CLOCK_SLACK_MS = 30_000
+
+const fromConnector = (s: SkillShareSource) => (CONNECTOR_SHARE_SOURCES as readonly SkillShareSource[]).includes(s)
+
+/** The live notice about a proposal Claude Code or Codex sent (server/src/skills/share.ts "proposed", shown by
+ * store/live.ts as a toast with the team skills' action and no code of its own): its action label and the app's name in
+ * its text. Matched on those because the toast carries nothing else; a skill notice that names neither app shows. */
+export function isProposalToast(t: Pick<Toast, 'text' | 'action'>, openLabel: string): boolean {
+  return t.action?.label === openLabel && /Claude Code|Codex/.test(t.text)
+}
 
 export interface SkillsStepProps {
   /** the team's name, for the who lines */
@@ -96,30 +110,36 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
   const shareRef = useRef(share)
   shareRef.current = share
 
-  // the Claude Code block shows only when this server has the connector on
+  // the step lists a proposal itself: the live notice about one is held back while the step is on screen
+  const openLabel = t('notice.openSkills')
+  useEffect(() => holdToasts((x) => isProposalToast(x, openLabel)), [openLabel])
+
+  // the Claude Code / Codex block shows only when this server has the connector on
   useEffect(() => {
     let live = true
     api.call(API.listRemoteConnectors).then((r) => live && setRemote({ configured: r.configured && !!r.resource, resource: r.resource }), () => live && setRemote({ configured: false, resource: null }))
     return () => { live = false }
   }, [])
 
-  // while nothing is on screen: a proposal Claude Code sent since the step opened (or one still waiting) shows here
-  const waitForClaudeCode = !share && !!remote?.configured
+  // while nothing is on screen: a proposal Claude Code or Codex sent since the step opened (or one still waiting), or a
+  // share applied elsewhere since then (its link or notice: /skills/share/:id), shows here
+  const waitForConnector = !share && !!remote?.configured
   useEffect(() => {
-    if (!waitForClaudeCode) return
+    if (!waitForConnector) return
     let live = true
     const look = async () => {
       try {
-        const r = await api.call(API.listSkillShares, { query: { source: 'claude_code' } })
+        const r = await api.call(API.listSkillShares, { query: {} })
         const since = openedAt.current - CLOCK_SLACK_MS
-        const found = r.items.find((s) => !gone.current.has(s.id) && (s.status === 'ready' || (s.status === 'checking' && Date.parse(s.createdAt) >= since)))
+        const applied = r.items.find((s) => !gone.current.has(s.id) && s.status === 'applied' && Date.parse(s.updatedAt ?? s.createdAt) >= since)
+        const found = applied ?? r.items.find((s) => !gone.current.has(s.id) && fromConnector(s.source) && (s.status === 'ready' || (s.status === 'checking' && Date.parse(s.createdAt) >= since)))
         if (live && found && !shareRef.current) setShare(found)
       } catch { /* the next tick asks again */ }
     }
     void look()
     const id = setInterval(() => void look(), CLAUDE_CODE_POLL_MS)
     return () => { live = false; clearInterval(id) }
-  }, [waitForClaudeCode])
+  }, [waitForConnector])
 
   const send = async (body: CreateSkillShare) => {
     setError(null)
@@ -232,11 +252,16 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
         <button type="button" className={clsx(quietLink, 'touch-hit')} aria-expanded={how} aria-controls="skills-cc-how" onClick={() => setHow((x) => !x)} data-testid="skills-cc-how-toggle">{t('welcome.skills.cc.how')}</button>
       </p>
       {how && remote.resource && (
+        // once per app: Claude Code adds the server and signs in with /mcp; Codex signs in as it adds it
         <div id="skills-cc-how" className="space-y-2 text-label text-muted" data-testid="skills-cc-how">
+          <p className="font-medium text-ink">Claude Code</p>
           <p>{t('welcome.skills.cc.step1')}</p>
           <CopyLine text={`claude mcp add --transport http ${CONNECTOR_NAME} ${remote.resource}`} testId="skills-cc-command" />
           <p>{t('welcome.skills.cc.step2')}</p>
           <CopyLine text="/mcp" testId="skills-cc-mcp" />
+          <p className="pt-2 font-medium text-ink">Codex</p>
+          <p>{t('welcome.skills.cc.codexStep')}</p>
+          <CopyLine text={`codex mcp add ${CONNECTOR_NAME} --url ${remote.resource}`} testId="skills-cc-codex-command" />
         </div>
       )}
     </div>
@@ -256,10 +281,12 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
           // on a phone "later" waits for the computer (the proposal stays); on a computer it is dropped
           onLater={phone ? onPhoneNext : later}
           onStopped={() => { gone.current.add(share.id); setShare(null) }}
-          onOtherFolder={share.source === 'claude_code' || phone ? undefined : pick}
+          onOtherFolder={fromConnector(share.source) || phone ? undefined : pick}
           busy={busy || reading}
+          // the welcome steps: setup is not finished while this step is on screen
+          inSetup
         />
-        {!phone && share.source !== 'claude_code' && folderInput}
+        {!phone && !fromConnector(share.source) && folderInput}
         {error && <ErrorNote onRetry={error.retry}>{error.text}</ErrorNote>}
       </div>
     )
@@ -280,20 +307,24 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
     )
   }
 
-  // the hint for the folder window
+  // the hint for the folder window: Claude's folder, and Codex's beside it (its settings in .codex, its skills in
+  // .agents since 2026; either one reads)
   const folder = <b className="font-semibold text-ink">.claude</b>
+  const codex = <b className="font-semibold text-ink">.codex</b>
+  const agents = <b className="font-semibold text-ink">.agents</b>
   const keys = (shown: string[], said: string) => (
     <>
-      <span aria-hidden>{shown.map((k) => <Kbd key={k}>{k}</Kbd>)}</span>
+      {/* the keys stay together on one line (⌘ at a line's end and ⇧ . on the next read as two hints) */}
+      <span aria-hidden className="whitespace-nowrap">{shown.map((k) => <Kbd key={k}>{k}</Kbd>)}</span>
       <span className="sr-only">{said}</span>
     </>
   )
   let hint: ReactNode
-  if (app) hint = withNodes(t('welcome.skills.hintDesktop'), { folder: <span className="font-mono">.claude</span>, button: <b className="font-semibold text-ink">{t('welcome.skills.desktopButton')}</b> })
-  else if (!handle) hint = withNodes(t(os === 'mac' ? 'welcome.skills.hintSkillsOnlyMac' : 'welcome.skills.hintSkillsOnly'), { folder, keys: keys(['⌘', '⇧', '.'], t('welcome.skills.keysMac')) })
-  else if (os === 'mac') hint = withNodes(t('welcome.skills.hintMac'), { folder, keys: keys(['⌘', '⇧', '.'], t('welcome.skills.keysMac')) })
-  else if (os === 'linux') hint = withNodes(t('welcome.skills.hintLinux'), { folder, keys: keys(['Ctrl', 'H'], t('welcome.skills.keysLinux')) })
-  else hint = withNodes(t('welcome.skills.hintWindows'), { folder })
+  if (app) hint = withNodes(t('welcome.skills.hintDesktop'), { folder: <span className="font-mono">.claude</span>, codex: <span className="font-mono">.codex</span>, agents: <span className="font-mono">.agents</span>, button: <b className="font-semibold text-ink">{t('welcome.skills.desktopButton')}</b> })
+  else if (!handle) hint = withNodes(t(os === 'mac' ? 'welcome.skills.hintSkillsOnlyMac' : 'welcome.skills.hintSkillsOnly'), { folder, codex, agents, keys: keys(['⌘', '⇧', '.'], t('welcome.skills.keysMac')) })
+  else if (os === 'mac') hint = withNodes(t('welcome.skills.hintMac'), { folder, codex, agents, keys: keys(['⌘', '⇧', '.'], t('welcome.skills.keysMac')) })
+  else if (os === 'linux') hint = withNodes(t('welcome.skills.hintLinux'), { folder, codex, agents, keys: keys(['Ctrl', 'H'], t('welcome.skills.keysLinux')) })
+  else hint = withNodes(t('welcome.skills.hintWindows'), { folder, codex, agents })
   // after a second folder with no skills, going on is the suggested way
   const stuck = misses >= 2
 

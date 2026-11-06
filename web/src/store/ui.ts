@@ -37,6 +37,17 @@ interface UiState {
 }
 
 let nextId = 1
+/** Toasts a screen holds back while it is on screen (holdToasts): each match is asked before a toast shows. */
+const holds = new Set<(t: Omit<Toast, 'id'>) => boolean>()
+/**
+ * While a screen already shows what a toast would say, it holds that toast back: `match` is asked for every toast
+ * until the returned function is called (on unmount). A held toast is dropped, not queued (docs/DECISIONS.md "W5":
+ * 내 스킬 가져오기 lists a Claude Code or Codex proposal itself, so the live notice about it would only cover the step).
+ */
+export function holdToasts(match: (t: Omit<Toast, 'id'>) => boolean): () => void {
+  holds.add(match)
+  return () => { holds.delete(match) }
+}
 export const useUi = create<UiState>((set, get) => ({
   toasts: [],
   conn: 'idle',
@@ -46,6 +57,7 @@ export const useUi = create<UiState>((set, get) => ({
   unseenDone: 0,
   toast(t) {
     const id = nextId++
+    for (const match of holds) { try { if (match(t)) return id } catch { /* a broken match holds nothing */ } }
     set((s) => ({ toasts: [...s.toasts.slice(-4), { ...t, id }] }))
     if (!t.sticky) setTimeout(() => get().dismiss(id), t.ms ?? (t.level === 'error' ? 8000 : 4500))
     return id

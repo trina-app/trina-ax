@@ -15,12 +15,12 @@
 //     for the team skill. Renaming or moving a skill gives it a new path: runs before and after count as two skills;
 //   - people deleted later still count (turns stay; a deleted account is a tombstone), but their names are not shown.
 import type { Database } from 'bun:sqlite'
-import { GOAL_DAYS, GOAL_PEOPLE, type TeamGoal } from '@mycel/shared/api'
+import { GENERAL_DECK_SKILL, GOAL_DAYS, GOAL_PEOPLE, type TeamGoal } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getSetting, setSetting } from '../admin/settings'
 import { notificationsOf } from '../notifications/service'
 import { titleFor } from './goal-names'
-import { readWelcome } from './welcome'
+import { landingSkill, readWelcome } from './welcome'
 import { readSkill } from '../chat/skills'
 
 const DAY_MS = 86_400_000
@@ -130,19 +130,26 @@ export function joinedNotRun(db: Database, viewerId: string, w: GoalWindow, ran:
 }
 
 /**
- * The skill the card counts: the one most people ran; but while the skill the invite opens (shared from 내 스킬
- * 가져오기, docs/DECISIONS.md "K": `shared.landing` of the welcome steps) has as many runners, that one, even with
- * nobody yet — the same skill the link opens and the members land on. A landing skill deleted since counts no more.
+ * The skill the card counts (docs/DECISIONS.md "W5"): the landing skill (onboarding/welcome.ts landingSkill: the skill
+ * the invite opens, else 할 일 정리; never the intro deck) while it exists, with its runners, even nobody yet — the same
+ * skill the link opens and the members land on; unless another skill that is not the intro deck has more people. The
+ * owner's own deck run never takes its place. Without a landing skill: the one most people ran.
  */
 export function focusSkill(ctx: AppContext, p: GoalProgress): SkillRunners | null {
-  const landing = readWelcome(ctx)?.shared?.landing ?? null
+  const landing = landingSkill(ctx)
   if (!landing) return p.best
-  const runs = skillRunners(ctx.db, p.startedAt, p.endsAt).find((s) => s.path === landing)
-  if (runs) return !p.best || runs.people.length >= p.best.people.length ? runs : p.best
-  if (p.best) return p.best
-  let name: string | null = null
-  try { name = readSkill(ctx.files, ctx.files.principal(firstOwner(ctx.db) ?? ''), landing)?.name ?? null } catch { name = null }
-  return name ? { path: landing, name, people: [] } : null
+  const welcome = readWelcome(ctx)
+  const deck = new Set([GENERAL_DECK_SKILL, welcome?.general?.introDeckPath].filter((x): x is string => !!x))
+  const all = skillRunners(ctx.db, p.startedAt, p.endsAt)
+  let own = all.find((s) => s.path === landing) ?? null
+  if (!own) {
+    let name: string | null = null
+    try { name = readSkill(ctx.files, ctx.files.principal(firstOwner(ctx.db) ?? ''), landing)?.name ?? null } catch { name = null }
+    own = { path: landing, name: name ?? landing, people: [] }
+  }
+  // the list is most people first: the first other skill that is not the deck is the only rival
+  const rival = all.find((s) => s.path !== landing && !deck.has(s.path))
+  return rival && rival.people.length > own.people.length ? rival : own
 }
 
 const firstOwner = (db: Database) => (db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null)?.id ?? null

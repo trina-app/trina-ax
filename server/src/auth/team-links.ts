@@ -21,7 +21,7 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
 import {
-  TEAM_LINK_DEFAULT_USES, TEAM_LINK_FRAGMENT_KEY, TeamLinkStarter, skillTitle,
+  GENERAL_DECK_SKILL, TEAM_LINK_DEFAULT_USES, TEAM_LINK_FRAGMENT_KEY, TeamLinkStarter, skillTitle,
   type CreateTeamLinkBody, type JoinStarter, type JoinTeamLinkBody, type JoinTeamLinkResponse, type Locale, type TeamLink, type TeamLinkInfo,
   type TeamLinkProblem, type TeamLinkResponse, type TeamLinkState, type UpdateTeamLinkBody,
 } from '@mycel/shared/api'
@@ -31,11 +31,14 @@ import { newId } from '../db'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { getTeamSettings } from '../admin/settings'
+import { getSetting, getTeamSettings, setSetting } from '../admin/settings'
+import { landingSkill, readWelcome } from '../onboarding/welcome'
 import { readSkill } from '../chat/skills'
 import { skillMakerName } from '../skills/author'
 import { Vault } from '../credentials/vault'
 import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { newMemberAi } from '../credentials/access'
+import { getChatRuntime } from '../chat/runtime'
 import type { Principal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
@@ -171,7 +174,18 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
       const paths = readableFiles(ctx, newMember(existingGroups(ctx.db, parseIds(r.group_ids))), st.files)
       return { kind: st.kind, files: paths.length, paths }
     })(),
+    memberAi: memberAiOf(ctx, parseIds(r.group_ids)),
   }
+}
+
+/** What AI someone joining with these groups has (the invite message's "본인 AI 계정이 필요해요"); a read that fails
+ * reads as ready, so no warning is added on a guess. */
+function memberAiOf(ctx: AppContext, groupIds: string[]): NonNullable<TeamLink['memberAi']> {
+  try {
+    let problems = {}
+    try { problems = getChatRuntime(ctx).engines.get().problems } catch { /* no chat runtime (a test of another part) */ }
+    return newMemberAi(ctx, existingGroups(ctx.db, groupIds), { problems })
+  } catch { return 'ready' }
 }
 
 /** While the per-link limit refuses every join (someone holding the link kept failing), until when; else null. The
@@ -268,6 +282,38 @@ export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
   }).immediate()
   if (!done) fail('not_found')
   return getTeamLink(c, ctx)
+}
+
+/** Set once the open links to the intro deck were looked at (repointDeckLinks). */
+export const DECK_LINKS_KEY = 'onboarding.deckLinksRepointedAt'
+
+/**
+ * Old open invite links that lead to the intro deck (the first result of docs/DECISIONS.md "D2" was what the invite
+ * opened before "W5"): each is pointed once at the skill everything points at now (onboarding/welcome.ts landingSkill),
+ * keeping its address, when someone joining with its groups can open that skill; otherwise it is left as it is. Once
+ * per server (DECK_LINKS_KEY): a link the owner points at the deck again later stays. Audited. Returns how many changed.
+ */
+export function repointDeckLinks(ctx: AppContext): number {
+  if (getSetting(ctx.db, DECK_LINKS_KEY)) return 0
+  const general = readWelcome(ctx)?.general
+  const deck = [...new Set([GENERAL_DECK_SKILL, general?.introDeckPath].filter((x): x is string => !!x))]
+  const landing = landingSkill(ctx)
+  let n = 0
+  ctx.db.transaction(() => {
+    if (getSetting(ctx.db, DECK_LINKS_KEY)) return
+    const rows = ctx.db.query(`SELECT ${COLS} FROM team_links WHERE revoked_at IS NULL AND skill_path IN (${deck.map(() => '?').join(',')})`).all(...deck) as Row[]
+    for (const r of rows) {
+      const groups = existingGroups(ctx.db, parseIds(r.group_ids))
+      const s = landing ? teamSkill(ctx, newMember(groups), landing) : null
+      if (!s) continue
+      const starter = starterFor(ctx, groups, s.path, parseStarter(r.starter))
+      ctx.db.query('UPDATE team_links SET skill_path = ?, starter = ? WHERE id = ? AND revoked_at IS NULL').run(s.path, starter, r.id)
+      audit(ctx.db, { actor: null, action: 'team_link.update', target: r.id, detail: { skillPath: s.path, from: r.skill_path, reason: 'intro_deck_link' } })
+      n++
+    }
+    setSetting(ctx.db, DECK_LINKS_KEY, new Date().toISOString())
+  }).immediate()
+  return n
 }
 
 /** DELETE /api/admin/team-link: the open link, whatever its state, stops working for good; its sealed token is wiped

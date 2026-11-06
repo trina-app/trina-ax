@@ -10,20 +10,21 @@ import { z } from 'zod'
 import { empty, endpoint } from './endpoint'
 import { SkillPackId, SkillPackInstallResult } from './onboarding-packs'
 
-/** In order. `ai` (connect an AI) opens the steps only while the owner has no AI that answers them (docs/DECISIONS.md
- * "W2 — AI connection first"), in front of the steps that need it, never in front of the invite; it is recorded once
- * it was shown, so the progress keeps showing it. `result` starts the intro deck, which builds on the server while the
- * steps go on (docs/DECISIONS.md "K — 내 스킬 가져오기"): `skills` (내 스킬 가져오기) and `files` (팀 파일 가져오기)
- * follow at once, then the finished deck (its chat, with [팀에 공유] under it) and the invite. `invite` comes after the
- * counted steps (the progress bar shows ai when it was needed, profile, result, skills, files). A row written before
- * may still hold a `team` step: it is kept as it is and no longer read; a row from before `skills` and `files` reads
- * them as open. */
+/** `ai` (connect an AI) opens the steps only while the owner has no AI that answers them (docs/DECISIONS.md "W2 — AI
+ * connection first"), in front of the steps that need it, never in front of the later ones; it is recorded once it was
+ * shown, so the progress keeps showing it. Then (docs/DECISIONS.md "W5 — Onboarding v5"): `profile` (회사 소개; its
+ * "저장하고 계속" starts the intro deck once per team, which builds on the server as an ordinary chat while the steps go
+ * on), `skills` (내 스킬 가져오기), `files` (팀 파일 가져오기) and `invite` (팀원 초대), then the end screen ("준비
+ * 끝났어요"). `result` is no longer a step: it is kept for rows written before ("first result"), read but never walked
+ * (`result: skipped` means no deck; the deck that started is the fact `resultChatId`). A row written before may still
+ * hold a `team` step: it is kept as it is and no longer read; a row from before `skills` and `files` reads them as open. */
 export const WELCOME_STEPS = ['ai', 'profile', 'result', 'skills', 'files', 'invite'] as const
 export const WelcomeStep = z.enum(WELCOME_STEPS)
 export type WelcomeStep = z.infer<typeof WelcomeStep>
-/** the steps the progress bar always counts ("1/4"); `ai` is counted too while it is needed or once it was shown
- * (web/src/lib/welcome.ts countedSteps) */
-export const WELCOME_COUNTED = ['profile', 'result', 'skills', 'files'] as const satisfies readonly WelcomeStep[]
+/** the steps the progress bar always counts, in the order they are walked ("1/4"); `ai` is counted too while it is
+ * needed or once it was shown (web/src/lib/welcome.ts countedSteps). The setup is finished when each of them is done or
+ * put off (server/src/onboarding/welcome.ts welcomeFinished). */
+export const WELCOME_COUNTED = ['profile', 'skills', 'files', 'invite'] as const satisfies readonly WelcomeStep[]
 
 export const WelcomeStepState = z.enum(['done', 'skipped'])
 export type WelcomeStepState = z.infer<typeof WelcomeStepState>
@@ -58,14 +59,16 @@ export const WelcomeProgress = z.object({
      * shown (no AI answered), `done` when AI answered after that */
     ai: WelcomeStepState.nullable().optional(),
     profile: WelcomeStepState.nullable(), result: WelcomeStepState.nullable(),
-    /** 내 스킬 가져오기 and 팀 파일 가져오기 (docs/DECISIONS.md "K"): the server sends null for rows from before them;
+    /** 내 스킬 가져오기 and 팀 파일 가져오기 (docs/DECISIONS.md "SK"): the server sends null for rows from before them;
      * absent (an older server) reads as null */
     skills: WelcomeStepState.nullable().optional(), files: WelcomeStepState.nullable().optional(),
     invite: WelcomeStepState.nullable(),
   }),
   /** the pack these steps installed, once (never again by themselves), and the path of its first-result skill */
   pack: z.object({ id: SkillPackId, at: z.string(), skillPath: z.string() }).nullable(),
-  /** the chat the first result ran in (one of the owner's): it shows the invite bar */
+  /** the intro deck's chat ("우리 회사 소개서", one of the owner's): set once, when 회사 소개's "저장하고 계속" started it
+   * (POST …/first-result records it), so saving again never starts a second one. Rows from before: the first
+   * result's chat */
   resultChatId: z.string().nullable(),
   /** when the invite step was first opened */
   inviteShownAt: z.string().nullable(),
@@ -76,8 +79,13 @@ export const WelcomeProgress = z.object({
   /** a row from the three-step version whose team step was put off ("나중에") and no team type picked since: the
    * marketing pack is not installed by itself when the first step is left (the earlier choice stands); absent = no */
   teamSkipped: z.boolean().optional(),
-  /** profile and result done, and the invite done or skipped; or the owner finished without files ("자료 없이") */
+  /** 회사 소개 answered (done, with the deck started or a row's first result answered; or put off) and 내 스킬, 팀 파일
+   * and the invite each done or put off, not while 내 스킬 waits for a computer (`skillsLater`); or a row of the
+   * three-step version that finished without files ("자료 없이") */
   finishedAt: z.string().nullable(),
+  /** the end screen ("준비 끝났어요") was shown: it shows once; finishing later (내 스킬 on a computer after a phone)
+   * goes Home with "설정을 마쳤어요". Absent or null: not yet */
+  doneShownAt: z.string().nullable().optional(),
   /** the general pack (할 일 정리, 핵심 정리) these steps installed, once; absent or null: not yet. `tasksPath` /
    * `briefPath`: the skills "/meeting-tasks" and "/doc-brief" run for the team (the pack's own files, or another team
    * skill of that name already there); null when neither is there */
@@ -97,7 +105,7 @@ export const WelcomeProgress = z.object({
    * open on a computer, so Home's row says "남은 일: 내 스킬 가져오기" and the steps resume on it there; the steps are
    * not finished while it is set. Absent = no */
   skillsLater: z.boolean().optional(),
-  /** the skills the owner shared to the team from 내 스킬 가져오기 (docs/DECISIONS.md "K"), in the order they were
+  /** the skills the owner shared to the team from 내 스킬 가져오기 (docs/DECISIONS.md "SK"), in the order they were
    * added, and the one the invite opens (`landing`: the first recommended one, which the owner may change on the
    * invite; the 7-day goal names it). Absent or null: none */
   shared: z.object({ at: z.string(), skills: z.array(z.object({ path: z.string(), title: z.string() })), landing: z.string().nullable() }).nullable().optional(),
@@ -128,6 +136,8 @@ export const WelcomeUpdate = z.object({
   skillsLater: z.literal(true).optional(),
   /** the shared skill the invite opens (바꾸기 on the invite): one of `shared.skills` */
   landing: z.string().min(1).max(1000).optional(),
+  /** the end screen was shown (once) */
+  doneShown: z.literal(true).optional(),
 }).strict()
 export type WelcomeUpdate = z.infer<typeof WelcomeUpdate>
 
@@ -153,9 +163,12 @@ export const WelcomeTeamResult = z.object({
 export type WelcomeTeamResult = z.infer<typeof WelcomeTeamResult>
 
 /** POST /api/onboarding/welcome/first-result: the company's intro deck (docs/DECISIONS.md "D2"; the promo video of "V"
- * and the card news of "N" before it). `files`: the team files the owner just put into the brand folder (their company
- * intro or team deck); none: the server writes 회사 소개.md there from the saved profile and the pages the website
- * reading opened. */
+ * and the card news of "N" before it), started by 회사 소개's "저장하고 계속" once per team (docs/DECISIONS.md "W5"):
+ * the chat is recorded as `resultChatId` at once; while that chat holds a message the server answers 409 with
+ * `params.reason` "deck_started" (saving again only saves), and a chat it made whose message never went (the page was
+ * closed in between) is handed out again. `files`: the team files the owner added on 회사 소개 ("소개 자료가 있으면 같이
+ * 넣기", into the brand folder); none: the server writes 회사 소개.md there from the saved profile and the pages the
+ * website reading opened. */
 export const FIRST_RESULT_FILES_MAX = 10
 export const StartFirstResult = z.object({ files: z.array(z.string().min(1).max(1000)).max(FIRST_RESULT_FILES_MAX) }).strict()
 export type StartFirstResult = z.infer<typeof StartFirstResult>
