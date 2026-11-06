@@ -41,6 +41,7 @@ import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } f
 import { aiName, landingPath } from '../lib/tabs'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { isUnused, SessionMarker, useChatMarker } from '../components/chat/ChatState'
+import { needsMe } from '../lib/sessionMarkers'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
@@ -180,7 +181,7 @@ function RecentChat({ chat }: { chat: Chat }) {
   return (
     <li data-marker={marker?.kind}>
       <Link to={`/c/${chat.id}`} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink hover:bg-hover" data-testid="home-recent">
-        <span className={clsx('min-w-0 flex-1 truncate', marker?.kind === 'new' && 'font-medium')}>{chat.title || t('chat.untitled')}</span>
+        <span className={clsx('min-w-0 flex-1 truncate', needsMe(marker) && 'font-medium')}>{chat.title || t('chat.untitled')}</span>
         {marker && <SessionMarker marker={marker} label={reason} />}
         <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
       </Link>

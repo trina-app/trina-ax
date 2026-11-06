@@ -347,8 +347,11 @@ describe('a computer', () => {
       expect(marks('채팅 1')[0]!.getAttribute('aria-label')).toBe(ko('marker.card'))
       expect(marks('채팅 2')[0]!.getAttribute('data-testid')).toBe('marker-new')
       expect(marks('채팅 2')[0]!.getAttribute('aria-label')).toBe(ko('marker.new'))
-      // the title in ink with a new answer
+      // a row that needs me ("?" or the dot) reads in ink; a running or idle one stays muted
       expect(row('채팅 2').querySelector('a')!.className).toContain('text-ink')
+      expect(row('채팅 5').querySelector('a')!.className).toContain('text-ink')
+      expect(row('채팅 4').querySelector('a')!.className).toContain('text-muted')
+      expect(row('채팅 3').querySelector('a')!.className).toContain('text-muted')
       expect(marks('채팅 3').length).toBe(0)
       expect(marks('채팅 4')[0]!.getAttribute('data-testid')).toBe('marker-running')
       expect(marks('채팅 4')[0]!.getAttribute('aria-label')).toBe(ko('marker.queued'))

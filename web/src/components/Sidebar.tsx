@@ -367,7 +367,8 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
   const t = useT()
   const [menu, setMenu] = useState(false)
   const actions = useChatActions()
-  // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row
+  // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row. A row that needs me ("?" or
+  // the dot: what "답 필요" and the one count hold) reads in ink, the others stay muted
   const { marker, reason } = useChatMarker(chat)
   const ref = useRef<HTMLLIElement>(null)
   useEffect(() => {
@@ -398,7 +399,7 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
         onBlur={peek.hide}
         onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
         className={({ isActive }) =>
-          clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-md:h-11 max-md:pr-11', marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : marker?.kind === 'new' ? 'font-medium text-ink' : 'text-muted')
+          clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-md:h-11 max-md:pr-11', marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
         }
       >
         <span className="truncate">{chat.title || t('chat.untitled')}</span>
