@@ -241,7 +241,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   registerPromoVideo(ctx, reg)
   exposeToTurns('promo_video')
   // the company's intro deck (intro-deck/tool.ts, docs/DECISIONS.md "D2"): slots in, our layout out
-  registerIntroDeck(ctx, reg)
+  registerIntroDeck(ctx, reg, { fetch: o.fetch })
   exposeToTurns('intro_deck')
   // Higgsfield video (tools/higgsfield.ts): only when an admin put the team's key in <data>/secrets/higgsfield.key
   if (registerHiggsfield(ctx, reg)) exposeToTurns('generate_video')

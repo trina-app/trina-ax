@@ -6,6 +6,7 @@
 import { DECK_ACCENT_MAX_BYTES, DECK_ACCENTS_MAX, DECK_FIXES_MAX, DECK_TOOL, IntroDeckListing, IntroDeckStep } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ToolRegistry } from '../tools/registry'
+import type { FetchOptions } from '../tools/web-fetch'
 import { runDeckStep } from './build'
 import { ICON_NAMES } from './icons'
 import { deckTier, tierText } from './tiers'
@@ -22,15 +23,15 @@ export const DECK_TOOL_DESCRIPTION =
   `Accents (the owner's wish: draw one on the closing slide, and one on the cover when the cover has no picture; at most ${DECK_ACCENTS_MAX} per deck, only on the cover, an opening or the closing, drawn on the right half): an SVG in this grammar only — viewBox="0 0 800 800"; elements svg, g, path, circle, ellipse, rect, line, polyline, polygon, defs, linearGradient, radialGradient, stop, clipPath; attributes for geometry and fill, stroke, stroke-width (1.5, 2 or 3), opacity / fill-opacity / stroke-opacity (0.08–1), stroke-linecap, stroke-linejoin, stroke-dasharray, transform (translate, rotate, scale), id on gradients and clip paths, fill / clip-path = url(#local-id); colours by name only: ink, ground, line, mark, onMark; no text, no people, no logos, no other colours, at most 150 elements and ${DECK_ACCENT_MAX_BYTES / 1000} KB. Make it abstract, fine and from the company's world, filling the 800 box around its centre (400, 400) out to a radius of about 360: 30–150 elements, thin strokes (1.5 or 2), most of it in \`line\` or in \`mark\` at low opacity (0.1–0.3), one to a few small elements in solid \`mark\` as the highlight. Examples: a wafer (a circle with a small notch, and 150–300 small square dies of 24–30 px with 4–6 px gaps written as ONE path of many "M x y h 26 v 26 h -26 z" squares inside the circle, a second path with 6–12 of them in solid mark); growth rings (10–14 slightly wobbly closed paths, one ring in mark); orbits (two rings around a solid disc, small circles on the rings joined to the centre by thin lines). Never a few big blocks. A rejected accent is simply left out. ` +
   'If a step comes back with problems, fix all of them and send that step again.'
 
-export function registerIntroDeck(ctx: AppContext, reg: ToolRegistry): void {
+export function registerIntroDeck(ctx: AppContext, reg: ToolRegistry, o: { fetch?: FetchOptions } = {}): void {
   reg.register({
     name: DECK_TOOL,
     description: DECK_TOOL_DESCRIPTION,
     input: IntroDeckStep,
     // the model's API takes only an object as a tool's input schema: the steps' fields in one object for the listing
     // the team's time budget (tiers.ts) is read at every answer's start: what to read and search before the outline
-    listing: () => ({ description: `${tierText(deckTier(ctx.db))} ${DECK_TOOL_DESCRIPTION}`, input: IntroDeckListing }),
+    listing: () => ({ description: `${tierText(deckTier(ctx.db, ctx.config.mode === 'dev'))} ${DECK_TOOL_DESCRIPTION}`, input: IntroDeckListing }),
     describe: (a) => `${DECK_TOOL} ${a.step}${a.step === 'slide' ? ` ${a.index} ${a.slide.kind}` : a.step === 'outline' ? ` ${a.slides.length}` : a.step === 'read' ? ` ${a.urls?.length ?? 0}` : ''}`,
-    run: (a, t) => runDeckStep(ctx, a, t),
+    run: (a, t) => runDeckStep(ctx, a, t, { fetch: o.fetch }),
   })
 }
