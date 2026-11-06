@@ -187,9 +187,13 @@ export function ConnectorDiscover({ connected, query, onAdd, onCustom }: {
 
 /** A service's logo. On white in both themes, like the logo pages of most of them: they are drawn for a light background. */
 export function ConnectorLogo({ c, className }: { c: Connector; className?: string }) {
+  return <LogoTile src={connectorLogo(c)} className={className} />
+}
+
+export function LogoTile({ src, className }: { src: string; className?: string }) {
   return (
     <span className={`flex shrink-0 items-center justify-center rounded-lg border border-line bg-white p-1.5 ${className ?? ''}`}>
-      <img src={connectorLogo(c)} alt="" className="size-full object-contain" data-testid="connector-logo" />
+      <img src={src} alt="" className="size-full object-contain" data-testid="connector-logo" />
     </span>
   )
 }

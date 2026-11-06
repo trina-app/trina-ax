@@ -200,6 +200,8 @@ export class MockServer {
   codexEnabled = true
   // the API engine: listed like on a real server, off here so chats and Admin Home do not count it
   apiEngineEnabled = false
+  /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
+  driveClient: 'none' | 'app' = 'none'
   /** Admin > AI connections: the team's connections (secrets are opened with the real server sealing code and dropped) */
   credentials: Credential[] = []
   credMemberOwn = true
@@ -323,6 +325,7 @@ export class MockServer {
     this.limitFallback = false
     this.codexEnabled = true
     this.apiEngineEnabled = false
+    this.driveClient = 'none'
     this.credentials = []
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
@@ -386,7 +389,7 @@ export class MockServer {
     for (const u of this.users) u.locale = u.localeChoice ?? this.settings.defaultLocale
   }
 
-  addUser(u: Pick<User, 'id' | 'username' | 'name' | 'role' | 'groupIds'> & { mustChangePassword?: boolean; localeChoice?: Locale | null }, password: string) {
+  addUser(u: Pick<User, 'id' | 'username' | 'name' | 'role' | 'groupIds'> & { mustChangePassword?: boolean; localeChoice?: Locale | null; email?: string | null }, password: string) {
     const user: User = { email: null, status: 'active', mustChangePassword: false, locale: 'ko', localeChoice: null, createdAt: now(), lastSeenAt: null, ...u }
     user.locale = user.localeChoice ?? this.settings.defaultLocale
     this.users.push(user)
@@ -1691,7 +1694,7 @@ export class MockServer {
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
-      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null }, c.body.temporaryPassword ?? 'tiger4271')
+      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null, email: c.body.email ?? null }, c.body.temporaryPassword ?? 'tiger4271')
       return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://team.example.com' } }
     },
     updateUser: (c) => {
@@ -2170,12 +2173,30 @@ export class MockServer {
       this.teamIcon = null
       return undefined
     },
-    usage: (c) => ({ from: c.query.from ?? now(), to: c.query.to ?? now(), rows: c.query.groupBy === 'skill'
-      ? [{ key: 'skills/report.md', label: '주간 보고서', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }]
-      : c.query.groupBy === 'model'
-        ? [{ key: 'model-test', label: 'model-test', turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }]
-        : [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }],
-      totals: { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 } }),
+    // like server/src/admin/budgets.ts usage: made-up rows per Group by; with series=1 the same rows spread over the
+    // last three days of the range (tokens per day by key, adding up to the rows), with facets=1 the filter choices.
+    // A person filter (user=bob) keeps only that person's row and totals.
+    usage: (c) => {
+      const rows = c.query.groupBy === 'skill'
+        ? [{ key: 'skills/report.md', label: '주간 보고서', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }]
+        : c.query.groupBy === 'model'
+          ? [{ key: 'model-test', label: 'model-test', turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }]
+          : [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }]
+      const only = c.query.user && c.query.groupBy === 'user' ? rows.filter((r) => r.key === c.query.user) : rows
+      const totals = c.query.user === 'bob' ? { turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 } : { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }
+      const to = new Date(c.query.to ?? now())
+      const day = (back: number) => new Date(to.getTime() - (back + 1) * 86_400_000 + 3600_000).toISOString().slice(0, 10)
+      const split = [0.5, 0.3, 0.2]
+      const series = c.query.series ? only.flatMap((r) => split.map((f, i) => ({ day: day(i), key: c.query.groupBy === 'day' ? 'all' : r.key, turns: Math.round(r.turns * f), inputTokens: Math.round(r.inputTokens * f), outputTokens: Math.round(r.outputTokens * f) }))) : undefined
+      const facets = c.query.facets ? {
+        users: [{ key: 'bob', label: 'Bob' }, { key: 'olga', label: 'Olga' }],
+        engines: [{ key: 'claude-code', label: 'claude-code' }, { key: 'codex', label: 'codex' }],
+        models: [{ key: '', label: '(default)' }, { key: 'model-test', label: 'model-test' }],
+        credentials: [],
+        groups: this.groups.map((g) => ({ key: g.id, label: g.name })),
+      } : undefined
+      return { from: c.query.from ?? now(), to: c.query.to ?? now(), rows: only, totals, ...(series ? { series } : {}), ...(facets ? { facets } : {}) }
+    },
     // like server/src/admin/audit.ts listAudit: newest first, filtered by kind, person, path (file events only) and
     // [from, to); paged by an index cursor. Made-up rows: today's invite first, repeats, a refused AI tool call, a team
     // skill change yesterday, and a sign-in every day before that (enough to scroll and to need "Load more").
@@ -2306,6 +2327,26 @@ export class MockServer {
     getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
+
+    // Google Drive (server/src/routes/drive.ts): this test server has no Google client, like a server not set up for it.
+    // e2e tests that need the other states answer these addresses themselves (test/e2e/drive.spec.ts).
+    myDriveConnection: () => (this.driveClient === 'none'
+      ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }
+      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null }),
+    // Admin › App connectors (integrations/google-drive/admin-setup.ts): this test server has a public address, so an
+    // admin can set Google up; a file must list the redirect URI, like the real server checks.
+    driveAdminStatus: () => this.driveAdminStatus(),
+    setDriveClient: (c) => {
+      const redirect = this.driveAdminStatus().redirectUri!
+      if (c.body.file !== undefined) {
+        let j: { web?: { redirect_uris?: unknown } } | null = null
+        try { j = JSON.parse(c.body.file) } catch { fail('bad_request', 400, 'drive_client_invalid') }
+        if (!j?.web) fail('bad_request', 400, 'drive_client_invalid')
+        if (!Array.isArray(j!.web!.redirect_uris) || !j!.web!.redirect_uris.includes(redirect)) fail('bad_request', 400, 'drive_client_redirect')
+      }
+      this.driveClient = 'app'
+      return this.driveAdminStatus()
+    },
 
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
     listIntegrations: (c) => ({
@@ -2670,6 +2711,11 @@ export class MockServer {
     const state = this.requestState(r)
     if (state !== 'waiting') throw new Fail('conflict', 409, '이 요청은 더 이상 기다리고 있지 않아요.', undefined, { state })
     return r
+  }
+  driveAdminStatus() {
+    const configured = this.driveClient !== 'none'
+    return { configured, source: configured ? 'app' as const : 'none' as const, canSetUp: true, blocked: null,
+      redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0 }
   }
   templateCovers(t: { access: IntegrationAccess }, u: User): boolean {
     return t.access.everyone || t.access.users.includes(u.id) || t.access.groups.some((g) => u.groupIds.includes(g))

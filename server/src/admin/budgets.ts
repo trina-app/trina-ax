@@ -141,11 +141,11 @@ export function budgetBlock(db: Database, userId: string, locale: Locale, now = 
  * Usage per calendar day of the team's time zone (like every date the team sees), not per UTC day: in Seoul a UTC
  * day ends at 09:00. Folded here rather than in SQL, so the day follows the same time zone as the rest of the server.
  */
-function usageByLocalDay(db: Database, range: string[]): UsageRes['rows'] {
+function usageByLocalDay(db: Database, where: string, params: string[]): UsageRes['rows'] {
   const tz = teamTimeZone(db)
   const localDay = (d: Date) => zonedDay(d, tz)
   const days = new Map<string, UsageRes['rows'][number]>()
-  const rows = db.query('SELECT started_at, input_tokens, output_tokens, cost_usd, usage_source FROM turns WHERE started_at >= ? AND started_at < ?').all(...range) as { started_at: string; input_tokens: number | null; output_tokens: number | null; cost_usd: number | null; usage_source: string | null }[]
+  const rows = db.query(`SELECT t.started_at, t.input_tokens, t.output_tokens, t.cost_usd, t.usage_source FROM turns t WHERE ${where}`).all(...params) as { started_at: string; input_tokens: number | null; output_tokens: number | null; cost_usd: number | null; usage_source: string | null }[]
   for (const r of rows) {
     const key = localDay(new Date(r.started_at))
     const d = days.get(key) ?? { key, label: key, turns: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
@@ -159,17 +159,67 @@ function usageByLocalDay(db: Database, range: string[]): UsageRes['rows'] {
   return [...days.values()].sort((a, b) => a.key.localeCompare(b.key))
 }
 
+/** The chart: tokens per day (team time zone) split by the groupBy key. Skill and group keys can overlap, like their rows;
+ * groupBy=day has one key, 'all'. */
+function usageSeries(db: Database, groupBy: In<typeof UsageQuery>['groupBy'], where: string, params: string[]): NonNullable<UsageRes['series']> {
+  const tz = teamTimeZone(db)
+  const pick: Record<In<typeof UsageQuery>['groupBy'], { key: string; join?: string; and?: string }> = {
+    user: { key: 't.user_id' },
+    engine: { key: 't.engine' },
+    model: { key: "COALESCE(t.model, '')" },
+    day: { key: "'all'" },
+    group: { key: 'm.group_id', join: 'JOIN group_members m ON m.user_id = t.user_id' },
+    credential: { key: 't.credential_id', and: ' AND t.credential_id IS NOT NULL' },
+    skill: { key: 's.skill_path', join: 'JOIN turn_skill_usage s ON s.turn_id = t.id' },
+  }
+  const p = pick[groupBy ?? 'user']
+  const rows = db.query(`SELECT t.started_at AS at, ${p.key} AS key, t.input_tokens AS i, t.output_tokens AS o FROM turns t ${p.join ?? ''} WHERE ${where}${p.and ?? ''}`).all(...params) as { at: string; key: string; i: number | null; o: number | null }[]
+  const out = new Map<string, NonNullable<UsageRes['series']>[number]>()
+  for (const r of rows) {
+    const day = zonedDay(new Date(r.at), tz)
+    const id = `${day}\u0000${r.key}`
+    const d = out.get(id) ?? { day, key: r.key, turns: 0, inputTokens: 0, outputTokens: 0 }
+    d.turns++
+    d.inputTokens += r.i ?? 0
+    d.outputTokens += r.o ?? 0
+    out.set(id, d)
+  }
+  return [...out.values()].sort((a, b) => a.day.localeCompare(b.day) || a.key.localeCompare(b.key))
+}
+
+/** The filter choices: everything with usage in the range, whatever the filters are (so a choice never disappears). */
+function usageFacets(db: Database, range: string[]): NonNullable<UsageRes['facets']> {
+  const w = 't.started_at >= ? AND t.started_at < ?'
+  type F = { key: string; label: string }
+  return {
+    users: db.query(`SELECT DISTINCT t.user_id AS key, COALESCE(u.name, t.user_id) AS label FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE ${w} ORDER BY label`).all(...range) as F[],
+    engines: db.query(`SELECT DISTINCT t.engine AS key, t.engine AS label FROM turns t WHERE ${w} ORDER BY key`).all(...range) as F[],
+    models: db.query(`SELECT DISTINCT COALESCE(t.model, '') AS key, COALESCE(t.model, '(default)') AS label FROM turns t WHERE ${w} ORDER BY key`).all(...range) as F[],
+    credentials: db.query(`SELECT DISTINCT t.credential_id AS key, COALESCE(c.label, '') AS label FROM turns t LEFT JOIN engine_credentials c ON c.id = t.credential_id WHERE ${w} AND t.credential_id IS NOT NULL ORDER BY label`).all(...range) as F[],
+    groups: db.query('SELECT id AS key, name AS label FROM groups ORDER BY name').all() as F[],
+  }
+}
+
 export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()): UsageRes {
   const to = q.to ? new Date(q.to) : now
   const from = q.from ? new Date(q.from) : new Date(to.getTime() - 30 * 86_400_000)
   if (!(from < to)) fail('validation', undefined, { fields: { 'query.from': 'must be before "to"' } })
   const range = [from.toISOString(), to.toISOString()]
+  // the range, then the optional filters; every row query, the totals and the chart use the same WHERE
+  const conds = ['t.started_at >= ? AND t.started_at < ?']
+  const params: string[] = [...range]
+  if (q.user) { conds.push('t.user_id = ?'); params.push(q.user) }
+  if (q.engine) { conds.push('t.engine = ?'); params.push(q.engine) }
+  if (q.model !== undefined) { conds.push("COALESCE(t.model, '') = ?"); params.push(q.model) }
+  if (q.credential) { conds.push('t.credential_id = ?'); params.push(q.credential) }
+  if (q.group) { conds.push('t.user_id IN (SELECT user_id FROM group_members WHERE group_id = ?)'); params.push(q.group) }
+  const where = conds.join(' AND ')
   const agg = 'COUNT(*) AS turns, COALESCE(SUM(t.input_tokens), 0) AS inputTokens, COALESCE(SUM(t.output_tokens), 0) AS outputTokens, COALESCE(SUM(t.cost_usd), 0) AS costUsd, COALESCE(SUM(CASE WHEN t.usage_source = \'engine_unpriced\' THEN 1 ELSE 0 END), 0) AS unpricedTurns'
   let sql = ''
   switch (q.groupBy) {
-    case 'user': sql = `SELECT t.user_id AS key, COALESCE(u.name, t.user_id) AS label, ${agg} FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE t.started_at >= ? AND t.started_at < ? GROUP BY t.user_id ORDER BY costUsd DESC, turns DESC`; break
-    case 'engine': sql = `SELECT t.engine AS key, t.engine AS label, ${agg} FROM turns t WHERE t.started_at >= ? AND t.started_at < ? GROUP BY t.engine ORDER BY turns DESC`; break
-    case 'model': sql = `SELECT COALESCE(t.model, '') AS key, COALESCE(t.model, '(default)') AS label, ${agg} FROM turns t WHERE t.started_at >= ? AND t.started_at < ? GROUP BY COALESCE(t.model, '') ORDER BY turns DESC`; break
+    case 'user': sql = `SELECT t.user_id AS key, COALESCE(u.name, t.user_id) AS label, ${agg} FROM turns t LEFT JOIN users u ON u.id = t.user_id WHERE ${where} GROUP BY t.user_id ORDER BY costUsd DESC, turns DESC`; break
+    case 'engine': sql = `SELECT t.engine AS key, t.engine AS label, ${agg} FROM turns t WHERE ${where} GROUP BY t.engine ORDER BY turns DESC`; break
+    case 'model': sql = `SELECT COALESCE(t.model, '') AS key, COALESCE(t.model, '(default)') AS label, ${agg} FROM turns t WHERE ${where} GROUP BY COALESCE(t.model, '') ORDER BY turns DESC`; break
     // Skill rows attribute the whole turn. A turn using several skills appears in each row; totals below remain
     // the unique turn totals. Latest recorded name in this range labels a path even after its file is renamed.
     case 'skill': sql = `SELECT s.skill_path AS key,
@@ -177,16 +227,19 @@ export function usage(db: Database, q: In<typeof UsageQuery>, now = new Date()):
         WHERE s2.skill_path = s.skill_path AND t2.started_at >= ? AND t2.started_at < ?
         ORDER BY t2.started_at DESC, s2.turn_id DESC LIMIT 1) AS label,
       ${agg} FROM turns t JOIN turn_skill_usage s ON s.turn_id = t.id
-      WHERE t.started_at >= ? AND t.started_at < ? GROUP BY s.skill_path ORDER BY turns DESC, costUsd DESC, s.skill_path`; break
+      WHERE ${where} GROUP BY s.skill_path ORDER BY turns DESC, costUsd DESC, s.skill_path`; break
     case 'day': break
-    case 'group': sql = `SELECT g.id AS key, g.name AS label, ${agg} FROM turns t JOIN group_members m ON m.user_id = t.user_id JOIN groups g ON g.id = m.group_id WHERE t.started_at >= ? AND t.started_at < ? GROUP BY g.id ORDER BY turns DESC`; break
+    case 'group': sql = `SELECT g.id AS key, g.name AS label, ${agg} FROM turns t JOIN group_members m ON m.user_id = t.user_id JOIN groups g ON g.id = m.group_id WHERE ${where} GROUP BY g.id ORDER BY turns DESC`; break
     // per AI connection (the connection of each turn's latest attempt); a removed connection keeps its turns under
     // its id, labelled empty here (the screen says "removed connection"); turns without one (local login) are left out
-    case 'credential': sql = `SELECT t.credential_id AS key, COALESCE(c.label, '') AS label, ${agg} FROM turns t LEFT JOIN engine_credentials c ON c.id = t.credential_id WHERE t.started_at >= ? AND t.started_at < ? AND t.credential_id IS NOT NULL GROUP BY t.credential_id ORDER BY costUsd DESC, turns DESC`; break
+    case 'credential': sql = `SELECT t.credential_id AS key, COALESCE(c.label, '') AS label, ${agg} FROM turns t LEFT JOIN engine_credentials c ON c.id = t.credential_id WHERE ${where} AND t.credential_id IS NOT NULL GROUP BY t.credential_id ORDER BY costUsd DESC, turns DESC`; break
   }
-  const rows = q.groupBy === 'day' ? usageByLocalDay(db, range) : (db.query(sql).all(...(q.groupBy === 'skill' ? [...range, ...range] : range)) as UsageRes['rows'])
-  const tot = db.query(`SELECT ${agg} FROM turns t WHERE t.started_at >= ? AND t.started_at < ?`).get(...range) as UsageRes['totals']
+  const rows = q.groupBy === 'day' ? usageByLocalDay(db, where, params) : (db.query(sql).all(...(q.groupBy === 'skill' ? [...range, ...params] : params)) as UsageRes['rows'])
+  const tot = db.query(`SELECT ${agg} FROM turns t WHERE ${where}`).get(...params) as UsageRes['totals']
   // unpricedTurns: turns whose amount has an unknown part (API engine, no provider cost and no list price); only when any
   const priced = <T extends { unpricedTurns?: number }>(r: T): T => { if (!r.unpricedTurns) delete r.unpricedTurns; return r }
-  return { from: from.toISOString(), to: to.toISOString(), rows: rows.map(priced), totals: priced(tot) }
+  const res: UsageRes = { from: from.toISOString(), to: to.toISOString(), rows: rows.map(priced), totals: priced(tot) }
+  if (q.series) res.series = usageSeries(db, q.groupBy, where, params)
+  if (q.facets) res.facets = usageFacets(db, range)
+  return res
 }

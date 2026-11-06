@@ -14,8 +14,11 @@ async function barWidths(page: Page) {
 test('all groupings show shares of displayed row tokens and preserve report totals and CSV values', async ({ page }) => {
   await reset(page)
   await signIn(page)
+  const asked = { from: '', to: '' }
   await page.route('**/api/admin/usage?**', async (route) => {
     const query = new URL(route.request().url()).searchParams
+    asked.from = query.get('from')!
+    asked.to = query.get('to')!
     const group = query.get('groupBy')!
     const rows = tokens.map((n, i) => ({ key: `${group}-${i}`, label: i === 0 ? '=1+1' : `${group} ${i}`, turns: 1, inputTokens: n - 100, outputTokens: 100, costUsd: i * 0.125, unpricedTurns: i === 0 ? 1 : 0 }))
     // Overlapping skill/group rows and partial credential coverage must not change the unique team total.
@@ -24,7 +27,7 @@ test('all groupings show shares of displayed row tokens and preserve report tota
   })
   await page.goto('/admin/usage')
   for (const group of groups) {
-    await page.locator('select').selectOption(group)
+    await page.getByTestId('usage-groupby').selectOption(group)
     const table = page.getByTestId('usage-table')
     await expect(table).toContainText(`${group} 1`)
     await expect(page.getByTestId('usage-unpriced')).toHaveCount(1)
@@ -40,11 +43,8 @@ test('all groupings show shares of displayed row tokens and preserve report tota
     else await expect(page.getByTestId('usage-skill-note')).toHaveCount(0)
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('usage-csv').click()])
     const csv = await fs.readFile((await download.path())!, 'utf8')
-    const dates = await page.locator('input[type="date"]').evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))
-    const range = await page.evaluate(([from, to]) => {
-      const end = new Date(`${to}T00:00:00`); end.setDate(end.getDate() + 1)
-      return [new Date(`${from}T00:00:00`).toISOString(), end.toISOString()]
-    }, dates)
+    // the CSV carries exactly the range that was asked for (the default "Last 30 days")
+    const range = [asked.from, asked.to]
     expect(csv).toBe('\uFEFFgroup_by,from,to,key,label,turns,input_tokens,output_tokens,cost_usd,attribution\r\n' +
       tokens.map((n, i) => `${group},${range[0]},${range[1]},${group}-${i},${i === 0 ? "'=1+1" : `${group} ${i}`},1,${n - 100},100,${i * 0.125},${group === 'skill' ? 'whole turn; skill rows may overlap' : 'turn totals'}\r\n`).join(''))
   }
@@ -62,7 +62,7 @@ test('zero usage produces finite zero-width bars and an empty range remains expo
   await page.goto('/admin/usage')
   await expect(page.getByTestId('usage-table')).toContainText('Zero usage')
   expect(await barWidths(page)).toEqual([0])
-  await page.locator('select').selectOption('day')
+  await page.getByTestId('usage-groupby').selectOption('day')
   await expect(page.getByTestId('usage-table')).toHaveCount(0)
   await expect(page.getByTestId('usage-csv')).toBeEnabled()
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('usage-csv').click()])
@@ -100,7 +100,7 @@ for (const [locale, phrases] of [
     expect(csv).toContain(',managed,Managed subscription,1,100,20,0,turn totals\r\n')
     expect(csv).toContain(',api,API key,1,200,30,0.125,turn totals\r\n')
     expect(csv).toContain(',dev,Development local-login,1,300,40,0.5142,turn totals\r\n')
-    await page.locator('select').selectOption('skill')
+    await page.getByTestId('usage-groupby').selectOption('skill')
     await expect(page.getByTestId('usage-skill-note')).toContainText(phrases[4])
     await expect(page.getByTestId('usage-table')).toBeVisible()
     const screenshot = testInfo.outputPath(`usage-${locale}.png`)
@@ -115,7 +115,7 @@ test('administrator exports the selected person, model and skill report as CSV w
   await page.goto('/admin/usage')
   await expect(page.getByTestId('usage-table')).toContainText('Olga')
   for (const [group, label] of [['user', 'Olga'], ['model', 'model-test'], ['skill', '주간 보고서']]) {
-    await page.locator('select').selectOption(group!)
+    await page.getByTestId('usage-groupby').selectOption(group!)
     await expect(page.getByTestId('usage-table')).toContainText(label!)
     if (group === 'skill') await expect(page.getByTestId('usage-skill-note')).toContainText('중복')
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('usage-csv').click()])
@@ -126,6 +126,8 @@ test('administrator exports the selected person, model and skill report as CSV w
     expect(content).toContain(`\r\n${group},`)
     if (group === 'skill') expect(content).toContain('whole turn; skill rows may overlap')
   }
+  // a custom range shows the two dates, filled with the range so far
+  await page.getByTestId('usage-range').selectOption('custom')
   const dates = page.locator('input[type="date"]')
   await dates.nth(0).fill('2026-10-01')
   // Pick a different end date even when the test runs on the original fixture date.
@@ -152,9 +154,9 @@ test('CSV never labels a stale response as a newly selected report', async ({ pa
     if (new URL(route.request().url()).searchParams.get('groupBy') === 'model') await delayed
     await route.continue()
   })
-  await page.locator('select').selectOption('model')
+  await page.getByTestId('usage-groupby').selectOption('model')
   await expect(page.getByTestId('usage-csv')).toBeDisabled()
-  await page.locator('select').selectOption('skill')
+  await page.getByTestId('usage-groupby').selectOption('skill')
   await expect(page.getByTestId('usage-table')).toContainText('주간 보고서')
   const oldResponse = page.waitForResponse((r) => new URL(r.url()).searchParams.get('groupBy') === 'model')
   release(); await oldResponse
