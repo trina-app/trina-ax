@@ -66,15 +66,22 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   useEffect(() => {
     api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
   }, [])
+  // the dev environment's sites: only while the dev environment on srt is on for this person (a 404: not on this server)
+  const devEnv = me.server.devEnv
+  const [sites, setSites] = useState<boolean | null>(devEnv ? null : false)
+  useEffect(() => {
+    if (!devEnv) return
+    api.call(API.myDevEnvSites).then((r) => setSites(r.state !== 'off'), () => setSites(false))
+  }, [devEnv])
   // the desktop app's site setting: only inside a desktop app that offers it (the value lives there)
-  const tabs = settingsTabs(Boolean(browserSettingsBridge()), Boolean(own))
+  const tabs = settingsTabs(Boolean(browserSettingsBridge()), Boolean(own), Boolean(sites))
   const [query, setQuery] = useState('')
   const [more, setMore] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
   const shown = tabs.filter((x) => sectionMatches(x, q, t))
   const groups = [1, 2, 3].map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
-  const waiting = tab === 'credentials' && own === null
+  const waiting = (tab === 'credentials' && own === null) || (tab === 'dev-env-sites' && sites === null)
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: /settings instead (the
   // list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />

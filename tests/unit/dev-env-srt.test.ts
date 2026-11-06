@@ -8,12 +8,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
-import { DEV_ENV_DEFAULT_DOMAINS, extraDomainProblem } from '@mycel/shared'
+import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_RANGES, RUN_ID_RE, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
+import { DENIED_NAMES, DENIED_RANGES, RUN_ID_RE, isFull, SRT_PATHS, SRT_VERSION, UNIT_RE, chatWork, personHome, personLogs, runEnv, scopeArgv, serverFilesOutsideBase, settingsProblems, srtSettings, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -21,6 +21,7 @@ import { cgroupDir, slicePath, type SpawnSpec, type SrtSystem, type UnitInfo } f
 import { pollSrt, runResultsForAI } from '../../server/src/devenv/jobs'
 import { mayUseDevEnv, newConsent, requiredWarningVersion, saveTeamSetting, teamInForce, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool } from '../../server/src/devenv/tool'
+import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../server/src/devenv/sites'
 import { configureStorageGuard } from '../../server/src/system/storage'
 
 setDefaultTimeout(40_000)
@@ -233,9 +234,36 @@ describe('the srt settings file', () => {
     const s = srtSettings(input)
     expect(s.network.allowedDomains).toEqual([...DEV_ENV_DEFAULT_DOMAINS, 'api.example.net'])
     expect(s.network.strictAllowlist).toBe(true)
-    expect(s.network.deniedDomains).toEqual(['team.trina.app'])
+    expect(s.network.deniedDomains).toEqual(['team.trina.app', ...DENIED_NAMES])
     expect(s.network.deniedResolvedAddresses).toEqual([...DENIED_RANGES, '3.3.3.3'])
     expect(srtSettings({ ...input, network: 'offline' }).network.allowedDomains).toEqual([])
+  })
+  test('the person\'s sites join the list of her run; Full internet turns the strict list off; the deny lists stay', () => {
+    const s = srtSettings({ ...input, userDomains: ['example.com', 'API.example.net', '*.cdn.example.org'] })
+    expect(s.network.allowedDomains).toEqual([...DEV_ENV_DEFAULT_DOMAINS, 'api.example.net', 'example.com', '*.cdn.example.org'])
+    expect(s.network.strictAllowlist).toBe(true)
+    expect(isFull(s)).toBe(false)
+    const f = srtSettings({ ...input, full: true })
+    expect(isFull(f)).toBe(true)
+    expect(f.network.deniedResolvedAddresses).toEqual([...DENIED_RANGES, '3.3.3.3'])
+    expect(f.network.deniedDomains).toEqual(['team.trina.app', ...DENIED_NAMES])
+    expect(settingsProblems(f, input)).toEqual([])
+  })
+  test('No network wins over the person\'s sites and over Full internet', () => {
+    const s = srtSettings({ ...input, network: 'offline', userDomains: ['example.com'], full: true })
+    expect(s.network.allowedDomains).toEqual([])
+    expect(s.network.strictAllowlist).toBe(true)
+    expect(isFull(s)).toBe(false)
+  })
+  test('the check refuses a run that lost a denied range or name, or allows an address or a denied host', () => {
+    const s = srtSettings(input)
+    const net = (n: Partial<typeof s.network>) => ({ ...s, network: { ...s.network, ...n } })
+    expect(settingsProblems(net({ deniedResolvedAddresses: ['3.3.3.3'] }), input).join()).toContain('a denied range is missing: 10.0.0.0/8')
+    expect(settingsProblems(net({ deniedDomains: ['team.trina.app'] }), input).join()).toContain('a denied name is missing')
+    expect(settingsProblems(net({ allowedDomains: ['169.254.169.254'] }), input).join()).toContain('not a host name')
+    expect(settingsProblems(net({ allowedDomains: ['*'] }), input).join()).toContain('not a host name')
+    expect(settingsProblems(net({ allowedDomains: ['trina.app'] }), input).join()).toContain('covers a denied host')
+    expect(settingsProblems(net({ allowedDomains: ['*.trina.app'] }), input).join()).toContain('covers a denied host')
   })
   test('server paths outside the base folder are hidden too (a wrong base in the env fails closed)', () => {
     const sp = ['/srv/trina/data', '/srv/trina/secrets', BASE + '/data']
@@ -265,6 +293,19 @@ describe('the srt settings file', () => {
   test('the programs a run executes are outside every base folder', () => {
     for (const p of Object.values(SRT_PATHS)) expect(p.startsWith('/var/lib/')).toBe(false)
     expect(SRT_PATHS.cli).toBe(`/opt/trina/srt/${SRT_VERSION}/cli.js`)
+    expect(SRT_PATHS.cliFull).toBe(`/opt/trina/srt/${SRT_VERSION}/full.mjs`)
+  })
+  test('install-srt.sh puts full.mjs next to cli.js and checks it refuses addresses', () => {
+    const sh = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/install-srt.sh'), 'utf8')
+    expect(sh).toContain('put_changed "$T" 644 "$SRT_DIR/full.mjs"')
+    expect(sh).toContain('"$SRT_DIR/full.mjs" --self-test')
+    const w = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/srt-full.mjs'), 'utf8')
+    // the callback allows only with strictAllowlist false, and never an address or a loopback name
+    expect(w).toContain("config?.network?.strictAllowlist === false ? ask([...(config.network.deniedDomains ?? [])]) : undefined")
+    expect(w).toContain('isIP(h)')
+    // the local names it refuses are the ones a person cannot allow (shared LOCAL_SUFFIXES): the copies agree
+    const copy = /export const LOCAL_SUFFIXES = (\[[^\]]*\])/.exec(w)?.[1]
+    expect(copy && JSON.parse(copy.replace(/'/g, '"'))).toEqual([...LOCAL_SUFFIXES])
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
@@ -291,6 +332,9 @@ describe('the argv of a run', () => {
     for (const p of ['MemoryMax=1536M', 'MemorySwapMax=0', 'CPUQuota=150%', 'TasksMax=512', 'OOMPolicy=kill', 'RuntimeMaxSec=150']) expect(a).toContain(p)
     expect(a.some((x) => x.startsWith('MemoryHigh'))).toBe(false)
     expect(a.slice(a.indexOf('--') + 1)).toEqual([SRT_PATHS.runWrap, '/x.exit', '--', SRT_PATHS.node, SRT_PATHS.cli, '--settings', '/s.json', '-c', 'npm test; rm -rf /'])
+    const f = scopeArgv({ runId, id: 'mycel', limits: { cpus: 1, memoryMiB: 512, pids: 64, runtimeMaxSec: 60 }, exitFile: '/x.exit', settingsFile: '/s.json', command: 'true', full: true })
+    expect(f).toContain(SRT_PATHS.cliFull)
+    expect(f).not.toContain(SRT_PATHS.cli)
   })
   test('the polkit rule allows the same unit names as the runner, and no .service', () => {
     const rule = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/devenv.rules.in'), 'utf8')
@@ -437,6 +481,7 @@ const fake: SrtSystem = {
       if (m) { fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); return end(0) }
       m = /^exit (\d+)$/.exec(c)
       if (m) return end(Number(m[1]))
+      if (c === 'blocked') { fs.appendFileSync(spec.stderrFile, 'curl: (56) CONNECT tunnel failed, response 403\n'); return end(56) }
       m = /^write (\S+) (.*)$/.exec(c)
       if (m) { fs.writeFileSync(path.join(spec.cwd, m[1]!), m[2]!); return end(0) }
       fs.appendFileSync(spec.stderrFile, `unknown: ${c}\n`); end(127)
@@ -870,6 +915,226 @@ describe('the team\'s sites (admins)', () => {
     expect(teamSetting(h.ctx.db)).toMatchObject({ enabled: true, extraDomains: ['api.example.net'] })
     await alice().call({ command: 'echo x' })
     expect(lastSettings().network.allowedDomains).toContain('api.example.net')
+  })
+})
+
+describe('sites a person allows (no admin step)', () => {
+  type Answer = 'once' | 'always' | 'deny' | null
+  /** box_shell with a site card that answers `answer` and records what it was asked */
+  const asking = (userId: string, project: ProjectArg, chatId: string, answer: Answer) => {
+    const asked: { host: string; command: string }[] = []
+    const tool = boxShellTool({ ctx: h.ctx, project, userId, turnId: 'turn-1', chatId, signal: new AbortController().signal, confirm: async () => null, redact: (x) => x,
+      askSite: async (host, command) => { asked.push({ host, command }); return answer } })
+    return { tool, asked }
+  }
+  type Net = { allowedDomains: string[]; deniedDomains: string[]; deniedResolvedAddresses: string[]; strictAllowlist: boolean }
+  const net = () => (lastSettings() as unknown as { network: Net }).network
+  const audits = (action: string) => (h.ctx.db.query('SELECT actor_id, detail FROM audit_log WHERE action = ? ORDER BY id').all(action) as { actor_id: string; detail: string }[]).map((a) => ({ actor: a.actor_id, ...JSON.parse(a.detail) }))
+  beforeAll(() => { process.env.MYCEL_DEV_ENV_DENY_HOSTS = 'team.trina.test' })
+  afterAll(() => { delete process.env.MYCEL_DEV_ENV_DENY_HOSTS })
+  beforeEach(() => { for (const t of ['dev_env_site_grants', 'dev_env_user_net']) h.ctx.db.query(`DELETE FROM ${t}`).run() })
+
+  test('"Allow once": the command runs with the site, for this turn only; nothing is kept', async () => {
+    const a = asking('alice', falcon(), chatFalcon, 'once')
+    const r = await a.tool.call({ command: 'echo hi', request_sites: ['https://API.Example.com/v1?x=1'] })
+    expect(out(r)).toContain('Exit code 0.')
+    expect(out(r)).toContain('allowed api.example.com for this answer')
+    expect(a.asked).toEqual([{ host: 'api.example.com', command: 'echo hi' }])
+    expect(net().allowedDomains).toContain('api.example.com')
+    // the same turn: no second card, still allowed
+    await a.tool.call({ command: 'echo again', request_sites: ['api.example.com'] })
+    expect(a.asked).toHaveLength(1)
+    expect(net().allowedDomains).toContain('api.example.com')
+    // a new turn (a new tool): not allowed any more, and nothing went on her list
+    await alice().call({ command: 'echo x' })
+    expect(net().allowedDomains).not.toContain('api.example.com')
+    expect(userSites(h.ctx.db, 'alice')).toEqual([])
+    expect(audits('dev_env.site_allowed')).toMatchObject([{ actor: 'alice', host: 'api.example.com', scope: 'once' }])
+  })
+  test('"Always allow": the site goes on HER list; her later runs get it, another person\'s runs do not', async () => {
+    const a = asking('alice', null, chatPlain, 'always')
+    expect(out(await a.tool.call({ command: 'echo hi', request_sites: ['api.example.com'] }))).toContain('Exit code 0.')
+    expect(userSites(h.ctx.db, 'alice').map((x) => x.host)).toEqual(['api.example.com'])
+    await alice({ project: null, chat: chatPlain }).call({ command: 'echo later' })
+    expect(net().allowedDomains).toContain('api.example.com')
+    // user B: the host is not open for her, and her card would be asked again
+    await shell('bob', null, chatBob).call({ command: 'echo bob' })
+    expect(net().allowedDomains).not.toContain('api.example.com')
+    expect(net().strictAllowlist).toBe(true)
+    const b = asking('bob', null, chatBob, 'deny')
+    await b.tool.call({ command: 'echo bob', request_sites: ['api.example.com'] })
+    expect(b.asked).toHaveLength(1)
+    // a site that is allowed already (her list, the default list, the team list) needs no card
+    const again = asking('alice', null, chatPlain, 'deny')
+    expect(out(await again.tool.call({ command: 'echo x', request_sites: ['api.example.com', 'registry.npmjs.org'] }))).toContain('Exit code 0.')
+    expect(again.asked).toEqual([])
+  })
+  test('"Don\'t allow", no answer, a scheduled run: the command does not run', async () => {
+    for (const answer of ['deny', null] as Answer[]) {
+      const a = asking('alice', falcon(), chatFalcon, answer)
+      const r = await a.tool.call({ command: 'echo hi', request_sites: ['api.example.com'] })
+      expect(r.isError).toBe(true)
+      expect(out(r)).toContain('did not allow api.example.com, so the command did not run')
+    }
+    // no card at all (a host with no askSite, as a turn that cannot ask): the same
+    expect(out(await alice().call({ command: 'echo hi', request_sites: ['api.example.com'] }))).toContain('did not allow')
+    expect(runs.size).toBe(0)
+    expect(userSites(h.ctx.db, 'alice')).toEqual([])
+    expect(audits('dev_env.site_denied').map((x) => x.answer)).toEqual(['deny', 'none', 'none'])
+  })
+  test('addresses, local and metadata names and the team server are refused with no card', async () => {
+    for (const bad of ['169.254.169.254', 'http://10.0.0.5:8080/', '127.0.0.1', '0x7f.1', '[::1]', 'localhost', 'x.localhost', 'metadata.google.internal', 'printer.local', 'team.trina.test', 'trina.test', '*.com', '*']) {
+      const a = asking('alice', falcon(), chatFalcon, 'always')
+      const r = await a.tool.call({ command: 'echo hi', request_sites: [bad] })
+      expect(r.isError).toBe(true)
+      expect(out(r)).toContain('cannot be allowed')
+      expect(a.asked).toEqual([])
+    }
+    expect(runs.size).toBe(0)
+    expect(userSites(h.ctx.db, 'alice')).toEqual([])
+  })
+  test('the AI asks for one exact host: a "*." pattern gets no card', async () => {
+    for (const bad of ['*.example.com', '*.s3.amazonaws.com', 'https://*.example.com/']) {
+      const a = asking('alice', falcon(), chatFalcon, 'always')
+      const r = await a.tool.call({ command: 'echo hi', request_sites: [bad] })
+      expect(out(r)).toContain('not a pattern')
+      expect(a.asked).toEqual([])
+    }
+    expect(userSites(h.ctx.db, 'alice')).toEqual([])
+  })
+  test('a host the person did not allow in this turn gets no second card', async () => {
+    const a = asking('alice', falcon(), chatFalcon, 'deny')
+    expect(out(await a.tool.call({ command: 'echo hi', request_sites: ['api.example.com'] }))).toContain('did not allow')
+    // a web page or a file tells the AI to try again: no card, the command does not run
+    const r = await a.tool.call({ command: 'echo again', request_sites: ['API.example.com.'] })
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain('did not allow api.example.com in this answer')
+    expect(a.asked).toHaveLength(1)
+    expect(runs.size).toBe(0)
+    // another host still gets its card
+    await a.tool.call({ command: 'echo x', request_sites: ['other.example.com'] })
+    expect(a.asked.map((x) => x.host)).toEqual(['api.example.com', 'other.example.com'])
+  })
+  test('nobody to ask (a scheduled run): no card, the AI is told why; her "always" sites still work', async () => {
+    const asked: string[] = []
+    const tool = boxShellTool({ ctx: h.ctx, project: falcon(), userId: 'alice', turnId: 'turn-s', chatId: chatFalcon, signal: new AbortController().signal, confirm: async () => null, redact: (x) => x,
+      unattended: true, askSite: async (host) => { asked.push(host); return 'always' } })
+    const r = await tool.call({ command: 'echo hi', request_sites: ['api.example.com'] })
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain('Nobody can answer a site card in this run')
+    expect(asked).toEqual([])
+    grantUserSite(h.ctx.db, 'alice', 'api.example.com')
+    expect(out(await tool.call({ command: 'echo hi', request_sites: ['api.example.com'] }))).toContain('Exit code 0.')
+    expect(asked).toEqual([])
+  })
+  test('the team\'s No network wins: no card, nothing allowed, and her sites and Full internet do not reach the run', async () => {
+    grantUserSite(h.ctx.db, 'alice', 'api.example.com')
+    setFullInternet(h.ctx.db, 'alice', true)
+    turnOnTeam({ network: 'offline' })
+    const a = asking('alice', falcon(), chatFalcon, 'always')
+    const r = await a.tool.call({ command: 'echo hi', request_sites: ['other.example.com'] })
+    expect(out(r)).toContain('No network')
+    expect(a.asked).toEqual([])
+    expect(runs.size).toBe(0)
+    await alice().call({ command: 'echo x' })
+    expect(net().allowedDomains).toEqual([])
+    expect(net().strictAllowlist).toBe(true)
+    expect([...runs.values()].at(-1)!.spec.full).toBeFalsy()
+    // the plan's offline wins too
+    turnOnTeam()
+    setSrtSystem(fake, { base: devBase, id: 'mycel', plan: { ...STARTER, network: 'offline' } })
+    await alice().call({ command: 'echo x' })
+    expect(net().allowedDomains).toEqual([])
+    expect(net().strictAllowlist).toBe(true)
+    const s = await h.api('alice').call(API.myDevEnvSites, {})
+    expect(s).toMatchObject({ state: 'no_network', sites: [], fullInternet: false })
+  })
+  test('Full internet: her runs only; the deny lists stay; a blocked connection says what is never allowed', async () => {
+    setFullInternet(h.ctx.db, 'alice', true)
+    await alice().call({ command: 'echo x' })
+    expect(net().strictAllowlist).toBe(false)
+    expect([...runs.values()].at(-1)!.spec.full).toBe(true)
+    expect(net().deniedResolvedAddresses).toEqual(expect.arrayContaining(['169.254.0.0/16', '10.0.0.0/8', '127.0.0.0/8', 'fc00::/7']))
+    expect(net().deniedDomains).toEqual(expect.arrayContaining(['team.trina.test', 'metadata.google.internal']))
+    await shell('bob', null, chatBob).call({ command: 'echo bob' })
+    expect(net().strictAllowlist).toBe(true)
+    expect([...runs.values()].at(-1)!.spec.full).toBeFalsy()
+    expect(out(await alice().call({ command: 'blocked' }))).toContain('With Full internet only the team server')
+    setFullInternet(h.ctx.db, 'alice', false)
+    expect(out(await alice().call({ command: 'blocked' }))).toContain('request_sites set to the host name')
+  })
+  test('a job keeps its once-allowed site when it waits; removing a site she allowed stops her job that started with it', async () => {
+    grantUserSite(h.ctx.db, 'alice', 'kept.example.com')
+    await shell('bob', null, chatBob).call({ command: 'sleep', job: true, log_name: 'first' })
+    const a = asking('alice', null, chatPlain, 'once')
+    expect(out(await a.tool.call({ command: 'sleep', job: true, log_name: 'later', request_sites: ['once.example.com'] }))).toContain('Queued as job later')
+    expect(rows()[1]).toMatchObject({ name: 'later', state: 'waiting', once_domains: 'once.example.com' })
+    finish(runIdOfRow(rows()[0]!), 0)
+    await pollSrt(h.ctx)
+    expect(rows()[1]).toMatchObject({ state: 'running' })
+    expect(net().allowedDomains).toEqual(expect.arrayContaining(['once.example.com', 'kept.example.com']))
+    // a new site does not stop it
+    grantUserSite(h.ctx.db, 'alice', 'new.example.com')
+    await pollSrt(h.ctx)
+    expect(rows()[1]).toMatchObject({ state: 'running' })
+    // removing one it started with does (her own route, at once)
+    const s = await h.api('alice').call(API.removeMyDevEnvSite, { body: { host: 'kept.example.com' } })
+    expect(s.sites.map((x) => x.host)).toEqual(['new.example.com'])
+    expect(rows()[1]).toMatchObject({ state: 'ended', end_reason: 'setting' })
+    expect(audits('dev_env.site_removed')).toMatchObject([{ actor: 'alice', host: 'kept.example.com' }])
+  })
+  test('turning Full internet off stops her dev server that started with it; bob\'s run goes on', async () => {
+    setFullInternet(h.ctx.db, 'alice', true)
+    await alice().call({ command: 'sleep', background: true, log_name: 'web' })
+    expect([...runs.values()].at(-1)!.spec.full).toBe(true)
+    await h.api('alice').call(API.setMyDevEnvFullInternet, { body: { on: false } })
+    expect(rows()[0]).toMatchObject({ name: 'web', state: 'ended', end_reason: 'setting' })
+    expect(fullInternet(h.ctx.db, 'alice')).toBe(false)
+  })
+  test('her settings: list, remove, Full internet with the warning; nobody else sees or changes them', async () => {
+    grantUserSite(h.ctx.db, 'alice', 'api.example.com')
+    const mine = await h.api('alice').call(API.myDevEnvSites, {})
+    expect(mine).toMatchObject({ state: 'on', fullInternet: false, fullAvailable: true, fullWarningVersion: 1, sites: [{ host: 'api.example.com' }] })
+    expect(mine.teamSites).toContain('registry.npmjs.org')
+    expect((await h.api('bob').call(API.myDevEnvSites, {})).sites).toEqual([])
+    // bob cannot remove her site: he has none of that name
+    await expect(h.api('bob').call(API.removeMyDevEnvSite, { body: { host: 'api.example.com' } })).rejects.toThrow()
+    expect(userSites(h.ctx.db, 'alice')).toHaveLength(1)
+    // on needs the warning; off does not
+    await expect(h.api('alice').call(API.setMyDevEnvFullInternet, { body: { on: true } })).rejects.toThrow()
+    expect((await h.api('alice').call(API.setMyDevEnvFullInternet, { body: { on: true, acceptWarning: 1 } })).fullInternet).toBe(true)
+    expect(fullInternet(h.ctx.db, 'bob')).toBe(false)
+    expect((await h.api('alice').call(API.setMyDevEnvFullInternet, { body: { on: false } })).fullInternet).toBe(false)
+    expect(audits('dev_env.full_on').map((x) => x.actor)).toEqual(['alice'])
+    expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'dev_env.full_off'").get()).toEqual({ n: 1 })
+    // off for this person: nothing to show
+    turnOnTeam({ scope: { mode: 'selected', groupIds: ['finance'], userIds: [] } })
+    expect((await h.api('alice').call(API.myDevEnvSites, {})).state).toBe('off')
+  })
+  test('the card in a real turn: only the person who owns the turn can answer it, and then the command runs', async () => {
+    const fakeTool = (d: unknown) => '@fake ' + JSON.stringify(d)
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chatPlain }, body: { content: fakeTool({ tool: 'box_shell', args: { command: 'echo reached', request_sites: ['api.example.com'] }, sayResult: true }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    const until = async <T,>(f: () => Promise<T | null | undefined>, what: string): Promise<T> => {
+      for (let i = 0; i < 400; i++) { const v = await f(); if (v) return v; await Bun.sleep(50) }
+      throw new Error(`timed out waiting for ${what}`)
+    }
+    const card = await until(async () => (await h.api('alice').call(API.listTurnRequests, { params: { id: chatPlain } })).items.find((x) => x.turnId === r.turnId), 'the site card')
+    expect(card.request).toMatchObject({ kind: 'dev_env_site', host: 'api.example.com', command: 'echo reached' })
+    const body = JSON.stringify({ kind: 'dev_env_site', requestId: card.request.requestId, decision: 'always' })
+    // another person: not found (the turn is not hers), and the card stays open; she does not see it in her chats
+    const other = await h.req('bob', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+    expect(other.status).toBe(404)
+    expect(userSites(h.ctx.db, 'bob')).toEqual([])
+    await expect(h.api('bob').call(API.listTurnRequests, { params: { id: chatPlain } })).rejects.toThrow()
+    // a decision that is not one of the card's: refused
+    const bad = await h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dev_env_site', requestId: card.request.requestId, decision: 'yes' }) })
+    expect(bad.status).toBe(400)
+    expect((await h.api('alice').call(API.listTurnRequests, { params: { id: chatPlain } })).items).toHaveLength(1)
+    await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'dev_env_site', requestId: card.request.requestId, decision: 'always' } })
+    const done = await until(async () => (await h.api('alice').call(API.listMessages, { params: { id: chatPlain }, query: {} })).items.find((m) => m.id === r.assistantMessage.id && m.status !== 'streaming'), 'the answer')
+    expect(done.content).toContain('reached')
+    expect(userSites(h.ctx.db, 'alice').map((x) => x.host)).toEqual(['api.example.com'])
+    expect(net().allowedDomains).toContain('api.example.com')
   })
 })
 

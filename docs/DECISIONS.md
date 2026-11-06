@@ -5591,6 +5591,75 @@ later PR removes it.
 - **Tests.** `tests/unit/dev-env-srt.test.ts` (fakes) and `tests/linux/srt-attack.ts` (real srt in Docker, CI). Not yet
   verified on systemd: polkit, the scope limits, OOM, and the Starter memory budget (design section 11).
 
+### Dev environment: sites a person allows (feat/devenv-user-allow-sites, 2026-11-06)
+
+Input: the owner, after a talk with Dion: "Let's follow Claude Code: when a site is blocked, ask the user, and the user
+can allow it (once or always), with no admin step. Plus a Full internet option with a clear warning." and "no admin
+in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNER=srt`); the box does not change.
+
+- **How the AI asks.** srt does not tell the server which host it blocked (no ask callback under `strictAllowlist`, and
+  the debug lines share the command's output, so a command could fake them). So the AI names the host:
+  `box_shell` takes `request_sites` (at most 5). The tool text says to use it after a blocked connection (HTTP 403,
+  curl's "CONNECT tunnel failed, response 403"), and the answer after such a failure says so too. The host is
+  untrusted input: the server parses it (`siteFromInput`) and checks it (`userSiteProblem` = `extraDomainProblem` plus
+  no local or metadata names: `localhost`, `.local`, `.internal`, `.lan`, `.corp`, `.home.arpa`, `.test` and more; no
+  IP address in any spelling, `0x7f.1` and `2852039166` too; not a team host name or a pattern that covers one).
+  A refused host gets no card, and the command does not run. The AI asks for one exact host only: a `*.` pattern gets
+  no card (one click would cover every name under a domain, for example every bucket of a storage service). Only an
+  admin's Extra sites can have a pattern.
+- **No second card.** A host that the person did not allow in a turn (no, or no answer) is refused at once when the AI
+  asks for it again in the same turn, with no card. A web page or a file can tell the AI to ask again; it cannot make
+  the person see the card again. In a turn where nobody can answer (a scheduled task) no card is raised: the AI is told
+  that nobody can allow a site there, and that the person's "always" sites work.
+- **The card.** A new server-raised `TurnRequest` kind `dev_env_site` (host, the command with secrets hidden). The AI's
+  `ask_user` cannot make one. It goes to every window of the person who owns the turn, not only the sending window
+  (unlike `browser_site`). `/api/turns/:id/answer` takes `{kind: 'dev_env_site', decision: once|always|deny}`; only the
+  turn's owner can answer (`ownTurn`, another person gets 404). No answer, a timeout and a scheduled run (no card) mean
+  no. A no stops the command. A host that is allowed already (the default list, the team's sites, the person's own,
+  once in this turn, Full internet) needs no card.
+- **Once and always.** Once: for a foreground command, the rest of this turn (a set on the turn's tool). For a job or a
+  dev server it is kept on the row (`dev_env_runs.once_domains`), because a waiting job builds its settings later,
+  outside the turn. Always: the person's own list, `dev_env_site_grants (user_id, host)`, at most 100. The server checks
+  stored sites again at each run start and leaves out one that has become a problem (a new team host name), with no
+  error.
+- **Only her runs.** `settingsFor` reads the sites and the Full switch of `space.userId`, the person who owns the chat.
+  Another person's runs never get them (unit test in `dev-env-srt.test.ts`).
+- **Full internet, per person (owner's "plus a Full internet option"; per person because the owner said no admin
+  step).** Off by default. Settings > Dev environment sites turns it on after a confirm with "The AI can send files you
+  can read to any site." (`DEV_ENV_FULL_WARNING_VERSION` 1, kept per person in `dev_env_user_net`). srt refuses `*` in
+  `allowedDomains`, and leaving the network config out drops the proxy, the deny lists and the network namespace. So a
+  Full run has `strictAllowlist: false` and runs `full.mjs` (installed next to srt's `cli.js` by `install-srt.sh`):
+  srt's own CLI, with an ask callback. srt asks it only for a host that is on no list, after its deny list. srt's
+  resolved-address guard judges host names only, never an IP literal or `localhost`, so the callback allows a host
+  name only and refuses every IP literal, loopback name and local name (the same list as `userSiteProblem`) itself.
+  It also checks the settings' `deniedDomains` again on its own form of the host: srt compares its canonical form,
+  which keeps one of two trailing dots (`team.example.com..`). Checked on macOS with the pinned srt: without that
+  rule, `127.0.0.1` and `169.254.169.254` went through the proxy. With it, these are refused: IP literals in every
+  spelling, `localhost` names, names that resolve to loopback, 10/8, 192.168/16, 169.254/16 or the VM's IP, the team
+  host and `metadata.google.internal`. `install-srt.sh` runs `full.mjs --self-test`. If `full.mjs` is missing, Full
+  internet acts as off (the lists only), and the switch is not shown.
+- **No network wins.** The team's `offline` and the plan's `offline` give an empty list and a strict allowlist, with
+  every site and Full switch of the person. No card is raised, and the settings section shows only a note.
+- **Narrower network stops runs.** `dev_env_runs.net` keeps the sites and the Full switch that a job or dev server
+  started with. The tracker stops it (reason `setting`) when one of them is gone: the person removed a site, turned
+  Full internet off, or the team removed a site. A new site does not stop it. Rows from older builds have no snapshot
+  and are not checked, so a deploy stops nothing.
+- **The warning text.** The admin's srt warning gets one line: each person can allow more sites, or turn Full internet
+  on for herself, with no admin step. `DEV_ENV_SRT_WARNING_VERSION` stays 2 on purpose: a raise would turn every team
+  off until an admin accepts again, and that is an admin step.
+- **Audit (all five locales).** `dev_env.site_allowed` (scope once or always), `dev_env.site_denied`,
+  `dev_env.site_refused`, `dev_env.site_removed`, `dev_env.full_on`, `dev_env.full_off`.
+- **Settings > Dev environment sites.** The person's own sites with Remove (her jobs and dev servers that started with
+  that site stop at once), the Full internet switch, and the team's sites. The section is there while
+  `GET /api/dev-env/sites` says the dev environment is on for her. Endpoints are for the caller only.
+- **Not done.** The host comes from the AI, not from srt (a better path is srt's `--control-fd` or a decider for `-c`
+  runs). "Once" for a running dev server does not reach the run that is running: the AI starts it again. The admin's
+  Extra sites stay as the team's default list.
+- **Tests.** `tests/unit/dev-env-sites.test.ts` (host checks, merge, narrower), `tests/unit/dev-env-srt.test.ts`
+  ("sites a person allows": once, always, deny, refused hosts, No network, Full internet, a waiting job, removal stops
+  a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c,
+  A12e, A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.
