@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, plainLine, roomBadge, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
+import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, plainLine, roomBadge, roomTitle, runActive, threadClosing, threadOpening, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -172,5 +172,45 @@ describe('group chats and event lines', () => {
   test('an event line is a run of its own and ends the run before it', () => {
     const ms = [message({ roomId: R, seq: 1 }), message({ roomId: R, seq: 2, author: BEN, body: '', event: { type: 'left' } }), message({ roomId: R, seq: 3 })]
     expect(groupRuns(ms, day).map((r) => r.messages.map((m) => m.seq))).toEqual([[1], [2], [3]])
+  })
+})
+
+describe('thread navigation (pages/Room.tsx)', () => {
+  // a browser history: entries with their state, and where we are
+  type Entry = { path: string; fromRoom: boolean }
+  const history = (first: Entry) => {
+    const h = { entries: [first], i: 0 }
+    const at = () => h.entries[h.i]!
+    const threadOf = (path: string) => path.split('/t/')[1] ?? null
+    return {
+      at,
+      open(rootId: string) {
+        const to = threadOpening('R', rootId, { threadId: threadOf(at().path), fromRoom: at().fromRoom })
+        const e = { path: to.path, fromRoom: to.state.fromRoom }
+        if (to.replace) h.entries[h.i] = e
+        else { h.entries = [...h.entries.slice(0, h.i + 1), e]; h.i++ }
+      },
+      close() {
+        const to = threadClosing('R', at().fromRoom)
+        if (to === -1) h.i--
+        else h.entries[h.i] = { path: to.path, fromRoom: false }
+      },
+    }
+  }
+  test('from the room: a thread is one step forward, another thread replaces it, closing steps back to the room', () => {
+    const h = history({ path: '/rooms/R', fromRoom: false })
+    h.open('A')
+    expect(h.at()).toEqual({ path: '/rooms/R/t/A', fromRoom: true })
+    h.open('B')
+    h.close()
+    expect(h.at().path).toBe('/rooms/R')
+  })
+  test('from a link or a notice: switching threads and closing stays in the room, never steps out of it', () => {
+    // a notice opened /rooms/R/t/A: an entry without the mark
+    const h = history({ path: '/rooms/R/t/A', fromRoom: false })
+    h.open('B')
+    expect(h.at()).toEqual({ path: '/rooms/R/t/B', fromRoom: false })
+    h.close()
+    expect(h.at().path).toBe('/rooms/R')
   })
 })

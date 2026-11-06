@@ -46,6 +46,10 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listRoomMessages, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.messages(auth.user.id, params.id, query) })
     // "@트리나 …" asks the AI as the sender (rooms/ai.ts): the window for the desktop browser, the screen's language
     kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { windowId: windowOf(c), clientKind: auth.session.client, locale: c.get('locale') }))
+    // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId
+    kit.handle(API.listRoomThread, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.thread(auth.user.id, params.id, params.messageId, query) })
+    kit.handle(API.markRoomThreadRead, ({ auth, params, body }) => rooms.markThreadRead(auth.user.id, params.id, params.messageId, body.seq))
+    kit.handle(API.reactRoomMessage, ({ auth, params, body }) => rooms.react(auth.user.id, params.id, params.messageId, body.emoji, body.on))
     kit.handle(API.editRoomMessage, ({ auth, params, body }) => rooms.edit(auth.user.id, params.id, params.messageId, body))
     kit.handle(API.deleteRoomMessage, ({ auth, params }) => rooms.remove(auth.user.id, params.id, params.messageId))
     kit.handle(API.markRoomRead, ({ auth, params, body }) => rooms.markRead(auth.user.id, params.id, body.seq))

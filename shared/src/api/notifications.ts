@@ -2,10 +2,12 @@ import { z } from 'zod'
 import { endpoint } from './endpoint'
 import { ScheduleRunOutcome } from './schedules'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
-/** roomMessages: a DM message or an @mention in a room (docs/DECISIONS.md "대화방 v1"); older servers omit it */
+/** roomMessages: a DM message, an @mention or a reply in a followed thread in a room (docs/DECISIONS.md "대화방 v1",
+ * "스레드와 반응"); older servers omit it */
 export const NotificationPreferences = z.object({ scheduleSuccess: z.boolean(), scheduleFailure: z.boolean(), connectionReconnect: z.boolean(), skillSuggestions: z.boolean(), roomMessages: z.boolean().optional() })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
-/** Events that can also go to OS push. Room notices (room.dm: a DM message, room.mention: an @mention) are kept in
+/** Events that can also go to OS push. Room notices (room.dm: a DM message or a reply in a thread I follow,
+ * room.mention: an @mention) are kept in
  * room_notices with their own deliveries (room_push_deliveries); the rest in notification_inbox (push_deliveries). */
 export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention'])
 /** The room notices among them (server/src/rooms/notices.ts). */
@@ -54,8 +56,9 @@ export const InboxNotification = z.object({
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
   /** 'room.dm' and 'room.mention' only, while the person is still in the room and the message is there: the room (link
-   * 'room' opens /rooms/<id>) and who wrote it, by name. Never the message's text; older servers omit it */
-  room: z.object({ id: z.string(), from: z.string().nullable() }).optional(),
+   * 'room' opens /rooms/<id>), who wrote it, by name, and for a reply in a thread the thread's root (/rooms/<id>/t/<thread>).
+   * Never the message's text; older servers omit it */
+  room: z.object({ id: z.string(), from: z.string().nullable(), thread: z.string().optional() }).optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),

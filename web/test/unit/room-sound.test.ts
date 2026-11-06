@@ -86,6 +86,26 @@ describe('shouldRing', () => {
     // someone else's private preview never reaches me; if it did, it would not ring
     expect(shouldRing(base({ message: { ...AI, askedBy: BEN, visibility: 'private' } }))).toBe(false)
   })
+  test('a reply in a thread rings when the thread is mine to follow or it mentions me, in any room; else only when sent to the room too', () => {
+    const root = uuidv7()
+    for (const kind of ['dm', 'group', 'team', 'all']) {
+      const room = { kind, muted: false }
+      // I follow it (I wrote the root, replied, or was mentioned there): like a DM message
+      expect({ kind, ring: shouldRing(base({ room, message: { threadRootId: root, following: true } })) }).toEqual({ kind, ring: true })
+      // it mentions me: a mention, wherever it is
+      expect({ kind, ring: shouldRing(base({ room, message: { threadRootId: root, mentions: [ME.id] } })) }).toEqual({ kind, ring: true })
+      // not mine to follow: quiet, even in a DM or a group chat
+      expect({ kind, ring: shouldRing(base({ room, message: { threadRootId: root } })) }).toEqual({ kind, ring: false })
+      // sent to the room too: the room's own rule (every message in a DM or group chat, mentions in the others)
+      expect({ kind, ring: shouldRing(base({ room, message: { threadRootId: root, alsoInRoom: true } })) }).toEqual({ kind, ring: kind === 'dm' || kind === 'group' })
+      // a muted room, my own reply, the room on screen: never
+      expect(shouldRing(base({ room: { kind, muted: true }, message: { threadRootId: root, following: true } }))).toBe(false)
+      expect(shouldRing(base({ room, message: { threadRootId: root, following: true, author: ME } }))).toBe(false)
+      expect(shouldRing(base({ room, viewing: ROOM, message: { threadRootId: root, following: true } }))).toBe(false)
+      // the AI's answer to my question in a thread: mine, as anywhere
+      expect(shouldRing(base({ room, message: { ...AI, threadRootId: root, askedBy: ME, visibility: 'room' } }))).toBe(true)
+    }
+  })
 })
 
 // ---------------- one device: tabs, the slot, the view ----------------
@@ -432,6 +452,19 @@ describe('in the app', () => {
     expect(audio.played).toBe(1)
     // the store took it as usual
     expect(useRooms.getState().rooms[0]!.lastSeq).toBe(2)
+  })
+
+  test('a reaction never rings; a reply in a thread I follow does, one I do not follow does not', async () => {
+    const root = msg({ seq: 1 })
+    dispatch({ type: 'room.reactions', seq: 1, at: Date.now(), data: { roomId: ROOM, messageId: root.id, reactions: [{ emoji: '👍', count: 1, mine: false, users: [BEN] }] } })
+    await settle()
+    expect(audio.played).toBe(0)
+    dispatch(ev(2, msg({ seq: 2, threadRootId: root.id })))
+    await settle()
+    expect(audio.played).toBe(0)
+    dispatch(ev(3, msg({ seq: 3, threadRootId: root.id, following: true })))
+    await settle()
+    expect(audio.played).toBe(1)
   })
 
   test('the room open in this focused window does not ring; the switch turned off rings nothing', async () => {

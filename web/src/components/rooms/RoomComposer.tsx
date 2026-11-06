@@ -1,17 +1,17 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste or drop; each is uploaded at once with POST
-// /api/rooms/:id/files and sent by id), the message it answers (a chip with a way out), and "@" for the room's members.
-// The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
+// /api/rooms/:id/files and sent by id), and "@" for the room's members. In a thread (threadRootId) it writes a reply, with
+// one quiet choice under the box: "대화방에도 보내기" (the reply goes to the room's timeline too). The round send button
+// is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
 import clsx from 'clsx'
-import { ArrowUp, CornerUpLeft, FileText, Loader2, Paperclip, X } from 'lucide-react'
+import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { roomDrafts as drafts, useRooms } from '../../store/rooms'
-import { useNameOf } from '../../store/people'
+import { placeKey, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { IconButton } from '../ui'
 import { useMentionMenu } from './useMentionMenu'
@@ -27,30 +27,32 @@ interface Upload {
 
 let uploadKey = 0
 
-export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onReply, onSent, gone, empty = false }: { roomId: string; members: UserRef[]; meId: string | null; reply: RoomQuote | null; onCancelReply: () => void; onReply: (q: RoomQuote) => void; onSent: () => void; gone: string; empty?: boolean }) {
+export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean }) {
   const t = useT()
-  const nameOf = useNameOf()
   const locale = useLocale()
-  const [text, setTextState] = useState(() => drafts.get(roomId) ?? '')
+  // the room's box and each thread's box keep their own draft
+  const key = placeKey(roomId, threadRootId)
+  const [text, setTextState] = useState(() => drafts.get(key) ?? '')
+  const [alsoInRoom, setAlsoInRoom] = useState(false)
   const [files, setFiles] = useState<Upload[]>([])
   const [drag, setDrag] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   const setText = (s: string) => {
     setTextState(s)
-    if (s) drafts.set(roomId, s)
-    else drafts.delete(roomId)
+    if (s) drafts.set(key, s)
+    else drafts.delete(key)
   }
   const mention = useMentionMenu({ text, setText, input, members, meId, ai: true })
   // a send the server refused (the AI still answering my last question, …) comes back here, not as a failed bubble
-  const back = useRooms((s) => s.returned[roomId])
+  const back = useRooms((s) => s.returned[key])
   useEffect(() => {
     if (!back) return
-    useRooms.getState().takeReturned(roomId)
-    const typed = drafts.get(roomId) ?? ''
+    useRooms.getState().takeReturned(key)
+    const typed = drafts.get(key) ?? ''
     setText(typed ? `${back.body}\n${typed}` : back.body)
     mention.restore(members.filter((m) => back.mentions.includes(m.id)))
-    if (back.replyTo) onReply(back.replyTo)
+    if (back.alsoInRoom) setAlsoInRoom(true)
     if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController() })), ...list])
     input.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,10 +64,10 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
   }, [text])
-  // answering a message: the box is where the person types next
+  // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
-    if (reply) input.current?.focus()
-  }, [reply])
+    if (autoFocus) input.current?.focus({ preventScroll: true })
+  }, [autoFocus])
   // leaving the room stops uploads still on their way (they would never be sent)
   const current = useRef(files)
   current.current = files
@@ -108,11 +110,11 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
 
   const submit = () => {
     if (!canSend) return
-    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), replyTo: reply, files: ready.map((f) => f.roomFile!) })
+    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom })
     setText('')
     setFiles([])
     mention.reset()
-    onCancelReply()
+    setAlsoInRoom(false)
     onSent()
     input.current?.focus()
   }
@@ -137,18 +139,6 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
         data-testid="room-composer"
       >
         {mention.list}
-        {reply && (
-          <div className="flex items-center gap-2 pt-2 pr-1.5 pl-3 text-xs" data-testid="reply-chip">
-            <CornerUpLeft size={13} className="shrink-0 text-faint" aria-hidden />
-            <span className="min-w-0 flex-1 truncate text-muted">
-              <span className="font-medium text-ink">{t('rooms.replyTo', { name: nameOf(reply.author) ?? gone })}</span>
-              {reply.excerpt && <span> · {reply.excerpt}</span>}
-            </span>
-            <IconButton label={t('rooms.cancelReply')} onClick={onCancelReply} className="touch-hit p-1">
-              <X size={14} />
-            </IconButton>
-          </div>
-        )}
         {files.length > 0 && (
           <ul className="flex flex-wrap gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
             {files.map((f) => (
@@ -184,7 +174,7 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
             rows={1}
             value={text}
             aria-label={t('composer.label')}
-            placeholder={empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')}
+            placeholder={threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')}
             maxLength={ROOM_MESSAGE_MAX}
             {...mention.inputProps}
             onChange={(e) => {
@@ -223,6 +213,13 @@ export function RoomComposer({ roomId, members, meId, reply, onCancelReply, onRe
           </button>
         </div>
       </div>
+      {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}
+      {threadRootId && (
+        <label className="mx-auto flex max-w-[780px] cursor-pointer items-center gap-2 px-1 pt-1.5 text-xs text-muted select-none max-sm:px-4 max-sm:pt-0.5 max-sm:pb-1" data-testid="room-also-in-room">
+          <input type="checkbox" checked={alsoInRoom} onChange={(e) => setAlsoInRoom(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+          {t('rooms.alsoToRoom')}
+        </label>
+      )}
     </div>
   )
 }

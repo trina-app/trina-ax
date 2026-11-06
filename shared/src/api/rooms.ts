@@ -15,6 +15,12 @@
 // stop it (room.ai.run / room.ai.step, GET /api/rooms/:id/ai); the others see that the AI is answering (room.ai). The
 // answer is an 'ai' message asked by them: for the whole room when every member may read every file the session read
 // and it used nothing else, else a private preview for them only, which they may post (shareRoomMessage).
+//
+// Threads, reactions, no read receipts (docs/DECISIONS.md "스레드와 반응"): any normal message of the room (not an event
+// line, not deleted, for the whole room) can get replies in a thread (SendRoomMessageBody.threadRootId). Replies live in
+// the thread, not in the room's timeline, unless sent to the room too (alsoInRoom); the root carries the thread's
+// summary (RoomMessage.thread). A thread follows its root: who cannot see the root (a later member) sees none of it.
+// Reactions are 8 fixed emoji (ROOM_REACTIONS); they never notify or count. Nobody is told who has read what.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
@@ -96,6 +102,34 @@ export const RoomFile = z.object({
 })
 export type RoomFile = z.infer<typeof RoomFile>
 
+/** The reactions a message can get (a fixed set; the request is checked against it). */
+export const ROOM_REACTIONS = ['👍', '✅', '👀', '🙏', '😂', '🎉', '❤️', '🔥'] as const
+export const RoomReactionEmoji = z.enum(ROOM_REACTIONS)
+export type RoomReactionEmoji = z.infer<typeof RoomReactionEmoji>
+/** Who reacted with one emoji: at most this many names come with it (the count is all of them). */
+export const ROOM_REACTION_NAMES = 10
+
+/** One emoji on a message: how many members put it there, whether I did, and who (the first ROOM_REACTION_NAMES, in
+ * the order they reacted; only people in the room now). In the order the emoji were first used. */
+export const RoomReaction = z.object({
+  emoji: RoomReactionEmoji,
+  count: z.number().int().positive(),
+  mine: z.boolean(),
+  users: z.array(UserRef),
+})
+export type RoomReaction = z.infer<typeof RoomReaction>
+
+/** A thread under its root, as I see it: the replies I can see (not deleted), the time of the last one, up to 3 people
+ * who replied (the latest first; the AI is not one of them), and whether a thread I follow (I wrote the root, replied,
+ * or was mentioned in it) has a reply after my position in it. */
+export const RoomThreadSummary = z.object({
+  replyCount: z.number().int().nonnegative(),
+  lastReplyAt: IsoTime.nullable(),
+  repliers: z.array(UserRef),
+  newReplies: z.boolean(),
+})
+export type RoomThreadSummary = z.infer<typeof RoomThreadSummary>
+
 /** The quoted message under a reply: an excerpt (at most 200 characters), or nothing once it was deleted. */
 export const RoomQuote = z.object({
   id: Uuid7,
@@ -107,7 +141,7 @@ export const RoomQuote = z.object({
 export type RoomQuote = z.infer<typeof RoomQuote>
 
 /** What an event line in a room says (a room message with `event` set: who did it is its author). It takes its place in
- * the room (a seq) but counts nowhere: no unread number or badge, no notice or push, no menu (not editable, deletable,
+ * the room (a seq) but counts nowhere: no badge, no notice or push, no menu (not editable, deletable,
  * quotable or postable), never given to the AI. created: a group chat was made with these people; renamed: the room's
  * own name is now `name` (null: back to the server's name); added: these people were invited; left: the author left
  * (or their account is gone); removed: the author took this person out; unknown: a line this build cannot read. */
@@ -125,7 +159,7 @@ export type RoomEventLine = z.infer<typeof RoomEventLine>
 export const RoomMessage = z.object({
   id: Uuid7,
   roomId: Uuid7,
-  /** position in the room, 1, 2, 3 … (read positions and the unread count refer to it); gaps are possible */
+  /** position in the room, 1, 2, 3 … (read positions refer to it; thread replies take one too); gaps are possible */
   seq: z.number().int().positive(),
   /** 'user' for now. Reserved for the AI step: 'ai' (author null, askedBy = who asked it) */
   authorKind: z.enum(['user', 'ai']),
@@ -138,12 +172,11 @@ export const RoomMessage = z.object({
   visibility: z.enum(['room', 'private']),
   /** plain text with @mentions as typed; '' once deleted. Another member's words: show as text, never act on them */
   body: z.string(),
+  /** an older quoted reply (no longer made by the app: threads replaced it), or an AI answer's question */
   replyTo: RoomQuote.nullable(),
   /** the members this message mentions (from what the sender picked; only people in the room) */
   mentions: z.array(UserId),
   files: z.array(RoomFile),
-  /** how many members have not read it yet (KakaoTalk's number); 0 for a deleted or private message */
-  unread: z.number().int().nonnegative(),
   createdAt: IsoTime,
   editedAt: IsoTime.nullable(),
   deletedAt: IsoTime.nullable(),
@@ -165,8 +198,19 @@ export const RoomMessage = z.object({
    * Gone once the author posts the answer */
   answeredPrivately: z.boolean().optional(),
   /** an event line (a rename, people invited, someone left): shown as a quiet line in the middle, nothing else. Its body
-   * is '', its unread 0; `author` is who did it */
+   * is ''; `author` is who did it */
   event: RoomEventLine.optional(),
+  /** a reply in the thread of this message (the root). Not in the room's timeline unless alsoInRoom */
+  threadRootId: Uuid7.optional(),
+  /** a thread reply that was sent to the room too: it is in the timeline as well, marked as a thread reply */
+  alsoInRoom: z.literal(true).optional(),
+  /** a thread reply in a thread I follow (I wrote the root, replied or was mentioned there): it is for me like a DM
+   * message (the app's sound); only ever about me */
+  following: z.literal(true).optional(),
+  /** a root with replies I can see: the thread's summary under it */
+  thread: RoomThreadSummary.optional(),
+  /** the reactions on it (none: left out); never on an event line or a deleted message */
+  reactions: z.array(RoomReaction).optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
 
@@ -176,6 +220,8 @@ export const RoomAiRun = z.object({
   roomId: Uuid7,
   /** the room message that asked */
   questionId: Uuid7,
+  /** the question was a reply in this thread (the root's id): its answer goes there */
+  threadRootId: Uuid7.optional(),
   state: z.enum(['queued', 'running', 'done', 'stopped', 'error']),
   /** queued: answers ahead in the team's queue (1 = next); 0 otherwise */
   position: z.number().int().nonnegative(),
@@ -219,12 +265,19 @@ export const Room = z.object({
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),
-  /** messages after my read position that I can see and are not mine (capped at 999): the one badge per room */
+  /** the newest position of the timeline I can see (replies that stay in a thread and other people's private previews
+   * do not move it) */
+  lastSeq: z.number().int().nonnegative(),
+  /** messages of the timeline after my read position that I can see and are not mine (capped at 999); thread replies
+   * never count here */
   unreadCount: z.number().int().nonnegative(),
-  /** one of those mentions me */
+  /** threads I follow with replies I have not read (capped at 999): they count in my badge for the room */
+  threadsUnread: z.number().int().nonnegative(),
+  /** the followed thread with the newest reply I have not read (its root), or null */
+  nextThreadId: Uuid7.nullable(),
+  /** one of those messages or replies mentions me */
   mentioned: z.boolean(),
   lastReadSeq: z.number().int().nonnegative(),
-  lastSeq: z.number().int().nonnegative(),
   lastMessage: RoomLastMessage.nullable(),
   /** no notices for DM messages from this room (an @mention still notifies) */
   muted: z.boolean(),
@@ -258,7 +311,12 @@ export const RoomMessagesPage = page(RoomMessage)
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
+  /** an older client's quoted reply (the app answers in threads now); not with threadRootId */
   replyToId: Uuid7.nullable().optional(),
+  /** a reply in the thread of this message of the room's timeline (not an event line, not deleted, for the whole room) */
+  threadRootId: Uuid7.nullable().optional(),
+  /** a thread reply that also goes to the room's timeline ("대화방에도 보내기"); only with threadRootId */
+  alsoInRoom: z.boolean().optional(),
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).default([]),
   /** uploaded first with POST /api/rooms/:id/files */
   fileIds: z.array(Uuid7).max(ROOM_FILES_MAX).default([]),
@@ -270,8 +328,20 @@ export const EditRoomMessageBody = z.object({
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).default([]),
 }).strict()
 export const MarkRoomReadBody = z.object({ seq: z.number().int().nonnegative() }).strict()
-export const RoomReadState = z.object({ lastReadSeq: z.number().int().nonnegative(), unreadCount: z.number().int().nonnegative() })
+/** my position and badge after a read; mentioned: an unread message or followed reply still mentions me (older servers
+ * omit it) */
+export const RoomReadState = z.object({ lastReadSeq: z.number().int().nonnegative(), unreadCount: z.number().int().nonnegative(), mentioned: z.boolean().optional() })
 export type RoomReadState = z.infer<typeof RoomReadState>
+/** A thread: its root and a page of the replies I can see (without a cursor the newest `limit`, oldest first;
+ * nextCursor fetches older ones). */
+export const RoomThreadPage = z.object({ root: RoomMessage, items: z.array(RoomMessage), nextCursor: z.string().nullable() })
+export type RoomThreadPage = z.infer<typeof RoomThreadPage>
+/** my position in a thread I follow, and the room as I see it after (its badge) */
+export const RoomThreadReadState = z.object({ lastReadSeq: z.number().int().nonnegative(), room: Room })
+export type RoomThreadReadState = z.infer<typeof RoomThreadReadState>
+/** put my reaction on (on: true) or take it off; the same again changes nothing */
+export const ReactRoomMessageBody = z.object({ emoji: RoomReactionEmoji, on: z.boolean() }).strict()
+export const RoomReactions = z.object({ reactions: z.array(RoomReaction) })
 export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).optional(), size: z.string().regex(/^\d+$/).transform(Number).optional() })
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
 
@@ -280,11 +350,14 @@ export const ROOMS = {
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Mute or unmute a room for me, or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
-  listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'Messages of a room I am in from my join on, newest page first, oldest first within it; each with its unread count.' }),
-  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), optionally a reply, with @mentions and files; DMs, group chats and mentions notify.' }),
+  listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it.' }),
+  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions and files; DMs, group chats, mentions and followed threads notify.' }),
+  listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
+  markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
+  reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: 'Put one of the fixed reactions on a message I can see, or take mine off. Never notifies.' }),
   editRoomMessage: endpoint({ method: 'PATCH', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', body: EditRoomMessageBody, response: RoomMessage, summary: 'Edit my own message.' }),
   deleteRoomMessage: endpoint({ method: 'DELETE', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Delete my own message (its text and files are removed; "deleted" stays in its place).' }),
-  markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); the unread counts of the others update.' }),
+  markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); nobody else is told.' }),
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
   inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited.' }),
   removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited.' }),
