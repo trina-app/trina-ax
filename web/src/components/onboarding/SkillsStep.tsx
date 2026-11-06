@@ -3,8 +3,9 @@
 //  - a computer's browser: [내 스킬 찾기] opens the folder window (Chrome, Edge: showDirectoryPicker; Safari, Firefox:
 //    <input webkitdirectory>, whose hint asks for .claude/skills), and a folder dropped on the step works everywhere.
 //    lib/skillScan.ts reads only the known paths and filters before anything leaves the browser;
-//  - the desktop app: [이 컴퓨터에서 찾기] is an <input webkitdirectory data-open-at="claude">, which the app answers
-//    with its own window opened at the home folder, .claude shown and picked;
+//  - the Mac App Store app (storeApp(), the one build that answers the page's file inputs itself): [이 컴퓨터에서 찾기]
+//    is an <input webkitdirectory data-open-at="claude">, which it answers with its own window opened at the home
+//    folder, .claude shown and picked; any other desktop build picks like a browser (proposals say "desktop");
 //  - Claude Code (only when this server has the connector on): one line to paste; the step asks the server every few
 //    seconds for a proposal Claude Code sent (GET /api/skill-shares?source=claude_code) and shows it as it arrives,
 //    on a phone too.
@@ -16,7 +17,7 @@ import { ArrowRight, Check, Copy, FolderOpen, Laptop, Loader2, Terminal } from '
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import type { CreateSkillShare, SkillShare } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { isDesktop } from '../../lib/desktop'
+import { isDesktop, storeApp } from '../../lib/desktop'
 import { canPickHandle, canPickInput, droppedFolder, fromFiles, pickClaudeFolder, scanFolder, type ScanDir } from '../../lib/skillScan'
 import { useLocale, useT } from '../../i18n'
 import { CONNECTOR_NAME, CopyLine } from '../integrations/AiAppConnect'
@@ -72,11 +73,13 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
   const t = useT()
   const locale = useLocale()
   const narrow = useMediaQuery('(max-width: 767.98px)')
-  const app = isDesktop()
+  // only the Mac App Store build answers the page's folder input with its own window (opened at .claude); any other
+  // desktop build picks like a browser
+  const app = storeApp()
   const handle = !app && canPickHandle()
   const phone = narrow || (!app && !handle && !canPickInput())
   const os = osOf()
-  const source = app ? 'desktop' : 'browser'
+  const source = isDesktop() ? 'desktop' : 'browser'
   const [share, setShare] = useState<SkillShare | null>(null)
   const [reading, setReading] = useState(false)
   const [misses, setMisses] = useState(0)
@@ -187,9 +190,9 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
       ref={input}
       type="file"
       className="hidden"
-      // not in React's types; the desktop app opens its own window at the home folder with .claude picked
+      // not in React's types; the Mac App Store app opens its own window at the home folder with .claude picked
       {...{ webkitdirectory: '' }}
-      {...(app ? { 'data-open-at': 'claude' } : {})}
+      data-open-at="claude"
       onChange={(e) => {
         const files = [...(e.target.files ?? [])]
         e.target.value = ''

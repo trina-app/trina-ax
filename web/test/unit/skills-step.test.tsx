@@ -240,6 +240,46 @@ describe('the empty step on a computer', () => {
   })
 })
 
+describe('the desktop app', () => {
+  const picked = (path: string, content: string) => {
+    const f = new File([content], path.split('/').pop()!)
+    Object.defineProperty(f, 'webkitRelativePath', { value: path })
+    return f
+  }
+  test('the Mac App Store app: [이 컴퓨터에서 찾기], its own window at .claude (data-open-at) with no key hint; the files it lists, filtered, go as "desktop"', async () => {
+    g.mycelDesktop = { bridgeVersion: 1, store: true }
+    const m = await step()
+    try {
+      expect(text(m, 'skills-find')).toContain(ko('welcome.skills.findDesktop'))
+      expect(text(m, 'skills-hint')).toBe(ko('welcome.skills.hintDesktop').replace('{folder}', '.claude').replace('{button}', ko('welcome.skills.desktopButton')))
+      expect(m.get('skills-hint').querySelectorAll('kbd')).toHaveLength(0)
+      const input = m.get('skills-input')
+      expect(input.getAttribute('data-open-at')).toBe('claude')
+      expect(input.hasAttribute('webkitdirectory')).toBe(true)
+      Object.defineProperty(input, 'files', { configurable: true, value: [picked('.claude/history.jsonl', 'never'), picked('.claude/skills/weekly-report/SKILL.md', '---\nname: weekly-report\n---\n# 주간 업무 보고\n')] })
+      await act(async () => { input.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
+      await m.until(() => called('POST /api/skill-shares').length > 0, 'the proposal')
+      const sent = called('POST /api/skill-shares')[0]!.body
+      expect(sent.source).toBe('desktop')
+      expect(sent.where).toBe('.claude')
+      expect(sent.skills.map((x: { name: string }) => x.name)).toEqual(['weekly-report'])
+      expect(JSON.stringify(sent)).not.toContain('never')
+    } finally { await m.unmount(); delete g.mycelDesktop }
+  })
+  test('any other desktop build picks like a browser (the folder window, the key hint), and says "desktop"', async () => {
+    g.mycelDesktop = { bridgeVersion: 1 }
+    chrome()
+    const m = await step()
+    try {
+      expect(text(m, 'skills-find')).toContain(ko('welcome.skills.find'))
+      expect(m.get('skills-hint').querySelectorAll('kbd').map((k) => k.textContent)).toEqual(['⌘', '⇧', '.'])
+      expect(m.get('skills-input').getAttribute('data-open-at')).toBe('claude')
+      await findAndList(m)
+      expect(called('POST /api/skill-shares')[0]!.body.source).toBe('desktop')
+    } finally { await m.unmount(); delete g.mycelDesktop }
+  })
+})
+
 describe('a picked folder', () => {
   test('what is sent; while checking the names with skeletons and nothing to tick; then the list: recommended ticked, the rest folded, 빠진 것 not tickable', async () => {
     chrome()
