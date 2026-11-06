@@ -1255,7 +1255,7 @@ export class TurnExec {
     // read, so even "no match" says something about each of them: those folders count as read too
     // (the person's own folder is left to what the search found there: it is theirs, not a folder of the room)
     // (the engine's own start of a call comes without its input: only the server's call, chat/tools.ts, counts here)
-    if (input !== undefined && (tool === 'grep' || tool === 'glob' || tool === 'search')) {
+    if (input !== undefined && (tool === 'grep' || tool === 'glob' || tool === 'search' || tool === 'knowledge_explore')) {
       // compared in one form (NFC, and without case on a case-insensitive disk): the start as typed and as found on disk
       // against each ruled folder as its rule names it
       const fold = (p: string) => { const n = p.normalize('NFC'); return this.rt.files.fx.caseInsensitive ? n.toLowerCase() : n }
