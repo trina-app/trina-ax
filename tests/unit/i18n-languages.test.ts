@@ -188,6 +188,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/intro-deck/web.ts': { why: 'Korean words that mark a company site\'s about, product, case and news pages (a pattern the server matches, not screen text)', also: /^const WANT = / },
   'server/src/intro-deck/html.ts': { why: 'the deck pager\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ slide: / },
   'server/src/intro-deck/spec.ts': { why: 'the Korean superlatives a deck may use only when its sources do (a word list the check matches, not screen text), and the notes\' source label', also: /^export const SUPERLATIVES = / },
+  'server/src/knowledge-graph/documents/text.ts': { why: 'Korean particles, endings, stopwords and generic document titles for the knowledge graph\'s search tokenizer, and its Hangul range (word lists, not screen text)', also: /^const (HANGUL|KO_SUFFIX) = |^\s+'[^']*'(, '[^']*')*(,|\]\)?)$/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or
