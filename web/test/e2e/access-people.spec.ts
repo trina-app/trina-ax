@@ -237,7 +237,9 @@ test('Members: "Folders they see" opens the person; the invite previews what som
   await signIn(page)
   const g = await team(page)
   await page.goto('/admin/members')
-  await page.getByRole('link', { name: translate('ko', 'accessView.membersLinkFor', { name: 'Bob' }), exact: true }).click()
+  // "Folders they see" is the first item of the row's "…"
+  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' }).getByTestId('member-more').click()
+  await page.getByRole('menuitem', { name: t['accessView.membersLink'], exact: true }).click()
   await expect(page).toHaveURL(/\/admin\/folders\?view=people&person=bob$/)
   await expect(option(page, 'bob')).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('access-summary')).toContainText('Bob 님과 그 AI는 팀 폴더 6개')
