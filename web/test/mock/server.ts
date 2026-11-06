@@ -188,6 +188,8 @@ export class MockServer {
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
+  /** the chat first-result made for the deck, until its message is in (server: welcome.ts `deckChatId`, settleDeck) */
+  deckChat: string | null = null
   /** a saved welcome row: finished once 회사 소개 is answered (put off, or saved with the deck started or a first result
    * answered) and 내 스킬, 팀 파일 and the invite are each done or put off, not while 내 스킬 waits for a computer
    * (server/src/onboarding/welcome.ts welcomeFinished, docs/DECISIONS.md "W5") */
@@ -360,6 +362,7 @@ export class MockServer {
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
+    this.deckChat = null
     this.companyProfile = null
     this.profileDrafts = new Map()
     this.resultSuggestion = null
@@ -1930,10 +1933,9 @@ export class MockServer {
       const skill = l!.skillPath ? this.skillsFor(u).find((x) => x.path === l!.skillPath && !x.personal) : undefined
       const files = (l!.starter?.files ?? []).filter((f) => this.files.get(f)?.type === 'file' && this.access(f, u) !== 'none').map((f) => ({ path: f, name: f.slice(f.lastIndexOf('/') + 1) }))
       const by = this.users.find((x) => x.id === l!.createdBy.id)?.name ?? null
-      // who made the link's skill (S): the line above its form, or Home's arrival for a skill that asks nothing
+      // who made the link's skill (S): the line above its form (every skill lands on its form, one without fields too: W5)
       const maker = l!.skillPath ? this.users.find((x) => x.id === this.skillMakers.get(l!.skillPath!))?.name ?? null : null
-      const filesStarter = l!.starter && skill && files.length ? { kind: l!.starter.kind, skill: { path: skill.path, name: skill.name, title: skill.title ?? skill.name }, files, by } : null
-      const starter = filesStarter ?? (skill && maker && !skill.inputs?.length ? { kind: 'skill' as const, skill: { path: skill.path, name: skill.name, title: skill.title ?? skill.name }, files: [], by: maker } : null)
+      const starter = l!.starter && skill && files.length ? { kind: l!.starter.kind, skill: { path: skill.path, name: skill.name, title: skill.title ?? skill.name }, files, by } : null
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next, starter, skillBy: maker } }
     },
     // onboarding A, B, D: the scripted AI answers everyone, there is no hosting trial credit and no company profile yet
@@ -1969,7 +1971,8 @@ export class MockServer {
       const b = c.body as import('@mycel/shared/api').WelcomeUpdate
       if (b.resultChatId !== undefined) {
         if (!this.chats.some((x) => x.id === b.resultChatId)) fail('not_found', 404)
-        p.resultChatId = b.resultChatId
+        // the deck's chat counts once it holds a message (server: welcome.ts)
+        if (this.messages.some((m) => m.chatId === b.resultChatId)) p.resultChatId = b.resultChatId
       }
       if (b.teamType) p.teamType = b.teamType
       if (b.step) {
@@ -2050,7 +2053,8 @@ export class MockServer {
       const p = this.welcome
       // once per team (docs/DECISIONS.md "W5"): a deck that started answers 409 deck_started before anything else; a
       // chat made whose message never went is handed out again
-      const had = p?.resultChatId ? this.chats.find((x) => x.id === p.resultChatId && !x.deletedAt) : undefined
+      const deckId = p?.resultChatId ?? this.deckChat
+      const had = deckId ? this.chats.find((x) => x.id === deckId && !x.deletedAt) : undefined
       if (had && this.messages.some((m) => m.chatId === had.id)) fail('conflict', 409, '회사 소개서는 이미 만들기 시작했어요.', undefined, { reason: 'deck_started' })
       // the team's start when it is missing (the server's own setupWelcomeTeam), as for "저장하고 계속" without files
       if (p && (!p.general || !p.teamGroup?.brandFolder)) this.handlers.setupWelcomeTeam!({ ...c, body: {} })
@@ -2071,7 +2075,8 @@ export class MockServer {
         this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p!.site ? ` · ${p!.site}` : ''}\n`)
       }
       const chat = had ?? (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 소개서' } }) as { body: Chat }).body
-      p!.resultChatId = chat.id
+      // kept for the deck; `resultChatId` once its message is in (the page records it after the send)
+      this.deckChat = chat.id
       p!.updatedAt = at
       return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.introDeckPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
     },

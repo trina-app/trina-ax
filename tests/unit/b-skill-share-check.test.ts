@@ -237,6 +237,23 @@ describe('the rule and the tools', () => {
     expect(checkShare(share([], { source: 'claude_code', tools: [s], projects: 2 }), [])).toMatchObject({ tools: [{ name: 'Notion' }], projects: 2 })
     expect(checkShare(share([], { source: 'codex', app: 'codex', tools: [s], projects: 1 }), [])).toMatchObject({ tools: [{ name: 'Notion' }], projects: 1 })
   })
+
+  test('a key in the address\'s host is left out too (keyInAddress), from every source; real hosted servers stay', () => {
+    const keyed = [
+      { name: 'HostKey', url: 'https://Zx9aQ7bR3kLmN2pVt8wYc4.mcp.example.com/mcp', auth: 'bearer' as const },
+      { name: 'HostUuid', url: 'https://0f8fad5b-d9cb-469f-a165-70867728950e.mcp.example.com/sse', auth: 'bearer' as const },
+      // letters only: random only in the case it was written in (the parsed host is in lower case)
+      { name: 'HostLetters', url: 'https://ZxQaBrKmNpVtWyCdEfGhJk.mcp.example.com/mcp', auth: 'oauth' as const },
+      { name: 'HostHex', url: 'https://5c6de5a19f3b4e7d8a90b1c2.mcp.example.com/mcp', auth: 'oauth' as const },
+    ]
+    const real = ['https://mcp.notion.com/mcp', 'https://api.githubcopilot.com/mcp/', 'https://mcp.linear.app/sse', 'https://mcp.atlassian.com/v1/sse',
+      'https://remote-mcp-server-authless.your-account.workers.dev/sse', 'https://mcp.figma.com/mcp']
+    const kept = real.map((url, i) => ({ name: `real-${i}`, url, auth: 'oauth' as const }))
+    expect(cleanTools([...keyed, ...kept]).map((t) => t.url)).toEqual(real)
+    for (const source of ['browser', 'claude_code', 'codex'] as const) {
+      expect(checkShare(share([], { source, tools: keyed }), []).tools).toEqual([])
+    }
+  })
 })
 
 describe('the strict schema', () => {

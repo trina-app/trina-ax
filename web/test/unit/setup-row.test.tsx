@@ -6,7 +6,7 @@
 // - Admin › Home: its own checklist hides while the steps are unfinished; "시작 설정 다시 보기" brings a hidden row back.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { GENERAL_BRIEF_SKILL, GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { SetupRow } from '../../src/components/onboarding/SetupRow'
@@ -141,17 +141,43 @@ describe('the setup row', () => {
     }
   })
 
+  test('a hidden row reads the progress once: page changes past the 5 s freshness read it again only while it shows', async () => {
+    signIn('owner')
+    let go: (path: string) => void = () => {}
+    function Nav() { const n = useNavigate(); go = n; return null }
+    const realNow = Date.now
+    let shift = 0
+    Date.now = () => realNow() + shift
+    try {
+      for (const [p, reads] of [[half({ dismissedAt: '2026-11-04T00:02:00.000Z' }), 1], [half(), 3]] as const) {
+        progress = p
+        const m = await mount(<MemoryRouter initialEntries={['/c/abc']}><SetupRow /><Nav /></MemoryRouter>)
+        try {
+          await m.until(() => useWelcome.getState().loaded, 'read')
+          for (const path of ['/rooms', '/files']) {
+            shift += 10_000
+            await act(async () => { go(path) })
+            await m.settle(30)
+          }
+          expect({ dismissed: !!p.dismissedAt, reads: called('GET /api/onboarding/welcome').length }).toEqual({ dismissed: !!p.dismissedAt, reads })
+        } finally { await m.unmount() }
+        useWelcome.getState().reset()
+        calls = []
+      }
+    } finally { Date.now = realNow }
+  })
+
   test('✕ hides it with an undo toast; undo brings it back', async () => {
     signIn('owner')
     progress = half()
     const m = await row('/c/abc')
     try {
       await m.until(() => m.find('setup-row-hide'), 'the row')
-      expect(m.get('setup-row-hide').getAttribute('aria-label')).toBe('설정 줄 숨기기')
+      expect(m.get('setup-row-hide').getAttribute('aria-label')).toBe('시작 설정 숨기기')
       await m.click('setup-row-hide')
       await m.until(() => !m.find('setup-row'), 'hidden')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body)).toEqual([{ dismissed: true }])
-      const toast = useUi.getState().toasts.find((x) => x.text === '설정 줄을 숨겼어요')
+      const toast = useUi.getState().toasts.find((x) => x.text === '시작 설정을 숨겼어요 · 관리자 홈에서 다시 볼 수 있어요')
       expect(toast?.action?.label).toBe(translate('ko', 'common.undo'))
       await act(async () => { toast!.action!.run() })
       await m.until(() => m.find('setup-row'), 'back')
@@ -159,7 +185,7 @@ describe('the setup row', () => {
     } finally { await m.unmount() }
   }, 20_000)
 
-  test('while no AI answers: "AI 연결하기" opens the connect dialog, and Home (its no-AI card) has no row', async () => {
+  test('while no AI answers: "AI 연결하기" opens the dialog "AI 연결" with the welcome step\'s three ways (not "계정 추가" on Claude alone), and Home (its no-AI card) has no row', async () => {
     signIn('owner')
     ai = { usable: false, action: 'connect_team', requested: false }
     progress = half()
@@ -170,7 +196,11 @@ describe('the setup row', () => {
       expect(m.get('setup-row-ai').textContent).toBe('AI 연결하기')
       expect(m.find('setup-row-link')).toBeNull()
       await m.click('setup-row-ai')
-      await m.until(() => called('GET /api/admin/credentials').length && (globalThis.document as any).body.querySelector('[role="dialog"]'), 'the connect dialog')
+      await m.until(() => m.find('welcome-ai-keys'), 'the connect dialog with its ways')
+      const dialog = (globalThis.document as any).body.querySelector('[role="dialog"]')
+      expect(dialog.querySelector('h2').textContent).toBe('AI 연결')
+      expect(['welcome-ai-claude', 'welcome-ai-chatgpt', 'welcome-ai-keys'].map((id) => !!m.find(id))).toEqual([true, true, true])
+      expect(m.get('welcome-ai-claude').textContent).toContain(translate('ko', 'welcome.ai.claude'))
     } finally { await m.unmount() }
     useWelcome.getState().reset()
     m = await row('/')

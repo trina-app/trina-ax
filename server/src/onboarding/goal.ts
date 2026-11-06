@@ -15,11 +15,10 @@
 //     for the team skill. Renaming or moving a skill gives it a new path: runs before and after count as two skills;
 //   - people deleted later still count (turns stay; a deleted account is a tombstone), but their names are not shown.
 import type { Database } from 'bun:sqlite'
-import { GENERAL_DECK_SKILL, GOAL_DAYS, GOAL_PEOPLE, type TeamGoal } from '@mycel/shared/api'
+import { GENERAL_DECK_SKILL, GOAL_DAYS, GOAL_PEOPLE, skillLabel, type TeamGoal } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getSetting, setSetting } from '../admin/settings'
 import { notificationsOf } from '../notifications/service'
-import { titleFor } from './goal-names'
 import { landingSkill, readWelcome } from './welcome'
 import { readSkill } from '../chat/skills'
 
@@ -152,6 +151,17 @@ export function focusSkill(ctx: AppContext, p: GoalProgress): SkillRunners | nul
   return rival && rival.people.length > own.people.length ? rival : own
 }
 
+/** The card's skill as the viewer may read it now (shared skillLabel: its title, else its folder name as words,
+ * "quote-maker" → "quote maker", never the raw folder name: docs/DECISIONS.md "W5"); `recorded` as words when they
+ * cannot or it is gone. */
+function goalSkillName(ctx: AppContext, viewerId: string, path: string, recorded: string): string {
+  try {
+    const s = readSkill(ctx.files, ctx.files.principal(viewerId), path)
+    if (s) return skillLabel(s)
+  } catch { /* the name recorded */ }
+  return skillLabel({ name: recorded })
+}
+
 const firstOwner = (db: Database) => (db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null)?.id ?? null
 
 /**
@@ -178,7 +188,7 @@ export function teamGoal(ctx: AppContext, viewerId: string, now = new Date()): T
     target: GOAL_PEOPLE, days: GOAL_DAYS,
     startedAt: p.startedAt, endsAt: p.endsAt,
     daysLeft: Math.max(0, Math.ceil((end - t) / DAY_MS)),
-    skill: best ? { path: best.path, name: titleFor(ctx, viewerId, best.path, best.name), runners: best.people.length, people: namesOf(ctx.db, best.people.map((x) => x.userId)) } : null,
+    skill: best ? { path: best.path, name: goalSkillName(ctx, viewerId, best.path, best.name), runners: best.people.length, people: namesOf(ctx.db, best.people.map((x) => x.userId)) } : null,
     reachedAt: p.reachedAt,
   }
   // who joined and has not run it: only while the goal is open (in the window, not reached)

@@ -26,4 +26,6 @@ export const SKILL_SHARE_SPECS: Record<string, Spec> = {
   getSkillShare: { build: (c) => c.get(`/api/skill-shares/${NONE}`), scope: 'nobody' },
   applySkillShare: { build: (c) => c.post(`/api/skill-shares/${NONE}/apply`, { skills: [] }), scope: 'nobody' },
   dismissSkillShare: { build: (c) => c.post(`/api/skill-shares/${NONE}/dismiss`), scope: 'nobody' },
+  // a merge chat is its person's: another chat (or none) is the same as none (404)
+  startSkillMerge: { build: (c) => c.post(`/api/skill-shares/merge-chats/${NONE}/start`), scope: 'nobody' },
 }

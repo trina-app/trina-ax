@@ -66,9 +66,10 @@ export const WelcomeProgress = z.object({
   }),
   /** the pack these steps installed, once (never again by themselves), and the path of its first-result skill */
   pack: z.object({ id: SkillPackId, at: z.string(), skillPath: z.string() }).nullable(),
-  /** the intro deck's chat ("우리 회사 소개서", one of the owner's): set once, when 회사 소개's "저장하고 계속" started it
-   * (POST …/first-result records it), so saving again never starts a second one. Rows from before: the first
-   * result's chat */
+  /** the intro deck's chat ("우리 회사 소개서", one of the owner's) once its "/intro-deck" message is in: the chat POST
+   * …/first-result made (kept apart on the server until then and handed out again while it holds no message) counts
+   * from the moment it holds one, so a send that failed or a tab closed in between leaves 회사 소개 open. Rows from
+   * before: the first result's chat */
   resultChatId: z.string().nullable(),
   /** when the invite step was first opened */
   inviteShownAt: z.string().nullable(),
@@ -113,6 +114,14 @@ export const WelcomeProgress = z.object({
    * meeting notes folder in it; made once by these steps, the owner in it, the team link's default group. Absent or
    * null: not yet */
   teamGroup: TeamGroupRef.nullable().optional(),
+  /** facts the server reads for the screens (docs/DECISIONS.md "W5"), never stored in the row: `deckStarted`, an intro
+   * deck really started (the deck's chat holds the "/intro-deck" message, or a deck build exists for it; a first
+   * result of a row from before is no deck), for the end screen's one line; `landingSkill`, the skill everything points
+   * at as the server decides it (server/src/onboarding/welcome.ts landingSkill: the first shared skill while it is
+   * there, else 할 일 정리, never the intro deck; null: none), for the invite and "'{skill}' 먼저 써 보기". Absent: an
+   * older server */
+  deckStarted: z.boolean().optional(),
+  landingSkill: z.string().nullable().optional(),
 })
 export type WelcomeProgress = z.infer<typeof WelcomeProgress>
 
@@ -164,11 +173,15 @@ export type WelcomeTeamResult = z.infer<typeof WelcomeTeamResult>
 
 /** POST /api/onboarding/welcome/first-result: the company's intro deck (docs/DECISIONS.md "D2"; the promo video of "V"
  * and the card news of "N" before it), started by 회사 소개's "저장하고 계속" once per team (docs/DECISIONS.md "W5"):
- * the chat is recorded as `resultChatId` at once; while that chat holds a message the server answers 409 with
- * `params.reason` "deck_started" (saving again only saves), and a chat it made whose message never went (the page was
- * closed in between) is handed out again. `files`: the team files the owner added on 회사 소개 ("소개 자료가 있으면 같이
- * 넣기", into the brand folder); none: the server writes 회사 소개.md there from the saved profile and the pages the
- * website reading opened. */
+ * the chat it makes is kept for the deck and handed out again while it holds no message (the page closed, the send
+ * failed: the same chat, never a second one); once it holds one the server answers 409 with `params.reason`
+ * "deck_started" (saving again only saves) and records it as `resultChatId`. The page sends "/intro-deck …" with the
+ * client message id deckMessageId(chatId), so two tabs that got the same chat send one message. `files`: the team files
+ * the owner added on 회사 소개 ("소개 자료가 있으면 같이 넣기", into the brand folder); none: the server writes 회사 소개.md
+ * there from the saved profile and the pages the website reading opened. */
+/** The client message id of the deck's one message in its chat: every tab and retry sends the same one, so the server
+ * keeps a single message and a single deck (a resend returns the first turn). */
+export const deckMessageId = (chatId: string) => `deck-${chatId}`
 export const FIRST_RESULT_FILES_MAX = 10
 export const StartFirstResult = z.object({ files: z.array(z.string().min(1).max(1000)).max(FIRST_RESULT_FILES_MAX) }).strict()
 export type StartFirstResult = z.infer<typeof StartFirstResult>

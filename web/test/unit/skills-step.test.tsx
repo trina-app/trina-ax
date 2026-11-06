@@ -16,6 +16,10 @@
 // only while the step is on screen; a share applied elsewhere since the step opened shows as done; during the setup
 // what went in has no 열기 and a merge waits ("합치기는 설정 끝나고 확인해요"); /skills/share/:id goes back to /welcome
 // while the owner's setup is unfinished and to the team skills after it.
+// Coming back (the browser walk of onboarding v5: M3, SHOULD 10): the step opens on the newest proposal still open
+// (any source, also one still checking), never on an applied, dismissed or expired one as the list; once 내 스킬 is
+// done it opens on what went in, which offers one quiet 다른 폴더도 가져오기 (back to the picker) beside 다음. Without
+// the AI (SHOULD 4) what was found is under "찾은 스킬 N개", not "그 밖에 · 나만 쓰는 것, 개발용".
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -175,9 +179,10 @@ const chrome = () => { g.showDirectoryPicker = async () => (picker ? picker() : 
 const phoneWidth = () => { g.matchMedia = (q: string) => ({ matches: q.includes('767.98'), addEventListener() {}, removeEventListener() {} }) }
 const events: string[] = []
 function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname + l.search}</p> }
-const step = () => {
+/** the step, once its first look at the person's proposals is in (until then it shows no picker) */
+const step = async () => {
   events.length = 0
-  return mount(
+  const m = await mount(
     <MemoryRouter initialEntries={['/welcome']}>
       <Routes>
         <Route path="/welcome" element={<SkillsStep team="Acme" nextLabel="다음: 팀 파일 가져오기" onApplied={(s) => events.push(`applied:${s.id}`)} onNext={() => events.push('next')} onSkip={() => events.push('skip')} onPhoneNext={() => events.push('phoneNext')} />} />
@@ -185,7 +190,12 @@ const step = () => {
       </Routes>
     </MemoryRouter>,
   )
+  await m.until(() => m.find('skills-step') && m.get('skills-step').getAttribute('data-state') !== 'looking', 'the first look')
+  return m
 }
+/** 내 스킬 recorded done in the steps' progress (pages/Welcome.tsx loads it before the step shows) */
+const stepDone = () => useWelcome.setState({ loaded: true, progress: { ...WELCOME_ROW, steps: { ...WELCOME_ROW.steps, skills: 'done' }, finishedAt: null } as never })
+const hourAgo = () => new Date(Date.now() - 3_600_000).toISOString()
 const text = (m: Mounted, id: string) => m.get(id).textContent ?? ''
 const rows = (m: Mounted, group?: string) => m.container.ownerDocument!.body.querySelectorAll('[data-testid="skill-row"]').filter((r: FakeElement) => !group || r.getAttribute('data-group') === group)
 const rowOf = (m: Mounted, name: string) => rows(m).find((r) => r.getAttribute('data-name') === name)!
@@ -253,7 +263,7 @@ describe('the empty step on a computer', () => {
     } finally { await m.unmount() }
   })
 
-  test('the connector off on this server: no Claude Code line, and nothing asked about Claude Code proposals', async () => {
+  test('the connector off on this server: no Claude Code line; the proposals are read once as the step opens, never again', async () => {
     chrome()
     remote = { configured: false, resource: '' }
     const m = await step()
@@ -262,7 +272,7 @@ describe('the empty step on a computer', () => {
       await m.settle(50)
       expect(m.find('skills-cc')).toBeNull()
       expect(m.find('skills-find')).not.toBeNull()
-      expect(called('GET /api/skill-shares')).toHaveLength(0)
+      expect(called('GET /api/skill-shares')).toHaveLength(1)
     } finally { await m.unmount() }
   })
 })
@@ -494,8 +504,8 @@ describe('Claude Code', () => {
   test('a proposal Claude Code sends while the step waits shows itself: its source line, the projects, the tools line; the tools go when ticked', async () => {
     chrome()
     ccItems = [
-      // older and still checking, or let go of: not shown
-      shareOf({ id: '01900000-0000-7000-8000-0000000005c0', source: 'claude_code', status: 'checking', createdAt: '2026-11-01T00:00:00.000Z' }),
+      // expired, or let go of: not shown
+      shareOf({ id: '01900000-0000-7000-8000-0000000005c0', source: 'claude_code', status: 'expired', createdAt: '2026-11-01T00:00:00.000Z' }),
       shareOf({ id: '01900000-0000-7000-8000-0000000005bf', source: 'claude_code', status: 'dismissed' }),
     ]
     const m = await step()
@@ -761,6 +771,142 @@ describe('the exits of the step (docs/DECISIONS.md "W5")', () => {
       expect(m.get('skill-review-source').getAttribute('data-state')).toBe('folder')
       expect(text(m, 'skill-review-source')).toContain(ko('welcome.skills.found', { n: 10 }).replace('{where}', '.codex'))
       expect(text(m, 'skills-tools')).toContain(ko('welcome.skills.tools', { n: 1, names: 'Notion' }))
+    } finally { await m.unmount() }
+  })
+})
+
+describe('coming back to the step (walk M3, SHOULD 10)', () => {
+  const addedRow = (c: ShareCandidate): ShareCandidate => (c.group === 'recommended' && c.name !== 'meeting-notes' ? { ...c, applied: { status: 'added', path: `skills/${c.name}/SKILL.md`, chatId: null, error: null } } : c)
+  const appliedOf = (o: Partial<SkillShare> = {}) => shareOf({ id: '01900000-0000-7000-8000-0000000005e1', status: 'applied', createdAt: hourAgo(), updatedAt: hourAgo(), candidates: candidates().map(addedRow), ...o })
+
+  test('a proposal left open (a folder picked before the owner left) shows its list as the step opens, without a pick, even with the connector off; one still checking turns into the list', async () => {
+    chrome()
+    remote = { configured: false, resource: '' }
+    ccItems = [shareOf({ source: 'browser', status: 'ready', createdAt: hourAgo(), updatedAt: hourAgo() })]
+    let m = await step()
+    try {
+      expect(m.get('skill-review').getAttribute('data-status')).toBe('ready')
+      expect(m.get('skill-review-source').getAttribute('data-state')).toBe('folder')
+      expect(rows(m, 'recommended').map((r) => r.getAttribute('data-name'))).toEqual(['weekly-report', 'quote-draft', 'meeting-notes'])
+      // nothing picked, nothing sent again; the list's own 다른 폴더 is there
+      expect(called('POST /api/skill-shares')).toHaveLength(0)
+      expect(m.find('skill-review-other-folder')).not.toBeNull()
+    } finally { await m.unmount() }
+    ccItems = [shareOf({ source: 'claude_code', status: 'checking', ai: 'pending', createdAt: hourAgo() })]
+    m = await step()
+    try {
+      expect(m.get('skill-review').getAttribute('data-status')).toBe('checking')
+      await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the list', 6000)
+    } finally { await m.unmount() }
+  })
+
+  test('the newest proposal still open shows, from any source; applied, dismissed and expired ones are not shown as the list (내 스킬 not done): the picker', async () => {
+    chrome()
+    ccItems = [
+      appliedOf({ id: '01900000-0000-7000-8000-0000000005e2' }),
+      shareOf({ id: '01900000-0000-7000-8000-0000000005e3', status: 'dismissed', createdAt: hourAgo() }),
+      shareOf({ id: '01900000-0000-7000-8000-0000000005e4', status: 'expired', createdAt: hourAgo() }),
+    ]
+    let m = await step()
+    try {
+      await m.settle(30)
+      expect(m.get('skills-step').getAttribute('data-state')).toBe('empty')
+      expect(m.find('skill-review')).toBeNull()
+    } finally { await m.unmount() }
+    // two open ones: the newest (Codex's) is the list, not the older folder
+    ccItems = [shareOf({ id: CC_ID, source: 'codex', app: 'codex', where: null, projects: 1, createdAt: hourAgo() }), shareOf({ source: 'browser', createdAt: '2026-11-05T00:00:00.000Z' })]
+    m = await step()
+    try {
+      expect(m.get('skill-review-source').getAttribute('data-state')).toBe('codex')
+    } finally { await m.unmount() }
+  })
+
+  test('a revisit of a done 내 스킬 (이전 from 팀 파일) shows what went in, not the picker; 다음 is the primary', async () => {
+    chrome()
+    stepDone()
+    ccItems = [appliedOf()]
+    const m = await step()
+    try {
+      expect(m.get('skill-review').getAttribute('data-status')).toBe('applied')
+      expect(text(m, 'skills-done')).toBe(ko('welcome.skills.done'))
+      const done = (globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]
+      expect(done.map((r) => r.getAttribute('data-name'))).toEqual(['weekly-report', 'quote-draft'])
+      expect(m.find('skills-find')).toBeNull()
+      expect(m.get('skills-done-next').className).toContain('bg-accent')
+      await m.click('skills-done-next')
+      expect(events).toEqual(['next'])
+    } finally { await m.unmount() }
+  })
+
+  test('what went in offers one quiet 다른 폴더도 가져오기: back to the picker, that share not shown again; the primary stays 다음; none on a phone', async () => {
+    chrome()
+    const m = await step()
+    try {
+      await findAndList(m)
+      await m.click('skills-share')
+      await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')
+      // the server: the share applied, 내 스킬 done
+      await act(async () => { stepDone() })
+      ccItems = [{ ...created!, status: 'applied', candidates: candidates().map(addedRow) }]
+      expect(text(m, 'skills-more')).toBe(ko('welcome.skills.more'))
+      expect(m.get('skills-more').className).not.toContain('bg-accent')
+      expect(m.get('skills-done-next').className).toContain('bg-accent')
+      const looks = called('GET /api/skill-shares').length
+      await m.click('skills-more')
+      expect(m.get('skills-step').getAttribute('data-state')).toBe('empty')
+      expect(m.get('skills-find').className).toContain('bg-accent')
+      // the next look (the connector is on) leaves the picker: the applied share does not come back
+      await m.until(() => called('GET /api/skill-shares').length > looks, 'the next look', 6000)
+      await m.settle(30)
+      expect(m.get('skills-step').getAttribute('data-state')).toBe('empty')
+      expect(events).toEqual([`applied:${ID}`])
+    } finally { await m.unmount() }
+    phoneWidth()
+    stepDone()
+    ccItems = [appliedOf()]
+    const p = await step()
+    try {
+      expect(p.get('skill-review').getAttribute('data-status')).toBe('applied')
+      expect(p.find('skills-more')).toBeNull()
+    } finally { await p.unmount() }
+  })
+})
+
+describe('without the AI (walk SHOULD 4)', () => {
+  const unjudged = (): ShareCandidate[] => [
+    cand('quote-maker', 'quote-maker', 'other', 'unjudged'),
+    cand('weekly-report', 'weekly-report', 'other', 'unjudged'),
+    cand('standup', 'standup', 'other', 'command', { origin: 'command' }),
+    cand('vendor-mail', 'vendor-mail', 'other', 'personal_path', { personalPath: true }),
+    cand('crm-sync', 'crm-sync', 'excluded', 'secret', { detail: 'anthropic' }),
+    cand('meeting-notes', 'meeting-notes', 'excluded', 'scripts'),
+  ]
+  for (const ai of ['none', 'failed'] as const) {
+    test(`ai "${ai}": what was found is under "찾은 스킬 N개", not "그 밖에 · 나만 쓰는 것, 개발용"; 빠진 것 as it is; a command and a path keep their reason`, async () => {
+      chrome()
+      ccItems = [shareOf({ ai, candidates: unjudged(), createdAt: hourAgo() })]
+      const m = await step()
+      try {
+        expect(text(m, 'skill-review-no-ai')).toBe(ko('welcome.skills.noAi'))
+        expect(text(m, 'skills-other-toggle')).toBe(ko('welcome.skills.unjudged', { n: 4 }))
+        expect(text(m, 'skill-review')).not.toContain(ko('welcome.skills.otherHint'))
+        expect(text(m, 'skill-review')).not.toContain(ko('welcome.skills.other', { n: 4 }))
+        // open, nothing ticked
+        expect(rows(m, 'other').map((r) => r.getAttribute('data-name'))).toEqual(['quote-maker', 'weekly-report', 'standup', 'vendor-mail'])
+        expect(rows(m, 'other').every((r) => !(r.querySelector('input') as unknown as { checked: boolean }).checked)).toBe(true)
+        expect(rowOf(m, 'quote-maker').textContent).toBe('quote-maker/quote-maker')
+        expect(rowOf(m, 'standup').textContent).toContain(ko('welcome.skills.reason.command'))
+        expect(rowOf(m, 'vendor-mail').textContent).toContain(ko('welcome.skills.reason.personal_path'))
+        expect(text(m, 'skills-excluded-toggle')).toBe(`${ko('welcome.skills.excluded', { n: 2 })}· 비밀 키, 스크립트`)
+      } finally { await m.unmount() }
+    })
+  }
+  test('judged by the AI: the rows it put aside stay under "그 밖에 · 나만 쓰는 것, 개발용"', async () => {
+    chrome()
+    ccItems = [shareOf({ ai: 'done', createdAt: hourAgo() })]
+    const m = await step()
+    try {
+      expect(text(m, 'skills-other-toggle')).toBe(`${ko('welcome.skills.other', { n: 4 })}· ${ko('welcome.skills.otherHint')}`)
     } finally { await m.unmount() }
   })
 })

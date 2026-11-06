@@ -210,6 +210,20 @@ describe('the card and the owners\' notice', () => {
     expect(await goal()).toMatchObject({ state: 'reached', skill: { runners: 3 } })
   })
 
+  test('a skill without a title is named by its folder name as words ("quote-maker" → "quote maker"), never the raw name; gone, the recorded name as words', async () => {
+    const QUOTE = { path: 'skills/general/quote-maker/SKILL.md', name: 'quote-maker' }
+    const abs = path.join(h.ctx.config.teamRoot, QUOTE.path)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    // shared from 내 스킬 without the AI check: no metadata title
+    fs.writeFileSync(abs, '---\nname: quote-maker\ndescription: Quotes for desks and chairs, like "책상 10개, 의자 10개 견적 내 줘".\n---\nWrite.\n')
+    try {
+      turn(ids.member, { skill: QUOTE })
+      expect((await goal()).skill).toMatchObject({ path: QUOTE.path, name: 'quote maker', runners: 1 })
+      fs.rmSync(abs)
+      expect((await goal()).skill).toMatchObject({ path: QUOTE.path, name: 'quote maker' })
+    } finally { fs.rmSync(abs, { force: true }) }
+  })
+
   test('the skill the invite opens (shared from 내 스킬, docs/DECISIONS.md "SK") is counted while it has as many runners as the top one, even with none', async () => {
     const abs = path.join(h.ctx.config.teamRoot, SEO.path)
     fs.mkdirSync(path.dirname(abs), { recursive: true })

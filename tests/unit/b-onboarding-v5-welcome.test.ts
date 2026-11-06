@@ -2,16 +2,17 @@
 // welcome-result.ts, goal.ts, auth/team-links.ts, credentials/access.ts, chat/skills.ts):
 //   - the finish rule: 회사 소개 answered (put off; or saved with the deck started or a row's first result answered) and
 //     내 스킬, 팀 파일 and the invite each done or put off, not while 내 스킬 waits for a computer; old rows (a)–(d);
-//   - the intro deck starts once per team: a second start is refused (409 deck_started) before anything is written,
-//     two at once start one, a chat made whose message never went is handed out again;
+//   - the intro deck starts once per team: its chat is kept for it and counts (resultChatId, deckStarted) only once its
+//     message is in; a second start is then refused (409 deck_started) before anything is written; two at once get one
+//     chat and their sends one message; a chat made whose message never went is handed out again;
 //   - the skill everything points at (landingSkill): the first shared skill, else 할 일 정리, never the intro deck; the
 //     goal card names it (focusSkill) unless another skill that is not the deck has more people;
-//   - old open invite links to the intro deck are pointed once at the landing skill;
+//   - old open invite links to the intro deck are pointed once at the landing skill (once used up only when it could act);
 //   - what AI a person who joins through the link has (memberAi), and a skill's own example (SkillInfo.example).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, skillExample, type WelcomeProgress } from '@mycel/shared/api'
+import { API, deckMessageId, GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, skillExample, type WelcomeProgress } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
@@ -67,6 +68,10 @@ describe('the finish rule and old rows', () => {
     const chat = (await h.api('dana').call(API.createChat, { body: {} })).id
     setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: '2026-11-01T00:00:00.000Z', steps: { profile: 'done', result: null, skills: 'done', files: 'done', invite: null }, resultChatId: null, finishedAt: null })
     expect((await patch({ step: { id: 'invite', state: 'done' } })).finishedAt).toBeNull()
+    // a chat that holds no message is no deck yet (the review of PR #100: recorded before the send, a closed tab or a
+    // failed send left 회사 소개 answered with no deck)
+    expect(await patch({ resultChatId: chat })).toMatchObject({ resultChatId: null, finishedAt: null })
+    await send('dana', chat, `/intro-deck Make our company profile\n${fake({ say: 'Done.' })}`)
     expect((await patch({ resultChatId: chat })).finishedAt).not.toBeNull()
     // (a) put off on 회사 소개 ("나중에 하기"): the profile stays saved, the deck is put off (d), the step is answered
     setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: '2026-11-01T00:00:00.000Z', steps: { profile: 'done', result: null, skills: null, files: null, invite: null }, resultChatId: null, finishedAt: null })
@@ -86,19 +91,30 @@ describe('the finish rule and old rows', () => {
 })
 
 describe('the intro deck starts once per team', () => {
-  test('the start records its chat at once; a second start once it holds a message: 409 deck_started, nothing written', async () => {
+  const sendDeck = async (chatId: string, user = 'dana') => {
+    const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content: `/intro-deck Make our company profile\n${fake({ say: 'Done.' })}`, clientMessageId: deckMessageId(chatId), attachmentIds: [] } })
+    await waitFor(() => (h.ctx.db.query('SELECT status FROM turns WHERE id = ?').get(r.turnId) as { status: string }).status !== 'running', { timeoutMs: 30_000 })
+    return r
+  }
+  test('the start keeps its chat for the deck; it counts (resultChatId, deckStarted) only once its message is in; a second start then: 409 deck_started, nothing written', async () => {
     await patch({})
     await h.api('dana').call(API.setupWelcomeTeam)
     await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'https://www.acme.example/', name: 'Acme', oneLine: 'Quiet desk fans', products: 'Desk fans', audience: '', tone: [], avoid: '', sources: [], colors: [] } })
     const before = chatsOf('dana')
     const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    expect(readWelcome(h.ctx)!.resultChatId).toBe(r.chatId)
+    // kept, not counted: no message went yet
+    expect(readWelcome(h.ctx)!.resultChatId).toBeNull()
+    expect(getSetting<{ deckChatId?: string }>(h.ctx.db, WELCOME_SETTING)!.deckChatId).toBe(r.chatId)
+    expect((await h.api('dana').call(API.getWelcome)).progress).toMatchObject({ resultChatId: null, deckStarted: false })
     // the page closed before the message went: the same chat again, with the same files to attach
     const again = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
     expect(again.chatId).toBe(r.chatId)
     expect(again.files).toEqual(r.files)
     expect(chatsOf('dana')).toBe(before + 1)
-    await send('dana', r.chatId, `/intro-deck Make our company profile\n${fake({ say: 'Done.' })}`)
+    await sendDeck(r.chatId)
+    // its message is in: the deck is recorded, and the end screen's fact says so
+    expect(readWelcome(h.ctx)!.resultChatId).toBe(r.chatId)
+    expect((await h.api('dana').call(API.getWelcome)).progress).toMatchObject({ resultChatId: r.chatId, deckStarted: true })
     // the deck started: saving 회사 소개 again only saves; the refusal comes before the team's start, pictures or files
     const intro = path.join(h.team, r.files[0]!)
     fs.rmSync(intro)
@@ -110,13 +126,55 @@ describe('the intro deck starts once per team', () => {
     expect(fs.existsSync(intro)).toBe(false)
     expect(chatsOf('dana')).toBe(before + 1)
   })
-  test('two starts at once make one chat; a deleted deck chat lets a new one start', async () => {
+  test('two tabs at once: one chat, and their two sends one message (the same client message id: no generic conflict, no second deck); a third start: 409 deck_started', async () => {
     h.ctx.db.query('UPDATE chats SET deleted_at = ? WHERE id = ?').run(new Date().toISOString(), readWelcome(h.ctx)!.resultChatId)
     const before = chatsOf('dana')
     const [a, b] = await Promise.all([h.api('dana').call(API.startFirstResult, { body: { files: [] } }), h.api('dana').call(API.startFirstResult, { body: { files: [] } })])
     expect(a.chatId).toBe(b.chatId)
     expect(chatsOf('dana')).toBe(before + 1)
+    // the deleted deck is no deck any more; the new one counts once its message is in
+    expect(readWelcome(h.ctx)!.resultChatId).toBeNull()
+    const one = await h.api('dana').call(API.sendMessage, { params: { id: a.chatId }, body: { content: `/intro-deck A\n${fake({ say: 'Done.' })}`, clientMessageId: deckMessageId(a.chatId), attachmentIds: [] } })
+    const two = await h.api('dana').call(API.sendMessage, { params: { id: b.chatId }, body: { content: `/intro-deck B\n${fake({ say: 'Done.' })}`, clientMessageId: deckMessageId(b.chatId), attachmentIds: [] } })
+    expect(two.turnId).toBe(one.turnId)
+    await waitFor(() => (h.ctx.db.query('SELECT status FROM turns WHERE id = ?').get(one.turnId) as { status: string }).status !== 'running', { timeoutMs: 30_000 })
+    expect((h.ctx.db.query("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ? AND role = 'user'").get(a.chatId) as { n: number }).n).toBe(1)
     expect(readWelcome(h.ctx)!.resultChatId).toBe(a.chatId)
+    const third = await post('dana', '/api/onboarding/welcome/first-result', { files: [] })
+    expect(third.status).toBe(409)
+    expect(((await third.json()) as { error: { params: { reason: string } } }).error.params.reason).toBe('deck_started')
+  })
+
+  test('old row (a), the tab closed or the send failed after 저장하고 계속: 회사 소개 stays open and not finished; the next start hands out the same chat; a row recorded the old way is read the same', async () => {
+    const all = { skills: 'done', files: 'done', invite: 'done' } as const
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)!, steps: { profile: 'done', result: null, ...all }, resultChatId: null, deckChatId: undefined, finishedAt: null })
+    const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
+    // nothing was sent: any later save of the steps leaves them open, and the profile unanswered
+    const p = await patch({ step: { id: 'invite', state: 'done' } })
+    expect(p).toMatchObject({ resultChatId: null, finishedAt: null, deckStarted: false })
+    expect(profileAnswered(p)).toBe(false)
+    expect((await h.api('dana').call(API.startFirstResult, { body: { files: [] } })).chatId).toBe(r.chatId)
+    // a row the earlier build wrote (the empty chat recorded as resultChatId) reads the same: open, the chat kept
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)!, resultChatId: r.chatId, deckChatId: undefined, finishedAt: null })
+    expect(readWelcome(h.ctx)).toMatchObject({ resultChatId: null, finishedAt: null })
+    expect(profileAnswered(readWelcome(h.ctx)!)).toBe(false)
+    expect((await h.api('dana').call(API.startFirstResult, { body: { files: [] } })).chatId).toBe(r.chatId)
+    // its message goes in: the next save finishes the steps
+    await sendDeck(r.chatId)
+    expect((await patch({ step: { id: 'invite', state: 'done' } })).finishedAt).not.toBeNull()
+  })
+
+  test('deckStarted is a fact: a first result of a row from before (a card news chat) is no deck; a deck build in the chat is', async () => {
+    const raw = getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)!
+    const cardNews = (await h.api('dana').call(API.createChat, { body: {} })).id
+    // (a plain message: a real /card-news run would count for the goal card below)
+    await send('dana', cardNews, `Card news of our company\n${fake({ say: 'Cards.' })}`)
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, steps: { profile: 'done', result: 'done', skills: 'done', files: 'done', invite: 'done' }, resultChatId: cardNews, deckChatId: undefined })
+    expect((await h.api('dana').call(API.getWelcome)).progress).toMatchObject({ resultChatId: cardNews, deckStarted: false })
+    h.ctx.db.query("INSERT INTO intro_deck_builds (id, chat_id, user_id, status, plan, state, started_at) VALUES (?, ?, 'dana', 'building', '{}', '{}', ?)").run(crypto.randomUUID(), cardNews, new Date().toISOString())
+    expect((await h.api('dana').call(API.getWelcome)).progress!.deckStarted).toBe(true)
+    h.ctx.db.query('DELETE FROM intro_deck_builds WHERE chat_id = ?').run(cardNews)
+    setSetting(h.ctx.db, WELCOME_SETTING, raw)
   })
 })
 
@@ -125,14 +183,21 @@ describe('the skill everything points at', () => {
     fs.mkdirSync(path.join(h.team, path.dirname(rel)), { recursive: true })
     fs.writeFileSync(path.join(h.team, rel), `---\nname: ${name}\ndescription: ${title} for the team\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
   }
-  test('the first shared skill while it is there, else 할 일 정리, never the intro deck', () => {
+  test('the first shared skill while it is there, else 할 일 정리, never the intro deck; the progress carries the server\'s choice', async () => {
     const raw = getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)!
     expect(landingSkill(h.ctx)).toBe(GENERAL_TASKS_SKILL)
     skill('skills/weekly-report/SKILL.md', 'weekly-report', 'Weekly report')
     recordShared(h.ctx, 'dana', [{ path: 'skills/weekly-report/SKILL.md', title: 'Weekly report', recommended: true }])
     expect(landingSkill(h.ctx)).toBe('skills/weekly-report/SKILL.md')
+    expect((await h.api('dana').call(API.getWelcome)).progress!.landingSkill).toBe('skills/weekly-report/SKILL.md')
     fs.rmSync(path.join(h.team, 'skills/weekly-report'), { recursive: true })
     expect(landingSkill(h.ctx)).toBe(GENERAL_TASKS_SKILL)
+    // the web read `shared.landing` itself before and named the deleted skill; now every answer with the progress says
+    // which skill the server points at (GET, PATCH)
+    const got = (await h.api('dana').call(API.getWelcome)).progress!
+    expect(got.shared!.landing).toBe('skills/weekly-report/SKILL.md')
+    expect(got.landingSkill).toBe(GENERAL_TASKS_SKILL)
+    expect((await patch({})).landingSkill).toBe(GENERAL_TASKS_SKILL)
     // a row pointing the landing at the deck (an old row) never makes it the landing skill
     setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, shared: { at: 'x', skills: [], landing: GENERAL_DECK_SKILL }, general: { ...(raw.general as object), tasksPath: GENERAL_DECK_SKILL } })
     expect(landingSkill(h.ctx)).toBeNull()
@@ -177,7 +242,13 @@ describe('old invite links to the intro deck', () => {
     fs.rmSync(tasks)
     expect(repointDeckLinks(h.ctx)).toBe(0)
     expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
+    // no landing skill at that start: the once is not used up, the next start tries again (the review of PR #100: the
+    // links stayed on the deck for good)
+    expect(getSetting(h.ctx.db, DECK_LINKS_KEY)).toBeFalsy()
     fs.writeFileSync(tasks, text)
+    expect(repointDeckLinks(h.ctx)).toBe(1)
+    expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: GENERAL_TASKS_SKILL })
+    expect(getSetting(h.ctx.db, DECK_LINKS_KEY)).toBeTruthy()
     h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
     await h.api('dana').call(API.updateTeamLink, { body: { skillPath: 'skills/quote/SKILL.md' } })
     expect(repointDeckLinks(h.ctx)).toBe(0)

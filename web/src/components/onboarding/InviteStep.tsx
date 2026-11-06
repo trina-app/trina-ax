@@ -15,12 +15,14 @@ import { TeamLinkPanel } from './TeamLinkPanel'
  * changes among them. The message names that one only (docs/DECISIONS.md "W5"). */
 export interface InviteShared { landing: string; options: { path: string; title: string }[]; onLanding: (path: string) => void }
 
-/** The invite's shared skills from the welcome progress; null when nothing was shared. */
+/** The invite's shared skills from the welcome progress; null when nothing was shared, or when the skill the server
+ * points at (`landingSkill`) is none of them (the shared one was deleted: 할 일 정리 alone, no 바꾸기 among gone skills). */
 export function sharedForInvite(progress: WelcomeProgress | null): InviteShared | null {
   const sh = progress?.shared
-  if (!sh?.skills.length || !sh.landing) return null
+  const landing = progress?.landingSkill !== undefined ? progress.landingSkill : sh?.landing
+  if (!sh?.skills.length || !landing || !sh.skills.some((x) => x.path === landing)) return null
   return {
-    landing: sh.landing, options: sh.skills,
+    landing, options: sh.skills,
     onLanding: (path) => void useWelcome.getState().update({ landing: path }).catch(() => toast({ level: 'error', text: tNow('error.network') })),
   }
 }

@@ -4,7 +4,10 @@
 //   servers as tools with no key, header value, token variable name or env value anywhere in the body; stdio, http
 //   and ?token= addresses left out; only the known names opened, the folder itself never listed;
 // - a project folder holding .codex; a .agents folder; the body says app "codex" and passes the contract;
-// - hostile TOML never throws or hangs and gives only safe tools.
+// - the header: Authorization anywhere is bearer, else env_http_headers' first name before http_headers'; a key in a
+//   path segment or a host label drops the server (keyInAddress, the server's own test);
+// - a config up to 1 MB is read to its end; hostile TOML never throws or hangs, reads each line about once and gives
+//   only safe tools.
 import { describe, expect, test } from 'bun:test'
 import { CreateSkillShare, SKILL_SHARE_LIMITS } from '@mycel/shared/api'
 import { fromHandle, scanFolder, type DirectoryHandleLike } from '../../src/lib/skillScan'
@@ -199,10 +202,41 @@ describe('config.toml (lib/codexToml.ts)', () => {
     ])
   })
 
+  test('the header: Authorization anywhere is bearer; else env_http_headers\' first name, then http_headers\' first', () => {
+    const toml = [
+      // a fixed header written before the one that carries the key: the key's header is the one asked for
+      '[mcp_servers.env-later]', 'url = "https://a.example.com/mcp"', 'http_headers = { "X-Client" = "codex" }', 'env_http_headers = { "X-Api-Key" = "MY_KEY" }',
+      '[mcp_servers.auth-second]', 'url = "https://b.example.com/mcp"', 'http_headers = { "X-Client" = "codex", "authorization" = "Bearer x" }',
+      '[mcp_servers.env-auth-second]', 'url = "https://c.example.com/mcp"', 'env_http_headers = { "X-Org" = "ORG", "Authorization" = "TOKEN" }',
+      '[mcp_servers.fixed-only]', 'url = "https://d.example.com/mcp"', 'http_headers = { "X-Org" = "acme", "X-Other" = "y" }',
+      '[mcp_servers.env-table]', 'url = "https://e.example.com/mcp"', '[mcp_servers.env-table.http_headers]', 'X-Client = "codex"', '[mcp_servers.env-table.env_http_headers]', 'X-Api-Key = "K"',
+    ].join('\n')
+    expect(codexTools(toml).map((t) => [t.name, t.auth, t.header])).toEqual([
+      ['env-later', 'header', 'X-Api-Key'],
+      ['auth-second', 'bearer', undefined],
+      ['env-auth-second', 'bearer', undefined],
+      ['fixed-only', 'header', 'X-Org'],
+      ['env-table', 'header', 'X-Api-Key'],
+    ])
+  })
+
   test('addresses that cannot be a template: http, a user, a query, a fragment, a key in it', () => {
     for (const u of ['http://a.example.com/mcp', 'https://user:pw@a.example.com/mcp', 'https://a.example.com/mcp?x=1', 'https://a.example.com/mcp?', 'https://a.example.com/mcp#x',
       `https://a.example.com/${OPENAI}/mcp`, 'ftp://a.example.com/', 'not a url', '']) expect({ u, ok: shareableUrl(u) }).toEqual({ u, ok: null })
     expect(shareableUrl(' https://A.example.com/mcp ')).toBe('https://a.example.com/mcp')
+  })
+
+  test('a key in a path segment or a host label drops the server (keyInAddress, as on the server); real hosted servers stay', () => {
+    const keyed = ['https://Zx9aQ7bR3kLmN2pVt8wYc4.mcp.example.com/mcp', 'https://0f8fad5b-d9cb-469f-a165-70867728950e.mcp.example.com/sse',
+      // letters only: random only in the case it was written in
+      'https://ZxQaBrKmNpVtWyCdEfGhJk.mcp.example.com/mcp', 'https://mcp.zap.example/api/mcp/s/Zk9QmX2vR7tLp4Hs8Wc1Ny6Bd3Fg5Ja0/mcp',
+      'https://mcp.example/u/0f8fad5b-d9cb-469f-a165-70867728950e/sse']
+    const real = ['https://mcp.notion.com/mcp', 'https://api.githubcopilot.com/mcp/', 'https://mcp.linear.app/sse', 'https://mcp.atlassian.com/v1/sse',
+      'https://remote-mcp-server-authless.your-account.workers.dev/sse', 'https://mcp.figma.com/mcp']
+    for (const u of keyed) expect({ u, ok: shareableUrl(u) }).toEqual({ u, ok: null })
+    for (const u of real) expect(shareableUrl(u)).toBe(u)
+    const toml = keyed.concat(real).map((u, i) => `[mcp_servers.s${i}]\nurl = "${u}"\n`).join('')
+    expect(codexTools(toml).map((t) => t.url)).toEqual(real)
   })
 
   test('each name once, at most SKILL_SHARE_LIMITS.tools; a name holding a key or a line break is left out', () => {
@@ -260,6 +294,50 @@ describe('config.toml (lib/codexToml.ts)', () => {
     test('only the first CODEX_TOML_MAX_BYTES are read', () => {
       const pad = `# ${'x'.repeat(CODEX_TOML_MAX_BYTES)}\n`
       expect(codexTools(`${pad}[mcp_servers.late]\nurl = "https://late.example.com/mcp"\n`)).toEqual([])
+    })
+    test('a big real config is read to its end: a server after 200 KB of comments, profiles and projects', async () => {
+      let pad = ''
+      for (let i = 0; pad.length < 200 * 1024; i++) pad += `# note ${i}: ${'x'.repeat(60)}\n[projects."/work/repo-${i}"]\ntrust_level = "trusted"\n[profiles.p${i}]\nmodel = "o3"\n`
+      const toml = `${pad}[mcp_servers.late]\nurl = "https://late.example.com/mcp"\n`
+      expect(codexTools(toml)).toEqual([{ name: 'late', url: 'https://late.example.com/mcp', auth: 'oauth' }])
+      // and through the folder scan, which cuts the file at the same size
+      const r = await scanFolder(fromHandle(handle('.codex', { 'config.toml': toml }, [])), 'browser')
+      expect(r.body?.tools?.map((t) => t.name)).toEqual(['late'])
+    })
+    test('hostile input as big as the reader takes still returns at once: each line is read about once', () => {
+      const fill = (line: string) => line.repeat(Math.ceil(CODEX_TOML_MAX_BYTES / line.length)).slice(0, CODEX_TOML_MAX_BYTES)
+      const inputs = [
+        fill('[mcp_servers.t]\nurl = "https://t.example.com/mcp"\n'),
+        // an unclosed inline table on every line: read again from each line, each one read the next 17
+        fill('k = { a = 1,\n'),
+        fill('x = [ { a = [ {\n'),
+        fill('x = [\n1,\n'),
+        // half a million broken lines
+        fill('x\n'),
+        fill('a = { b = { c = [1, [2, ['),
+        fill('a = "\\u00e9\\U0001F600\\x41'),
+        fill("a = '''x''' b = \"\"\"y\"\"\" = [\n"),
+        fill('[[a.b.c.d.e.f.g.h]]\n'),
+        fill('"\\'),
+      ]
+      for (const text of inputs) {
+        const t0 = performance.now()
+        expect(() => safe(codexTools(text))).not.toThrow()
+        // about 50 ms each on an idle machine; the bound only catches a hang (a loaded machine ran one in 2 s), the
+        // next test checks the cost against a valid file of the same size
+        expect(performance.now() - t0).toBeLessThan(5000)
+      }
+    })
+    test('the lines inside a broken value are not read again: an unclosed inline table on every line costs what closed ones do', () => {
+      const fill = (line: string) => line.repeat(Math.ceil(CODEX_TOML_MAX_BYTES / line.length)).slice(0, CODEX_TOML_MAX_BYTES)
+      // the best of three, so a busy machine slows both alike; read again from each of its lines, the broken one cost
+      // 17 to 28 times the closed one (MAX_DEPTH + 1 lines per line), read once about the same
+      const best = (text: string) => { let ms = Infinity; for (let k = 0; k < 3; k++) { const t0 = performance.now(); codexTools(text); ms = Math.min(ms, performance.now() - t0) } return ms }
+      const closed = best(fill('k = { a = 1 }\n'))
+      const broken = best(fill('k = { a = 1,\n'))
+      expect(broken).toBeLessThan(8 * closed + 20)
+      // what such a value ran past is not read as a table either (the file is broken: Codex would not load it)
+      expect(codexTools('[mcp_servers.a]\nurl = "https://a.example.com/mcp"\nargs = [\n"x",\n[mcp_servers.b]\nurl = "https://b.example.com/mcp"\n[mcp_servers.c]\nurl = "https://c.example.com/mcp"\n').map((t) => t.name)).toEqual(['c'])
     })
   })
 })

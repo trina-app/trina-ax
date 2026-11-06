@@ -236,6 +236,11 @@ export const ApplySkillShare = z.object({
 }).strict()
 export type ApplySkillShare = z.infer<typeof ApplySkillShare>
 
+/** POST …/merge-chats/:id/start (docs/DECISIONS.md "W5"): `started` true when this call queued the merge turn; false
+ * when it had started before (another window, a second open) or the person had already written in that chat. */
+export const StartedSkillMerge = z.object({ started: z.boolean() })
+export type StartedSkillMerge = z.infer<typeof StartedSkillMerge>
+
 export const ListSkillSharesQuery = z.object({ status: SkillShareStatus.optional(), source: SkillShareSource.optional() })
 
 export const SKILL_SHARES = {
@@ -249,4 +254,6 @@ export const SKILL_SHARES = {
     summary: 'Share the ticked skills with the team as the caller (their own save: folder rules, versions, the skill change log); a skill of the same name is merged through a chat with the confirmation card, the CLAUDE.md lines become a team rule, the tools become connection templates (no key). Idempotent per skill.' }),
   dismissSkillShare: endpoint({ method: 'POST', path: '/api/skill-shares/:id/dismiss', auth: 'admin', owner: 'B', response: empty, status: 204,
     summary: 'Drop a share proposal of the caller\'s own (나중에 하기): its staged files are deleted.' }),
+  startSkillMerge: endpoint({ method: 'POST', path: '/api/skill-shares/merge-chats/:id/start', auth: 'admin', owner: 'B', response: StartedSkillMerge,
+    summary: 'Start the merge in a merge chat of the caller\'s own that waits for them (`Chat.mergeWaiting`, made at the end of the welcome steps): its one restricted turn is queued now, while they look at it. Once per chat: a second call starts nothing.' }),
 } as const

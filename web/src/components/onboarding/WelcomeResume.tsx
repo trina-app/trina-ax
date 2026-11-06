@@ -2,11 +2,12 @@
 // box, the same words and count as the setup row in the ☰ drawer (SetupRow.tsx), which hides on Home so the two never
 // show together. On a computer the sidebar's setup row replaces it (Home shows the goal card). Nothing shows for anyone
 // else, before the steps were started, or while no AI answers the owner (Home's connect card stands in its place, so the
-// row never leads back to the AI step). On a landing the owner goes to the steps themselves (useResumeOnLanding).
+// row never leads back to the AI step). On a landing the owner goes to the steps themselves (useResumeOnLanding). A phone
+// whose only step left is 내 스킬, put off for a computer, shows one quiet line instead (SkillsOnComputer).
 import { Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { doneCount, markStepsSeen, resumesOnLanding, showResume, stepsSeen, stepTotal } from '../../lib/welcome'
+import { doneCount, markStepsSeen, resumesOnLanding, showResume, skillsWaitForComputer, stepsSeen, stepTotal } from '../../lib/welcome'
 import { useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { isOwner, useMe } from '../../store/session'
@@ -77,6 +78,22 @@ export function useResumeOnLanding(landing: boolean): boolean {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [go])
   return armed && (!loaded || go)
+}
+
+/** One quiet line on a phone's Home while 내 스킬 waits for a computer (lib/welcome.ts skillsWaitForComputer): the
+ * promise the step made ("컴퓨터에서 이어서 해요"), no button (nothing to do on the phone; a computer's sign-in opens the
+ * step). Owner only. */
+export function SkillsOnComputer() {
+  const t = useT()
+  const owner = isOwner(useMe())
+  const progress = useWelcome((s) => s.progress)
+  if (!owner || !skillsWaitForComputer(progress)) return null
+  return (
+    <p className="flex min-h-11 items-center gap-2.5 px-3 text-sm text-muted" data-testid="welcome-skills-computer">
+      <Sparkles size={16} className="shrink-0 text-accent-text" aria-hidden />
+      <span className="min-w-0 flex-1">{t('welcome.skills.onComputer')}</span>
+    </p>
+  )
 }
 
 export default WelcomeResume

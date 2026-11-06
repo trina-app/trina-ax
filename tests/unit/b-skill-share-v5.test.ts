@@ -5,7 +5,9 @@
 //     into (write with the skill-write card); every other tool, path and attachment is refused;
 //   - while the owner's welcome steps are under way a merge waits ("later", no chat); applying anything marks 내 스킬
 //     done wherever it was applied; at the end of the steps ONE merge chat takes every waiting merge and ONE Inbox
-//     notice "합칠 스킬 N개 확인하기" leads there; idempotent; an admin's merge never waits;
+//     notice "합칠 스킬 N개 확인하기" leads there; its turn starts only when the owner opens it, once; idempotent; an
+//     admin's merge never waits; ✕ on the steps counts as their end only once it held; a share closed for good takes
+//     back its merges that did not start;
 //   - a dismissed or expired share keeps nothing of what it proposed (and migration 253 empties the old ones);
 //   - a picked .codex folder: the share is Codex's (`app`), its config.toml's remote MCP servers come from the browser
 //     and are checked again (no key, query or user in the address).
@@ -16,7 +18,7 @@ import { API, type SkillShare } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
-import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import { DISMISS_HOLD_MS, endHeldDismissal, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { MIGRATIONS_DIR } from '../../server/src/db'
 import { noTag } from '../../server/src/skills/share-judge'
 
@@ -172,9 +174,21 @@ describe('merges wait for the end of the welcome steps', () => {
     expect(after.candidates[0]!.applied).toEqual({ status: 'merge', path: TEAM_SKILL, chatId, error: null })
     expect((await h.api('dana').call(API.getSkillShare, { params: { id: b.id } })).candidates[0]!.applied).toEqual({ status: 'merge', path: OTHER_SKILL, chatId, error: null })
     expect(chats()).toBe(before + 1)
-    expect((await h.api('dana').call(API.getChat, { params: { id: chatId } })).title).toBe('스킬 합치기 · 할 일 정리 +1')
-    const first = (await h.api('dana').call(API.listMessages, { params: { id: chatId } })).items.find((m) => m.role === 'user')!.content
-    expect(first).toBe("가져온 내 스킬을 팀 스킬에 합쳐 주세요: '내 할 일' → '할 일 정리', '내 주간 보고' → '주간 보고'")
+    // the chat waits for the owner (the review of PR #100: a turn queued now raises save cards that time out, about ten
+    // minutes, long before the owner opens the notice, and every merge ends refused): no message, no turn yet
+    const waiting = await h.api('dana').call(API.getChat, { params: { id: chatId } })
+    expect(waiting).toMatchObject({ title: '스킬 합치기 · 할 일 정리 +1', mergeWaiting: true, runState: 'idle' })
+    expect((await h.api('dana').call(API.listMessages, { params: { id: chatId } })).items).toEqual([])
+    expect(h.ctx.db.query('SELECT 1 FROM turns WHERE chat_id = ?').get(chatId)).toBeNull()
+    // the owner opens it (the chat page on screen): the one turn starts now; a second open (another window) starts none
+    expect(await h.api('dana').call(API.startSkillMerge, { params: { id: chatId } })).toEqual({ started: true })
+    expect(await h.api('dana').call(API.startSkillMerge, { params: { id: chatId } })).toEqual({ started: false })
+    expect((await h.api('dana').call(API.getChat, { params: { id: chatId } })).mergeWaiting).toBeUndefined()
+    const users = (await h.api('dana').call(API.listMessages, { params: { id: chatId } })).items.filter((m) => m.role === 'user')
+    expect(users.map((m) => m.content)).toEqual(["가져온 내 스킬을 팀 스킬에 합쳐 주세요: '내 할 일' → '할 일 정리', '내 주간 보고' → '주간 보고'"])
+    expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM turns WHERE chat_id = ?').get(chatId) as { n: number }).n).toBe(1)
+    // someone else's chat, or none: 404
+    expect((await post('carol', `/api/skill-shares/merge-chats/${chatId}/start`, {})).status).toBe(404)
     const inbox = await h.api('dana').call(API.listNotifications, { query: {} })
     const notice = inbox.items.filter((n) => n.eventType === 'skills.merge_waiting')
     expect(notice).toHaveLength(1)
@@ -191,20 +205,95 @@ describe('merges wait for the end of the welcome steps', () => {
     expect(outLast.candidates[0]!.applied).toMatchObject({ status: 'merge', path: OTHER_SKILL })
     expect(getSetting<{ finishedAt: string | null; skillsLater?: boolean }>(h.ctx.db, WELCOME_SETTING)).toMatchObject({ finishedAt: expect.any(String) })
     expect(getSetting<{ skillsLater?: boolean }>(h.ctx.db, WELCOME_SETTING)!.skillsLater).toBeUndefined()
-    // its own chat and notice (one per merge chat)
-    expect((await h.api('dana').call(API.listNotifications, { query: {} })).items.filter((n) => n.eventType === 'skills.merge_waiting').map((n) => n.chatId)).toEqual([outLast.candidates[0]!.applied!.chatId, chatId])
+    // its own chat and notice (one per merge chat), waiting for the owner too
+    const lastChat = outLast.candidates[0]!.applied!.chatId!
+    expect((await h.api('dana').call(API.listNotifications, { query: {} })).items.filter((n) => n.eventType === 'skills.merge_waiting').map((n) => n.chatId)).toEqual([lastChat, chatId])
+    expect((await h.api('dana').call(API.getChat, { params: { id: lastChat } })).mergeWaiting).toBe(true)
     await waitFor(() => (h.ctx.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'assistant' AND status != 'streaming'").get(chatId) ? true : null), { timeoutMs: 30_000 })
+    // the owner writes in a waiting chat before it started: that counts as the start, the merge adds no second turn
+    await sendIn('dana', lastChat, fake({ say: 'ok' }))
+    expect(await h.api('dana').call(API.startSkillMerge, { params: { id: lastChat } })).toEqual({ started: false })
+    expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM turns WHERE chat_id = ?').get(lastChat) as { n: number }).n).toBe(1)
   })
 
-  test('hidden steps hold nothing back: a merge waiting for them starts at the next share read', async () => {
+  test('hidden steps: ✕ undone inside its toast starts nothing; ✕ that held (DISMISS_HOLD_MS) lets what waited go, at the hold\'s end or the next share read', async () => {
     startSteps()
+    const chats = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM chats WHERE user_id = 'dana' AND title LIKE '스킬 합치기%'").get() as { n: number }).n
+    const notices = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM skill_merge_notices WHERE user_id = 'dana'").get() as { n: number }).n
     const s = await mergeShare('weekly')
     expect((await h.api('dana').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'weekly', action: 'merge' }] } })).candidates[0]!.applied!.status).toBe('later')
-    // the owner hides the steps (✕): what waited for them goes
+    const before = { chats: chats(), notices: notices() }
+    // ✕, then 실행 취소 in the toast: the steps go on, and nothing started in the middle of them (the review of PR #100)
     await h.api('dana').call(API.updateWelcome, { body: { dismissed: true } })
+    expect((await h.api('dana').call(API.getSkillShare, { params: { id: s.id } })).candidates[0]!.applied!.status).toBe('later')
+    await h.api('dana').call(API.updateWelcome, { body: { dismissed: false } })
+    await h.api('dana').call(API.listSkillShares, { query: {} })
+    expect(endHeldDismissal(h.ctx, 'dana')).toBe(false)
+    expect({ chats: chats(), notices: notices() }).toEqual(before)
+    // ✕ that held: the hold's end (the timer runs endHeldDismissal) lets the merge go, waiting for the owner to open it
+    await h.api('dana').call(API.updateWelcome, { body: { dismissed: true } })
+    expect(endHeldDismissal(h.ctx, 'dana')).toBe(false)
+    const row = getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)!
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...row, dismissedAt: new Date(Date.now() - DISMISS_HOLD_MS - 1000).toISOString() })
+    expect(endHeldDismissal(h.ctx, 'dana')).toBe(true)
     const got = await h.api('dana').call(API.getSkillShare, { params: { id: s.id } })
     expect(got.candidates[0]!.applied).toMatchObject({ status: 'merge', path: OTHER_SKILL })
-    await waitFor(() => (h.ctx.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'assistant' AND status != 'streaming'").get(got.candidates[0]!.applied!.chatId!) ? true : null), { timeoutMs: 30_000 })
+    expect({ chats: chats(), notices: notices() }).toEqual({ chats: before.chats + 1, notices: before.notices + 1 })
+    expect((await h.api('dana').call(API.getChat, { params: { id: got.candidates[0]!.applied!.chatId! } })).mergeWaiting).toBe(true)
+    // a server stopped during the hold: the next share read starts what no longer waits
+    startSteps()
+    const t = await mergeShare('todo-list')
+    expect((await h.api('dana').call(API.applySkillShare, { params: { id: t.id }, body: { skills: [{ name: 'todo-list', action: 'merge' }] } })).candidates[0]!.applied!.status).toBe('later')
+    startSteps({ dismissedAt: new Date(Date.now() - DISMISS_HOLD_MS - 1000).toISOString() })
+    await h.api('dana').call(API.listSkillShares, { query: {} })
+    expect((await h.api('dana').call(API.getSkillShare, { params: { id: t.id } })).candidates[0]!.applied).toMatchObject({ status: 'merge', path: TEAM_SKILL })
+  })
+
+  test('a share closed for good (dismissed, expired) takes back its merges that did not start: waiting ones, and a merge chat still waiting to be opened (its notice too)', async () => {
+    const twoRows = async () => {
+      // one merge, and one add that fails (its folder is there: the share stays "ready", so it can still be dismissed)
+      fs.mkdirSync(path.join(h.team, 'skills/taken-name'), { recursive: true })
+      const s = await judged(await h.api('dana').call(API.createSkillShare, { body: { source: 'browser', skills: [
+        { name: 'weekly', origin: 'user', files: [{ path: 'SKILL.md', text: md('weekly', HOSTILE) }] },
+        { name: 'taken-name', origin: 'user', files: [{ path: 'SKILL.md', text: md('taken-name') }] },
+      ] } }), { skills: [{ name: 'weekly', verdict: 'recommend', reason: 'team_any', title: '내 주간 보고' }, { name: 'taken-name', verdict: 'recommend', reason: 'team_any', title: '이름' }] })
+      const out = await h.api('dana').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'weekly', action: 'merge' }, { name: 'taken-name', action: 'add' }] } })
+      expect(out.status).toBe('ready')
+      expect(out.candidates.map((c) => c.applied?.status)).toEqual(['later', 'failed'])
+      return s.id
+    }
+    const rows = (id: string) => (h.ctx.db.query('SELECT COUNT(*) AS n FROM skill_share_merges WHERE share_id = ?').get(id) as { n: number }).n
+    // waiting for the steps' end: dismissed → gone, and the end of the steps starts nothing for it
+    h.ctx.db.query("DELETE FROM skill_share_merges WHERE user_id = 'dana' AND chat_id IS NULL").run()
+    startSteps()
+    const a = await twoRows()
+    expect(rows(a)).toBe(1)
+    expect((await post('dana', `/api/skill-shares/${a}/dismiss`, {})).status).toBe(204)
+    expect(rows(a)).toBe(0)
+    const chatsBefore = (h.ctx.db.query("SELECT COUNT(*) AS n FROM chats WHERE user_id = 'dana' AND title LIKE '스킬 합치기%'").get() as { n: number }).n
+    await h.api('dana').call(API.updateWelcome, { body: { step: { id: 'files', state: 'done' } } })
+    expect((h.ctx.db.query("SELECT COUNT(*) AS n FROM chats WHERE user_id = 'dana' AND title LIKE '스킬 합치기%'").get() as { n: number }).n).toBe(chatsBefore)
+    // its merge chat made at the steps' end but never opened: expired → the rows, the empty chat and its notice go
+    startSteps()
+    const b = await twoRows()
+    await h.api('dana').call(API.updateWelcome, { body: { step: { id: 'files', state: 'done' } } })
+    const chatId = (h.ctx.db.query('SELECT chat_id FROM skill_share_merges WHERE share_id = ?').get(b) as { chat_id: string }).chat_id
+    expect(chatId).toBeTruthy()
+    h.ctx.db.query("UPDATE skill_shares SET expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?").run(b)
+    expect((await h.api('dana').call(API.getSkillShare, { params: { id: b } })).status).toBe('expired')
+    expect(rows(b)).toBe(0)
+    expect(h.ctx.db.query('SELECT 1 FROM chats WHERE id = ?').get(chatId)).toBeNull()
+    expect(h.ctx.db.query('SELECT 1 FROM skill_merge_notices WHERE source_id = ?').get(chatId)).toBeNull()
+    fs.rmSync(path.join(h.team, 'skills/taken-name'), { recursive: true, force: true })
+  })
+
+  test('a skill the AI gave no title is recorded for the invite and the end screen by its folder name as words, never "quote-maker"', async () => {
+    startSteps()
+    const s = await judged(await h.api('dana').call(API.createSkillShare, { body: { source: 'browser', skills: [{ name: 'quote-maker', origin: 'user', files: [{ path: 'SKILL.md', text: md('quote-maker') }] }] } }), { skills: [{ name: 'quote-maker', verdict: 'recommend', reason: 'team_any' }] })
+    expect(s.candidates[0]!.title).toBeNull()
+    await h.api('dana').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'quote-maker', action: 'add' }] } })
+    expect(getSetting<{ shared: { skills: { path: string; title: string }[] } }>(h.ctx.db, WELCOME_SETTING)!.shared.skills).toEqual([{ path: 'skills/quote-maker/SKILL.md', title: 'quote maker' }])
+    fs.rmSync(path.join(h.team, 'skills/quote-maker'), { recursive: true, force: true })
   })
 
   test('applied from /skills/share/:id or the step alike, a rule only counts: 내 스킬 done', async () => {

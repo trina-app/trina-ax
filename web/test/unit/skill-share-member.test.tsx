@@ -1,8 +1,9 @@
 // A member and a team skill someone made from their own work (docs/DECISIONS.md "S"):
 // - joining with a link to a skill with a form: the join page keeps who made it for that form, which says so on top
 //   ("김지훈님이 만든 팀 스킬이에요 · 이 채팅은 민지님만 봐요"), until the form goes away;
-// - a skill without a form: Home's arrival with one line ("김지훈님이 만든 팀 스킬이에요"), its title as the box's chip and
-//   "이 방식대로 해 줘", no files;
+// - a skill without fields lands on its form too (its box starts with the skill's own example, docs/DECISIONS.md
+//   "W5"): the join page never holds a starter without files (kind 'skill') for Home; Home's arrival for one held
+//   before still reads one line ("김지훈님이 만든 팀 스킬이에요"), its title as the box's chip and "이 방식대로 해 줘";
 // - the answer's receipt names the maker: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개".
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -12,7 +13,7 @@ import Home from '../../src/pages/Home'
 import { TeamJoin } from '../../src/pages/Auth'
 import Steps from '../../src/components/chat/Steps'
 import { SkillFormDialog } from '../../src/components/skills/SkillForm'
-import { forgetStarters, heldMadeBy, holdMadeBy, holdStarter } from '../../src/lib/starter'
+import { forgetStarters, heldMadeBy, heldStarter, holdMadeBy, holdStarter } from '../../src/lib/starter'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
 import { forgetSkillList } from '../../src/lib/skillTitles'
 import { teamLinkMessage } from '../../src/lib/team-link'
@@ -99,6 +100,35 @@ describe('a member and a team skill someone made', () => {
       expect(m.get('where').textContent).toBe(`/skills?run=${encodeURIComponent(QUOTE.path)}`)
       expect(heldMadeBy('minji', QUOTE.path)).toBe('김지훈')
       expect(heldMadeBy('minji', 'skills/general/other/SKILL.md')).toBeNull()
+    } finally {
+      await m.unmount()
+      delete routes['POST /api/team-link/info']
+      delete routes['POST /api/team-link/join']
+      for (const [k, d] of Object.entries(was)) { if (d) Object.defineProperty(g, k, d); else delete g[k] }
+    }
+  })
+
+  test('a skill without fields: the join lands on its form with who made it, never Home with "이 방식대로 해 줘" (a \'skill\' starter included)', async () => {
+    const g = globalThis as Record<string, unknown>
+    const was = { location: Object.getOwnPropertyDescriptor(g, 'location'), history: Object.getOwnPropertyDescriptor(g, 'history') }
+    Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { pathname: '/join', search: '', hash: `#t=${TOKEN}`, origin: 'https://acme.example', href: `https://acme.example/join#t=${TOKEN}` } })
+    Object.defineProperty(g, 'history', { configurable: true, writable: true, value: { state: null, replaceState: () => {} } })
+    const form = `/skills?run=${encodeURIComponent(BRIEF.skill.path)}`
+    routes['POST /api/team-link/info'] = () => json(200, { teamName: 'Acme', valid: true, problem: null, expiresAt: '2026-11-18T00:00:00.000Z', skillName: BRIEF.skill.name, skillTitle: BRIEF.skill.title })
+    // the answer as a server before W5 gave it (a starter without files); today's has `starter: null` and `skillBy`
+    routes['POST /api/team-link/join'] = () => json(201, { me: meOf('minji', '민지'), next: form, starter: BRIEF, skillBy: null })
+    useSession.setState({ signedIn: () => {} } as never)
+    const m = await mount(<MemoryRouter initialEntries={['/join']}><Routes><Route path="/join" element={<TeamJoin />} /><Route path="*" element={<Where />} /></Routes></MemoryRouter>)
+    try {
+      await m.until(() => m.find('join-form'), 'the join form')
+      await m.type('invite-name', '민지')
+      await m.type('invite-username', 'minji')
+      await m.type('invite-password', 'tulip meadow 2026')
+      await m.click('invite-submit')
+      await m.until(() => m.find('where'), 'the next page')
+      expect(m.get('where').textContent).toBe(form)
+      expect(heldStarter('minji')).toBeNull()
+      expect(heldMadeBy('minji', BRIEF.skill.path)).toBe('김지훈')
     } finally {
       await m.unmount()
       delete routes['POST /api/team-link/info']

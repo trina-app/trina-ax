@@ -16,7 +16,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act, useState } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, GENERAL_TASKS_SKILL, uuidv7, WELCOME_RESULT_SKILL, type Attachment, type CompanyProfile, type SavedSkillDraft, type SkillInfo, type TeamGroupRef, type TeamLink, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
+import { deckMessageId, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, GENERAL_TASKS_SKILL, uuidv7, WELCOME_RESULT_SKILL, type Attachment, type CompanyProfile, type SavedSkillDraft, type SkillInfo, type TeamGroupRef, type TeamLink, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
 import { useChats } from '../../src/store/chats'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Welcome from '../../src/pages/Welcome'
@@ -24,9 +24,10 @@ import { Setup } from '../../src/pages/Auth'
 import { AfterSetup } from '../../src/App'
 import { forgetSkillDrafts, SkillShareCard } from '../../src/components/onboarding/SkillShareCard'
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
+import { INVITE_STEP_STATE } from '../../src/components/onboarding/GoalCard'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, forgetStepsSeen, inviteSkill, isLanding, nextStep, openHere, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { chatActivity } from '../../src/store/live'
@@ -34,6 +35,7 @@ import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { useWelcome } from '../../src/store/welcome'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
+import { msg } from './fixtures'
 
 const CHAT = '01900000-0000-7000-8000-0000000000c1'
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -81,12 +83,19 @@ let profile: CompanyProfile | null = null
 let tier: 'quick' | 'standard' | 'deep' = 'standard'
 /** a deck chat that already holds its message (started before this page) */
 let deckBefore = false
+/** the chat first-result made for the deck, kept until its message is in (server/src/onboarding/welcome.ts settleDeck) */
+let deckKept: string | null = null
+/** deck messages the fake server took (a resend of the same client message id is the same one) */
+let delivered = new Set<string>()
+/** sends that fail before one goes through, in the server's words */
+let failSends: { status: number; code: string; message: string }[] = []
 const sent = () => called(`POST /api/chats/${CHAT}/messages`)
 const answered = (s: string | null | undefined) => s === 'done' || s === 'skipped'
 function apply(u: WelcomeUpdate): WelcomeProgress {
   const p = progress ?? fresh()
   if (u.teamType) p.teamType = u.teamType
-  if (u.resultChatId) p.resultChatId = u.resultChatId
+  // the deck's chat counts once it holds its message (server: holdsMessage)
+  if (u.resultChatId && delivered.size) p.resultChatId = u.resultChatId
   if (u.step && (u.step.state === 'done' || p.steps[u.step.id] !== 'done')) p.steps[u.step.id] = u.step.state
   if (u.step?.id === 'skills') delete p.skillsLater
   if (u.skillsLater && !u.step && p.steps.skills !== 'done') { p.steps.skills = 'skipped'; p.skillsLater = true }
@@ -124,10 +133,19 @@ const routes: Record<string, (body: any) => Response> = {
   // 409 deck_started before anything else; the chat is recorded at once (a chat whose message never went is handed out
   // again: the same id)
   'POST /api/onboarding/welcome/first-result': (b) => {
-    if (progress?.resultChatId && (deckBefore || sent().length)) return json(409, { error: { code: 'conflict', message: '회사 소개서는 이미 만들기 시작했어요.', params: { reason: 'deck_started' } } })
+    if ((progress?.resultChatId || deckKept) && (deckBefore || delivered.size)) return json(409, { error: { code: 'conflict', message: '회사 소개서는 이미 만들기 시작했어요.', params: { reason: 'deck_started' } } })
     if (firstResultRefusal) return json(409, { error: { code: 'conflict', message: firstResultRefusal } })
-    if (progress) progress = { ...progress, resultChatId: CHAT }
+    // kept for the deck, not yet `resultChatId`: that comes with its message
+    deckKept = CHAT
     return json(201, { chatId: CHAT, title: '우리 회사 소개서', skillPath: GENERAL_DECK_SKILL, files: b.files.length ? b.files : [INTRO], intro: b.files.length ? null : INTRO, imagesFolder: 'groups/Acme/브랜드/이미지', images: [] })
+  },
+  [`POST /api/chats/${CHAT}/messages`]: (b) => {
+    const f = failSends.shift()
+    if (f) return json(f.status, { error: { code: f.code, message: f.message } })
+    delivered.add(b.clientMessageId)
+    const user = msg({ role: 'user', chatId: CHAT, content: b.content, id: uuidv7() })
+    const answer = msg({ role: 'assistant', chatId: CHAT, status: 'streaming', parentId: user.id, turnId: uuidv7() })
+    return json(202, { userMessage: user, assistantMessage: answer, turnId: answer.turnId, queuePosition: 0, queueEpoch: 'fake', queueRevision: 1 })
   },
   [`GET /api/chats/${CHAT}`]: () => json(200, { id: CHAT, projectId: null, title: '우리 회사 소개서', engine: 'claude-code', model: null, createdAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', deletedAt: null, runState: 'idle' }),
   'POST /api/files/upload': (b) => {
@@ -221,6 +239,9 @@ afterEach(() => {
   profile = null
   tier = 'standard'
   deckBefore = false
+  deckKept = null
+  delivered = new Set()
+  failSends = []
   g.matchMedia = computerMedia
   delete g.showDirectoryPicker
   useWelcome.getState().reset()
@@ -244,7 +265,7 @@ afterAll(() => {
 const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ status: { kind: 'signed-in', me: meOf(role) } } as never)
 function Where() { const l = useLocation(); return <p data-testid="where" data-state={JSON.stringify(l.state ?? null)}>{l.pathname + l.search}</p> }
 const at = (m: Mounted) => m.find('where')?.textContent
-const app = (start = '/welcome') => mount(
+const app = (start: string | { pathname: string; state: unknown } = '/welcome') => mount(
   <MemoryRouter initialEntries={[start]}>
     <Routes>
       <Route path="/welcome" element={<Welcome />} />
@@ -375,6 +396,11 @@ describe('where the steps go', () => {
     // the team's start was blocked: none (the link lands on Home)
     expect(inviteSkill({ ...p, general: null })).toBeNull()
     expect(inviteSkill({ ...p, general: { ...GENERAL, tasksPath: null } })).toBeNull()
+    // the server's own choice wins whenever it sent one (a shared skill deleted since, the deck named by an old row)
+    const shared = { ...p, shared: { at: 'x', skills: [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고' }], landing: 'skills/weekly-report/SKILL.md' } }
+    expect(inviteSkill({ ...shared, landingSkill: GENERAL_TASKS_SKILL })).toBe(GENERAL_TASKS_SKILL)
+    expect(inviteSkill({ ...shared, landingSkill: null })).toBeNull()
+    expect(inviteSkill({ ...p, shared: { at: 'x', skills: [], landing: GENERAL_DECK_SKILL } })).toBe(GENERAL_TASKS_SKILL)
   })
 
   test('the setup row: never on /welcome, finished or hidden; without AI "AI 연결하기" but not on Home; on a phone not on Home', () => {
@@ -570,7 +596,7 @@ describe('/welcome', () => {
       expect(m.get('welcome-files-pick').textContent).toContain('소개 자료가 있으면 같이 넣기')
       expect(m.get('welcome-profile-continue').textContent).toBe('저장하고 계속')
       // the line under the button: the deck starts, the tier's minutes, where it will be
-      expect(m.get('welcome-deck-line').textContent).toBe("저장하면 회사 소개서를 만들기 시작해요 · 10분쯤 · 트리나 기록의 '우리 회사 소개서'")
+      expect(m.get('welcome-deck-line').textContent).toBe("저장하면 회사 소개서를 만들기 시작해요 · 10분쯤 · 최근 채팅의 '우리 회사 소개서'")
       expect(primaries(m)).toBe(1)
       // 고치기: the full review in a dialog, with what was saved; saving there changes the line
       await m.click('welcome-profile-fix')
@@ -587,6 +613,10 @@ describe('/welcome', () => {
       expect(called('POST /api/attachments/team-file').map((c) => c.body)).toEqual([{ chatId: CHAT, path: INTRO }])
       await m.until(() => sent().length === 1, 'the deck message')
       expect(sent()[0]!.body.content).toBe(QUESTION)
+      // one message id per deck chat (another tab or a retry adds no second message), and 회사 소개 is recorded only
+      // after the server took it
+      expect(sent()[0]!.body.clientMessageId).toBe(deckMessageId(CHAT))
+      expect(calls.findIndex((c) => c.key === `POST /api/chats/${CHAT}/messages`)).toBeLessThan(calls.findIndex((c) => c.key === 'PATCH /api/onboarding/welcome' && c.body.step?.id === 'profile'))
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body).filter((b) => b.step?.id === 'profile')).toEqual([{ step: { id: 'profile', state: 'done' }, resultChatId: CHAT }])
       expect(progress!.resultChatId).toBe(CHAT)
       expect(called('POST /api/onboarding/welcome/team')).toHaveLength(1)
@@ -619,7 +649,7 @@ describe('/welcome', () => {
       await m.until(() => m.find('welcome-profile')?.getAttribute('data-state') === 'saved', 'the saved 회사 소개')
       expect(stepOf(m)).toBe('profile')
       expect(m.get('welcome-profile-line').textContent).toBe('이렇게 이해했어요: Acme makes quiet desk fans. · 고치기')
-      expect(m.get('welcome-deck-line').textContent).toBe("저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · 트리나 기록의 '우리 회사 소개서'")
+      expect(m.get('welcome-deck-line').textContent).toBe("저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · 최근 채팅의 '우리 회사 소개서'")
       // another tab or device started the deck since: the server says so, nothing is sent twice
       progress = { ...progress!, resultChatId: CHAT }
       deckBefore = true
@@ -695,7 +725,7 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
-  test('on a phone the deck line names the ☰ menu\'s 트리나 기록', async () => {
+  test('the deck line names the list as the sidebar heading does (its own message, sidebar.recents): on a phone in the ☰ menu', async () => {
     signIn('owner')
     phoneWidth()
     profile = SAVED
@@ -704,7 +734,7 @@ describe('/welcome', () => {
     const m = await app()
     try {
       await m.until(() => m.find('welcome-deck-line'), 'the deck line')
-      expect(m.get('welcome-deck-line').textContent).toBe("저장하면 회사 소개서를 만들기 시작해요 · 3분쯤 · ☰ 메뉴의 트리나 기록 '우리 회사 소개서'")
+      expect(m.get('welcome-deck-line').textContent).toBe(`저장하면 회사 소개서를 만들기 시작해요 · 3분쯤 · ☰ 메뉴의 ${translate('ko', 'sidebar.recents')} › '우리 회사 소개서'`)
     } finally { await m.unmount() }
   })
 
@@ -741,12 +771,114 @@ describe('/welcome', () => {
       failAttach = 1
       await m.click(retryButton())
       await m.until(() => m.html().includes('붙이지 못했어요'), 'the attach failure')
-      expect(progress!.resultChatId).toBe(CHAT)
+      // the chat was made and is kept for the deck, but nothing counts before its message is in
+      expect(deckKept).toBe(CHAT)
+      expect(progress!.resultChatId).toBeNull()
       await m.click(retryButton())
       await m.until(() => stepOf(m) === 'skills', '내 스킬')
       expect(called('POST /api/onboarding/welcome/first-result')).toHaveLength(3)
       await m.until(() => sent().length === 1, 'the deck message')
     } finally { await m.unmount() }
+  })
+
+  test('the deck\'s message is not taken (its budget used up): 회사 소개 stays with the reason and counts nothing; 저장하고 계속 again sends into the same chat with the same message id', async () => {
+    signIn('owner')
+    profile = SAVED
+    progress = atProfile({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', invite: 'done' } })
+    failSends = [{ status: 402, code: 'budget_exceeded', message: '이번 달 AI 사용 한도를 다 썼어요.' }]
+    const m = await app()
+    try {
+      await m.until(() => m.find('welcome-profile-continue'), 'the saved 회사 소개')
+      await m.click('welcome-profile-continue')
+      await m.until(() => m.html().includes('이번 달 AI 사용 한도를 다 썼어요.'), 'the reason')
+      // still 회사 소개: not answered, no deck recorded, no end screen
+      expect(stepOf(m)).toBe('profile')
+      expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body.step?.id === 'profile')).toEqual([])
+      expect(progress!.steps.profile).toBe('done')
+      expect(progress!.resultChatId).toBeNull()
+      expect(progress!.finishedAt).toBeNull()
+      // again: the same chat (kept), the same message id; then the steps go on
+      await m.click(retryButton())
+      await m.until(() => m.find('welcome-done'), 'the end screen')
+      expect(called('POST /api/onboarding/welcome/first-result')).toHaveLength(2)
+      expect(sent().map((c) => c.body.clientMessageId)).toEqual([deckMessageId(CHAT), deckMessageId(CHAT)])
+      expect(progress!.resultChatId).toBe(CHAT)
+      expect(progress!.finishedAt).not.toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('a review in the steps asks once: its one button "저장하고 계속" saves and starts the deck, the files link above it and the deck line under it; a deck that fails stays on the review with its reason, and the same button goes on', async () => {
+    signIn('owner')
+    progress = atProfile()
+    failSends = [{ status: 402, code: 'budget_exceeded', message: '이번 달 AI 사용 한도를 다 썼어요.' }]
+    routes['PUT /api/onboarding/profile'] = (b) => json(200, (profile = { ...b, updatedAt: '2026-11-05T00:00:00.000Z' }))
+    const m = await app()
+    try {
+      // no website: the three questions, then the review
+      await m.until(() => m.find('profile-step-site'), '회사 소개')
+      await m.click(buttonNamed('홈페이지가 없어요'))
+      await m.click(await m.until(() => m.find('profile-step-to-questions'), 'the fallback'))
+      await m.type(m.get('profile-step-questions').querySelector('textarea')!, 'Desk fans')
+      await m.click(m.get('profile-step-questions').querySelector('button[type="submit"]')!)
+      const review = await m.until(() => m.find('profile-step-review'), 'the review')
+      // one save, and it goes on: no plain 저장, one primary, the deck line right under it, the files link above it
+      expect(review.querySelectorAll('button').map((b: any) => b.textContent)).not.toContain('저장')
+      expect(m.get('profile-step-save').textContent).toBe('저장하고 계속')
+      expect(primaries(m)).toBe(1)
+      const line = review.querySelector('[data-testid="welcome-deck-line"]')!
+      expect(line.textContent).toBe(translate('ko', 'welcome.profile.deckLine', { min: 5, name: historyName((k) => translate('ko', k)) }))
+      const html = m.html()
+      expect(html.indexOf('data-testid="welcome-files-pick"')).toBeLessThan(html.indexOf('data-testid="profile-step-save"'))
+      expect(html.indexOf('data-testid="profile-step-save"')).toBeLessThan(html.indexOf('data-testid="welcome-deck-line"'))
+      // pressed once: saved, then the deck; its message is not taken: the reason on the review, nothing counted
+      await m.click('profile-step-save')
+      await m.until(() => m.get('profile-step-review').textContent!.includes('이번 달 AI 사용 한도를 다 썼어요.'), 'the reason on the review')
+      expect(called('PUT /api/onboarding/profile').map((c) => c.body.products)).toEqual(['Desk fans'])
+      expect(called('POST /api/onboarding/welcome/first-result')).toHaveLength(1)
+      expect(stepOf(m)).toBe('profile')
+      expect(called('PATCH /api/onboarding/welcome').filter((c) => c.body.step?.id === 'profile')).toEqual([])
+      // the same button again: saved again, the deck goes in, on to 내 스킬; no "saved" toast (the next step says it)
+      await m.click('profile-step-save')
+      await m.until(() => stepOf(m) === 'skills', '내 스킬')
+      expect(called('PUT /api/onboarding/profile')).toHaveLength(2)
+      expect(sent().map((c) => c.body.clientMessageId)).toEqual([deckMessageId(CHAT), deckMessageId(CHAT)])
+      expect(called('PATCH /api/onboarding/welcome').map((c) => c.body).filter((b) => b.step?.id === 'profile')).toEqual([{ step: { id: 'profile', state: 'done' }, resultChatId: CHAT }])
+      expect(useUi.getState().toasts.map((x) => x.text)).not.toContain(translate('ko', 'onboarding.profile.saved'))
+    } finally {
+      await m.unmount()
+      delete routes['PUT /api/onboarding/profile']
+    }
+  }, 30_000)
+
+  test('leaving 회사 소개 while it reads the website and coming back: the typed address is still there (kept in the progress as the reading starts)', async () => {
+    signIn('owner')
+    progress = atProfile()
+    const DRAFT = '01900000-0000-7000-8000-0000000000da'
+    routes['POST /api/onboarding/profile/draft'] = () => json(201, { chatId: DRAFT, website: 'https://acme.example/', site: 'acme.example' })
+    routes[`GET /api/onboarding/profile/draft/${DRAFT}`] = () => json(200, { status: 'running', website: 'https://acme.example/', draft: null, error: null, steps: [] })
+    const siteInput = (m: Mounted) => m.get('profile-step-site').querySelector('input[inputmode="url"]') as unknown as FakeElement & { value: string }
+    let m = await app()
+    try {
+      await m.until(() => m.find('profile-step-site'), '회사 소개')
+      expect(siteInput(m).value).toBe('')
+      await m.type(siteInput(m), 'acme.example')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      await m.until(() => progress!.site === 'https://acme.example/', 'the address kept', 2000)
+      expect(called('PATCH /api/onboarding/welcome').map((c) => c.body).filter((b) => b.site)).toEqual([{ site: 'https://acme.example/' }])
+    } finally { await m.unmount() }
+    // another page, then back through the setup row: the steps read the progress again
+    useWelcome.getState().reset()
+    calls = []
+    m = await app()
+    try {
+      await m.until(() => m.find('profile-step-site'), '회사 소개 again')
+      expect(siteInput(m).value).toBe('https://acme.example/')
+    } finally {
+      await m.unmount()
+      delete routes['POST /api/onboarding/profile/draft']
+      delete routes[`GET /api/onboarding/profile/draft/${DRAFT}`]
+    }
   })
 
   test('the team\'s start blocked by the folder rules: leaving 회사 소개 says so, and the steps go on', async () => {
@@ -834,6 +966,29 @@ describe('/welcome', () => {
       calls = []
     }
   })
+
+  test('the step bar to a screen reader: the AI step recorded as shown (`skipped`) is open, never "나중에 하기로 했어요"; a step put off says so', async () => {
+    signIn('owner')
+    ai = { usable: false, action: 'connect_team', requested: false }
+    const putOff = translate('ko', 'welcome.progress.skipped')
+    const label = (m: Mounted, s: string) => m.get('welcome-progress').querySelector(`[data-progress-step="${s}"]`)!.textContent
+    // the AI step on screen, recorded as shown on an earlier visit
+    progress = { ...fresh(), steps: { ai: 'skipped', profile: null, result: null, skills: null, files: null, invite: null } }
+    let m = await app()
+    try {
+      await m.until(() => m.find('welcome-ai'), 'the AI step')
+      expect(label(m, 'ai')).toBe(translate('ko', 'welcome.progress.item', { n: 1, total: 5, label: translate('ko', 'welcome.progress.ai') }))
+    } finally { await m.unmount() }
+    useWelcome.getState().reset()
+    // 회사 소개 put off without AI: the steps go on with the AI step on the bar, still not "put off"
+    progress = { ...atProfile(), steps: { ai: 'skipped', profile: 'skipped', result: null, skills: null, files: null, invite: null } }
+    m = await app()
+    try {
+      await m.until(() => stepOf(m) === 'skills', '내 스킬')
+      expect(label(m, 'ai')).not.toContain(putOff)
+      expect(label(m, 'profile')).toContain(putOff)
+    } finally { await m.unmount() }
+  })
 })
 
 describe('the later steps and the end', () => {
@@ -903,7 +1058,7 @@ describe('the later steps and the end', () => {
       expect(m.find('welcome-progress')).toBeNull()
       expect(m.find('welcome-back')).toBeNull()
       expect(m.get('welcome-done').querySelector('h2')?.textContent).toBe('준비 끝났어요')
-      expect(m.get('welcome-done').textContent).toContain("회사 소개서는 트리나 기록의 '우리 회사 소개서'에 있어요")
+      expect(m.get('welcome-done').textContent).toContain(`회사 소개서는 ${translate('ko', 'sidebar.recents')}의 '우리 회사 소개서'에 있어요`)
       await m.until(() => m.get('welcome-done-try').textContent === "'할 일 정리' 먼저 써 보기", 'the skill named')
       expect(m.get('welcome-done-home').textContent).toBe('홈으로')
       expect(m.get('welcome-done-home').getAttribute('class') ?? '').not.toContain('bg-accent ')
@@ -935,6 +1090,40 @@ describe('the later steps and the end', () => {
       await act(async () => { buttonNamed(translate('ko', 'common.cancel'))?.click() })
       await m.click('welcome-done-home')
       await m.until(() => at(m) === '/', 'Home')
+    } finally { await m.unmount() }
+  })
+
+  test('the end screen\'s deck line and its skill are the server\'s facts: a first result of a row from before is no deck; the shared skill that is gone is not offered', async () => {
+    signIn('owner')
+    const weekly = 'skills/weekly-report/SKILL.md'
+    // old row (b): a first result answered in its own chat (a card news), so `resultChatId` is set but no deck started;
+    // the shared skill was deleted since, so the server points at 할 일 정리
+    progress = ran({ steps: { profile: 'done', result: 'done', skills: 'done', files: 'done', invite: null }, resultChatId: CHAT, deckStarted: false,
+      shared: { at: '2026-11-04T00:05:00.000Z', skills: [{ path: weekly, title: '주간 업무 보고' }], landing: weekly }, landingSkill: GENERAL_TASKS_SKILL })
+    withGroup()
+    const m = await app()
+    try {
+      await m.until(() => m.find('team-link-message'), 'the invite')
+      expect(called('POST /api/admin/team-link').map((c) => c.body.skillPath)).toEqual([GENERAL_TASKS_SKILL])
+      expect(m.get('team-link-message').textContent).not.toContain('주간 업무 보고')
+      await m.click('invite-step-done')
+      await m.until(() => m.find('welcome-done'), 'the end screen')
+      expect(m.get('welcome-done').textContent).not.toContain('회사 소개서')
+      await m.until(() => m.get('welcome-done-try').textContent === "'할 일 정리' 먼저 써 보기", 'the server\'s skill')
+    } finally { await m.unmount() }
+  })
+
+  test('a shared skill without a title (no AI judged it) is named as words on the end screen and in 바꾸기, never "quote-maker"', async () => {
+    signIn('owner')
+    const quote = 'skills/quote-maker/SKILL.md', weekly = 'skills/weekly-report/SKILL.md'
+    progress = ran({ shared: { at: '2026-11-04T00:05:00.000Z', skills: [{ path: quote, title: 'quote-maker' }, { path: weekly, title: 'weekly-report' }], landing: quote }, landingSkill: quote })
+    withGroup()
+    const m = await app()
+    try {
+      await m.until(() => m.find('team-link-landing-change'), 'the invite with 바꾸기')
+      expect(m.get('team-link-landing-change').querySelectorAll('option').map((o: any) => o.textContent)).toEqual(['quote maker', 'weekly report'])
+      await m.click('invite-step-done')
+      await m.until(() => m.find('welcome-done-try')?.textContent === "'quote maker' 먼저 써 보기", 'the end screen names it as words')
     } finally { await m.unmount() }
   })
 
@@ -977,6 +1166,22 @@ describe('the later steps and the end', () => {
       delete TITLES[weekly]
       delete TITLES[quote]
     }
+  })
+
+  test('the goal card\'s [팀원 초대] during the steps (its router state) opens the invite step itself, not where the steps would resume', async () => {
+    signIn('owner')
+    progress = atProfile({ steps: { profile: 'skipped', result: null, skills: null, files: null, invite: null } })
+    withGroup()
+    const m = await app({ pathname: '/welcome', state: INVITE_STEP_STATE })
+    try {
+      await m.until(() => stepOf(m) === 'invite' && m.find('team-link-message'), 'the invite step')
+    } finally { await m.unmount() }
+    useWelcome.getState().reset()
+    // without it: where the steps resume (내 스킬)
+    const n = await app()
+    try {
+      await n.until(() => stepOf(n) === 'skills', '내 스킬')
+    } finally { await n.unmount() }
   })
 
   test('another screen of the owner made a link meanwhile: read again right before, that link is used, none made over it', async () => {

@@ -2,7 +2,10 @@
 // owner checks it: while the server checks it (`checking`) the skills found so far with skeleton reasons and "그만 찾기";
 // then one list (the recommended skills ticked, "그 밖에" and "빠진 것" folded under them), the CLAUDE.md (Codex:
 // AGENTS.md) rule line and the tools line (Claude Code's servers, or a .codex folder's config.toml), both unticked;
-// [팀에 공유 · N개] applies what is ticked; then what went in (a merge waits in a chat for its confirmation). Used by
+// [팀에 공유 · N개] applies what is ticked; then what went in (a merge waits in a chat for its confirmation; the welcome
+// step on a computer adds a quiet "다른 폴더도 가져오기" beside its primary). Without the AI's judgement (`ai` none or
+// failed) nothing is recommended and the rest is not "그 밖에 · 나만 쓰는 것, 개발용" (nothing judged it so): it is
+// listed under a neutral "찾은 스킬 N개", each row with its own reason when it has one (a command, a path). Used by
 // the welcome step (components/onboarding/SkillsStep.tsx) and by /skills/share/:id (pages/SkillSharePage.tsx), where
 // the notice about a Claude Code or Codex proposal leads. During the owner's setup (`inSetup`, docs/DECISIONS.md "W5")
 // the done rows have no 열기 (the steps go on; the skill form is a trip away from them), and a merge waits for the end
@@ -88,12 +91,14 @@ export interface SkillShareReviewProps {
   onStopped: () => void
   /** "다른 폴더" on the source line of a picked folder; absent: no link */
   onOtherFolder?: () => void
+  /** "다른 폴더도 가져오기" beside the done state's primary (the welcome step on a computer); absent: none */
+  onMore?: () => void
   busy?: boolean
   /** the owner's welcome steps are unfinished: no 열기 on what went in, a merge waits for their end */
   inSetup?: boolean
 }
 
-export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, busy, inSetup = false }: SkillShareReviewProps) {
+export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false }: SkillShareReviewProps) {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -292,8 +297,9 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
           </ul>
         </div>
         <DoneWho team={team} />
-        <div className={phone ? '' : 'flex'}>
+        <div className={phone ? 'space-y-2' : 'flex items-center justify-between gap-3'}>
           <Button variant="primary" className={phone ? 'w-full' : undefined} onClick={onDone} disabled={busy} data-testid="skills-done-next">{doneLabel}</Button>
+          {onMore && <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onMore} disabled={busy} data-testid="skills-more">{t('welcome.skills.more')}</Button>}
         </div>
       </div>
     )
@@ -336,7 +342,9 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
     )
   }
   const reasons = [...new Set(excluded.map((c) => c.reason))].sort((a, b) => EXCLUDED_ORDER.indexOf(a) - EXCLUDED_ORDER.indexOf(b))
-  const fold = (key: 'other' | 'excluded', label: string, hint: string) => (
+  // no AI judged them: what can go is just what was found (not "나만 쓰는 것, 개발용")
+  const unjudged = share.ai === 'none' || share.ai === 'failed'
+  const fold = (key: 'other' | 'excluded', label: string, hint: string | null) => (
     <button
       type="button"
       className={clsx('flex min-h-11 w-full items-center gap-1.5 border-t border-line py-2.5 text-left text-sm', pad, !phone && 'hover:bg-hover')}
@@ -346,7 +354,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
       data-testid={`skills-${key}-toggle`}
     >
       <span className="shrink-0 font-medium text-ink">{label}</span>
-      <span className="min-w-0 truncate text-faint">· {hint}</span>
+      {hint && <span className="min-w-0 truncate text-faint">· {hint}</span>}
       <ChevronDown size={16} className={clsx('ml-auto shrink-0 text-faint transition', folds[key] && 'rotate-180')} aria-hidden />
     </button>
   )
@@ -367,7 +375,9 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
         {recommended.length > 0 && <ul>{recommended.map(row)}</ul>}
         {other.length > 0 && (
           <>
-            {fold('other', t('welcome.skills.other', { n: other.length }), t('welcome.skills.otherHint'))}
+            {unjudged
+              ? fold('other', t('welcome.skills.unjudged', { n: other.length }), null)
+              : fold('other', t('welcome.skills.other', { n: other.length }), t('welcome.skills.otherHint'))}
             {folds.other && <ul id={`${ids}-other`} className={phone ? '' : 'bg-subtle'} data-testid="skills-other">{other.map((c) => row(c, 1))}</ul>}
           </>
         )}

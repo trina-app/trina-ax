@@ -66,6 +66,17 @@ describe('the example a skill form starts with', () => {
     expect(skillExample({ description: 'x', example: 'a\nb' })).toBeNull()
   })
 
+  test('skillExample: control or text-direction characters in the quoted request or the example: the box starts empty', () => {
+    // the description is the skill author's text: a right-to-left override would turn what 실행 sends around on screen
+    for (const bad of ['‮줘 해 리정 록의회', '회의록\u0007 정리해 줘', '회의록 ⁦정리⁩해 줘', '회의록‏ 정리해 줘', '회의록\u0085 정리해 줘', '회의록 정리해 줘']) {
+      expect({ bad, got: skillExample({ description: `회의록 정리 — "${bad}"처럼 물을 때 써요.` }) }).toEqual({ bad, got: null })
+      expect({ bad, got: skillExample({ description: '할 일 정리', example: bad }) }).toEqual({ bad, got: null })
+    }
+    // a bad example is left out like a long one (the quote stands in), and a normal quote still works
+    expect(skillExample({ description: '회의록 정리 — "이번 주 회의록 정리해 줘"처럼 물을 때 써요.', example: '‮evil' })).toBe('이번 주 회의록 정리해 줘')
+    expect(skillExample({ description: 'Meeting notes — use it for "summarise this week\'s notes".' })).toBe('summarise this week\'s notes')
+  })
+
   test('a skill without fields: the box starts with its example, and 실행 sends it', async () => {
     // the chat store's send, as the form calls it (the message is what matters here)
     const realSend = useChats.getState().send

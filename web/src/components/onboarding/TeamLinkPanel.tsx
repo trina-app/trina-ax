@@ -12,7 +12,7 @@
 import clsx from 'clsx'
 import { Check, ChevronDown, Copy, Plus, QrCode as QrIcon, RefreshCw } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLink, type TeamLinkResponse, type TeamLinkStarter, type TeamLinkState } from '@mycel/shared/api'
+import { TEAM_LINK_DAYS, TEAM_LINK_DEFAULT_DAYS, TEAM_LINK_DEFAULT_USES, TEAM_LINK_MAX_USES, skillLabel, skillTitle, type CreateTeamLinkBody, type Group, type SkillInfo, type TeamLink, type TeamLinkResponse, type TeamLinkStarter, type TeamLinkState } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { teamLinkMessage } from '../../lib/team-link'
@@ -262,8 +262,9 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
     )
   }
   const url = link.url!
-  // the skill as people read it (its title, else its name): in the message and the line under it
-  const skillName = link.skill ? (link.skill.title ?? link.skill.name) : null
+  // the skill as people read it (its title, else its folder name as words, never 'quote-maker': shared skillLabel): in
+  // the message and the line under it
+  const skillName = link.skill?.name ? skillLabel({ name: link.skill.name, title: link.skill.title }) : null
   // a starter with no file left that a newcomer could read leads nowhere: the usual message
   const waiting = link.starter && link.starter.files > 0 ? link.starter : null
   // the shared skills, while the link opens one of them (the landing one; a link that leads elsewhere says its own
@@ -343,6 +344,10 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   )
 }
 
+/** A shared skill's title as recorded; one recorded before titles were made readable that is a bare folder name
+ * ("quote-maker") reads as words (skillLabel). */
+const optionLabel = (title: string) => (/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(title) ? skillLabel({ name: title }) : title)
+
 /** "들어오면 '{스킬}'부터 열려요 · 바꾸기" (docs/DECISIONS.md "SK"): the shared skill the link opens; 바꾸기 (only with two
  * or more) is a plain select of the shared skills, and the link changes to the one picked (same address). */
 function LandingLine({ shared, skill }: { shared: InviteShared; skill: string }) {
@@ -358,7 +363,7 @@ function LandingLine({ shared, skill }: { shared: InviteShared; skill: string })
           <span className="relative inline-flex items-center">
             <span aria-hidden className="font-medium text-ink underline decoration-line-strong underline-offset-4">{t('teamLink.landingChange')}</span>
             <select id={id} className="absolute inset-0 cursor-pointer opacity-0" value={shared.landing} onChange={(e) => shared.onLanding(e.target.value)} data-testid="team-link-landing-change">
-              {shared.options.map((o) => <option key={o.path} value={o.path}>{o.title}</option>)}
+              {shared.options.map((o) => <option key={o.path} value={o.path}>{optionLabel(o.title)}</option>)}
             </select>
           </span>
         </>

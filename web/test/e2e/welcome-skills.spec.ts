@@ -1,9 +1,10 @@
 // 내 스킬 가져오기 in a real browser against the mock (docs/DECISIONS.md "SK", "W5"): 회사 소개 put off (no deck), then
 // [내 스킬 찾기] opens the folder window (Chrome's showDirectoryPicker, stubbed here with an in-memory .claude folder that
-// logs every name opened: Playwright cannot drive the OS folder window), the list comes back checked and judged, [팀에
-// 공유 · N개] shares the ticked ones (the server marks 내 스킬 done; a merge waits for the end of the setup); 팀 파일 is
-// put off; the invite names ONE skill, the first shared, and its link opens it; then 준비 끝났어요 with the owner's own
-// run of that skill.
+// logs every name opened: Playwright cannot drive the OS folder window), the list comes back checked and judged; 팀 스킬
+// and back through the setup row finds the same list (nothing picked again); [팀에 공유 · N개] shares the ticked ones
+// (the server marks 내 스킬 done; a merge waits for the end of the setup), with 다른 폴더도 가져오기 beside 다음; 이전 from
+// 팀 파일 shows what went in; 팀 파일 is put off; the invite names ONE skill, the first shared, and its link opens it;
+// then 준비 끝났어요 with the owner's own run of that skill.
 import { expect, test } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
@@ -20,7 +21,7 @@ const TREE = {
   commands: { 'standup.md': '어제, 오늘, 막힌 일을 한 줄씩.\n' },
 }
 
-test('[내 스킬 찾기] → the list → [팀에 공유]; 팀 파일 put off; the invite names one shared skill and opens it; 준비 끝났어요 → its form', async ({ page }) => {
+test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 공유]; 이전 shows what went in; 팀 파일 put off; the invite names one shared skill and opens it; 준비 끝났어요 → its form', async ({ page }) => {
   const errors = watchConsole(page)
   await page.addInitScript((tree) => {
     const opened: string[] = []
@@ -52,12 +53,27 @@ test('[내 스킬 찾기] → the list → [팀에 공유]; 팀 파일 put off; 
   const opened = await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)
   // only known places: never transcripts, history or the sign-in file
   expect(opened.filter((x) => /credentials|history|projects/.test(x))).toEqual([])
+  // leaving the step (팀 스킬) and coming back through the setup row finds the same list: nothing picked or read again
+  await page.getByTestId('nav-skills').click()
+  await expect(page).toHaveURL(/\/skills$/)
+  await page.getByTestId('setup-row-link').click()
+  await expect(page.getByTestId('skills-share')).toBeEnabled()
+  await expect(page.getByTestId('skills-find')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened.length)).toBe(opened.length)
   await page.getByTestId('skills-share').click()
   await expect(page.getByTestId('skills-done')).toBeVisible()
   // the server recorded 내 스킬 done itself
   expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.skills).toBe('done')
+  // one quiet way to a second folder beside the primary
+  await expect(page.getByTestId('skills-more')).toHaveText('다른 폴더도 가져오기')
   await page.getByTestId('skills-done-next').click()
-  // 3/4 팀 파일, put off; then the invite (no deck chat opens by itself)
+  // 3/4 팀 파일; 이전 shows what went in (not the empty picker), and 다음 goes on again
+  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  await page.getByTestId('welcome-back').click()
+  await expect(page.getByTestId('skills-done')).toBeVisible()
+  await expect(page.getByTestId('skills-find')).toHaveCount(0)
+  await page.getByTestId('skills-done-next').click()
+  // 팀 파일, put off; then the invite (no deck chat opens by itself)
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()

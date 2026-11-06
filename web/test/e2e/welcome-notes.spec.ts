@@ -36,7 +36,7 @@ test('회사 소개 starts the deck once; the steps go on; the deck chat mid-set
   expect(saved.profile).toMatchObject({ website: 'https://acme.example/', oneLine: 'Acme는 조용한 책상 선풍기를 만들어요', colors: ['#1b6e3a'] })
   await expect(page.getByTestId('welcome-profile-continue')).toHaveText('저장하고 계속')
   await expect(page.getByTestId('welcome-files-pick')).toHaveText('소개 자료가 있으면 같이 넣기')
-  await expect(page.getByTestId('welcome-deck-line')).toHaveText("저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · 트리나 기록의 '우리 회사 소개서'")
+  await expect(page.getByTestId('welcome-deck-line')).toHaveText("저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · 최근 채팅의 '우리 회사 소개서'")
   // 고치기: the full review in a dialog; saving there changes the line
   await page.getByTestId('welcome-profile-fix').click()
   const dialog = page.getByRole('dialog')
@@ -104,7 +104,7 @@ test('회사 소개 starts the deck once; the steps go on; the deck chat mid-set
   await page.getByTestId('invite-step-done').click()
   // 준비 끝났어요: where the deck is (no button), the owner's own run first
   await expect(page.getByTestId('welcome-done')).toContainText('준비 끝났어요')
-  await expect(page.getByTestId('welcome-done')).toContainText("회사 소개서는 트리나 기록의 '우리 회사 소개서'에 있어요")
+  await expect(page.getByTestId('welcome-done')).toContainText("회사 소개서는 최근 채팅의 '우리 회사 소개서'에 있어요")
   await expect(page.getByTestId('welcome-done-try')).toHaveText("'할 일 정리' 먼저 써 보기")
   await expect(page.getByTestId('setup-row')).toHaveCount(0)
 
@@ -136,7 +136,7 @@ test('a phone: the deck line names the ☰ menu; 내 스킬 waits for a computer
   await signIn(page)
   await page.goto('/welcome')
   await readSite(page)
-  await expect(page.getByTestId('welcome-deck-line')).toHaveText("저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · ☰ 메뉴의 트리나 기록 '우리 회사 소개서'")
+  await expect(page.getByTestId('welcome-deck-line')).toHaveText("저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · ☰ 메뉴의 최근 채팅 › '우리 회사 소개서'")
   await page.getByTestId('welcome-profile-continue').click()
   // without files: the server's 회사 소개.md
   await expect(page.getByTestId('skills-phone-next')).toBeVisible()
@@ -145,16 +145,19 @@ test('a phone: the deck line names the ☰ menu; 내 스킬 waits for a computer
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await page.getByTestId('invite-step-done').click()
-  await expect(page.getByTestId('welcome-done')).toContainText("회사 소개서는 ☰ 메뉴의 트리나 기록 '우리 회사 소개서'에 있어요")
+  await expect(page.getByTestId('welcome-done')).toContainText("회사 소개서는 ☰ 메뉴의 최근 채팅 › '우리 회사 소개서'에 있어요")
   const listed = await page.request.get(`/api/files/tree?path=${encodeURIComponent('groups/Acme/브랜드')}`)
   expect((await listed.json()).entries.filter((e: { type: string }) => e.type === 'file').map((e: { name: string }) => e.name)).toEqual(['회사 소개.md'])
   const progress = (await (await page.request.get('/api/onboarding/welcome')).json()).progress
   // 내 스킬 waits for a computer: not finished, the end screen was shown once
   expect(progress.finishedAt).toBeNull()
   expect(progress.doneShownAt).toBeTruthy()
-  // Home on a phone: nothing to resume here (내 스킬 is for a computer)
+  // Home on a phone: 팀 파일 was put off, so its quiet row leads back to it ("later is now", W4); 내 스킬 itself is for a
+  // computer, so the phone's line about it waits until nothing else is left (this assertion failed on e0c3cdf6 too:
+  // it expected no row)
   await page.getByTestId('welcome-done-home').click()
-  await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
+  await expect(page.getByTestId('welcome-resume')).toBeVisible()
+  await expect(page.getByTestId('welcome-skills-computer')).toHaveCount(0)
   // the deck's chat: the full-screen sheet over the chat once opened, its ✕ in reach
   await page.goto(`/c/${progress.resultChatId}`)
   const card = page.getByTestId('artifact-card')

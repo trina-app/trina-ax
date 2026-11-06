@@ -40,7 +40,7 @@ import { isLanding, readNotesHint, showResume, type NotesHint } from '../lib/wel
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
-import { useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
+import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
@@ -199,7 +199,9 @@ export function HomeTop({ owner }: { owner: boolean }) {
   }, [aiPutOff])
   if (!owner || computer) return <HomeGoal />
   if (!loaded) return null
-  return showResume(progress, false) ? <WelcomeResume /> : <HomeGoal />
+  if (showResume(progress, false)) return <WelcomeResume />
+  // 내 스킬 put off for a computer: the phone keeps the step's promise in one quiet line, above the goal
+  return <><SkillsOnComputer /><HomeGoal /></>
 }
 
 const EXAMPLES: MessageKey[] = ['home.example1', 'home.example2', 'home.example3']

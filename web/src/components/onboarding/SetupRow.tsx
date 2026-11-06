@@ -36,8 +36,9 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   const { pathname } = useLocation()
   const readAt = useRef(0)
   useEffect(() => { if (owner) void useAiAccess.getState().load() }, [owner])
-  // read once, and again on a page change while the setup is unfinished (the steps' own writes update the store copy)
-  const open = !!progress && !progress.finishedAt
+  // read once, and again on a page change while the row can show: unfinished and not hidden (the steps' own writes, ✕,
+  // its undo and Admin › Home's "시작 설정 다시 보기" update the store copy themselves)
+  const open = !!progress && !progress.finishedAt && !progress.dismissedAt
   useEffect(() => {
     if (!owner) return
     const w = useWelcome.getState()
@@ -60,7 +61,7 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="group/setup mb-3 flex items-center gap-0.5 pr-1" data-testid="setup-row" data-state={state}>
       {state === 'ai' ? (
-        <ConnectAiButton row={row} data-testid="setup-row-ai">
+        <ConnectAiButton row={row} panel data-testid="setup-row-ai">
           <Sparkles size={16} className="shrink-0 text-accent-text" aria-hidden />
           <span className="min-w-0 truncate">{t('aiAccess.connectTeam')}</span>
         </ConnectAiButton>

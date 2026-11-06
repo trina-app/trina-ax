@@ -189,7 +189,7 @@ describe('translations', () => {
     expect(translate('ja', 'home.greeting', { name: '佐藤先生' })).toBe('佐藤先生、どのようなお手伝いができますか？')
     expect(translate('ja', 'home.greeting', { name: 'Mia' })).toBe('Miaさん、どのようなお手伝いができますか？')
     // a name in the middle of a sentence, and a value that is not filled in stays as written
-    expect(translate('ko', 'goal.waitingMany', { name: '팀장님', n: 2, skill: "'광고 문구'는" })).toBe("팀장님 외 2명이 들어왔지만 '광고 문구'는 아직이에요.")
+    expect(translate('ko', 'goal.waitingMany', { name: '팀장님', n: 2, skill: "'광고 문구'는" })).toBe("팀장님 외 2명이 들어왔어요. '광고 문구'는 아직 써 보기 전이에요.")
     expect(format('{name}님', {}, 'ko')).toBe('{name}님')
     // with a space before the honorific ("{name} 님"), as in about 18 Korean and 9 Japanese texts
     expect(translate('ko', 'rooms.replyTo', { name: '대표님' })).toBe('대표님에게 답장')

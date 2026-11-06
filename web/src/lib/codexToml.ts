@@ -7,22 +7,31 @@
 // It is an ALLOWLISTED reader, not a TOML parser: it understands enough of TOML (table headers, dotted and quoted
 // keys, basic and literal strings with escapes, multi-line strings, arrays, inline tables, bare numbers, dates and
 // booleans, comments, CRLF, a BOM) to walk any file without getting out of step, and keeps only these paths:
-//   mcp_servers.<name>.url                      a string: the address (streamable HTTP servers only)
+//   mcp_servers.<name>.url                      a string: the address (streamable HTTP servers only; shareableUrl:
+//                                               https, no user, query, fragment or key, in a path segment or a host
+//                                               label too)
 //   mcp_servers.<name>.command                  any value: a local (stdio) server, which cannot be shared
 //   mcp_servers.<name>.bearer_token_env_var     a string: auth "bearer" (the variable's name is not kept)
 //   mcp_servers.<name>.http_headers.<header>    (also env_http_headers, and both as inline tables): the header NAME,
 //                                               for auth "header"; its value is never kept
 //   mcp_servers.<name>.http_headers_helper      any value: a helper makes the headers (auth "bearer")
 //   mcp_servers.<name>.enabled                  false: left out
-// Hostile input never hangs or throws: at most CODEX_TOML_MAX_BYTES are read, every loop step consumes input, nesting
-// stops at MAX_DEPTH, strings and keys have a length cap, at most MAX_SERVERS servers are looked at and
+// The auth: bearer_token_env_var, or an Authorization header in either header list, is "bearer"; else the header is
+// env_http_headers' first name (a variable holds its value: the key) before http_headers' first (a fixed value, often
+// a client or org name), whatever their order in the file; a helper alone is "bearer"; nothing is "oauth".
+// Hostile input never hangs or throws: at most CODEX_TOML_MAX_BYTES (1 MB) are read, every loop step consumes input,
+// nesting stops at MAX_DEPTH, strings and keys have a length cap, at most MAX_SERVERS servers are looked at and
 // SKILL_SHARE_LIMITS.tools come out. A syntax error drops the server it was in (an unterminated multi-line string ends
-// the reading: the rest of the file would be inside it), and the reading goes on at the next line.
-import { findSecrets } from '@mycel/shared'
+// the reading: the rest of the file would be inside it), and the reading goes on at the next line, or at the line the
+// error is on when a value ran past its own line (the lines inside a broken value are not read again: each line is
+// read about once, so 1 MB of broken lines still takes milliseconds).
+import { findSecrets, keyInAddress } from '@mycel/shared'
 import { SKILL_SHARE_LIMITS, type ShareToolIn } from '@mycel/shared/api'
 
-/** How much of config.toml is read (a real one is a few KB). */
-export const CODEX_TOML_MAX_BYTES = 64 * 1024
+/** How much of config.toml is read. A real one is a few KB, but Codex adds a [projects."<path>"] table for every folder
+ * it was trusted in, so a long-used one can pass 64 KB (the earlier cap, which dropped the servers after it without a
+ * word); a 1 MB config still reads in about 10 ms. */
+export const CODEX_TOML_MAX_BYTES = 1024 * 1024
 /** Arrays and inline tables nested deeper than this are a syntax error. */
 const MAX_DEPTH = 16
 /** A string or a key longer than this is a syntax error (an address is at most 500). */
@@ -47,6 +56,9 @@ interface Server {
   bearer?: boolean
   helper?: boolean
   disabled?: boolean
+  /** header names in the order written: env_http_headers' (a variable holds the value: the key) apart from
+   * http_headers' (a fixed value, often not the key) */
+  envHeaders: string[]
   headers: string[]
   broken?: boolean
 }
@@ -76,9 +88,14 @@ class Reader {
         if (!(e instanceof TomlError)) throw e
         this.breakCurrent()
         if (e.fatal) return
-        // on at the next line (every step consumes input: nothing can loop)
+        // on at the next line, or at the line the error is on when a value ran past its own line: the lines inside a
+        // broken value are not read again. Read again from each of its lines, an unclosed "k = { a = 1," repeated on
+        // every line made each line read the next 17 (MAX_DEPTH + 1): 1 MB took seconds. So every line is read about
+        // once, and every step consumes input: nothing can loop.
         const nl = this.s.indexOf('\n', start)
-        this.i = nl === -1 ? this.n : nl + 1
+        const next = nl === -1 ? this.n : nl + 1
+        const errorLine = this.s.lastIndexOf('\n', Math.min(this.i, this.n) - 1) + 1
+        this.i = Math.max(next, errorLine)
       }
     }
   }
@@ -89,7 +106,7 @@ class Reader {
     const had = this.servers.get(name)
     if (had) return had
     if (this.servers.size >= MAX_SERVERS) return null
-    const s: Server = { headers: [] }
+    const s: Server = { envHeaders: [], headers: [] }
     this.servers.set(name, s)
     return s
   }
@@ -117,7 +134,8 @@ class Reader {
     else if (key === 'enabled' && !rest.length) { if (leaf.t === 'bool' && !leaf.v) s.disabled = true }
     else if ((key === 'http_headers' || key === 'env_http_headers') && rest.length === 1) {
       // the header's name only; its value (or the variable holding it) stays here
-      if (leaf.t === 'str' && HEADER_NAME.test(rest[0]!) && !s.headers.includes(rest[0]!)) s.headers.push(rest[0]!)
+      const list = key === 'env_http_headers' ? s.envHeaders : s.headers
+      if (leaf.t === 'str' && HEADER_NAME.test(rest[0]!) && !list.includes(rest[0]!)) list.push(rest[0]!)
     }
   }
 
@@ -319,10 +337,11 @@ const plainName = (v: string, max: number): string | null => {
   return t
 }
 
-/** An https address without a user, password, query, fragment or anything findSecrets flags; null otherwise. */
+/** An https address without a user, password, query, fragment, anything findSecrets flags or a key in a path segment
+ * or a host label (keyInAddress: the server's own test, server/src/skills/share-check.ts cleanTools); null otherwise. */
 export function shareableUrl(raw: string): string | null {
   const v = raw.trim()
-  if (!v || v.length > 500 || v.includes('?') || v.includes('#') || /\s/.test(v) || findSecrets(v).length) return null
+  if (!v || v.length > 500 || v.includes('?') || v.includes('#') || /\s/.test(v) || findSecrets(v).length || keyInAddress(v)) return null
   let u: URL
   try { u = new URL(v) } catch { return null }
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash || !u.hostname) return null
@@ -347,9 +366,12 @@ export function codexTools(text: string): ShareToolIn[] {
     const key = name.normalize('NFC').toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
-    const first = s.headers[0]
-    if (s.bearer || (first && first.toLowerCase() === 'authorization') || (!first && s.helper)) out.push({ name, url, auth: 'bearer' })
-    else if (first) out.push({ name, url, auth: 'header', header: first })
+    // Authorization in either list is a bearer token wherever it was written; else the key's header: a variable's
+    // (env_http_headers) before a fixed value's (http_headers, often a client or org name), each list in file order
+    const auth = [...s.envHeaders, ...s.headers].some((h) => h.toLowerCase() === 'authorization')
+    const header = s.envHeaders[0] ?? s.headers[0]
+    if (s.bearer || auth || (!header && s.helper)) out.push({ name, url, auth: 'bearer' })
+    else if (header) out.push({ name, url, auth: 'header', header })
     else out.push({ name, url, auth: 'oauth' })
   }
   return out

@@ -8,9 +8,12 @@
 //   4. no file from the owner: 회사 소개.md in the brand folder, written from the saved company profile and the text of
 //      the pages the server opened, each part under its source (no AI here: nothing is invented); one already there is
 //      kept as it is (someone may have edited it);
-//   5. a new chat of the owner titled after the result ("우리 회사 소개서", a title the AI does not rename).
+//   5. a new chat of the owner titled after the result ("우리 회사 소개서", a title the AI does not rename), kept for
+//      the deck in the steps' row and counted as the deck (`resultChatId`) only once its message is in (welcome.ts
+//      deckChatFor, settleDeck: docs/DECISIONS.md "W5").
 // No picture is made here or in that chat: a slide without a fitting picture is made in its type-only version.
-// The page then attaches the files and sends "/intro-deck …" like any message of the owner's (pages/Welcome.tsx), so
+// The page then attaches the files and sends "/intro-deck …" like any message of the owner's (pages/Welcome.tsx), with
+// the client message id deckMessageId(chatId), so a second tab or a retry adds no second message; so
 // the turn is an ordinary skill run (the goal, the receipt and the transcript need nothing new); the deck opens beside
 // the chat by itself (its artifact key, web/src/store/chats.ts).
 import fs from 'node:fs'
@@ -238,7 +241,7 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
   // offers (Claude Code's "opus" when it is on the list); otherwise the team's choice as for any chat
   const strong = TIERS[deckTier(ctx.db, ctx.config.mode === 'dev')].strongModel && chosen.engine === 'claude-code' && claudeModels(ctx.config).some((m) => m.id === 'opus') ? 'opus' : null
   const { engine, model } = { engine: chosen.engine, model: strong ?? chosen.model }
-  // the chat, recorded in the steps' row in the same step (a chat whose message never went is handed out again)
+  // the chat, kept in the steps' row in the same step (a chat whose message never went is handed out again)
   const made = deckChatFor(ctx, userId, () => {
     const id = newId(), now = new Date().toISOString()
     ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")

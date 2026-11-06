@@ -52,7 +52,10 @@ test('nothing until the steps start; then each step is kept on the server and re
   expect(read.teamType).toBe('sales')
   expect(read.steps).toEqual({ profile: 'skipped', result: null, skills: null, files: null, invite: null })
   expect((await ada.client.call('GET', '/api/onboarding/welcome')).progress).toEqual(read)
-  expect(WelcomeProgress.parse(getSetting(h.ctx.db, WELCOME_SETTING))).toEqual(read)
+  // the row holds exactly that; the answer adds the facts read for the screens, never stored (docs/DECISIONS.md "W5")
+  const { deckStarted, landingSkill, ...stored } = read
+  expect({ deckStarted, landingSkill }).toEqual({ deckStarted: false, landingSkill: null })
+  expect(WelcomeProgress.parse(getSetting(h.ctx.db, WELCOME_SETTING))).toEqual(stored)
 
   // members cannot read it; only the owner writes it
   expect((await mia.client.try('GET', '/api/onboarding/welcome')).status).toBe(403)
@@ -78,6 +81,9 @@ test('done stays done; the result chat must be the owner\'s own; finished once í
   expect((await owner.try('PATCH', '/api/onboarding/welcome', { resultChatId: chatOf(mia.id) })).status).toBe(404)
   expect((await owner.try('PATCH', '/api/onboarding/welcome', { resultChatId: 'no-such-chat' })).status).toBe(404)
   const chat = chatOf(ownerId)
+  // the deck's chat counts once it holds a message (docs/DECISIONS.md "W5": a chat whose message never went is no deck)
+  expect((await patch({ resultChatId: chat })).resultChatId).toBeNull()
+  h.ctx.db.query("INSERT INTO messages (id, chat_id, role, content, status, created_at) VALUES (?, ?, 'user', '/intro-deck', 'done', ?)").run(crypto.randomUUID(), chat, new Date().toISOString())
   expect((await patch({ resultChatId: chat })).resultChatId).toBe(chat)
 
   // the invite put off is not brought back by anything (the deck chat has no invite bar any more)

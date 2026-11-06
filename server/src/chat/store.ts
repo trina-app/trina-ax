@@ -120,7 +120,13 @@ export class ChatStore {
       id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
       ...(isConfidentialChat(this.db, r.id) ? { confidential: true as const } : {}),
+      ...(this.mergeWaiting(r.id) ? { mergeWaiting: true as const } : {}),
     }
+  }
+  /** A merge chat made at the end of the welcome steps whose turn waits for its person to open it (docs/DECISIONS.md
+   * "W5"; skills/share-merge.ts startOpenedMerge). A database without the table reads as none. */
+  private mergeWaiting(id: string): boolean {
+    try { return !!this.db.query('SELECT 1 FROM skill_share_merges WHERE chat_id = ? AND started_at IS NULL LIMIT 1').get(id) } catch { return false }
   }
   touchChat(id: string, at = new Date().toISOString()) { this.db.query('UPDATE chats SET updated_at = ? WHERE id = ?').run(at, id) }
 

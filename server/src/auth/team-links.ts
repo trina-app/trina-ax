@@ -291,7 +291,10 @@ export const DECK_LINKS_KEY = 'onboarding.deckLinksRepointedAt'
  * Old open invite links that lead to the intro deck (the first result of docs/DECISIONS.md "D2" was what the invite
  * opened before "W5"): each is pointed once at the skill everything points at now (onboarding/welcome.ts landingSkill),
  * keeping its address, when someone joining with its groups can open that skill; otherwise it is left as it is. Once
- * per server (DECK_LINKS_KEY): a link the owner points at the deck again later stays. Audited. Returns how many changed.
+ * per server (DECK_LINKS_KEY): a link the owner points at the deck again later stays. The once is recorded only when
+ * there was nothing to repoint or there was a landing skill to point at: a start while the team had none (its pack not
+ * in yet, 할 일 정리 deleted) tries again at the next start instead of leaving the links on the deck for good. Audited.
+ * Returns how many changed.
  */
 export function repointDeckLinks(ctx: AppContext): number {
   if (getSetting(ctx.db, DECK_LINKS_KEY)) return 0
@@ -311,7 +314,7 @@ export function repointDeckLinks(ctx: AppContext): number {
       audit(ctx.db, { actor: null, action: 'team_link.update', target: r.id, detail: { skillPath: s.path, from: r.skill_path, reason: 'intro_deck_link' } })
       n++
     }
-    setSetting(ctx.db, DECK_LINKS_KEY, new Date().toISOString())
+    if (!rows.length || landing) setSetting(ctx.db, DECK_LINKS_KEY, new Date().toISOString())
   }).immediate()
   return n
 }
@@ -421,12 +424,12 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   const me = viewerOf(ctx, id)
   const found = r.skill_path && me ? teamSkill(ctx, me, r.skill_path) : null
   const skill = found ? { path: found.path, name: found.name, title: found.title } : null
-  // who made the skill (its file's first version; none for a starter pack's own text): the line above its form, or the
-  // arrival's line for a skill without a form (docs/DECISIONS.md "S — The lead's way becomes a team skill")
-  const maker = skill ? skillMakerName(ctx.db, skill.path) : null
-  const skillBy = maker?.name ?? null
-  // the link's files (M), else a skill made by someone without a form: a new chat with its title and one question
-  const starter = skill && me ? (joinStarter(ctx, me, r, skill) ?? (maker && !found!.form ? { kind: 'skill' as const, skill, files: [], by: skillBy } : null)) : null
+  // who made the skill (its file's first version; none for a starter pack's own text): the line above its form
+  // (docs/DECISIONS.md "S — The lead's way becomes a team skill")
+  const skillBy = skill ? skillMakerName(ctx.db, skill.path)?.name ?? null : null
+  // the link's files (M) only: otherwise every skill lands on its form, a skill without fields too, whose box starts
+  // with the skill's own example (shared skillExample; docs/DECISIONS.md "W5"), never a chat with "이 방식대로 해 줘"
+  const starter = skill && me ? joinStarter(ctx, me, r, skill) : null
   const signed = a.signIn(c, id, b.client, b.tokenMode)
   return { ...signed, next: skill ? `/skills?run=${encodeURIComponent(skill.path)}` : null, starter, skillBy }
 }

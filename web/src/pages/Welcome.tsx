@@ -4,7 +4,8 @@
 // 가져오기 → 팀원 초대 → 준비 끝났어요. The intro deck is no step: 회사 소개's "저장하고 계속" starts it once per team (POST
 // /api/onboarding/welcome/first-result makes and records its chat, the page attaches the files and sends "/intro-deck"
 // as the owner, like any message), and it builds on the server as an ordinary chat, "우리 회사 소개서", found by its row
-// in the AI's chat list, "트리나 기록" (the sidebar beside the steps from 768px; its marker says how it goes). Nothing about it is on the
+// in the sidebar's chat list, named as its heading names it (lib/welcome.ts historyName; the sidebar beside the steps
+// from 768px; its marker says how it goes). Nothing about it is on the
 // later steps; one line under 회사 소개's button says it starts, about how long, and where it will be. 회사 소개 needs AI,
 // so without it the AI step opens in its place, never in front of the later steps; "나중에 하기" there leaves the steps
 // (Home shows its connect card, the sidebar's setup row says "AI 연결하기"). Every step can be put off; the progress is
@@ -16,8 +17,8 @@
 import clsx from 'clsx'
 import { ArrowLeft, Check, CircleAlert, ExternalLink, Loader2, Paperclip, Upload } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
-import { DECK_TIER_MINUTES, DEFAULT_DECK_TIER, FIRST_RESULT_FILES_MAX, skillTitle, uuidv7, type CompanyProfile, type FirstResultStarted, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { DECK_TIER_MINUTES, DEFAULT_DECK_TIER, FIRST_RESULT_FILES_MAX, deckMessageId, skillLabel, uuidv7, type CompanyProfile, type FirstResultStarted, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { markBusy } from '../lib/busy'
 import { joinPath } from '../lib/paths'
@@ -62,6 +63,9 @@ function WelcomeSteps() {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
+  // the goal card's [팀원 초대] while the steps are unfinished (GoalCard.tsx INVITE_STEP_STATE): the invite step itself,
+  // not where the steps would resume (it needs no AI)
+  const askedInvite = (useLocation().state as { step?: unknown } | null)?.step === 'invite'
   const me = useMeStrict()
   // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (lib/welcome.ts)
   useEffect(() => { markStepsSeen(me.user.id) }, [me.user.id])
@@ -87,7 +91,7 @@ function WelcomeSteps() {
       await useAiAccess.getState().load(true)
       // the AI step was shown before and AI answers now (connected from Home, Admin or another tab): done
       if (useAiAccess.getState().usable && p.steps.ai === 'skipped') p = await w.update({ step: { id: 'ai', state: 'done' } })
-      const s = resumeStep(p, useAiAccess.getState().usable, !window.matchMedia?.(PHONE_QUERY).matches)
+      const s = askedInvite && !p.finishedAt ? 'invite' : resumeStep(p, useAiAccess.getState().usable, !window.matchMedia?.(PHONE_QUERY).matches)
       if (s) setStep(s)
       else navigate('/', { replace: true })
     } catch (e) {
@@ -225,7 +229,8 @@ function Progress({ progress, step, aiReady }: { progress: WelcomeProgress; step
     <>
       <ol className={clsx('mt-3 grid gap-2', COLS[counted.length] ?? 'grid-cols-4')} aria-label={t('welcome.progress.label')} data-testid="welcome-progress">
         {counted.map((s, i) => {
-          const state = progress.steps[s] ?? null
+          // the AI step is recorded `skipped` once it was shown (docs/DECISIONS.md "W2"): nothing was put off, it is open
+          const state = s === 'ai' && progress.steps.ai === 'skipped' ? null : (progress.steps[s] ?? null)
           return (
             <li key={s} className="min-w-0" aria-current={i === at ? 'step' : undefined} data-progress-step={s}>
               <span aria-hidden className={clsx('block h-1.5 rounded-full', i <= at ? 'bg-accent' : 'bg-hover')} />
@@ -269,14 +274,18 @@ function Later({ onClick, disabled }: { onClick: () => void; disabled?: boolean 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 
 /**
- * 회사 소개 (stream D's step, docs/DECISIONS.md "W5"). Without a saved profile: the website, its reading (a reading with a
- * one-line intro is saved as it came: autoSave), or the fallbacks; "나중에 하기" puts it off (no deck). With one: what
- * was understood ("이렇게 이해했어요: … · 고치기", the review in a dialog), the website as a link (a new tab), one quiet
- * "소개 자료가 있으면 같이 넣기" (files into the team's brand folder, for the deck), the one primary "저장하고 계속" and
- * one line under it: the deck starts now, about how long (the team's deck tier), and where it will be ("트리나 기록의 '우리
- * 회사 소개서'"; "☰ 메뉴의 트리나 기록" on a phone, where the AI's chat list is in the menu). "저장하고 계속" starts the deck
- * once per team: the server answers 409 `deck_started` when one started (saving again only saves) and hands out again a
- * chat it made whose message never went. The line and the files link are gone once a deck started.
+ * 회사 소개 (stream D's step, docs/DECISIONS.md "W5"). Without a saved profile: the website (the address typed is kept in
+ * the progress as its reading starts, so leaving mid-reading and coming back finds it), its reading (a reading with a
+ * one-line intro is saved as it came: autoSave), or the fallbacks; "나중에 하기" puts it off (no deck). A review there
+ * (pasted text, the questions, a draft without a one-line intro) asks once: its one button is "저장하고 계속" (saved,
+ * then the deck, as below) with the files link above it and the deck line under it. With a saved profile: what was
+ * understood ("이렇게 이해했어요: … · 고치기", the review in a dialog, which keeps its plain 저장), the website as a link
+ * (a new tab), one quiet "소개 자료가 있으면 같이 넣기" (files into the team's brand folder, for the deck), the one
+ * primary "저장하고 계속" and one line under it: the deck starts now, about how long (the team's deck tier), and where it
+ * will be (the sidebar's chat list by its heading, historyName; "☰ 메뉴의 …" on a phone, where that list is in the
+ * menu). "저장하고 계속" starts the deck once per team: the server answers 409 `deck_started` when one started (saving
+ * again only saves) and hands out again a chat it made whose message never went. The line and the files link are gone
+ * once a deck started.
  */
 function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { progress: WelcomeProgress; busy: boolean; onContinue: (chatId: string | null) => void; onSkip: () => void }) {
   const t = useT()
@@ -298,10 +307,8 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
   const started = !!progress.resultChatId
 
   /** The intro deck, once per team, then on: the server makes the chat (and the intro file without files) and says what
-   * to attach; the page sends "/intro-deck …" as the owner, like a skill form's run. */
-  const go = async () => {
-    setBusy(true)
-    setError(null)
+   * to attach; the page sends "/intro-deck …" as the owner, like a skill form's run. Throws what failed. */
+  const startDeck = async () => {
     // a reload would lose what is being sent: the page does not reload by itself meanwhile
     const release = markBusy('upload')
     try {
@@ -320,22 +327,43 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
       const engine = choose ? me.user.prefs.engine : undefined
       const model = choose ? (me.user.prefs.model ?? null) : undefined
       const attachments = await Promise.all(r.files.map((path) => api.call(API.attachTeamFile, { body: { chatId, path } })))
-      await useChats.getState().send({ chatId, content: `/${skillNameOf(r.skillPath)} ${t('welcome.deck.question')}`, attachments, author: { id: me.user.id, name: me.user.name }, projectId: null, engine, model })
+      // one message id per deck chat: another tab, or a retry here, that got the same chat adds no second message (the
+      // server answers with the first one's turn)
+      const { sent } = await useChats.getState().send({ chatId, content: `/${skillNameOf(r.skillPath)} ${t('welcome.deck.question')}`, attachments, author: { id: me.user.id, name: me.user.name }, projectId: null, engine, model, clientMessageId: deckMessageId(chatId) })
+      // 회사 소개 counts as saved with its deck only once the message is in (the server records the deck then): a send
+      // that fails stays here with its reason, and "저장하고 계속" again sends into the same chat
+      await sent
       rememberChat(me.user.id, chatId)
       onContinue(chatId)
+    } finally {
+      release()
+    }
+  }
+  /** the saved state's "저장하고 계속": the deck, its failure in a note with 다시 시도 */
+  const go = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await startDeck()
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
-      release()
       setBusy(false)
     }
   }
+  /** the address typed, kept in the progress as its reading starts (the step opens with it again) */
+  const keepSite = (site: string) => {
+    if (site !== useWelcome.getState().progress?.site) void useWelcome.getState().update({ site }).catch(() => {})
+  }
+  // the line right under "저장하고 계속" (the saved state's, and the review's in the steps)
+  const deckNote = !started && <p className="text-label leading-5 text-muted" data-testid="welcome-deck-line">{t(phone ? 'welcome.profile.deckLinePhone' : 'welcome.profile.deckLine', { min: minutes, name: historyName(t) })}</p>
 
   if (saved === undefined) return <Skeleton lines={4} />
   if (!saved)
     return (
       <div data-testid="welcome-profile">
-        <ProfileStep initial={null} initialWebsite={progress.site ?? setupSite()} onDone={setSaved} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave />
+        <ProfileStep initial={null} initialWebsite={progress.site ?? setupSite()} onDone={setSaved} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave onRead={keepSite}
+          continueWith={{ label: t('welcome.profile.save'), note: deckNote, extra: !started && <IntroFiles files={files} disabled={stepBusy} />, disabled: stepBusy || files.uploading, onSaved: startDeck }} />
       </div>
     )
   return (
@@ -361,7 +389,7 @@ function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { p
           {t('welcome.profile.save')}
         </Button>
         <span className="ml-auto max-sm:order-3 max-sm:ml-0 max-sm:w-full max-sm:text-center"><Later onClick={onSkip} disabled={busy || stepBusy} /></span>
-        {!started && <p className="w-full text-label leading-5 text-muted max-sm:order-2" data-testid="welcome-deck-line">{t(phone ? 'welcome.profile.deckLinePhone' : 'welcome.profile.deckLine', { min: minutes, name: historyName(t) })}</p>}
+        {deckNote && <div className="w-full max-sm:order-2">{deckNote}</div>}
       </div>
     </div>
   )
@@ -740,9 +768,14 @@ function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgr
   return <InviteStep skillPath={skillPath} retarget={!!skillPath} shared={shared} prepare onDone={onDone} onSkip={onSkip} />
 }
 
+/** The end screen's deck line: the server's fact that a deck really started (`deckStarted`: the deck's chat holds the
+ * "/intro-deck" message, or a deck build exists), never a recorded chat alone (a first result of a row from before is
+ * no deck). An older server without the fact: the recorded chat, as before. */
+const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
+
 /**
  * 준비 끝났어요 (docs/DECISIONS.md "W5"), once (`doneShownAt`). When the intro deck started, one line says where it is
- * ("트리나 기록의 '우리 회사 소개서'", no button: its row has its own marker); without a deck, no line. The one primary is
+ * ("최근 채팅의 '우리 회사 소개서'": the sidebar's heading, historyName; no button: its row has its own marker); without a deck, no line. The one primary is
  * the owner's own run of the skill everything points at ("'{skill}' 먼저 써 보기": the same form a member lands on), or
  * "AI 연결하기" while no AI answers; 홈으로 is a quiet link.
  */
@@ -751,7 +784,9 @@ function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: b
   const navigate = useNavigate()
   const phone = useMediaQuery(PHONE_QUERY)
   const path = inviteSkill(progress)
-  const [title, setTitle] = useState<string | null>(() => progress.shared?.skills.find((x) => x.path === path)?.title ?? null)
+  // never a raw folder name ("quote-maker"): the title, else the name as words (skillLabel)
+  const named = (title?: string | null) => (path ? skillLabel({ name: skillNameOf(path), title }) : null)
+  const [title, setTitle] = useState<string | null>(() => { const x = progress.shared?.skills.find((s) => s.path === path)?.title; return x ? named(x) : null })
   useEffect(() => {
     if (!progress.doneShownAt) void useWelcome.getState().update({ doneShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -761,18 +796,18 @@ function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: b
     let live = true
     api.call(API.listSkills).then((r) => {
       const s = r.items.find((x) => x.path === path)
-      if (live) setTitle(s ? skillTitle(s) : skillNameOf(path))
-    }, () => live && setTitle(skillNameOf(path)))
+      if (live) setTitle(s ? skillLabel(s) : named())
+    }, () => live && setTitle(named()))
     return () => { live = false }
   }, [path, title])
   const home = () => navigate('/')
   const tryIt = aiReady && !!path
   return (
     <div className="space-y-6" data-testid="welcome-done">
-      <StepHead title={t('welcome.done.title')} desc={progress.resultChatId ? t(phone ? 'welcome.done.deckPhone' : 'welcome.done.deck', { name: historyName(t) }) : undefined} />
+      <StepHead title={t('welcome.done.title')} desc={deckLine(progress) ? t(phone ? 'welcome.done.deckPhone' : 'welcome.done.deck', { name: historyName(t) }) : undefined} />
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         {!aiReady ? (
-          <ConnectAiButton size="md" data-testid="welcome-done-ai" />
+          <ConnectAiButton size="md" panel data-testid="welcome-done-ai" />
         ) : tryIt ? (
           <Button variant="primary" className="max-sm:w-full" disabled={!title} onClick={() => navigate(skillRunLink(path))} data-testid="welcome-done-try">
             {t('welcome.done.try', { skill: title ?? '' })}

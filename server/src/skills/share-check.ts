@@ -14,7 +14,7 @@
 // The CLAUDE.md lines that carry a secret are dropped before anything else sees them; remote MCP servers keep only an
 // https address without a key or a query. The AI's judgement and the final groups: share-judge.ts.
 import { isAlias, isMap, isScalar, isSeq, parseDocument, visit } from 'yaml'
-import { addressHasSecret, findLikelySecrets, findSecrets, looksRandom, secretValue } from '@mycel/shared'
+import { addressHasSecret, findLikelySecrets, findSecrets, keyInAddress } from '@mycel/shared'
 import {
   SHARE_IMAGE_EXTENSIONS, SHARE_SCRIPT_EXTENSIONS, SHARE_TEXT_EXTENSIONS, SKILL_SHARE_LIMITS,
   type CreateSkillShare, type ShareCandidate, type ShareExcludedIn, type ShareExcludedReason, type ShareSkillIn, type ShareTool,
@@ -379,21 +379,10 @@ export function cleanRuleOutput(text: string, max = SKILL_SHARE_LIMITS.ruleChars
   return { text: out, lines: out.split('\n').filter((l) => l.trim()).length, removed }
 }
 
-/** A path segment that may be the key itself (Zapier-style "/api/mcp/s/<key>/mcp"): a generated-looking run, an id
- * (hosted MCP servers often take a UUID as the key), or a long mixed value. Stricter than addressHasSecret, which lets
- * an instance id through: a template goes to every member. */
-function keyInPath(u: URL): boolean {
-  return u.pathname.split('/').some((raw) => {
-    let seg = raw
-    try { seg = decodeURIComponent(raw) } catch { return true }
-    if (!seg) return false
-    return /[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}/i.test(seg) || looksRandom(seg) || (seg.length >= 16 && secretValue(seg)) || /[0-9a-f]{24,}/i.test(seg)
-  })
-}
-
 /** Remote MCP servers as connection templates: an https address without a user, password, query, fragment or key
- * (a server whose address holds a key, in the path too, is left out, never stored), a header name only for header
- * auth, each name once. */
+ * (a server whose address holds a key, in the path or a host label too, is left out, never stored: keyInAddress, the
+ * same test as the browser's Codex reader, since Claude Code's and Codex's share_skills never pass through it), a
+ * header name only for header auth, each name once. */
 export function cleanTools(tools: CreateSkillShare['tools']): ShareTool[] {
   const out: ShareTool[] = []
   for (const t of tools ?? []) {
@@ -401,7 +390,7 @@ export function cleanTools(tools: CreateSkillShare['tools']): ShareTool[] {
     if (!name || secretKind(name) || out.some((o) => fold(o.name) === fold(name))) continue
     let u: URL
     try { u = new URL(t.url.trim()) } catch { continue }
-    if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash || addressHasSecret(t.url) || addressHasSecret(u.href) || keyInPath(u)) continue
+    if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash || addressHasSecret(t.url) || addressHasSecret(u.href) || keyInAddress(t.url)) continue
     const header = t.auth === 'header' && t.header && /^[A-Za-z0-9-]{1,64}$/.test(t.header) ? t.header : null
     out.push({ name, url: u.href, auth: t.auth, header, templateId: null, error: null })
   }

@@ -8,10 +8,14 @@
 //    folder, .claude shown and picked; any other desktop build picks like a browser (proposals say "desktop");
 //  - Claude Code or Codex (only when this server has the connector on; both reach it as a remote MCP server with
 //    OAuth, docs/DECISIONS.md "W5"): one line to paste in either; the step asks the server every few seconds for a
-//    proposal one of them sent (GET /api/skill-shares, the connector's sources) and shows it as it arrives, on a phone
-//    too. The same look finds a share applied elsewhere since the step opened (its link or notice opens
-//    /skills/share/:id): the step then shows it as done. While the step is on screen the live notice about a proposal
-//    is held back (store/ui.ts holdToasts): the step lists it itself.
+//    proposal one of them sent and shows it as it arrives, on a phone too. While the step is on screen the live notice
+//    about a proposal is held back (store/ui.ts holdToasts): the step lists it itself.
+// The step opens on what the person already has (GET /api/skill-shares, their own, newest first; shownShare): the
+// newest proposal still open (checking or ready, from any source), so leaving the step (the deck, 팀 스킬, a reload)
+// and coming back finds the list again instead of the picker; a share applied elsewhere since the step opened (its
+// link or notice opens /skills/share/:id) as done; and once 내 스킬 is done (the welcome progress), the newest share
+// applied, so 이전 from the next step shows what went in. Under what went in, "다른 폴더도 가져오기" (on a computer)
+// goes back to the picker for a second folder (Claude Code and Codex side by side); the primary stays the next step.
 // A picked folder may be Claude's (.claude) or Codex's (.codex, .agents): lib/skillScan.ts tells them apart.
 // Then components/onboarding/SkillShareReview.tsx (checking, the list, what went in). A phone (or a browser that
 // cannot pick folders) gets the phone version: skills live on a computer, so its primary goes on and the step waits
@@ -25,8 +29,9 @@ import { isDesktop, storeApp } from '../../lib/desktop'
 import { canPickHandle, canPickInput, droppedFolder, fromFiles, pickClaudeFolder, scanFolder, type ScanDir } from '../../lib/skillScan'
 import { useLocale, useT } from '../../i18n'
 import { holdToasts, type Toast } from '../../store/ui'
+import { useWelcome } from '../../store/welcome'
 import { CONNECTOR_NAME, CopyLine } from '../integrations/AiAppConnect'
-import { Button, ErrorNote, useMediaQuery } from '../ui'
+import { Button, ErrorNote, Skeleton, useMediaQuery } from '../ui'
 import { quietLink, SkillShareReview, withNodes } from './SkillShareReview'
 
 /** How often the empty step asks whether Claude Code sent a proposal. */
@@ -35,6 +40,24 @@ export const CLAUDE_CODE_POLL_MS = 3000
 export const CLOCK_SLACK_MS = 30_000
 
 const fromConnector = (s: SkillShareSource) => (CONNECTOR_SHARE_SOURCES as readonly SkillShareSource[]).includes(s)
+
+/**
+ * What the step shows of the person's own proposals (GET /api/skill-shares, newest first); null: the picker.
+ * - a share applied since `since` (its link or notice, another tab): as done;
+ * - else the newest of: a proposal still open (checking, which turns ready; or ready, also one with some rows applied
+ *   and some failed), from any source; and once 내 스킬 is done (`done`), a share applied (what went in);
+ * - `fresh` (the person let go of what was shown: 그만 찾기, 다른 폴더도 가져오기): only a proposal made since `since`.
+ * Dismissed and expired ones never show, nor the ones this step let go of (`gone`).
+ */
+export function shownShare(items: readonly SkillShare[], o: { since: number; done: boolean; gone: ReadonlySet<string>; fresh?: boolean }): SkillShare | null {
+  const live = items.filter((s) => !o.gone.has(s.id))
+  const appliedSince = live.find((s) => s.status === 'applied' && Date.parse(s.updatedAt ?? s.createdAt) >= o.since)
+  if (appliedSince) return appliedSince
+  return live.find((s) => {
+    if (s.status === 'checking' || s.status === 'ready') return !o.fresh || Date.parse(s.createdAt) >= o.since
+    return s.status === 'applied' && o.done && !o.fresh
+  }) ?? null
+}
 
 /** The live notice about a proposal Claude Code or Codex sent (server/src/skills/share.ts "proposed", shown by
  * store/live.ts as a toast with the team skills' action and no code of its own): its action label and the app's name in
@@ -104,8 +127,16 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
   const [copied, setCopied] = useState(false)
   const [how, setHow] = useState(false)
   const openedAt = useRef(Date.now())
-  // proposals this step let go of (그만 찾기, a newer folder): never shown again here
+  // proposals this step let go of (그만 찾기, a newer folder, 다른 폴더도 가져오기): never shown again here
   const gone = useRef(new Set<string>())
+  // the person let go of what was shown: from then on only a proposal made since the step opened shows
+  const fresh = useRef(false)
+  // the first look at the person's proposals is in (until then the step shows no picker that a list would replace)
+  const [looked, setLooked] = useState(false)
+  // 내 스킬 is done (the steps' progress, loaded by pages/Welcome.tsx): a revisit shows what went in
+  const done = useWelcome((s) => s.progress?.steps.skills === 'done')
+  const doneRef = useRef(done)
+  doneRef.current = done
   const input = useRef<HTMLInputElement>(null)
   const shareRef = useRef(share)
   shareRef.current = share
@@ -121,25 +152,26 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
     return () => { live = false }
   }, [])
 
-  // while nothing is on screen: a proposal Claude Code or Codex sent since the step opened (or one still waiting), or a
-  // share applied elsewhere since then (its link or notice: /skills/share/:id), shows here
-  const waitForConnector = !share && !!remote?.configured
+  // while nothing is on screen: the person's proposals (shownShare), once as the step opens (a list left behind, what
+  // went in) and, with the connector on, every few seconds (a proposal Claude Code or Codex sends, a share applied
+  // elsewhere: /skills/share/:id)
+  const idle = !share
+  const polling = !!remote?.configured
   useEffect(() => {
-    if (!waitForConnector) return
+    if (!idle) return
     let live = true
     const look = async () => {
       try {
         const r = await api.call(API.listSkillShares, { query: {} })
-        const since = openedAt.current - CLOCK_SLACK_MS
-        const applied = r.items.find((s) => !gone.current.has(s.id) && s.status === 'applied' && Date.parse(s.updatedAt ?? s.createdAt) >= since)
-        const found = applied ?? r.items.find((s) => !gone.current.has(s.id) && fromConnector(s.source) && (s.status === 'ready' || (s.status === 'checking' && Date.parse(s.createdAt) >= since)))
+        const found = shownShare(r.items, { since: openedAt.current - CLOCK_SLACK_MS, done: doneRef.current, gone: gone.current, fresh: fresh.current })
         if (live && found && !shareRef.current) setShare(found)
-      } catch { /* the next tick asks again */ }
+      } catch { /* the next tick asks again; a first look that fails leaves the picker */ }
     }
-    void look()
+    void look().finally(() => { if (live) setLooked(true) })
+    if (!polling) return () => { live = false }
     const id = setInterval(() => void look(), CLAUDE_CODE_POLL_MS)
     return () => { live = false; clearInterval(id) }
-  }, [waitForConnector])
+  }, [idle, polling])
 
   const send = async (body: CreateSkillShare) => {
     setError(null)
@@ -280,14 +312,26 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
           onApplied={onApplied}
           // on a phone "later" waits for the computer (the proposal stays); on a computer it is dropped
           onLater={phone ? onPhoneNext : later}
-          onStopped={() => { gone.current.add(share.id); setShare(null) }}
+          onStopped={() => { gone.current.add(share.id); fresh.current = true; setShare(null) }}
           onOtherFolder={fromConnector(share.source) || phone ? undefined : pick}
+          // what went in, on a computer: back to the picker for a second folder (this share is not shown again)
+          onMore={phone ? undefined : () => { gone.current.add(share.id); fresh.current = true; setNone(false); setMisses(0); setError(null); setShare(null) }}
           busy={busy || reading}
           // the welcome steps: setup is not finished while this step is on screen
           inSetup
         />
         {!phone && !fromConnector(share.source) && folderInput}
         {error && <ErrorNote onRetry={error.retry}>{error.text}</ErrorNote>}
+      </div>
+    )
+  }
+
+  // the first look is not in yet: a list left behind (or what went in) would replace the picker under the pointer
+  if (!looked) {
+    return (
+      <div className="space-y-5" data-testid="skills-step" data-state="looking" aria-busy>
+        <StepHead title={t('welcome.skills.title')} />
+        <Skeleton lines={3} />
       </div>
     )
   }

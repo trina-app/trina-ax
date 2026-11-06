@@ -4,13 +4,13 @@
 // point at, and where the owner goes right after /setup. The steps: AI 연결 (only while no AI answers) → 회사 소개 (its
 // "저장하고 계속" starts the intro deck once per team) → 내 스킬 → 팀 파일 → 팀원 초대 → the end screen. The intro deck is
 // no step: it is an ordinary chat ("우리 회사 소개서") found by its row in the chat list.
-import { PRODUCT } from '@mycel/shared'
-import { GENERAL_TASKS_SKILL, PRODUCT_NAMED_AFTER_AI, WELCOME_COUNTED, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
+import { GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, WELCOME_COUNTED, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
-/** The AI's name in "{name} 기록" (the AI's chat list: "트리나 기록"): the AI's own name where the product is named after
- * it (the Trina edition), else the product's short name (the core edition). The same rule as the sidebar's own label. */
-export const historyName = (t: (key: MessageKey) => string): string => (PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.shortName)
+/** Where the deck's chat is listed, as the sidebar names that list: the sidebar heading's own message
+ * (`sidebar.recents`, Sidebar.tsx), never words of our own. The walk of PR #100 found "트리나 기록" here while the sidebar
+ * said "최근 채팅"; when feat/phone-nav renames that list, it changes that one message and these lines follow. */
+export const historyName = (t: (key: MessageKey) => string): string => t('sidebar.recents')
 
 /** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
 const ORDER: readonly WelcomeStep[] = WELCOME_COUNTED
@@ -106,6 +106,12 @@ export function skillNameOf(path: string | null | undefined): string {
  * this device (on a phone, 내 스킬 put off for a computer is not one). */
 export const showResume = (p: WelcomeProgress | null, computer = true) => !!p && !p.finishedAt && !p.dismissedAt && resumeStep(p, true, computer) !== null
 
+/** On a phone, all that is left is 내 스킬 put off for a computer (`skillsLater`; the steps unfinished, not hidden): the
+ * phone keeps the step's promise "컴퓨터에서 이어서 해요" with one quiet line on Home (WelcomeResume.tsx SkillsOnComputer),
+ * since nothing there can be resumed (the walk of PR #100: the phone showed nothing at all). */
+export const skillsWaitForComputer = (p: WelcomeProgress | null) =>
+  !!p && !p.finishedAt && !p.dismissedAt && !!p.skillsLater && p.steps.skills !== 'done' && !showResume(p, false)
+
 /**
  * The setup row (components/onboarding/SetupRow.tsx; docs/DECISIONS.md "W5"), the owner's one way back to the steps
  * from every page: `hidden`, `resume` ("설정 이어서 하기 · 2/4" → /welcome at its step) or `ai` (while no AI answers:
@@ -158,11 +164,16 @@ export const isLanding = (l: { key: string; state: unknown; search?: string }) =
   (l.key === 'default' && !l.search) || (l.state as { landing?: unknown } | null)?.landing === true
 
 /** The skill everything points at (the invite, the end screen's "먼저 써 보기", the 7-day goal: docs/DECISIONS.md "W5"):
- * the skill the owner shared first from 내 스킬 가져오기 (`shared.landing`, the first recommended one unless they changed
- * it on the invite), else the general pack's 할 일 정리; never the intro deck (it is the owner's own first result, not
- * something a teammate runs). The server's landing (server/src/onboarding/welcome.ts landingSkill) is the same rule.
- * null: neither (the team's start was blocked). */
-export const inviteSkill = (p: WelcomeProgress): string | null => p.shared?.landing ?? p.general?.tasksPath ?? null
+ * the server's own choice, sent with the progress (`landingSkill`, server/src/onboarding/welcome.ts landingSkill: the
+ * skill the owner shared first from 내 스킬 가져오기 while it is there, else the general pack's 할 일 정리 while it is
+ * there; never the intro deck), so the invite, the end screen, the goal card and the link agree. An older server without
+ * it: the shared one, else 할 일 정리, unless that is the deck. null: none (the team's start was blocked, the skills
+ * deleted). */
+export function inviteSkill(p: WelcomeProgress): string | null {
+  if (p.landingSkill !== undefined) return p.landingSkill
+  const deck = p.general?.introDeckPath ?? GENERAL_DECK_SKILL
+  return [p.shared?.landing, p.general?.tasksPath].find((x): x is string => !!x && x !== deck && x !== GENERAL_DECK_SKILL) ?? null
+}
 
 /** Home's one line after "자료 없이 해 볼게요" (router state): where meeting notes go. */
 export interface NotesHint { folder: string; team: string }

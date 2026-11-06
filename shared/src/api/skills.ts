@@ -33,16 +33,23 @@ export const SkillInfo = z.object({
 export type SkillInfo = z.infer<typeof SkillInfo>
 /** The longest metadata `example` (characters); a longer one is ignored. */
 export const SKILL_EXAMPLE_MAX = 200
+/** Control and text-direction characters: not in a line people read or send (a skill's title, its example request).
+ * The server reads metadata `example` with the same class (server/src/chat/skills.ts readSkillExample). */
+const HIDDEN_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/
 /**
  * The request a skill's form starts with when the skill has no fields of its own (docs/DECISIONS.md "W5": a member who
  * lands on the skill sees what it does by what they can send): its metadata `example`, else the first request its
- * description quotes ("…처럼 물을 때 써요": "내 할 일 정리해 줘"), else null (the box starts empty). One line.
+ * description quotes ("…처럼 물을 때 써요": "내 할 일 정리해 줘"), else null (the box starts empty). One line, without
+ * control or text-direction characters: the description is the skill author's text, and a right-to-left override in
+ * the quote would show the member a request other than the one 실행 sends (the example is checked again too, though
+ * the server already leaves such a one out).
  */
 export function skillExample(s: { description: string; example?: string | null }): string | null {
   const own = s.example?.trim()
-  if (own && !/[\r\n]/.test(own) && [...own].length <= SKILL_EXAMPLE_MAX) return own
+  if (own && !HIDDEN_CHARS.test(own) && [...own].length <= SKILL_EXAMPLE_MAX) return own
   const m = /["“「『]([^"”」』\r\n]{2,120})["”」』]/.exec(s.description)
-  return m ? m[1]!.trim() || null : null
+  const quoted = m?.[1]!.trim()
+  return quoted && !HIDDEN_CHARS.test(quoted) ? quoted : null
 }
 /** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
 export const SKILL_TITLE_MAX = 60
@@ -51,11 +58,20 @@ export const SKILL_TITLE_MAX = 60
  * invite message). The skill still loads; its name shows instead. */
 export function readSkillTitle(raw: string | undefined): string | null {
   const v = raw?.trim()
-  return v && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(v) && [...v].length <= SKILL_TITLE_MAX ? v : null
+  return v && !HIDDEN_CHARS.test(v) && [...v].length <= SKILL_TITLE_MAX ? v : null
 }
 /** What a person reads as a skill's name: its title, else its name. Every screen, message and notice that names a
  * skill to a person uses this; a command the person types or sends stays "/<name>". */
 export const skillTitle = (s: { name: string; title?: string | null }): string => s.title?.trim() || s.name
+/** A skill's name in a sentence that names it to people who did not pick it (the invite message, the join page, the
+ * goal card; docs/DECISIONS.md "W5"): its title, else its folder name as words ("quote-maker" → "quote maker":
+ * hyphens and underscores become spaces), never the raw folder name. A title that only repeats the name (what a
+ * server's skillTitle() sends without a metadata title) counts as none. */
+export function skillLabel(s: { name: string; title?: string | null }): string {
+  const title = s.title?.trim()
+  if (title && title !== s.name) return title
+  return s.name.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim() || s.name
+}
 /** A skill's description without a lead that only repeats its title: the marketing pack writes "광고 문구 — 알릴 제품과
  * …" so the AI and older screens read the plain name; next to the title the rest is enough. The rest starts as a
  * sentence: "Ad copy — takes what to promote …" reads "Takes what to promote …". */

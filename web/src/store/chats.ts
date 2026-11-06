@@ -58,7 +58,9 @@ interface ChatsState {
   removeChat: (id: string) => void
   loadThread: (chatId: string) => Promise<void>
   loadOlder: (chatId: string) => Promise<void>
-  send: (o: SendInput) => Promise<{ chatId: string }>
+  /** `sent`: settles when the server took the message (rejects with its reason when it was not sent in the end); the
+   * message shows as "sending" meanwhile, so most callers need not wait for it */
+  send: (o: SendInput) => Promise<{ chatId: string; sent: Promise<void> }>
   resend: (chatId: string, localId: string) => Promise<void>
   discardLocal: (chatId: string, localId: string) => void
   stop: (chatId: string) => Promise<void>
@@ -380,8 +382,9 @@ export const useChats = create<ChatsState>((set, get) => {
       setThread(chatId, (th) => ({ ...th, messages: [...th.messages, msg] }))
       outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: last?.id, engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict })
       // the message shows as "sending" right away; a failure turns it into "not sent [send again]"
-      void deliver(localId).catch(() => {})
-      return { chatId }
+      const sent = deliver(localId)
+      sent.catch(() => {})
+      return { chatId, sent }
     },
 
     async resend(chatId, localId) {
