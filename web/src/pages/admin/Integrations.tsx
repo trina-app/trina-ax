@@ -1,23 +1,24 @@
 // Admin > MCP (called "External services" before; the address is still /admin/integrations):
 // the team's connections (company accounts) and who may use each one in their chats —
 // the whole team, groups, people. Admins manage them all but use one in their own chats only when the rule includes
-// them, so each row says so. Members' personal connections are not listed (nobody but the owner can use those); below,
-// the requests that ask a member to connect a service as their own (components/integrations/RequestDialog.tsx).
+// them, so each row says so. Members' personal connections are not listed (nobody but the owner can use those).
 // "Discover" adds a known service by name; "Add connection" takes any MCP server or API by its address, either for the
 // team with one key or as a template each member connects with their own key (components/integrations/TemplatesView.tsx).
-import { Cable } from 'lucide-react'
+// Its ⌄ menu also asks one member to connect a service as their own (a popup, components/integrations/RequestDialog.tsx);
+// such a request is a row in the same list while it waits, and for a while after it was declined or expired.
+import { Cable, Plus, Send } from 'lucide-react'
 import { useCallback, useEffect, useId, useState } from 'react'
-import type { Group, Integration, IntegrationTemplate, User } from '@mycel/shared/api'
+import type { Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import type { Connector } from '../../lib/connectors'
-import { covers, isEmptyAccess, NOBODY } from '../../lib/integrations'
+import { covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
 import { Badge, EmptyState, TabPanel } from '../../components/ui'
 import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../../components/integrations/ConnectorsView'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
-import { TeamRequests } from '../../components/integrations/RequestDialog'
+import { RequestDialog, RequestRow, requestFormOf, shownRequests, useTeamRequests } from '../../components/integrations/RequestDialog'
 import { IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
 import { TemplateRow } from '../../components/integrations/TemplatesView'
 import { toast } from '../../store/ui'
@@ -32,6 +33,8 @@ export default function AdminIntegrations() {
   // an older server has no templates: the page works without them
   const templates = useLoad(async () => { try { return (await api.call(API.listTeamIntegrationTemplates)).items } catch { return [] as IntegrationTemplate[] } })
   const [dialog, setDialog] = useState<{ existing?: Integration; template?: IntegrationTemplate; connector?: Connector } | null>(null)
+  const requests = useTeamRequests()
+  const [ask, setAsk] = useState<{ initial?: RequestForm } | null>(null)
   const [tab, setTab] = useState<ConnectorTab>('connected')
   const [query, setQuery] = useState('')
   const reloadList = state.reload
@@ -46,7 +49,19 @@ export default function AdminIntegrations() {
   const panels = useId()
   return (
     <>
-      <ConnectorsHeader title={t('admin.integrations')} tab={tab} onTab={setTab} query={query} onQuery={setQuery} onAdd={() => setDialog({})} panels={panels} />
+      <ConnectorsHeader
+        title={t('admin.integrations')}
+        tab={tab}
+        onTab={setTab}
+        query={query}
+        onQuery={setQuery}
+        onAdd={() => setDialog({})}
+        moreAdd={[
+          { label: t('integrations.addTeam'), icon: <Plus size={15} aria-hidden />, onSelect: () => setDialog({}), testId: 'integration-add-team' },
+          { label: t('integrations.requests.add'), icon: <Send size={15} aria-hidden />, onSelect: () => setAsk({}), testId: 'integration-request-add' },
+        ]}
+        panels={panels}
+      />
       {/* what this page is for, right under its title (not lost between the list and the requests) */}
       {tab === 'connected' && <p className="mb-4 text-sm text-muted" data-testid="team-integrations-note">{t('integrations.admin.desc')}</p>}
       <TabPanel base={panels} value={tab}>
@@ -54,7 +69,8 @@ export default function AdminIntegrations() {
         {(list) => {
           const tpls = templates.data ?? []
           if (tab === 'discover') return <ConnectorDiscover connected={[...list, ...tpls]} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
-          if (!list.length && !tpls.length) {
+          const reqs = shownRequests(requests.list)
+          if (!list.length && !tpls.length && !reqs.length) {
             return (
               <EmptyState icon={<Cable size={26} />} title={t('integrations.admin.empty')}>
                 <p>{t('integrations.admin.emptyHint')}</p>
@@ -64,7 +80,8 @@ export default function AdminIntegrations() {
           const shown = [...list].filter((i) => matchesQuery(i, query)).sort((a, b) => a.name.localeCompare(b.name))
           const q = query.trim().toLocaleLowerCase()
           const shownTpls = tpls.filter((x) => !q || x.name.toLocaleLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name))
-          if (!shown.length && !shownTpls.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
+          const shownReqs = reqs.filter((r) => !q || `${r.name} ${r.url} ${r.user.name}`.toLocaleLowerCase().includes(q))
+          if (!shown.length && !shownTpls.length && !shownReqs.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
           return (
             <ul className="-mx-2 divide-y divide-line" data-testid="team-integrations">
               {shownTpls.map((x) => (
@@ -89,12 +106,25 @@ export default function AdminIntegrations() {
                   />
                 )
               })}
+              {shownReqs.map((r: IntegrationRequest) => (
+                <RequestRow key={r.id} r={r} onWithdraw={() => void requests.withdraw(r)} onAskAgain={() => setAsk({ initial: requestFormOf(r) })} />
+              ))}
             </ul>
           )
         }}
       </Loadable>
-      {tab === 'connected' && <div className="mt-8"><TeamRequests /></div>}
       </TabPanel>
+      {ask && (
+        <RequestDialog
+          users={users.data ?? []}
+          initial={ask.initial}
+          onClose={() => setAsk(null)}
+          onSent={(r) => {
+            requests.sent(r)
+            if (tab === 'discover') setTab('connected')
+          }}
+        />
+      )}
       {dialog && (
         <IntegrationDialog
           scope="team"

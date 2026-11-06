@@ -1,7 +1,7 @@
 // What Admin > MCP and Settings > MCP share: the title row (Connected / Discover, search, add by address), which stays
 // at the top while the page scrolls, and the Discover list of services to add by name (lib/connectors.ts).
-import { Check, Plus, Search } from 'lucide-react'
-import { useId } from 'react'
+import { Check, ChevronDown, Plus, Search } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
@@ -9,9 +9,17 @@ import { Button, EmptyState, IconButton, StickyHeader, Tabs, inputCls } from '..
 
 export type ConnectorTab = 'connected' | 'discover'
 
+export interface AddMenuItem {
+  label: string
+  icon?: ReactNode
+  onSelect: () => void
+  testId: string
+}
+
 /** `onAdd`: this person may add connections (without it, no adding and no Discover, and no tabs). `panels`: the ids
- * that tie the tabs to the TabPanel below them (`useId()`). */
-export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, panels }: {
+ * that tie the tabs to the TabPanel below them (`useId()`). `moreAdd`: other ways to add (Admin: ask a member to
+ * connect), in a small menu next to Add connection. */
+export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, moreAdd, panels }: {
   title: string
   panels: string
   tab: ConnectorTab
@@ -19,6 +27,7 @@ export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, pan
   query: string
   onQuery: (q: string) => void
   onAdd?: () => void
+  moreAdd?: AddMenuItem[]
 }) {
   const t = useT()
   return (
@@ -41,13 +50,89 @@ export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, pan
           <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
           <input type="search" value={query} onChange={(e) => onQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
         </div>
-        {onAdd && (
+        {onAdd && (moreAdd?.length ? (
+          <div className="flex shrink-0 items-stretch" data-testid="integration-add-group">
+            <Button variant="primary" className="rounded-r-none" onClick={onAdd} data-testid="integration-add">
+              <Plus size={15} aria-hidden /> {t('integrations.add')}
+            </Button>
+            <AddMenu items={moreAdd} />
+          </div>
+        ) : (
           <Button variant="primary" className="shrink-0" onClick={onAdd} data-testid="integration-add">
             <Plus size={15} aria-hidden /> {t('integrations.add')}
           </Button>
-        )}
+        ))}
       </div>
     </StickyHeader>
+  )
+}
+
+/** The ⌄ half of the split Add button: a small menu of the other ways to add. A dialog opened from it gets the focus
+ * back on this button when it closes (the item is gone with the menu). */
+function AddMenu({ items }: { items: AddMenuItem[] }) {
+  const t = useT()
+  const box = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  useEffect(() => {
+    if (!open) return
+    menuItems()[0]?.focus()
+    // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
+    const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [open])
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (!open) return
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      if (e.key === 'Escape') e.stopPropagation()
+      setOpen(false)
+      button.current?.focus()
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const all = menuItems()
+      const at = all.indexOf(document.activeElement as HTMLElement)
+      all[(at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus()
+    }
+  }
+  return (
+    <div ref={box} className="relative" onKeyDown={onKeyDown}>
+      <button
+        ref={button}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t('integrations.addMore')}
+        title={t('integrations.addMore')}
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-sm:min-h-10"
+        data-testid="integration-add-more"
+      >
+        <ChevronDown size={15} aria-hidden />
+      </button>
+      {open && (
+        <div role="menu" aria-label={t('integrations.addMore')} className="absolute top-full right-0 z-30 mt-1 w-64 rounded-lg border border-line bg-surface p-1 shadow-lg">
+          {items.map((it) => (
+            <button
+              key={it.testId}
+              role="menuitem"
+              type="button"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover"
+              onClick={() => {
+                setOpen(false)
+                // the dialog this opens returns the focus to the button it was opened from
+                button.current?.focus()
+                it.onSelect()
+              }}
+              data-testid={it.testId}
+            >
+              {it.icon} {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
