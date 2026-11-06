@@ -1,8 +1,9 @@
 // Home while no AI answers the person (pages/Home.tsx, components/onboarding/ConnectAi.tsx NoAiCard; docs/DECISIONS.md
-// "W2 — AI connection first", "Y — Home shows one thing at a time"): ONE card instead of the top row, the suggestions
-// and the line above the box. The owner who put the AI step off ("나중에 하기") gets the card, not "시작 설정 이어하기
-// (0/3)" (which only led back to the AI step); once AI answers, the row comes back, the AI step recorded done, so it
-// counts 1/3 and leads on to 회사 소개.
+// "W2 — AI connection first", "Y — Home shows one thing at a time", "W5 — Onboarding v5"): ONE card instead of the top
+// row, the suggestions and the line above the box. The owner who put the AI step off ("나중에 하기") gets the card, not
+// the setup row (which only led back to the AI step); once AI answers, the row comes back (on a phone Home's quiet
+// "설정 이어서 하기 · n/5" under the box; on a computer the sidebar's setup row stands for it), the AI step recorded
+// done, so it counts 1/5 and leads on to 회사 소개.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router-dom'
@@ -46,6 +47,12 @@ const routes: Record<string, (body: any) => Response> = {
   'GET /api/skills/popular': () => json(200, { items: [] }),
 }
 const called = (key: string) => calls.filter((c) => c.key === key)
+const g = globalThis as Record<string, unknown>
+const computerMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+/** a phone's width: Home's own quiet setup row under the box (on a computer the sidebar's row stands for it) */
+const phoneWidth = () => { g.matchMedia = (q: string) => ({ ...computerMedia(), matches: q === '(max-width: 767.98px)' }) }
+/** Home's quiet row: "설정 이어서 하기 · n/total" */
+const rowText = (n: number, total: number) => `${ko('setupRow.resume')} · ${n}/${total}`
 
 const realFetch = globalThis.fetch
 const before = { locale: useLocaleStore.getState().locale, status: useSession.getState().status }
@@ -68,6 +75,7 @@ afterEach(() => {
   useAiAccess.getState().reset()
   useWelcome.getState().reset()
   forgetStepsSeen()
+  g.matchMedia = computerMedia
 })
 afterAll(() => {
   globalThis.fetch = realFetch
@@ -80,8 +88,9 @@ const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ sta
 const home = () => mount(<MemoryRouter><Routes><Route path="/" element={<Home />} /></Routes></MemoryRouter>)
 
 describe('Home without AI', () => {
-  test('the owner after "나중에 하기": the connect card alone, no "시작 설정 이어하기 (0/3)", no suggestions, no line above the box; AI answers: the row is back at 1/3', async () => {
+  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/5 (a phone)', async () => {
     signIn('owner')
+    phoneWidth()
     progress = putOff()
     // the steps were on screen in this tab (put off there): Home stays Home
     markStepsSeen('olga')
@@ -102,23 +111,33 @@ describe('Home without AI', () => {
       await m.until(() => m.find('welcome-resume'), 'the row')
       expect(m.find('no-ai-card')).toBeNull()
       await m.until(() => progress!.steps.ai === 'done', 'the AI step done')
-      await m.until(() => m.get('welcome-resume-link').textContent?.includes(ko('home.setupResume', { n: 1, total: 3 })), 'the row at 1/3')
+      await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 5), 'the row at 1/5')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body)).toEqual([{ step: { id: 'ai', state: 'done' } }])
       await m.until(() => called('GET /api/questions/frequent').length > 0, 'the suggestions')
     } finally { await m.unmount() }
   })
 
-  test('the owner with AI: the row as before, nothing recorded', async () => {
+  test('the owner with AI: on a phone the quiet row (회사 소개 saved without a deck is still open: 0/4), nothing recorded; on a computer no row on Home', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     progress = { ...putOff(), steps: { profile: 'done', result: null, invite: null } }
     markStepsSeen('olga')
-    const m = await home()
+    phoneWidth()
+    let m = await home()
     try {
       await m.until(() => m.find('welcome-resume'), 'the row')
-      expect(m.get('welcome-resume-link').textContent).toContain(ko('home.setupResume', { n: 1, total: 2 }))
+      expect(m.get('welcome-resume-link').textContent).toBe(rowText(0, 4))
+      expect(m.get('welcome-resume-link').getAttribute('href')).toBe('/welcome')
       expect(m.find('no-ai-card')).toBeNull()
       expect(called('PATCH /api/onboarding/welcome')).toEqual([])
+    } finally { await m.unmount() }
+    g.matchMedia = computerMedia
+    useWelcome.getState().reset()
+    m = await home()
+    try {
+      await m.until(() => called('GET /api/onboarding/goal').length || useWelcome.getState().loaded, 'Home\'s top')
+      await m.settle(40)
+      expect(m.find('welcome-resume')).toBeNull()
     } finally { await m.unmount() }
   })
 
@@ -169,8 +188,9 @@ describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () =>
       await m.until(() => where(m) === '/welcome', 'the steps')
       expect(stepsSeen('olga')).toBe(true)
     } finally { await m.unmount() }
-    // the same tab again (a reload, "나중에 하기" back to Home): Home, with its row
+    // the same tab again (a reload, "나중에 하기" back to Home): Home, with its row (a phone's quiet row)
     useWelcome.getState().reset()
+    phoneWidth()
     m = await open()
     try {
       await m.until(() => m.find('welcome-resume'), 'Home\'s row')
@@ -195,7 +215,8 @@ describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () =>
     } finally { await m.unmount() }
     forgetStepsSeen()
     useWelcome.getState().reset()
-    // a chat opened first (a deep link), then Home: not a landing
+    // a chat opened first (a deep link), then Home: not a landing (a phone's quiet row shows)
+    phoneWidth()
     m = await open(['/c/0190', '/'])
     try {
       await m.until(() => m.find('welcome-resume'), 'Home\'s row')
@@ -220,17 +241,19 @@ describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () =>
     }
   })
 
-  test('never when the steps are hidden, finished, never started, or only a put-off invite is left', async () => {
+  test('never when the steps are hidden, finished, never started, or (a phone) only 내 스킬 is left, put off for a computer', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
-    const done = { ai: 'done', profile: 'done', result: 'done' } as const
-    for (const p of [
-      { ...unfinished(), dismissedAt: '2026-11-05T01:00:00.000Z' },
-      { ...putOff(), steps: { ...done, invite: 'done' }, finishedAt: '2026-11-05T01:00:00.000Z' },
-      null,
-      { ...putOff(), steps: { ...done, invite: 'skipped' } },
-    ] as (WelcomeProgress | null)[]) {
+    const done = { ai: 'done', profile: 'done', result: 'done', skills: 'done', files: 'done' } as const
+    for (const [p, phone] of [
+      [{ ...unfinished(), dismissedAt: '2026-11-05T01:00:00.000Z' }, false],
+      [{ ...putOff(), steps: { ...done, invite: 'done' }, finishedAt: '2026-11-05T01:00:00.000Z' }, false],
+      [null, false],
+      [{ ...putOff(), skillsLater: true, steps: { ...done, skills: 'skipped', invite: 'done' } }, true],
+    ] as [WelcomeProgress | null, boolean][]) {
       progress = p
+      g.matchMedia = computerMedia
+      if (phone) phoneWidth()
       const m = await open()
       try {
         await settled(m)
@@ -253,6 +276,7 @@ describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () =>
       let m = await open()
       try { await m.until(() => where(m) === '/welcome', 'the steps') } finally { await m.unmount() }
       useWelcome.getState().reset()
+      phoneWidth()
       m = await open()
       try {
         await m.until(() => m.find('welcome-resume'), 'Home\'s row')

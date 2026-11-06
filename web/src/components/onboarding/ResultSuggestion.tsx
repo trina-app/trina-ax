@@ -1,7 +1,7 @@
 // One suggestion under a result, above the message box (docs/DECISIONS.md "X — Lean onboarding"): at most one line,
-// chosen by state, never two at once.
-//   - the lead's first result: the welcome invite bar (WelcomeInviteBar, which shares the skill that made it), nothing else;
-//   - else what the server says for the newest answer (server/src/onboarding/suggestions.ts): the same person ran the
+// chosen by state, never two at once. The intro deck's chat is an ordinary chat here (docs/DECISIONS.md "W5": no invite
+// bar under it any more; the invite is a welcome step):
+//   - what the server says for the newest answer (server/src/onboarding/suggestions.ts): the same person ran the
 //     same team skill for the 2nd time → "매주 이 시간에 자동으로 받을까요?" [예약하기], which asks the AI in this chat to
 //     schedule the same request every week at this time (the AI's schedule card is how tasks are made: the person sees
 //     the title, the time and the whole request and confirms there); a long report-like answer → [PPT로 만들기], which
@@ -19,16 +19,12 @@ import { CalendarClock, Presentation, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { SavedSkillDraft, ResultSuggestion as Suggestion } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { showInviteBar } from '../../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { isOwner, useMe } from '../../store/session'
 import type { ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
-import { useWelcome } from '../../store/welcome'
 import { Button, IconButton, Modal, useMediaQuery } from '../ui'
 import { InviteStep } from './InviteStep'
 import { SkillShareCard } from './SkillShareCard'
-import { WelcomeInviteBar } from './WelcomeInviteBar'
 
 /** Each suggestion's line and button (`deck-video` has none yet: it is never shown). */
 const WORDS = {
@@ -48,14 +44,9 @@ export function weeklyAt(now: Date, locale: string): { day: string; time: string
 export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: string; messages: ViewMessage[]; busy: boolean; onSend: (text: string) => void }) {
   const t = useT()
   const locale = useLocale()
-  const owner = isOwner(useMe())
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const welcomeLoaded = useWelcome((s) => s.loaded)
-  const progress = useWelcome((s) => s.progress)
   const last = messages.at(-1)
   const answered = !busy && last?.role === 'assistant' && last.status === 'done' && !last.local
-  // the owner's first-result chat has the invite bar; until the steps' progress is known, nothing else is asked
-  const inviteHere = owner && (!welcomeLoaded || (!!progress && showInviteBar(progress, chatId)))
   const [got, setGot] = useState<{ messageId: string; suggestion: Suggestion | null } | null>(null)
   const [done, setDone] = useState<string | null>(null)
   // the skill card of "팀 스킬로 만들기" (the answer it was opened under), then the invite with the skill it shared
@@ -63,14 +54,14 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
   const [shared, setShared] = useState<SavedSkillDraft | null>(null)
   const lastId = answered ? last!.id : null
   useEffect(() => {
-    if (!lastId || inviteHere) return
+    if (!lastId) return
     let live = true
     api.call(API.getResultSuggestion, { query: { chatId, messageId: lastId } }).then(
       (r) => live && setGot({ messageId: lastId, suggestion: r.suggestion }),
       () => live && setGot({ messageId: lastId, suggestion: null }),
     )
     return () => { live = false }
-  }, [chatId, lastId, inviteHere])
+  }, [chatId, lastId])
 
   const closeCard = () => { setCard(null); setShared(null) }
   const cardDialog = card && (
@@ -80,8 +71,8 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
         : <SkillShareCard chatId={chatId} answerId={card} onShared={setShared} onLater={closeCard} />}
     </Modal>
   )
-  const bar = <><WelcomeInviteBar chatId={chatId} answered={answered} messages={messages} />{cardDialog}</>
-  if (inviteHere || !lastId || got?.messageId !== lastId || !got.suggestion || done === lastId || got.suggestion.kind === 'deck-video') return bar
+  const bar = cardDialog || null
+  if (!lastId || got?.messageId !== lastId || !got.suggestion || done === lastId || got.suggestion.kind === 'deck-video') return bar
   const s = got.suggestion
   const act = () => {
     setDone(lastId)

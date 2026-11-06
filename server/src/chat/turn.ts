@@ -76,6 +76,8 @@ import { RedactingText, redactorFor, type Redactor } from '../integrations/conne
 import { DraftPages, draftScopeOf, draftSystemPrompt, inWebScope, type DraftTurn } from '../onboarding/draft'
 import { BrandCollector } from '../onboarding/brand-assets'
 import { skillDraftOf, skillDraftSystemPrompt, type SkillDraftScope } from '../onboarding/skill-draft'
+import { shareJudgeOf, shareJudgeSystemPrompt, type ShareJudgeScope } from '../skills/share-judge'
+import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../skills/share-merge'
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 import { PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS } from '../rooms/ai-tools'
@@ -145,9 +147,16 @@ export class TurnExec {
   /** a team skill draft chat (onboarding/skill-draft.ts): its own instructions with the source answer as data, no tool
    * at all, no card for anyone; null for every other chat */
   skillDraft: SkillDraftScope | null = null
-  /** a draft chat of either kind: none of the team's instructions, project, attachments, browser, sub-agents or web
+  /** the AI's judgement of a skill share (skills/share-judge.ts): its own instructions with the candidates as data, no
+   * tool at all, no card for anyone; null for every other chat */
+  shareJudge: ShareJudgeScope | null = null
+  /** a skill share's merge chat (skills/share-merge.ts): its own instructions with the candidates as data, only read,
+   * write and edit of the team skills it merges into (write and edit with the skill-write card); null for every other
+   * chat */
+  shareMerge: ShareMergeScope | null = null
+  /** a draft, judge or merge chat: none of the team's instructions, project, attachments, browser, sub-agents or web
    * search */
-  get restricted(): boolean { return !!this.profileDraft || !!this.skillDraft }
+  get restricted(): boolean { return !!this.profileDraft || !!this.skillDraft || !!this.shareJudge || !!this.shareMerge }
   /** a seeded past chat of the demo replayed this turn: how many days ago it says it was (demo/replay.ts) */
   private replayDaysAgo = 0
   /** office-network hosts the person allowed "once" in this turn */
@@ -320,6 +329,10 @@ export class TurnExec {
       this.profileDraft = draft ? { scope: draft, fetched: new Set(), pages: new DraftPages(rt.db, spec.assistantId, rt.log, () => this.content.length, brand) } : null
       // a team skill draft chat runs with no tool at all (fails closed the same way)
       this.skillDraft = draft ? null : skillDraftOf(rt.db, spec.chatId)
+      // a skill share's judgement: no tool at all either (fails closed the same way)
+      this.shareJudge = draft || this.skillDraft ? null : shareJudgeOf(rt.ctx, spec.chatId)
+      // a skill share's merge: read, write and edit of its team skills only (fails closed the same way)
+      this.shareMerge = draft || this.skillDraft || this.shareJudge ? null : shareMergeOf(rt.db, spec.chatId)
     } catch (e) { rt.log.error('profile draft check failed', { err: e, turn: this.id }); this.error = engineError('crash', spec.locale); return }
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
@@ -467,6 +480,10 @@ export class TurnExec {
       if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
       // a team skill draft: its own instructions, the source answer inside them as data (onboarding/skill-draft.ts)
       if (this.skillDraft) return skillDraftSystemPrompt(this.skillDraft, { history: input.history })
+      // a skill share's judgement: its own instructions, the candidates inside them as data (skills/share-judge.ts)
+      if (this.shareJudge) return shareJudgeSystemPrompt(this.shareJudge, { history: input.history })
+      // a skill share's merge: its own instructions, the candidates inside them as data (skills/share-merge.ts)
+      if (this.shareMerge) return shareMergeSystemPrompt(this.shareMerge, { history: input.history })
       if (fresh && sessionId) { try { recordListed(rt.db, spec.chatId, skills, sessionId) } catch (e) { rt.log.warn('skill list record failed', { err: e, turn: this.id }) } }
       return buildTurnPrompt(rt.files, input)
     }

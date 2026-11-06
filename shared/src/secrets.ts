@@ -235,6 +235,46 @@ export function addressHasSecret(url: string): boolean {
   return params.some(([name, value]) => (secretLabel(name) || name.toLowerCase() === 'key') && secretValue(value))
 }
 
+/** A path segment or host label that may be a key itself: an id (hosted MCP servers often take a UUID as the key), a
+ * generated-looking run, a long mixed value or long hex. */
+const keyPart = (part: string): boolean =>
+  /[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}/i.test(part) || looksRandom(part) || (part.length >= 16 && secretValue(part)) || /[0-9a-f]{24,}/i.test(part)
+
+/** The labels of a host that someone other than the domain's owner names: all but the last two ("<key>.mcp" of
+ * "<key>.mcp.example.com"); the registrable domain itself was bought, not generated per person. */
+const subLabels = (host: string): string[] => {
+  if (host.startsWith('[')) return [] // an IPv6 address has no labels
+  return host.replace(/\.$/, '').split('.').slice(0, -2)
+}
+
+/**
+ * Whether a service's address may carry a key outside its query: a path segment (Zapier-style "/api/mcp/s/<key>/mcp")
+ * or a host label ("https://<key>.mcp.example.com/mcp") that is an id, a generated-looking run, a long mixed value or
+ * long hex. Stricter than addressHasSecret, which lets an instance id through: for an address that goes to every
+ * member as a connection template (내 스킬 가져오기; the server's share check and the browser's Codex reader both use it).
+ * The host's labels are read from the address as written as well as from the parsed one, which is in lower case: a key
+ * of letters only looks generated only in its mixed case. An address that cannot be read counts as one with a key.
+ */
+export function keyInAddress(raw: string): boolean {
+  let u: URL
+  try { u = new URL(raw.trim()) } catch { return true }
+  const decoded = (part: string): string | null => { try { return decodeURIComponent(part) } catch { return null } }
+  for (const seg of u.pathname.split('/')) {
+    if (!seg) continue
+    const d = decoded(seg)
+    if (d === null || keyPart(d)) return true
+  }
+  // the host as written: after "//", before any user, port, path, query or fragment ("\" ends it too, as in URL)
+  const authority = /^\s*[a-z][a-z0-9+.-]*:[\\/]{2}([^/\\?#]*)/i.exec(raw)?.[1] ?? ''
+  const written = authority.slice(authority.lastIndexOf('@') + 1).replace(/:[0-9]*$/, '')
+  for (const label of [...subLabels(written), ...subLabels(u.hostname)]) {
+    if (!label) continue
+    const d = decoded(label)
+    if (d === null || keyPart(d)) return true
+  }
+  return false
+}
+
 export function hasLikelySecret(text: string): boolean {
   return findLikelySecrets(text).length > 0
 }
