@@ -189,7 +189,8 @@ export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status
       </>}
       description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
       {status.configured && status.source === 'server' && <p className="text-xs text-faint" data-testid="drive-by-server">{t('appConnectors.byServer')}</p>}
-      {status.configured && <div className={status.source === 'server' ? 'mt-4' : undefined}>{children}</div>}
+      {status.configured && status.source === 'service' && <p className="text-xs text-faint" data-testid="drive-by-service">{t('appConnectors.byService')}</p>}
+      {status.configured && <div className={status.source === 'server' || status.source === 'service' ? 'mt-4' : undefined}>{children}</div>}
     </ConnectorDetail>
   )
 }

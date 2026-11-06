@@ -8,7 +8,14 @@ export interface Toast {
   text: string
   /** stays until closed */
   sticky?: boolean
-  action?: { label: string; run: () => void }
+  /** how long it stays when not sticky (default 4.5 s, 8 s for errors) */
+  ms?: number
+  /** a quiet second line */
+  detail?: string
+  /** a small picture on the left (a finished deck's cover) */
+  image?: string
+  /** `primary`: the toast's one main action as a button (else an underlined link like Undo) */
+  action?: { label: string; run: () => void; primary?: boolean }
 }
 
 interface UiState {
@@ -40,7 +47,7 @@ export const useUi = create<UiState>((set, get) => ({
   toast(t) {
     const id = nextId++
     set((s) => ({ toasts: [...s.toasts.slice(-4), { ...t, id }] }))
-    if (!t.sticky) setTimeout(() => get().dismiss(id), t.level === 'error' ? 8000 : 4500)
+    if (!t.sticky) setTimeout(() => get().dismiss(id), t.ms ?? (t.level === 'error' ? 8000 : 4500))
     return id
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),

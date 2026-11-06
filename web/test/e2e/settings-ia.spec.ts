@@ -11,7 +11,8 @@ import { realErrors, reset, signIn, watchConsole } from './helpers'
 const t = DICTS.en
 const ADMIN: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
-  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins']],
+  // the owner (this test signs in as the owner) also has Slack, owner-only (AdminLayout MENU)
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins', 'slack.admin.title']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]

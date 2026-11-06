@@ -213,12 +213,12 @@ describe('translations', () => {
     const src = path.resolve(import.meta.dir, '../../src')
     // the one place that must recognise a Korean file name: conflict copies made by a Korean team ("충돌 사본")
     // and the Korean object and topic particles after a skill's name (을 / 를, 은 / 는: grammar, not text;
-    // lib/teamGoal.ts objectParticle, topicParticle) and "(으)로" after a filled-in value (i18n/index.ts koRo); the
-    // honorifics a name may already end with are in shared/src/honorific.ts
+    // lib/teamGoal.ts objectParticle, topicParticle), and "(으)로" / "(을)를" after a filled-in value (i18n/index.ts koRo,
+    // koEul); the honorifics a name may already end with are in shared/src/honorific.ts
     const allowed: Record<string, RegExp> = {
       'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/,
       'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/,
-      'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로][^\uAC00-\uD7A3]*)+$/,
+      'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로을를][^\uAC00-\uD7A3]*)+$/,
     }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {

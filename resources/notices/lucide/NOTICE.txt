@@ -1,0 +1,33 @@
+Lucide icons
+
+The Trina AX server draws a subset of the Lucide icons in the intro decks it makes (company introduction slides: HTML
+preview, PDF and PowerPoint). The subset comes from lucide-react 1.54.0 (https://github.com/lucide-icons/lucide,
+package lucide-react), the same icon set the web app uses. scripts/gen-deck-icons.ts converts the icons' shapes into
+path data (Bézier curves, the same geometry) in server/src/intro-deck/icons.ts; nothing else is changed.
+
+Lucide is licensed under the ISC License, Copyright (c) 2026 Lucide Icons and Contributors. The icons Lucide lists as
+derived from the Feather project are under the MIT License, Copyright (c) 2013-present Cole Bemis. Both texts are in
+LICENSE.txt next to this file, as lucide-react ships it (its LICENSE).
+
+Icons in the subset (174):
+  activity, apple, atom, award, baby, badge-check, banknote, battery-charging, bean, bell, bike, book-open, bot,
+  boxes, brain, briefcase-business, building, building-complex, bus, calendar, calendar-check, calendar-sync, camera,
+  car, chart-bar, chart-column, chart-line, chart-pie, check-check, chef-hat, circle-check, circle-dot,
+  clipboard-check, clipboard-list, clock, cloud, code, coffee, cog, coins, compass, container, cpu, credit-card,
+  croissant, cup-soda, database, dna, dog, drill, droplet, eye, face-slightly-smiling, factory, file-text, fish, flag,
+  flame, flask-conical, folder, forklift, fuel, gauge, gift, git-branch, glass-water, globe, graduation-cap, hammer,
+  handshake, hard-hat, headphones, headset, heart, heart-handshake, heart-pulse, hospital, hourglass, house, image,
+  inbox, key, landmark, languages, laptop, layers, layout-grid, leaf, lightbulb, list-checks, lock, mail, map,
+  map-pin, medal, megaphone, memory-stick, message-circle, message-square, messages-square, microscope, milestone,
+  milk, monitor, mountain, music, network, newspaper, package, palette, paw-print, pen-tool, percent, phone, pill,
+  plane, play, plug, puzzle, qr-code, radio, receipt, recycle, refresh-cw, rocket, route, scale, scan-line, school,
+  scissors, search, send, server, settings, shield, shield-check, ship, shirt, shopping-bag, shopping-cart,
+  smartphone, snowflake, sparkles, sprout, star, stethoscope, store, sun, tag, target, thermometer, thumbs-up, ticket,
+  timer, train-front, tree-pine, trending-down, trending-up, trophy, truck, tv, user, users, utensils, video, wallet,
+  warehouse, wheat, wifi, wind, wine, workflow, wrench, zap
+
+Of these, derived from Feather (MIT) (19):
+  calendar, clock, code, compass, database, face-slightly-smiling, headphones, key, lock, monitor, music, percent,
+  radio, search, server, shopping-bag, smartphone, target, tv
+
+Source: https://github.com/lucide-icons/lucide

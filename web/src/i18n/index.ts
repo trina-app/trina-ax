@@ -42,16 +42,29 @@ export function koRo(value: string): string {
   return '(으)로'
 }
 
+/** Korean "(을)를" after a filled-in value, when its last sound can be told: 을 after a final consonant, 를 after a
+ * vowel. A number ends as it is read: 2 4 5 9 (이 사 오 구) take 를, the others 을, so "{section}(을)를" reads "숫자를",
+ * "제품을", "2를". Latin letters and signs keep "(을)를". */
+export function koEul(value: string): string {
+  const last = [...value.trim()].pop() ?? ''
+  const c = last.codePointAt(0) ?? 0
+  if (c >= 0xac00 && c <= 0xd7a3) return (c - 0xac00) % 28 === 0 ? '를' : '을'
+  if (/[0-9]/.test(last)) return '2459'.includes(last) ? '를' : '을'
+  return '(을)를'
+}
+
 export function format(template: string, callerParams?: Params, locale: string = DEFAULT_LOCALE): string {
   const params: Params = { ...PRODUCT_PARAMS, ...callerParams }
   // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts); the
   // text's own honorific (님, さん) left out when the name has one already, with or without a space before it:
   // "{name}님" and "{name} 님" with 대표님 read "대표님", never "대표님님" (shared/src/honorific.ts); after a value,
-  // "(으)로" as it is read (koRo)
-  return dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(/\{(\w+)\}(\(으\)로)?/g, (all, k: string, ro?: string) => {
+  // "(으)로" and "(을)를" as it is read (koRo, koEul)
+  return dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(/\{(\w+)\}(\(으\)로|\(을\)를)?/g, (all, k: string, mark?: string) => {
     if (params[k] === undefined) return all
     const v = String(params[k])
-    return ro ? v + (locale === 'ko' ? koRo(v) : ro) : v
+    if (!mark) return v
+    if (locale !== 'ko') return v + mark
+    return v + (mark === '(으)로' ? koRo(v) : koEul(v))
   })
 }
 

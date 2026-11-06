@@ -7,11 +7,18 @@ import { z } from 'zod'
 import { Locale } from './common'
 import { endpoint } from './endpoint'
 
-/** marketing: seven marketing skills and four team folders · general: every team's two skills (meeting notes → tasks,
- * a document's brief), no folders (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") */
-export const SKILL_PACK_IDS = ['marketing', 'general'] as const
+/** marketing: seven marketing skills and four team folders · general: every team's five skills (meeting notes → tasks,
+ * a document's brief, the card news, the promo video, the intro deck), no folders (docs/DECISIONS.md "M — One meeting
+ * note, everyone's own tasks") · work: six everyday skills for leads, sales, marketing, finance and HR (meeting summary,
+ * weekly roundup, sales follow-up, creative brief, expense check, new hire guide), no folders */
+export const SKILL_PACK_IDS = ['marketing', 'general', 'work'] as const
 export const SkillPackId = z.enum(SKILL_PACK_IDS)
 export type SkillPackId = z.infer<typeof SkillPackId>
+
+/** The packs every team has without anyone installing them (docs/DECISIONS.md "DS — Every skill pack is a default"):
+ * the server adds each of their skills once, in the team's language (onboarding/default-skills.ts). A skill the team
+ * deleted, edited or already has under another path is never added again or replaced. */
+export const DEFAULT_SKILL_PACKS = ['general', 'marketing', 'work'] as const satisfies readonly SkillPackId[]
 
 /** The general pack's skills, installed for every team by the welcome steps: "할 일 정리" (meeting notes → tasks per
  * person, or the asking person's own) and "핵심 정리" (a document's brief, or what the asking person needs to know). */
@@ -81,5 +88,5 @@ export const SkillPackInstallResult = z.object({
 export type SkillPackInstallResult = z.infer<typeof SkillPackInstallResult>
 
 export const ONBOARDING_PACKS = {
-  installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', response: SkillPackInstallResult, summary: 'Install a recommended skill pack (id: marketing or general) as the caller: its skills under skills/<id>/ and its team folders under shared/, in the team language. Adds only what is missing; never replaces a file.' }),
+  installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', response: SkillPackInstallResult, summary: 'Install a recommended skill pack (id: marketing, general or work) as the caller: its skills under skills/<id>/ and its team folders under shared/, in the team language. Adds only what is missing; never replaces a file.' }),
 } as const

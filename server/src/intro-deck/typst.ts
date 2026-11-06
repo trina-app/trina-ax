@@ -3,10 +3,14 @@
 // syllables, so it never wraps a line here), pictures in clipped boxes offset by the crop, gradients with alpha. Every
 // text goes in as a typst string literal in code mode, escaped, never as markup: "#", "$" or "[" in a company name
 // stay text. The pictures are copied into the work folder (typst reads nothing outside it, `--root`).
+// Round 2: outlined rects and ellipses and dashed lines are typst's own strokes (centred on the edge, as SVG and
+// DrawingML draw them); each run of paths and patterns is one SVG file of the slide's size (vector.ts, the preview's
+// own SVG), drawn by typst through usvg (patterns, masks and clips included); the AI's accent is its SVG as a file.
 import type { Locale } from '@mycel/shared/api'
-import { SLIDE_H, SLIDE_W, type DeckOut, type Fill, type Item } from './layout'
+import { SLIDE_H, SLIDE_W, type DeckOut, type Fill, type Item, type Stroke } from './layout'
 import { extOf } from './pptx'
 import { recolorPng } from './png'
+import { dashOf, lineStroke, svgDoc, vectorSvg, withXmlns } from './vector'
 
 const pt = (px: number) => `${Math.round(px * 50) / 100}pt`
 /** a typst string literal */
@@ -37,6 +41,16 @@ function paint(f: Fill): string {
   return `gradient.radial(${stops(f.radial.stops)})`
 }
 
+/** A stroke dictionary (none when it draws nothing) */
+function stroke(s: Stroke | undefined): string {
+  const v = s && /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(s.color)
+  if (!s || !v || v[2] === '00' || !(s.width > 0) || !Number.isFinite(s.width)) return 'none'
+  const dash = dashOf(s.dash)
+  return `(paint: ${col(s.color)}, thickness: ${pt(s.width)}${s.cap === 'round' ? ', cap: "round"' : ''}${s.join === 'round' ? ', join: "round"' : ''}${dash ? `, dash: (${pt(dash[0])}, ${pt(dash[1])})` : ''})`
+}
+/** a fill, or none for a fully transparent solid one */
+const fillOf = (f: Fill) => ('solid' in f && /^#[0-9a-f]{6}00$/i.test(f.solid) ? 'none' : paint(f))
+
 export interface TypstOptions { title: string; lang: Locale; read: (src: string) => Uint8Array | null }
 export interface TypstDoc { source: string; files: [string, Uint8Array][] }
 
@@ -49,14 +63,31 @@ export function buildTypst(deck: DeckOut, o: TypstOptions): TypstDoc {
     return n
   }
   const place = (x: number, y: number, body: string) => `#place(top + left, dx: ${pt(x)}, dy: ${pt(y)}, ${body})`
+  /** a run of paths and patterns: one SVG file the slide's size, laid over the whole page */
+  const vectors = (run: Item[], id: string): string => {
+    const inner = vectorSvg(run, id)
+    if (!inner) return ''
+    const name = file(`svg|${inner}`, Buffer.from(svgDoc(inner, SLIDE_W, SLIDE_H), 'utf8'), 'svg')
+    return place(0, 0, `image(${lit(name)}, width: ${pt(SLIDE_W)}, height: ${pt(SLIDE_H)})`)
+  }
   const one = (it: Item): string => {
     if (it.t === 'rect') {
-      if (it.ellipse) return place(it.x, it.y, `ellipse(width: ${pt(it.w)}, height: ${pt(it.h)}, fill: ${paint(it.fill)})`)
-      return place(it.x, it.y, `rect(width: ${pt(it.w)}, height: ${pt(it.h)}, fill: ${paint(it.fill)}, radius: ${pt(it.radius)})`)
+      const st = it.stroke ? `, stroke: ${stroke(it.stroke)}` : ''
+      if (it.ellipse) return place(it.x, it.y, `ellipse(width: ${pt(it.w)}, height: ${pt(it.h)}, fill: ${fillOf(it.fill)}${st})`)
+      return place(it.x, it.y, `rect(width: ${pt(it.w)}, height: ${pt(it.h)}, fill: ${fillOf(it.fill)}, radius: ${pt(it.radius)}${st})`)
     }
     if (it.t === 'line') {
-      return place(it.x1, it.y1, `line(start: (0pt, 0pt), end: (${pt(it.x2 - it.x1)}, ${pt(it.y2 - it.y1)}), stroke: (paint: ${col(it.color)}, thickness: ${pt(it.width)}))`)
+      const st = stroke(lineStroke(it))
+      if (st === 'none') return ''
+      return place(it.x1, it.y1, `line(start: (0pt, 0pt), end: (${pt(it.x2 - it.x1)}, ${pt(it.y2 - it.y1)}), stroke: ${st})`)
     }
+    if (it.t === 'svg') {
+      const svg = withXmlns(it.svg)
+      if (!/^<svg[\s>]/i.test(svg)) return ''
+      const name = file(`accent|${svg}`, Buffer.from(svg, 'utf8'), 'svg')
+      return place(it.x, it.y, `image(${lit(name)}, width: ${pt(it.w)}, height: ${pt(it.h)}, fit: "contain")`)
+    }
+    if (it.t === 'path' || it.t === 'pattern') return ''
     if (it.t === 'image') {
       let bytes = o.read(it.src)
       if (!bytes) return ''
@@ -79,7 +110,18 @@ export function buildTypst(deck: DeckOut, o: TypstOptions): TypstDoc {
       return place(it.x, y, body)
     }).join('\n')
   }
-  const pages = deck.slides.map((s) => `#page(fill: ${col(s.ground)})[\n${s.items.map(one).filter(Boolean).join('\n')}\n]`).join('\n')
+  const body = (items: Item[], k: number): string[] => {
+    const out: string[] = []
+    let run: Item[] = [], n = 0
+    const flush = () => { if (run.length) out.push(vectors(run, `s${k}v${n++}`)); run = [] }
+    for (const it of items) {
+      if (it.t === 'path' || it.t === 'pattern') run.push(it)
+      else { flush(); out.push(one(it)) }
+    }
+    flush()
+    return out.filter(Boolean)
+  }
+  const pages = deck.slides.map((s, k) => `#page(fill: ${col(s.ground)})[\n${body(s.items, k + 1).join('\n')}\n]`).join('\n')
   const source = `#set document(title: ${lit(o.title)}, author: (), date: none)
 #set page(width: ${pt(SLIDE_W)}, height: ${pt(SLIDE_H)}, margin: 0pt)
 #set text(font: ${FONTS[o.lang]}, lang: ${lit(o.lang)}, top-edge: "baseline", bottom-edge: "baseline", hyphenate: false)

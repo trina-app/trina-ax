@@ -269,6 +269,54 @@ test('this repository: the server and office notice bundles carry the Public Suf
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
+test('third-party data in the project source (the intro deck\'s Lucide icons in the server) gets the project notice, or the release fails', async () => {
+  const { writeReleaseNotices, verifyReleaseNotices, SOURCE_DATA, RELEASE_NOTICE_FILES } = await api(); const f = fixture()
+  try {
+    const lucide = SOURCE_DATA.find(e => e.id === 'lucide')!
+    expect(lucide).toMatchObject({ workspace: 'server', file: 'server/src/intro-deck/icons.ts', license: 'ISC AND MIT', source: 'https://github.com/lucide-icons/lucide' })
+    // the server without the file: nothing to say
+    expect(writeReleaseNotices(f.options).embeddedData).toEqual([])
+    f.put(lucide.file, 'export const ICONS = {}\n')
+    // the file ships, the project's notice is not there: no release
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_embedded_notice_missing')
+    const licence = 'ISC License\n\nCopyright (c) 2026 Lucide Icons and Contributors\n\nThe MIT License (MIT)\n\nCopyright (c) 2013-present Cole Bemis\n'
+    f.put(`${lucide.dir}/NOTICE.txt`, 'Lucide icons, ISC. Source: https://github.com/lucide-icons/lucide\n'); f.put(`${lucide.dir}/LICENSE.txt`, licence)
+    // a notice that leaves out one of the two licences is refused, and so is a licence file without the MIT copyright
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_embedded_notice_invalid')
+    const notice = 'Lucide icons, ISC; the Feather-derived ones MIT. Source: https://github.com/lucide-icons/lucide\n'
+    f.put(`${lucide.dir}/NOTICE.txt`, notice); f.put(`${lucide.dir}/LICENSE.txt`, 'ISC License\n')
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_embedded_notice_invalid')
+    f.put(`${lucide.dir}/LICENSE.txt`, licence)
+    const m = writeReleaseNotices({ ...f.options, kind: 'office' })
+    expect(m.embeddedData).toEqual([{ id: 'lucide', name: 'Lucide icons', license: 'ISC AND MIT', source: 'https://github.com/lucide-icons/lucide',
+      carriedBy: [expect.stringMatching(/^@fixture\/server@1\.0\.0-/)], documents: ['licenses/lucide/NOTICE.txt', 'licenses/lucide/LICENSE.txt'] }])
+    expect(fs.readFileSync(path.join(f.artifact, 'licenses/lucide/LICENSE.txt'), 'utf8')).toBe(licence)
+    expect(m.documents.find(d => d.path === 'licenses/lucide/NOTICE.txt')).toMatchObject({ source: 'embedded-data', sourcePath: `${lucide.dir}/NOTICE.txt`, component: 'lucide' })
+    for (const d of m.embeddedData[0]!.documents) expect(RELEASE_NOTICE_FILES as readonly string[]).toContain(d)
+    expect(() => verifyReleaseNotices(f.artifact)).not.toThrow()
+    // a release without the server (the web app alone brings lucide-react's own LICENSE as a package) does not need it
+    expect(writeReleaseNotices({ ...f.options, roots: [{ directory: 'shared' }] }).embeddedData).toEqual([])
+  } finally { f.close() }
+})
+
+test('this repository: every server bundle carries lucide-react\'s LICENSE byte for byte and a notice naming the icons the server ships', async () => {
+  const { writeReleaseNotices } = await api()
+  const { ICON_NAMES, LUCIDE_VERSION } = await import('../../server/src/intro-deck/icons')
+  const repo = path.resolve(import.meta.dir, '../..')
+  const lucideReact = fs.realpathSync(path.join(repo, 'web/node_modules/lucide-react'))
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-notices-lucide-'))
+  try {
+    const artifact = path.join(root, 'bundle')
+    const m = writeReleaseNotices({ repoRoot: repo, artifactDir: artifact, version: '0.0.0-test', target: 'linux', arch: 'arm64', kind: 'bundle', roots: [{ directory: 'server' }], includeWeb: false })
+    expect(m.embeddedData.find(e => e.id === 'lucide')?.carriedBy).toEqual([expect.stringMatching(/^@mycel\/server@/)])
+    expect(fs.readFileSync(path.join(artifact, 'licenses/lucide/LICENSE.txt'))).toEqual(fs.readFileSync(path.join(lucideReact, 'LICENSE')))
+    const notice = fs.readFileSync(path.join(artifact, 'licenses/lucide/NOTICE.txt'), 'utf8')
+    expect(notice).toContain(`lucide-react ${LUCIDE_VERSION}`)
+    expect(JSON.parse(fs.readFileSync(path.join(lucideReact, 'package.json'), 'utf8')).version).toBe(LUCIDE_VERSION)
+    for (const name of ICON_NAMES) expect(notice).toContain(name)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test('a staged font (Noto Sans CJK in the Linux bundle) gets the project notice and the OFL text, or the release fails', async () => {
   const { writeReleaseNotices, verifyReleaseNotices, BUNDLED_FONTS } = await api(); const f = fixture()
   try {

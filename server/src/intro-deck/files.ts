@@ -20,10 +20,14 @@ import { makeWorkDir, readOutput, runIsolated } from '../tools/isolate'
 import { typstJobs } from '../system/limits'
 import { imageSize } from '../uploads/image'
 import { layoutDeck, type DeckDoc, type DeckOut } from './layout'
+import { layoutDeck2, type DeckDoc2 } from './layout2'
 import { buildPptx, extOf, PRETENDARD_FILES } from './pptx'
 import { buildTypst } from './typst'
+import { rasterizeSvg } from './render'
 
-export interface StoredDeck { title: string; sources: string[]; doc: DeckDoc }
+/** A deck as stored: round 1's document, or round 2's (`v: 2`). */
+export interface StoredDeck { title: string; sources: string[]; doc: DeckDoc | DeckDoc2 }
+const layoutAny = (doc: DeckDoc | DeckDoc2): DeckOut => ('v' in doc && doc.v === 2 ? layoutDeck2(doc) : layoutDeck(doc as DeckDoc))
 interface Row { artifact_id: string; chat_id: string; user_id: string; owner_id: string; spec: string; pptx_sha256: string | null; pdf_sha256: string | null; created_at: string }
 
 /** The folder of the static Pretendard TTFs: the server bundle's fonts/ (next to Noto Sans CJK), else the repository's. */
@@ -84,21 +88,24 @@ function relayout(ctx: AppContext, r: Row, o: { webp: boolean }): { out: DeckOut
     // the picture as it is now (replaced by one of another size: the crop follows it)
     if (b && size) pics[src] = { ...info, width: size.width, height: size.height }
   }
-  const doc: DeckDoc = { ...spec.doc, pics, logo: spec.doc.logo && pics[spec.doc.logo.src] ? { ...spec.doc.logo, ...pics[spec.doc.logo.src] } : null }
-  return { out: layoutDeck(doc), read, spec }
+  const doc = { ...spec.doc, pics, logo: spec.doc.logo && pics[spec.doc.logo.src] ? { ...spec.doc.logo, ...pics[spec.doc.logo.src] } : null } as DeckDoc | DeckDoc2
+  return { out: layoutAny(doc), read, spec }
 }
 
 const safeName = (title: string, ext: string) => `${title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').trim() || 'deck'}.${ext}`
 
-/** The PowerPoint file of the caller's intro deck (built once, then kept). */
-export function introDeckPptx(ctx: AppContext, userId: string, id: string): { abs: string; name: string } {
+/** The PowerPoint file of the caller's intro deck (built once, then kept). The AI's accents go in as pictures drawn by
+ * typst (render.ts); without typst they are left out (the slide keeps its drawn pattern). */
+export async function introDeckPptx(ctx: AppContext, userId: string, id: string): Promise<{ abs: string; name: string }> {
   const r = ownRow(ctx, userId, id)
   const file = deckFile(ctx, id, 'pptx')
   const spec = JSON.parse(r.spec) as StoredDeck
   if (!fs.existsSync(file)) {
     const started = Date.now()
     const { out, read } = relayout(ctx, r, { webp: false })
-    const bytes = buildPptx(out, { title: spec.title, lang: spec.doc.lang, read, fonts: pretendardDir(), created: r.created_at })
+    const accents = new Map<string, Uint8Array | null>()
+    for (const sl of out.slides) for (const it of sl.items) if (it.t === 'svg' && !accents.has(it.svg)) accents.set(it.svg, await rasterizeSvg(it.svg, 1200))
+    const bytes = buildPptx(out, { title: spec.title, lang: spec.doc.lang, read, fonts: pretendardDir(), created: r.created_at, svgPng: (svg) => accents.get(svg) ?? null })
     fs.mkdirSync(deckDir(ctx), { recursive: true })
     fs.writeFileSync(`${file}.part`, bytes, { mode: 0o600 })
     fs.renameSync(`${file}.part`, file)
@@ -144,11 +151,18 @@ export async function introDeckPdf(ctx: AppContext, userId: string, id: string):
 /** What purged chats left of their intro decks (chat/forget.ts, after their rows are gone): every file whose row is
  * not there any more. */
 export function forgetIntroDecks(ctx: AppContext): void {
+  // round 2: the slide pictures of builds whose row went with its chat
+  const builds = path.join(deckDir(ctx), 'builds')
+  try {
+    const knownBuild = ctx.db.query('SELECT 1 FROM intro_deck_builds WHERE id = ?')
+    for (const name of fs.readdirSync(builds)) if (!knownBuild.get(name)) fs.rmSync(path.join(builds, name), { recursive: true, force: true })
+  } catch { /* none yet */ }
   const dir = deckDir(ctx)
   let names: string[]
   try { names = fs.readdirSync(dir) } catch { return }
   const known = ctx.db.query('SELECT 1 FROM intro_decks WHERE artifact_id = ?')
   for (const name of names) {
+    if (name === 'builds') continue
     const id = /^(.+?)\.(?:pptx|pdf)(?:\.part)?$/.exec(name)?.[1]
     if (!id || known.get(id)) continue
     try { fs.rmSync(path.join(dir, name), { force: true }) } catch (err) { ctx.log.warn('intro deck file not removed', { name, err }) }

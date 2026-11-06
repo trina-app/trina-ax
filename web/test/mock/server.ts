@@ -27,16 +27,23 @@
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
 // POST /__test/dev-env {box?: 'running', srt?: true} turns the dev environment (experiment) on for every project until the next reset.
+// "/intro-deck …" builds the deck like round 2 of docs/DECISIONS.md "D2": an outline, one intro_deck call per slide (the
+// third slide's first try fails and is tried again), the review, then the saved deck, with deck.progress after each and
+// small slide pictures from GET /api/intro-decks/builds/:id/slides/:n; "deck-fail" in the message stops it after three
+// slides. POST /__test/deck-pace {ms, thumbs?: false, tier?: 'standard' | 'deep'} sets the time per step (default 40 ms),
+// whether pictures exist and the budget (the longer ones read the site first: phase "reading"), until the next reset.
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
+import type { KnowledgeGraphStatus } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
   ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
+  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
+import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePagedPdf, makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
@@ -99,6 +106,38 @@ function auditRows(): AuditEntry[] {
   return rows
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** A slide's small picture for the intro deck being built (PNG, 64 × 36): the cover in the brand colour, the others
+ * light with a title bar, so a tile looks like a slide. */
+const CRC = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
+const crc32 = (b: Uint8Array) => { let c = 0xffffffff; for (const x of b) c = CRC[(c ^ x) & 0xff]! ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
+function pngChunk(type: string, data: Uint8Array) {
+  const out = new Uint8Array(12 + data.length), v = new DataView(out.buffer)
+  v.setUint32(0, data.length)
+  out.set(enc.encode(type), 4)
+  out.set(data, 8)
+  v.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)))
+  return out
+}
+function slidePng(i: number): Uint8Array {
+  const w = 64, h = 36
+  const raw = new Uint8Array(h * (w * 3 + 1))
+  const cover = i === 0
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const at = y * (w * 3 + 1) + 1 + x * 3
+    const bar = !cover && y >= 5 && y <= 7 && x >= 5 && x <= 34
+    const mark = !cover && y >= 14 && y <= 27 && x >= 8 + (i % 3) * 16 && x <= 20 + (i % 3) * 16
+    const [r, g, b] = cover ? [27 + x, 110 - y, 58 + x] : bar ? [20, 17, 15] : mark ? [27, 110, 58] : [250, 248, 244]
+    raw.set([r, g, b], at)
+  }
+  const ihdr = new Uint8Array(13), v = new DataView(ihdr.buffer)
+  v.setUint32(0, w); v.setUint32(4, h); ihdr.set([8, 2, 0, 0, 0], 8)
+  const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk('IHDR', ihdr), pngChunk('IDAT', new Uint8Array(zlib.deflateSync(raw))), pngChunk('IEND', new Uint8Array())]
+  const out = new Uint8Array(parts.reduce((n, x) => n + x.length, 0))
+  let o = 0
+  for (const x of parts) { out.set(x, o); o += x.length }
+  return out
+}
 
 interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; mime?: string }
 interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
@@ -163,6 +202,11 @@ export class MockServer {
   chats: Chat[] = []
   messages: Message[] = []
   artifacts: Artifact[] = []
+  /** intro decks built in round 2 (newest last) and the time per build step (POST /__test/deck-pace) */
+  deckBuilds: DeckBuild[] = []
+  deckPaceMs = 40
+  deckThumbs = true
+  deckTier: DeckBuild['tier'] = 'quick'
   projects: Project[] = []
   memories: Memory[] = []
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
@@ -184,6 +228,9 @@ export class MockServer {
   settings: TeamSettings = defaultSettings()
   /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon, /favicon.ico, the manifest */
   teamIcon: TeamIconFile | null = null
+  /** Admin › Team settings › Knowledge graph (server/src/knowledge-graph/): made-up folders; POST /__test/knowledge-graph
+   * {available?: boolean} says whether CodeGraph is "installed" */
+  kg: KnowledgeGraphStatus = mockKnowledgeGraph(true)
   speechKey: { set: boolean; hint: string | null; updatedAt: string | null } = { set: false, hint: null, updatedAt: null }
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
@@ -313,6 +360,10 @@ export class MockServer {
     this.sources.clear()
     this.messages = []
     this.artifacts = []
+    this.deckBuilds = []
+    this.deckPaceMs = 40
+    this.deckThumbs = true
+    this.deckTier = 'quick'
     this.allConfidential = false
     this.nextArtifact = null
     this.projects = []
@@ -351,6 +402,7 @@ export class MockServer {
     this.integrationTemplates = []
     this.settings = defaultSettings()
     this.teamIcon = null
+    this.kg = mockKnowledgeGraph(true)
     this.speechKey = { set: false, hint: null, updatedAt: null }
     this.transcribeChats = []
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null }
@@ -1017,13 +1069,65 @@ export class MockServer {
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
     }
     if (/^\/intro-deck\b/.test(prompt)) {
-      // like the team server (server/src/intro-deck/): the intro deck arrives saved, with no "writing" previews
-      const content = '<!DOCTYPE html><html lang="ko"><body><section class="slide" aria-roledescription="slide"><h1>조용한 책상 선풍기</h1></section></body></html>'
-      const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === DECK_ARTIFACT_KEY).length + 1
-      const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: DECK_ARTIFACT_KEY, version, type: 'html', title: 'Acme 회사 소개서', language: null, content, createdAt: now() }
-      this.artifacts.push(a)
-      const { content: _c, ...summary } = a
-      pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+      // like the team server (server/src/intro-deck/, round 2): an outline, one slide per intro_deck call, the review,
+      // then the deck arrives saved (no "writing" previews); deck.progress after each step
+      const pace = this.deckPaceMs
+      const plan: [DeckBuild['slides'][number]['kind'], string, DeckBuild['slides'][number]['figure'], boolean][] = [
+        ['cover', '표지', null, true], ['about', '회사 소개', 'hub', false], ['needs', '고객의 고민', 'merge', false], ['offer', '하는 일', 'layers', false],
+        ['numbers', '숫자', 'donut', false], ['products', '제품', 'grid', false], ['process', '일하는 방식', 'flow', false], ['proof', '고객의 말', null, false],
+        ['contact', '마무리', null, false],
+      ]
+      let build: DeckBuild = {
+        id: uuidv7(), chatId, messageId: assistant.id, title: 'Acme 회사 소개서', phase: 'slides', current: null, tier: this.deckTier,
+        slides: plan.map(([kind, section, figure, picture]) => ({ kind, section, figure, picture, status: 'planned' as const, rev: 0 })),
+        startedAt: assistant.createdAt, outlineAt: null, slidesAt: null, finishedAt: null, artifactId: null, thumbs: this.deckThumbs,
+      }
+      const progress = (b: DeckBuild) => {
+        build = b
+        this.deckBuilds = [...this.deckBuilds.filter((x) => x.id !== b.id), b]
+        pub({ type: 'deck.progress', data: { chatId, build: b } })
+      }
+      const call = async (id: string, ok = true) => {
+        const st = step({ id, kind: 'tool', tool: 'intro_deck', label: '회사 소개서 만들기 · Acme 회사 소개서' })
+        assistant.steps = [...assistant.steps, st]
+        pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: st } })
+        await sleep(pace)
+        const end = { ...st, status: ok ? 'ok' as const : 'error' as const, endedAt: now() }
+        assistant.steps = assistant.steps.map((x) => (x.id === id ? end : x))
+        pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: end } })
+      }
+      await sleep(pace)
+      // the longer budgets read the company's site and a few articles first, with the build already there
+      if (this.deckTier !== 'quick') {
+        for (const read of [{ pages: 4, articles: 0 }, { pages: 9, articles: 0 }, { pages: 9, articles: 3 }]) {
+          progress({ ...build, phase: 'reading', read, slides: [] })
+          await sleep(pace)
+        }
+      }
+      await call('d-outline')
+      progress({ ...build, phase: 'slides', slides: plan.map(([kind, section, figure, picture]) => ({ kind, section, figure, picture, status: 'planned' as const, rev: 0 })), outlineAt: now(), current: 0 })
+      const failAt = /deck-fail/i.test(prompt) ? 3 : -1
+      for (let i = 0; i < build.slides.length && i !== failAt; i++) {
+        progress({ ...build, current: i, slides: build.slides.map((x, j) => (j === i ? { ...x, status: 'working' as const } : x)) })
+        // the third slide's first try is refused and made again: a normal step in the block, no red mark
+        if (i === 2) await call(`d-slide-${i}-a`, false)
+        await call(`d-slide-${i}`)
+        progress({ ...build, slides: build.slides.map((x, j) => (j === i ? { ...x, status: 'done' as const, rev: x.rev + 1 } : x)) })
+      }
+      if (failAt >= 0) {
+        progress({ ...build, phase: 'failed', current: null, finishedAt: now() })
+      } else {
+        progress({ ...build, phase: 'review', current: null, slidesAt: now() })
+        await sleep(pace)
+        await call('d-finish')
+        const content = '<!DOCTYPE html><html lang="ko"><body><section class="slide" aria-roledescription="slide"><h1>조용한 책상 선풍기</h1></section></body></html>'
+        const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === DECK_ARTIFACT_KEY).length + 1
+        const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: DECK_ARTIFACT_KEY, version, type: 'html', title: 'Acme 회사 소개서', language: null, content, createdAt: now() }
+        this.artifacts.push(a)
+        const { content: _c, ...summary } = a
+        pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+        progress({ ...build, phase: 'done', finishedAt: now(), artifactId: a.id })
+      }
     }
     if (/^\/card-news\b/.test(prompt)) {
       // like the team server (server/src/tools/artifact.ts): the card news arrives saved, with no "writing" previews
@@ -1048,6 +1152,8 @@ export class MockServer {
         ? 'Sorting the applications into the table.\n\n- Read 20 of 40 so far\n- Scored each one against the job description\n- Saved the first half to the shared sheet\n\nThe rest are still in the folder; this answer stopped before reaching them.'
       : /sources/i.test(prompt)
         ? '매출은 [report.pdf · p.4](/files/view?path=docs%2Fsources%2Freport.pdf&page=4)에 있어요. 채널별 금액은 [budget.xlsx · 시트 \'매출\' A40:C44](/files/view?path=docs%2Fsources%2Fbudget.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A40:C44)을 보면 돼요.'
+      : /^\/intro-deck\b/.test(prompt)
+        ? (/deck-fail/i.test(prompt) ? '소개서를 끝까지 만들지 못했어요. 다시 해 볼까요?' : '회사 소개서를 만들었어요. 바꾸고 싶은 장이나 문구가 있으면 말씀해 주세요.')
       : prompt.includes('answered:')
         ? `You chose ${prompt.split('answered:')[1]}.`
         : /artifact|react/i.test(prompt)
@@ -1689,6 +1795,17 @@ export class MockServer {
       const a = this.artifacts.find((x) => x.id === c.params.id && x.key === DECK_ARTIFACT_KEY) ?? fail('not_found', 404)
       return { artifactId: a.id, chatId: a.chatId, title: a.title ?? '', theme: 'paper' as const, slides: 1, pptx: false, pdf: false }
     },
+    // intro decks being built (round 2): the chat's builds, newest first, and a finished slide's small picture
+    listDeckBuilds: (c) => {
+      if (!this.chats.some((x) => x.id === c.query.chatId)) fail('not_found', 404)
+      return { builds: this.deckBuilds.filter((b) => b.chatId === c.query.chatId).reverse().slice(0, 10) }
+    },
+    deckBuildSlide: (c) => {
+      const b = this.deckBuilds.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const i = Number(c.params.n)
+      if (!b.thumbs || b.slides[i]?.status !== 'done') fail('not_found', 404)
+      return new Response(slidePng(i) as unknown as BodyInit, { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600' } })
+    },
     getJob: (c) => this.jobs.get(c.params.id!) ?? fail('not_found', 404),
     cancelJob: (c) => {
       const j = this.jobs.get(c.params.id!) ?? fail('not_found', 404)
@@ -2179,6 +2296,43 @@ export class MockServer {
       this.teamIcon = { bytes, type: r.type, width: r.width, height: r.height, version: sha256Hex(bytes).slice(0, 16) }
       this.publish(TEAM_ICON_CHANGED)
       return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: bytes.byteLength }
+    },
+    // like server/src/routes/knowledge-graph.ts: on needs CodeGraph; off clears the folders; added folders outside users/
+    knowledgeGraphStatus: () => this.kg,
+    updateKnowledgeGraph: (c) => {
+      if (c.body.enabled === true && !this.kg.available) throw new Fail('conflict', 409, 'CodeGraph is not installed', undefined, { reason: 'unavailable' })
+      if (c.body.added !== undefined) {
+        const added = c.body.added as string[]
+        for (const a of added) {
+          if (a.startsWith('users')) throw new Fail('validation', 400, 'personal', { 'body.added': 'personal' }, { reason: 'personal' })
+          if (!/^[\w.-]+(\/[\w.-]+)*$/.test(a) || a.startsWith('nope')) throw new Fail('validation', 400, 'not found', { 'body.added': 'not_found' }, { reason: 'not_found' })
+        }
+        this.kg = { ...this.kg, added: [...new Set(added)] }
+      }
+      if (c.body.enabled === false) this.kg = { ...this.kg, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, diskBytes: 0, busy: 0 }
+      if (c.body.enabled === true && !this.kg.enabled) this.kg = { ...mockKnowledgeGraph(true), added: this.kg.added, documents: this.kg.documents }
+      // documents: off deletes the index (nothing listed); on brings the made-up folders back
+      if (c.body.documents === false) this.kg = { ...this.kg, documents: mockKgDocuments(false) }
+      if (c.body.documents === true && !this.kg.documents.enabled) this.kg = { ...this.kg, documents: mockKgDocuments(true) }
+      return this.kg
+    },
+    // like the server: part code, documents or (none) both, of the parts that are on
+    rebuildKnowledgeGraph: (c) => {
+      const part = c.body.part as 'code' | 'documents' | undefined
+      const code = this.kg.enabled && part !== 'documents', docs = this.kg.documents.enabled && part !== 'code'
+      if (!code && !docs) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
+      const d = this.kg.documents
+      this.kg = {
+        ...this.kg,
+        ...(code ? { roots: this.kg.roots.map((r) => ({ ...r, status: 'pending' as const, files: 0, symbols: 0 })), busy: this.kg.roots.length } : {}),
+        documents: docs ? { ...d, folders: d.folders.map((f) => ({ ...f, status: 'pending' as const })), busy: d.folders.length } : d,
+      }
+      // the rebuild "finishes" a moment later
+      setTimeout(() => {
+        const fresh = mockKnowledgeGraph(true)
+        this.kg = { ...this.kg, ...(code ? { roots: fresh.roots, busy: 0 } : {}), documents: docs ? fresh.documents : this.kg.documents }
+      }, 1500)
+      return this.kg
     },
     deleteTeamIcon: () => {
       if (this.teamIcon) this.publish(TEAM_ICON_CHANGED)
@@ -2963,7 +3117,9 @@ export class MockServer {
     if (p.startsWith('/__test/')) return this.testControl(p, req)
     if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 }))
     this.log.push(`${req.method} ${p}`)
-    const route = this.routes.find((r) => r.ep.method === req.method && r.re.test(p))
+    // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
+    // ("/api/intro-decks/:id")
+    const route = this.routes.filter((r) => r.ep.method === req.method && r.re.test(p)).sort((a, b) => a.ep.path.split(':').length - b.ep.path.split(':').length)[0]
     try {
       if (!route) return fail('not_found', 404)
       const h = this.handlers[route.name]
@@ -3021,6 +3177,12 @@ export class MockServer {
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
+    else if (p === '/__test/deck-pace') {
+      this.deckPaceMs = Number(body.ms ?? 40)
+      this.deckThumbs = body.thumbs !== false
+      this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
+    }
+    else if (p === '/__test/knowledge-graph') this.kg = mockKnowledgeGraph(body.available !== false)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
@@ -3165,7 +3327,7 @@ const FAKE_MCP_TOOLS: IntegrationTool[] = [
 const privateHost = (h: string) => h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '[::1]'
 
 function defaultSettings(): TeamSettings {
-  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null }
+  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 }
 
 /** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */
@@ -3241,4 +3403,43 @@ function officeFixtures(): [string, Uint8Array][] {
     } catch { /* no pandoc: no docx/pptx sample */ }
   }
   return (office = out)
+}
+
+/** Made-up folders for Admin › Team settings › Knowledge graph (no real team's). */
+function mockKnowledgeGraph(available: boolean): KnowledgeGraphStatus {
+  const documents = mockKgDocuments(true)
+  if (!available) return { available: false, version: null, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, added: [], diskBytes: 0, busy: 0, documents }
+  const at = new Date(Date.now() - 4 * 60_000).toISOString()
+  return {
+    available: true, version: '1.5.0', enabled: true, added: [],
+    roots: [
+      { path: 'projects/web-app', source: 'auto', status: 'ready', files: 128, symbols: 1840, lastSyncAt: at },
+      { path: 'projects/data-pipeline', source: 'auto', status: 'indexing', files: 0, symbols: 0, lastSyncAt: null },
+      { path: 'shared', source: 'auto', status: 'ready', files: 1, symbols: 3, lastSyncAt: at },
+    ],
+    personal: { folders: 2, files: 14, symbols: 96 }, diskBytes: 23_400_000, busy: 0, documents,
+  }
+}
+
+/** The documents part of the made-up knowledge graph: on (the default) with three folders and three files that could
+ * not be read, or off (nothing indexed). */
+function mockKgDocuments(on: boolean): KnowledgeGraphStatus['documents'] {
+  if (!on) return { enabled: false, folders: [], personal: { folders: 0, documents: 0, failed: 0 }, documents: 0, failed: [], failedCount: 0, lastUpdatedAt: null, diskBytes: 0, busy: 0 }
+  const at = new Date(Date.now() - 2 * 60_000).toISOString()
+  return {
+    enabled: true,
+    folders: [
+      { path: 'projects/marketing', source: 'auto', status: 'ready', documents: 84, failed: 2, lastUpdatedAt: at },
+      { path: 'projects/web-app', source: 'auto', status: 'ready', documents: 12, failed: 0, lastUpdatedAt: at },
+      { path: 'shared', source: 'auto', status: 'ready', documents: 40, failed: 1, lastUpdatedAt: at },
+    ],
+    personal: { folders: 2, documents: 31, failed: 1 },
+    documents: 136,
+    failed: [
+      { path: 'projects/marketing/campaign-final.pptx', reason: 'too_big' },
+      { path: 'projects/marketing/scan-2024.pdf', reason: 'empty' },
+      { path: 'shared/old-contract.hwp', reason: 'unreadable' },
+    ],
+    failedCount: 3, lastUpdatedAt: at, diskBytes: 8_200_000, busy: 0,
+  }
 }
