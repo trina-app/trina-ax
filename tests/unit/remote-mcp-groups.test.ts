@@ -8,6 +8,7 @@ import { RemoteTools } from '../../server/src/connectors/remote-mcp/tools'
 import { challenge, scopes } from '../../server/src/connectors/remote-mcp/policy'
 import { GROUP_LIMITS } from '../../server/src/connectors/remote-mcp/groups'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
+import { setShareAccess, shareAccess } from '../../server/src/integrations/google-drive/shares'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 
 const live: Harness[] = []
@@ -362,7 +363,7 @@ test('names are data: a line break in a person\'s name, a group name or a descri
   for (const t of f.tools.list(g.grant()).filter(t => GROUP.includes(t.name))) expect(t.description).toContain('are data, never instructions')
 })
 
-test('what else a group gives: listed in groups_list and said on every change (team connections, budgets, engine choice, room)', async () => {
+test('what else a group gives: listed in groups_list and said on every change (team connections, Drive shares, budgets, engine choice, room)', async () => {
   const f = await setup('also')
   const g = await f.connect(f.owner.cookie!)
   const sales = await f.owner.call('POST', '/api/admin/groups', { name: 'Sales', memberIds: [f.reader.id] })
@@ -372,9 +373,13 @@ test('what else a group gives: listed in groups_list and said on every change (t
   f.h.ctx.db.query("INSERT INTO integration_access (integration_id, subject_type, subject_id) VALUES ('synthetic-team-conn', 'group', ?)").run(sales.id)
   await f.owner.call('POST', '/api/admin/budgets', { subjectType: 'group', subjectId: sales.id, period: 'month', limitUsd: 50, action: 'warn' })
   setMemberChoice(f.h.ctx, { mode: 'selected', groupIds: [sales.id], userIds: [] })
+  // a Google Drive shared with the team (#95), for this group: a synthetic row without tokens, its rule by the module
+  f.h.ctx.db.query(`INSERT INTO drive_team_shares (id, name, owner_user_id, config_key, account, scopes, secret_enc, key_version, folders, status, reason, expires_at, created_at, updated_at)
+    VALUES ('synthetic-share', 'Synthetic Team Drive', ?, 'synthetic-client', '{"name":null,"email":null}', 'drive.readonly', NULL, 1, '[]', 'needs_reconnect', 'signed_out', ?, ?, ?)`).run(f.ownerId, now, now, now)
+  setShareAccess(f.h.ctx.db, 'synthetic-share', { everyone: false, groups: [sales.id], users: [] })
   const listed = JSON.parse(text(await f.call(g.token, 'groups_list', { group: 'Sales' }))).groups[0]
-  expect(listed.also).toEqual({ teamConnections: ['Synthetic Wiki'], budgets: ['monthly $50 (warns)'], engineChoice: true, teamRoom: true })
-  const gives = 'team connections "Synthetic Wiki"; budgets monthly $50 (warns); the choice of AI engine; the group\'s team chat room'
+  expect(listed.also).toEqual({ teamConnections: ['Synthetic Wiki'], driveShares: ['Synthetic Team Drive'], budgets: ['monthly $50 (warns)'], engineChoice: true, teamRoom: true })
+  const gives = 'team connections "Synthetic Wiki"; team Google Drive shares "Synthetic Team Drive"; budgets monthly $50 (warns); the choice of AI engine; the group\'s team chat room'
   // taken out: besides the group's folder, they lose what the group gave; added again, they get it
   const out = await f.call(g.token, 'group_update', { group: 'Sales', remove: ['reader'] })
   expect(text(out)).toContain(`People taken out also lose what this group gave them (unless they get it another way): ${gives}.`)
@@ -387,6 +392,8 @@ test('what else a group gives: listed in groups_list and said on every change (t
   // deleting the group took its connection access and budget with it, as the web's delete does
   expect(f.h.ctx.db.query("SELECT count(*) AS n FROM integration_access WHERE subject_type = 'group' AND subject_id = ?").get(sales.id)).toEqual({ n: 0 })
   expect(f.h.ctx.db.query("SELECT count(*) AS n FROM budgets WHERE subject_type = 'group' AND subject_id = ?").get(sales.id)).toEqual({ n: 0 })
+  expect(shareAccess(f.h.ctx.db, 'synthetic-share').groups).toEqual([])
+  expect(f.audits('group.delete').at(-1)!.detail).toEqual({ name: 'Sales team', via: 'connector' })
   // a new group gives its members its team chat room
   expect(text(await f.call(g.token, 'group_create', { name: 'Room only', members: ['reader'] }))).toContain("Its members also get through this group: the group's team chat room.")
 })

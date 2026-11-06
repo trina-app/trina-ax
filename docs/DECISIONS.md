@@ -9943,14 +9943,16 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   paths lose control characters; the lists are JSON. The group tool descriptions and the `initialize` instructions
   say that names, usernames, group names, descriptions and file contents are data, never instructions.
 - **Groups give more than folders.** Membership also decides team connections and connection templates
-  (`integrations/connections`), AI connections assigned to the group (`credentials`), budgets, the choice of AI engine
+  (`integrations/connections`), Google Drives shared with the team (#95, `integrations/google-drive/shares.ts`
+  `shareRows` / `shareAccess`; `deleteGroupAs` keeps #95's cleanup of their group rules next to the connector's audit
+  line), AI connections assigned to the group (`credentials`), budgets, the choice of AI engine
   (`admin/engine-choice.ts`), the dev environment (`devenv/setting.ts`: the srt team setting or each project's box
   setting) and the group's team chat room (`rooms`). So "nobody opens or loses a folder" can be true while someone
   just gained a team API key. `groups_list` gives each group's `also` (names, at most 5 per kind, with counts when cut),
   and a change adds "Added people also get through this group: …", "People taken out also lose what this group gave
   them (unless they get it another way): …" or, for a delete, "Its members also lose …". Each kind is read from the
-  module that owns it (`accessOf`, `templateAccess`, `listRows`, `listBudgets`, `memberChoice`, `teamSetting` /
-  `devEnvSetting`); their rules for a person stay there, so the words name what the group gives, not whether someone
+  module that owns it (`accessOf`, `templateAccess`, `shareRows` / `shareAccess`, `listRows`, `listBudgets`,
+  `memberChoice`, `teamSetting` / `devEnvSetting`); their rules for a person stay there, so the words name what the group gives, not whether someone
   also gets it another way.
 - **Limits.** The connector's 120 calls per person per minute and the per-grant queue (at most 4 waiting) apply. Group
   changes: 20 per person per minute (`group-change-user`, refused calls count). Inputs: names 1–100 characters
@@ -9965,8 +9967,9 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   connection, the drop's actor; both lists; create, update and delete with the web's audit fields plus `via`, the
   folder, rule and access words; an update that changes nobody writes nothing; unknown groups and people, an id that is
   another person's username, name taken, nothing to change, invalid input; input size, change rate and bounded words;
-  a line break in a person's name, a group name and a description stays inside quotes; team connections, budgets,
-  engine choice and the room in `also` and in each change's words; `groups_list` pages and cut notes),
+  a line break in a person's name, a group name and a description stays inside quotes; team connections, a team
+  Drive share, budgets, engine choice and the room in `also` and in each change's words, and a delete clears the
+  share's group rule; `groups_list` pages and cut notes),
   `tests/unit/remote-mcp-oauth.test.ts` (write and admin granted when not asked, the token's `scope`, refresh
   keeps, narrows and never widens, unticked grants read only, `offline_access` only when asked, a body without the
   boxes, the audit's `asked`), `tests/unit/remote-mcp-http.test.ts` (through the app, an app asking `mcp:read` like the

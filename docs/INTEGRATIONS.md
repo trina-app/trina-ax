@@ -39,7 +39,7 @@ With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_li
   offered `mcp:admin`, and an app's request for it is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
   their grants for good. The changes call the Admin › Groups server functions (same checks, same audit lines plus
   `via: 'connector'`) and answer with who now opens or loses which folders and what else the group gives (team
-  connections, templates, AI connections, budgets, engine choice, dev environment, team room). Names in answers are
+  connections, templates, team Drive shares, AI connections, budgets, engine choice, dev environment, team room). Names in answers are
   JSON-quoted (a name can hold a line break); the tools and the `initialize` instructions say they are data.
 
 Details: docs/DECISIONS.md "App connectors: upload_file for binary files", "App connectors: one-time upload links" and
