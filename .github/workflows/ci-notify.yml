@@ -1,4 +1,4 @@
-# CI notify: posts to Discord when CI on main fails, and once when main is green again after a failure.
+# CI notify: posts to Discord every time CI on main finishes (passed, failed, or green again after a failure).
 # It runs after CI (workflow_run), so ci.yml keeps using no secret. The only secret is DISCORD_WEBHOOK_URL
 # (Settings → Secrets and variables → Actions); without it this workflow does nothing and passes.
 # The Mac's CI autofix watcher (outside this repo) posts its own progress to the same channel.
@@ -42,14 +42,14 @@ jobs:
 
           case "$CONCLUSION" in
             failure|timed_out|startup_failure) ;;
-            success) if [ "$previous" != "failure" ] && [ "$previous" != "timed_out" ] && [ "$previous" != "startup_failure" ]; then
-                       echo "main stays green; nothing to post"; exit 0; fi ;;
+            success) ;;
             *) echo "conclusion $CONCLUSION; nothing to post"; exit 0 ;;
           esac
 
           minutes=$(( ( $(date -d "$UPDATED" +%s) - $(date -d "$STARTED" +%s) ) / 60 ))
           if [ "$CONCLUSION" = success ]; then
-            color=3600234; head="✅ CI on main is green again"
+            color=3600234; head="✅ CI on main passed"
+            case "$previous" in failure|timed_out|startup_failure) head="✅ CI on main is green again" ;; esac
             failed=""
           else
             color=16736095; head="❌ CI on main failed"
