@@ -1,9 +1,10 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste or drop; each is uploaded at once with POST
-// /api/rooms/:id/files and sent by id), and "@" for the room's members. In a thread (threadRootId) it writes a reply, with
-// one quiet choice under the box: "대화방에도 보내기" (the reply goes to the room's timeline too). The round send button
-// is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
+// /api/rooms/:id/files and sent by id), and "@" for the room's members: a picked name (or "@트리나") stands out in the
+// box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). In a thread (threadRootId) it
+// writes a reply, with one quiet choice under the box: "대화방에도 보내기" (the reply goes to the room's timeline too).
+// The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
 import clsx from 'clsx'
 import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -11,8 +12,9 @@ import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type
 import { api, API, errorText } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { placeKey, roomDrafts as drafts, useRooms } from '../../store/rooms'
+import { placeKey, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
+import { TokenTextarea } from '../TokenTextarea'
 import { IconButton } from '../ui'
 import { useMentionMenu } from './useMentionMenu'
 
@@ -43,15 +45,18 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     if (s) drafts.set(key, s)
     else drafts.delete(key)
   }
-  const mention = useMentionMenu({ text, setText, input, members, meId, ai: true })
+  const mention = useMentionMenu({ text, setText, input, members, meId, ai: true, initial: roomDraftMentions.get(key) })
+  // the draft keeps its mentions too
+  useEffect(() => {
+    if (mention.picked.length) roomDraftMentions.set(key, mention.picked)
+    else roomDraftMentions.delete(key)
+  }, [key, mention.picked])
   // a send the server refused (the AI still answering my last question, …) comes back here, not as a failed bubble
   const back = useRooms((s) => s.returned[key])
   useEffect(() => {
     if (!back) return
     useRooms.getState().takeReturned(key)
-    const typed = drafts.get(key) ?? ''
-    setText(typed ? `${back.body}\n${typed}` : back.body)
-    mention.restore(members.filter((m) => back.mentions.includes(m.id)))
+    mention.putBack(back.body, back.mentions)
     if (back.alsoInRoom) setAlsoInRoom(true)
     if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController() })), ...list])
     input.current?.focus()
@@ -169,7 +174,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               e.target.value = ''
             }}
           />
-          <textarea
+          <TokenTextarea
             ref={input}
             rows={1}
             value={text}
@@ -177,10 +182,6 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             placeholder={threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')}
             maxLength={ROOM_MESSAGE_MAX}
             {...mention.inputProps}
-            onChange={(e) => {
-              setText(e.target.value)
-              mention.track()
-            }}
             onPaste={(e) => {
               const pasted = Array.from(e.clipboardData.files)
               if (pasted.length) {
@@ -197,7 +198,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 submit()
               }
             }}
-            className="block max-h-[200px] min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
+            containerClassName="min-w-0 flex-1"
+            className="max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
             data-testid="room-input"
           />
           <button
