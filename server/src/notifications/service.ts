@@ -15,6 +15,7 @@ import { shareCovers, shareRow } from '../integrations/google-drive/shares'
 import { eventEnabled, getPreferences, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
+import { contributionOf } from '../skills/suggestions'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -347,7 +348,10 @@ export class Notifications {
     let chatId: string | null = null, outcome: ScheduleRunOutcome | null = null
     if (isSkillEvent(row.event_type)) {
       // The Skills screen checks access again when it opens the suggestion (?review= only when the viewer may review).
-      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null }
+      // A batch of a member's skill folders (docs/DECISIONS.md "MC"): who sent it and how many, never a skill's name.
+      const contribution = row.event_type === 'skill.suggested' ? contributionOf(this.ctx.db, row.source_id) : null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'skills', outcome: null,
+        ...(contribution ? { contribution } : {}) }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
     // a room notice links to the room and names who wrote it while the person is still in the room and may see the

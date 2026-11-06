@@ -22,7 +22,7 @@
 // there. The person closing the folder window changes nothing.
 import clsx from 'clsx'
 import { ArrowRight, Check, Copy, FolderOpen, Laptop, Loader2, Terminal } from 'lucide-react'
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { CONNECTOR_SHARE_SOURCES, type CreateSkillShare, type SkillShare, type SkillShareSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { isDesktop, storeApp } from '../../lib/desktop'
@@ -32,7 +32,8 @@ import { holdToasts, type Toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { CONNECTOR_NAME, CopyLine } from '../integrations/AiAppConnect'
 import { Button, ErrorNote, Skeleton, useMediaQuery } from '../ui'
-import { quietLink, SkillShareReview, withNodes } from './SkillShareReview'
+import { FolderHint } from './FolderHint'
+import { quietLink, SkillShareReview } from './SkillShareReview'
 
 /** How often the empty step asks whether Claude Code sent a proposal. */
 export const CLAUDE_CODE_POLL_MS = 3000
@@ -82,21 +83,6 @@ export interface SkillsStepProps {
   busy?: boolean
 }
 
-type Os = 'mac' | 'windows' | 'linux' | 'other'
-function osOf(): Os {
-  if (typeof navigator === 'undefined') return 'other'
-  const n = navigator as Navigator & { userAgentData?: { platform?: string } }
-  const p = `${n.userAgentData?.platform ?? ''} ${n.platform ?? ''} ${n.userAgent ?? ''}`
-  if (/Mac|iPhone|iPad/i.test(p)) return 'mac'
-  if (/Win/i.test(p)) return 'windows'
-  if (/Linux|X11|CrOS/i.test(p)) return 'linux'
-  return 'other'
-}
-
-function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="mx-px inline-block min-w-5 rounded-[5px] border border-b-2 border-line-strong bg-surface px-1 text-center font-mono text-xs leading-[17px] text-ink">{children}</kbd>
-}
-
 function StepHead({ title, desc }: { title: string; desc?: string }) {
   return (
     <div className="space-y-1">
@@ -115,7 +101,6 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
   const app = storeApp()
   const handle = !app && canPickHandle()
   const phone = narrow || (!app && !handle && !canPickInput())
-  const os = osOf()
   const source = isDesktop() ? 'desktop' : 'browser'
   const [share, setShare] = useState<SkillShare | null>(null)
   const [reading, setReading] = useState(false)
@@ -352,23 +337,8 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
   }
 
   // the hint for the folder window: Claude's folder, and Codex's beside it (its settings in .codex, its skills in
-  // .agents since 2026; either one reads)
-  const folder = <b className="font-semibold text-ink">.claude</b>
-  const codex = <b className="font-semibold text-ink">.codex</b>
-  const agents = <b className="font-semibold text-ink">.agents</b>
-  const keys = (shown: string[], said: string) => (
-    <>
-      {/* the keys stay together on one line (⌘ at a line's end and ⇧ . on the next read as two hints) */}
-      <span aria-hidden className="whitespace-nowrap">{shown.map((k) => <Kbd key={k}>{k}</Kbd>)}</span>
-      <span className="sr-only">{said}</span>
-    </>
-  )
-  let hint: ReactNode
-  if (app) hint = withNodes(t('welcome.skills.hintDesktop'), { folder: <span className="font-mono">.claude</span>, codex: <span className="font-mono">.codex</span>, agents: <span className="font-mono">.agents</span>, button: <b className="font-semibold text-ink">{t('welcome.skills.desktopButton')}</b> })
-  else if (!handle) hint = withNodes(t(os === 'mac' ? 'welcome.skills.hintSkillsOnlyMac' : 'welcome.skills.hintSkillsOnly'), { folder, codex, agents, keys: keys(['⌘', '⇧', '.'], t('welcome.skills.keysMac')) })
-  else if (os === 'mac') hint = withNodes(t('welcome.skills.hintMac'), { folder, codex, agents, keys: keys(['⌘', '⇧', '.'], t('welcome.skills.keysMac')) })
-  else if (os === 'linux') hint = withNodes(t('welcome.skills.hintLinux'), { folder, codex, agents, keys: keys(['Ctrl', 'H'], t('welcome.skills.keysLinux')) })
-  else hint = withNodes(t('welcome.skills.hintWindows'), { folder, codex, agents })
+  // .agents since 2026; either one reads): FolderHint.tsx, shared with a member's skill folder pick
+  const hint = <FolderHint app={app} handle={handle} />
   // after a second folder with no skills, going on is the suggested way
   const stuck = misses >= 2
 

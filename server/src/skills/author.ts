@@ -64,10 +64,45 @@ export function skillMakerId(db: Database, rel: string): string | null {
   return e.user_id
 }
 
-/** The maker's name as people know them (an account that was deleted has none). */
+/**
+ * The member whose suggestion became the skill at `rel` (docs/DECISIONS.md "MC": "민준 님이 제안" stays on it): an
+ * approved suggestion that resulted in `rel`, sent by someone else than its approver, whose approver's save made the
+ * file's first version (`makerId`), so a skill deleted and made again there by someone else is not theirs. Their name
+ * while the account is there.
+ */
+export function skillSuggester(db: Database, rel: string, makerId: string | null = skillMakerId(db, rel)): { id: string; name: string } | null {
+  if (!makerId) return null
+  let r: { id: string; name: string } | null = null
+  try {
+    r = db.query(`SELECT s.suggester_id AS id, u.name FROM skill_suggestions s JOIN users u ON u.id = s.suggester_id
+      WHERE s.result_path = ? AND s.status = 'approved' AND s.reviewer_id = ? AND s.suggester_id != s.reviewer_id AND u.deleted_at IS NULL
+      ORDER BY s.reviewed_at DESC LIMIT 1`).get(rel, makerId) as { id: string; name: string } | null
+  } catch { return null }
+  return r && r.name.trim() ? { id: r.id, name: r.name.trim() } : null
+}
+
+/** skillSuggester for many paths at once (the skills list): only paths that some approved suggestion resulted in are
+ * looked at closer. */
+export function suggestersOf(db: Database, rels: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>()
+  if (!rels.length) return out
+  let made: Set<string>
+  try { made = new Set((db.query("SELECT DISTINCT result_path AS p FROM skill_suggestions WHERE status = 'approved' AND result_path IS NOT NULL").all() as { p: string }[]).map((x) => x.p)) } catch { return out }
+  for (const rel of rels) {
+    if (!made.has(rel)) continue
+    const s = skillSuggester(db, rel)
+    if (s) out.set(rel, s.name)
+  }
+  return out
+}
+
+/** The maker's name as people know them (an account that was deleted has none); a skill a member suggested is theirs
+ * (skillSuggester), not its approver's. */
 export function skillMakerName(db: Database, rel: string): { id: string; name: string } | null {
   const id = skillMakerId(db, rel)
   if (!id) return null
+  const suggested = skillSuggester(db, rel, id)
+  if (suggested) return suggested
   const u = db.query('SELECT name, deleted_at FROM users WHERE id = ?').get(id) as { name: string; deleted_at: string | null } | null
   return u && !u.deleted_at && u.name.trim() ? { id, name: u.name.trim() } : null
 }

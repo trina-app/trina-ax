@@ -11,6 +11,7 @@ import { IsoTime, RelPath, page, PageQuery } from './common'
 import { endpoint } from './endpoint'
 import { UserRef } from './entities'
 import { SkillInput } from './skill-inputs'
+import { ShareApp, ShareExcludedReason, ShareSkillIn, SKILL_SHARE_LIMITS } from './skill-shares'
 
 export const SkillInfo = z.object({
   /** Entry point: legacy skills/주간-보고서.md or standard skills/weekly-report/SKILL.md. */
@@ -29,6 +30,9 @@ export const SkillInfo = z.object({
   /** a request people can send as it is ("내 할 일 정리해 줘"): the header's metadata `example`, one line of at most
    * SKILL_EXAMPLE_MAX characters. Absent: skillExample() takes the first quoted request of the description */
   example: z.string().optional(),
+  /** a member suggested it and an owner or admin approved it (docs/DECISIONS.md "MC"): the member's name while their
+   * account is there ("민준 님이 제안"); the approver's save made the file, so this is never read from the file's text */
+  suggestedBy: z.string().optional(),
 })
 export type SkillInfo = z.infer<typeof SkillInfo>
 /** The longest metadata `example` (characters); a longer one is ignored. */
@@ -114,6 +118,11 @@ export const SkillContent = z.string().max(SKILL_CONTENT_MAX)
 export const SkillSuggestionStatus = z.enum(['pending', 'approved', 'rejected'])
 export type SkillSuggestionStatus = z.infer<typeof SkillSuggestionStatus>
 
+/** Members contribute (docs/DECISIONS.md "MC"): skill folders from a member's own computer go as one batch of
+ * suggestions; at most `batch` folders in one send, and at most `open` suggestions of one member waiting at a time
+ * (every kind of suggestion counts). */
+export const CONTRIBUTE_LIMITS = { batch: 10, open: 20 } as const
+
 /** Where the suggestion comes from: an answer in one of the caller's own chats, or a file in their own folder. */
 export const SkillSuggestionSource = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('message'), chatId: Uuid7, messageId: Uuid7 }),
@@ -128,8 +137,9 @@ export const SkillSuggestion = z.object({
   name: z.string(),
   description: z.string(),
   content: z.string(),
-  /** a chat answer, or the file path (users/<id>/… of the suggester) */
-  source: z.object({ kind: z.enum(['message', 'file']), path: RelPath.nullable() }),
+  /** a chat answer, the file path (users/<id>/… of the suggester), or a skill folder from the suggester's computer
+   * (`folder`, docs/DECISIONS.md "MC"; path null) */
+  source: z.object({ kind: z.enum(['message', 'file', 'folder']), path: RelPath.nullable() }),
   suggester: UserRef,
   reviewer: UserRef.nullable(),
   reviewNote: z.string().nullable(),
@@ -137,10 +147,47 @@ export const SkillSuggestion = z.object({
   resultPath: RelPath.nullable(),
   createdAt: IsoTime,
   reviewedAt: IsoTime.nullable(),
-  /** the caller manages the target folder (may register or turn it down) */
+  /** the caller manages the target folder (may register or turn it down); a skill folder: only owners and admins */
   canReview: z.boolean(),
+  /** source `folder` only: what the folder holds (its files and sizes, never their content but SKILL.md's, which is
+   * `content`); approving writes skills/<name>/ with them. Absent for other kinds and from older servers */
+  folder: z.object({
+    app: ShareApp,
+    /** the SKILL.md's metadata title, if any */
+    title: z.string().nullable(),
+    files: z.array(z.object({ path: z.string(), bytes: z.number().int().nonnegative() })),
+    /** script files left out: the team never runs them */
+    scriptsDropped: z.number().int().nonnegative(),
+    /** it names a path on the member's computer: it may not work for the team */
+    personalPath: z.boolean(),
+    /** a team skill of the same name the reviewer can see when it came */
+    sameName: z.object({ path: z.string(), title: z.string() }).nullable(),
+  }).nullable().optional(),
+  /** the batch it came with (one Inbox line per batch); null for a suggestion sent alone */
+  batchId: z.string().nullable().optional(),
 })
 export type SkillSuggestion = z.infer<typeof SkillSuggestion>
+
+/** POST /api/skills/suggestions/batch (docs/DECISIONS.md "MC"): skill folders a member picked on their computer, as
+ * the browser read them (lib/skillScan.ts: a skill with a key never leaves the computer). The server checks each one
+ * again with the checks of 내 스킬 가져오기 (skills/share-check.ts) and makes one suggestion per skill that passes. */
+export const ContributeSkillsBody = z.object({
+  /** whose folder: claude (default) or codex */
+  app: ShareApp.optional(),
+  skills: z.array(ShareSkillIn).min(1).max(CONTRIBUTE_LIMITS.batch),
+}).strict()
+export type ContributeSkillsBody = z.infer<typeof ContributeSkillsBody>
+/** A skill of the batch the server did not take: the checks of 내 스킬 가져오기 (secret, scripts, plugin, too_big,
+ * not_skill), or `pending`: the member already suggested a skill folder of that name that still waits. */
+export const ContributeRefusal = z.object({ name: z.string(), reason: z.enum([...ShareExcludedReason.options, 'pending']), detail: z.string().nullable() })
+export type ContributeRefusal = z.infer<typeof ContributeRefusal>
+export const ContributedSkills = z.object({
+  /** the batch (null when nothing was taken) */
+  batchId: z.string().nullable(),
+  items: z.array(SkillSuggestion),
+  refused: z.array(ContributeRefusal),
+})
+export type ContributedSkills = z.infer<typeof ContributedSkills>
 
 export const CreateSkillSuggestionBody = z.object({
   source: SkillSuggestionSource,
@@ -151,9 +198,13 @@ export const CreateSkillSuggestionBody = z.object({
 })
 export const ApproveSkillSuggestionBody = z.object({
   targetFolder: SkillFolderPath,
+  /** a skill folder (source `folder`): its folder name, lowercase letters, digits and hyphens (the server checks it) */
   name: SkillName,
-  description: SkillDescription,
-  content: SkillContent.refine((s) => s.trim().length > 0, { message: 'empty' }),
+  /** at most 300 characters, a skill folder's at most 1024 (the server checks which applies) */
+  description: z.string().trim().max(1024),
+  /** at most SKILL_CONTENT_MAX characters, a skill folder's SKILL.md body at most a skill file's size (the server
+   * checks which applies) */
+  content: z.string().max(SKILL_SHARE_LIMITS.fileBytes).refine((s) => s.trim().length > 0, { message: 'empty' }),
   /** file name without .md (default: from the name) */
   fileName: z.string().trim().min(1).max(80).optional(),
 })
@@ -234,6 +285,7 @@ export const SKILLS = {
   listSkillSuggestions: endpoint({ method: 'GET', path: '/api/skills/suggestions', auth: 'user', owner: 'B', query: SkillSuggestionsQuery, response: page(SkillSuggestion), summary: 'My suggestions, or (scope=review) the suggestions for skills folders I manage. Nobody else sees them.' }),
   getSkillSuggestion: endpoint({ method: 'GET', path: '/api/skills/suggestions/:id', auth: 'user', owner: 'B', response: SkillSuggestion, summary: 'One suggestion: its suggester and the managers of its target folder only (404 for anyone else).' }),
   createSkillSuggestion: endpoint({ method: 'POST', path: '/api/skills/suggestions', auth: 'user', owner: 'B', status: 201, body: CreateSkillSuggestionBody, response: SkillSuggestion, summary: 'Suggest as skill: from an answer in my chat or a file in my folder; stored on the server (not in skills/); the managers of the target folder are told.' }),
+  contributeSkills: endpoint({ method: 'POST', path: '/api/skills/suggestions/batch', auth: 'user', owner: 'B', status: 201, body: ContributeSkillsBody, response: ContributedSkills, summary: 'Members contribute: skill folders from my own computer (read in the browser, keys left there) as one batch of suggestions, each checked again like 내 스킬 가져오기 (secrets, scripts, size, names, paths); stored outside the team files until an owner or admin approves; the owners and admins get one Inbox line.' }),
   approveSkillSuggestion: endpoint({ method: 'POST', path: '/api/skills/suggestions/:id/approve', auth: 'user', owner: 'B', body: ApproveSkillSuggestionBody, response: SkillSuggestion, summary: 'Register: a manager of the target folder writes it under skills/ (audited, version history); the suggester is told.' }),
   rejectSkillSuggestion: endpoint({ method: 'POST', path: '/api/skills/suggestions/:id/reject', auth: 'user', owner: 'B', body: RejectSkillSuggestionBody, response: SkillSuggestion, summary: 'Turn down: a manager of the target folder turns it down; the suggester is told.' }),
   listSkillChanges: endpoint({ method: 'GET', path: '/api/admin/skill-changes', auth: 'admin', owner: 'A', query: PageQuery, response: page(SkillChange), summary: 'Every create / edit / move / delete under skills/ (people and AI), newest first.' }),

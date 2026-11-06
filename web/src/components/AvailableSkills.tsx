@@ -198,7 +198,8 @@ function SkillRow({ skill: s, folder, onRun }: { skill: Skill; folder: boolean; 
   const t = useT()
   // the name people read (its title, else its name); the description without a lead that repeats the title
   const title = skillTitle(s)
-  const line = [s.personal || !folder ? '' : `${skillHome(s.path)}/`, skillSummary(s)].filter(Boolean).join(' · ')
+  // a skill a member suggested keeps their name (docs/DECISIONS.md "MC")
+  const line = [s.personal || !folder ? '' : `${skillHome(s.path)}/`, s.suggestedBy ? t('skills.suggestedBy', { name: s.suggestedBy }) : '', skillSummary(s)].filter(Boolean).join(' · ')
   // a skill with a form opens it; any other starts a chat with "/<name> " in the message box, as before
   const use = () => (s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
