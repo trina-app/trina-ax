@@ -62,10 +62,12 @@ export function skillWriteTarget(rel: string): boolean {
  * function is synchronous. upload_file, create_upload_link and the link PUT all use it.
  */
 export function checkUploadTarget(ctx: AppContext, user: Principal, filePath: string, sources: ReadSource[], size: number | null): Authorized | UploadOutcome {
+  // A null turn ID normally means a human file API. An external model has no server confirmation card. The path as
+  // written first, so a case-sensitive disk (Linux) gives the same answer as macOS for "Users/<id>/Skills"
+  if (skillWriteTarget(filePath)) return fail('Skill changes require confirmation inside the team app.', { path: filePath })
   const target = authorize(ctx.files.fx, ctx.files.rules(), user, filePath, 'write', { createDirs: true })
   const rel = target.rel
-  // A null turn ID normally means a human file API. An external model has no server confirmation card.
-  if (skillWriteTarget(rel) || skillWriteTarget(filePath)) return fail('Skill changes require confirmation inside the team app.', { path: rel })
+  if (skillWriteTarget(rel)) return fail('Skill changes require confirmation inside the team app.', { path: rel })
   if (widening(ctx.db, null, target.segs, sources)) return fail('Saving here would expose previously read material to more people. Use a folder with the same or narrower access.', { path: rel })
   if (target.exists && target.st!.isDirectory()) return fail(`'${rel}' is a folder.`, { path: rel })
   // No per-turn write budget: the grant's TurnFiles live as long as the connection is in use, so it never resets.
