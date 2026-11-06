@@ -116,9 +116,10 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
           {/* one line; a tap opens the next step (and its button, but never "다시 보내기": an orange button above the
               greeting) */}
           <h2 id="team-goal-title" className="text-label">
-            <button type="button" onClick={() => setShown((v) => !v)} aria-expanded={shown} aria-controls={nextId} className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-lg px-2 text-balance transition hover:bg-hover" data-testid="team-goal-toggle">
-              <span className="min-w-0">{title}{counts}</span>
-              <ChevronDown size={15} className={clsx('shrink-0 text-faint transition', shown && 'rotate-180')} aria-hidden />
+            {/* the chevron runs with the text, so it stays after the last word when a longer language wraps */}
+            <button type="button" onClick={() => setShown((v) => !v)} aria-expanded={shown} aria-controls={nextId} className="min-h-11 max-w-full rounded-lg px-2 py-2.5 text-balance transition hover:bg-hover" data-testid="team-goal-toggle">
+              {title}{counts}
+              <ChevronDown size={15} className={clsx('ml-1.5 inline-block align-[-3px] text-faint transition', shown && 'rotate-180')} aria-hidden />
             </button>
           </h2>
           <div id={nextId} hidden={!shown} className="mb-3 px-2">
