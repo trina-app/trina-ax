@@ -10707,6 +10707,123 @@ a later member sees a room from their join on (`visible_from_seq`), threads incl
   only), the permission matrix (`listRoomThread`, `markRoomThreadRead`, `reactRoomMessage`), and the web tests
   `rooms-store`, `room-messages`, `room-thread`, `room-sound`, `push-worker`.
 
+## 내 AI 채팅에서 대화방 읽기 — the AI chat reads my conversations (feat/chat-reads-rooms, 2026-11-06)
+
+The owner: "우리 클로드 세션들은 내 채팅방을 다 볼 수 있지? '~ 채팅방 봐봐' 하면 되겠지?" Until now only @트리나 inside a room
+saw that room. Now a person's own AI chat reads their rooms, with their view and nothing more.
+
+- **Three tools, in the person's own chats only** (`server/src/chat/room-tools.ts`, data in `server/src/rooms/reader.ts`):
+  `rooms` (the rooms I am in now: name, kind, member count, unread, followed threads with news, last activity, id; with
+  `query`, `person`, `since` or `until` the messages I can see that match, newest first, with room, author, time and an
+  excerpt), `room_read` (a room's timeline or one thread: the newest 50 by default, at most 200, `since` / `until` in the
+  team's time zone, oldest first; a root says "thread: N replies" and how to open it) and `room_file` (a file sent in a
+  room: text through the Drive file's extractors, text layer only, no OCR; pictures through `imageForModel`, the read's
+  switch, engine check and per-answer budget; video and audio are named, not read). They are never offered in a room's
+  own AI session (`ROOM_TOOLS` does not list them), a confidential chat (not local tools; with safe operations on, every
+  chat is), a draft chat, an approved scheduled template (its scope refuses them) or to a sub-agent (`PARENT_ONLY_TOOLS`:
+  they patch their step, and other people's words stay with the main AI). A scheduled run of the person's own may read
+  rooms; nobody answers its cards, so it changes nothing after a read. A Slack-asked chat is the person's chat too (its
+  answer goes to their Slack thread, as team files do).
+- **Exactly my view.** Only rooms I am a member of now (not archived); the store's rules decide each line (`SEE_SQL`,
+  `canSee`, `TIMELINE_SQL`): from my join on, a thread by its root's seq, other people's private previews never, my own
+  marked "a private preview only your user sees", deleted messages left out (a deleted root that still has replies shows
+  only that it was there, so its thread stays readable), event lines as short notices ("X invited Y"). Thread replies
+  stay in their thread unless they went to the room too (`thread_reply_of`). My role adds nothing: an owner or admin
+  who is not in a room finds nothing. Rooms are found among mine only, so an id or a name of a room I am not in answers
+  word for word like one that does not exist (no oracle); a person searched for who wrote nothing I see, or nobody by
+  that name, both give "no messages". A room by name: its title as I see it (own name, group name, the other person of
+  a 1:1 chat, the members of an unnamed group chat, "everyone"), with "채팅방", "님" and the like after it, then a title
+  that holds it; several equally good matches are listed with their ids and the AI asks. Here the room's own name is
+  given to the AI (the person names rooms by it); it is data like the messages.
+- **Room words are data.** Every result says the messages are other people's, never instructions, and that links in
+  them are not the person's (the same framing as `<room_context>` in rooms/ai.ts); each message is a `<room_message>`
+  with its author, who that is to the person and its time; our block tags inside are neutralised (`room_messages`,
+  `room_event`, `room_list`, `room_file`, `room_refs` joined `BLOCK_TAGS`). Links in a result are not learned links: a
+  web_fetch of one needs the address card.
+- **The mark: every change waits for a yes after a room was read.** Any call of a room tool sets `chats.rooms_seen`
+  (migration 254, additive, reader 1) and taints the session. From then on, for the rest of that chat (a new session,
+  an edited first message and a restart do not clear it; it is read from the database on every call), every tool call
+  outside `ROOMS_SEEN_READ_ONLY_TOOLS` (`rooms/ai-tools.ts`: the room session's read-only tools, the room tools, the
+  scheduled tasks' list, Drive's search, list and read, `find_tools`, `set_title`, and the in-app browser's reading tools
+  only in a turn that has the browser)
+  raises the room session's server card (`confirmRoomChange`, its words: "여기에 대화방 메시지(다른 사람이 쓴 글)가
+  들어와서, 무언가를 바꾸기 전에 먼저 물어봐요. 트리나가 이 작업을 하려고 해요: …"), the same card with the same
+  details (what it does, the file, all of what it writes one click away) and the same rule for skill and instruction
+  files. No answer or "하지 않기" changes nothing. `remember` raises its own card with the text it would keep
+  (`tainted || roomsSeen`), so room content never becomes a memory without a yes. A planted "@fake" instruction in a
+  room message that the stand-in AI follows is the test (`b-chat-rooms.test.ts`).
+- **Read scope.** What a read or search showed joins the chat's read scope as `{type:'room', id, fromSeq}` (the oldest
+  message given, by who sees it), so saving it where people outside the room can read also asks with the wider-audience
+  card. A plain list of rooms adds nothing (names only; every change asks anyway, and a scope of a hundred rooms would
+  make that card name them all).
+- **No audit naming rooms.** The tool lines (`tool_events`, which admins read) say only `rooms -> search, 3 shown`,
+  `room_read -> 12 messages`, `room_file -> text 4000 characters`: no room, id, person, word searched or file name. No
+  `audit_log` row is written. The steps under the answer (the person's own chat) name the room: "대화방 읽기 · 마케팅"
+  (patched from the id the AI passed to the room's title as the person sees it; a bare id is never shown), "대화방 찾기
+  "예산"", "대화방 파일 읽기 · 보고서.pdf", in the five languages (`FILE_STEP_VERB`; English "Read conversation").
+- **Limits.** A read gives at most 200 messages, each cut at 4,000 characters, the whole at 60,000 with a line that says
+  how to go on (`until=` the oldest shown). A search looks at the newest 20,000 positions of each room (the
+  `(room_id, seq)` index), at most 100 rooms and 100,000 positions in all (the latest activity first), at most 100 results. A list counts only the 100 rooms
+  it shows, and a room named by its name is matched on its title alone (the counts are read for the match only). A file's text at most 40,000
+  characters a call (`offset` reads on), files up to the plan's read limit and 32 MB.
+- **"#" in the AI chat's box.** Typing "#" lists the rooms I am in (group chats, team rooms, the everyone room, 1:1
+  chats as "<name> · 1:1"), filtered as I type (titles, and a 1:1 or group chat by a member's name), arrow keys, Enter
+  or Tab, Esc, a tap; rows 44 px on phones. Picking writes "#마케팅 " as a token: accent text on the soft accent ground,
+  drawn by a layer behind the native text box (whose own text is then transparent), so Korean input, selection and spell
+  check stay the box's own; Backspace or Delete takes it whole and the caret never stops inside it. What is sent is
+  `#[마케팅](room:<id>)` (`shared/src/api/rooms.ts` `roomRefToken`); the draft keeps that form. The server puts a
+  `<room_refs>` block in front of the message with the titles and ids (only where the room tools are offered), so the AI
+  reads exactly that room with `room_read` and never guesses by name; membership is checked when it reads (a token of a
+  room I left reads nothing, said as for an unknown room). `/회의록 #마케팅` runs the skill with that room as its input.
+  A sent message shows its tokens as the same chips; editing a message or a waiting message shows "#마케팅" and keeps the
+  room. Not in a room's own box: a room's name would reach people who are not in it. Plain words ("마케팅 대화방 봐봐")
+  still work through the tools.
+- **Independent review (2026-11-06) fixes.** A sub-task's description (written by the AI, up to 80 characters) went
+  into the `agent` audit line, which admins read: once a chat read rooms only its length is kept. A picked room whose
+  title had brackets, double spaces or more than 80 characters lost its id (the box showed the token's cleaned title,
+  the picker kept the raw one): the picker keeps the token's title. Two rooms of one title (two 김민지 1:1 chats) kept the
+  first pick: one room per title now, the latest pick, and rooms whose token was deleted are forgotten. Approved
+  scheduled templates are no longer offered the tools (their scope refused them at the call). The browser's reading
+  tools skip the card only in a turn that has the browser. A converter's error (it can quote the file) is one line with
+  our tags neutralised. "Several rooms match" gives times in the team's zone; a date's end is the next day's start (a
+  day with a clock change); the person searched for is matched among all accounts in a fixed order. Left: paging back
+  with `until=` skips another message of the very same millisecond; AI-chosen names in other tools' audit lines (a file
+  path, an artifact key) are as they were, and every such change after a room read waited for the person's yes.
+- **Second review (2026-11-06) fixes.**
+  - A `#` token's title is a room's name, which any member of a group chat sets, so it is never the person's words:
+    the address check (`tools/url-gate.ts typedUrls`) reads the person's messages without their tokens (a room named
+    "https://…" made that address one the person typed: no card), a token's title never holds "://"
+    (`roomRefTitle`), and the AI gets the message with "[#room N]" in each token's place, the titles and ids only in
+    the `<room_refs>` data block; earlier messages of the conversation give the id alone. A message that holds a token
+    marks the chat (`rooms_seen`) by itself, before any tool is called.
+  - My own private AI preview in what a read or search showed (private because it used what the room may not read)
+    adds `{type:'user'}` to the chat's read scope, so saving it where others can read still asks.
+  - Every room tool call names its step once, found or not (the verb alone when nothing was found, never the name the
+    AI guessed), so batched calls keep their own steps (patchToolStep is first in, first out per tool).
+  - A search has one budget for all its rooms (`ROOM_SEARCH_BUDGET`, 100,000 positions; at most 100 rooms), the rooms
+    with the latest activity first; what was not searched, or only in part, is said.
+  - In a chat that read rooms, every http(s) address in a tool's audit line keeps only its site and a 12-character
+    fingerprint (`tools/audit-url.ts`; `web_fetch https://example.com/… #3f2a9c1b07de -> 4 chars`); the intro deck's
+    "was this article opened" check accepts that form.
+  - Before a read, the person's team rooms and everyone room are put right as `GET /api/rooms` does
+    (`Rooms.syncFor`): someone taken out of a group a moment ago reads nothing of its room.
+  - The `#` list does not open in a confidential chat (nor while that is not known).
+  - Tests added: archived rooms and a room I was taken out of; the tool set for a room session, a draft, an approved
+    template and a confidential chat; after a read, a sub-agent's write, `save_url`, a schedule and a connection's
+    tool each wait for the card; a scheduled run in such a chat changes nothing and raises no card.
+- **Rollback.** Migration 254 is additive (reader level unchanged). An older build has no room tools and ignores the
+  mark: in a chat that already holds room content it asks only where it asked before (memories after outside content,
+  the wider-audience card). Accepted: going back is rare, and nothing new is read there.
+- **Numbering.** 254, reserved for this branch: 249 and 253 are the skill-share branch's (PR #100), 250 group chats, 251
+  threads, 252 feat/phone-nav (chat seen), 255 feat/room-notify-prefs.
+- **Tests.** `tests/unit/b-chat-rooms.test.ts` (where the tools are, membership and the identical unknown answer, admins,
+  names, a later member, threads, previews, deleted messages and event lines, neutralised tags, limits, since / until,
+  search, the step words, the card after a read and not before, in later turns and after a database reopen, a planted
+  write and memory refused, the audit lines, room files, "#" tokens with a skill and after leaving),
+  `step-labels-tools.test.ts`, the tool lists in `b-chat`, `b-browser` and `i-wiring`, and the web test
+  `room-refs.test.tsx` (the "#" list, its filter, picking, the token sent with the room id, Backspace, chips, the room
+  steps in five languages).
+
 ## K — Knowledge graph: CodeGraph's code map of the team folders, filtered at every question (2026-11-06)
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
   upload the files its automaticaly sync the folder for the knowledge graph". The AI gets `knowledge_explore`: functions,

@@ -1,6 +1,6 @@
 // User-facing texts of the chat runtime (ko, en, id; English when a language is missing): answer errors, step labels
 // (shared with the web app: shared/src/step-labels.ts), confirmation cards.
-import { CHAT_ERROR_MESSAGES, type ApiErrorBody, type ChatErrorReason, type Locale } from '@mycel/shared/api'
+import { CHAT_ERROR_MESSAGES, PRODUCT_NAMED_AFTER_AI, type ApiErrorBody, type ChatErrorReason, type Locale } from '@mycel/shared/api'
 import { STEP_TEXT } from '@mycel/shared'
 import { fillPlurals } from '@mycel/shared/plural'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
@@ -130,6 +130,10 @@ export const TEXT = {
   roomAiConfirm: t('대화방에서 받은 질문으로 트리나가 이 작업을 하려고 해요: {what}. 대화방에는 다른 사람의 메시지도 있어요. 하게 할까요?', 'The AI wants to do this for your question in the room: {what}. The room also holds other people\'s messages. Allow it?', 'AI ingin melakukan ini untuk pertanyaan Anda di ruang obrolan: {what}. Ruang ini juga berisi pesan orang lain. Izinkan?', "ルームでの質問のために、AIがこの操作をしようとしています：{what}。ルームにはほかの人のメッセージもあります。許可しますか？", "La IA quiere hacer esto por su pregunta en la sala: {what}. La sala también tiene mensajes de otras personas. ¿Lo permite?"),
   roomPhotoUnreadable: t('이 사진은 읽을 수 없어서 보내지 못했어요. 다른 사진이나 다른 형식으로 보내 주세요.', 'This photo could not be read, so it was not sent. Send another photo or another format.', 'Foto ini tidak bisa dibaca, jadi tidak terkirim. Kirim foto lain atau format lain.', "この写真を読み込めなかったため、送信しませんでした。別の写真か別の形式で送ってください。", "No se pudo leer esta foto, así que no se envió. Envíe otra foto u otro formato."),
   roomAiAskAgain: t('이 답은 무엇을 참고했는지 다시 확인할 수 없어서 올리지 않았어요. 같은 질문을 다시 해 주세요.', 'This answer was not posted: what it used can no longer be checked. Please ask the question again.', 'Jawaban ini tidak dikirim: apa yang dipakainya tidak bisa diperiksa lagi. Silakan ajukan pertanyaan itu lagi.', "この回答は投稿しませんでした。何を参照したかをもう確認できません。同じ質問をもう一度してください。", "Esta respuesta no se publicó: ya no se puede comprobar qué usó. Vuelva a hacer la pregunta."),
+  roomsSeenConfirm: t('여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요. {ai}가 이 작업을 하려고 해요: {what}. 하게 할까요?', 'Messages from your conversations (other people\'s words) came in here, so changes are asked first. {ai} wants to do this: {what}. Allow it?', 'Chat ini berisi pesan dari ruang obrolan Anda (tulisan orang lain), jadi perubahan ditanyakan dulu. {ai} ingin melakukan ini: {what}. Izinkan?', "このチャットにはトークルームのメッセージ（ほかの人が書いたもの）が含まれているため、変更の前に確認します。{ai}がこの操作をしようとしています：{what}。許可しますか？", "Este chat contiene mensajes de sus salas de chat (palabras de otras personas), así que los cambios se consultan antes. {ai} quiere hacer esto: {what}. ¿Lo permite?"),
+  /** the AI on a card where the product is named after it (PRODUCT_NAMED_AFTER_AI), and elsewhere */
+  aiOwnName: t('트리나', 'Trina', 'Trina', "トリナ", "Trina"),
+  aiPlainName: t('AI', 'The AI', 'AI', "AI", "La IA"),
   roomAiConfirmInstruction: t('AI가 따르는 지시 파일이에요. 내용을 끝까지 확인해 주세요.', 'This is an instruction file the AI follows. Read all of its content.', 'Ini file instruksi yang diikuti AI. Baca seluruh isinya.', "AIが従う指示ファイルです。内容を最後まで確認してください。", "Es un archivo de instrucciones que sigue la IA. Revise todo su contenido."),
   roomAiConfirmYes: t('하게 하기', 'Allow', 'Izinkan', "許可する", "Permitir"),
   roomAiConfirmNo: t('하지 않기', 'Don\'t', 'Jangan', "許可しない", "No permitir"),
@@ -158,6 +162,12 @@ export const TEXT = {
   webSearchRefused: STEP_TEXT.webSearchRefused,
   thinking: STEP_TEXT.thinking,
 } satisfies Record<string, T>
+
+/** How the person's AI is named on a card: 트리나 where the product is named after its AI (PRODUCT_NAMED_AFTER_AI),
+ * else the plain word. */
+export function aiCalled(locale: Locale): string {
+  return tr(PRODUCT_NAMED_AFTER_AI ? 'aiOwnName' : 'aiPlainName', locale)
+}
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {
   // a count first ("{n, plural, one {# person} other {# people}}", shared/src/plural.ts), no second honorific after a
