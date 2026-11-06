@@ -7,7 +7,7 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { cleanImage, exifOrientation, imageFormat, PHOTO, STRICT } from '../../server/src/uploads/metadata'
+import { cleanImage, exifOrientation, imageFormat, JPEG_STRAY_MAX, PHOTO, STRICT } from '../../server/src/uploads/metadata'
 import { displaySize, imageSize } from '../../server/src/uploads/image'
 
 const dir = path.join(import.meta.dir, '../fixtures/exif')
@@ -147,6 +147,22 @@ describe('crafted JPEG segments', () => {
       const c = cleanImage(f, PHOTO)
       expect({ name, cleaned: c instanceof Uint8Array, gps: hasGps(c) }).toEqual({ name, cleaned: true, gps: false })
     }
+  })
+
+  test('stray bytes between two segments are skipped, as libjpeg does, and never kept; too many are refused', () => {
+    // after the first segment behind SOI: a few junk bytes, then the rest of the file
+    const firstEnd = 4 + ((jpg[4]! << 8) | jpg[5]!)
+    const junk = lat('\x00\x12JUNK\x34')
+    const f = new Uint8Array(Buffer.concat([jpg.subarray(0, firstEnd), junk, jpg.subarray(firstEnd)]))
+    const c = cleanImage(f, PHOTO) as Uint8Array
+    expect(c).toBeInstanceOf(Uint8Array)
+    expect({ gps: hasGps(c), leaks: leaks(c), junk: text(c).includes('JUNK'), orientation: exifOrientation(c), size: imageSize(c) })
+      .toEqual({ gps: false, leaks: [], junk: false, orientation: 6, size: { width: 64, height: 48 } })
+    // the same as the file without them
+    expect(Buffer.from(c).equals(Buffer.from(cleanImage(jpg, PHOTO) as Uint8Array))).toBe(true)
+    // more than JPEG_STRAY_MAX bytes before the next marker: not a JPEG this reads
+    const long = new Uint8Array(Buffer.concat([jpg.subarray(0, firstEnd), Buffer.alloc(JPEG_STRAY_MAX + 1, 0x20), jpg.subarray(firstEnd)]))
+    expect(cleanImage(long, PHOTO)).toBeNull()
   })
 
   test('JFIF in APP0 and Adobe in APP14 stay (they draw the picture)', () => {

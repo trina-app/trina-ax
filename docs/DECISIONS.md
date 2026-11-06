@@ -8106,7 +8106,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   - **Keep-lists, and refusal when unsure (review of bf51a728).** Every format keeps only what draws the picture:
     JPEG the frame, scan, Huffman, quantisation and restart segments (each checked against its fixed layout), APP0
     only as JFIF, APP14 only as Adobe, APP2 only as an ICC profile (JFXX, JPGn 0xF0–0xFD, every other APPn and
-    comments go); PNG and WebP their picture chunks, and an animated WebP's frames only their picture chunks; HEIC its
+    comments go; stray bytes between segments are skipped up to the next marker, as libjpeg does, up to 4 KB, and
+    never kept); PNG and WebP their picture chunks, and an animated WebP's frames only their picture chunks; HEIC its
     picture items (EXIF becomes an empty block, every other item spaces), the parts of mdat they use (the rest zeros)
     and its item tables and properties (other boxes' payloads zeros). A file that does not read exactly (a box that
     does not fit, an item table it cannot follow) is refused with a reason instead of being passed on. HEIC's tables

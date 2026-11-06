@@ -67,7 +67,8 @@ export function exifOrientation(b: Uint8Array): number {
   try {
     if (f === 'jpeg') {
       let i = 2
-      while (i + 4 <= b.length && b[i] === 0xff) {
+      while (i + 4 <= b.length) {
+        if (b[i] !== 0xff) { i = strayEnd(b, i); if (i < 0) break; continue } // stray bytes, as cleanJpeg skips them
         const m = b[i + 1]!
         if (m === 0xda || m === 0xd9) break
         const len = be16(b, i + 2)
@@ -138,6 +139,14 @@ function cleanPng(b: Uint8Array, o: CleanOptions): Uint8Array | 'animated' | nul
     if (name === 'IEND') { seenEnd = true; break }
   }
   return seenEnd ? join(out) : null
+}
+
+/** at most this many stray bytes are skipped between two JPEG segments (more: the file is not read) */
+export const JPEG_STRAY_MAX = 4096
+/** The next 0xff (a marker) after stray bytes at `from`, or -1 when there is none within JPEG_STRAY_MAX bytes. */
+function strayEnd(b: Uint8Array, from: number): number {
+  const j = b.indexOf(0xff, from)
+  return j < 0 || j - from > JPEG_STRAY_MAX ? -1 : j
 }
 
 /** Where a JPEG scan (entropy-coded data) that starts at `from` ends: the first 0xff that is not a stuffed 0xff00, a
@@ -214,7 +223,12 @@ function cleanJpeg(b: Uint8Array, o: CleanOptions): Uint8Array | null {
   let i = 2
   // a marker is two bytes (the end-of-image marker can be the file's last two bytes); a segment adds a 2-byte length
   while (i + 2 <= b.length) {
-    if (b[i] !== 0xff) return null
+    if (b[i] !== 0xff) {
+      // stray bytes between segments: skipped up to the next marker, as libjpeg does (with a warning), and never kept
+      i = strayEnd(b, i)
+      if (i < 0) return null
+      continue
+    }
     const m = b[i + 1]!
     if (m === 0xff) { i++; continue } // fill byte
     if (m === 0xd9) { out.push(b.subarray(i, i + 2)); return join(out) }
