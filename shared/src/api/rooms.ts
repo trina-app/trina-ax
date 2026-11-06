@@ -68,14 +68,18 @@ export type RoomKind = z.infer<typeof RoomKind>
 export const ROOM_GROUP_MAX = 100
 /** A room's own name: at most this many characters (after trimming). */
 export const ROOM_NAME_MAX = 80
-/** Control characters, line and paragraph separators, the bidirectional marks, overrides and isolates (a name that
- * reads backwards or breaks a line is not a name), and invisible characters: the zero-width space, the byte order mark
- * and the tag characters. The zero-width joiners stay: emoji sequences need them. */
-const NAME_FORBIDDEN = /[\p{Cc}\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff\u{e0000}-\u{e007f}]/u
+/** What a room's name may not hold: control characters, every format character (bidirectional marks, overrides and
+ * isolates, zero-width spaces and non-joiners, the byte order mark, soft hyphens, invisible operators, tag characters,
+ * …) but the zero-width joiner that emoji sequences need, line and paragraph separators, and the blank letters that
+ * draw nothing (the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the blank Braille pattern U+2800). */
+const NAME_FORBIDDEN = /(?!\u200d)\p{Cf}|[\p{Cc}\u2028\u2029\u115f\u1160\u3164\uffa0\u2800]/u
+/** ...and it must show something: at least one letter, number, symbol or punctuation mark (not only spaces, combining
+ * marks or joiners). */
+const NAME_VISIBLE = /[\p{L}\p{N}\p{S}\p{P}]/u
 /** A room's own name as typed: trimmed, at most ROOM_NAME_MAX characters, no control characters. '' (or null) takes it
  * back to the server's name (the group's name, the app's word for everyone, a group chat's members). Always shown as
  * plain text. */
-export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => !NAME_FORBIDDEN.test(s), { message: 'control characters' })
+export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s === '' || (!NAME_FORBIDDEN.test(s) && NAME_VISIBLE.test(s)), { message: 'invisible or control characters' })
 
 /** A file or image sent in a room. Stored outside the team folder (owners and admins can read the team folder outside
  * users/<id>/); read at GET /api/rooms/:id/files/:fileId by the room's current members only, checked on every read
@@ -106,13 +110,15 @@ export type RoomQuote = z.infer<typeof RoomQuote>
  * the room (a seq) but counts nowhere: no unread number or badge, no notice or push, no menu (not editable, deletable,
  * quotable or postable), never given to the AI. created: a group chat was made with these people; renamed: the room's
  * own name is now `name` (null: back to the server's name); added: these people were invited; left: the author left
- * (or their account is gone); removed: the author took this person out. */
+ * (or their account is gone); removed: the author took this person out; unknown: a line this build cannot read. */
 export const RoomEventLine = z.discriminatedUnion('type', [
   z.object({ type: z.literal('created'), users: z.array(UserRef) }),
   z.object({ type: z.literal('renamed'), name: z.string().nullable() }),
   z.object({ type: z.literal('added'), users: z.array(UserRef) }),
   z.object({ type: z.literal('left') }),
   z.object({ type: z.literal('removed'), user: UserRef.nullable() }),
+  /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
+  z.object({ type: z.literal('unknown') }),
 ])
 export type RoomEventLine = z.infer<typeof RoomEventLine>
 

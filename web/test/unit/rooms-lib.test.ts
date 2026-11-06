@@ -165,6 +165,8 @@ describe('group chats and event lines', () => {
     expect(eventText({ type: 'left' }, boss, w('ko'))).toBe('대표님이 나갔어요')
     expect(eventText({ type: 'removed', user: kim }, boss, w('ko'))).toBe('대표님이 김민지 씨를 내보냈어요')
     expect(eventText({ type: 'removed', user: null }, ME, w('en'))).toBe('Ada removed ?')
+    // a line this build cannot read: neutral, nobody named
+    expect(eventText({ type: 'unknown' }, null, w('ko'))).toBe('대화방 정보가 바뀌었어요')
   })
 
   test('an event line is a run of its own and ends the run before it', () => {

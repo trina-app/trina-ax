@@ -7,7 +7,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ROOM_GROUP_MAX, ROOM_NAME_MAX } from '@mycel/shared/api'
 import { notificationsOf } from '../../server/src/notifications/service'
-import { roomsOf } from '../../server/src/rooms/service'
+import { GROUPS_PER_HOUR, roomsOf } from '../../server/src/rooms/service'
+import { Hub } from '../../server/src/realtime/hub'
+import type { RealtimeConn } from '../../server/src/services'
 import { newId } from '../../server/src/db'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
@@ -359,4 +361,93 @@ test('reader level: a database with group chats is refused by an older build (re
   const db = openDb(file)
   expect(() => migrate(db, { migrationsDir: dir, readerLevel: 4 })).toThrow(SchemaTooNewError)
   db.close()
+})
+
+// ---------------- second review (2026-11-06) ----------------
+test('after leaving and being invited back, my messages from before are out of sight: not mine to edit or delete (also in a team room)', async () => {
+  const { owner, mia, nora, otto, group, rooms, send, makeGroup } = await setup()
+  const g = await makeGroup(mia.client, [nora.id, otto.id])
+  const old = await send(nora.client, g.id, 'NORA-BEFORE-LEAVING')
+  const old2 = await send(nora.client, g.id, 'NORA-BEFORE-LEAVING-2')
+  await nora.client.call('POST', `/api/rooms/${g.id}/leave`)
+  await mia.client.call('POST', `/api/rooms/${g.id}/members`, { userIds: [nora.id] })
+  expect((await nora.client.try('PATCH', `/api/rooms/${g.id}/messages/${old.id}`, { body: 'rewritten' })).status).toBe(404)
+  expect((await nora.client.try('DELETE', `/api/rooms/${g.id}/messages/${old2.id}`)).status).toBe(404)
+  expect(h.ctx.db.query('SELECT body, deleted_at FROM room_messages WHERE id = ?').get(old.id)).toEqual({ body: 'NORA-BEFORE-LEAVING', deleted_at: null })
+  expect(h.ctx.db.query('SELECT deleted_at FROM room_messages WHERE id = ?').get(old2.id)).toEqual({ deleted_at: null })
+  // her new messages are hers as before
+  const fresh = await send(nora.client, g.id, 'after')
+  expect((await nora.client.try('PATCH', `/api/rooms/${g.id}/messages/${fresh.id}`, { body: 'after (fixed)' })).status).toBe(200)
+  // a team room: out of the group and back in
+  const team = (await rooms(nora.client)).find((r) => r.kind === 'team' && r.groupId === group.id)
+  const teamOld = await send(nora.client, team.id, 'TEAM-BEFORE')
+  await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id] })
+  await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, nora.id] })
+  expect((await nora.client.try('PATCH', `/api/rooms/${team.id}/messages/${teamOld.id}`, { body: 'x' })).status).toBe(404)
+  expect((await nora.client.try('DELETE', `/api/rooms/${team.id}/messages/${teamOld.id}`)).status).toBe(404)
+})
+
+test('names that show nothing are refused: invisible letters, format characters, combining marks alone', async () => {
+  const { mia, nora, otto, makeGroup } = await setup()
+  const g = await makeGroup(mia.client, [nora.id, otto.id])
+  const bad = ['ㅤ', 'ᅟᅠ', 'ﾠ', 'a⁠b', 'a⁤b', 'a⁪b', 'a⁯b', 'a­b', 'a᠎b', '͏', '⠀', 'a￹b', 'a￻b', '‍', '‌', 'a‌b', '́̂', '　ㅤ']
+  for (const name of bad) {
+    const r = await mia.client.try('PATCH', `/api/rooms/${g.id}`, { name })
+    expect({ name: [...name].map((c) => c.codePointAt(0)!.toString(16)), status: r.status }).toEqual({ name: [...name].map((c) => c.codePointAt(0)!.toString(16)), status: 400 })
+    expect((await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name })).status).toBe(400)
+  }
+  // an emoji sequence (with its joiner), Korean, accents and punctuation are fine
+  for (const name of ['👩‍💻 개발팀', 'Café — Q4', '「기획」', '#1']) expect((await mia.client.try('PATCH', `/api/rooms/${g.id}`, { name })).body.name).toBe(name)
+})
+
+test('an event line this build cannot read is a neutral line by nobody, never "<who> left"', async () => {
+  const { mia, nora, otto, makeGroup, messages } = await setup()
+  const g = await makeGroup(mia.client, [nora.id, otto.id])
+  const put = (event: string) => h.ctx.db.transaction(() => {
+    const seq = (h.ctx.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(g.id) as { last_seq: number }).last_seq
+    h.ctx.db.query("INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at, event) VALUES (?, ?, ?, 'user', ?, 'room', '', '[]', ?, ?)")
+      .run(newId(), g.id, seq, mia.id, new Date().toISOString(), event)
+  })()
+  put('{"type":"pinned","by":"x"}')
+  put('{"type":"removed"}')
+  put('not json')
+  const lines = (await messages(nora.client, g.id)).slice(-3)
+  for (const l of lines) expect(l).toMatchObject({ author: null, event: { type: 'unknown' }, body: '', unread: 0 })
+})
+
+test(`at most ${GROUPS_PER_HOUR} new group chats an hour per person, with a 429 that says so`, async () => {
+  const { mia, nora, otto, makeGroup } = await setup()
+  for (let i = 0; i < GROUPS_PER_HOUR; i++) await makeGroup(mia.client, [nora.id, otto.id])
+  const over = await mia.client.try('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id] })
+  expect(over.status).toBe(429)
+  expect(over.body.error).toMatchObject({ code: 'rate_limited', retryAfter: expect.any(Number) })
+  expect(over.body.error.message).toContain(String(GROUPS_PER_HOUR))
+  // another person has their own count; a DM is not a group chat
+  expect((await nora.client.try('POST', '/api/rooms', { kind: 'group', userIds: [mia.id, otto.id] })).status).toBe(201)
+  expect((await mia.client.try('POST', '/api/rooms', { kind: 'dm', userId: otto.id })).status).toBe(201)
+})
+
+test('replay after a reconnect: someone taken out of a group chat gets a resync, nothing of the chat', async () => {
+  const { mia, nora, otto, makeGroup } = await setup()
+  const g = await makeGroup(mia.client, [nora.id, otto.id])
+  const hub = new Hub(h.ctx)
+  h.ctx.services.realtime = hub
+  try {
+    const frames: any[] = []
+    const conn = (): RealtimeConn => ({ send(d) { frames.push(JSON.parse(d)) }, close() {}, bufferedAmount: () => 0, ping() {}, onMessage() {}, onClose() {} })
+    const open = (q: string) => hub.attach(conn(), new Request(`http://team.localhost/api/ws?windowId=win-nora-0002${q}`, { headers: { cookie: nora.client.cookie!, origin: 'http://team.localhost' } }), { ip: null, via: 'test' })
+    await open('')
+    const hello = frames.find((f) => f.type === 'hello')
+    await mia.client.call('POST', `/api/rooms/${g.id}/messages`, { body: 'GROUP-REPLAY-ONE', clientMessageId: cm() })
+    frames.length = 0
+    await open(`&epoch=${hello.epoch}&after=${hello.seq}`)
+    expect(frames[0]).toMatchObject({ type: 'hello', resumed: true })
+    expect(JSON.stringify(frames)).toContain('GROUP-REPLAY-ONE')
+    // taken out by the manager: the same resume is a resync, with nothing from the chat
+    await mia.client.call('DELETE', `/api/rooms/${g.id}/members/${nora.id}`)
+    frames.length = 0
+    await open(`&epoch=${hello.epoch}&after=${hello.seq}`)
+    expect(frames.some((f) => f.type === 'resync')).toBe(true)
+    expect(JSON.stringify(frames)).not.toContain('GROUP-REPLAY-ONE')
+  } finally { hub.close() }
 })

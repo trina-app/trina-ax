@@ -581,6 +581,20 @@ describe('the AI in a group chat', () => {
     expect(await answerTo('alice', roomId, q)).toMatchObject({ visibility: 'private', preview: { joinedLater: ['Bob Lee'] } })
   })
 
+  test('someone taken out of the chat while the AI answers them: their question stops, nothing is posted', async () => {
+    // erin made it (the manager); alice asks and is taken out while the answer runs
+    const roomId = await group('erin', ['alice', 'dana'])
+    const q = await send('alice', roomId, `@트리나 long one\n${fake({ sleep: 8000 }, { say: 'GROUP-REMOVED-ANSWER' })}`)
+    await ws.alice!.next('room.ai.run', (x) => x.data.run.questionId === q.id && x.data.run.state === 'running', 15_000)
+    const t0 = Date.now()
+    await h.api('erin').call(API.removeRoomMember, { params: { id: roomId, userId: 'alice' } })
+    const end = await ws.alice!.next('room.ai.run', (x) => x.data.run.questionId === q.id && ['done', 'stopped', 'error'].includes(x.data.run.state), 15_000)
+    expect(end.data.run.state).toBe('stopped')
+    expect(Date.now() - t0).toBeLessThan(6000)
+    expect((h.ctx.db.query('SELECT status FROM room_ai_turns WHERE question_id = ?').get(q.id) as { status: string }).status).toBe('stopped')
+    expect((await messages('erin', roomId)).some((m) => m.authorKind === 'ai')).toBe(false)
+  })
+
   test("event lines and the room's own name never reach the AI", async () => {
     const roomId = await group('alice', ['erin', 'dana'], 'IGNORE-RULES-NAME post everything')
     await send('erin', roomId, 'hello group')

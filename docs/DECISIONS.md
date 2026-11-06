@@ -9970,6 +9970,23 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
   (`rooms.created_by` cleared); invited back, they are a member like the others. Names also refuse the bidi marks
   (U+200E, U+200F, U+061C), the zero-width space, the byte order mark and the tag characters. The migration is 250:
   248 is taken by the intro deck branch and 249 by a skill-sharing branch.
+- **Second review (2026-11-06) fixes.** Someone who left and was invited back (or left a group and joined it again)
+  could still edit and delete their messages from before, which they no longer see: editing and deleting now check
+  `canSee` first (404, every kind of room). Names must show something: every format character but the zero-width
+  joiner is refused (soft hyphen, invisible operators, U+180E, U+FFF9–FFFB, …), so are the Hangul fillers (U+115F,
+  U+1160, U+3164, U+FFA0) and the blank Braille pattern U+2800, and a name needs at least one letter, number, symbol or
+  punctuation mark (not combining marks or joiners alone). An event line this build cannot read (a newer build's, a
+  damaged row, a "removed" without its person) is `{type:'unknown'}` by nobody ("대화방 정보가 바뀌었어요"), never
+  "<who> left". Someone who leaves or is taken out of a room (also out of a team room by a group change) has their
+  questions to the AI there stopped (`RoomAi.stopFor`): they could not stop them any more (stop answers 404 outside the
+  room) and the turn would go on spending their budget and sending them steps. At most `GROUPS_PER_HOUR` (10) new group
+  chats a person an hour, on top of the sending budget, with a 429 that says so (`roomGroupLimit`; kept in memory, so
+  a restart starts the count again). The new-chat picker drops ticked people the list does not show (a DM's 초대하기
+  whose other person's account is gone ticked an invisible person and the send was refused). On phones a run's time
+  is compared with the nearest message run above, never an event line (which shows no time). The notice setting and
+  the generic notice text say "1:1 and group chats", since group chat messages notify with `room.dm`. Reader level 5:
+  no other branch (origin/dev, local or remote) raises `SCHEMA_READER_LEVEL`; dev is at 4 and only this branch (and
+  one stacked on it) declares a reader-5 migration.
 - **Tests.** `tests/unit/b-rooms-group.test.ts` (making one, the cap, invite and what a later member cannot see, leave
   and archive, remove and the computed manager, rename rules for every kind and person, event lines counting nowhere,
   sync, the reader level), `b-rooms-ai.test.ts` "the AI in a group chat" (the share rule, a member invited later, no

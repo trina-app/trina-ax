@@ -416,6 +416,19 @@ export class RoomAi implements RoomTurns {
     return { stopped: !!rt.stopChat(t.chat_id) }
   }
 
+  /** Someone left the room or was taken out of it: their questions there stop now (they can no longer stop them,
+   * stop() answers 404 to someone outside the room, and a turn would go on spending their budget). Never throws. */
+  stopFor(roomId: string, userId: string): number {
+    let n = 0
+    try {
+      const active = this.db.query("SELECT * FROM room_ai_turns WHERE room_id = ? AND user_id = ? AND status = 'active'").all(roomId, userId) as TurnRow[]
+      if (!active.length) return 0
+      const rt = this.rt()
+      for (const t of active) if (rt.activeTurn(t.chat_id) === t.turn_id && rt.stopChat(t.chat_id)) n++
+    } catch (e) { this.ctx.log.warn('room questions not stopped', { err: e, room: roomId }) }
+    return n
+  }
+
   /** GET /api/rooms/:id/ai */
   state(userId: string, roomId: string): RoomAiState {
     roomsOf(this.ctx).mine(userId, roomId)

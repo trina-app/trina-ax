@@ -152,12 +152,12 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
   return rows.map((r): RoomMessage => {
     const ev = events.get(r.id)
     if (r.event) {
-      // an event line: who did it and what, nothing else (an event this build cannot read shows as a bare "left" by
-      // nobody rather than as a message)
+      // an event line: who did it and what, nothing else. One this build cannot read (a newer build's, a damaged row)
+      // is a neutral line by nobody: never a message, and never words put in its author's mouth
       return {
-        id: r.id, roomId: r.room_id, seq: r.seq, authorKind: 'user', author: r.author_id ? people.get(r.author_id) ?? null : null, askedBy: null,
+        id: r.id, roomId: r.room_id, seq: r.seq, authorKind: 'user', author: ev && r.author_id ? people.get(r.author_id) ?? null : null, askedBy: null,
         visibility: 'room', body: '', replyTo: null, mentions: [], files: [], unread: 0, createdAt: r.created_at, editedAt: null, deletedAt: null,
-        event: ev ? eventOut(ev, people) : { type: 'left' },
+        event: ev ? eventOut(ev, people) : { type: 'unknown' },
       }
     }
     let replyTo: RoomQuote | null = null

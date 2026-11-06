@@ -14,7 +14,7 @@
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { ROOM_GROUP_MAX, type Room, type RoomMember, type RoomMessage, type RoomReadState, type ServerEventInput } from '@mycel/shared/api'
+import { ROOM_GROUP_MAX, type Locale, type Room, type RoomMember, type RoomMessage, type RoomReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -27,6 +27,7 @@ import {
 } from './store'
 import { roomFilesOf } from './files'
 import { roomAiOf, type AskOptions } from './ai'
+import { tr } from '../chat/i18n'
 import { roomAiCalled } from '@mycel/shared/api'
 import { loadPrincipal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
@@ -36,12 +37,18 @@ const services = new WeakMap<AppContext, Rooms>()
  * people type; a script that floods a room gets 429 with the seconds to wait. */
 export const SEND_BURST = 20
 export const SEND_PER_SECOND = 1
+/** New group chats one person may make in an hour, on top of the sending budget each one takes: a chat lands in up to
+ * 99 people's lists, so a script cannot fill them. */
+export const GROUPS_PER_HOUR = 10
+const HOUR_MS = 3_600_000
 
 export interface SendInput { body: string; replyToId?: string | null; mentions: string[]; fileIds: string[]; clientMessageId: string }
 
 export class Rooms {
   private lastSync = 0
   private sendBudget = new Map<string, { tokens: number; at: number }>()
+  /** when each person made their group chats in the last hour (GROUPS_PER_HOUR) */
+  private groupsMade = new Map<string, number[]>()
   constructor(readonly ctx: AppContext) {}
   private get db(): Database { return this.ctx.db }
 
@@ -127,13 +134,21 @@ export class Rooms {
 
   /** A group chat of me and `userIds` (at least two others, active people of this team; not audited). Its name is
    * optional: without one the app shows the other members' names. Everyone in it sees it from its first line. */
-  createGroup(userId: string, userIds: readonly string[], name?: string | null): Room {
+  createGroup(userId: string, userIds: readonly string[], name?: string | null, locale: Locale = 'en'): Room {
     const others = [...new Set(userIds)].filter((id) => id !== userId)
     if (others.length < 2) fail('validation', undefined, { fields: { 'body.userIds': 'at least two other people' } })
     if (others.length + 1 > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
     this.assertActive(others)
-    // it lands in up to 99 people's lists: the same budget as sending (a script cannot flood them)
+    // it lands in up to 99 people's lists: the same budget as sending, and at most GROUPS_PER_HOUR an hour
+    const t = Date.now()
+    const made = (this.groupsMade.get(userId) ?? []).filter((x) => x > t - HOUR_MS)
+    if (made.length >= GROUPS_PER_HOUR) {
+      const wait = Math.max(1, Math.ceil((made[0]! + HOUR_MS - t) / 1000))
+      fail('rate_limited', tr('roomGroupLimit', locale, { n: String(GROUPS_PER_HOUR), minutes: String(Math.ceil(wait / 60)) }), { retryAfter: wait })
+    }
     this.takeSendToken(userId)
+    made.push(t)
+    this.groupsMade.set(userId, made)
     const id = newId(), now = nowIso()
     this.db.transaction(() => {
       this.db.query("INSERT INTO rooms (id, kind, created_by, created_at, activity_at, name) VALUES (?, 'group', ?, ?, ?, ?)").run(id, userId, now, now, name?.trim() || null)
@@ -255,6 +270,7 @@ export class Rooms {
   }
   private afterDrop(roomId: string, gone: readonly string[], r: { lines: string[]; archived: boolean }) {
     for (const u of new Set(gone)) {
+      roomAiOf(this.ctx).stopFor(roomId, u)
       this.ctx.services.realtime.forgetReplay(u)
       this.ctx.services.realtime.publish(u, { type: 'room.updated', data: { roomId, change: 'removed', room: null } })
     }
@@ -342,7 +358,7 @@ export class Rooms {
 
   edit(userId: string, roomId: string, messageId: string, b: { body: string; mentions: string[] }): RoomMessage {
     const { me } = this.mine(userId, roomId)
-    const m = this.own(roomId, messageId, userId)
+    const m = this.own(roomId, messageId, userId, me)
     const mentions = this.validMentions(roomId, userId, b.mentions)
     // an edit notifies nobody (only a new message does), so a mention added later is quiet
     this.db.query('UPDATE room_messages SET body = ?, mentions = ?, edited_at = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), nowIso(), m.id)
@@ -383,17 +399,19 @@ export class Rooms {
    * is how they put one away), or any AI answer they can see when they are an owner or admin in the room. */
   private removable(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
-    if (!m || (m.author_kind === 'ai' && !canSee(m, me))) return fail('not_found')
-    if (m.author_kind !== 'ai') return this.own(roomId, messageId, userId)
+    if (!m || !canSee(m, me)) return fail('not_found')
+    if (m.author_kind !== 'ai') return this.own(roomId, messageId, userId, me)
     const role = (this.db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null)?.role
     if (m.asked_by !== userId && role !== 'owner' && role !== 'admin') return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
     return m
   }
 
-  private own(roomId: string, messageId: string, userId: string): MessageRow {
+  /** My own message, and one I can see now: after leaving and being invited back (or leaving a group and joining it
+   * again) the messages from before are out of sight, my own too, so not mine to edit or delete either. */
+  private own(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
-    if (!m) return fail('not_found')
+    if (!m || !canSee(m, me)) return fail('not_found')
     // an event line is nobody's message: its author did something, they did not write it
     if (m.author_kind !== 'user' || m.author_id !== userId || m.event) return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
@@ -527,6 +545,8 @@ export class Rooms {
     for (const [roomId, g] of groupOut) this.afterDrop(roomId, g.users, g.r)
     for (const [roomId, users] of removed) {
       for (const u of users) {
+        // out of a team room or the everyone room: their questions there stop too
+        roomAiOf(this.ctx).stopFor(roomId, u)
         // events about this room sit in their replay buffer: a window resuming from before now reloads instead
         this.ctx.services.realtime.forgetReplay(u)
         this.ctx.services.realtime.publish(u, { type: 'room.updated', data: { roomId, change: 'removed', room: null } })
