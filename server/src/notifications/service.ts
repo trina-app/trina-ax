@@ -12,9 +12,10 @@ import { atLeast } from '../policy/access'
 import { readScope } from '../chat/read-scope'
 import { getRow as getIntegration, mayUse as mayUseIntegration, templateCovers } from '../integrations/connections/store'
 import { shareCovers, shareRow } from '../integrations/google-drive/shares'
-import { eventEnabled, getPreferences, savePreferences } from './preferences'
+import { eventEnabled, getPreferences, roomAlertsChanged, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
+import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -78,18 +79,20 @@ export class Notifications {
   /** A DM message, an @mention or a reply in a followed thread in a room (rooms/service.ts notify). The source is the
    * message id only, never its text. No second notice of the same kind while one of that room's timeline (or, for a
    * reply, of that thread: `threadRootId`) is still unread (one per unread run: a burst of messages or mentions is one
-   * notice and one push); reading the room, or the thread, marks them read. Follows the person's room setting. True
-   * when a notice the person sees was recorded now (the room.message to them says so: the desktop app tells the same
-   * ones, docs/DECISIONS.md "Session markers"). */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null): boolean {
+   * notice and one push); reading the room, or the thread, marks them read. Whether there is a notice at all is the
+   * room's level for the person (Rooms.notify). `quiet`: made inside their quiet hours (docs/DECISIONS.md "대화방 알림
+   * 설정"): kept, never pushed (room_notices.quiet), and it does not hold back the room's next notice once the quiet
+   * hours are over (that one pushes); while they last, any unread notice of the run holds the next one back. True when
+   * a notice that may ring was recorded now (not a quiet one): the room.message to the person says so, and the desktop
+   * app tells the same ones (docs/DECISIONS.md "Session markers"). */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false): boolean {
     if (!this.active(userId) || at < this.cutoff()) return false
     if (this.ctx.db.query(`SELECT 1 FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ?`).get(userId, roomId, event, this.cutoff(), threadRootId)) return false
-    const enabled = eventEnabled(this.preferences(userId), event)
-    const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
-      .run(newId(), userId, event, messageId, roomId, at, enabled ? 0 : 1)
-    if (r.changes && enabled) this.signal(userId)
-    return r.changes > 0 && !!enabled
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1)`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0)) return false
+    const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed,quiet) VALUES(?,?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
+      .run(newId(), userId, event, messageId, roomId, at, quiet ? 1 : 0)
+    if (r.changes) this.signal(userId)
+    return r.changes > 0 && !quiet
   }
   /** A dev environment job ended, or boxd stopped a box. The source is the id of the job or the stop row only. */
   devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
@@ -295,14 +298,20 @@ export class Notifications {
   setPreferences(userId: string, patch: Partial<NotificationPreferences>) {
     if (!this.active(userId)) throw new HttpError('not_found')
     // Process previous terminal events with the old preferences before committing a change.
-    const result = this.ctx.db.transaction(() => {
+    const { before, result } = this.ctx.db.transaction(() => {
       while (this.reconcile(userId) === 500) { /* drain all prior events under the old preferences */ }
+      const before = this.preferences(userId)
       const preferences = savePreferences(this.ctx.db, userId, patch)
       cancelDisabledPushDeliveries(this.ctx, userId, preferences)
-      return preferences
+      return { before, result: preferences }
     })()
     cancelPushUser(this.ctx, userId)
     this.signal(userId)
+    // every room's level and the quiet hours may have changed: the person's windows read their rooms again
+    if (roomAlertsChanged(before, result)) {
+      try { this.ctx.services.realtime.publish(userId, ROOM_ALERTS_CHANGED) }
+      catch { this.ctx.log.warn('room alerts signal failed') }
+    }
     return result
   }
   /** The job's text and the chat link only while the person can read the project folder now, as for a scheduled run. A

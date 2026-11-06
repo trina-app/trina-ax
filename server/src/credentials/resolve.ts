@@ -129,16 +129,22 @@ export function credentialBackAt(db: Database, userId: string, engine: CredEngin
 }
 
 /** usable team (not personal) connections of a family: Admin > AI engines and the diagnostics */
-export function teamCredentialSummary(db: Database, family: Family, allowedKinds: AllowedKinds, now = new Date()): { total: number; usable: number; expiring: number; reasons: Unusable[] } {
+export function teamCredentialSummary(db: Database, family: Family, allowedKinds: AllowedKinds, now = new Date()): { total: number; usable: number; expiring: number; reasons: Unusable[]; limitedUntil: string | null } {
   const kinds = KINDS_OF[family]
   const rows = db.query(`SELECT ${ROW_COLS} FROM engine_credentials WHERE owner_user_id IS NULL AND kind IN (${kinds.map(() => '?').join(',')})`).all(...kinds) as CredRow[]
   let usable = 0, expiring = 0
   const reasons: Unusable[] = []
+  // when the first connection that waits for a limit to end is back (a limit with no end date has none)
+  let limitedUntil: string | null = null
   for (const r of rows) {
     const u = unusable(db, r, now, allowedKinds)
-    if (u) { reasons.push(u.why); continue }
+    if (u) {
+      reasons.push(u.why)
+      if (u.retryAt && (u.why === 'limited' || u.why === 'over_limit') && (!limitedUntil || u.retryAt < limitedUntil)) limitedUntil = u.retryAt
+      continue
+    }
     usable++
     if (r.kind === 'anthropic-oauth' && r.expires_at && Date.parse(r.expires_at) - now.getTime() <= 14 * 24 * 3600_000) expiring++
   }
-  return { total: rows.length, usable, expiring, reasons }
+  return { total: rows.length, usable, expiring, reasons, limitedUntil }
 }

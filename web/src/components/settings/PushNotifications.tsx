@@ -1,5 +1,4 @@
-import clsx from 'clsx'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
 import type { PushSettings } from '@mycel/shared/api'
@@ -68,30 +67,42 @@ export function PushNotifications() {
     } finally { if (generation === life.current) setBusy(false) }
   }
   const view = phonePushView({ permission: phone.permission, on: !!(settings?.enabled && settings.native?.deviceId), canOpenSettings: canOpenAppSettings() })
-  // Phones: no frame inside the Settings card, and hints as large as the status line (they are read on a small screen).
-  return <section className="space-y-3 md:rounded-xl md:border md:border-line md:p-4" data-testid="push-notifications">
-    <h3 className="text-sm font-semibold">{t('push.title')}</h3>
-    {/* the description is about the browser's push service: the phone app's status line says what matters there, and on
-        a phone a server without push says only that (there is nothing to turn on) */}
-    {!app && <p className={clsx('text-xs text-muted max-md:text-sm', !settings?.configured && 'max-md:hidden')}>{t('push.description')}</p>}
-    {/* the phone app: one status line and one action */}
-    {settings && app && (settings.native?.available ? <>
-      <p className="text-sm" data-testid="phone-push-status">{t(view.status)}</p>
-      {view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
+  // One row of 이 기기 (Settings › Notifications): the name, where push stands on this device under it, the action on the
+  // right; what push sends (and, for admins, the phone gateway) in a quieter line below. No frame.
+  let status: ReactNode = null, action: ReactNode = null
+  if (settings && app) {
+    if (settings.native?.available) {
+      status = <span data-testid="phone-push-status">{t(view.status)}</span>
+      action = view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
         : view.action === 'disable' ? <Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>
-          : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>}
-    </> : <p className="text-sm text-muted">{t('push.notConfigured')}</p>)}
-    {settings && !app && !settings.configured && <p className="text-sm text-muted">{t('push.notConfigured')}</p>}
-    {settings?.configured && !app && <>
-      {needsInstall ? <p className="text-sm text-muted">{t('push.installIos')}{' '}<Link to="/settings/apps" className="text-accent-text underline">{t('push.installGuide')}</Link></p> : !supported ? <p className="text-sm text-muted">{t('push.unsupported')}</p> : <>
-        <p className="text-sm">{t(settings.enabled && settings.subscriptionId && deviceReady ? 'push.on' : 'push.off')}</p>
-        {(!settings.enabled || !settings.subscriptionId || !deviceReady) && <Button busy={busy} disabled={!registration} onClick={() => void change(true)}>{t('push.enable')}</Button>}
-      </>}
-      {settings.enabled && <Button className="ml-2" busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>}
-    </>}
-    {settings?.native && me && isAdmin(me) && <p className="text-xs text-muted max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
-    {failed && <ErrorNote>{t(denied ? 'push.denied' : 'push.failed')}</ErrorNote>}
-  </section>
+          : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>
+    } else status = t('push.notConfigured')
+  } else if (settings && !settings.configured) status = t('push.notConfigured')
+  else if (settings?.configured) {
+    if (needsInstall) status = <>{t('push.installIos')}{' '}<Link to="/settings/apps" className="text-accent-text underline">{t('push.installGuide')}</Link></>
+    else if (!supported) status = t('push.unsupported')
+    else {
+      const on = !!(settings.enabled && settings.subscriptionId && deviceReady)
+      status = t(on ? 'push.on' : 'push.off')
+      if (!on) action = <Button busy={busy} disabled={!registration} onClick={() => void change(true)}>{t('push.enable')}</Button>
+    }
+    if (settings.enabled) action = <>{action}<Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button></>
+  }
+  return (
+    <div className="py-3.5" data-testid="push-notifications">
+      <div className="flex items-start gap-4 max-sm:flex-col max-sm:gap-2.5">
+        <div className="min-w-0 flex-1">
+          <h4 className="text-sm font-medium text-ink">{t('push.title')}</h4>
+          {status && <p className="mt-0.5 text-sm text-muted">{status}</p>}
+        </div>
+        {action && <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>}
+      </div>
+      {/* what push sends: about the browser's push service (the phone app's status line says what matters there) */}
+      {!app && settings?.configured && <p className="mt-2 text-xs text-faint max-md:text-sm">{t('push.description')}</p>}
+      {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
+      {failed && <div className="mt-2"><ErrorNote>{t(denied ? 'push.denied' : 'push.failed')}</ErrorNote></div>}
+    </div>
+  )
 }
 
 /** Signed in inside the phone app, when the OS has not been asked yet: the app's own question, above the tab bar (not

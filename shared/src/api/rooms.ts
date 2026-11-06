@@ -27,6 +27,7 @@ import { PRODUCT } from '../product'
 import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
+import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
 
 export const ROOM_MESSAGE_MAX = 10_000
 export const ROOM_FILES_MAX = 10
@@ -45,7 +46,8 @@ const AI_NAMES_LONGEST = [...ROOM_AI_NAMES].sort((a, b) => b.length - a.length)
 const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}_]/u.test(c)
 
 /** Where "@<AI name>" stands in a text: after the start, a space or an opening mark, and not followed by a letter or a
- * digit ("@트리나야" is not it). `taken`: names of people mentioned in the message (a person called 트리나 wins). */
+ * digit ("@트리나야" is not it). `taken`: names of people mentioned in the message (a person called 트리나 wins, and a
+ * mentioned person's "@name" that goes on from an AI name is theirs: "@Trina Kim"). */
 export function roomAiMentions(body: string, taken: readonly string[] = []): { start: number; end: number }[] {
   const out: { start: number; end: number }[] = []
   const lower = body.toLocaleLowerCase()
@@ -54,6 +56,7 @@ export function roomAiMentions(body: string, taken: readonly string[] = []): { s
     if (i > 0 && !/[\s([{"'“‘]/.test(body[i - 1]!)) continue
     const name = AI_NAMES_LONGEST.find((n) => lower.startsWith(n.toLocaleLowerCase(), i + 1) && !isWordChar(body[i + 1 + n.length]))
     if (!name || people.has(name.toLocaleLowerCase())) continue
+    if ([...people].some((p) => p.length > name.length && lower.startsWith(p, i + 1))) continue
     out.push({ start: i, end: i + 1 + name.length })
   }
   return out
@@ -322,8 +325,13 @@ export const Room = z.object({
   mentioned: z.boolean(),
   lastReadSeq: z.number().int().nonnegative(),
   lastMessage: RoomLastMessage.nullable(),
-  /** no notices for DM messages from this room (an @mention still notifies) */
+  /** my level for this room is 끄기 (notify.own 'off'): no notices, pushes or sound from it, mentions included; its badge
+   * is grey and stays out of the 대화 tab's count */
   muted: z.boolean(),
+  /** my notifications for this room (docs/DECISIONS.md "대화방 알림 설정", room-alerts.ts): `own` my level for it (null:
+   * my default), `byDefault` what my default gives this kind of room, `level` the one that applies now (own, else
+   * byDefault). Older servers omit it. */
+  notify: z.object({ own: RoomNotifyLevel.nullable(), byDefault: RoomNotifyLevel, level: RoomNotifyLevel }).optional(),
   createdAt: IsoTime,
   /** the last message's time, or when the room was made */
   activityAt: IsoTime,
@@ -344,9 +352,12 @@ export const CreateRoomBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('group'), userIds: z.array(UserId).min(2).max(ROOM_GROUP_MAX - 1), name: RoomName.nullable().optional() }).strict(),
 ])
 export type CreateRoomBody = z.infer<typeof CreateRoomBody>
-/** muted: my own setting. name: the room's own name (Room.canRename; '' or null: back to the server's name) */
-export const UpdateRoomBody = z.object({ muted: z.boolean().optional(), name: RoomName.nullable().optional() }).strict()
-  .refine((b) => b.muted !== undefined || b.name !== undefined, { message: 'nothing to change' })
+/** notifyLevel: my level for this room (null: back to my default). muted: the older apps' switch (true is 'off', false
+ * brings 'off' back to my default); not with notifyLevel. name: the room's own name (Room.canRename; '' or null: back to
+ * the server's name) */
+export const UpdateRoomBody = z.object({ muted: z.boolean().optional(), notifyLevel: RoomNotifyLevel.nullable().optional(), name: RoomName.nullable().optional() }).strict()
+  .refine((b) => b.muted !== undefined || b.notifyLevel !== undefined || b.name !== undefined, { message: 'nothing to change' })
+  .refine((b) => b.muted === undefined || b.notifyLevel === undefined, { message: 'muted or notifyLevel, not both', path: ['muted'] })
 /** people to add to a group chat (active people of this team; those already in it are skipped). They see the room from
  * now on, never what was said before. */
 export const InviteRoomBody = z.object({ userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
@@ -392,10 +403,10 @@ export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
 
 export const ROOMS = {
-  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room) }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count and the last message.' }),
+  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message and my notification level; alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
-  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Mute or unmute a room for me, or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
+  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it.' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),

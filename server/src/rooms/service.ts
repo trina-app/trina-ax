@@ -21,13 +21,17 @@
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { ROOM_GROUP_MAX, type Locale, type Room, type RoomMember, type RoomMessage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
+import { inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
 import { notificationsOf, type RoomNoticeEvent } from '../notifications/service'
+import { getPreferences, getPreferencesOf } from '../notifications/preferences'
+import { cancelPushUser } from '../notifications/push-events'
+import { teamTimeZone } from '../admin/settings'
+import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
   canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck,
   lastSeqFor, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
@@ -52,7 +56,7 @@ const HOUR_MS = 3_600_000
 
 export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; fileIds: string[]; clientMessageId: string }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
-const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, muted: 0 }
+const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, muted: 0, notify_level: null }
 
 export class Rooms {
   private lastSync = 0
@@ -130,9 +134,10 @@ export class Rooms {
     // a new account (an invite, the team link) or a group change made outside the admin screens shows here first
     if (this.outOfStep(userId)) this.syncNow()
     else this.syncSoon()
-    const rows = this.db.query(`SELECT r.*, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.muted FROM rooms r JOIN room_members m ON m.room_id = r.id
+    const rows = this.db.query(`SELECT r.*, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.muted, m.notify_level FROM rooms r JOIN room_members m ON m.room_id = r.id
       WHERE m.user_id = ? AND r.archived_at IS NULL`).all(userId) as (RoomRow & MemberRow)[]
-    const out = rows.map((r) => roomOut(this.db, r, { ...r, room_id: r.id }))
+    const prefs = getPreferences(this.db, userId)
+    const out = rows.map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
     const rank = (k: Room['kind']) => (k === 'all' ? 0 : k === 'team' ? 1 : 2)
     return out.sort((a, b) => (b.activityAt.localeCompare(a.activityAt)) || rank(a.kind) - rank(b.kind) || a.id.localeCompare(b.id))
   }
@@ -202,13 +207,22 @@ export class Rooms {
     return this.get(userId, id)
   }
 
-  /** My setting (muted) and the room's own name (mayRename: else 403). A name change is an event line. */
-  update(userId: string, roomId: string, b: { muted?: boolean; name?: string | null }): Room {
-    const { room } = this.mine(userId, roomId)
+  /** What alerts me besides each room's level (GET /api/rooms `alerts`): thread replies, quiet hours, the time zone. */
+  alerts(userId: string): RoomAlertSettings {
+    return alertSettings(this.db, getPreferences(this.db, userId))
+  }
+
+  /** My level for the room (notifyLevel; null: my default; the older apps' muted: true is 'off', false brings 'off' back
+   * to my default) and the room's own name (mayRename: else 403). A name change is an event line. */
+  update(userId: string, roomId: string, b: { muted?: boolean; notifyLevel?: RoomNotifyLevel | null; name?: string | null }): Room {
+    const { room, me } = this.mine(userId, roomId)
     if (b.name !== undefined) this.rename(userId, room, b.name)
-    if (b.muted !== undefined) {
-      this.db.query('UPDATE room_members SET muted = ? WHERE room_id = ? AND user_id = ?').run(b.muted ? 1 : 0, roomId, userId)
+    const level = b.notifyLevel !== undefined ? b.notifyLevel : b.muted === true ? 'off' : b.muted === false ? (ownLevel(me) === 'off' ? null : ownLevel(me)) : undefined
+    if (level !== undefined) {
+      setOwnLevel(this.db, roomId, userId, level)
       this.roomEvent(roomId, 'updated', new Set([userId]))
+      // a push of this room that waits or is on its way is checked again (rooms/alerts.ts noticeWanted)
+      cancelPushUser(this.ctx, userId)
     }
     return this.get(userId, roomId)
   }
@@ -620,29 +634,37 @@ export class Rooms {
   }
 
   // ---------------- notices ----------------
-  /** A DM or group chat message notifies the others (code room.dm: a conversation of picked people, as Slack's group
-   * DMs), an @mention each person mentioned; nobody who muted the room. A reply in a thread notifies its followers
-   * (room.dm too: the push is the same generic line) and the people it mentions, nobody else, unless it was sent to the
-   * room as well (then also as a message of the room). Only people who see it. One unread notice of each kind per room
-   * (and thread) and person (Notifications.roomNotice). Private messages (the AI's previews) and event lines notify
-   * nobody; an AI answer not the person who asked. The notice is the message id only. Returns who got a notice they
-   * see, and which (Notifications.roomNotice): the room.message to each of them says so. */
+  /** Who a new message alerts: each member's level for the room and the shared rule (shared room-alerts.ts roomAlert;
+   * docs/DECISIONS.md "대화방 알림 설정"). By default a DM or group chat message notifies the others (code room.dm: a
+   * message for me), an @mention each person mentioned (room.mention), a reply in a thread its followers (room.dm too:
+   * the push is the same generic line); a room at 모든 메시지 notifies every message of its timeline, one at 끄기 (or a
+   * default of 받지 않음) nothing. Only people who see it. One unread notice of each kind per room (and thread) and person
+   * (Notifications.roomNotice). Inside a person's quiet hours the notice is kept but marked quiet: never pushed.
+   * Private messages (the AI's previews) and event lines notify nobody; an AI answer not the person who asked. The
+   * notice is the message id only. Returns who got a notice that may ring, and which (Notifications.roomNotice): the
+   * room.message to each of them says so (docs/DECISIONS.md "Session markers"). */
   notify(row: MessageRow): Map<string, RoomNoticeEvent> {
     const out = new Map<string, RoomNoticeEvent>()
     if (row.visibility !== 'room' || row.deleted_at || row.event) return out
     const room = roomRow(this.db, row.room_id)
     if (!room) return out
     const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m))
+    if (!ms.length) return out
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
-    const picked = room.kind === 'dm' || room.kind === 'group'
     const followers = row.thread_root_id ? new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(row.thread_root_id) as { user_id: string }[]).map((r) => r.user_id)) : null
+    const prefs = getPreferencesOf(this.db, ms.map((m) => m.user_id))
+    const tz = teamTimeZone(this.db), at = Date.parse(row.created_at)
     const n = notificationsOf(this.ctx)
     for (const m of ms) {
-      if (m.muted) continue
-      try {
-        const event: RoomNoticeEvent | null = mentioned.has(m.user_id) ? 'room.mention' : (followers ? followers.has(m.user_id) || (!!row.also_in_room && picked) : picked) ? 'room.dm' : null
-        if (event && n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id)) out.set(m.user_id, event)
-      } catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
+      const p = prefs.get(m.user_id)!
+      const alert = roomAlert({
+        level: roomLevel(room.kind, ownLevel(m), p.roomLevel), mentioned: mentioned.has(m.user_id), reply: !!row.thread_root_id,
+        alsoInRoom: !!row.also_in_room, following: !!followers?.has(m.user_id), threadReplies: p.roomThreadReplies,
+      })
+      if (!alert) continue
+      const event: RoomNoticeEvent = alert === 'mention' ? 'room.mention' : 'room.dm'
+      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at))) out.set(m.user_id, event) }
+      catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
     return out
   }

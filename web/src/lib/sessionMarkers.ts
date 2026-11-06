@@ -9,7 +9,7 @@
 // Priority ? > spinner > dot. While a chat runs again, its earlier answer is behind the new one: a card's "?" or the
 // spinner. The chat on screen in a visible window shows no dot and no failed "?" (the window sends /seen, and the
 // server's word follows a moment later).
-import type { Chat, Room } from '@mycel/shared/api'
+import type { Chat } from '@mycel/shared/api'
 import { roomWantsMe } from './rooms'
 
 export type MarkerKind = 'ask' | 'running' | 'new'

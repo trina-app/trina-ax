@@ -199,15 +199,11 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* the owner's way back to the welcome steps (onboarding/SetupRow.tsx), above 트리나 기록 and outside the scroll, so
-          no number of rooms or chats moves it out of sight */}
-      <div className="mt-3 px-2 empty:hidden">
-        <SetupRow onNavigate={close} />
-      </div>
-
       {/* one scroll, like Slack's: 대화 (a computer) and 트리나 기록, each capped at five with the rest behind its button */}
       <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide} data-testid="sidebar-scroll">
         {wide && <SidebarRooms onNavigate={close} />}
+        {/* the owner's way back to the welcome steps (onboarding/SetupRow.tsx): its own row between the sections */}
+        <SetupRow onNavigate={close} />
         <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
           <h2 className="text-xs font-medium text-faint">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">

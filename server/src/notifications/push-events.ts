@@ -2,6 +2,7 @@
 import type { AppContext } from '../context'
 import { ROOM_PUSH_EVENTS, type NotificationPreferences } from '@mycel/shared/api'
 import { eventEnabled } from './preferences'
+import { noticeWanted } from '../rooms/alerts'
 type Stop = (scope: { userId?: string; sessionId?: string }) => void
 const listeners = new WeakMap<AppContext, Stop>()
 export function onPushCancellation(ctx: AppContext, stop: Stop) { listeners.set(ctx, stop); return () => { if (listeners.get(ctx) === stop) listeners.delete(ctx) } }
@@ -13,9 +14,12 @@ export function cancelDisabledPushDeliveries(ctx: AppContext, userId: string, pr
   const disabled = (['schedule.success', 'schedule.failure', 'connection.reconnect'] as const).filter(event => !eventEnabled(preferences, event))
   if (disabled.length) ctx.db.query(`UPDATE push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
     (SELECT id FROM notification_inbox WHERE user_id=? AND event_type IN (${disabled.map(() => '?').join(',')}))`).run(userId, ...disabled)
-  // room notices have their own deliveries (migration 241)
-  if (preferences.roomMessages === false) ctx.db.query(`UPDATE room_push_deliveries SET state='cancelled',lease_until=NULL WHERE state IN ('pending','sending') AND notification_id IN
-    (SELECT id FROM room_notices WHERE user_id=?)`).run(userId)
+  // room notices have their own deliveries (migration 241); each room's level decides (rooms/alerts.ts noticeWanted), so
+  // a default of 받지 않음 or a narrower level stops what waits for a push
+  const waiting = ctx.db.query(`SELECT DISTINCT d.notification_id id FROM room_push_deliveries d JOIN room_notices n ON n.id=d.notification_id
+    WHERE n.user_id=? AND d.state IN ('pending','sending')`).all(userId) as { id: string }[]
+  const cancel = ctx.db.query(`UPDATE room_push_deliveries SET state='cancelled',lease_until=NULL WHERE notification_id=? AND state IN ('pending','sending')`)
+  for (const w of waiting) if (!noticeWanted(ctx.db, w.id)) cancel.run(w.id)
 }
 
 /** Where a tapped phone notification opens on the team (the app refuses anything but an id path, and so does the

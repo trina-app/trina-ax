@@ -9,7 +9,7 @@
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
 // Phones (below 768px): Home is the 트리나 tab, where the app opens. No cards; the greeting and the box come first, the
 // "one thing" (the setup row, the goal) is the first quiet row under the box (the goal opens its next step in place),
-// then the three latest AI chats as plain rows ("최근 채팅"; the whole history is behind ☰ in the top bar). The greeting and the box sit a third of
+// then the three latest AI chats as plain rows ("트리나 기록"; the whole history is behind ☰ in the top bar). The greeting and the box sit a third of
 // the way down and the rows hang below them, so opening a row moves nothing above it. A project's new
 // chat ("/?project=") shows neither: the goal and the setup row are about the team.
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
