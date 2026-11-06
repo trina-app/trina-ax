@@ -140,3 +140,33 @@ export function firstParagraph(md: string): string {
   }
   return plainText(md)
 }
+
+/** A Markdown file's leading YAML front matter (`---` … `---`, as a SKILL.md starts): its `name` and `description` and
+ * the text after it. The file preview shows the two as a quiet block instead of the raw lines (which Markdown drew as
+ * one bold heading). Only a block whose lines read as YAML counts: a page that opens with a rule and a paragraph comes
+ * back whole. */
+export function splitFrontMatter(text: string): { name?: string; description?: string; body: string } {
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/)
+  if (!/^---[ \t]*$/.test(lines[0] ?? '')) return { body: text }
+  const end = lines.findIndex((l, i) => i > 0 && /^(?:---|\.\.\.)[ \t]*$/.test(l))
+  if (end < 0) return { body: text }
+  const yaml = lines.slice(1, end)
+  const KEY = /^([A-Za-z_][\w.-]*)[ \t]*:(?:[ \t]+(.*))?$/
+  // top-level "key: value", indented or list continuation lines, comments and blank lines; anything else is not YAML
+  if (!yaml.every((l) => !l.trim() || /^[ \t]/.test(l) || l.startsWith('#') || /^-(?:[ \t]|$)/.test(l) || KEY.test(l))) return { body: text }
+  const fields = new Map<string, string[]>()
+  let key: string | null = null
+  for (const l of yaml) {
+    const top = KEY.exec(l)
+    if (top) fields.set((key = top[1]!), [top[2]?.trim() ?? ''])
+    else if (key && l.trim() && !l.startsWith('#')) fields.get(key)!.push(l.trim())
+  }
+  const value = (k: string) => {
+    const [first = '', ...rest] = fields.get(k) ?? []
+    // a block scalar (">", "|", ">-") starts its text on the next lines
+    const v = [/^[>|][+-]?\d*$/.test(first) ? '' : first, ...rest].filter(Boolean).join(' ').trim()
+    const quoted = /^"(.*)"$/s.exec(v)?.[1]?.replace(/\\"/g, '"') ?? /^'(.*)'$/s.exec(v)?.[1]?.replace(/''/g, "'")
+    return (quoted ?? v) || undefined
+  }
+  return { name: value('name'), description: value('description'), body: lines.slice(end + 1).join('\n') }
+}

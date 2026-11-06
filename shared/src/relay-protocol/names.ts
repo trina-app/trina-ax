@@ -25,6 +25,8 @@ export const RESERVED_TEAM_NAMES: readonly string[] = [
   'cloud', 'cp', 'ops', 'operator', 'agent', 'agents', 'metrics', 'monitor', 'monitoring', 'grafana', 'prometheus',
   'backup', 'backups', 'notify', 'bounce', 'mailer', 'invoice', 'invoices', 'receipt', 'receipts', 'checkout', 'legal',
   'terms', 'privacy', 'trust', 'changelog', 'teamax-cloud', 'ax-probe',
+  // the phone app's push gateway (push-gateway/, push.<domain>)
+  'push', 'push-gateway',
 ]
 
 export type TeamNameProblem = 'too_short' | 'too_long' | 'invalid' | 'reserved'

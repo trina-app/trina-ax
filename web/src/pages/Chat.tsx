@@ -4,17 +4,19 @@
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
 import AiAccessBanner from '../components/chat/AiAccessBanner'
+import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
-import { Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
+import { ChevronLeft, Globe, Loader2, MessageSquarePlus, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import type { Attachment, Chat, EngineId } from '@mycel/shared/api'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { chatErrorReason, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
+import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
@@ -29,7 +31,7 @@ import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
-import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
+import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 
 export default function ChatPage() {
   const { chatId } = useParams()
@@ -43,6 +45,7 @@ function ChatView({ chatId }: { chatId: string }) {
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
   const announce = useAnnounce()
+  const navigate = useNavigate()
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId))
   const [chat, setChat] = useState<Chat | null>(chatFromList ?? null)
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
@@ -119,17 +122,13 @@ function ChatView({ chatId }: { chatId: string }) {
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [messages.length, last?.content.length, last?.steps.length])
 
-  // diagrams, images and code highlighting grow the page after the text arrived: stay at the bottom if we were there
+  // diagrams, images and code highlighting grow the page after the text arrived, and a phone's keyboard shrinks the
+  // list: stay at the bottom if we were there
   const content = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const el = content.current
-    if (!el) return
-    const ro = new ResizeObserver(() => {
-      const s = scroller.current
-      if (s && stick.current) s.scrollTop = s.scrollHeight
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
+    const s = scroller.current, c = content.current
+    if (!s || !c) return
+    return stickToBottom(s, c, () => stick.current)
   }, [])
 
   const onScroll = async () => {
@@ -241,18 +240,23 @@ function ChatView({ chatId }: { chatId: string }) {
 
   if (loadError && isApiError(loadError, 'not_found'))
     return (
-      <div className="p-8 text-center text-sm text-muted">
-        {t('chat.notFound')}{' '}
-        <Link to="/" className="text-accent-text underline">
-          {t('sidebar.newChat')}
-        </Link>
+      <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
+        <EmptyState title={t('chat.notFound')}>
+          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
+            {t('sidebar.newChat')}
+          </Link>
+        </EmptyState>
       </div>
     )
 
   return (
     <div className="flex h-full flex-col">
-      {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4">
+      {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
+          it is the only bar (Layout drops its own here): back to the 대화 list, the name, and a new chat. */}
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1">
+        <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
+          <ChevronLeft size={20} aria-hidden />
+        </Link>
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
           <ChatProjectCrumb projectId={projectId} />
           {chat && !chat.deletedAt ? (
@@ -270,6 +274,9 @@ function ChatView({ chatId }: { chatId: string }) {
           )}
         </div>
         {isDesktop() && <BrowserToggle />}
+        <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} className="p-3! md:hidden" data-testid="chat-new">
+          <MessageSquarePlus size={20} />
+        </IconButton>
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
         <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8">
@@ -285,14 +292,15 @@ function ChatView({ chatId }: { chatId: string }) {
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
       </div>
-      <div className="mx-auto w-full max-w-[780px] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
+      <div className="mx-auto w-full max-w-[780px] px-4 pb-[max(0.75rem,var(--safe-bottom))]" data-bottom-bar>
         {chat?.deletedAt ? (
           <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
         ) : (
           <>
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
           <ResultSuggestion chatId={chatId} messages={messages} busy={busy} onSend={(text) => void onSend(text, []).catch(fail)} />
-          <AiAccessBanner />
+          {/* the newest answer failed for want of AI: its own line has the button, one is enough */}
+          {!noAiError(messages.at(-1)) && <AiAccessBanner />}
           <Composer
             ref={composer}
             draftId={chatId}
@@ -312,7 +320,7 @@ function ChatView({ chatId }: { chatId: string }) {
           />
           </>
         )}
-        {chat?.deletedAt && <p className="pt-2 text-center text-[11px] text-faint">{t('chat.footer')}</p>}
+        {chat?.deletedAt && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>}
       </div>
       {movingProject && chat && (
         <MoveToProjectDialog
@@ -370,3 +378,7 @@ function BrowserToggle() {
     </IconButton>
   )
 }
+
+/** the answer failed because nothing answers this person (the button to connect or ask is on it) */
+const noAiError = (m: { role: string; status?: string; error?: Parameters<typeof chatErrorReason>[0] | null } | undefined) =>
+  !!m && m.role === 'assistant' && m.status === 'error' && !!m.error && isNoAiReason(chatErrorReason(m.error))

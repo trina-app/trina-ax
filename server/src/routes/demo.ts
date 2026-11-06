@@ -1,12 +1,12 @@
 // Route module "demo" (docs/DECISIONS.md "Demo company: a new hire at 트리나"). Exists only on a development server
-// started with MYCEL_DEMO (`bun run demo:trina`); every endpoint answers 404 otherwise, like a route that is not there.
+// started with MYCEL_DEMO (`bun run demo:company`); every endpoint answers 404 otherwise, like a route that is not there.
 // app-config.ts refuses the flag in production, on the hosted service and in office mode; the mode is checked here again.
 //
 // Switching to another demo person is not an impersonation shortcut: the server checks the seeded account's password
 // (the demo's public password) like a sign-in, writes the same audit row ("auth.login", detail demo: true), makes a
 // normal session with its cookie and ends the caller's previous session. An account whose password was changed cannot
 // be entered this way, and neither can the owner or an admin (the demo people are members; the owner has a password of
-// its own, scripts/demo/trina/start.ts). The sign-in page's failure counters are not used: the switch takes no password
+// its own, scripts/demo/company/start.ts). The sign-in page's failure counters are not used: the switch takes no password
 // from the caller, so there is nothing to guess, and a stranger's wrong guesses there must not lock the demo.
 import { API, type DemoFile, type DemoInfo, type DemoPersonaKey } from '@mycel/shared/api'
 import type { AppContext } from '../context'

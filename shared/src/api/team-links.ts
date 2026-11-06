@@ -126,14 +126,19 @@ export type TeamLinkInfo = z.infer<typeof TeamLinkInfo>
 
 export const JoinTeamLinkBody = AcceptInviteBody.extend({ token: TeamLinkToken })
 /** What the new member lands on (TeamLinkStarter), checked with their account: the skill they can open, the files
- * they can read (at least one), the name of who made the link. */
+ * they can read (at least one), the name of who made the link. `skill` (docs/DECISIONS.md "S — The lead's way becomes a
+ * team skill"): a link to a team skill without a form and without files: the member lands on a new chat with the
+ * skill's title in the box and one question; `by` is then who made the skill (its file's first version). */
+export const JoinStarterKind = z.enum([...STARTER_KINDS, 'skill'])
+export type JoinStarterKind = z.infer<typeof JoinStarterKind>
 export const JoinStarter = z.object({
-  kind: StarterKind,
+  kind: JoinStarterKind,
   skill: z.object({ path: z.string(), name: z.string(), title: z.string() }),
-  files: z.array(z.object({ path: z.string(), name: z.string() })).min(1),
-  /** the link's maker as people know them; null when gone */
+  /** at least one for `tasks` and `brief`; none for `skill` */
+  files: z.array(z.object({ path: z.string(), name: z.string() })),
+  /** the link's maker as people know them (`skill`: the skill's maker); null when gone or not known */
   by: z.string().nullable(),
-})
+}).refine((s) => s.kind === 'skill' || s.files.length > 0, { message: 'a starter with files needs one', path: ['files'] })
 export type JoinStarter = z.infer<typeof JoinStarter>
 
 export const JoinTeamLinkResponse = LoginResponse.extend({
@@ -142,6 +147,9 @@ export const JoinTeamLinkResponse = LoginResponse.extend({
   /** the link's starter as this member may use it: a new chat with the files, the skill and the question (the web
    * goes Home and fills the box). null or absent: none, or nothing of it is readable to them */
   starter: JoinStarter.nullable().optional(),
+  /** who made the link's skill (the name of the person whose save made its file's first version), for the line above
+   * its form: "{by}님이 만든 팀 스킬이에요". null or absent: not known, a starter pack skill, or no skill */
+  skillBy: z.string().nullable().optional(),
 })
 export type JoinTeamLinkResponse = z.infer<typeof JoinTeamLinkResponse>
 

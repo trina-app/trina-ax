@@ -142,7 +142,7 @@ test('the message box is one line with a quiet send key, and the controls sit un
   await expect(send).toHaveClass(/text-ink/)
   // the note is in the row, between the controls
   await expect(page.getByTestId('composer-controls').getByText(NOTE)).toBeVisible()
-  await expect(page.getByText(NOTE)).toHaveCount(2)
+  await expect(page.getByText(NOTE)).toHaveCount(1)
   // while an answer runs, Stop takes the send key's place in the box
   await page.getByTestId('composer-input').fill('slow answer please, slow slow slow slow slow slow slow slow slow slow')
   await send.click()
@@ -176,9 +176,11 @@ test('on a touch screen every answer shows its actions, and the chat fits a phon
   expect(await page.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false)
   await expect(page.getByTestId('assistant-message').first().getByTestId('answer-actions')).toHaveCSS('opacity', '1')
   await expect(page.getByTestId('chat-menu')).toBeVisible()
-  // on a phone the note goes under the row of controls
-  await expect(page.getByTestId('composer-controls').getByText(NOTE)).toBeHidden()
-  await expect(page.getByText(NOTE).last()).toBeVisible()
+  // on a phone the note under the message box is left out (the bottom is for the box and the keyboard); the chat's own
+  // bar (back, title, new chat) is the only bar
+  await expect(page.getByText(NOTE)).toBeHidden()
+  await expect(page.getByTestId('chat-back')).toBeVisible()
+  await expect(page.getByTestId('menu-open')).toBeHidden()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await audit(page, 'chat on a phone')
   await ctx.close()

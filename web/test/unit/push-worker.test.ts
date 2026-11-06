@@ -12,7 +12,7 @@ function worker(database = new IDBFactory()) {
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = []
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
-  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }
+  let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }
   let item: any = { id: 'event-1', code: 'schedule.success', readAt: null }
   let status = 200, gate: Promise<void> | null = null
   const self = {
@@ -45,6 +45,8 @@ function worker(database = new IDBFactory()) {
     push: (data: unknown = payload) => event('push', { data: { json: () => data } }),
     invalidate: () => event('message', { data: { type: 'push.invalidate' }, source: { url: 'https://team.example/' } }),
     click: () => event('notificationclick', { notification: { close() {}, data: { url: 'https://attacker.invalid/secret' } } }),
+    /** a click on a notification this worker showed (with the data it stored then) */
+    clickShown: (i = 0) => event('notificationclick', { notification: { close() {}, data: shown[i]!.options.data } }),
     configure: (next: Partial<typeof settings>) => { settings = { ...settings, ...next } },
     preferences: (next: Partial<typeof preferences>) => { preferences = { ...preferences, ...next } },
     item: (next: any) => { item = next },
@@ -131,4 +133,36 @@ test('malformed IDs cannot become fetch paths and a click always opens the fixed
   expect(w.shown).toHaveLength(0)
   await w.click()
   expect(w.navigated).toEqual(['https://team.example/settings/notifications'])
+})
+
+test('a room notice opens its room; the room id comes from the signed-in notice, never from the payload', async () => {
+  const roomId = '0190f5a0-0000-7000-8000-000000000001'
+  const messages = { title: 'Team', bodies: { 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }
+  const w = worker()
+  w.configure({ messages: messages as any })
+  w.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben' } })
+  await w.push({ ...payload, code: 'room.dm', roomId: 'evil', url: 'https://attacker.invalid' })
+  expect(w.shown).toHaveLength(1)
+  expect(w.shown[0]!.options).toMatchObject({ body: 'New direct message', data: { notificationId: 'event-1', roomId } })
+  // the sender's name and the text stay out of the OS notice
+  expect(JSON.stringify(w.shown)).not.toMatch(/Ben|evil|attacker/)
+  await w.clickShown()
+  expect(w.navigated).toEqual([`https://team.example/rooms/${roomId}`])
+
+  // a room id that is not an opaque id is never a path: the inbox opens instead
+  const odd = worker()
+  odd.configure({ messages: messages as any })
+  odd.item({ id: 'event-1', code: 'room.mention', readAt: null, link: 'room', room: { id: '../../admin', from: null } })
+  await odd.push({ ...payload, code: 'room.mention' })
+  expect(odd.shown[0]!.options.data).toEqual({ notificationId: 'event-1' })
+  await odd.clickShown()
+  expect(odd.navigated).toEqual(['https://team.example/settings/notifications'])
+
+  // the room preference off: nothing shows
+  const off = worker()
+  off.configure({ messages: messages as any })
+  off.preferences({ roomMessages: false })
+  off.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben' } })
+  await off.push({ ...payload, code: 'room.dm' })
+  expect(off.shown).toHaveLength(0)
 })

@@ -1046,7 +1046,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 
 ## 예약 작업 (feat/scheduled-tasks, 2026-10-21)
 
-- **사람의 프롬프트를 정해진 때에 서버가 대신 보낸다**(`server/src/chat/schedules.ts`, 표 `schedules`, 마이그레이션 203). 실행마다 그 사람의 새 채팅("⏰ <제목> · <날짜>", 만든 채팅이 프로젝트 안이면 그 프로젝트)에서 그 사람의 권한으로 돈다: 폴더 규칙·사용 한도(다 쓴 block 한도면 건너뜀)·감사가 그대로. 반복: 한 번·매일·평일·매주·매월(1–28일), 시각은 팀 시간대(DST 안전). 30초마다 확인, 꺼져 있던 동안 놓친 실행은 다시 켜졌을 때 한 번, 그다음은 지금부터. 실행 전에 다음 시각으로 옮겨 두어 같은 실행이 두 번 되지 않는다. 사람당 20개.
+- **사람의 프롬프트를 정해진 때에 서버가 대신 보낸다**(`server/src/chat/schedules.ts`, 표 `schedules`, 마이그레이션 203). 실행마다 그 사람의 새 채팅("<제목> · <날짜>", 이모지 없음: 실행 채팅은 제목이 아니라 `title_source` 'schedule'과 턴의 `client_kind`로 알아본다. 만든 채팅이 프로젝트 안이면 그 프로젝트)에서 그 사람의 권한으로 돈다: 폴더 규칙·사용 한도(다 쓴 block 한도면 건너뜀)·감사가 그대로. 반복: 한 번·매일·평일·매주·매월(1–28일), 시각은 팀 시간대(DST 안전). 30초마다 확인, 꺼져 있던 동안 놓친 실행은 다시 켜졌을 때 한 번, 그다음은 지금부터. 실행 전에 다음 시각으로 옮겨 두어 같은 실행이 두 번 되지 않는다. 사람당 20개.
 - **아무도 보지 않는 실행**: 턴의 `client_kind`가 `schedule`(표 turns에 남아 재시작 뒤 대기열 복구에도 유지). `waitForPerson`이 바로 "답 없음"을 돌려준다: ask_user는 skipped, 확인 카드가 필요한 일(처음 보는 주소, 더 넓은 폴더에 저장, generate_video)은 거절. 메시지 앞에 `<scheduled_run>` 블록으로 AI에게도 알린다.
 - **만들기·관리**: AI 도구 `schedule_create`·`schedule_list`·`schedule_delete`(예약 실행 안에서는 만들 수 없음: 스스로 늘어나는 작업 방지). 사람은 설정 › 예약 작업에서 보고 끄고/켜고 지운다(`GET/PATCH/DELETE /api/schedules`, 자기 것만).
 - **사무실 모드**: 맥이 켜져 있고 사용자가 로그인해 있어야 돈다(LaunchAgent). 꺼져 있던 시간의 실행은 켜질 때 한 번.
@@ -1407,7 +1407,7 @@ D7의 Claude 구독 연결은 Claude Code를 설치하고 터미널에서 `claud
 - **대기열 상한(L07)**: 팀 대기 ≥ max(10, 4×동시 실행) 또는 한 사람 대기 ≥ 3이면 429 + `Retry-After: 30`. 명세는 새 오류 코드
   세 개를 더하라고 했지만 **기존 `rate_limited`(429)에 `params.reason`(`queue_full`·`queue_full_user`·`jobs_full`)**으로 정했다:
   클라이언트가 이미 429와 `retryAfter`를 다루고, 공유 계약은 꼭 필요할 때만 넓힌다. 예약 실행이 막히면 채팅을 만들기 전에
-  확인해(빈 "⏰" 채팅이 남지 않음) 1분 뒤로 미루고 감사 `schedule.deferred`. 작업(받아쓰기·내보내기)은 한 사람 대기+실행 5개.
+  확인해(빈 실행 채팅이 남지 않음) 1분 뒤로 미루고 감사 `schedule.deferred`. 작업(받아쓰기·내보내기)은 한 사람 대기+실행 5개.
 - **저장 공간(L17, BIZ-03)**: 진실은 팀 폴더 파일 시스템의 `statfs`(명세 D20). 검토 BIZ-03의 "쿼터 = 팀 폴더+버전+휴지통+DB" 장부
   대신 이것을 택했다: 호스팅 테넌트의 디스크가 곧 요금제 크기이고, 장부는 어긋나며, 로컬 백업은 요금제 보존일(클라우드 3일)로
   묶인다. 단계 80%(owner·관리자 알림 24시간에 한 번, 재시작해도 설정 표에 기억, 감사 `storage.warn`) · 90%(진단 경고) ·
@@ -8033,3 +8033,1683 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
   No released server ever had our 222.
 
+
+## 대화방 v1 — team chat rooms, people to people (feat/team-rooms, 2026-11-05)
+
+- **Apart from the AI chats.** Rooms are new tables (migration 240: `rooms`, `room_members`, `room_messages`,
+  `room_files`; 241: `room_notices`, `room_push_deliveries`, `notification_preferences.room_messages`), a new route
+  module (`server/src/routes/rooms.ts`, logic in `server/src/rooms/`) and a new contract (`shared/src/api/rooms.ts`,
+  events `room.*` in `ws.ts`). The one-person AI chats (`chats`, `server/src/chat/`) are untouched. No AI in rooms yet.
+- **Three kinds, no hand-picked group rooms in v1.** `team`: one per group, its members are the group's active people;
+  `all`: one per team, every active person; `dm`: exactly two people, one per pair (`dm_key` = the two ids sorted,
+  unique). Rooms of hand-picked people and reactions were cut from v1 after review. The table's CHECK already allows
+  `group` (tables are never rebuilt, so a later step can add such rooms without a new table); no code writes one, the
+  contract's `RoomKind` does not list it, and `POST /api/rooms` takes `dm` only. Team rooms
+  and the everyone room are made by the server only (`POST /api/rooms` opens DMs only).
+- **Rooms follow groups and accounts.** `Rooms.sync()` makes a team room for every group and the everyone room, and
+  sets their members from `group_members` and the active accounts. It runs at start, at the end of every
+  `afterAccessChange` (group create, edit, delete, a person's role or groups), when a person's rooms are out of step on
+  their `GET /api/rooms` (a new account from an invite or the team link), and once a minute. A disabled or deleted
+  account leaves the rooms (its unread count would never go down otherwise); turned on again it joins again, from then
+  on. A group deleted: its room is archived with nobody in it (rows kept; nobody can read them; a purge is for later).
+  Team and everyone rooms' creation and member changes are audited (`room.create`, `room.members`, `room.archive`); a
+  DM is not (admins read the audit log and must not learn who talks to whom), and a message's text never is.
+- **A later member sees from their join on.** `room_members.visible_from_seq` is the room's `last_seq` when they
+  joined (0 for the first members at the first start): messages, the last-message line, unread counts, quotes of earlier
+  messages ("deleted" for them) and room files all go by it. Their read position starts there too.
+- **Members only, admins included.** Every read and write starts from the caller's member row; anyone else gets 404
+  (not 403: a room's existence is not told). The owner and admins have no way into a room they are not in, through the
+  API or a room file. The author is the session's person: the request schemas are `.strict()`, so a body naming
+  `author`, `authorId`, `authorKind` or `visibility` is refused (400), and edit and delete are the author's only (403).
+  Message text from another member is data, shown as plain text in the app (never Markdown or HTML); the AI step must
+  treat it as untrusted input too, and can rely on `author_id` being the real sender.
+- **KakaoTalk's unread number.** Every message carries `unread`: members who may see it (`visible_from_seq < seq`) and
+  whose `last_read_seq < seq`. The sender has read their own message (sending moves their read position to it). Reads
+  only move forward (`POST /api/rooms/:id/read`, clamped to the room's last seq). Nobody's read position is in any
+  response: `room.read` tells the others only "fromSeq < seq <= toSeq has one reader more", so the number updates
+  without saying who; `mine: true` goes to the reader's own windows (their badge). Deleted and private messages show 0.
+  The room badge (`Room.unreadCount`, capped at 999) counts messages after my position that I can see and did not write.
+- **Reserved for the AI step, not built.** `room_messages.author_kind` ('user' | 'ai'), `asked_by`, and `visibility`
+  ('room' | 'private') with `visible_to`. A private message is seen by its one person only (`canSee` / `SEE_SQL` in
+  `server/src/rooms/store.ts` filter every list, event, quote, last line and file), makes no notice (`notify()` skips
+  it), no badge and no unread count for anyone else. Where a turn would hook in: `Rooms.send()` is the one writer of
+  room messages; an AI answer is a second writer with `author_kind 'ai'`, `asked_by` = who asked, first as a private
+  preview to that person (`visibility 'private'`, `visible_to`), and sharing it turns it to `'room'` (and notifies then).
+- **Room files where no person reaches them, but in every backup.** Owners and admins can read everything in the team
+  folder outside `users/<id>/` (`server/src/policy/access.ts`), so room files are not in a folder people can open. They
+  are in `<team>/.system/rooms/<room id>/<file id>` (0700 / 0600, with a `.thumb.jpg` preview): `.system/` is closed to
+  every person, the AI's tools, the dev environment and the owner's export, and it is part of every team-folder backup,
+  archive, off-site copy and restore (a first version kept them in `<data dir>/rooms/`, which no backup covered; such
+  files move over at the next start, file by file through a temporary name). With the team folder on a network share or
+  another disk, room files are there too. At every start `RoomFiles.reconcile()` compares files and rows and deletes
+  nothing on a guess: a file without a row (a database restored from a backup is older than the folder) moves to
+  `.system/rooms-orphans/<time>/` and is deleted after 30 days, so going back to the newer database stays possible; a
+  row without its file is kept (the file answers 404) and counted in the log, because the folder may be a share not
+  mounted yet, unreadable, or put in place after the first start; when `.system/rooms/` is missing or unreadable the
+  whole check is skipped. They count as team storage.
+  They are reached only through `GET /api/rooms/:id/files/:fileId`, which checks
+  on every read that the caller is in the room now and may see the message it was sent with (before sending: the
+  uploader only). The upload is the chat attachment's path and limits (multipart ≤ 50 MB, the storage check, the temp
+  file and its sha256, the image size and thumbnail helpers, no preview of a quarantined file). A deleted message's files
+  are removed from disk; uploads never sent are swept after a day. The AI step reads them from there, with the same check.
+- **Photos: upright, and without where they were taken (end-to-end run, 2026-11-06).** A phone's portrait photo is
+  often stored landscape with EXIF orientation 6: the thumbnail (ffmpeg) and the browser show it upright, but its
+  stored size was the landscape one, so the room's 320×240 box cropped it to the middle band. The size is now the
+  shown one (`displaySize` in `uploads/image.ts`: orientations 5–8 swap width and height; chat attachments too). Rows
+  from before keep their size; the web shows a thumbnail in its own shape once it has loaded (`RoomThumb`), so no
+  backfill. Every member gets the original, so a photo's metadata is cut out on upload, as messengers do
+  (`uploads/metadata.ts`, the profile photo's cleaner with a messenger's settings): EXIF (with GPS, camera, times),
+  XMP, comments, PNG text chunks, other cameras' extras and anything after a JPEG's end; JPEG, PNG, WebP and HEIC.
+  Kept: the picture byte for byte, its colour profile, an animation, and its orientation, written back as the only EXIF
+  tag, so it still stands upright. Profile photos stay as strict as before (no colour profile, no animation, no
+  orientation tag).
+  - **Keep-lists, and refusal when unsure (review of bf51a728).** Every format keeps only what draws the picture:
+    JPEG the frame, scan, Huffman, quantisation and restart segments (each checked against its fixed layout), APP0
+    only as JFIF, APP14 only as Adobe, APP2 only as an ICC profile (JFXX, JPGn 0xF0–0xFD, every other APPn and
+    comments go; Adobe must fit its layout, a JFIF that does not is dropped (it is not needed to draw the picture),
+    and the ICC parts are kept only when together they are exactly the profile its header describes, else all dropped
+    (colours as without a profile, never a profile stretched over EXIF); stray bytes after a kept segment are skipped up to the
+    next marker, as libjpeg does, up to 4 KB, and never kept, while after a dropped metadata segment they refuse the
+    file, because a wrong length there ends inside the metadata and a skip could take it for markers and keep it, as
+    a fuzz showed); PNG and WebP their picture chunks, and an animated WebP's frames only their picture chunks; HEIC its
+    picture items (EXIF becomes an empty block, every other item spaces), the parts of mdat they use (the rest zeros)
+    and its item tables and properties (other boxes' payloads zeros). A file that does not read exactly (a box that
+    does not fit, an item table it cannot follow) is refused with a reason instead of being passed on. HEIC's tables
+    are bounded (10,000 items, 1,000 extents an item, 20,000 steps; sizes 0, 4 or 8 only): a crafted 400 KB file whose
+    tables took 45 s is refused in under a millisecond. The cleaner runs in the upload request, not in a worker: every
+    parser is linear (a 50 MB JPEG, crafted or not, takes 60–100 ms, about as long as hashing it), which a worker would only
+    move. A 24,000-file mutation fuzz threw nothing, kept no metadata and took at most 2 ms a file.
+  - Shown only when cleaned or harmless: GIF, BMP and SVG (no place in practice) are shown as they are; a TIFF (it
+    can hold GPS like any camera EXIF) or a file whose bytes are not the picture its name says goes as a plain file
+    (no preview, no thumbnail), like a document, whose metadata is not cleaned either.
+  - Photos sent before this change keep their metadata: they are not rewritten (no backfill).
+- **The keyboard keeps the newest message in sight (end-to-end run, 2026-11-06).** The page uses
+  `interactive-widget=resizes-content`, so a phone's keyboard shrinks the message list from below with its scroll
+  position unchanged and no scroll event; the list followed only its content's size, so the newest messages went
+  behind the message box. The list now also follows its own size: when it gets shorter and the reader was at the
+  bottom, it stays at the bottom (`lib/stickToBottom.ts`, the room and the AI chat alike).
+- **Realtime to members only.** Every room event goes through `publishEach` with the room's member rows (and `canSee`
+  for a message), so a person outside the room never gets one. Payloads are one message (≤ 10,000 characters, ≤ 10
+  files) or a few ids, well under the per-user buffer. Reconnect: the hub's replay check (`stillVisible`) now also
+  replays `room.*` only while the person is still in that room, else `resync`; a person removed from a room also loses
+  their replay buffer (`forgetReplay`) and gets `room.updated removed`. The app reloads its rooms after any reset or
+  resync (gaps are not patched from events).
+- **Notices: a DM message or an @mention.** `room.dm` (the other person) and `room.mention` (each member picked as a
+  mention; only people in the room count); nobody who muted the room gets either. No second notice of the same kind
+  while one of that room is unread, so a burst of messages or mentions is one notice and one push; reading the room
+  marks its notices read and a deleted message takes its notice with it. Sending is rate limited per person (a burst of
+  20, then one a second, all rooms together; 429 with the seconds to wait; a resend of the same clientMessageId is
+  free). They live in `room_notices` (notification_inbox has a fixed event_type
+  list and is never rebuilt) and are part of the one inbox; the inbox entry names the room and who wrote it, never the
+  text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
+  `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
+  notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
+  (`roomMessages`), turns both off; per room there is mute. An edit notifies nobody.
+- **People directory.** The room screens use `GET /api/people` and the photo address from feat/profile (merged into this
+  branch): one `Avatar` (feat/profile's, `web/src/components/Avatar.tsx`), one people store (`web/src/store/people.ts`,
+  with the lookups the rooms need) and one quiet handler for `profile_changed` (no toast; the people list, once read,
+  loads again). The person who changed it gets `my_profile_changed` instead, so only their own windows read their
+  account (GET /api/me) again.
+- **Web.** Desktop and web: a foldable "대화방" group in the sidebar above the AI chats (team rooms, 전체, DMs; one count
+  pill per room, "@" in front when one mentions me; "+" opens the people list for a DM); a room opens in the main area at
+  `/rooms/:roomId` (the mobile app deep-links there), the list at `/rooms`. The room screen groups consecutive messages
+  by author (avatar, name, time once), shows the unread number beside a message only while it is above 0, quotes a reply
+  (a click scrolls to it), offers reply, edit and delete in one "…" menu per message (always visible on touch screens),
+  @mention autocomplete of the room's members, files and images, and one primary action, Send. A message's unread
+  number only ever goes down, so the app keeps the lower of two copies (the answer to my own send can arrive after the
+  other person already read it). Text is plain text with line breaks, never Markdown or HTML.
+- **Phones.** Below 768 px a bottom tab bar with three tabs, 대화 (`/rooms`) · 파일 · 나 (Settings, with the profile
+  page from feat/profile), hairline above, one unread count on 대화. The 대화 list starts with a pinned row for the
+  AI chat (the product's name; it opens Home), like KakaoTalk's "나와의 채팅"; the AI chat has no tab of its own. Inside
+  a room and inside an AI chat there is no tab bar (their message box needs the bottom), and inside a room the room's
+  header with its back arrow replaces the phone top bar. Rows are separated by hairlines, no cards near the edge. The
+  desktop sidebar keeps the AI chats where they were.
+- **Notices on a device.** The service worker shows a room push with the generic text, and a click opens `/rooms/<id>`
+  with the room id taken from the signed-in fetch of the notice at show time, never from the payload (the room page
+  checks membership again); other pushes still open Settings › Notifications.
+
+## 프로필과 사람 목록 (feat/profile, 2026-11-05)
+
+팀 채팅이 "누가 말했는지"를 보여 주려면 사람 목록과 프로필이 먼저 있어야 해서, 둘을 코어에 먼저 넣었다.
+
+- **사람 목록** `GET /api/people`은 로그인한 모든 구성원이 부른다. 줄 수 있는 것은 `id`, 이름, 직함, 사진 버전뿐이다(한 줄 상태 `status`는 아래 "한 줄 상태는 쓰지 않는다" 참고). 이메일·역할·그룹·아이디(username)는 넣지 않는다(이메일은 지금처럼 관리자만). 비활성화·삭제된 사람은 빠진다. 사진 주소는 `/api/people/:id/avatar?v=<버전>`이고 구성원만 받는다. 현재 버전이 주소에 있으면 1년 캐시(`immutable`), 아니면 매번 확인한다. 사진이 없으면 404이고 웹은 첫 글자 아바타를 그린다.
+- **이름은 본인이 바꿀 수 있다.** 지금도 `PATCH /api/me`로 본인 이름을 바꿀 수 있어서(관리자만 바꾸는 규칙이 없었다) 그 규칙을 그대로 두고, 같은 일을 `PATCH /api/me/profile`(`name`, `title`)에서도 한다. 직함은 60자까지. 비워서 보내면 지워진다. 아무도 다른 사람의 프로필을 바꿀 수 없다: 대상은 항상 세션의 사람이고 요청에 아이디를 받지 않는다.
+- **저장 위치.** 새 테이블 `user_profiles`(마이그레이션 115): 사람마다 한 줄, 직함·상태(쓰지 않음)·사진 바이트·사진 종류·사진 버전. `users`는 건드리지 않는다. 사진을 파일이 아니라 DB에 두는 이유는 256KB 이하의 작은 정사각형이라 백업·복원과 사람 삭제가 따로 챙길 것 없이 함께 가기 때문이다. 사진 버전은 밀리초 시계로 올라가기만 해서(지웠다가 다시 올려도 같은 주소가 다른 사진을 가리키지 않는다) 긴 캐시가 안전하다.
+- **사진 규칙은 팀 로고와 같은 생각, 더 엄격하게.** PNG·JPEG·WebP만, 파일 머리글이 말한 종류와 같아야 하고, SVG와 그 밖의 것은 거절한다. 정사각형이고 64~512px, 256KB 이하. 움직이는 WebP는 거절한다. 올릴 때 브라우저가 가운데 정사각형으로 잘라 256px로 줄여 다시 그려서(카메라 정보·촬영 위치가 빠진다) 보낸다. 서버는 이를 믿지 않고 한 번 더 메타데이터 블록(JPEG의 EXIF·XMP·주석, PNG의 텍스트·EXIF·시간 청크, WebP의 EXIF·XMP·색 프로필)을 잘라 낸다. 이미지 라이브러리 없이 컨테이너만 읽는다. 사진은 팀 로고처럼 이미지 전용 헤더(`nosniff`, `default-src 'none'; sandbox`, `inline`)로만 내보낸다. 팀 로고와 달리 로그인 전에는 받을 수 없다.
+- **감사 기록.** `profile.update`(바뀐 항목 이름, 이름이 바뀌면 이전·이후), `profile.avatar_set`(크기·이전 버전), `profile.avatar_remove`. 아무것도 바뀌지 않으면 기록하지 않는다. 바뀌면 실시간 알림 `profile_changed`가 가서 열린 창이 `/api/me`와 사람 목록을 다시 읽는다.
+- **웹.** `components/Avatar.tsx`(`<Avatar user size />`: 사진, 없거나 못 불러오면 첫 글자)를 사이드바 하단 본인 줄에 썼다. `store/people.ts`가 사람 목록을 들고 있어 채팅이 가져다 쓴다. 프로필은 설정의 기존 "프로필" 탭에 있다(나중에 하단 탭 "나"가 같은 화면을 연다). 사진 고르기·미리 보기·지우기와 이름·직함·이메일을 한 번의 저장 버튼으로 저장한다. 안쪽 카드 테두리는 없앴다(구분선만).
+- **한 줄 상태는 쓰지 않는다**(fde814b2, 대화방 UX 검토에서 대표 결정). 프로필은 상태를 묻지 않고, 사람 목록·사람 고르기·대화방 어디에도 보이지 않는다. 테이블은 다시 만들지 않으므로 `user_profiles.status_text` 열은 남고, API도 예전 앱을 위해 `status`를 계속 받고(80자) 값이 있으면 돌려준다. 새 화면은 이 값을 읽지 않는다.
+
+## 대화방의 트리나 — the AI in team chat rooms (feat/rooms-trina, 2026-11-05)
+
+- **A room question is a normal chat turn of the person who asked.** "@트리나 …" (or `@Trina`, `@トリナ`, the product's
+  names; `roomAiMentions` in `shared/src/api/rooms.ts`, not when a person picked from the list has that name) in
+  `Rooms.send()` asks the AI as the sender: the same engine choice, tools, folder checks, budget, queue limits and fair
+  queue as a chat send, and the turn's usage is theirs. The turn runs in a chat of theirs with `chats.room_id` set
+  (migration 242; one per room and person, `chats_room_session`), so the turn code, sessions (`--resume`), the read
+  scope and the remember protection are the chat's own. That chat is never one of their chats: the list, frequent
+  questions and every chat route (`ChatStore.ownChat`) leave it out, and no chat event goes out for it (no
+  `chat.updated`, `message.created`, `message.delta`, `message.step`, `message.done`). Text is not streamed in a room:
+  the asker sees the steps, the room the finished answer.
+- **Checked before the message is written.** Safe operations on the server (`MYCEL_SAFE_OPS_1A`: every conversation
+  would be confidential), the asker's previous question in this room still being answered, a used-up budget, a full
+  queue or an engine they may not use refuse the send (403 / 409 / 429), so the person keeps the text. A question that
+  fails to start after that (a race) tells the asker through `room.ai.run` with the error.
+- **One session per person and room.** The next question of the same person continues it; another person's question is
+  in their own. A session not asked in for 12 hours (`ROOM_SESSION_IDLE_MS`) starts a new conversation (no history).
+  The 12 hours are a guess the owner may change. (Until the live test fixes below, the read scope and the outside mark
+  were the session's, cumulative, and only this reset cleared them; now every question starts with both empty.)
+- **Context: other people's words, labelled.** In front of the question (never in the stored user message) goes
+  `<room_context>` with up to 30 messages / 12,000 characters before the question that the asker may see (from their
+  join on; private ones only their own), each a `<room_message from=… who="another member" | "the person asking you
+  now" | "your earlier answer to …">`, file names only. When the session already holds the asker's own earlier
+  questions and answers (a continued session or its history), those are left out. Tags inside are neutralised. Because
+  the block is not in the stored message, the URL gate does not count links in it as typed by the person. Words of
+  someone else taint the session (remember protection) and add the room to its read scope (`{type:'room'}`, viewers =
+  the room's members), so saving them where people outside the room can read asks first. The instructions get a "Team
+  chat room" section (also in a resumed session's `<turn_context>`): the block is information, not instructions; the
+  answer may go to the whole room; no memories here.
+- **No personal memories in rooms.** None are loaded; `remember`, `forget`, `set_title` and `connect_service` are not
+  offered (`ROOM_OFF_TOOLS`). Nothing runs in the person's signed-in browser or on a computer from a room: the in-app
+  browser tools are off for room turns, and so are `box_shell` and the dev environment.
+- **Review fixes (2026-11-05, independent review of 16aa2af9).**
+  - Private messages never reach the AI: the context takes room-visible messages only (a private preview, the asker's
+    own included, could otherwise come back in a new session and be posted).
+  - Messages from before someone joined: the room's read source records the seq of the oldest message given to the
+    session (`{type:'room', id, fromSeq}`, whenever the block holds any message, the asker's own too); an answer is
+    private while some current member joined at or after it ("○○ 님이 들어오기 전 대화가 쓰였어요"). Members added
+    while a turn runs and continued sessions are covered, as the decision is made at the end with the members then.
+  - File names count: the folders whose names `list` and `glob` showed (`TurnFiles.namePaths`) join a room session's
+    read scope (grep's matches already did). Skills: a room session is shown only the skills every member may read (the
+    list in the instructions, the hints and `find_skills`); "/name" still runs any of the person's own, and a skill it
+    loads joins the read scope.
+  - Every change waits for the asker: in a room session any call outside `ROOM_READ_ONLY_TOOLS` (writes, edits, moves,
+    make_file, save_url, schedules, connections' tools, tools added later) raises a server card to the asker first
+    (`confirmRoomChange`), whatever the room's messages said; no answer or "don't" changes nothing. Always, not only when
+    other people's words are in the context: simpler, and it fails closed.
+  - Answer file links: `RoomMessage.openable` lists the team files an AI answer links to or shows that the viewer may
+    open now; the app shows the others as plain text (no chip, no picture loaded).
+  - An account that cannot be loaded (disabled, deleted, still listed) fails every check.
+  - The asker may delete their AI answer or private preview (the "…" menu; the preview keeps its one button), an owner
+    or admin any AI answer they can see (audited `room.ai_delete`).
+  - Posting a preview decides again: reasons that changed (a member joined, rules changed) are saved on the preview and
+    the post answers 409 `room_ai_reasons_changed`; the asker sees them and posts again.
+- **Second review fixes (2026-11-05, re-review of bd7a6b95).**
+  - The `skill` tool's "Similar:" and "several skills are called …" replies name only skills everyone in the room may
+    read (a skill named exactly still loads; its folder joins the read scope).
+  - The team rule files and the company profile in the instructions are recorded in the read scope at the start of
+    every room turn (recorded, not left out: a resumed session keeps the instructions it started with), so a member who
+    cannot read `skills/` keeps the answer private. The asker's writable and read-only folder lists name only folders
+    everyone in the room may read.
+  - When the room's members changed since the session's current conversation began (`room.members` in the audit log),
+    the next question starts a new conversation: its instructions and lists were made for the members then.
+  - A `share_file` link counts its path like a name read. `edit_files` raises one card for the whole batch
+    (`TurnToolSet.beforeBatch`), and the yes covers each file's edit.
+  - Each viewer's access is loaded once per message list for the answer links, and the skill check caches by path.
+- **Third review fixes (2026-11-05, re-review of fcfbf3a7): allowlists instead of one fix per finding.**
+  - Instructions: the three prompt builders (`buildTurnPrompt`, `buildSubagentPrompt`, `buildTurnContext`) are made of
+    named sections, and a room session gets only those `ROOM_PROMPT_SECTIONS` allows: product and tool rules, the
+    person lines in their room form (display name and id, folders everyone in the room may read; no role, no groups),
+    the environment, team rules and company profile (recorded as read), skills everyone may read, the room section,
+    the session's own history. Memories, project, connected services and the browser are left out. The record has
+    every section id, so a new section needs a room answer to compile, and a test builds all three prompts with every
+    section filled and checks that only allowed ones are there.
+  - Tools: a room session gets only `ROOM_TOOLS` (file tools and the tools that work on team files, ask_user, skills,
+    web_fetch, save_url), and no connection at all: personal ones are the person's, and a team one's results are not
+    team files (its answers would be private anyway). Google Drive, schedules, video generation and box_shell are out.
+  - A room session never resumes an engine session: its instructions are made again for every question, so a member
+    who joined or lost access is never answered from instructions made for others. Its history holds only the
+    questions whose answers went to the room (posted, not deleted): no private preview, stopped or failed answer.
+  - Every team path a call names (file_path, path, output, paths, …) counts as a name read in a room, whatever the
+    call answers: a folder someone cannot see ("is a folder"), a path that does not exist ("not found") and a search
+    with no result there keep the answer private alike (a path the asker cannot open themselves no longer counts:
+    live test fixes below). share_file also records the path as the server resolved it
+    (actual case, NFC). The skill tool answers as if skills only the person may read did not exist when several share
+    the name. The edit_files card lists every file and the replacement.
+- **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
+  the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the question's
+  read scope (not only this answer's list; the live test fixes below say what a source is and that the scope is per
+  question): each ruled folder (or the team root) by the rules now; the
+  person's own folder (also what the browser or a personal connection showed) only if nobody else is in the room; a team
+  connection never; the room itself always. And the question used nothing outside the team files: any tool outside
+  `ROOM_FILE_TOOLS` (`server/src/rooms/ai-tools.ts`: file tools, search, skills, ask_user, sub-tasks, make_file and the
+  other team-file tools), the engine's web search included, and any tool added later, sets `chats.room_outside`.
+  Folders listed with `list` also join the read scope in a room session (their names may go into the answer).
+  Otherwise the answer is a private preview (`visibility 'private'`, `visible_to` = asker): no notice, badge or unread
+  for anyone else (rooms v1 filters), and the asker sees why (`RoomMessage.preview`: the folders some member cannot
+  open, their own folder, outside sources). A member added later is counted from then on: the next answer is decided
+  with them. The answer's "참고한 파일" are copied to `room_message_sources` and checked for each viewer when opened.
+  Answers over 60,000 characters are cut with a line saying so.
+- **Posting a preview** (`POST /api/rooms/:id/messages/:messageId/share`, the asker only; 404 for anyone else, also once
+  it is posted): it gets a new place at the end of the room (new seq and time, so the others see it as new and their
+  unread counts and DM notices work), the sources some current member cannot read leave the shared copy's list, the
+  asker's read position moves to it, and `room.ai_share` is audited with the number left out. There is no "only me"
+  button: not posting is the default.
+- **While it works.** The asker gets `room.ai.run` (queued with its place, running, done, stopped, error) and
+  `room.ai.step` (the step labels name files and searches: never to the room); every member gets `room.ai` with the
+  number of questions being answered, nobody named. `GET /api/rooms/:id/ai` gives the same after a reload (the asker's
+  runs with their steps). Stop is `POST /api/rooms/:id/ai/:turnId/stop`, the asker only. Cards the AI raises (ask_user,
+  a confirmation) come as `turn.request` as in a chat and are answered there. A question that ends without an answer
+  (stopped, failed, the asker left the room) writes nothing in the room; the asker sees one line they can close. At
+  start, questions whose turn ended while the server was down are finished (`RoomAi.reconcile`).
+- **Web.** The AI is the first entry of the "@" list in the message box (not in the edit form: an edit never asks).
+  An AI answer renders like a chat answer (Markdown, sources) without steps; "@트리나" in a message stands out like a
+  mention. Under the messages: my question's block (name, "답하는 중" or its place, the last steps, cards, Stop), or for
+  the others one line "트리나가 답하는 중". A preview is the answer plus a left-bordered note (no card in a card) and one
+  primary button, 대화방에 올리기.
+- **UX review (2026-11-05, owner's decisions; supersedes the Web lines above where they differ).**
+  - A private preview says "나만 볼 수 있어요" (lock) where "○○ 님이 물어봄" was; above its button one sentence: "올리면
+    이 폴더를 못 여는 사람도 이 내용을 봐요: 마케팅팀" (the last part of each folder path, never `skills/`; 내 폴더 for the
+    person's own; else the one other reason). 대화방에 올리기 is an outline button: not posting is the default.
+  - The others: "트리나가 답하는 중" ends as "○○ 님에게만 답했어요" under the question when the answer stays private
+    (the question's `RoomMessage.answeredPrivately`, from its `room_ai_turns` row with status `private`: for the
+    members who see the question, never for the asker; nothing of the answer or why; sent live as
+    `room.message.updated` of the question and listed with it after a reload; first it was a live-only
+    `room.ai.privateAnswer`, so after a reload the question looked ignored), and goes when it is posted (the question
+    is sent again without it). The room section no longer tells the AI where its
+    answer goes; one allowed sentence instead: it may also search folders only the asker can open (named nowhere), such
+    answers stay private and the screen says so, and it does not write about who can see the answer.
+  - My question's progress is one plain line ("파일 찾는 중", "'예산' 문서 읽는 중": a file by its name only, no search
+    patterns or paths). A stopped or failed question's line sits under that question. A refused send (409 the AI still
+    busy, any 4xx but 401/404) goes back to the message box with the reason as a toast, not a failed bubble.
+  - Phones (below 768 px, where the tab bar is): sign-in lands on the 대화 list; its top bar has no new-chat icon; the
+    drawer has no rooms group (the desktop sidebar keeps it); a long press opens a message's menu (reply, copy, edit and
+    delete my own) and there is no "…" per message (desktop keeps it on hover). The 나 tab opens Settings on the
+    profile with the tab bar kept (the way out; no ✕), the list without its search box, MCP, 앱 커넥터 and AI 연결 behind
+    one 더 보기 row. The room's one setting is the bell in its header (no menu of one item).
+  - The pinned AI row is "트리나" (rooms.aiName) where the product is named after its AI (`PRODUCT_NAMED_AFTER_AI`); the
+    core edition keeps the product's name. Room DMs and mentions still push and still count on the 대화 tab but are not
+    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id). The profile no
+    longer shows or asks for the one-line status (the column stays). Letter avatars are on a neutral tile; an AI answer
+    is one plain line in the rooms list; a muted room's badge is grey and not in the tab's count; a mention shows "@"
+    alone; an AI answer's unread number sits by its time.
+- **Fourth review fixes (2026-11-05).** Every path a room session names is recorded by its real spelling on disk (case
+  on a case-insensitive disk, Unicode form; a missing tail as typed, NFC) besides as typed, so another spelling of a
+  restricted folder no longer maps to a parent everyone may read. `to_folder` (move_files, copy_files) is a path
+  argument. grep, glob and search count the folder they start in and every ruled folder under it the asker may read
+  (the whole team folder without a path; the asker's own folder is left to what was found there), so a search that
+  found nothing stays private too.
+- **Live test fixes (2026-11-05, fix/room-ai-ux): what makes an answer private.** In the live test a member with no
+  group (Noah) got only private previews, in the everyone room and in a DM, saying "내 폴더, 다른 사람이 못 여는
+  폴더". The copied database showed why. Everyone room: Mia's posted answer linked `groups/재무/budget-2027.txt`; Noah's
+  AI tried to read that path (refused: "not found or no access"), and the path rule above recorded its folder
+  `groups/재무`, which Noah cannot open (decision `otherFolders: true`). His next question ("make shared/메모.txt")
+  stayed private only because the scope was cumulative. DM: `list .`, `list users` and the refused `list groups`
+  recorded the team root (`users/` and `groups` have no ruled folder above them, so they mapped to the root, which a
+  member may list but not read), and `users/noah` recorded his own folder (`personal`; that one was right: he asked about
+  his folder). Rule files and the company profile were not the cause (`skills/` is everyone's in that team).
+  - **The rule.** A source keeps an answer private only when some member of the room now could not see what the
+    answer could reveal from it, and what it can reveal is bounded by what the asker's own tools answered:
+    - *content* (a file read, a grep hit, a listing that showed files, a search's folders, a path the asker may read
+      that a call named): every member must be able to read its folder, as before;
+    - *a name* (a sub-folder a listing showed; a path a call named that the asker may only list, such as the team
+      root for a member, `users/`, or a folder on the way to theirs): every member must be able to list it
+      (`RuleSet.canList`), because then they would see the same name. New source `{type:'name', path}` in
+      `chat/read-scope.ts`, recorded only in room sessions (`TurnFiles.listedNames`);
+    - *a path the asker can neither read nor list*: the tools answer it "not found or no access", the same for a
+      folder hidden from them and for a name that does not exist (`policy/authorize.ts` checks access before it looks
+      at the disk). It counts exactly as a missing name in the same place would, or where the answer goes would tell
+      which it was (independent review of ae4c861c: `groups/marketing/salaries/…`, hidden from marketing members,
+      was posted while `groups/marketing/nosuch/…` was private, so the outcome said that salaries/ exists). The nearest
+      folder above it that the asker may list decides: one they may read counts as read (only its readers can tell a
+      name is not there); one they may only list (the team root for a member, `users/`) counts for nothing, because
+      anyone without access gets that same answer and it carries no more than the path the AI typed (a guess, or a
+      name from the room's messages or the question, which the room has seen).
+    This only stops over-counting: content still needs read for everyone, a missing path in a folder the asker may
+    read still counts (only readers can tell it is missing), a search still counts every folder it looked in, and a
+    folder the asker read and can no longer open (a rule changed since) still counts, unnamed to them.
+  - **Per question, not per session.** A room session never resumes an engine session (third review) and its history
+    holds only questions whose answers went to the room; private previews never return as context. So a later
+    question carries nothing private from an earlier one: what it carries is the room's (the posted answers, the
+    room's messages). The read scope and the outside mark are emptied when each room question starts
+    (`chat/turn.ts`), and the history counts as the room from its oldest question (`{type:'room', fromSeq}`), so
+    someone who joined after it still keeps the answer private ("들어오기 전 대화"). The history's answers are the
+    room's copies (`room_messages.body`, cut at 60,000 characters with a line saying so), not the chat's full text:
+    the history keeps the end of a long newest message, which the room may never have got (review of ae4c861c). The
+    questions are the room's too, as they read now: an edited question comes back edited, a deleted one not at all
+    (its answer stays while it is in the room) (re-review of 57ef7383). The
+    12-hour rule now only starts a
+    new conversation. What a question used is kept on its row (`room_ai_turns.scope`, migration 246) so that posting
+    its preview later decides again on that question, not the latest one. A row from before has none: it is never
+    decided from the session (whose scope is now a later question's); the reasons the person was shown stand and are
+    not overwritten, and a preview with no reasons kept either is not posted (409 `room_ai_ask_again`, "다시 물어봐
+    주세요") (review of ae4c861c). Kept as they were: previews never return as context, the pre-join check, the card for
+    every change, the room prompt and tool allowlists.
+  - **The change card in words.** Under "바꿀 내용" the card showed the call's JSON (`{"file_path":…,"content":…}`).
+    It now shows what the call does (the step verb: 파일 저장, 파일 수정, 파일 옮기기, …), the file or folder, and
+    what it writes: the first 400 characters, with all of it (up to 100,000, the whole length said beyond that) one
+    click away ("전체 보기", `ConfirmDetail.collapsedAt`; the size above counts all of it). The review of ae4c861c
+    noted that a 400-character cut alone let a planted write hide its payload after the preview. For skills/, a
+    person's skills and instruction files by name (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) all of it shows from the
+    start (`instructionLike`, matched on the path as the file layer reads it: `./users/a/skills/x.md`,
+    `users/a//skills/x.md`, `shared/CLAUDE.md/` and other spellings count). `roomChangeDetails` in `chat/turn.ts`;
+    a tool without its own lines shows its arguments one per line. A detail without text (a rename) shows no empty
+    box. Content a card cannot show (a file made from a source or template, a file saved from the web, an edited copy
+    saved as a new file) is said plainly on it ("저장될 내용은 이 카드에 다 보이지 않아요. …에서 가져와요."). Such a
+    call, or a move, copy or rename (a folder brings every file in it), that would put content into a skill, team rule
+    or instruction file is not made from a room at all, with no card: the AI is told why, and the person can do it in
+    their own chat or have the content written out with write or edit (`roomChangeWrites`, re-review of 57ef7383).
+    A text longer than the card carries (100,000 characters) counts as not shown, and save_url into a folder (or
+    with no path) is checked under the name the address gives the file (final review of 0da5c721).
+  - **Why a preview is private, in short sentences** (supersedes the one sentence of the UX review). "올리면 이 폴더를
+    못 여는 사람도 이 내용을 봐요: 재무, 내 폴더, 다른 사람이 못 여는 폴더" mixed reasons into a list, and "다른 사람이
+    못 여는" was wrong when the asker cannot open the folder either. Now one plain sentence per reason, in this order:
+    "방 사람 중 일부가 열 수 없는 폴더(재무)를 읽었어요." (named only when the asker may open them, never `skills/`;
+    without a name to give: "방 사람 중 일부가 열 수 없는 폴더를 읽었어요."), "내 폴더를 읽었어요.", "○○ 님이 들어오기
+    전 대화를 참고했어요.", "웹이나 연결된 서비스의 내용을 참고했어요."; an older preview without reasons keeps
+    "올리면 대화방 모두가 이 내용을 봐요." (`previewWhy`, `rooms.aiWhy*` in the five languages).
+  - **A file chip sits in the sentence like a word** (AI chat and room answers, `TeamFileLink` in
+    `components/Markdown.tsx`): 0.9em text on a 20px line with a 1px border, no vertical margin or padding, so it is
+    22px in the answer's 28px line and the line it is on keeps the paragraph's spacing (it was 34px plus margins, a
+    visibly taller line). Checked at 1280px and 390px with a real answer. Not changed here: Chrome still wraps Korean
+    after a closing parenthesis ("…(473,000,000원)" / "입니다.") even with `word-break: keep-all`; that is the text's
+    own wrapping, not the chip's.
+- **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
+  first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
+  runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.
+
+## 모바일 앱 출시와 네이티브 푸시 (feat/mobile-app, 2026-11-05)
+
+The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to TestFlight / the App Store as
+"Trina AX", and phones get native push. There is no Expo account and none is made.
+
+- **Identity through the edition, not the neutral defaults.** `MYCEL_MOBILE_EDITION=trina` makes `app.config.ts` read
+  `editions/trina/branding/mobile.json` (the fields `src/product.ts` already validated, plus `background` and
+  `appleTeamId`) and the fixed asset names in `editions/trina/branding/mobile/` (icon 1024 px without alpha, adaptive
+  icon foreground, launch image, all made from the web mark `web/public/favicon.svg`; the SVG sources sit next to them).
+  Without the variable the neutral "Team AX" app and `app.teamax.mobile.dev` stay. Asset paths in the config are
+  relative, because the resolved config is embedded in the app.
+- **Store build**: bundle id `app.trina.ax` (the same App Store Connect record as the Mac App Store app, team
+  YWW96288YY), version 1.0.0, build number from `MYCEL_MOBILE_BUILD_NUMBER` (default 1), iPhone only (no iPad
+  screenshots for v1), `ITSAppUsesNonExemptEncryption=false` (HTTPS only), React Native's privacy-manifest reasons, the
+  `aps-environment` entitlement from expo-notifications (development in the project; Xcode's App Store export signs it
+  as production). Camera, microphone and photo library usage strings in Korean and English, because the web app opens
+  the camera (photo attachment) and the microphone (voice input) inside the WebView and iOS stops an app that asks
+  without them. The WebView grants capture to the team's own host only (`grantIfSameHostElseDeny`); iOS asks the person
+  once. Android keeps blocking camera and microphone until the app ships there. Android target SDK 36 is set explicitly
+  (expo-build-properties; also React Native 0.88's default).
+- **Local iOS build** (`mobile/scripts/ios-release.sh`): expo prebuild → `xcodebuild archive` with automatic signing and
+  an App Store Connect API key (`-allowProvisioningUpdates -authenticationKey…`) → export (`app-store-connect`) →
+  `altool --validate-app` / `--upload-app` with `--p8-file-path`. The key comes from environment variables, is never
+  copied or printed, and must lie outside the repository. eas.json is kept for later and is not needed.
+- **Push permission after sign-in, never at first launch.** The signed-in web page asks the app for its token through a
+  new optional bridge capability, `push-token-v1` (message `push-token`; reply `push: { platform, token, environment }`
+  or `push_denied` / `push_unavailable`). It goes through the same receiver as `file-share-v1`: trusted top-level origin,
+  document nonce and generation; a token that arrives after logout or navigation is dropped. The capability is
+  optional, so an older app or page keeps working with push off. The OS prompt appears on that first request; a person
+  who turned push off (`optedOut`) is not asked again by the app, only from Settings.
+- **Native device tokens, not Expo tokens.** `getDevicePushTokenAsync`: APNs hex token (lower case) on iOS, FCM token on
+  Android. The environment comes from the embedded provisioning profile (development → sandbox); App Store and TestFlight
+  installs have none and use production. Android push needs the owner's `google-services.json`
+  (`MYCEL_MOBILE_GOOGLE_SERVICES`); without it an Android build logs one line and push stays off.
+- **A tap opens only an id path on the current team** (`/rooms/<id>` style, no scheme, host, `//`, `..`, query or
+  fragment; the same rule as the gateway's `validPushPath`, a test keeps them equal), and only when the notification's
+  `device` (the team's device id; the request field is `tag`, the data key is `device` because expo-notifications on
+  Android uses `data.tag` as the notification id) is the device the app registered with the current team; a notification delivered before
+  the current team was chosen opens nothing either. Changing team clears delivered notifications. In the foreground a
+  notification goes to the list without a banner (the web app is live). On iOS, expo-notifications reads remote data
+  from the APNs payload's `body` dictionary, so the gateway puts `{ notificationId, code, path, device }` there; FCM
+  data stays flat.
+- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 243: `kind`; 245: `remove_hash`), not
+  a second table. Every event the push service delivers, including codes other branches add, reaches phones through the
+  same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
+  re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
+  cannot misread it as Web Push). `POST /api/push/devices` / `DELETE /api/push/devices/:id`; `GET /api/push` adds
+  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it,
+  also for another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
+- **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
+  hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
+  store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
+  removal and the device check. On a team switch, also from the cannot-reach screen, the app
+  calls the public `POST /api/push/devices/:id/remove` with the key (always 204, no session: the person is leaving that
+  team). If that server cannot be reached, the removal is kept (at most four, 30 days) and retried at each app start.
+- **Off until the operator chooses a gateway.** Team servers never get Apple's .p8 key or Google's service account;
+  they POST `{ v, platform, environment, token, notificationId, code, locale, tag?, path?, ttlSeconds }` to
+  `<gateway>/v1/send` (contract `shared/src/cloud-protocol/push-gateway.ts`, MIT), signed with the team's Ed25519 key:
+  the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). There
+  is no built-in default: phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
+  gateway (the Trina hosted service writes `https://push.trina.app`). Owners and admins see one line in Settings ›
+  Notifications: phone push off, or on through `<host>`. `push` and `push-gateway` are reserved relay team names, so
+  nobody can take `push.<domain>` under the relay wildcard. The request goes through the Web Push transport's pinned
+  public-address HTTPS post; only 410 deletes a device (the gateway's 404 means a wrong address). `path` comes from
+  `registerPushPath(code, resolver)`; the three existing codes open the inbox, as a Web Push click does.
+- **The gateway** (`push-gateway/`) runs on Bun (`src/bun.ts`), behind a TLS terminator: APNs requires HTTP/2 and a
+  Cloudflare Worker's outbound fetch speaks HTTP/1.1, so there is no Worker. Trust on first use per team public key (a
+  key that never sent successfully is forgotten after a day), a per-client-IP limit before signature checks, per-key
+  limits (120/min for a key younger than a day, 1200/min after), per-(key, token) limits (20/min, 200/day, so one server
+  cannot use up a phone's budget for other teams), a 10-minute dedupe that is also the replay guard, generic text from
+  code and locale only (App Review 4.5.4; room codes say "새 메시지가 있어요"), APNs token auth (production only unless
+  `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Not deployed.
+- **App Review screens**: a native "offline" / "cannot reach your team" screen with Try again and Change team address
+  (Korean and English by the phone's language). Account deletion starts inside the app: Settings › Profile › 계정 삭제
+  opens `/settings/account/delete` ("계정 삭제 요청"). Admins create accounts and only the owner deletes them, so the
+  person confirms and the owner (only the owner: admins cannot act on it) gets an in-app notice (no OS push) that opens
+  Admin › Members at that person. Removing that person works as for anyone: the account goes and the personal files
+  are archived for the owner (they are not deleted). The owner cannot ask (409; hand over the role first). Requests are
+  idempotent, audited, at most five a day (migration 244).
+- **Release build**: Expo's "Generate app.config" build phase runs `expo config` again inside xcodebuild, so
+  `scripts/ios-release.sh` exports the edition for the whole run and refuses an export whose embedded config is not the
+  edition's (build 1 showed "Team AX" inside the app because only prebuild had the edition).
+- **Android release** (`mobile/scripts/android-release.sh`): prebuild and `./gradlew bundleRelease` on this Mac, signed by
+  the upload key that `plugins/release-signing.js` makes Gradle read from the environment (keystore outside the
+  repository, no secret in any file); the script checks the bundle's embedded config and its signer against the key.
+  targetSdk 36; compileSdk 37 because the SDK 58 modules (expo-application, expo-asset) refuse to compile against 36.
+  Camera and microphone are declared on Android too, for the same uses as on iOS: Android's
+  WebView has no per-origin grant (react-native-webview grants any page once the app holds the permission), but only the
+  team's origin is ever a top-level page and a cross-origin frame cannot ask without the team page's Permissions-Policy
+  delegation. SYSTEM_ALERT_WINDOW (Expo's default) is blocked. Without `google-services.json` Android has no push and
+  never prompts; notification setup is guarded so it cannot stop the app.
+- Known limits: an iOS build made in Xcode with a development profile but Release configuration reports sandbox only if
+  its profile says so; a removal owed to a team whose server stays unreachable for 30 days is dropped, and that team
+  keeps the device until the session ends (its pushes show generic text, a tap opens nothing because of the tag).
+
+## 대화방 알림이 폰으로 (rooms and native push together, feat/team-chat, 2026-11-05)
+
+- **Every notice source reaches every kind of device.** The push service queues `notification_inbox` →
+  `push_deliveries` and `room_notices` → `room_push_deliveries` alike for Web Push rows (current VAPID key) and phone
+  rows (`kind 'native'`, current gateway address); the due delivery is taken across both sources with its device row's
+  config key and sent by the row's kind. The room rules (one notice per unread run, mute, the "Room messages" switch,
+  reading the room) decide whether a room notice exists or is still unread, so they hold for phones too; the gateway
+  shows its generic "새 메시지가 있어요" for both room codes.
+- **A tapped room push opens the room.** `room.dm` and `room.mention` resolve to `/rooms/<room id>` (ids only,
+  `server/src/notifications/push-events.ts`), only while the person is still in that room and it is not archived;
+  otherwise the app opens its start page. The room page checks membership again. Web Push keeps its own way (the room
+  id from the signed-in fetch at show time, never from the payload).
+
+## 휴대폰 알림 허용과 안전 영역 (fix/mobile-permission-safearea, 2026-11-05)
+
+The owner on TestFlight build 2: no notification permission prompt ("앱 내 퍼미션을 요청해야하는거 아니야?"), and the
+status bar and home indicator areas were not in the page's colours (the bottom inset looked missing).
+
+- **Why no prompt.** The app showed the OS prompt only inside `push-token`, which the page sent by itself as soon as it
+  was signed in, and only while the OS had no answer (expo-notifications reports iOS `.authorized` as granted, `.denied`
+  as denied, everything else as undetermined). The test server registered the owner's phone 2 s after sign-in, so iOS
+  already said yes for app.trina.ax: it keeps the answer across TestFlight updates, logouts and team changes (only
+  deleting the app resets it), and the app had asked before (build 1, or an earlier sign-in). A first ask was no
+  better: it popped up over the page the moment sign-in ended, with no word from the app (simulator: sign-in
+  13:45:17.4, prompt over the rooms list; after Allow, signing in again registered 0.4 s later with no prompt). A
+  prompt left unanswered (the app closed while it was up) came back by itself at the next launch, even after a
+  reinstall, so a load-time ask also resurfaced at odd moments. On Android the prompt never
+  came at all: react-native-webview reports every `history.pushState` as a load start (`doUpdateVisitedHistory`) with
+  no load end, and the app fenced its bridge on every load start, so after the sign-in navigation the session reset,
+  the token request and file shares got no answer until the next full page load. The app now ignores a load start
+  that is not loading (`nativeEvent.loading`), on Android only.
+- **The app's own question first; the OS prompt only from its button.** Signed in, push available on the server, not
+  turned off by the person, and the OS not asked yet: one card above the tab bar (not in a room or an AI chat, whose
+  message box needs the bottom), "새 메시지와 @트리나 답을 알림으로 받을까요?" [알림 켜기] [나중에]. Only [알림 켜기]
+  (or Settings › Notifications) sends `push-token`. Already granted: the page registers without a word, as before.
+  Denied: no card; Settings › Notifications and the 나 list's 알림 row say so with [설정에서 켜기].
+- **Not nagging: [나중에] puts the card away for a week; after the second [나중에] it does not come back by itself.**
+  Settings › Notifications always keeps [알림 켜기]. The answers live in the team page's storage on that phone
+  (granted, denied, later), so a reinstalled app starts over like the OS permission does; another team asks once more.
+  A "no" from the OS prompt stands even where Android would let the app ask once more; turning it on in the phone's
+  Settings is seen when the app comes back to the foreground, and the page then registers by itself.
+- **`push-permission-v1` (new build).** `push-permission` answers `granted` / `undetermined` / `denied` without ever
+  prompting (Android 13+ "denied with canAskAgain" before the first question is undetermined; iOS provisional too);
+  `open-settings` opens the app's page in the phone's Settings (`Linking.openSettings`). Same origin, nonce and
+  generation checks as every message; open-settings works only while the app is on screen, at most once every 3 s.
+  **Store builds 1 and 2** lack it: the page cannot tell granted from not asked without prompting, so a session that
+  already has a registered phone counts as granted (no card, registered again at sign-in as before), and otherwise the
+  card shows until that phone has given a token once (remembered as granted). After a "no" Settings keeps [알림 켜기]
+  with the "allow it in the phone's Settings" text: those builds cannot open Settings or tell when it was turned on,
+  and the OS answers at once without a prompt. One registration runs at a time (coming back from the OS prompt
+  checks again). Nothing waits on a message an old build would not answer.
+- **Safe areas: edge to edge, the page's own colours.** The app draws the WebView over the whole screen (no native
+  bands) once the page has reported its look (appearance-v1), which only pages that pad themselves do; until then,
+  and again after every full load, it keeps the padding it had before, so build 3 still fits a team server that has
+  not updated (some never update by themselves). The page pads itself: `--safe-top` / `--safe-bottom` in `web/src/index.css` are the larger of
+  `env(safe-area-inset-*)` and `--app-inset-*`, which the app sets before every page loads (Android's WebView 133
+  reports no insets). The page's root pads the top, so its canvas runs under the status bar; full-screen layers on
+  phones (Settings, the drawer, side panels, search, sheets) pad themselves in their own colour; the tab bar, the room
+  and AI chat message boxes, sheet footers and toasts keep clear of the home indicator / navigation bar with their
+  background continuing under it. While the keyboard is open the bottom inset is 0 (`.keyboard-open`, from the visual
+  viewport). Rejected: the page reporting its top and bottom colours for native bands (every overlay, sheet and dim
+  layer would need reporting, and a band never matches a scrolling or dimmed page).
+- **`appearance-v1` (new build).** The page reports its look (dark or light) and whether it follows the phone's
+  (theme "system"): when the bridge comes, when the theme changes, and again after every session reset (the first
+  send was often fenced off by the sign-in's reset). Android: React Native's StatusBar and expo-navigation-bar
+  (58.0.4) set the status bar icons and the three-button bar's contrast scrim to the page's look (React Native set
+  the scrim once, from the phone's look at launch). iOS: in the simulator (iOS 26) React Native's StatusBar style
+  kept the launch look, so iOS sets none; the status bar's default style follows the windows' look, and a page
+  with a theme of its own sets that look on the windows (`Appearance.setColorScheme`), while a page that follows the
+  phone leaves them to the phone (else the page would never see the phone's look change again). Native screens
+  (team address, offline, cannot reach) use the web app's light and dark tokens (`mobile/src/look.ts`).
+- **Keyboard.** Android: edge to edge (target SDK 36) the window no longer shrinks for the keyboard, and the room's
+  message box sat under it; the app lifts the page by the keyboard's height plus the navigation bar. iOS: the page
+  kept its home-indicator padding above the keyboard, and the WebView's ^ v ✓ bar sat between; `.keyboard-open`
+  drops the inset and the app hides that bar (`hideKeyboardAccessoryView`), so the message box sits on the keyboard.
+- **Which build.** The question, the settings texts and every CSS change ship with the server and work in store builds
+  1 and 2 (on iOS their tab bar and message boxes already kept clear of the home indicator through env(); the
+  drawer, side panels, search, sheets and toasts did not, and do now). Those builds still paint their fixed light band
+  under the status bar and keep the status bar text at the launch look, so the top in dark mode, the keyboard
+  accessory bar and Android's bottom need build 3 (edge to edge, `appearance-v1`, `push-permission-v1`, the Android
+  fixes).
+
+## Slack 커넥터 (feat/slack-connector, 2026-11-05)
+
+People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guide: [SLACK.md](SLACK.md).
+
+- **Distribution: an internal app per workspace, in Socket Mode.** The owner makes it in their own workspace from a
+  manifest the server generates (Admin › Slack opens Slack's "create app" with it filled in,
+  `https://api.slack.com/apps?new_app=1&manifest_json=…`, docs.slack.dev "Configuring apps with app manifests"). Socket
+  Mode needs no public address, so an office Mac behind NAT works like a hosted server. A distributed (Marketplace) app
+  was left out: Marketplace apps may not use Socket Mode, so a NAT server would need a relay we run, and unlisted
+  distributed apps got 1 request a minute for conversation history (Slack changelog 2025-05-29).
+- **Tokens.** The bot token (`xoxb-`) and the app-level token (`xapp-`, `connections:write`) are sealed in the browser for
+  their own purpose `slack.token` and kept with their own key directory `<secrets>/integrations/slack` (the same
+  `SecretBox` checks as the connections' directory). Saving checks them with Slack first (`auth.test`, the scopes in
+  `X-OAuth-Scopes`, `apps.connections.open`). Owner only, for every Admin › Slack route: the app answers as every linked
+  person, which is more than an admin's own reach.
+- **Scopes:** `app_mentions:read`, `im:history`, `chat:write`, and `users:read`. `users:read` was added beyond the first
+  plan: the link page has to name the Slack account (the design asks for both names), "Asked by" needs a name without
+  pinging the asker, and `users.info` says whether the asker is a bot or of another workspace. No channel history (so no
+  thread context: other people's messages would be untrusted input), no files, no slash command, no user token.
+- **Who asked** is the event's `user`, the envelope's `team_id` and `enterprise_id`; the envelope must name the connected
+  workspace and the app id Slack's hello gave. Socket Mode has no request signature; every shape is checked with zod
+  (`envelope.ts`) and anything else is dropped. A person of another workspace (`user_team`, or `users.info` `team_id`)
+  is never offered a link or answered. An organization-wide install is refused.
+- **The one-time link** is a random 32-byte token (stored as its SHA-256), not a signed one: a row we look up is as
+  strong and is single-use by an atomic `UPDATE … WHERE used_at IS NULL AND expires_at > now`. 10 minutes, the newest of
+  a Slack account only, at most one a minute and 10 an hour. It travels in `/slack/link?t=` (the request log writes paths
+  only, and a signed-out visitor keeps it through `/login?next=`) and reaches the API only in POST bodies. Opening it
+  needs a sign-in; it binds the Slack account it was sent to, never one named in the request. "Send the victim my link":
+  the page names both accounts and warns that whoever uses the Slack account asks with your permissions; an account
+  linked to another Slack account cannot confirm (unlink first, 409), and a Slack account linked to someone else cannot
+  be taken (409). One Slack account per person and one person per Slack account.
+- **Unlink**: from Settings › App connectors, and by a trigger on `users` (status not active, or deleted), so it holds
+  whichever path disables an account; the trigger writes `slack.unlinked` with `account_disabled`. A temporary password
+  to change keeps the link and answers "sign in first".
+- **A question is a normal turn** (`runtime.createTurn`, `clientKind: 'slack'`, the person's engine choice and budget
+  checks, the chat's queue rules). One chat per (workspace, conversation, thread root, person): a top-level message's own
+  `ts` is the root, so each new thread is a new chat and replies in it continue it. The chat is made inside the
+  admission transaction, so a refused question (queue full, a running answer, a used-up budget) leaves no empty chat.
+  The `clientMessageId` comes from the message's ts, so a resend is the same turn.
+- **Where answers go.** DM: "working…" is a message of its own in the DM thread, replaced by the answer (`chat.update`).
+  Channel: "working…" and the answer are ephemeral to the asker (in the thread only when the question was asked in a
+  thread: Slack shows ephemeral messages in a thread only when it already exists), with one button, Post to channel. It
+  posts the answer alone, "Asked by <Slack name>", to the thread, once (`posted` claimed atomically), by the asker only
+  (the button's value is checked against the request's Slack user, the link and the account). Nothing the channel sees
+  carries steps, file names, sources or the chat's link. Ephemeral messages are not kept by Slack, so every message to the
+  asker links to the chat. Answers are converted from Markdown to mrkdwn with `&`, `<`, `>` written out, so an answer can
+  never mention `@channel` or a person or hide a link; at most 4 sections of 2,900 characters ephemeral and 10 posted
+  (rich text since 2026-11-06, below).
+- **Delivery** is a poll of `slack_requests` against `turns.status` (1 s), not a hook in the turn code: it survives a
+  restart (an interrupted turn is delivered as interrupted), needs no change in B's files, and a row is claimed before it
+  is sent. A 429 or a network failure puts it back for the next tick. A turn waiting for a card tells the asker once to
+  answer it in the app (`openRequests()`); questions wait 2 hours at most.
+- **Retries and dedupe.** The socket acknowledges every envelope before anything else (Slack resends after 3 seconds).
+  `slack_events` keeps event ids and `channel:ts` of messages for a day, so a resent event and the same message seen as
+  two events run once, across restarts and processes (`INSERT OR IGNORE`). The Web API client waits out `Retry-After`
+  (at most 30 s, twice).
+- **Not in this step:** files, thread context, a slash command, streaming answers (`chat.startStream`), Slack's AI app
+  surface (`assistant:write`), Enterprise Grid org installs, more than one workspace, telling the person in the app that
+  their account was linked (they confirmed it themselves on the page).
+- **Review (2026-11-05), what changed:** the notification `text` of every message is escaped plain text (it carried the
+  raw Markdown, so `<!channel>` or a disguised link could reach a channel through "Post to channel"); a Markdown link
+  whose text reads like an address is shown as `text (<address>)`, `|` in an address is `%7C`; NUL characters are
+  dropped before conversion (one crashed it after the row was claimed); an answer is sent only while the asker's Slack
+  account is still linked to the person and that person may use the app (`slack_requests.enterprise_id` kept for it);
+  finished answers are taken before waiting ones (20 running turns no longer hold them back); a 30-second ping finds a
+  dead connection; Socket Mode turned off in Slack keeps its reason instead of a reconnect wiping it; no link when
+  `users.info` fails or names another workspace (it failed open); `bots.info` and the socket address's `app_id` must
+  name one app (tokens of two apps are refused, `app_mismatch`), the saved app id is what envelopes must carry and
+  nothing is handled without one; at most `max` sections; DM answers are a new message (notified) and "working…" is
+  deleted; posting from a chat deleted in the app is refused; a stopped connection's late attempt writes no state; the
+  clean-up runs once a minute; two quick link requests make one link; a request past 2 hours tells the asker.
+- **"Send the victim my link" is closed with an e-mail proof (2026-11-05, before shipping).** An attacker's Slack account
+  bound to someone else's account would ask with that person's permissions, so names on a page were not enough. Confirm
+  now binds only when Slack's e-mail of the Slack account the link was sent to (`users.info` with `users:read.email`,
+  read by the server at confirm time, from the Slack id bound in the link, never from the request) equals the confirming
+  person's e-mail: Unicode NFC, trimmed, lower case. NFKC was rejected: it would make a full-width look-alike equal to a
+  real address. No e-mail on either side (Slack hides it, a bot, a guest without one, an account here without one),
+  another workspace, or the same e-mail on another active account here: refused, nothing bound, `slack.link_refused`
+  audited. The preview says `emailCheck` so the page shows the reason ("이 Slack 계정의 이메일이 … 계정과 달라요.
+  팀장에게 연결을 부탁하세요") instead of a Link button. Sign in with Slack was not chosen: it needs a redirect address
+  registered per team and a second OAuth flow, while the e-mail is already verified by Slack.
+- **Residual:** the e-mail here is self-set (Settings › Profile) and not verified. Someone could set theirs to a
+  colleague's Slack e-mail, but would still need that colleague's own one-time link (only their Slack account gets it,
+  ephemeral); the same e-mail on two accounts is refused; and Slack tells the Slack account which account it was linked
+  to. Verified e-mails here would close this too.
+- **The owner proposes, the member accepts** (second review, 2026-11-05; removed later for Sign in with Slack, below). A link the owner made directly let the owner
+  bind their own Slack account to a member and ask as that member (their personal folder, connections and memories):
+  impersonation, against "personal connections are their owner's only" and "no sign-in as someone else". Now Admin ›
+  Slack › People only *proposes* (`slack_link_proposals`, 7 days, one waiting per member and per Slack person, audited
+  `slack.proposed`); nothing is answered for that Slack account until the member accepts in Settings › App connectors
+  with their own session (`POST /api/slack/proposals/:id/accept`: only the member it is for finds it, the owner gets
+  404). Slack is asked again at accept time. The member gets an in-app notice (realtime, linking to Settings); the Slack
+  person gets one DM at the proposal naming no account, and one after the accept naming it and how to undo it. The owner
+  can withdraw a waiting proposal; a disabled account's proposals are cancelled by the same trigger that unlinks it.
+- **Sign in with Slack replaces the owner's proposal** (2026-11-05, the owner: many people's Slack e-mail differs from
+  theirs here, and e-mails here are optional and often empty, so propose → accept → Slack link was too much). Checked
+  first on docs.slack.dev: "Sign in with Slack" (OpenID Connect: `https://slack.com/openid/connect/authorize`,
+  `openid.connect.token`, id_token claims `https://slack.com/user_id` / `https://slack.com/team_id`, nonce) is not limited
+  to distributed apps; an app that is not distributed authorizes on the workspace that created it only
+  (`invalid_team_for_non_distributed_app`), which is ours; the redirect URL must be https and match one registered in
+  the app (manifest `oauth_config.redirect_urls`); the browser follows it, so the server needs no inbound access, and
+  Socket Mode and the bot token are untouched. PKCE was not used: enabling it makes the app a public client for good;
+  this is a confidential client (the secret stays on the server) with state and nonce. Not verified: whether Slack
+  accepts a private (office LAN) host name as a redirect URL. Now each person links their own account by signing in to
+  Slack (Settings, or the link page when the e-mails differ); the e-mail match stays as the zero-click shortcut with the
+  admin-set e-mail rule. The owner's proposals, Admin › Slack › People, their DMs, routes, table and texts are gone. The
+  owner pastes the app's Client ID and Client Secret with the tokens (step 4; the secret sealed like them).
+- **A proposal proves the Slack side too** (third review, 2026-11-05; removed by the decision above). Accepting in the app alone let an owner propose
+  an unlinked colleague's Slack account for the owner's own account and accept it (squatting), or propose a renamed Slack
+  account. Now a proposal only stands in for the e-mail check: it completes when the member accepts it in the app
+  (`member_accepted_at`) and confirms the one-time link that Slack account got in Slack (`slack_confirmed_at`), in either
+  order, both within the 7 days, which are checked again in the transaction that links. The Slack account's DM at the
+  proposal says how (ask the app once, open the link signed in as that account). Someone else holding that link meets
+  the plain e-mail check and is refused.
+- **An e-mail someone else set proves nothing for 7 days.** Admins set e-mails (Admin › Members: a new member, a change),
+  so an admin could give a member a colleague's Slack e-mail. Triggers on `users` record when each e-mail was last set
+  (`slack_email_changes`); who set it is the audit log (`user.create`, `user.update` with `email`, actor not the
+  person, at or after that time less a second's margin). Such an e-mail is not taken as proof for 7 days, unless the
+  person set it again themselves since (Settings › Profile writes no audit entry). Those people link with Sign in with
+  Slack (below; it was the owner's proposal until that decision). The
+  link page shows the compared e-mail (the person's own; Slack's is never shown there). The migration seeds the times of
+  e-mails admins set before it from the audit log (an e-mail changed back by its person before the migration counts as
+  the admin's until they set it again). The person is told in the app when an admin changes their e-mail (the poll
+  reads new `user.update` entries), and Settings says the e-mail proves nothing for now.
+- **Slack Connect channels** (`is_ext_shared_channel`): the flag is kept with the question and the answer has no Post to
+  channel there, saying why; a replayed button is refused too. The button asks Slack again (`conversations.info`, scopes
+  `channels:read` and `groups:read`): shared since, or no `is_ext_shared` in the answer, and nothing is posted.
+- Smaller: "Asked by" never falls back to a mention (`<@U…>` would ping): the Slack name, or "a teammate". A 429 keeps a
+  not-before time per answer (Slack's `Retry-After`, up to an hour); a network failure waits 15 s. A DM answer tried
+  again after a timeout first reads the DM thread (`conversations.replies`, `im:history`) so it is not posted twice;
+  only the app's messages written after the question count (an earlier answer with the same words does not). A
+  person counts as of the workspace only by its own `team_id` (users.list, users.info and a question's `user_team`
+  agree; another workspace of the same Enterprise Grid organization is not).
+- Scopes are now `app_mentions:read`, `channels:read`, `chat:write`, `groups:read`, `im:history`, `im:write`,
+  `users:read`, `users:read.email`; the token check refuses a bot token without any of them.
+- Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
+  for another purpose; the link prompt to the asker only; somebody else's link refused by the e-mail check, no e-mail on
+  either side refused, the matching e-mail binds (case and spaces aside), NFC and full-width e-mails, an admin-set e-mail
+  refused until the person sets it again; Sign in with Slack (see its own entry: no e-mail needed, back without a
+  session, another account, expiry, reuse, the checked claims, Grid); a Slack Connect channel without the button; both
+  names, used once, expiry, cancel, linked elsewhere;
+  Slack Connect; a turn as the linked person answered ephemerally with the button; posting once, not by someone else; a
+  thread follow-up in the same chat; a DM; dedupe; other workspace or app and malformed events; a refresh; the tokens in
+  no log, row or answer; unlink and a disabled account; off and remove), the permission matrix
+  (`tests/security/lib/slack-cases.ts`, 63 cases) and `web/test/unit/slack-link.test.tsx`. Nothing reaches Slack.
+- **Screens after the UX review (2026-11-05).** Fewer elements, one main button per screen, no box in a box on phones.
+  Admin › Slack is four steps, each linking to its Slack page; the manifest viewer is gone (the "create app" link carries
+  it), and the last step saves the tokens and turns it on. A refused token is said under its field until the next try,
+  never in a toast. `SlackAdmin.appId` (not secret) lets a problem link to the app's own settings page in Slack
+  (`api.slack.com/apps/<id>/socket-mode`, `/oauth`, `/install-on-team`, `/general`); before the app id is known the link
+  is the list of the owner's apps. Remove is behind Replace tokens. (People rows opened one dialog to propose a link;
+  gone with the proposals.)
+  Settings › App connectors shows the Slack line instead of the "admin has to set up connectors" card while the team
+  uses Slack. The link page is two plain lines; the Slack user id is no longer shown there (the display name, full name
+  and @handle are; the e-mail proof decides). In Slack, reason codes in "could not start / could not answer" are
+  plain sentences. No security rule changed: the e-mail proof, ephemeral answers first and no Post to channel in shared
+  channels stay as above. Tests: `web/test/unit/slack-screens.test.tsx`.
+- **Sign in with Slack from the desktop and phone apps; review of 65fc2dec (2026-11-05).**
+  - The desktop app opens slack.com in the system browser and the phone app in an in-app browser with its own cookies,
+    so the browser Slack sends back has no session of the app, and a flow bound to the session that started it could
+    never finish there (nor on another address of the team than the saved one). The flow is now bound to the person,
+    not the session: a browser signed in as that person finishes it; signed in as somebody else, it is refused and
+    ends ("다른 계정으로 로그인돼 있어요 …"); with no session, the flow waits and the browser goes to the sign-in page,
+    whose next page (the existing internal-only `next`, which takes a path starting with one `/`) is a fixed page of the
+    app, `/slack/signin-return`, with only the state and the code, both checked by their shape; that page sends the
+    browser to the callback again with only those two. No address from the request is ever followed. A flow started in
+    the desktop or phone app ends on `/slack/done` ("이 창을 닫고 앱으로 돌아가도 돼요"); one started on the web ends in
+    Settings. The app's Settings line reads the link again when its window is focused or shown again. No change in the
+    desktop or phone app (both are in store review).
+  - Enterprise Grid: Slack's id_token has no enterprise claim; links now keep the workspace's enterprise id from
+    auth.test (events carry the same), and a link is one per workspace and Slack user (`UNIQUE (team_id,
+    slack_user_id)`), with one check used by the one-time link and by Sign in with Slack (`bindable`): before, the two
+    disagreed on the enterprise id and the same Slack user could be linked twice.
+  - Smaller: the outcome in Settings is looked up with `Object.hasOwn` (`?slack=constructor` no longer breaks the page)
+    and taken out of the address once shown; signing in again with the same Slack account records and says nothing new;
+    the user token is revoked even when the id_token is not one; the manifest's redirect URL and the address links open
+    at come from one value (the page's own address, sent with the GET that shows the manifest and the PUT that saves).
+  - The manifest no longer lists `openid` and `profile` as user scopes. docs.slack.dev "Sign in with Slack": "A scope
+    conflict occurs when attempting to combine Sign in with Slack user scopes with non-Sign in with Slack scopes in the
+    same OAuth flow. Each set of scopes must be requested in separate OAuth flows." Its app setup asks only to "configure
+    a Redirect URL"; the scopes go in the authorization request ("You request the OpenID scopes—openid, email, and
+    profile"). The manifest reference says `oauth_config.scopes.user` are "user scopes to request upon app
+    installation", so listing them would add them to the owner's "Install to Workspace" flow with the bot scopes.
+  - Migration `335_c_slack.sql` was changed in place again (the link key, the flow's `client`): no server outside this
+    Mac's throwaway development databases ever ran it.
+- **Answers in rich text, not mrkdwn (fix/slack-format, 2026-11-06).** In real Slack, "**하나뿐**이에요" came out as
+  "*하나뿐*이에요" with the asterisks showing: mrkdwn closes `*bold*` only before a space or punctuation, and Korean puts a
+  particle right after the word. A zero-width space around the markers was not chosen: Slack does not document it, and
+  it is copied along with the text. Answers are now `rich_text` blocks (`rich-text.ts`; docs.slack.dev "Rich text block",
+  "Text element": `style` takes `bold`, `italic`, `strike`, `code`; "Link element": `url`, `text`), which Slack does not
+  parse, in DMs, ephemeral messages and posted thread replies alike. Our own Markdown reading pairs `**`, `*`, `_`, `~~`
+  and backticks whatever letter comes next (`_` not inside a word), so bold before a particle works; headings are bold
+  lines, lists are `rich_text_list` (nesting by `indent`, numbers by `offset`), quotes and code blocks their elements.
+  A text element shows `<!channel>` as text, so nothing needs escaping in the blocks. A link to the app's own page on
+  the team's address shows its text alone (`budget-2027.txt`); any other link shows its host next to its text
+  ("급여명세서.pdf (evil.example)", punycode for a look-alike letter) unless the text names that same host, because an
+  answer can carry words from a page or a file the AI read; a text that names another address is shown as text, with
+  the host as the link. The first version showed the address only when the whole text was one, which let
+  `[bank.example.]`, `[Log in at bank.example]`, `[토스.com]` or `[급여명세서.pdf]` hide it (review of 864989cd). The
+  notification `text` is the answer as plain text (no markers, a link as its text, `&`, `<`, `>` written out). Slack
+  documents no size for a rich text block: blocks keep the 2,900 characters a section had (4 ephemeral, 10 posted), and
+  when Slack refuses them (`invalid_blocks`, `msg_blocks_too_long`, …) the answer goes again once as plain text in one
+  block. Marker pairing finds each closing run by a binary search in the line's runs, so a line costs its length once
+  (it was a scan to the line's end for each unpaired marker: 54 s for 200,000 characters; now about 15 ms).
+  Admin › Slack names the bot as Slack shows it (`/invite @trina-ax`): `users.info` of the bot user, its display name
+  or else its full name, read when the tokens are saved and at each connection (a rename in Slack shows up), with the
+  manifest's name when Slack does not say. `auth.test` gives the user name (`trinaax`), which `@` and `/invite` do not
+  find.
+
+## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
+
+The owner: "회의록이 아닐 수도 있고 … 이렇게 스킬을 만들어서 팀과 공유할까요? 이런 느낌으로 가는 건?" The landing's promise (one
+way of working for everyone) was not felt: the lead only used skills we pre-installed, and a "team skill" copied from
+that first chat would copy ours. The lead's way lives in the files they drop (a quote template, a notes folder, a
+report), so a team skill is the team's files plus only what changes each time, asked as inputs. A cut review removed
+the "3 proposals" step and the bar after sharing. Placement: Team AX core (skills, files, chat, team link).
+
+- **Step 2 asks for any work files**: "평소 일에 쓰는 파일을 놓아 주세요 / 회의록, 견적서, 보고서 · 몇 개면 충분해요"; the upload
+  runs at once as before (into the team's notes folder) and sends "/meeting-tasks 이 파일로 정리해 줘". The general pack's
+  `doc-brief` gains a template mode (견적서 · 공문 · 보고서 · 신청서: the frame, the fields filled in each time, what stays,
+  never the file's own values), and `meeting-tasks` sends a template there too: its first line says what it read
+  ("이렇게 읽었어요: 견적서 양식"); the lead types a correction when it is wrong. Meeting notes keep the tasks path. No
+  server-side guess from names (M's reason holds).
+- **One bar under the lead's first answer** (with their files; owner, until the invite is answered): "팀원 AI도 이 방식대로
+  하게 할까요?" [팀 스킬로 만들기] ×. It replaces M's invite text ("팀원도 이 회의록에서 …"); its X puts the invite off without
+  the soft question (it asked about a skill). The ad copy's first result keeps its invite bar: the ad copy is our own
+  skill, and a team skill made of it would only copy ours.
+- **The draft is a turn** (`onboarding/skill-draft.ts`; there is no AI call outside `chat/turn.ts`): `POST
+  /api/onboarding/skill-draft` (owners and admins) makes a chat of the caller ("팀 스킬 초안 · …") marked in
+  `onboarding_skill_drafts` (migration 232) with a snapshot of the source answer: the question, the answer (cut at
+  12,000 characters), the team files it used (team-file references and sources, `isTeamFilePath`), the skill it ran,
+  the team's language and pack folder. Every turn of such a chat runs like a profile draft from pasted text: no tool at
+  all (the always-listed file tools are refused, `SKILL_DRAFT_FILE_REFUSAL`), no team rules, skills, memories,
+  project, attachments, browser, sub-agents or web search, nobody asked (`TurnExec.restricted`). Its instructions put
+  the snapshot inside `<material>` as data and ask for JSON `{title, description, inputs, files, recurring, steps}`:
+  what belonged to that run (names, customers, dates, amounts, prices, links, file contents) becomes an input or goes;
+  at most three text inputs; a way to pick (mine / everyone's) is one choice input; dated files are their folder and
+  "latest"; `recurring: "weekly"` for weekly work. The same source answer again reuses the unsaved draft.
+- **The server reads it** (`parseSkillDraft`): the form must pass `SkillInputs` (strict, as any SKILL.md); more than three
+  visible fields fold (`advanced`); "쓰는 자료" only from the files the run used, never a personal folder, `skills/` or
+  `.system/` (teammates cannot read `users/<me>/`); a file whose name carries a date (or that the model marks latest)
+  becomes its folder and "the latest" of the same kind: the words of its name without the date (`like`, "주간회의" of
+  "2026-11-03_주간회의.md"), because the welcome step puts every file in the notes folder and the newest file there may
+  be another kind (found in the acceptance run: a monthly report's skill would have read the meeting notes). A name
+  that carries a specific of the run gives no kind. A template stays itself, wherever it sits. The card reads "Acme 회의록
+  폴더의 가장 최근 주간회의" (or "… 회의록" without words), so next week only the new file is dropped. **Specifics** (`onboarding/specifics.ts`): from the run's question, answer and file names, the team's account
+  names found there (and a Korean given name), names before 님/씨, family name + job title ("이 대리"), the per-person
+  headings of the answer, names with a company suffix (㈜, 주식회사, Inc …), dates (11/6, 2026-11-03, 11월 6일, 6(금)),
+  amounts (₩, 원, 만원, thousands separators) and every link; the team's and the company's own names are not specifics.
+  Any of them in the title, line, steps or form words: the server asks once for a rewrite (a follow-up message naming
+  them; `rewrite_at` taken once, keyed to the answer; a turn still closing is asked on the next read); still there,
+  or no usable JSON after it: no card ("지금은 정리하지 못했어요"). A heuristic: a name the patterns miss can stay, which is
+  why the card says "팀 스킬에서 언제든 고칠 수 있어요".
+- **The card** (`SkillShareCard`, a bottom sheet on phones): "팀 스킬로 정리하는 중…", then six things: the title (tap to
+  change), one line, "팀원에게 물어볼 것: 고객사 · 품목" (read only; a choice as its chips with the default filled), "쓰는 자료:
+  …", [팀에 공유], 나중에, and one quiet line "팀 전체 AI가 이 방식을 따라요 · 팀 스킬에서 언제든 고칠 수 있어요". No steps, no
+  Markdown or YAML, no folder name or picker. **Accepted risk, recorded**: the steps teammates' AI follows are not shown
+  before sharing (the owner's call: the quiet line is the consent of a human save). Limits around it: the draft turn
+  has no tool and gets the material as data, steps are capped at 6,000 characters, links in them stop the card, the
+  file is an ordinary skill in `skills/` (the skill change audit, the owner/admin notices, version history; any skill
+  manager reads and edits it), and the run's specifics are checked.
+- **Sharing is a human save** (`POST …/skill-draft/:chatId/save`, owners and admins): the draft read again from the
+  answer (the card's copy is never trusted; only the title comes from it), written with `FileService.humanSave` like an
+  approved suggestion (folder rules, versions, audit, notices; no "last seen" hash, so a file that appeared meanwhile is
+  a 409, never replaced) to `skills/<marketing|general>/<name>/SKILL.md` (marketing when the team chose it) with
+  `metadata.title`, `metadata.inputs` and `recurring: weekly` when weekly, then "쓰는 자료", "하는 방법" (the steps) and fixed
+  rules in the team's language; the server's own reader must accept it first. `skillFileText` (suggestions:
+  `skills/<name>.md`, name and description only) is not reused: no form, no title. **The name** is the server's and
+  never shown: the title romanized (Hangul by the Revised Romanization table, accents dropped; "team-skill" when
+  nothing is left), and "-2", "-3" … when any team skill, the caller's own, any pack skill (installed or not: a later
+  install would be `blocked`) or a folder already has it. Saved again: the same answer. Audited `onboarding.skill_share`.
+  Goals count by path, so the new skill counts from its own runs (no backdating of the lead's meeting-tasks run).
+- **The invite carries the skill**: [팀에 공유] opens the existing invite step with that skill (`InviteStep made`); a new
+  link names it, an open link that led elsewhere (M's starter with files) is changed to it with no files (PATCH, same
+  address), and the message is "우리 팀 '{스킬}' 스킬을 만들어 뒀어요. 링크 열면 같은 방식으로 바로 써요." No file list
+  travels with the link (the skill names its files).
+- **Who made it** (`skills/author.ts`): the person whose save made the skill file's first version, read from the file's
+  own history (`files/timeline.ts`, back through edits and moves to the event that made the file), never from its
+  text. The spec named `file_versions.author_id`, but that table keeps content a save replaced (its `author_id` is the
+  replacer): a file nobody edited has no row, so the history's first content event is that first version. A first
+  version that is a pack's text (any language, earlier releases) has no maker: the owner who pressed install did not
+  write it. Used three ways: the join answer's new `skillBy` (and `starter.by` for a skill without a form), the receipt
+  (`Message.receipt.skill.by`, only when the maker is not the asker; cached a minute per path), nothing else.
+- **The member**: a skill with a form opens on `/skills?run=` as before, with one line on top in place of its description:
+  "{팀장}님이 만든 팀 스킬이에요 · 이 채팅은 {이름}님만 봐요" (`skillBy`, held in this tab until the form goes away,
+  `lib/starter.ts holdMadeBy`). A skill without a form gets M's arrival on Home with a new starter kind `skill` (no
+  files): "{팀장}님이 만든 팀 스킬이에요", its title as the box's chip and "이 방식대로 해 줘". The answer's step line reads
+  "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개". Members keep "스킬로 제안" for improvements; nothing new for them here.
+- **Meeting notes fold in**: the card for notes reads "주간회의 할 일", asks nothing, shows the chips "내 할 일 · 사람별" (the
+  default 내 할 일) and "쓰는 자료: Acme 회의록 폴더의 가장 최근 주간회의"; the link needs no file list.
+- **Checked on 2026-11-05** with `bun run dev` (Claude Code login; the hosted trial key is not on this Mac) at 390 px:
+  three kinds × three runs through the API (meeting notes → "주간회의 할 일", the choice, the notes folder, weekly; quote
+  template → "견적서 쓰기" asking 수신 · 품목 · 견적일자, the template file, not weekly; monthly report → "월간보고 핵심
+  정리", no inputs, the newest 월간보고, not weekly), none with a name, date or amount of the run, one rewrite used and
+  passed; and the whole walk twice in a browser (quote: card, share, invite, a member on the form with the line, a new
+  quote for another customer, "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개"; notes: the same with the choice form). The
+  first walk found the draft summarizing the template instead of writing a new quote: the instructions now say so.
+- **Side fix: the weekly suggestion only for weekly work.** "매주 이 시간에 자동으로 받을까요?" (X) now also needs the skill's
+  metadata `recurring: weekly`: set on the pack's weekly report, competitor brief and meeting tasks (ko, en), and on a
+  drafted skill when the draft judged the work weekly; never ad copy or a quote. A file without the key (installed
+  before the line, or unreadable now) reads as the pack says (`RECURRING_PACK_SKILLS`); `recurring: "no"` turns it off.
+  `earlierPackTexts` knows the texts without the line, so an untouched install stays `present`. `SkillInfo.recurring`
+  is server-side only (listings leave it out).
+- **Removed**: M's invite bar texts for the lead's files ("팀원도 이 회의록에서 …", "팀원도 이 자료에서 …"; `welcome.bar.tasks`,
+  `welcome.bar.brief`) and the starter the bar made; the "3 proposals" idea; no slug anywhere on screen.
+- **Not done**: the upload still goes into the team's notes folder whatever the file is (a quote template then sits in
+  회의록/); a member's improvement still goes through "스킬로 제안"; the hosted trial engine was not used for the
+  acceptance runs (no key on this Mac): Claude Code (local login).
+- Tests: `tests/unit/b-skill-share.test.ts` (reading a draft: card, folded inputs, files and folders, unreadable and its
+  reasons, specifics of a run and what is left, the name and clashes, the file the reader takes back, pack texts with
+  `recurring` and their earlier texts; real turns with the fake engine: owners and admins, own finished answers, a
+  draft chat is no source, the fixed request and the snapshot, one rewrite then no card, the instructions and the tool
+  list, files refused, no attachments, a JSON answer as the card without steps, a leftover named in the rewrite, the
+  save with a free name, the history and audit, saved again, a member lists it with its form),
+  `tests/unit/a-skill-maker.test.ts` (the first version's maker after another admin's edit, none for a pack text or a
+  file from outside, `skillBy` and the `skill` starter at the join, the receipt for others only),
+  `tests/unit/b-result-suggestions.test.ts` (weekly work only), `web/test/unit/welcome.test.tsx` (the bar, the six things,
+  the title edit, share then invite with the skill, the PATCH of an open link and the message, no card, X),
+  `web/test/unit/skill-share-member.test.tsx` (the maker held at the join, the form's line, the arrival without a form,
+  the receipt, the message in five languages), `web/test/e2e/welcome-notes.spec.ts` (notes in, the card, share, invite,
+  a member on the form with the line).
+
+### S, review fixes (feat/onboarding-s, 2026-11-05)
+
+- **Who may read what the skill names (must-fix).** The draft endpoint takes any chat of the caller, so a chat that read
+  an admin-only file could have put its path and layout into `skills/general/`, which every member reads. Now, when the
+  draft starts and again when it is shared, every file the conversation up to that answer attached or read (as
+  recorded: question attachments and the answers' sources, personal files and uploads included) and every file the
+  skill names must be readable by the people it is shared with: the team link's stand-in (`newMember` with the team's
+  own group, as for a link's skill and starter files; `readableFile`). Any one that is not refuses the draft with its
+  name ("팀원이 모두 볼 수는 없는 파일을 쓴 답이라 …: 급여.xlsx"), rather than leaving it out: its content is in the answer,
+  and the answer is the material. Also refused: a confidential conversation (1A, `confidentialChat`) and one with
+  anything from the web or an outside service in it (a web search or browser step, web_fetch, save_url, a connection's
+  tools or api_request, a step with web sources). Not refused: `session_tainted` as such, which every chat that read a
+  team file carries (the welcome result itself); the outside part of it is what the step check refuses.
+- **The hidden steps guard** (`specifics.ts outsideIn`, the same one-rewrite-then-no-card rule): links, e-mail
+  addresses, domains (tldts; file names such as report.md are not), phone and account numbers, team paths the skill
+  does not list as its files, outside tools by name (web_fetch, save_url, api_request, browser tools with an
+  underscore, connection tools) and wording that sends, uploads or shares outside. `<material>` tags inside the material
+  are broken (‹/material>), so an answer cannot close the block.
+- **Fewer false positives**: no names from headings; a given name only with 님/씨 (하나, 지원 are words); a surname list
+  before a job title (각 팀장, 내 책임 are not people); role words before 님 (고객사님, 수신자님, 원장님, 부모님) are not
+  names; amounts need a currency or a million; a year alone is no date. The attendee line ("참석: …") names people.
+- **다시 정리하기**: a failed draft is never reused; starting again makes a new one, and the card offers it (not for a
+  refusal, which would only repeat).
+- **Reading changes nothing**: GET says `rewrite: true` when the first answer needs its one rewrite; the card then starts
+  the draft again, and the POST queues it.
+- **Makers**: a pack's install marks its file event (`humanSave(..., 'pack_install')`); an install from before the mark
+  is recognized by its `onboarding.pack_install` audit row within a minute, for a skill of a pack's name in that
+  folder (the hash comparison missed packs whose text changed). The first version is read with direct queries (the
+  first content event after the name was last freed, back through the file's moves and trash trips), the timeline walk
+  only when a folder above was moved.
+- **Outside content, fail closed (second review)**: the step check missed Google Drive. It is now an allowlist,
+  `chat/team-content-tools.ts`: only tools whose results are the team's files or the person's own data (built from the
+  tools' exported name lists where they have one); any other tool in the conversation (Drive, web pages, the browser,
+  generated video, connections, plugins, the dev box, a Codex command, a tool added later) refuses the draft as
+  outside content. Also refused, as `unverified`: an answer with a read that worked but no sources row (the save
+  failed) or as many rows as the cap keeps (500): what it read cannot all be known.
+- CHANGELOG: the feature, and that older team skills no longer get the weekly suggestion without `recurring: weekly`.
+- Tests: `b-skill-share` (refusals: a group file, a personal file, web, confidential, and at the save; the guard and
+  the escaped material; the false positives; reading queues nothing, the rewrite on start, a failed draft not reused),
+  `a-skill-maker` (trash and back, a new file of the same name, an older pack install, the mark), `welcome.test.tsx`
+  (the rewrite asked by starting again, 다시 정리하기, a refusal's reason without it).
+
+## Q — The onboarding in English (feat/onboarding-2, 2026-11-05)
+
+The owner asked whether the English version works too. Nobody had walked it as an English team, so it was walked end
+to end on a dev server (Claude Code login, 390 px) as a five-person US marketing team: the website profile with its
+reading lines, two English meeting notes with mixed name forms ("Sarah", "Sarah K.", "Mike from sales", an unclear
+owner), the first answer, the bar, the card, share, the invite, a member named in the notes joining and running the
+skill, the receipt line, the goal card, a quote template (.xlsx) through the same path, the no-files path, and the ad
+copy form with its preview. The AI answered in English throughout and the flow worked; the copy did not read as a
+native product writer would write it. Placement: Team AX core (copy, the English skill packs, the specifics check).
+
+- **Copy** (`web/src/i18n/en.ts`; the other four only where the meaning changed): literal or stiff lines rewritten
+  ("Here is what we understood" → "Here's what we found", "Drop in the files you use for your usual work" → "Add files
+  from your everyday work", "Paste a text" → "Paste a description", "Sort out my tasks" → "List my tasks", "A team skill
+  {by} made · only you, {name}, see this chat" → "{by} made this team skill · Only {name} can see this chat", "{n} more
+  people and the goal is reached" → "{n} more people to go", the goal title as a goal: "Get 3 people using the same skill
+  in 7 days", "put up" → "shared", "Make a PPT" → "Make slides", "invited you to work together … together" once), a
+  grammar error fixed ("Only the 1 person in … see" → "Only Acme Marketing (1 person) can see"), and KakaoTalk named
+  only in Korean: English says Slack or Teams, Indonesian and Spanish WhatsApp, Japanese LINE.
+- **No Korean in English screens**: the website field's example was a fixed "acme.co.kr"; it is now per language
+  (`onboarding.profile.sitePlaceholder`: acme.com, acme.co.id, acme.co.jp, acme.es), like the address check's example.
+- **The card's files line** read "the newest Meeting notes in the Acme Marketing Meeting notes folder". The team's
+  folder is now joined per language (`skillShare.teamFolder`: "Acme Marketing › Meeting notes" in English, Indonesian
+  and Spanish; Korean and Japanese unchanged) and the notes folder has its own words (`skillShare.latestNotes`: "the
+  newest meeting notes in …"; Spanish no longer reads "el Actas de reuniones más reciente"). Korean output is the same.
+- **Skill summaries start as a sentence**: the English packs write "Tasks from notes — reads the team's meeting notes
+  …", so lists showed "reads the team's …". `skillSummary` capitalizes a lowercase Latin first letter of what is left.
+- **English skill texts**: the ad copy's fixed first line was "… would look in Instagram feed" (no article); it now
+  names the channel with its article. The template headings "Frame" and "Kept as it is" are "Layout" and "Stays the
+  same"; contradictions go under "### To check" (the AI wrote "This is to check"); a drafted skill's rule reads "Use only
+  the files listed under "Files it uses"" (was "the files it uses"); British spellings in the packs (colour, organise,
+  summarise) follow the US spelling of the screens. A copy of these English skills installed from an earlier build of
+  this branch now reads `kept` on a later install (no release shipped the packs; no file is replaced either way).
+- **Leftover specifics in English** (`onboarding/specifics.ts`; S's check was Korean-first: English caught only an
+  account's capitalized words, the "Attendees:" line, one word before "Inc", numeric dates and "$"): a team account
+  named in any form ("Sarah", "Sarah K.", "Ms. Klein") puts all its forms; titled names ("Ms. Rivera": that form and
+  "Rivera"); the lines that list people ("Present:", "Owner:", "Prepared by:", "Attn:" …); "Mike from sales", "Mike
+  (sales)", "Sarah K."; a task's owner at a line's start ("- Dan to …", "- Priya — …") only when the run says the name
+  more than once; a per-person heading only when the name is also said outside the headings; companies of up to five
+  words before Inc, LLC, Ltd, Corp, Co … (comma allowed; "Brightline Outdoor" and "Brightline"); US dates (11/20,
+  11/3/26, Nov 20, November 20th, 20 November, each also as the others); "$1,200", "$1.2k", "USD 500", "500 dollars",
+  "1.2k" only beside a budget word; document numbers (Q-2026-0117); US phone formats, in the always-on guard too. Not
+  specifics: a stoplist of structure and form words (Overview, Action items, Customer, Recipient, Qty, Total …), roles,
+  weekdays and month names alone, the verbs steps start with, and, where only a word's place says it is a name, words
+  the run also writes in lower case. Names that are also words (Will, May, Mark, Grace) count only where they read as a
+  name ("Mark each task" and "May 20" stay clean). The team's own name is excluded by whole words ("Mark" is no part of
+  "Acme Marketing"). Still a heuristic: a name said once at a line start is missed on purpose ("- Yuki: book the venue").
+- **A listed team folder with a space in its name** ("groups/Acme Marketing/Meeting notes") was cut at the space by the
+  always-on path guard and read as another folder ("groups/Acme"); the guard now compares the listed path where it
+  stands (a longer folder name, "…/Meeting notes old/", is still another one).
+- **Not changed**: the AI's own wording in answers (a member's answer once opened with "Both are the same week; reading
+  both." and closed with "I used the weekly-meeting-tasks skill"; the drafted skill's steps are the AI's); "Only Acme
+  Marketing (1 person)" while the owner is alone in the team; the profile review's "Read the website again" after the
+  three questions (not English-specific).
+- Tests: `tests/unit/b-specifics-en.test.ts` (the two notes of the run as material: every name, company, date, amount
+  and phone form found; headings, labels, roles, weekdays, months, sentence starts, acronyms, counts and a bare year
+  not; a clean English skill keeps its card, a leaking one names "Sarah Klein", "Ms. Rivera", "Brightline Outdoor",
+  "Nov 20", "$4,500"; the quote template run; a listed folder with spaces), `c-skill-title` (the summary as a sentence),
+  `web/test/unit/skill-share-member.test.tsx` (the files line in English and Spanish, Korean unchanged),
+  `team-link.test.tsx`, `goal-card.test.tsx`, e2e `auth.spec.ts`. Walked again after the fixes at 390 px with the real AI
+  (website, notes, card, share, invite, a member named in the notes, the goal card, the no-files path, a search ad).
+
+## N — The first result is the company's card news (feat/onboarding-cardnews, 2026-11-05)
+
+The owner uploaded a 36-page company intro at the files step; the chat was titled "회의록 할 일 정리", ran the meeting
+tasks skill and answered "회의록이 아니라서 핵심만 정리했어요" with a dry list ("회의록이던 다른 거를 남기라고 해놓고 이게
+뭐야"). The first result must impress any company: five square promo cards of the company, made from its own intro
+or website, its own pictures and colours ("퀄리티 개 좋아야 해"). Placement: Team AX core (onboarding, files, skills,
+chat tools); the hosting side only hands over the image key.
+
+- **Step 1 also collects the brand** (`onboarding/brand-assets.ts`). The draft AI still only reads pages; web_fetch
+  keeps the markup of each page it opened in a draft turn (`keepHtml`, never shown to the AI), and the draft's page log
+  hands it to a collector in the background: the logo (JSON-LD or itemprop logo, an `<img>` named or labelled logo, an
+  apple-touch-icon as the last resort), the pictures the page shows (og:image / twitter:image, `<img>` with srcset or
+  lazy-load attributes, inline background images), and colours (theme-color, brand-named custom properties of the
+  page's style blocks and of at most two style sheets of the same scope, the logo's dominant colours, saturated colours
+  used often). Only addresses the page itself embeds are fetched, never one the AI wrote, with web_fetch's network
+  rules (public addresses, this server's exit address refused, pinned connection, every redirect hop checked, ports 80
+  and 443). **Deviation from "same site", on purpose:** a picture may sit on another host, since site builders keep
+  them on CDNs (imweb, Naver, Wix, Shopify: with the scope rule an imweb site gave no picture); a page link (`<a>`) is
+  never followed for pictures and style sheets stay on the scope. What is kept is decided by the bytes: PNG, JPEG or
+  WebP whose header gives a size (no SVG, so no script; no GIF), at most 6 MB, content pictures at least 300 px on the
+  short side and not a strip, logos at least 64 px; the same bytes once; at most 8 per draft and 24 tries; pictures
+  over 2,000 px or 1.5 MB become a 1,600 px JPEG (isolated ffmpeg). They wait in `<data>/onboarding-assets/<chat>/`
+  (rows in `onboarding_brand_assets`, migration 233, with each read page's text cut to 4,000 characters) until the
+  first result places them. The reading log says "로고와 이미지 n개 가져옴" (`ProfileDraftState.assets`).
+- **Colours on the profile**: `CompanyProfileInput.colors` (optional, at most 5 `#rrggbb`); the review shows them as
+  swatches the person can remove (no picker), Admin › Team settings shows them, the facts block says "Brand colours
+  (main first): …". The AI's JSON never sets them (dropped in `parseDraftAnswer`). Ranking: a colour group is as strong
+  as its strongest hit (theme-color 120, the logo 150, one to three brand-named variables 90, a palette of more 20,
+  colours the CSS repeats at most 30) and only groups of 30 or more count; white and greys never, a near-black only
+  from a strong source (a black-and-white brand keeps its black). First found on a real site: summing every hit made a
+  design system's red the brand colour of a purple brand, and an imweb theme's cyan that of a black one.
+- **Step 2** (`pages/Welcome.tsx`): "회사 소개서나 팀 소개 자료가 있으면 놓아 주세요 / 없으면 홈페이지에서 찾은 내용으로
+  만들게요", one [파일 고르기], the line about who sees the files, one link "자료 없이 만들게요". Files go into the team's
+  brand folder (`groups/<team>/브랜드/`, `TeamGroupRef.brandFolder`, made by the team's start). Then `POST
+  /api/onboarding/welcome/first-result` (owner; `onboarding/welcome-result.ts`): the team's start when missing,
+  "/card-news" (installed alone once for a row whose general pack was recorded before the skill: `general.cardNewsPath`),
+  the staged pictures into `브랜드/이미지/` as the owner's saves (each once), and without files `회사 소개.md` in the
+  brand folder: the confirmed profile and the text of the pages the server opened, each part under its source, no AI
+  and nothing invented; one already there is kept (someone may have edited it); neither profile nor pages: 409 with a
+  plain message. It makes the chat, titled "우리 회사 홍보 카드뉴스" (`title_source` user: the AI does not rename it)
+  and listed in `onboarding_result_chats`; the page attaches the files and sends "/card-news 우리 회사 홍보 카드뉴스 5장
+  만들어 줘" like any message. Removed from this step: the meeting tasks run, the ad copy alternative and `finish`.
+- **The skill** (`resources/skill-packs/general/{ko,en}/card-news`, title 카드뉴스 / Card news, form 주제 · 어디에
+  올릴까요 · 자료 파일): read all the material; look at every picture; five cards with fixed roles (cover with the
+  strongest line, the problem, what we do, one number written in the material, the next step with the logo), one
+  message each, headline and body two lines each with counted characters per line and chosen `<br>`; a fixed HTML
+  template of five layouts (photo-top, panel-top, split, number / fact, cta) in container units, `word-break:
+  keep-all`, text and page numbers only on solid panels, `object-position` chosen per photo, team pictures by path.
+  The rules came from the gate runs: no counted or rounded numbers (a run counted four shops from a list), the cover
+  shows the company's own product or place (a run put a customer's product on it), case portraits only on the case
+  card, no number twice, no full stop in a headline, a panel as tall as its text (the fixed 47% cramped four lines).
+  One `artifact` (the preview inlines team pictures, `lib/frame-files.ts`). **No PDF or PNG**: make_file turns
+  Markdown into documents (pandoc, typst) and cannot render this HTML; the artifact panel's download gives the HTML.
+- **Brand photos with Higgsfield, only here** (taken out before the merge: "N, Higgsfield taken out" below;
+  `onboarding/brand-image.ts`, tool `brand_image`): when fewer than three
+  usable pictures exist. Offered only in a chat of `onboarding_result_chats`, only to its owner, only with the key and
+  while the team has photos left: 4 per team for its whole life (rows not failed; the row is written in the same
+  synchronous step as the count, so two calls cannot both take the last; a failed job gives it back). Never for
+  sub-agents. The server adds "no people, faces, hands, text, numbers, logos, signs" to every prompt; nothing from the
+  team's files is sent. No confirm card (unlike generate_video, whose credits are the team's): the photos are Trina's
+  and capped, and a card would stop the first result. The result comes over https through the hardened download, is
+  made a 1,600 px JPEG and saved with `placeProduced` in the brand images folder. On the team-content list (S: the
+  photo is a team file the server made from the AI's words). **Model: `z_image` (Z Image), 0.15 credits a picture**:
+  in one test prompt Soul 2.0 (0.12) wrote words on a laptop screen and Soul Location (0.12) put a person in; Z Image
+  kept to the rules and looked as good as Seedream 5.0 Flash and Kling O1 (0.5 each).
+- **The API and the key** (taken out with the photos). Higgsfield's developer API that its CLI uses: `https://fnf-api-gw.higgsfield.ai/fnf`,
+  `POST /developer/v2alpha/images/<job type>/generations {params}` → `{id}`, `GET /developer/v2alpha/jobs/<id>` →
+  `status`, `result_url`; `Authorization: Bearer <access token>` and `hf-workspace-id`. A hosted team gets the key from
+  the hosting service like the speech key: tenant command `hosted-image-key-set` (`{ token, workspace }` or `{ token:
+  null }`; mycel-ctl → `admin.js hosted-image-key`), kept encrypted with the credentials vault
+  (`onboarding.hostedImageKey`), never in a response, log or audit row, dropped at start on a server that is not
+  hosted, left out of the team's export, kept across a restore, rekeyed with the vault. A development or own server
+  reads `<data>/secrets/higgsfield-onboarding.key` (`{"token","workspace"}`, 0600); the hosting key comes first.
+  **Handoff to the hosting console**: hold Trina's Higgsfield credential, send `hosted-image-key-set` to each hosted
+  team and `{ token: null }` to take it away. The token is an OAuth access token that expires within a day: the
+  console must refresh it and push the new one before it does; ask Higgsfield for a long-lived developer key limited
+  to image models with a spend limit.
+- **After the result**: S's bar now reads "마음에 드시나요? 팀 스킬로 저장하면 다른 분들도 같은 방식으로 만들 수 있어요"
+  [팀 스킬로 저장]. The skill draft's instructions say that work made from the company's own material asks the topic
+  and the channel and names the brand images folder (the folder of several pictures, not each picture).
+  A folder of pictures the run picked from, named with `"latest": false`, stays the whole folder (`draftFiles`; the card
+  says "마케팅팀 이미지 폴더의 사진"): as "the newest file" of it, the team skill would read one picture next time.
+- **Checked on 2026-11-05** with `bun run dev` (Claude Code login, the local relay), through the API and once in a
+  browser at 390 px, on five teams: a Korean B2B SaaS (8 pictures, the purple logo colour), a café roastery on imweb
+  (8 pictures, its charcoal), a shipbuilding-parts maker (5 pictures, SVG logo so none, no colour), an English SaaS on
+  an English team (the English skill and folders), and a
+  fictional 20-page PDF deck with no website (three photos made). 4 rounds of the skill, each card looked at full size;
+  the answers took 70–170 s; no card overflowed its square; numbers were checked against the material. 7 brand photos
+  were made, none failed (0.15 credits each), plus 1.39 credits of model comparison: 2.44 credits.
+- **Not done**: a PDF or PNG of the cards (above); the AI still sometimes puts a customer's portrait on a card about the
+  product when a site's pictures are mostly case studies; a draft started from Admin › Team settings collects pictures
+  that are placed only by a later first result; staged pictures of drafts that never reach a first result stay in
+  the data folder; Home's meeting notes line (`readNotesHint`) is left unused. (The Higgsfield items of this section were taken out
+  before the merge: see "N, Higgsfield taken out; type-only cards" below.)
+- Tests: `tests/unit/b-onboarding-cardnews.test.ts` (what a page offers, colour ranking, pictures by bytes, profile
+  colours and the facts line, 회사 소개.md, a hostile page in one pass; with the real web_fetch and a stand-in photo
+  service: the collected pictures, the CDN picture, never another site's style sheet; the first result owner-only,
+  placed once, 회사 소개.md kept, files checked; an old row gets "카드뉴스" once; the picture folder of a team skill;
+  the Higgsfield tests went with the photos, see below),
+  `b-onboarding-draft` and `b-onboarding-team-space` (the `assets` field, the third general skill),
+  `web/test/unit/welcome.test.tsx`, `profile-step.test.tsx`, `web/test/e2e/welcome-notes.spec.ts`.
+
+### N, review fixes (feat/onboarding-cardnews, 2026-11-05)
+
+- **Pages are read in one pass (must-fix).** The collector runs inside web_fetch's page callback, so a slow parse
+  stops the server. Tags, attributes, inline `url(…)` values and style blocks are now found with `indexOf` scans, no
+  pattern that backtracks (`startTags`, `attrsOf`, `cssUrl`, `styleBlocks`); the remaining patterns have bounded
+  whitespace. The review's hostile pages (600,000 bare "<", long style values, spaced `data-bg`, unclosed quotes,
+  spaced CSS) each take milliseconds (test).
+- **The photo cap holds against stop and resend (must-fix).** A photo is given back only when the service refused the
+  request or said the job failed (`NotCharged`); a job it took that never became a file (stopped, timed out, the
+  download or the save failed) is `lost` and still counts, since it may be charged. Each request to the service has a
+  30-second timeout.
+- Pictures over 40 megapixels are not kept; the isolated ffmpeg gets a 768 MiB memory limit. The first result uses the
+  recorded brand folder (the one the page uploads into), not one named after the team's current language. Staged
+  pictures of deleted chats and of the same person's drafts older than a placed one are removed at the next first
+  result (never another owner's, never a draft that wrote a row in the last ten minutes: its file may be on its way).
+- **Accepted, recorded**: 회사 소개.md quotes the website's text in a team file, so a card news chat that read it passes
+  S's outside-content check although the words came from the web. They are the company's own public pages, read
+  within the typed site's scope, saved by the owner after confirming the profile, each part under its address; the
+  team skill names the file, which anyone on the team can open and edit.
+
+### N in English (integration with Q, 2026-11-05)
+
+Q's English walk ran before the card news replaced welcome step 2, so the new lines were read again as an English team
+would. "Card news" is a Korean genre an English reader does not know: the English skill is titled "Promo cards" (its
+name and command stay `card-news`), the chat "Promo cards for our company" and the artifact "(Company name) promo
+cards". Step 2 reads "Add a company or team overview if you have one / No file? We'll use what we found on your
+website", the link "Continue without a file", the question "Make five promo cards for our company"; the reading log
+"Found the logo and n images" (was "Got …"); the bar "Like it? Save it as a team skill so your teammates can do it the
+same way"; the brand images folder line follows Q's per-language team folder ("the photos in Acme Marketing ›
+Images"). US spelling as in Q: "Brand colors" on the review, in 회사 소개.md's English words and in the facts line the AI
+reads (both skills name that label), color and center in the English skill. Q's rewrites of the old files step and of
+the ad copy result left with those lines. Korean, Japanese, Indonesian and Spanish are unchanged.
+
+
+### N, Higgsfield taken out; type-only cards (integration, 2026-11-05)
+
+The owner finds the brand photos overkill, and the gate data agrees: every real company in the gate runs had 5–8 usable
+pictures on its own site; only the fictional deck without a website needed made ones. Keeping the photos would also
+need a handoff the hosting side cannot hold yet: the token is an OAuth access token that expires within a day, so the
+console would have to refresh and push it to every hosted team before it runs out (no long-lived key limited to image
+models exists). Taken out before the merge; the code stays on `feat/onboarding-cardnews` for later.
+
+- **Gone**: `onboarding/brand-image.ts` (tool `brand_image`, its offer in the first-result chat, 4 a team, `z_image`),
+  the dev key file `<data>/secrets/higgsfield-onboarding.key`, `credentials/hosted-image.ts` (vault entry, rekey, export
+  and restore rules, the drop on a server that is not hosted), the tenant command `hosted-image-key-set` (cloud
+  protocol, vectors, `admin.js hosted-image-key`, `mycel-ctl`, now as on main: no root update for this PR), its audit
+  label. The first-result chats are no longer marked: nothing but the photo tool read `onboarding_result_chats`.
+- **Migration 233** (unreleased) keeps only `onboarding_brand_assets`, which the website reading fills and the first
+  result places (pictures, page text, colours); `onboarding_result_chats` and `onboarding_images` are not created.
+- **Type-only cards.** With fewer fitting pictures than the photo layouts need (only the brand images folder and photo
+  files attached to the message count), the skill never makes, downloads or draws a picture; cards 1–3 without one use
+  a designed version: `type-cover` (the brand colour, the logo on a white tile or the company name, one disc, the
+  headline low), `type-statement` (paper, a bar, a large line, a corner disc), `type-points` (the brand panel above, two
+  or three numbered points below). The only shapes are that disc and bar, text never on them, no empty photo slot. A
+  card made without a photo is named in one line of the answer, with how to add photos.
+- **Light brand colours**: `--brand-text` (the brand colour when dark, #111111 when light) for headlines, eyebrows and
+  the wordmark on paper; a yellow brand's headlines were unreadable on paper before, in the photo layouts too.
+- **Checked** in a browser render at 1080 px with a dark green, a deep blue and a yellow brand, Korean and English (no
+  text outside its card or on a shape), then with the real AI on `bun run dev` (Claude Code login): the fictional
+  20-page deck with no website and no logo used all three type-only versions with the company name as the mark; its
+  numbers were the deck's (18 %, 87 sites, p. 11); the answer said that photos added to the brand images folder can go in
+  next time (81 s). A real company's English site whose eight pictures were all
+  product screenshots, banners and mascot drawings: the skill found none usable, made the three type-only versions with
+  the app-icon logo on its tile, a yellow brand with near-black headlines on paper, and its two numbers were the site's
+  as written (60 s). A dev server needs its relay for this: with `--no-relay` it never learns its exit address and every
+  web address waits for a person's OK.
+- Tests: `b-onboarding-cardnews` (the first-result chat offers no image tool, also with a key file on the server),
+  `c-tools` (the registry is back to main's list; it failed with `brand_image` in it), `cloud-protocol` (main's
+  commands).
+
+## Demo content: the mechanism is open, a company's content is a folder (feat/demo-content-split, 2026-11-05)
+
+The owner (2026-11-05): the demo's mechanism stays open source here; the 트리나-branded demo content moves to the private
+repository. REPOSITORY-RULES already puts Trina's operations and site in the private `trina-ax-core` `editions/trina/`;
+a demo of Trina's own company, with photos made on Trina's Higgsfield account and a designed proposal template, is the
+same kind of thing.
+
+- **One format, read from a folder** (`scripts/demo/company/README.md`): `company.json` (owner, people, groups, folder
+  rules, uploaders, pack skills, settings, memories, company profile, the three personas with their lines and
+  questions, the scenarios, and `checks`), `files/` at team paths, `recordings/` (`<slug>.json`), an optional
+  `assets/` the demo never reads. The schema is `DemoContentCompany` in `shared/src/api/demo.ts` (zod lives there; the
+  scripts only read it), the loader `scripts/demo/company/content.ts`. A folder is checked whole before the server
+  starts: unknown fields, a name no person or group has, a persona that is the owner, files outside `shared/`,
+  `groups/<group>/`, `skills/`, a pack skill that is not in the repository, a recording that is not one of a scenario
+  by its person with its prompt. Every problem is listed at once; a broken folder never half-seeds a team.
+- **Data, never code.** The old company file was TypeScript (a function chose the uploader, a function wrote the
+  intro lines). A content folder from another repository must not run code in this checkout, so the uploaders are an
+  ordered path list and the intro lines are plain text. The server side is unchanged: the same `MYCEL_DEMO` file,
+  person switch, replays and fences (`server/src/demo/`, `routes/demo.ts`), as strict as before.
+- **The owner is always an account of its own** with a random password (`ensureOwnerPassword`, now in
+  `scripts/demo/seed.ts`), and the format has no admin role at all: every person is a member, because the demo password
+  is public and the demo may be open to the network (the rule from "Demo company", now in the schema, not a habit).
+- **Scripts**: `bun run demo:company [--content <dir>]` (else `MYCEL_DEMO_CONTENT`, else the open example);
+  `bun run demo:trina` is the same script with `--require-content trina` and, without content, says where the 트리나
+  content is (private `trina-ax-core`, `editions/trina/demo`) and that `demo:company` runs Acme. The data folder is
+  `~/.<id>demo`, so the 트리나 content (id `trina`) opens the same `~/.trinademo` as before. `bun run demo:seed
+  --content <dir>` replaces `--company trina`. `MYCEL_DEMO_CONTENT` is stripped from the server's environment with the
+  other `MYCEL_*` variables (the server only ever reads the demo file).
+- **The open example, Acme** (`scripts/demo/acme`): six people, Marketing and Sales and a CEO, one closed folder
+  (`shared/budget/`, with each lead's own team sheet under it) for "the same question, different answers", a handful
+  of Markdown files and four spreadsheets made by `tests/demo/make-acme-files.ts`, one team skill, one rule, two
+  English pack skills, no pictures. Three scenes recorded with the real AI on a separate port (a Word brief, an Excel
+  task sheet, a past chat). Its `checks` say who opens what; the seed test checks them on a real app, and with
+  `MYCEL_DEMO_CONTENT=<dir>` the same seed and recording tests run on another content folder too (the private
+  content's own check), including "every recorded line is in the team's language" for `ko` and `en`.
+- **Moved out**: `scripts/demo/trina/` (company, scenarios, README, files, recordings) and `tests/demo/make-trina-*`.
+  Git history keeps the v1/v2 content that was public; it was not rewritten. The later photos (Higgsfield), the
+  designed proposal template, the card-news and proposal rules and their recordings were never committed here and live
+  only in the private content folder. Tests now use Acme (`demo-company-seed`, `demo-company-record`, the web demo
+  test's fixture).
+- Rejected: keeping the 트리나 content here behind a flag (the brand content would still be public); a content folder
+  with a `company.ts` (code from another repository running in this checkout); copying the private content into
+  `editions/trina/` of this repository (only `branding/` belongs here).
+
+## W2 — AI connection first (feat/onboarding-ai-first, 2026-11-05)
+
+The owner: "온보딩을 할때는, AI연결부터 해야하는거 아니야?". Every demo had run on one Mac's Claude Code login, which hid
+the wall a real new team hits: the hosting side that issues the trial key ("Z") is not built yet, so a real new team
+has no AI, and the website reading and the first result fail without it. Placement: Team AX core (onboarding and AI
+connection). Taken from feat/onboarding-motion (its "V") without the promo video, whose quality is being reworked:
+the first result stays the card news of "N" (no `promo_video` tool, no HyperFrames, no fonts, no migration).
+
+- **Order**: AI 연결 → 회사 소개 → 첫 결과 → invite. The AI step shows only while no AI answers the owner: `GET
+  /api/me/ai-access`, the same state as the chat's connect line and Admin › Home; a hosted trial credit, a managed
+  engine or any working connection skips it. `ai` is in `WELCOME_STEPS` but is a gate, not a place in the order:
+  `nextStep(p, 'ai')` goes to the first open later step, `prevStep` never returns it. The page is the owner's, as
+  before (admins and members are sent Home), so members never see the step.
+- **Resume** (`web/src/lib/welcome.ts resumeStep(p, aiReady)`): the step the owner would resume at with AI; without AI,
+  the AI step in front of 회사 소개 and 첫 결과 (both are AI answers), never in front of the invite: with only the invite
+  left (AI gone after the first result, a trial credit used up) the steps open on the invite. The source branch returned
+  the AI step whatever was open, including that case (found in review; tested in lib and on the page). AI going away
+  while a step is on screen shows the AI step in its place, except on the invite.
+- **Progress**: "1/3 AI 연결 · 2/3 회사 소개 · 3/3 첫 결과" when the steps would open on the AI step or it was shown
+  before, else "1/2 회사 소개 · 2/2 첫 결과" (`countedSteps`; Home's "시작 설정 이어하기 (0/3)" counts the same). Shown,
+  the step is recorded `skipped`; once AI answers (the dialog, another tab, Home's connect line, a trial credit) the
+  page records `done` and goes on by itself, so the bar does not jump from 3 to 2. The server reads `ai` like any step
+  (done stays done), leaves it absent until it is recorded (rows from before read as they did) and never puts it off
+  when the steps finish.
+- **The step**: one reason line ("{product}의 AI가 팀 파일을 읽고 일하려면 AI 연결이 필요해요"), one primary button
+  "Claude 구독 연결" that opens Admin › AI connections' own `AddCredential` dialog with Claude chosen (`initialKind`,
+  `initialLabel`; the browser sign-in of PR #70: approval link and the code), shown when the team allows a shared Claude
+  subscription; "다른 방법" folded (open when there is no Claude button): the same dialog with every way and a link to
+  the AI engines page. No new connection logic. "나중에 하기" leaves the steps; Home then shows its connect card (below).
+  The first result's own no-AI state (A's button and "첫 결과를 만들려면 AI가 필요해요") is gone: the gate shows instead.
+- **Reading screen** of 회사 소개: "대화로 보기" and "직접 쓸게요" are gone, "나중에 하기" stays (Admin › Team settings,
+  the same component, keeps its "취소"). A reading that fails still opens the pasted text and the three questions by
+  itself, and "홈페이지가 없어요" still leads there.
+
+### After the UX walk (same day)
+An independent walk of the whole flow (no AI, then real AI, an owner and a member, 390 px and a computer) found dead
+ends and weight before the first result. Fixed here, each in its own commit:
+- **The first result shares our skill as it is.** Under the first result: "마음에 드시나요? 팀원도 같은 방식으로 바로
+  만들 수 있어요" [팀에 공유], which opens the invite with the skill that ran (the answer's receipt, the path the 7-day goal
+  counts; else the first "/name"). Before, "팀 스킬로 저장" (S) drafted a near-copy under another path, the invite carried
+  the copy, and a member's run never counted with the owner's (the goal stayed 1/3). No files go with the link: the pack
+  skills read the team's folders themselves, and the link puts people in the team's group. The welcome step's own
+  invite carries the card news too (no longer the ad copy). Tested on the real server: the owner's first result plus a
+  member who joins through the invite and runs it from its form give one skill with two people (2/3,
+  `tests/unit/b-welcome-share-goal.test.ts`). The S card and its endpoints stay, but this bar was its only entry: nothing
+  on screen opens it now (open: where to offer it in the lead's later chats).
+- **The invite opens ready.** For the owner walking the steps the link is made as the invite opens, only when no link
+  could let anyone in (none, expired or used up) and a seat is left; an active link is reused or pointed at the skill at
+  the same address; a stopped link, or one whose address the server cannot show, is never replaced by itself; the
+  link is read again right before one is made, so two screens of the owner do not end each other's link, and when that
+  read fails nothing is made (the form with its button stays) (review fixes). The
+  message and one "메시지 복사" show at once, "링크 관리" (link, QR, uses, expiry, replace) is folded. The goal card and
+  Admin › Members keep their button.
+- **One simple connect dialog** (`components/onboarding/ConnectAi.tsx`) from every "AI 연결하기": the welcome step, the
+  chat's error, the connect line above the composer and Home's card, in place (no trip to Admin › AI connections); "내 AI
+  연결하기" opens the person's own dialog. It is `AddCredential` with `simple`: the whole team (no target field), named
+  after the kind (no name field), the provider's terms as one checkbox line (the server needs that yes:
+  `acknowledgedPlanNotice`, D23; the line keeps that {product} cannot grant the permission), "다른 방법" shows every way.
+  The password is asked again exactly as before: team connections are owner-reauth, checked on every call
+  (`http/route.ts`), and there is no "recently signed in" rule to reuse (the `recent` map in `auth/service.ts` only
+  throttles audit rows), so nothing was weakened. Admin › AI connections keeps the full dialog.
+- **Home without AI**: one card instead of the top row, the suggested questions (they would all fail) and the connect
+  line. The owner gets the welcome step's heading with "Claude 구독 연결" and "다른 방법"; everyone else (admins too: only
+  the owner adds team connections) "팀장이 AI를 연결하면 바로 쓸 수 있어요" with [팀장에게 알리기], and a quiet "내 AI
+  연결하기" only where the team allows personal connections. No loop: the card stands in place of "시작 설정 이어하기";
+  once AI answers the row comes back and Home records the put-off AI step done, so it reads 1/3 and opens 회사 소개.
+  Connecting on the AI step goes where the steps resume with AI (an open step, else a counted step put off), not only
+  to an open one, so an owner who came back for a put-off 회사 소개 is not sent Home (review fix).
+- **A failed answer without AI** tells the owner "아직 연결된 AI가 없어요. AI를 연결하면 바로 답할 수 있어요." with "AI
+  연결하기" (and owner words for the trial credit's two texts), an admin "팀장에게 알려 주세요", members the server's words
+  (`lib/aiAccess.ts noAiErrorKey`; `shared/src/api/errors.ts` unchanged), only while no AI answers the person: the
+  server says "no connection" per engine, so with another engine connected the server's words stay (review fix). The
+  connect line above the composer hides while the newest answer shows that error (one button on screen).
+- **The result in front.** The artifact panel was meant to open by itself, but only on a "writing" preview the team
+  server never sends (only the e2e mock did). A saved artifact under the card news key (`CARD_NEWS_ARTIFACT_KEY`,
+  "card-news") now opens it, in every run of the skill (the owner's first result and a member's run alike); other
+  artifacts are unchanged. On a phone it is the full-screen sheet (✕, Esc) and it does not open over a draft in the
+  composer. The skill answers in one line ("(회사 이름) 카드뉴스 5장을 만들었어요. 바꾸고 싶은 장이 있으면 말해 주세요.",
+  plus the brand images hint when a card has no photo): no skill name, path, per-card line or photo list. Chat answers
+  do not render `<details>`, so the number's source moved into the artifact, one muted line under the cards.
+- **Folders by name in the step lines** (`stepPlace`, `shared/src/step-labels.ts`): "파일 읽기 · 브랜드 이미지 폴더 ›
+  홈페이지-6.jpg", not `groups/<team>/브랜드/이미지/…`, which a phone cut before the file's name. The brand images, brand,
+  meeting notes, team ("{team} 폴더"), own ("내 폴더": a personal folder is its owner's alone), attachments and shared
+  folders, matched in any language (NFC); the path stays in the row's tooltip; stored labels are unchanged.
+- **회사 소개 without the form first.** In the welcome steps a website reading whose draft has a one-line intro is saved
+  as it came, by the owner's own PUT with the form's body and rules (`tidyProfile`, the brand colours found; nothing the
+  pages did not say), and the steps go on to 첫 결과, which opens with one quiet line "이렇게 이해했어요: {한 줄 소개} ·
+  고치기" (고치기: the review form in a dialog; saving there updates the line). It sits on the result step because the card
+  news without files is made from that profile. A draft without a one-line intro, a failed reading, the pasted text, the
+  three questions and Admin › Team settings keep the review. The company name is saved as the draft found it (empty
+  reads as the team's name everywhere). Only the team's first profile is saved this way (asked again right before
+  saving): a re-read of a saved one ("홈페이지 다시 읽기" from its review) or one saved meanwhile in another tab shows the
+  review and is never overwritten unseen (review fix). Since a profile may now be unchecked, the AI's <company_profile>
+  block no longer says the owner checked it: it says it may come from the website unchecked, that the person is right
+  when they say otherwise, and that tone and words to avoid are preferences, not rules (`chat/prompt.ts`).
+- **No team line above step 1.** "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" is gone with the team-type choice; leaving step 1
+  still sets up every team's start. The marketing pack is one quiet button under Team skills ("마케팅 스킬 7개 넣기",
+  owners and admins, while no team skill is under `skills/marketing/`); before, it was offered only on an empty page.
+  Stored team types stay readable; a dev row with `teamType: marketing` and no pack no longer installs it by itself.
+- **Draft chats are not conversations.** The website reading's chat and the team skill draft's chat stay out of the
+  chat list, its search, its realtime updates and Home's frequent questions (`server/src/chat/internal-chats.ts`), marked
+  by their existing tables (`onboarding_profile_drafts`, `onboarding_skill_drafts`; no migration). Their flows read them
+  by id as before and they still open by address. The reading hint no longer says the chat stays in the list.
+
+## W3 — Fixes from a walk with a large company's website (fix/onboarding-walk, 2026-11-06)
+
+A walk of the whole onboarding on a dev server (Claude Code login, 390 px and a computer) with a large company's real
+website, an owner and a member, found what the smaller sites of the earlier gate runs did not.
+Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its own commit with its tests.
+
+- **The brand colour was a blend.** The site has no theme-color and its style sheets only UI blues; its logo is a wide
+  JPEG of thin deep-blue letters on white. `logoColors` squeezed the logo into 32 × 32 pixels, which averaged every
+  letter with the white around it: a muted indigo came out as the logo's colour (150) and won over the brand's own
+  deep blue. The logo is now point-sampled (nearest neighbour, at most 128 px on its long side, its shape kept), so a
+  pixel is the logo's own colour; close buckets are merged after averaging (one colour on a bucket edge counts once);
+  the share a colour needs stays about 1 % of the picture. Nothing else in the ranking changed. Test: a generated
+  logo of the same shape (a made-up blue) gives exactly its blue, and the page's UI blues do not beat it.
+- **회사 소개.md quoted only the site menu.** Its "홈페이지에서 읽은 글" held the menu and hundreds of empty `>` lines,
+  the same for every page, and none of the page's words: the page row kept web_fetch's text cut at 4,000 characters,
+  the site's markup is CRLF (htmlToText only collapsed `\n`, so every `\r` line stayed and became an empty quote line)
+  and its first 4,000 characters were the menu. Now: htmlToText reads `\r\n` and `\r` as line breaks (the AI's
+  web_fetch too); the page row keeps `introText`, htmlToText's new `prose` mode (no nav, footer, aside, button or
+  dialog, no header outside main or article (a form stays: ASP.NET Web Forms put the whole page in one), no element whose role, class or id names a menu, breadcrumb, skip link or
+  cookie bar; markup line breaks and `<br>` are spaces), as lines (`pageLines`: links reduced to their words, a line of
+  only links dropped, a phrase repeated in a row once (a heading's phone, tablet and computer versions), a line said
+  already or inside one of the last three dropped, no line without two letters or digits). 회사 소개.md quotes each line
+  as its own quote (a blank line between, never an empty `> `), at most 2,000 characters per page and 12,000 in all, and
+  leaves out a line another page said already. A row kept before this (only on dev servers: N is unreleased) is
+  tidied by the same lines. All of it in one pass: the review found the first link patterns tried at every "[" (a
+  page of endless "[" took 2.9 s, of "[!](" 1.5 s), so links are now read by `unlink` (each "](" once, the "[" before it
+  remembered, the next ")" and space kept from the last search) and the marks by a loop, at most 8,000 characters a
+  line (test: those pages and the N review's, each well under its bound).
+- **The photo line under cards that had photos.** The card news answer said "브랜드 폴더의 이미지 폴더에 사진을 넣고 다시
+  만들어 달라고 하시면 사진을 넣어 드려요" under cards whose photos were plain to see: the rule was "a card made without a
+  photo", and cards 4 (the number) and 5 (the next step) never have one. The skill (ko, en) now adds the line only when
+  one of cards 1–3 used its type-only version (`type-cover`, `type-statement`, `type-points`), names that card ("2장은
+  어울리는 사진이 없어 글자로만 만들었어요.") so the reader knows which one, says that 4 and 5 never count, and says
+  nothing about photos when 1–3 all have one. It stays a rule the AI follows (no server check of the answer's words).
+- **Copy.** Step 2's line read "여기 올린 파일은 {팀} 1명만 봐요" for an owner still alone; with one viewer it now reads
+  "여기 올린 파일은 지금은 나만 봐요 · 팀원을 초대하면 {팀} 모두가 봐요" (`welcome.files.whoAlone`, five languages; the
+  chat clause is left out to keep it short: the chat's own line under the box says it). The invite message names the
+  team it leads to: "{이름}님이 {product}에서 {팀}에 함께하자고 초대했어요. …" (and with a skill), and S's "우리 팀
+  '{스킬}' 스킬을 …" became "{팀}에 '{스킬}' 스킬을 만들어 뒀어요. …" (`teamLinkMessage` takes `team`, the team's name
+  from the session; the goal card's copy too). The starter messages of old links (meeting notes, team files) are
+  unchanged.
+- **The member's side.** Team skills showed a member "skills/general/ · 회사 소개서나 …": the folder is now only for
+  owners and admins, who manage the folders (a member reads the title and the line; the row's tooltip is the
+  description). A form run appeared as the member's own message ("어디에 올릴까요: 인스타그램" in their bubble, under the
+  chip), as if typed. The chat now reads such a message back (`formAnswers`: every line after the command is one of
+  the skill's form labels, "label: value", a multi-line value under "label:"; anything else is typed text and keeps
+  its bubble) and shows the run without a bubble: the skill's chip and one quiet line of the answers ("신제품 출시 ·
+  인스타그램"; each label is the answer's tooltip and is read out). Short answers show in full; from 140 characters, or
+  with a value of several lines, two lines and "전체 보기" (the chat's own key for long messages, five languages), which
+  lists each answer under its label as sent ("접기" folds them; review fix). The message sent is unchanged (the AI and the
+  transcript get the same lines; copy and edit keep them).
+- **"팀 스킬로 만들기" is back (S).** Since W2's first result shares the pack's own skill (PR #80), nothing opened S's
+  card (W2 left "where to offer it in the lead's later chats" open). It is now the one suggestion under an answer
+  (`ResultSuggestion` kind `team-skill`, key `team-skill`; `skill-draft.ts teamSkillOffer`): "이 방식대로 팀 스킬로
+  만들까요?" [팀 스킬로 만들기] ×, only for an owner's or admin's own finished answer whose conversation used team files
+  and ran no team skill anywhere (its way is a team skill already; that also leaves out every card news run), not the
+  welcome steps' first result, not a draft chat, not an answer a skill was already shared from, and only when the draft
+  would start: S's own refusals (`conversationUse` and `sourceRefusal`: confidential, web or outside content, unverified
+  reads, a file the team's stand-in cannot open). The button opens the card in a dialog (a bottom sheet on a phone):
+  the draft, [팀에 공유], then the invite with that skill (`InviteStep made`), as before; the card's draft of this page
+  load is kept per answer (`answerId`), not per chat, so a later answer of the same chat gets its own. Order in the slot: the weekly
+  schedule (needs a skill run, so never together with this), then this, then the PPT (both can apply to a long answer
+  from team files; making it the team's way is the landing's promise, and it is the rarer one). Closing it is for good
+  for that person, like the others. The check runs on every such answer the person reads, cheap checks first.
+- Not done: a member's improvement still goes through "스킬로 제안"; the photo line is a rule the AI follows; the
+  welcome step's AI still reads web_fetch's text (only CR was fixed there), the prose mode is used for 회사 소개.md alone.
+- Tests: `b-onboarding-cardnews` (the wordmark's colour, the prose text of a menu-heavy CRLF page, page lines, 회사
+  소개.md without empty quote lines, hostile pages, the skill's photo rule), `c-webfetch` and `c-review` (unchanged,
+  pass), `b-skill-share` (the suggestion: who, which answers, every refusal, closed for good), `b-result-suggestions`,
+  web `welcome.test.tsx` (the owner alone), `team-link`, `onboarding-polish`, `skill-share-member` (the team in every
+  message), `available-skills` (no folder for a member), `steps-receipt` (a form run read back and shown quietly),
+  `result-suggestion` (the line, the card, the invite, closed for good).
+
+## V — The first result is the company's promo video (feat/onboarding-video, 2026-11-06)
+
+The owner, after the card news: "왜 아직도 카드 뉴스 만드는거야? 너가 hyperframe쓴다매?", "퀄리티 개 좋아야해". A first set of
+templates (beige slides, a circle, fades, no camera, no music; branch feat/onboarding-motion) was rejected. Two
+reference videos made by hand with HyperFrames' product-launch workflow (about 55 minutes and ten AI workers each) were
+approved as the bar: "괜찮네 ㄱㄱ 저렇게 가자". This version reaches that look from a template the server fills in about a
+minute. Placement: Team AX core (onboarding, the chat tool, the artifact panel); the Linux render belongs to the srt dev
+environment image (another developer; handoff below).
+
+### What the reference taught (and the template now does)
+- **One camera idea per beat** (push-in, pull-back, a pan or scroll inside a window, a push-through between two
+  numbers), finishing before the beat's last third and then holding.
+- **Three or more depth planes every beat**: a dark brand ground with a vignette and a radial glow in the brand colour →
+  a picture full bleed or the company's own picture in a floating window (3D tilt that flattens, a deep soft shadow) →
+  type → light (bloom on hits, a light leak, a horizon line, light threads) and a 6 % film grain over everything.
+- **Type is the motion**: per-word cuts out of a mask, an in-place swap or a strike-through then an inverse-zoom slam,
+  counts that decelerate into the written value, a typed footnote; Korean display at weight 800–900, tight tracking,
+  numbers 140–330 px.
+- **Seams matched to velocity, never a plain fade**: zoom-through (hook → promise, proof → end card), push-slide
+  (promise → work), blur crossfade (work → proof).
+- **A 120 BPM grid**: one beat 0.5 s; scenes start at 0, 3.5, 7, 10.5 and 14 s; every reveal and hit lands on the grid;
+  the end card's last motion ends at 16.4 s and it holds to 18.5 s; the first frame is already a thumbnail (the label and the "before" words).
+- **The story order**: the customer's outcome first (before → after), the promise over a brand picture, what the
+  company does on its own picture, proof (a number written in the material, or the most concrete fact), the end card
+  with the logo, the site's real offer and its address.
+- What was not taken: logos assembled from their parts (needs a per-logo path split; the whole logo is revealed by scale
+  and blur), text typed into a measured UI, lines traced from a hero image, a website screenshot (below).
+
+### Slots, not HTML
+- `promo_video` (C's registry, offered in every chat; the pack skill "홍보 영상" uses it), input `PromoVideoInput`
+  (`shared/src/api/promo-video.ts`, strict): company, website, brand colour, logo, style, music, `sources`, and the five
+  beats `hook` (label, before, after, line, strike or swap), `promise` (headline, sub, picture), `work` (kicker,
+  headline, up to three points, picture), `proof` (up to two stats as written, or a statement), `cta` (line, offer).
+  One key phrase per headline line may be marked with *stars* (the accent colour).
+- **Checks** (`promo-video/spec.ts`, every problem at once): every line measured with the bundled font's real advance
+  widths (`metrics.ts`) against its place (`layout.ts fitDoc`); every number on screen written in the sources as a whole
+  number, each stat exactly as written with its sign and unit; pictures and the logo readable by the person, inside a
+  brand folder, PNG/JPEG/WebP by their bytes, ≥ 600 px on the short side (logo ≥ 64), each once; the website written in
+  the sources or the saved profile. First failure: fix every problem and call once more; second: stop and say why in one
+  sentence; a third call is refused.
+- **Style families, chosen from the brand colour** (`palette.ts`): `ink` (near-black warmed by the brand, the brand as a
+  fire-bright accent and glow; first for a vivid colour), `deep` (a ground of the brand's own hue at night depth, a soft
+  tint of it as the accent; first for a deep or muted colour), `mono` (graphite and white; the only one without a usable
+  brand colour — grey, near-black or near-white). The AI may pick among the families that fit; another pick is replaced,
+  not refused; without a colour from the AI, the saved profile's first brand colour decides (the website reading's,
+  point-sampled from the logo since W3). Accents reach 4.5:1 on their ground (the card news' contrast rule). Light grounds were left out: no
+  light family looked premium next to the references.
+- **Missing pictures**: the promise and the work beat each have a type-and-light version (light threads rising behind
+  the words; glass rows for the points and a light sweep); never an empty frame or a made-up picture.
+- **The logo** is revealed whole (scale 0.62 → 1 and blur 26 → 0, locking on the grid with a bloom and a flare). How it
+  sits on the dark ground comes from its pixels (`logo.ts`, 64×64 point-sampled RGBA by the isolated ffmpeg, like the
+  website reading's logo colour since W3): a filled shape (at least 80 % opaque, an app icon with rounded corners) → a rounded tile; transparent and readable on the dark → as it is; dark and
+  without colour → drawn white; dark and in colour → on a light card. A logo wider than 2.2:1 is the wordmark and
+  replaces the name.
+
+### Motion runtime: CSS animations seeked through the Web Animations API, not GSAP
+- The references used GSAP 3.15 from jsDelivr. GSAP's licence (the "Standard 'No Charge' GSAP License", Webflow,
+  effective 2025-04-30, read at https://gsap.com/standard-license on 2026-11-06) grants use, reproduction, display and
+  implementation "solely for Permitted Uses", forbids "Prohibited Uses" — use "in tools that allow users to build visual
+  animations without code" that compete with Webflow — keeps termination and one-sided amendment, and grants no right
+  to distribute or sublicense. AGPL-3.0 does not allow further restrictions on the people we pass the code to (§7, §10),
+  so GSAP cannot be bundled in this repository or in customers' self-hosted servers; and this very feature is a tool
+  that makes animations without code. Loading it from a CDN is out anyway (the artifact frame and hosted servers make no
+  network calls).
+- So every motion is a CSS keyframe animation with an absolute delay on one clock (`template.ts` compiles a few
+  timeline stops per element into keyframes with an easing per segment; the root is the only `data-start`). HyperFrames'
+  CSS adapter seeks them for the MP4; the chat's player seeks the same animations with `document.getAnimations()`. Counts
+  are a registered integer property (`@property --pvn`) shown through CSS counters, so every frame shows whole digits;
+  when the count lands, the number exactly as written ("1,200곳") takes over. A count runs toward the new state (down
+  for "반나절 → 14초", up for "3.7회 → 81회"); a year rolls up from 30 years before it, never from 0.
+
+### Sound
+- Three music beds (bright, calm, pulse), cut to 18.5 s on the 120 BPM grid with a downbeat on frame 0, and six effects
+  (whoosh into a zoom-through, short whoosh on a push, click on the swap, hit on the slam, impact and chime on the logo
+  lock). Licences: CC0 or public domain only, each file's source and licence in `resources/promo-video/audio/SOURCES.md`
+  and the third-party notices; the test checks the folder against that list. Not used: MusicGen outputs (the reference's music; its weights are
+  CC-BY-NC), Pixabay files (no standalone redistribution), anything CC-BY (credit inside customers' videos).
+- The style picks the bed (ink → bright, deep → calm, mono → pulse) unless the AI names one. The MP4 mixes them
+  (HyperFrames `<audio>` with `data-start` and `data-volume`). In the chat the video plays muted (browsers allow muted
+  autoplay); the sound button loads the bed and the effects from `/vendor/promo-video/*.js` (each sound as a data:
+  address in a script, the only way a sound reaches the frame, whose CSP allows media from data: only and scripts from
+  /vendor/) and keeps them on the player's clock.
+
+### The chat
+- The composition is the chat's artifact "promo-video" (a new version per call), the checked slots in `promo_videos`
+  (migration 234). The page plays it in a 4:5 stage with a slim bar (play/pause, progress, time, sound) on a loop,
+  starting once the font is in (at most 1.5 s); with `prefers-reduced-motion` it shows the five settled beats as stills.
+  The font comes from `/vendor/fonts/promo-video.css`, pictures by team path (inlined by the panel). The panel shows no
+  code tab, copy or page download for it; the message card says "영상".
+- The first result (welcome step 3) runs the pack skill "/promo-video" with 회사 소개.md (or the owner's files) and the
+  brand images folder with the website's pictures and logo; the video opens beside the chat by itself; the answer is one
+  line, plus one sentence naming scene 2 or 3 only when that scene had no fitting picture (the card news' W3 rule; the
+  hook, the proof and the end card have no picture by design); [팀에 공유] invites with that pack skill, so the 7-day goal counts it. The card news skill stays installed.
+
+### The MP4
+- [영상 파일로 받기] in the panel header, only when `GET /api/promo-videos/:id` says `available` (a development server on
+  macOS with the pinned CLI; never a button that cannot work). One render at a time per server,
+  `<data>/promo-videos/<artifact>.mp4`, kept and given again; removed with its chat. The CLI runs in a process group of
+  its own and the whole group is ended on the time limit and on shutdown (Chrome children included), by process id.
+- **Vendored, not a dependency**: HyperFrames 0.9.15 (Apache-2.0) with its own lock file in `scripts/promo-video/
+  hyperframes/`, installed by `bun scripts/promo-video/install-hyperframes.ts` into `~/.cache/mycel/hyperframes-0.9.15`
+  (or `MYCEL_HYPERFRAMES_DIR`); run with Node 22+ and an environment of PATH and HOME only, telemetry, update checks and
+  skill installs off. The render page is built from the stored slots (never the artifact's HTML): pictures copied out
+  with the chat owner's permissions at render time, the font and the sounds from the repository, no script.
+- **Linux team server: not in this round.** Handoff for the srt dev environment image (scripts/image): bake
+  chrome-headless-shell (x86_64 and arm64) and the pinned CLI tree (`npm ci` from the lock file) into the image; set
+  `HYPERFRAMES_BROWSER_PATH`; drop Debian `chromium` (it cannot start under srt: seccomp blocks AF_UNIX); then offer the
+  MP4 when the dev environment's runner reports a usable headless shell and submit the render as a queued srt job (the
+  same work folder: index.html, fonts/, img/, audio/), reading the MP4 back from the job's folder.
+- **Next step: a website screenshot as the "real product screen"** of the work beat. Not this round: a headless browser
+  opening arbitrary pages needs its own SSRF design (the same rules as web_fetch for every request the page makes, no
+  private addresses, no downloads, a time and memory limit). Until then the work beat uses the pictures the website
+  reading collected.
+
+### Measured
+- **Final gate round** (2026-11-06, this Mac, real AI from its Claude Code login, development servers with their local
+  relays, four teams at once and then two): the product's own site, a Korean AI studio, a café roastery, a Korean B2B
+  SaaS, a large manufacturer and a fictional 20-page PDF deck without a website. Reading the website: 33–39
+  s. From "자료 없이 만들게요" (or the deck) to the video artifact: 18–24 s; the answer done at the same time or 3 s later
+  (target 3 minutes). The MP4: 31–94 s (up to four renders at once on this Mac), 13–20 MB, H.264 + AAC, 18.5 s. Styles
+  the server chose: ink twice (orange, violet), deep twice (green, navy), mono twice (a grey brand, no brand colour). Every
+  number on screen was in the material; one site had no number worth a stat (a statement proof), one deck hook was
+  "3–6개월 → 2주".
+- **After merging W3** (2026-11-06): the large manufacturer's site again. Its logo, point-sampled now, gave its own
+  dark blue instead of a washed-out blend; the video came out in the deep family on the brand's own navy with a light blue
+  accent (artifact 24 s after the button, MP4 32 s). The new team-skill card skips the welcome's result chat
+  (`resultChatId`), so it never shows under the video. The same run showed a founding year counting up from 0
+  ("1083년"); a year now rolls up from 30 years before it.
+- **A browser walk at 390 px** (a fresh team, AI on): setup → the website → "자료 없이 만들게요" → the video playing in the
+  sheet 21 s later; the sound button loaded the bed and the effects from /vendor/promo-video/ (all 200); close →
+  [팀에 공유] → the invite message for the "홍보 영상" skill.
+- **Found by looking at the sheets next to the references, fixed**: an app-icon logo (a dark rounded square) was read as
+  a dark logo and drawn as a white square (a filled shape is now a tile); the logo card shared a class with the work
+  beat's chips; a stat with a comma ("252,475") touched the frame's edges (measured with proportional figures; the count
+  is set in tabular figures, 0.6816 em); a statement split "*성과*로" into "성과 로"; a hook from 3.7 to 81 counted down.
+- **Tests**: `tests/unit/b-promo-video.test.ts` (widths, families and contrast, numbers, brand folders, fitting, logo
+  treatment, the 120 BPM grid and the 2 s hold, type-and-light beats, counts, the sound cues on the grid, the sound
+  licence list against the folder, escaping and the muted player, the tool's problems and second failure, the style
+  replaced when it does not fit, the MP4 with a stand-in CLI, the purge, the time limit and shutdown ending the browser's
+  process group), `b-onboarding-cardnews`, `b-onboarding-team-space`, `b-welcome-share-goal` (the goal counts runs of the
+  promo skill), `web/test/unit/promo-mp4.test.tsx` (no MP4 button where the server says it cannot), the permission
+  matrix's promo cases, `web/test/e2e/welcome-notes.spec.ts`.
+- **Still weaker than the references**: no real product screen of the company's own software (the website screenshot
+  is the next step above; today the work beat shows what the website reading collected, sometimes a banner with text);
+  the logo is revealed whole, on a light card when its colours do not read on the dark (the references assembled theirs
+  from its parts); a proof without a picture is type and light (the references had a real chart and real customer
+  messages); one AI pass writes the copy (the references' copy was edited by hand); the beds are library music cut to
+  the grid, not scored to the edit, and no person has listened to the nine sounds in the videos yet.
+
+## D2 — The first result is the company's intro deck (feat/onboarding-deck, 2026-11-06)
+
+The owner, after the promo video round: "그냥 소개서를 만들어주는거는 어때 슬라이드 형식으로? 회사 웹사이트를 보고?", then
+"리서치하고 계획해서 해보긴 하자", with the standing bar "퀄리티 개 좋아야 해" (a plain bullet PPT was rejected outright). Then:
+"지금 상태로 일단 넣고 그다음 바꾸자" — this section describes what went in; the quality work still open is under "Next".
+Placement: Team AX core (onboarding, the chat tool, the artifact panel, two downloads). The letter: "D" for deck; "D2" is a
+section of its own, not a follow-up of D (the company profile), though the deck is built from that profile.
+
+### The owner's three decisions (the plan's recommendations), each one constant
+- **Pretendard is embedded in the PowerPoint file** (`EMBED_FONTS`, `intro-deck/pptx.ts`): Regular and Bold as the
+  family "Pretendard", ExtraBold as "Pretendard ExtraBold" (how Pretendard names its static faces), each whole, as
+  `ppt/fonts/*.fntdata` (an EOT header and the TrueType font, uncompressed, `intro-deck/eot.ts`), listed in
+  `p:embeddedFontLst`. Measured: the three fonts add 3.5 MB deflated; a deck with pictures is 3.6–6.3 MB.
+- **The look follows the brand colour** (`fittingThemes`, `intro-deck/theme.ts`): a colour that carries white type at
+  4.5:1 → `brand`; a vivid one that does not → `ink`; light, muted, grey or none → `paper`. The AI may pick another
+  look that fits; one that does not is replaced and the answer says so.
+- **No product mark on the slides**: nothing is drawn; the PDF's metadata names its maker (typst) only.
+
+### Slots, not design
+- `intro_deck` (C's registry, offered in every chat; the pack skill "회사 소개서" / "Company profile" uses it), input
+  `IntroDeckInput` (`shared/src/api/intro-deck.ts`, strict): title, company, website, brand colour, logo, theme,
+  `audience` (from the skill form; order and tone only, never a fact), 1–8 `sources`, and 6–10 slides of eleven kinds in
+  a fixed order: cover, about, needs, offer, numbers, products (up to twice), process, proof (names, a quote or a case),
+  history (turning points or certifications), contact last; one scene between the third slide and contact. Cover,
+  about, offer and contact are required. The AI never writes HTML, XML or typst.
+- **Checks** (`intro-deck/spec.ts`, every problem at once, the promo video's helpers reused from
+  `promo-video/spec.ts`): the order; every number on a slide written in the sources as a whole number, each stat exactly
+  as written; names (customers, partners, certifications, people) as written after NFKC, whitespace aside (a "name,
+  company" may have its parts apart); a quote word for word; email, phone, address and website as written in the
+  sources or the saved profile; "최고, 1위, 유일, 최초, No.1, best-in-class…" only when the sources use them; pictures
+  from a brand folder, PNG/JPEG/WebP by their bytes, each once, the logo only in `logo`, big enough for their place
+  (full bleed: landscape 1.3–2.4:1 and ≥ 1,600 px wide; half a slide ≥ 800 px on the short side; a card ≥ 400 px); no
+  full stop at the end of a headline; every line fits (below); no slide over 40 % text. A source whose SHA-256 is one of
+  the files this tool gave out (`intro_decks.pptx_sha256 / pdf_sha256`; the builds are byte-for-byte repeatable: no
+  clock inside) is refused, so a deck put back into the team folder never proves its own numbers. First failure: fix
+  every problem and call once more; second: stop and say why in one sentence; a third call is refused.
+- **Speaker notes** written by the server: each number and name on the slide with the file it stands in and the words
+  around it ("출처: 회사 소개.md — '…'"), so a salesperson can check before sending.
+
+### One layout, three outputs
+- `layout.ts` turns the checked slots and the theme into a display list (text with its lines already broken, pictures
+  with one crop rectangle per placement, solid or gradient rectangles, hairlines); every decision is made there once:
+  the variant of each slide (cover A full-bleed photo with scrims / B split / C type-only; offer A with a half-slide
+  picture / B ledger rows; products A picture cards / B tinted cards; proof A name wall / B pull quote / C before → action
+  → result; history A ledger / B certification list; numbers in one row, or two to a row for long figures), sizes,
+  crops, grounds (paper and brand never put three dark slides in a row: the numbers go light), vertical balance under
+  the title.
+- **The grid**: 1920 × 1080, margins 120 / 104 / 96, 12 columns with 40 px gutters; the eyebrow and the title in the
+  same place on every content slide. Pretendard only, weights 400 / 700 / 800; display 112 (128 type-only cover), title
+  64, card head 40, body 32 (16 pt), label 24 (+0.12 em), numbers up to 188 with the unit at 0.45×. Hairlines, no boxes
+  around body text except the tinted product cards, one corner radius per deck (paper 0, ink and brand 16). A starred
+  key phrase shows in the accent only on the cover, the about statement and the closing line (one accent per content
+  slide: its eyebrow).
+- **Fitting** (`text.ts`): lines break only at spaces (keep-all), balanced so no line ends with a lone one-character
+  word ("결정할 / 수" counts as longer), measured with Pretendard's advance widths (`promo-video/metrics.ts`, weight 400
+  added from the bundled static Regular TTF; its Bold reads within 1/1000 em of the Chromium-measured 700 row), each
+  line ≤ 1/1.1 of its box (Noto Sans KR's Hangul is 6.5 % wider; Malgun Gothic unmeasured). A text too long steps down
+  one size, then it is a problem with the slot named and the characters a line holds.
+- **The preview** (`html.ts`): absolutely placed elements on a stage scaled by container units, each line its own
+  `white-space: pre` element, every text escaped, pictures by team path (the panel inlines them), Pretendard from
+  `/vendor/fonts/pretendard.css` (a new file, family "Pretendard Web", the same woff2; `promo-video.css` stays for saved
+  videos). It pages: ← → / PageUp PageDown / Home End, a 40 px swipe, a click on the left or right third, a slim bar
+  ‹ 3 / 9 › with an `aria-live` counter, 160 ms slide-and-fade (none with reduced motion), each slide
+  `aria-roledescription` in the team's language; under 560 px every slide stands in one scrolling column. It shows once
+  the font is there (at most 1.5 s). The panel shows no code tab, copy, page download or "save to the team folder" for it
+  (the deck must not become team material by accident) and one [받기 ▾] with "PowerPoint (.pptx)" and "PDF".
+- **The PowerPoint file** (`pptx.ts`): our own writer on `files/zip-write.ts`, not pptxgenjs (it writes the GB2312
+  charset on every `<a:ea>`, has no gradients, no line-break control and no font embedding; unmaintained since
+  2025-06). One master, one blank layout, theme fonts Pretendard with 맑은 고딕 as the Hangul script font; one text box
+  per paragraph, our breaks as `<a:br/>`, exact line spacing, `lang` per team language with the Hangul charset (-127),
+  `eaLnBrk="0"` (inferred from the documentation; unverified in PowerPoint), one-line labels `wrap="none"`, boxes 12 %
+  wider than their column into the gutter (a viewer's wider substitute face must not break a Hangul word); pictures with
+  `srcRect` from the layout's crop; speaker notes; `docProps` with the title and no author. **Gradients are pictures**:
+  Apple's renderer (Quick Look, the Mac and iPhone preview of an attachment) drew a `gradFill`'s transparent stops as
+  opaque black over the cover photo, so scrims and the ink glow are small PNGs with alpha stretched to their rectangle
+  (measured fix; a plan deviation from "rects with gradFill").
+- **The PDF** (`typst.ts`): each line `place`d at its baseline in its own unconstrained box (typst breaks Hangul between
+  syllables and must never wrap), pictures in clipped boxes offset by the crop, gradients native, every string a typst
+  string literal in code mode. Run like `make_file`: isolated, `--root` the work folder, `--font-path` the bundled
+  Pretendard (and Noto Sans CJK on Linux), `typstJobs()`, 120 s. Measured: 0.1–0.55 s for 7–10 slides on this Mac,
+  71 KB (no pictures) to 2.7 MB.
+- **Fonts shipped**: the static Pretendard 1.3.9 TTFs (Regular, Bold, ExtraBold; 8 MB) in `resources/fonts/pretendard/`,
+  copied into every Linux bundle's `fonts/`; typst uses the same TTFs (no separate OTFs: one set of files instead of the
+  plan's two). The notice names all four Pretendard files; `BUNDLED_FONTS` now always asks for it in a Linux bundle.
+
+### Downloads and storage
+- `GET /api/intro-decks/:id` (title, theme, slide count, `pptx: true`, `pdf` only where typst and the fonts are),
+  `/pptx`, `/pdf`; the chat's owner only. Built on demand from `intro_decks` (migration 235: `artifact_id, chat_id,
+  user_id, spec, pptx_sha256, pdf_sha256, created_at`), never from the artifact's HTML, with the pictures the chat's owner
+  can read at build time (one no longer readable makes that slide type-only). Kept as `<data>/intro-decks/<artifact
+  id>.pptx|.pdf`; removed when the chat is purged (`forgetIntroDecks`). Not saved into team files.
+
+### The welcome step
+- The first result runs "/intro-deck 우리 회사 소개서 만들어 줘" with the same material as before (the owner's upload or
+  회사 소개.md, the brand images folder) in a chat titled "우리 회사 소개서" (five locales); the general pack records
+  `introDeckPath` (installed on its own once for a row recorded before the skill); [팀에 공유] carries `/intro-deck`, so
+  members' runs count for the 7-day goal. Promo video and card news stay installed.
+- **The video hook, not built**: `deckToPromoInput` (`intro-deck/promo.ts`, tested) maps a checked deck to the promo
+  video's slots; `ResultSuggestion` has `deck-video`, never returned while `DECK_VIDEO_SUGGESTION = false`. When on: the
+  video line first under the first deck, then the [팀에 공유] bar. The owner said 10 s; the video is 18.5 s.
+
+### The gate (2026-11-06, real AI on this Mac's Claude Code login, dev servers with their relays)
+- Six teams: a large manufacturer's site, a café on its own site, a Korean B2B SaaS, ax.trina.app, an English SaaS, and
+  a 20-page company PDF uploaded without a website. Website reading 36–42 s. From the first-result button to the deck on
+  screen: 35, 36, 48, 64, 77, 85 s (p50 ≈ 56 s; the upload case slowest); answer done 2–10 s later. Looks chosen: paper ×2
+  (no brand colour, a near-black logo colour), brand ×2 (navy, violet), ink ×2 (orange, amber).
+- 4 of 6 needed the one rewrite (target ≤ 1 in 4): three from layout limits (a 7-digit figure in a 4-up row, a full web
+  address on the contact slide, a long product body in a four-card row: all three relaxed since: figures go two to a row,
+  addresses show without "https://", four-card bodies take four lines) and two from facts (a quote not word for word; a
+  person written with their outlet). After the relaxing, the three layout problems lay out without a problem.
+- PPTX on the first click 131–328 ms (then 5 ms from the cache), PDF 120–550 ms.
+- Looked at every slide at full size (HTML, PDF, LibreOffice with and without Pretendard, Quick Look) next to the plan's
+  reference decks. Found and fixed during the gate: Quick Look's opaque gradients (above); titles accented on every
+  slide (accent now cover/about/closing only); a photo's own lettering under the cover headline and the scene line
+  (stronger scrims where the type sits); a pill whose text wrapped in a substitute font.
+
+- **A browser walk** (390 × 844, then 1440 × 900, a fresh team, AI on): setup → the website → "자료 없이 만들게요" → the
+  deck opened by itself as a full-screen sheet 66.5 s later (one rewrite of about 35 s included); arrows, Home/End, the
+  › button, a swipe and a right-third click page it on a computer; both downloads came through (a 4.9 MB .pptx, a
+  7-page PDF); [팀에 공유] → the invite message. Fixed after it: product card names on one line across the row.
+- **Found by the tests, fixed**: a company name without a logo longer than about eight Hangul syllables did not fit its
+  one line on the cover and contact slides (it now takes two lines in a wider box); the secondary type on some brand
+  grounds fell under 4.5:1 (dim is now held at 4.5:1 and mute at 3:1 on every ground); a typst path that does not exist
+  offered the PDF; "previous" was not disabled on the first slide. From the review: the one-starred-phrase check now
+  counts the stars as written (it ran on the text with its stars already taken off), and the tests' companies are
+  named "Acme …".
+
+### Verified and not
+- Verified here: the PPTX opens in LibreOffice 26.8 and Quick Look, and python-pptx reads and saves it. **The embedded
+  fonts load in LibreOffice**: with no Pretendard on the system its PDF export uses Pretendard-Regular, -Bold and
+  -ExtraBold taken from the file (`pdffonts`), and the same deck written without embedding falls back to Linux
+  Libertine; the PDF in typst/pdftoppm; the HTML in Chrome. LibreOffice adds a space between Hangul and Latin or
+  digits ("30 년"); it is LibreOffice's Asian-text spacing, not in the file.
+- **Not verified on this Mac**: PowerPoint (Windows or Mac) actually loading the embedded fonts and honouring
+  `eaLnBrk="0"`; Keynote; the Google Slides import. Without Pretendard, Apple's renderers (Quick Look, Keynote) set the
+  Hangul in a serif face (AppleMyungjo; tried: panose, pitchFamily, the theme's Hangul font — only an installed font's
+  name changes it), and lines may break inside words there; the PDF is the format that looks the same everywhere.
+
+### Rejected
+- pptxgenjs (above). python-pptx (Python packages on every customer server). LibreOffice (375–469 MB, and it dropped the
+  Hangul without the font). HTML → PDF with Chrome (no Chrome on hosted Linux). A designer's master .pptx filled with
+  pptx-automizer (PPTX only: the preview and the PDF would need a second design, and its overflow cannot be measured).
+
+### Next (quality work still open)
+- Covers and section slides with more character: a type-only cover is a logo, a bar and a headline; the references use
+  stronger typographic devices and real product imagery.
+- Pictures: the website's pictures are often banners with lettering or small; crop to the subject, recolour or drop
+  them; a logo that is an app icon on its own dark square reads small on the ink ground (crop to its mark).
+- Apple's and Google's renderers without Pretendard (serif fallback); measure Malgun Gothic and check PowerPoint for
+  Windows with the embedded fonts and `eaLnBrk`; a person on the team to open one deck in PowerPoint and Keynote.
+- Rewrite rate: fewer first-try failures (the skill's limits per slot, quotes and attributions); a failed first call
+  shows as a red failed step under the answer although the second call made the deck.
+- On a phone the stacked slides' small type (labels, page numbers) is about 4 px; on a computer the panel leaves empty
+  space under the 16:9 stage, and the keys work only after a click inside the frame.
+- A WebP picture or logo (the website reading keeps small WebP files as they are) showed as an empty box in Quick Look,
+  so the PowerPoint file leaves WebP out for now (that slide takes its type-only version, a WebP logo becomes the
+  company's name; the preview and the PDF keep it); next: convert WebP to PNG or JPEG when the file is built (needs a
+  decoder on hosted Linux, which has no ffmpeg). The contact slide's offer pill can overflow its pill in a wider
+  substitute face.
+- The toast when a picture became type-only at download time (the info answer could say how many).
+- The video hook (`DECK_VIDEO_SUGGESTION`) and pictures from an uploaded PPTX's `ppt/media/`.

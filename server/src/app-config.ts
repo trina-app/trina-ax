@@ -8,7 +8,8 @@
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
 // (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts),
-// MYCEL_DEMO (a demo file, `bun run demo:trina`: development servers only, refused anywhere else; readDemoFile).
+// MYCEL_DEMO (a demo file, `bun run demo:company`: development servers only, refused anywhere else; readDemoFile),
+// MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host> or http://127.0.0.1:<port>; unset or '' = off).
 // Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
@@ -180,6 +181,9 @@ export const AppConfigFile = z.object({
   }).default({ channel: 'stable', feedUrl: null, auto: false }),
   /** Operator-owned corresponding-source metadata. Does not publish or export source. */
   sourceCode: SourceCodeConfig.optional(),
+  /** native app push (server/src/notifications/push-native.ts): the push gateway, https://<host>. Absent or null = off:
+   * phone tokens go nowhere until the operator chooses a gateway (a hosted service writes it here). */
+  push: z.object({ gatewayUrl: z.string().max(300).nullable().optional() }).strict().optional(),
   /** check every JSON response against the contract (default: on in dev) */
   validateResponses: z.boolean().optional(),
   /** how this server is installed (linux-runtime D24, server/src/system/deployment.ts): "self" (a customer's own server,
@@ -225,13 +229,15 @@ export interface AppConfig {
   }
   relay: { url: string | null; teamName: string | null; officialAvailable?: boolean }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null; auto?: boolean }
+  /** the native app push gateway; absent or null = no native push (the default) */
+  push?: { gatewayUrl?: string | null }
   sourceCode?: SourceCodeConfig
   validateResponses: boolean
   /** see AppConfigFile.deployment; absent = "self" (server/src/system/deployment.ts deploymentOf) */
   deployment?: 'self' | 'hosted'
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
-  /** demo mode (MYCEL_DEMO, `bun run demo:trina`): the fictional company's demo people. Only ever set on a development
+  /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
    * server (readDemoFile); absent everywhere else, and then the demo endpoints answer 404. */
   demo?: DemoFile
 }
@@ -285,6 +291,8 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   if (f.engine.anthropicGateway && (f.engine.modelUpstreams?.anthropic || f.engine.modelUpstream)) throw new ConfigError(`config file ${file}: engine.anthropicGateway and engine.modelUpstreams.anthropic (or modelUpstream) cannot both be set`)
   if (f.engine.anthropicGateway && normalizeAuthMode(f.engine.authMode) !== 'managed') throw new ConfigError(`config file ${file}: engine.anthropicGateway needs engine.authMode "managed"`)
   const demo = readDemoFile(env[P + 'DEMO'], { mode, deployment, office: !!f.office }, cwd)
+  const pushGateway = env[P + 'PUSH_GATEWAY'] !== undefined ? (env[P + 'PUSH_GATEWAY'] || null) : (f.push?.gatewayUrl ?? null)
+  if (pushGateway !== null && !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(pushGateway) && !/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/.test(pushGateway)) throw new ConfigError(`push gateway must be https://<host> or http://127.0.0.1:<port> (${P}PUSH_GATEWAY or push.gatewayUrl)`)
 
   return {
     mode,
@@ -321,6 +329,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       officialAvailable: env[P + 'RELAY_OFFICIAL'] !== undefined ? env[P + 'RELAY_OFFICIAL'] === '1' : f.relay.officialAvailable,
     },
     update: f.update,
+    push: { gatewayUrl: pushGateway },
     ...(f.sourceCode ? { sourceCode: f.sourceCode } : {}),
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
@@ -339,7 +348,7 @@ export function readDemoFile(value: string | undefined, where: { mode: 'dev' | '
   if (value === undefined || value === '') return null
   const P = PRODUCT.envPrefix
   if (where.mode !== 'dev' || where.deployment === 'hosted' || where.office) {
-    throw new ConfigError(`${P}DEMO is for a development demo server only (\`bun run demo:trina\`): remove it from this server's environment. It is never allowed in production mode, on the hosted service or in office mode.`)
+    throw new ConfigError(`${P}DEMO is for a development demo server only (\`bun run demo:company\`): remove it from this server's environment. It is never allowed in production mode, on the hosted service or in office mode.`)
   }
   const file = path.resolve(cwd, value)
   let raw: unknown

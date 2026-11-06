@@ -52,6 +52,11 @@ const people: Record<string, { id: string; name: string; role: 'owner' | 'admin'
   dana: { id: 'dana', name: 'Dana Choi', role: 'owner', locale: 'ko' },
   erin: { id: 'erin', name: 'Erin Yoo', role: 'member', locale: 'id' },
 }
+/** Someone who got an account during a test (a team link's join, say): from now on the test sessions sign them in by
+ * `key` (x-test-user) as the account with this id. */
+export function addTestPerson(key: string, p: { id: string; name: string; role: 'owner' | 'admin' | 'member'; locale: 'ko' | 'en' | 'id' }) {
+  people[key] = p
+}
 const sessionIds = new Map<string, string>()
 /** test session service: x-test-user (cookie-like, needs Origin on WebSockets) or Bearer test-<user> */
 export const testSessions: SessionService = {
@@ -68,7 +73,27 @@ export const testSessions: SessionService = {
   },
   async verifyPassword() { return false },
 }
-const sessionModule: RouteModule = { name: 'test-sessions', owner: 'A', init(ctx) { ctx.services.sessions = testSessions }, register() {} }
+/** Each test session is also a stored session row, as a real sign-in makes one: routes that read the caller's own
+ * session (GET /api/me, and PATCH /api/me answering with it; Drive's flows bound to a session) see it exist. Without
+ * it those answered 401 after their change was saved, which no real server does. */
+const sessionModule: RouteModule = {
+  name: 'test-sessions', owner: 'A',
+  init(ctx) {
+    ctx.services.sessions = {
+      async resolve(req, info) {
+        const a = await testSessions.resolve(req, info)
+        if (a) {
+          const now = new Date().toISOString()
+          ctx.db.query('INSERT OR IGNORE INTO sessions (id, user_id, token_hash, client, user_agent, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)')
+            .run(a.session.id, a.user.id, `test-session-${a.session.id}`, a.session.client, now, now, new Date(Date.now() + 365 * 86400_000).toISOString())
+        }
+        return a
+      },
+      verifyPassword: testSessions.verifyPassword,
+    }
+  },
+  register() {},
+}
 
 export interface Harness {
   ctx: AppContext

@@ -51,7 +51,7 @@ export default function Groups() {
                         <span className="block text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
                       </span>
                       <span className="flex shrink-0 flex-col items-end gap-0.5">
-                        <span className="text-[11px] text-faint">{t('skillMgr.column')}</span>
+                        <span className="text-micro text-faint">{t('skillMgr.column')}</span>
                         <SkillManagerCell subject={{ type: 'group', id: g.id, name: g.name }} data={skillManagers.data} onChanged={() => void skillManagers.reload()} />
                       </span>
                       <Button size="sm" variant="ghost" onClick={() => setEditing(g)}>
@@ -121,7 +121,7 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
           <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />
         </Field>
         <fieldset>
-          <legend className="mb-1.5 text-[13px] font-medium">{t('groups.members')}</legend>
+          <legend className="mb-1.5 text-label font-medium">{t('groups.members')}</legend>
           <div className="max-h-60 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
             {users.map((u) => (
               <label key={u.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-hover">

@@ -41,17 +41,17 @@ describe('the address', () => {
 })
 
 describe('the ready-made message', () => {
-  test('Korean: who invites, the product, the link; with a skill, the skill too', () => {
+  test('Korean: who invites, to which team, the product, the link; with a skill, the skill too', () => {
     const t = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
-    expect(teamLinkMessage(t, { name: '김하나', url: URL_ })).toBe(`김하나님이 ${PRODUCT.displayName}에서 함께 일하자고 초대했어요. 링크로 바로 들어올 수 있어요: ${URL_}`)
-    expect(teamLinkMessage(t, { name: '김하나', url: URL_, skill: '광고 문구' })).toBe(`김하나님이 ${PRODUCT.displayName}에서 함께 일하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(t, { name: '김하나', team: 'Acme 마케팅', url: URL_ })).toBe(`김하나님이 ${PRODUCT.displayName}에서 Acme 마케팅에 함께하자고 초대했어요. 링크로 바로 들어올 수 있어요: ${URL_}`)
+    expect(teamLinkMessage(t, { name: '김하나', team: 'Acme 마케팅', url: URL_, skill: '광고 문구' })).toBe(`김하나님이 ${PRODUCT.displayName}에서 Acme 마케팅에 함께하자고 초대했어요. '광고 문구' 스킬을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: ${URL_}`)
   })
-  test('every language names the person, the product, the skill and ends with the whole link', () => {
+  test('every language names the person, the team, the product, the skill and ends with the whole link', () => {
     for (const { id } of LOCALES) {
       const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
       for (const skill of [null, 'ad-copy']) {
-        const m = teamLinkMessage(t, { name: 'Ana', url: URL_, skill })
-        expect({ id, m: m.endsWith(URL_) && m.includes('Ana') && m.includes(PRODUCT.displayName) && (!skill || m.includes(skill)) }).toEqual({ id, m: true })
+        const m = teamLinkMessage(t, { name: 'Ana', team: 'Acme Sales', url: URL_, skill })
+        expect({ id, m: m.endsWith(URL_) && m.includes('Ana') && m.includes('Acme Sales') && m.includes(PRODUCT.displayName) && (!skill || m.includes(skill)) }).toEqual({ id, m: true })
       }
     }
   })
@@ -67,7 +67,7 @@ const LINK: TeamLinkResponse = {
   seats: { used: 4, limit: 10 },
 }
 const view = (data: TeamLinkResponse, skills: { path: string; name: string; description: string }[] | null = [], folded = false) =>
-  renderToStaticMarkup(<TeamLinkView data={data} inviter="Olga" groups={[]} skills={skills} busy={false} folded={folded} onCreate={noop} onRevoke={noop} />)
+  renderToStaticMarkup(<TeamLinkView data={data} inviter="Olga" team="Acme" groups={[]} skills={skills} busy={false} folded={folded} onCreate={noop} onRevoke={noop} />)
 
 // rendered to a string, the screen language is the store's first one (English): the texts are compared in English
 describe('the panel (Admin › Members, the wizard)', () => {
@@ -76,7 +76,7 @@ describe('the panel (Admin › Members, the wizard)', () => {
     expect(html).toContain(`data-testid="team-link-url">${URL_.replace(/&/g, '&amp;')}<`)
     expect(html).toContain('Copy link')
     expect(html).toContain('Copy message')
-    expect(html).toContain(`Olga invited you to work together in ${PRODUCT.displayName} and to try the &#x27;ad-copy&#x27; skill together.`)
+    expect(html).toContain(`Olga invited you to Acme on ${PRODUCT.displayName} to try the &#x27;ad-copy&#x27; skill together.`)
     expect(html).toContain('data-testid="team-link-uses">3 of 10<')
     expect(html).toContain('Seats left: 6')
     expect(html).toContain('data-testid="team-link-replace"')
@@ -269,7 +269,7 @@ describe('on screen', () => {
     const made: unknown[] = []
     for (const [skills, want] of [[null, 'skills/marketing/ad-copy/SKILL.md'], [[{ path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' }], 'skills/marketing/ad-copy/SKILL.md']] as const) {
       made.length = 0
-      const m = await mount(<TeamLinkView data={LINK} inviter="Olga" groups={[]} skills={skills as never} busy={false} onCreate={(b) => made.push(b)} onRevoke={noop} />)
+      const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={skills as never} busy={false} onCreate={(b) => made.push(b)} onRevoke={noop} />)
       try {
         await m.click('team-link-replace')
         await m.click('team-link-create')
@@ -280,7 +280,7 @@ describe('on screen', () => {
 
   test('folded: "링크 관리" opens the link, copy link, QR, its facts and "새 링크로 바꾸기" in place; never "링크 끄기"', async () => {
     const made: unknown[] = []
-    const m = await mount(<TeamLinkView data={LINK} inviter="Olga" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
+    const m = await mount(<TeamLinkView data={LINK} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
     try {
       expect(m.find('team-link-url')).toBeNull()
       expect(m.get('team-link-manage').getAttribute('aria-expanded')).toBe('false')
@@ -302,7 +302,7 @@ describe('on screen', () => {
 
   test('folded, no link yet: "링크 관리" opens the settings; what is set there goes with the one press', async () => {
     const made: unknown[] = []
-    const m = await mount(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
+    const m = await mount(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" team="Acme" groups={[]} skills={null} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
     try {
       expect(m.find('team-link-uses-input')).toBeNull()
       await m.click('team-link-manage')
@@ -369,11 +369,11 @@ describe('the starter and the team\'s group', () => {
 
   test('the message of a link with a starter: what is waiting, in the lead\'s own voice, the link on its own line', () => {
     const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
-    expect(teamLinkMessage(ko, { name: '김하나', url: URL_, skill: '할 일 정리', starter: 'tasks' })).toBe(`이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요.\n${URL_}`)
-    expect(teamLinkMessage(ko, { name: '김하나', url: URL_, skill: '핵심 정리', starter: 'brief' })).toBe(`팀 자료 올려 뒀어요. 링크 열면 나한테 필요한 것만 바로 볼 수 있어요.\n${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리', starter: 'tasks' })).toBe(`이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요.\n${URL_}`)
+    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '핵심 정리', starter: 'brief' })).toBe(`팀 자료 올려 뒀어요. 링크 열면 나한테 필요한 것만 바로 볼 수 있어요.\n${URL_}`)
     for (const { id } of LOCALES) {
       const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
-      for (const starter of ['tasks', 'brief'] as const) expect({ id, starter, ok: teamLinkMessage(t, { name: 'Ana', url: URL_, starter }).endsWith(`\n${URL_}`) }).toEqual({ id, starter, ok: true })
+      for (const starter of ['tasks', 'brief'] as const) expect({ id, starter, ok: teamLinkMessage(t, { name: 'Ana', team: 'Acme', url: URL_, starter }).endsWith(`\n${URL_}`) }).toEqual({ id, starter, ok: true })
     }
   })
 
@@ -398,10 +398,10 @@ describe('the starter and the team\'s group', () => {
 
   test('the panel shows the starter\'s message and one quiet line; a starter with no file left is the usual message', () => {
     const html = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 2 } } })
-    expect(html).toContain('I&#x27;ve put up this week&#x27;s team meeting notes. Open the link to see your own tasks right away.')
-    expect(html).toContain('data-testid="team-link-starter">On joining: their own tasks · 2 files<')
+    expect(html).toContain('I&#x27;ve shared this week&#x27;s team meeting notes. Open the link to see your tasks right away.')
+    expect(html).toContain('data-testid="team-link-starter">When they join: their own tasks · 2 files<')
     const none = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 0 } } })
-    expect(none).toContain('invited you to work together')
+    expect(none).toContain('invited you to')
     expect(none).not.toContain('data-testid="team-link-starter"')
   })
 
@@ -439,13 +439,13 @@ describe('the starter and the team\'s group', () => {
 
     test('a new link starts with the team\'s group and carries the starter; a link before keeps its own groups', async () => {
       const made: unknown[] = []
-      let m = await mount(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" groups={groups} skills={null} fixedSkillPath={TASKS} starter={STARTER} defaultGroupIds={[GROUP]} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
+      let m = await mount(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" team="Acme" groups={groups} skills={null} fixedSkillPath={TASKS} starter={STARTER} defaultGroupIds={[GROUP]} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
       try {
         await m.click('team-link-create')
         expect(made).toEqual([{ groupIds: [GROUP], expiresInDays: 14, skillPath: TASKS, starter: STARTER }])
       } finally { await m.unmount() }
       made.length = 0
-      m = await mount(<TeamLinkView data={{ ...LINK, link: { ...LINK.link!, state: 'expired' } }} inviter="Olga" groups={groups} skills={null} defaultGroupIds={[GROUP]} busy={false} onCreate={(b) => made.push(b)} onRevoke={noop} />)
+      m = await mount(<TeamLinkView data={{ ...LINK, link: { ...LINK.link!, state: 'expired' } }} inviter="Olga" team="Acme" groups={groups} skills={null} defaultGroupIds={[GROUP]} busy={false} onCreate={(b) => made.push(b)} onRevoke={noop} />)
       try {
         await m.click('team-link-create')
         expect(made).toEqual([{ groupIds: [], expiresInDays: 14, skillPath: 'skills/marketing/ad-copy/SKILL.md' }])

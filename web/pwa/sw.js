@@ -57,7 +57,8 @@ self.addEventListener('fetch', (event) => {
 // delivery, revoked permission, logged-out browser or offline server fails closed.
 let pushEpoch = 0
 const pushPending = new Set()
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect' }
+// room.dm / room.mention: a DM message or an @mention in a team chat room (one preference for both)
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'room.dm': 'roomMessages', 'room.mention': 'roomMessages' }
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 
 // Store opaque deduplication receipts, never notification text, prompts, file names or tokens.
@@ -110,7 +111,9 @@ self.addEventListener('push', event => {
       // The authenticated server selects generic table text in the recipient's current account/team language.
       const title = settings.messages?.title, body = settings.messages?.bodies?.[payload.code]
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return
-      await self.registration.showNotification(title, { body, tag, renotify: false, data: { notificationId: payload.notificationId } })
+      // a room notice opens its room: the id comes from the signed-in fetch of the notice, never from the payload
+      const roomId = item.link === 'room' && opaqueId(item.room?.id) ? item.room.id : undefined
+      await self.registration.showNotification(title, { body, tag, renotify: false, data: roomId ? { notificationId: payload.notificationId, roomId } : { notificationId: payload.notificationId } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -124,8 +127,10 @@ self.addEventListener('push', event => {
 self.addEventListener('notificationclick', event => {
   event.notification.close()
   event.waitUntil((async () => {
-    // The payload cannot choose a URL or open a chat whose access has since changed.
-    const target = new URL('/settings/notifications', self.location.origin).href
+    // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
+    // id stored at show time from the authenticated notice; the room page checks membership again).
+    const roomId = event.notification.data?.roomId
+    const target = new URL(opaqueId(roomId) ? `/rooms/${roomId}` : '/settings/notifications', self.location.origin).href
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     const existing = clients.find(client => new URL(client.url).origin === self.location.origin)
     if (existing) { await existing.navigate(target); await existing.focus() }

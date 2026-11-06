@@ -22,7 +22,7 @@ import AskCard from '../components/chat/AskCard'
 import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
-import { Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn } from '../components/ui'
+import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn } from '../components/ui'
 
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
@@ -144,7 +144,7 @@ function ScheduleCard({ s }: { s: Schedule }) {
         <span className="min-w-0 truncate text-sm font-medium">{scheduleName(s, t)}</span>
         {waiting && <ShieldAlert size={14} className="shrink-0 text-warn" aria-hidden />}
       </span>
-      <span className="mt-1 line-clamp-2 text-[13px] leading-5 text-muted">{schedulePreview(s)}</span>
+      <span className="mt-1 line-clamp-2 text-label leading-5 text-muted">{schedulePreview(s)}</span>
       <span className={clsx('mt-1.5 block truncate text-xs', waiting ? 'text-warn' : 'text-faint')}>{cardLine(s, t, locale)}</span>
       {/* the last result in words beside its dot: phones have no hover title, and every failure is the same red */}
       {s.lastOutcome && (
@@ -170,10 +170,11 @@ export function ScheduledList() {
   const closeSearch = () => { setQuery(''); setSearching(false) }
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
-        <StickyHeader className="-mt-3 mb-4 flex flex-wrap items-center gap-x-3 gap-y-3 py-3" testId="scheduled-header">
-          <h1 className="text-xl font-semibold tracking-tight">{t('settings.schedules')}</h1>
-          <div className="ml-auto flex items-center gap-1.5">
+      {/* the page's title bar like the other pages (Projects, Trash): full width, with its bottom line */}
+      <PageHeader
+        title={t('settings.schedules')}
+        actions={
+          <>
             {searching ? (
               <div className="relative w-48 sm:w-56">
                 <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
@@ -191,17 +192,20 @@ export function ScheduledList() {
               )
             )}
             <NewTaskMenu onTemplate={() => setTemplateOpen(true)} testId="new-task" />
-          </div>
-        </StickyHeader>
+          </>
+        }
+      />
+      <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && (
           <div data-testid="scheduled-empty">
             <EmptyState icon={<CalendarClock size={28} aria-hidden />} title={t('schedules.empty')}>
               <p>{t('scheduled.emptyBody')}</p>
-              {/* the same two ways to start as the "New task" menu, shown as buttons so the first step is visible */}
+              {/* the same two ways to start as the "New task" menu, shown as buttons so the first step is visible; the
+                  one primary button on the page stays "New task" */}
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <Button variant="primary" onClick={startInChat} data-testid="scheduled-empty-chat">
+                <Button onClick={startInChat} data-testid="scheduled-empty-chat">
                   <MessageSquarePlus size={15} aria-hidden /> {t('scheduled.newInChat')}
                 </Button>
                 <Button onClick={() => setTemplateOpen(true)} data-testid="scheduled-empty-template">
@@ -229,7 +233,7 @@ export function ScheduledList() {
         )}
       </div>
       <Modal open={templateOpen} onClose={() => setTemplateOpen(false)} title={t('scheduleTemplates.title')} width={560}>
-        <ScheduleTemplates inDialog onCreated={(s) => { add(s); setTemplateOpen(false); toast({ level: 'success', text: t('scheduled.created') }) }} />
+        <ScheduleTemplates inDialog onCancel={() => setTemplateOpen(false)} onCreated={(s) => { add(s); setTemplateOpen(false); toast({ level: 'success', text: t('scheduled.created') }) }} />
       </Modal>
     </div>
   )
@@ -346,6 +350,12 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
                   <Link to={`/c/${s.lastChatId}`} className="-mx-2 flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-hover" data-testid="schedule-run-link">{runLine}</Link>
                 ) : (
                   <div className="flex items-center gap-3 py-2.5">{runLine}</div>
+                )}
+                {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
+                {s.lastOutcome === 'needs_key' && s.lastNeed && (
+                  <Link to={`/settings/integrations?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
+                    {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
+                  </Link>
                 )}
               </li>
             </ul>

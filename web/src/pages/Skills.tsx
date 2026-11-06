@@ -327,7 +327,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
                 <Markdown text={content} />
               </div>
             ) : (
-              <textarea className={`${inputCls} mt-2 h-auto min-h-60 resize-y py-2 font-mono text-[13px]`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={16000} aria-label={t('suggest.content')} data-testid="review-content" />
+              <textarea className={`${inputCls} mt-2 h-auto min-h-60 resize-y py-2 font-mono text-label`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={16000} aria-label={t('suggest.content')} data-testid="review-content" />
             )}
           </TabPanel>
         </div>

@@ -69,6 +69,10 @@ export function snippetAround(text: string, q: string, before = 24, after = 48):
   return `${from > 0 ? '…' : ''}${flat.slice(from, to)}${to < flat.length ? '…' : ''}`
 }
 
+/** Chats found by the server (newest first) with those whose title has the text first, so Enter opens the chat the
+ * person named and not a newer one that has the text only in its messages. `q`: the text, trimmed and in lower case. */
+export const titleFirst = (chats: Chat[], q: string): Chat[] => [...chats].sort((a, b) => Number(has(q, b.title)) - Number(has(q, a.title)))
+
 /** The lists Search reads once when it opens; null while loading, 'error' when one could not be read. */
 function useList<T>(load: () => Promise<T>): T | null | 'error' {
   const [v, setV] = useState<T | null | 'error'>(null)
@@ -252,7 +256,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     }
 
     const few = tab === 'all' ? 4 : 50
-    if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), (found ?? []).slice(0, tab === 'all' ? 5 : 30).map((c) => chatRow(c)))
+    if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), titleFirst(found ?? [], query).slice(0, tab === 'all' ? 5 : 30).map((c) => chatRow(c)))
     if (tab === 'all' || tab === 'projects') push('projects', typeLabel('projects'), allProjects.filter((p) => has(query, p.name, p.folderPath)).slice(0, few).map(projectRow))
     if (tab === 'all' || tab === 'skills') push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
     if (tab === 'all' || tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, scheduleName(s, t), scheduleText(s))).slice(0, few).map((s) => scheduleRow(s)))
@@ -320,7 +324,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
         aria-modal="true"
         aria-label={t('search.title')}
         data-testid="search-palette"
-        className="relative flex h-full w-full flex-col overflow-hidden bg-surface shadow-2xl sm:h-auto sm:max-h-[80vh] sm:max-w-2xl sm:rounded-2xl sm:border sm:border-line"
+        className="relative flex h-full w-full flex-col overflow-hidden bg-surface pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-2xl sm:h-auto sm:pt-0 sm:pb-0 sm:max-h-[80vh] sm:max-w-2xl sm:rounded-2xl sm:border sm:border-line"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-5 pt-4 pb-2">
@@ -435,7 +439,8 @@ function SearchBox({ onClose }: { onClose: () => void }) {
                         <MoreHorizontal size={16} aria-hidden />
                       </span>
                     )}
-                    {on && <CornerDownLeft size={15} className="shrink-0 text-faint" aria-hidden />}
+                    {/* the Enter hint is for a keyboard: phones (below 768px) have none */}
+                    {on && <CornerDownLeft size={15} className="shrink-0 text-faint max-md:hidden" aria-hidden />}
                   </div>
                 )
               })}
@@ -491,7 +496,7 @@ function Hint({ label, keys }: { label: string; keys: string[] }) {
     <span className="flex items-center gap-1.5">
       {label}
       {keys.map((k) => (
-        <kbd key={k} className="rounded border border-line px-1.5 py-px font-sans text-[11px] text-muted">{k}</kbd>
+        <kbd key={k} className="rounded border border-line px-1.5 py-px font-sans text-micro text-muted">{k}</kbd>
       ))}
     </span>
   )

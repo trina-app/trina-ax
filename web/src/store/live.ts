@@ -13,6 +13,8 @@ import { useChats } from './chats'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { useJobs } from './jobs'
+import { usePeople } from './people'
+import { useRooms } from './rooms'
 import { useSession } from './session'
 import { toast, useUi } from './ui'
 
@@ -45,11 +47,15 @@ export function dispatch(ev: ServerEvent) {
   }
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
   switch (ev.type) {
+    case 'queue.position':
+      // a question to the AI in a room waits in the same queue (store/rooms.ts keeps the room's own)
+      useRooms.getState().handleEvent(ev)
+      useChats.getState().handleEvent(ev)
+      return
     case 'message.created':
     case 'message.delta':
     case 'message.step':
     case 'message.done':
-    case 'queue.position':
     case 'chat.updated':
     case 'turn.request':
     case 'turn.request.closed':
@@ -58,6 +64,16 @@ export function dispatch(ev: ServerEvent) {
       return
     case 'files.changed':
       filesChanged.emit(ev.data.changes)
+      return
+    case 'room.message':
+    case 'room.message.updated':
+    case 'room.read':
+    case 'room.updated':
+    case 'room.ai':
+    case 'room.ai.run':
+    case 'room.ai.step':
+      // the team chat rooms (store/rooms.ts): only the room's members get these
+      useRooms.getState().handleEvent(ev)
       return
     case 'files.conflict': {
       // a save met a newer version (mine or someone else's): both people hear about the conflict copy
@@ -100,6 +116,13 @@ export function dispatch(ev: ServerEvent) {
       if (ev.data.code === 'team_icon_changed') {
         // an admin set or removed the team logo: the tab icon follows (GET /api/me carries its version)
         void useSession.getState().refreshMe()
+        return
+      }
+      if (ev.data.code === 'profile_changed' || ev.data.code === 'my_profile_changed') {
+        // someone changed their name, title, status or photo (routes/people.ts): the people list (when a screen has read
+        // it) follows, and my own account when it was me (another window or device), quietly: the notice carries no text
+        if (ev.data.code === 'my_profile_changed') void useSession.getState().refreshMe()
+        if (usePeople.getState().loaded) void usePeople.getState().load(true)
         return
       }
       if (ev.data.code === 'speech_changed') {

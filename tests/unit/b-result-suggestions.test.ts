@@ -1,15 +1,26 @@
 // The one suggestion under a result (docs/DECISIONS.md "X — Lean onboarding"; server/src/onboarding/suggestions.ts):
-// the same person running the same team skill for the 2nd time gets "매주 이 시간에 자동으로 받을까요?", a long
-// report-like answer gets [PPT로 만들기], never both, and a suggestion the person closed never comes back for them.
+// the same person running the same team skill for the 2nd time gets "매주 이 시간에 자동으로 받을까요?" when its work
+// comes back every week (metadata `recurring: weekly`, "S"), a long report-like answer gets [PPT로 만들기], never both,
+// and a suggestion the person closed never comes back for them. The promo video from the intro deck (`deck-video`,
+// docs/DECISIONS.md "D2") is in the contract but never offered while DECK_VIDEO_SUGGESTION is off.
 import { afterEach, expect, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
-import { PPT_SUGGEST_CHARS } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, PPT_SUGGEST_CHARS, ResultSuggestion } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
 
 const AD = 'skills/marketing/ad-copy/SKILL.md'
 const REPORT = 'skills/marketing/weekly-report/SKILL.md'
+const TASKS = 'skills/general/meeting-tasks/SKILL.md'
+const skillFile = (rel: string, meta: string) => {
+  const abs = path.join(h.ctx.config.teamRoot, rel)
+  fs.mkdirSync(path.dirname(abs), { recursive: true })
+  const name = rel.split('/').at(-2)!
+  fs.writeFileSync(abs, `---\nname: ${name}\ndescription: test skill\nmetadata:\n  title: Test\n${meta}---\n# Test\n`)
+}
 
 async function setup() {
   h = await harness('b-result-suggestions')
@@ -36,7 +47,9 @@ const ask = async (c: { call: (m: string, p: string, b?: unknown) => Promise<any
 
 test('the same skill a 2nd time: schedule it; not after a failed or a scheduled run, not once a task runs it, never again once closed', async () => {
   const { owner, ownerId, mia } = await setup()
-  const ad = { path: AD, name: 'ad-copy' }
+  // meeting tasks: weekly work (the pack says so; no file here: an install from before the metadata line)
+  const AD = TASKS
+  const ad = { path: TASKS, name: 'meeting-tasks' }
   // the first run: nothing
   expect(await ask(owner, answer(ownerId, { skill: ad }))).toBeNull()
   // a failed run and a scheduled run do not count as the 2nd
@@ -45,7 +58,7 @@ test('the same skill a 2nd time: schedule it; not after a failed or a scheduled 
   // ...but a scheduled run means a task runs it already: take that row out to see the count alone
   h.ctx.db.query('DELETE FROM turns WHERE schedule_id = ?').run('sched-1')
   const second = answer(ownerId, { skill: ad })
-  expect(await ask(owner, second)).toEqual({ kind: 'schedule', key: `schedule:${AD}`, skill: { path: AD, name: 'ad-copy' } })
+  expect(await ask(owner, second)).toEqual({ kind: 'schedule', key: `schedule:${AD}`, skill: { path: AD, name: 'meeting-tasks' } })
   // the skill tool counts as a run too
   expect((await ask(owner, answer(ownerId, { skill: { ...ad, source: 'tool' } })))?.kind).toBe('schedule')
   // someone else's 1st run is theirs alone
@@ -53,10 +66,10 @@ test('the same skill a 2nd time: schedule it; not after a failed or a scheduled 
 
   // a task of theirs that runs "/ad-copy" already: nothing to suggest
   const sid = crypto.randomUUID()
-  h.ctx.db.query("INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday) VALUES (?, ?, '광고 문구', ?, 'weekly', '09:00', 1)").run(sid, ownerId, '/ad-copy\n알릴 제품·서비스: 데스크 매트')
+  h.ctx.db.query("INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday) VALUES (?, ?, '할 일 정리', ?, 'weekly', '09:00', 1)").run(sid, ownerId, '/meeting-tasks\n누구 할 일: 사람별로')
   expect(await ask(owner, second)).toBeNull()
-  // "/ad-copy-old" is another skill's command
-  h.ctx.db.query('UPDATE schedules SET prompt = ? WHERE id = ?').run('/ad-copy-old', sid)
+  // "/meeting-tasks-old" is another skill's command
+  h.ctx.db.query('UPDATE schedules SET prompt = ? WHERE id = ?').run('/meeting-tasks-old', sid)
   expect((await ask(owner, second))?.kind).toBe('schedule')
 
   // closed: never again for this person, on any chat; another person still gets it
@@ -94,4 +107,42 @@ test('own chats only; keys are checked', async () => {
   expect((await owner.try('GET', '/api/onboarding/suggestion?chatId=nope&messageId=nope')).status).toBe(404)
   for (const key of ['', 'schedule:', 'schedule:shared/x.md', 'other', 'ppt\nmore']) expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key })).status, key).toBe(400)
   expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key: 'ppt', extra: 1 })).status).toBe(400)
+})
+
+test('only weekly work: never one-off work such as ad copy; the metadata decides, the pack where a file has no line', async () => {
+  const { owner, ownerId } = await setup()
+  const twice = (skill: { path: string; name: string }) => { answer(ownerId, { skill }); return answer(ownerId, { skill }) }
+  // ad copy is one-off work: run twice, nothing (its file is not even there)
+  expect(await ask(owner, twice({ path: AD, name: 'ad-copy' }))).toBeNull()
+  // a team skill marked weekly (a meeting-notes skill drafted from the lead's work)
+  const weekly = 'skills/general/juganhoeui-hal-il/SKILL.md'
+  skillFile(weekly, '  recurring: weekly\n')
+  expect((await ask(owner, twice({ path: weekly, name: 'juganhoeui-hal-il' })))?.kind).toBe('schedule')
+  // a quote skill: no line, not a pack skill: nothing
+  const quote = 'skills/general/gyeonjeokseo-sseugi/SKILL.md'
+  skillFile(quote, '')
+  expect(await ask(owner, twice({ path: quote, name: 'gyeonjeokseo-sseugi' }))).toBeNull()
+  // the pack's meeting tasks with the line taken out on purpose ("no"): nothing; the installed text with the line: yes
+  skillFile(TASKS, '  recurring: "no"\n')
+  expect(await ask(owner, twice({ path: TASKS, name: 'meeting-tasks' }))).toBeNull()
+  skillFile(TASKS, '  recurring: weekly\n')
+  expect((await ask(owner, twice({ path: TASKS, name: 'meeting-tasks' })))?.kind).toBe('schedule')
+})
+
+test('the promo video from the intro deck: off, so never offered (not under a deck, not under a long one); its key is valid', async () => {
+  const { owner, ownerId } = await setup()
+  expect(DECK_VIDEO_SUGGESTION).toBe(false)
+  const DECK = { path: 'skills/general/intro-deck/SKILL.md', name: 'intro-deck' }
+  const deck = (content = '회사 소개서를 만들었어요.') => {
+    const a = answer(ownerId, { skill: DECK, content })
+    h.ctx.db.query("INSERT INTO artifacts (id, chat_id, message_id, key, version, type, title, content) VALUES (?, ?, ?, ?, 1, 'html', 'Acme 회사 소개서', '<p>deck</p>')")
+      .run(crypto.randomUUID(), a.chatId, a.messageId, DECK_ARTIFACT_KEY)
+    return a
+  }
+  expect(await ask(owner, deck())).toBeNull()
+  // a long answer under a deck still gets what it got before (never the video line)
+  expect(await ask(owner, deck('가'.repeat(PPT_SUGGEST_CHARS)))).toEqual({ kind: 'ppt', key: 'ppt' })
+  // the contract knows the kind (for when it is on), and its key can be closed
+  expect(ResultSuggestion.parse({ kind: 'deck-video', key: 'deck-video' })).toEqual({ kind: 'deck-video', key: 'deck-video' })
+  expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key: 'deck-video' })).status).toBe(204)
 })

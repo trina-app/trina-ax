@@ -42,7 +42,7 @@ export function MemoryForm({ initial = '', submitLabel, onSubmit, onCancel, test
   const note = error ?? (over ? t('memory.tooLong', { max: MEMORY_TEXT_MAX }) : null)
   return (
     <form className="w-full" data-testid={testId} onSubmit={(e) => { e.preventDefault(); void submit() }}>
-      <label htmlFor={`${id}-text`} className="mb-1.5 block text-[13px] font-medium text-ink">{t('memory.field')}</label>
+      <label htmlFor={`${id}-text`} className="mb-1.5 block text-label font-medium text-ink">{t('memory.field')}</label>
       <textarea
         id={`${id}-text`}
         // eslint-disable-next-line jsx-a11y/no-autofocus

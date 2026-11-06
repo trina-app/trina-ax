@@ -1,6 +1,6 @@
 // Demo replays (docs/DECISIONS.md "Demo company: a new hire at 트리나", round 2). On a demo server (MYCEL_DEMO with a
 // `replays` folder), a demo person's first message in a new chat that is exactly the prompt of one of their recorded
-// real answers (scripts/demo/trina/record.ts) is answered by playing that answer again instead of starting an engine:
+// real answers (scripts/demo/company/record.ts) is answered by playing that answer again instead of starting an engine:
 // the same text, and every team tool call made again through this turn's own tools (the same handler the API engine
 // uses), as this person, now. So the files read are read with their permissions and the files, artifacts and tasks the
 // answer shows are made by the product during the replay; only the model's choices come from the recording. The

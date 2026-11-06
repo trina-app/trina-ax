@@ -22,6 +22,8 @@ export interface TurnToolSet {
   /** before a file tool call: a refusal text stops it (the person declined a confirmation card); with a summary, that
    * is the audit line (default: the wider-audience refusal) */
   beforeFileTool?(name: string, args: unknown, caller?: ToolCaller): Promise<string | { refusal: string; summary: string } | null>
+  /** before a batch tool's first file (edit_files): a refusal stops the whole batch */
+  beforeBatch?(name: string, args: unknown, caller?: ToolCaller): Promise<{ refusal: string; summary: string } | null>
 }
 export interface Turn {
   id: string; userId: string; chatId: string; tokenHash: string

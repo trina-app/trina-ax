@@ -10,12 +10,14 @@ import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
+import { useRooms } from './store/rooms'
+import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
 import { useSession } from './store/session'
 import Layout from './components/Layout'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
-import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, TeamJoin } from './pages/Auth'
+import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { RealPath } from './lib/realPath'
@@ -33,7 +35,12 @@ const Skills = lazy(() => import('./pages/Skills'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
+const SlackLink = lazy(() => import('./pages/SlackLink'))
+const SlackSignInReturn = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackSignInReturn })))
+const SlackDone = lazy(() => import('./pages/SlackSignIn').then((m) => ({ default: m.SlackDone })))
 const Welcome = lazy(() => import('./pages/Welcome'))
+const Rooms = lazy(() => import('./pages/Rooms'))
+const RoomPage = lazy(() => import('./pages/Room'))
 
 function Splash() {
   const t = useT()
@@ -75,7 +82,8 @@ function useSettingsOverlay() {
 }
 
 /** The session's side effects (Gate): live updates while signed in; when signed out, nothing one person's window kept
- * stays for the next (chats, the messages waiting to be sent, the projects seen). Returns whether signed in. */
+ * stays for the next (chats, the messages waiting to be sent, the projects seen, rooms and people). Returns whether
+ * signed in. */
 export function useSessionLifecycle(): boolean {
   const status = useSession((s) => s.status)
   const signedIn = status.kind === 'signed-in' && !status.me.user.mustChangePassword
@@ -89,6 +97,8 @@ export function useSessionLifecycle(): boolean {
         useProjects.getState().reset()
         useAiAccess.getState().reset()
         useWelcome.getState().reset()
+        useRooms.getState().reset()
+        usePeople.getState().reset()
       }
     }
   }, [signedIn, status.kind])
@@ -148,6 +158,7 @@ function Gate() {
         {/* the team invite link: the token is after # (never in a path or a log) */}
         <Route path="/join" element={<TeamJoin />} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
+        <Route path="/slack/done" element={<Suspense fallback={<Splash />}><SlackDone signedIn={false} /></Suspense>} />
         <Route path="*" element={<Navigate to={`/login${next}`} replace />} />
       </Routes>
     )
@@ -170,6 +181,9 @@ function Gate() {
         <Route element={<Layout />}>
           <Route index element={<Home />} />
           <Route path="c/:chatId" element={<ChatPage />} />
+          {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}
+          <Route path="rooms" element={<Rooms />} />
+          <Route path="rooms/:roomId" element={<RoomPage />} />
           <Route path="files" element={<Files />} />
           <Route path="files/view" element={<FileView />} />
           <Route path="projects" element={<ProjectList />} />
@@ -183,13 +197,19 @@ function Gate() {
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
           <Route path="welcome" element={<Welcome />} />
           <Route path="connectors/authorize" element={<ConnectorConsent key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* the one-time link from Slack (docs/SLACK.md): signed out, the sign-in comes back here with it */}
+          <Route path="slack/link" element={<SlackLink key={`${status.me.user.id}:${status.me.session.id}`} />} />
+          {/* "Sign in with Slack" back in a browser that had to sign in first, and its end page outside the app */}
+          <Route path="slack/signin-return" element={<SlackSignInReturn />} />
+          <Route path="slack/done" element={<SlackDone signedIn />} />
           {/* an unknown address: say so (with a way home) instead of opening Home without a word */}
           <Route path="*" element={<NotFound />} />
         </Route>
         <Route path="/login" element={<AfterSignIn />} />
         {/* right after making the team: the welcome steps (lib/welcome.ts), else Home */}
         <Route path="/setup" element={<AfterSetup />} />
-        <Route path="/password" element={<Navigate to="/" replace />} />
+        {/* right after the forced password change: where a sign-in lands (a phone: the 대화 list) */}
+        <Route path="/password" element={<AfterSignIn />} />
         <Route path="/invite/:token" element={<Navigate to="/" replace />} />
         {/* right after joining with the team link: the skill it names, else Home */}
         <Route path="/join" element={<AfterJoin />} />
@@ -202,6 +222,8 @@ function Gate() {
         <Routes>
           {/* scheduled tasks moved to the sidebar: old links (banners, notifications, bookmarks) go there */}
           <Route path="/settings/schedules" element={<Navigate to="/scheduled" replace />} />
+          {/* the account deletion request, a page under the profile (components/settings/AccountDeletion.tsx) */}
+          <Route path="/settings/account/delete" element={<SettingsDialog onClose={settings.close} page="account-delete" />} />
           <Route path="/settings/:tab?" element={<SettingsDialog onClose={settings.close} />} />
         </Routes>
       )}
@@ -249,9 +271,10 @@ function NotFound() {
   )
 }
 
-/** Signed in while on /login: go where the person was heading (?next=, same-site paths only). */
+/** Signed in while on /login (or /password): go where the person was heading (?next=, same-site paths only); otherwise
+ * Home, or on a phone the 대화 list (signedInHome). */
 function AfterSignIn() {
   const location = useLocation()
   const next = new URLSearchParams(location.search).get('next')
-  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/'} replace />
+  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : signedInHome()} replace />
 }

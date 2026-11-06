@@ -220,6 +220,9 @@ export const LINUX_TOOLS = ['bun', 'rg', 'pandoc', 'typst'] as const
 /** app/<v>/fonts/: the fonts make_file PDFs are drawn with (server/src/config.ts bundledFontDir; scripts/linux/downloads.ts
  * LINUX_FONTS). In the version folder, so every update brings them and no root step or distribution package is needed. */
 export const LINUX_FONT_FILES = Object.keys(LINUX_FONTS)
+/** app/<v>/fonts/ also holds the static Pretendard the intro deck's PDF is drawn with and its PowerPoint file embeds
+ * (docs/DECISIONS.md "D2"; resources/fonts/pretendard/, kept in the repository, OFL-1.1). */
+export const PRETENDARD_STATIC = ['Pretendard-Regular.ttf', 'Pretendard-Bold.ttf', 'Pretendard-ExtraBold.ttf'] as const
 /** the install kit's name: <kit>-<version>-linux-<arch>.tar.gz (the office zip's naming, PRODUCT.officeBundle) */
 export const SERVER_KIT = PRODUCT.officeBundle.replace(/-office$/, '-server')
 export const kitName = (version: string, arch: LinuxArch) => `${SERVER_KIT}-${version}-linux-${arch}`
@@ -270,15 +273,18 @@ export function assertLinuxHost(arch: string, platform: string = process.platfor
 export const whisperFiles = (arch: LinuxArch) => (arch === 'amd64' ? ['whisper-cli', 'whisper-cli-v2'] : ['whisper-cli'])
 
 /** Every file a Linux version folder must hold (relative paths; the server's own files are checked by name). */
-export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[] }): string[] {
+/** `web`: the web app is in the bundle (web/dist was built; a strict bundle always has it), and with it the fonts that
+ * come only with the web app (BUNDLED_FONTS `withWeb`), whose notices are then required too. */
+export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[]; web?: boolean }): string[] {
   return [
     ...RELEASE_NOTICE_FILES,
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
     ...LINUX_FONT_FILES.map((f) => `fonts/${f}`),
+    ...PRETENDARD_STATIC.map((f) => `fonts/${f}`),
     // the fonts' notice (scripts/release-notices.ts BUNDLED_FONTS)
-    ...BUNDLED_FONTS.flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
+    ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
     'server/src/hwp-preflight.js',
@@ -367,6 +373,11 @@ export async function buildLinuxBundle(o: {
     fs.copyFileSync(await cachedDownload(f, { table: LINUX_FONTS }), path.join(dir, 'fonts', f))
     fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
   }
+  // the intro deck's PDF and PowerPoint fonts (docs/DECISIONS.md "D2"): the static Pretendard from the repository
+  for (const f of PRETENDARD_STATIC) {
+    fs.copyFileSync(path.join(REPO, 'resources', 'fonts', 'pretendard', f), path.join(dir, 'fonts', f))
+    fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
+  }
 
   // root-owned programs and the installer's helpers, inside the signed version folder (spec 3.6.1)
   const root = path.join(dir, 'root')
@@ -405,7 +416,7 @@ export async function buildLinuxBundle(o: {
 
   for (const p of walkDirs(dir)) fs.chmodSync(p, 0o755)
   const absent = new Set(LINUX_ROOT_SCRIPTS.filter(([src]) => missing.includes(src)).map(([, d]) => `root/${d}`))
-  for (const f of linuxBundleFiles({ arch, codexVersion: codexV, whisper: !!o.whisperDir, systemd: units })) {
+  for (const f of linuxBundleFiles({ arch, codexVersion: codexV, whisper: !!o.whisperDir, systemd: units, web: fs.existsSync(web) })) {
     if (!absent.has(f) && !fs.existsSync(path.join(dir, f))) throw new Error(`bundle file ${f} was not written`)
   }
   await writeManifest(dir, o.version)
