@@ -10482,8 +10482,8 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
 - **Rollback.** Migration 254 is additive (reader level unchanged). An older build has no room tools and ignores the
   mark: in a chat that already holds room content it asks only where it asked before (memories after outside content,
   the wider-audience card). Accepted: going back is rare, and nothing new is read there.
-- **Numbering.** 254, not 252 or 253: 252 is taken twice on other branches (feat/phone-nav and a skill-share branch not
-  yet committed), and 253 is left for whichever of the two moves.
+- **Numbering.** 254, reserved for this branch: 249 and 253 are the skill-share branch's (PR #100), 250 group chats, 251
+  threads, 252 feat/phone-nav (chat seen), 255 feat/room-notify-prefs.
 - **Tests.** `tests/unit/b-chat-rooms.test.ts` (where the tools are, membership and the identical unknown answer, admins,
   names, a later member, threads, previews, deleted messages and event lines, neutralised tags, limits, since / until,
   search, the step words, the card after a read and not before, in later turns and after a database reopen, a planted

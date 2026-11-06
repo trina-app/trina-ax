@@ -6,6 +6,5 @@
 -- AI session. Never cleared (not by a new session, an edited first message or a restart). Additive only (reader 1): an
 -- older build has no room tools and never reads it; in a chat that already holds room content it asks only where it
 -- asked before (docs/DECISIONS.md, "Rollback").
--- Numbered 254: 252 is taken twice on other branches (feat/phone-nav, and a skill-share branch not yet committed), and
--- 253 is left for the one of those two that moves.
+-- Numbered 254 as reserved for this branch: 249 and 253 are the skill-share branch's, 252 feat/phone-nav's.
 ALTER TABLE chats ADD COLUMN rooms_seen INTEGER NOT NULL DEFAULT 0;
