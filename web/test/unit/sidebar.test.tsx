@@ -91,6 +91,18 @@ describe('a computer', () => {
       expect(at.every((x) => x >= 0)).toBe(true)
       expect([...at].sort((a, b) => a - b)).toEqual(at)
       expect(m.get('recents-toggle').textContent).toBe(ko('sidebar.aiChats', { name: aiName }))
+      // people and the AI never share a word: 대화 for the rooms, "트리나에게 묻기" and "트리나 기록" for the AI
+      expect(m.get('rooms-toggle').textContent).toBe(ko('rooms.title'))
+      expect(ko('rooms.title')).toBe('대화')
+      expect(m.get('new-chat').textContent?.trim()).toStartWith(ko('sidebar.askAi', { name: aiName }))
+      for (const id of ['new-chat', 'nav-search', 'nav-icons', 'rooms-toggle', 'recents-toggle', 'ai-chats-all']) expect(m.get(id).textContent).not.toMatch(/채팅/)
+      // two panes: the rooms scroll on their own, the AI history is pinned under them with a hairline
+      const rooms = m.get('sidebar-rooms-pane'), ai = m.get('sidebar-ai-pane')
+      expect(rooms.querySelector('[data-testid="sidebar-rooms"]')).not.toBeNull()
+      expect(ai.querySelector('[data-testid="recents-toggle"]')).not.toBeNull()
+      expect(m.html().indexOf('data-testid="sidebar-rooms-pane"')).toBeLessThan(m.html().indexOf('data-testid="sidebar-ai-pane"'))
+      expect(rooms.getAttribute('class')).toContain('overflow-y-auto')
+      expect(ai.getAttribute('class')).toContain('border-t')
       // the product's name is not the sidebar's title any more
       expect(m.get('sidebar-team').textContent).not.toContain(PRODUCT.displayName)
     } finally {
@@ -240,7 +252,7 @@ describe('the phone drawer keeps its own layout', () => {
       expect(m.find('sidebar-rooms')).toBeNull()
       expect(m.find('ai-chats-all')).toBeNull()
       expect(m.get('recents-list').querySelectorAll('a[href^="/c/"]').length).toBe(8)
-      expect(m.get('recents-toggle').textContent).toBe(ko('sidebar.recents'))
+      expect(m.get('recents-toggle').textContent).toBe(ko('sidebar.aiChats', { name: aiName }))
       expect(m.get('nav-skills').getAttribute('href')).toBe('/skills')
       expect(m.get('nav-trash').getAttribute('href')).toBe('/trash')
     } finally {

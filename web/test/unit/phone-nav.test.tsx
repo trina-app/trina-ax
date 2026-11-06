@@ -387,7 +387,7 @@ describe('Home\'s latest AI chats on a phone', () => {
     expect(rows.length).toBe(3)
     expect(rows[0]).toContain(`href="/c/${chat(4).id}"`)
     expect([...html.matchAll(/채팅 (\d)/g)].map((m) => m[1])).toEqual(['4', '3', '2'])
-    expect(html).toContain(`>${ko('sidebar.recents')}</h2>`)
+    expect(html).toContain(`>${ko('sidebar.aiChats', { name: aiName(ko) })}</h2>`)
   })
 
   test('a chat only made for a draft\'s attachments is not one; nothing at all without a chat', async () => {

@@ -10498,7 +10498,7 @@ things, "what needs me" was in four places, and Android's back looped (‹ in a 
 page, so the phone's back opened the chat again). The owner approved four tabs. Below 768 px:
 
 - **Tabs: 트리나 · 대화 · 파일 · 나.** 트리나 is Home (greeting, message box, the 7-day goal row for admins, then the
-  three latest AI chats as plain rows, "최근 채팅"); 대화 is rooms, DMs and group chats; 나 is Settings. The AI has one
+  three latest AI chats as plain rows, under "트리나 기록"); 대화 is rooms, DMs and group chats; 나 is Settings. The AI has one
   name in the chrome: "트리나" where the product is named after it (`PRODUCT_NAMED_AFTER_AI`), the product's short name
   in the core edition (`aiName`).
 - **Where the app opens is one constant**, `START_TAB` in `lib/tabs.ts` (now `'ai'`). The sign-in landing
@@ -10506,7 +10506,7 @@ page, so the phone's back opened the chat again). The owner approved four tabs. 
   the welcome steps still resume on either landing. The owner said rooms matter more than AI history; the approved start
   stays 트리나 for now.
 - **One action per bar, each in one place.** ☰ is only on Home and opens the AI's history (검색, 프로젝트, 예약 작업, 팀
-  스킬, 최근 채팅 with its filters, 삭제한 채팅 at the bottom). ⊕ is only on 대화 (the people list). 파일 has no top bar
+  스킬, 트리나 기록 with its filters, 삭제한 기록 at the bottom; names: "Desktop sidebar: rooms first"). ⊕ is only on 대화 (the people list). 파일 has no top bar
   (its own header is the bar). A page under a tab (팀 스킬, 프로젝트, 예약 작업, 삭제한 채팅, 관리자) shows ‹ and its name;
   its own heading stays for screen readers only, and a project's or a task's page drops its list crumb there (the bar
   above says it). Removed: the pinned "트리나 · AI에게 물어보기" row in 대화, ☰ and its red dot on the other tabs, the drawer
@@ -10534,20 +10534,29 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - **Before:** the product's name, seven rows (새 채팅, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬) plus 관리자, then
   대화방 (eight rows, unread ones beyond them, "모두 보기"), then 최근 채팅 by date. With a dozen rooms the AI chats were
   below the fold at 1440×900.
-- **Now (768 px and wider):** the team's name on top (the account line no longer repeats it); one row for 새 채팅 (with
-  ⇧⌘O) and a search icon (⌘K); one row of icons: 파일, 프로젝트, 예약 작업, 팀 스킬, 알림함 (the count on the bell), 관리자
+- **Now (768 px and wider):** the team's name on top (the account line no longer repeats it); one row for 트리나에게 묻기
+  (a new AI chat, with ⇧⌘O) and a search icon (⌘K); one row of icons: 파일, 프로젝트, 예약 작업, 팀 스킬, 알림함 (the count on the bell), 관리자
   for owners and admins only. Each icon is a link named by its label (the Inbox's name carries the count, so a screen
   reader says it), reached by Tab with the focus ring, and shows its name as a tooltip on hover and on keyboard focus
-  (a native `title` shows on hover only). Then **대화방, the main list with no cap** (rooms, group chats, DMs by latest
-  activity, unread in bold with the count, a long name cut with the whole of it on hover, ⊕ new conversation); then
-  **"트리나 채팅"** (the AI's name: `aiName`, the product's name in the core edition) with the five latest AI chats and
-  "모두 보기" for the whole history with its filters (choosing a filter opens it too; "접기" goes back). Both groups fold,
-  remembered in this browser (`mycel.sidebar.rooms`, `mycel.sidebar.recents`).
-- **Many rooms: the sidebar scrolls as one, and the AI chats' heading stays at the bottom edge while they are below the
-  fold** (sticky, a hairline above it then); a click there brings them up, opening them if folded. Chosen over pinning
-  the AI chats at the bottom: pinned, five rows and "모두 보기" would take a fixed fifth of the height from the rooms on a
-  1280×800 screen, and the whole history would need a second scrolling area inside the sidebar. Scrolling as one is
-  Slack's way; the sticky heading keeps the AI one click away with 60 rooms.
+  (a native `title` shows on hover only). Then **two stacked panes with a hairline between them, no boxes**:
+  **대화** on top, the main list with no cap (rooms, group chats, DMs by latest activity, unread in bold with the count,
+  thread replies counted in, a long name cut with the whole of it on hover, ⊕ 새 대화), scrolling on its own; and
+  **트리나 기록** pinned to the bottom edge (the AI's name: `aiName`, the product's name in the core edition) with the five
+  latest AI chats, any older one that waits for me or has an unseen answer, and "모두 보기" for the whole history with its
+  filters (choosing a filter opens it too; "접기" goes back), which then scrolls inside its pane (at most 55 % of the
+  height). Each pane folds on its own, remembered in this browser (`mycel.sidebar.rooms`, `mycel.sidebar.recents`);
+  folded, 트리나 기록 is just its heading and the rooms get the height.
+- **Many rooms: two panes** (the owner, 2026-11-06: the AI list must not sink as people chats grow). This replaces the
+  first version, where the sidebar scrolled as one and the AI chats' heading stuck to the bottom edge while below the
+  fold. Rooms in sight without scrolling, with 트리나 기록 open (five rows and "모두 보기"): 11 at 1440×900 and 8 at
+  1280×800 (measured by the e2e, development-mode strip on; folded, the rooms get its height); 60 rooms tested.
+- **Names: people and the AI never share a word** (the owner, 2026-11-06: no bare "채팅" in navigation). People: 대화 (the
+  section, the tab, the /rooms page; one room can still be called a 대화방 in sentences), 새 대화. The AI: 트리나에게 묻기
+  (the new-chat button, the chat's new-chat icon, the search palette's action), 트리나 기록 (the desktop section, the
+  phone drawer's heading, the 트리나 tab's latest chats), 삭제한 기록 (the trash row and page), the search palette's tab
+  기록. Other words that said 채팅 in the chrome: an untitled AI chat is "제목 없음", the empty history "아직 기록이 없어요",
+  "이 조건에 맞는 기록이 없어요", "이 기록을 찾을 수 없어요", the search box "기록 제목·내용 …". English: Conversations, Ask
+  Trina, Trina history, Deleted history; es/ja/id alike. Messages and descriptions deeper in the app keep their words.
 - **"답변 필요" and the new-answer dot come from the chat list, no request per chat.** `Chat.waiting`: the AI waits for
   the person (an open card every window shows; a card for one desktop window is that window's). `Chat.unseen`: an
   answer finished after the person last had the chat on screen. Both are optional fields (additive) on every Chat the

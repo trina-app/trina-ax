@@ -15,6 +15,7 @@ import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { useBackLink } from '../lib/back'
+import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
 import { stickToBottom } from '../lib/stickToBottom'
@@ -267,7 +268,7 @@ function ChatView({ chatId }: { chatId: string }) {
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
         <EmptyState title={t('chat.notFound')}>
           <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
-            {t('sidebar.newChat')}
+            {t('sidebar.askAi', { name: aiName(t) })}
           </Link>
         </EmptyState>
       </div>
@@ -299,7 +300,7 @@ function ChatView({ chatId }: { chatId: string }) {
           )}
         </div>
         {isDesktop() && <BrowserToggle />}
-        <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} className="p-3! md:hidden" data-testid="chat-new">
+        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => navigate('/')} className="p-3! md:hidden" data-testid="chat-new">
           <MessageSquarePlus size={20} />
         </IconButton>
       </div>

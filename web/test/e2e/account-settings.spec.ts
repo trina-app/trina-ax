@@ -26,7 +26,7 @@ test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ p
   const side = page.getByRole('navigation', { name: t['sidebar.label'] })
   // the column is 280 px, its right border included
   expect(Math.round((await side.locator('..').boundingBox())!.width)).toBe(280)
-  // PROTOTYPE (desktop sidebar): 새 채팅 is the one text row; 프로젝트 is an icon of the same height
+  // 트리나에게 묻기 is the one text row; 프로젝트 is an icon of the same height
   const newChat = side.getByTestId('new-chat')
   expect(Math.round((await newChat.boundingBox())!.height)).toBe(36)
   expect(await newChat.evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')

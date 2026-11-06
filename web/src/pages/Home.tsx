@@ -37,7 +37,7 @@ import { useChats } from '../store/chats'
 import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
 import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
-import { landingPath } from '../lib/tabs'
+import { aiName, landingPath } from '../lib/tabs'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ChatStateDot, isUnused, NeedsAnswerLabel } from '../components/chat/ChatState'
 import { FrequentQuestions } from '../components/FrequentQuestions'
@@ -160,7 +160,7 @@ export function RecentChats() {
   return (
     <section className="mt-6" aria-labelledby="home-recents" data-testid="home-recents">
       <h2 id="home-recents" className="px-3 pb-1 text-xs text-muted">
-        {t('sidebar.recents')}
+        {t('sidebar.aiChats', { name: aiName(t) })}
       </h2>
       <ul>
         {recent.map((c) => (

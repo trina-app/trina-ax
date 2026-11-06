@@ -1,18 +1,19 @@
-// Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons), rooms first (docs/DECISIONS.md "Desktop
-// sidebar: rooms first"): the team's name on top, one row for a new AI chat and search, one row of icons with tooltips
-// (files, projects, scheduled, team skills, the inbox with its count, admin for owners and admins), then the rooms as
-// the main, uncapped list (rooms/SidebarRooms.tsx), then the AI's chats ("트리나 채팅": the five latest, "모두 보기" for
-// the whole history with its filters; "답변 필요" and dots from the chat list itself, chat/ChatState.tsx). The sidebar
-// scrolls as one, like Slack's; while the AI chats are below the fold their heading stays at the bottom edge, and a
-// click there brings them up. Both groups fold, remembered in this browser. Then the account menu (the person's email or ID, Settings, Usage (their own, in
-// Settings), Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is the 트리나
-// tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top, 검색, 프로젝트, 예약
-// 작업, 팀 스킬, the recent chats, and 삭제한 채팅 at the bottom. New chat is the 트리나 tab itself, the Inbox and Admin
-// are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
+// Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons), people first (docs/DECISIONS.md "Desktop
+// sidebar: rooms first"): the team's name on top, one row for "트리나에게 묻기" (a new AI chat) and search, one row of icons
+// with tooltips (files, projects, scheduled, team skills, the inbox with its count, admin for owners and admins), then two
+// stacked panes with a hairline between them: "대화" (the rooms, every one; rooms/SidebarRooms.tsx) scrolls on its own,
+// and "트리나 기록" (the AI's history: the five latest and "모두 보기" for the whole of it with its filters; "답변 필요" and
+// dots from the chat list itself, chat/ChatState.tsx) is pinned to the bottom, so it never sinks under many rooms. People
+// and the AI never share a word: no bare "채팅" here. Both fold, remembered in this browser. Then the account menu (the
+// person's email or ID, Settings, Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens
+// above the profile line. Below 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on
+// Home): the AI's name on top, 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat
+// is the 트리나 tab itself, the Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows
+// are 44 px there.
 import clsx from 'clsx'
 import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
-import { createPortal, flushSync } from 'react-dom'
+import { createPortal } from 'react-dom'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -89,8 +90,6 @@ const remember = (key: string, v: string) => {
 const OPEN_KEY = 'mycel.sidebar.recents'
 /** a computer: AI chats shown before "모두 보기" */
 const LATEST = 5
-/** the AI chats' heading (36 px with its hairline when pinned): how far up its marker counts as pinned */
-const HEAD_H = 36
 
 export default function Sidebar() {
   const t = useT()
@@ -148,27 +147,7 @@ export default function Sidebar() {
   // the five latest, and any older one that waits for me or has an answer I have not seen (like unread rooms)
   const latest = useMemo(() => used.filter((c, i) => i < LATEST || c.waiting || c.unseen), [used])
   const full = !wide || allChats || changed.length > 0
-  // a computer: the AI chats' heading stays at the bottom edge while they are below the fold (many rooms); `stuck` is
-  // when it does (a hairline above it then), and a click on it brings them up instead of folding them
-  const scroller = useRef<HTMLDivElement>(null)
-  const aiTop = useRef<HTMLDivElement>(null)
-  const [stuck, setStuck] = useState(false)
-  useEffect(() => {
-    if (!wide || !scroller.current || !aiTop.current || typeof IntersectionObserver === 'undefined') return setStuck(false)
-    // the heading is pinned once its own place (the marker above it) is less than its height from the bottom edge
-    const io = new IntersectionObserver(([e]) => setStuck(!!e && !e.isIntersecting && e.boundingClientRect.top >= (e.rootBounds?.bottom ?? Infinity) - 1), { root: scroller.current, rootMargin: `0px 0px -${HEAD_H}px 0px` })
-    io.observe(aiTop.current)
-    return () => io.disconnect()
-  }, [wide])
-  const toggleRecents = () => {
-    if (stuck) {
-      // folded: shown first, so the scroll knows how far down they are
-      if (!recentsOpen) flushSync(() => setRecentsOpen((remember(OPEN_KEY, 'open'), true)))
-      aiTop.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-      return
-    }
-    setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
-  }
+  const toggleRecents = () => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
 
   const close = () => setDrawer(false)
   // unread inbox notifications: a count next to "Inbox" (the list itself is in Settings > Notifications)
@@ -206,16 +185,91 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* scroll-pb: a row reached by Tab is never under the AI chats' heading pinned at the bottom (a computer) */}
-      <div ref={scroller} className={clsx('scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2', wide && 'scroll-pb-10')} onScroll={peek.hide} data-testid="sidebar-scroll">
-        {/* the team chat rooms (people with people), above the AI chats; not in the phone drawer: the 대화 tab is
-            where they are there */}
-        {wide && <SidebarRooms onNavigate={close} all />}
-        <div ref={aiTop} aria-hidden />
-        <div className={clsx('group/recents flex items-center gap-1', wide ? 'sticky -bottom-2 z-10 -mx-2 bg-subtle pr-3 pl-5' : 'pr-1 pl-3', stuck && 'border-t border-line py-1')} data-testid="recents-head" data-stuck={stuck || undefined}>
+      {wide ? (
+        <>
+          {/* 대화: every room, scrolling on its own */}
+          <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2" data-testid="sidebar-rooms-pane">
+            <SidebarRooms onNavigate={close} all />
+          </div>
+          {/* 트리나 기록: pinned to the bottom edge, with a hairline above it; at most about half the height (the whole
+              history behind "모두 보기" scrolls inside it) */}
+          <div className="scroll-thin max-h-[55%] shrink-0 overflow-y-auto overscroll-contain border-t border-line px-2 pt-2 pb-2" onScroll={peek.hide} data-testid="sidebar-ai-pane">
+            <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
+              <h2 className="text-xs font-medium text-faint">
+                <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
+                  {t('sidebar.aiChats', { name: aiName(t) })}
+                  <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
+                </button>
+              </h2>
+              {changed.length > 0 && (
+                <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
+                  <span aria-hidden>·</span>
+                  <span className="truncate">{changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])).join(', ')}</span>
+                  <button type="button" onClick={() => setView(DEFAULT_VIEW)} aria-label={t('sidebar.filter.clear')} title={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
+                    <X size={11} aria-hidden />
+                  </button>
+                </span>
+              )}
+              <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
+            </div>
+            <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
+              {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
+              {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
+              {loaded && chats.some((c) => !isUnused(c)) && !groups.length && (
+                <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
+                  {t('sidebar.filter.none')}
+                </p>
+              )}
+              {!full && (
+                <ul data-testid="ai-chats-latest">
+                  {latest.map((c) => (
+                    <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
+                  ))}
+                </ul>
+              )}
+              {!full && (used.length > latest.length || cursor) && (
+                <button type="button" onClick={() => setAllChats(true)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-all">
+                  {t('rooms.showAll')}
+                </button>
+              )}
+              {full && groups.map(([key, { label, items }]) => (
+                <div key={key || 'all'} className="mb-2">
+                  {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
+                  <ul>
+                    {items.map((c) => (
+                      <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              {full && cursor && (
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted hover:bg-hover"
+                  disabled={more}
+                  onClick={async () => {
+                    setMore(true)
+                    await loadChats(false).catch(() => {})
+                    setMore(false)
+                  }}
+                >
+                  {more ? t('common.loading') : t('sidebar.more')}
+                </button>
+              )}
+              {wide && allChats && (
+                <button type="button" onClick={() => setAllChats(false)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-less">
+                  {t('common.less')}
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide} data-testid="sidebar-scroll">
+        <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
           <h2 className="text-xs font-medium text-faint">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
-              {wide ? t('sidebar.aiChats', { name: aiName(t) }) : t('sidebar.recents')}
+              {t('sidebar.aiChats', { name: aiName(t) })}
               <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
             </button>
           </h2>
@@ -280,7 +334,8 @@ export default function Sidebar() {
             </button>
           )}
         </div>
-      </div>
+        </div>
+      )}
       {peek.card}
       {wide ? (
         <AccountMenu />
@@ -317,7 +372,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
     <div className="space-y-1 px-2">
       <div className="flex items-center gap-1">
         <button type="button" className="flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-ink hover:bg-hover" onClick={onNewChat} data-testid="new-chat">
-          <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.newChat')}</span>
+          <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.askAi', { name: aiName(t) })}</span>
           <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
         </button>
         <button type="button" aria-label={t('sidebar.search')} aria-keyshortcuts={onMac() ? 'Meta+K' : 'Control+K'} onClick={onSearch} className="group/tip relative flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink" data-testid="nav-search">
