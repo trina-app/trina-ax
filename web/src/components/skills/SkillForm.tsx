@@ -208,7 +208,7 @@ function ChoiceField({ id, input, label, value, error, onChange }: { id: string;
   const clearable = !input.required && !input.default
   return (
     <fieldset aria-describedby={error ? errId : undefined} data-testid={`skill-input-${input.name}`}>
-      <legend className="mb-1.5 block text-[13px] font-medium text-ink">{label}</legend>
+      <legend className="mb-1.5 block text-label font-medium text-ink">{label}</legend>
       <div className="flex flex-wrap gap-2">
         {input.options.map((o, n) => {
           const on = value === o.value

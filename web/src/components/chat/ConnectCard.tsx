@@ -225,7 +225,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
         {kase === 'key' && (
           <div>
             <label className="block">
-              <span className="mb-1.5 block text-[13px] font-medium text-ink">{t('connect.key', { name: r.name })}</span>
+              <span className="mb-1.5 block text-label font-medium text-ink">{t('connect.key', { name: r.name })}</span>
               <input
                 className={inputCls}
                 type="password"
@@ -275,7 +275,7 @@ export default function ConnectCard({ request: r }: { request: ConnectServiceReq
 
         {team && !signInId && (
           <fieldset>
-            <legend className="mb-1.5 text-[13px] font-medium text-ink">{t('connect.access')}</legend>
+            <legend className="mb-1.5 text-label font-medium text-ink">{t('connect.access')}</legend>
             <div className="flex flex-wrap gap-2">
               {(['me', 'everyone'] as const).map((a) => (
                 <label key={a} className={clsx('flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2', access === a ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover')}>

@@ -26,8 +26,9 @@ export function locChip(t: T, l: SourceLoc): string {
   }
 }
 
-// defaultOpen / initial: tests render the open list without a click or a server
-export default function SourcesList({ chatId, messageId, count, defaultOpen = false, initial }: { chatId: string; messageId: string; count: number; defaultOpen?: boolean; initial?: MessageSources }) {
+// defaultOpen / initial: tests render the open list without a click or a server. `load`: where the list comes from
+// when it is not a chat answer's (an AI answer in a room: GET /api/rooms/:id/messages/:messageId/sources)
+export default function SourcesList({ chatId, messageId, count, defaultOpen = false, initial, load }: { chatId: string; messageId: string; count: number; defaultOpen?: boolean; initial?: MessageSources; load?: (signal: AbortSignal) => Promise<MessageSources> }) {
   const t = useT()
   const locale = useLocale()
   const [open, setOpen] = useState(defaultOpen)
@@ -40,7 +41,7 @@ export default function SourcesList({ chatId, messageId, count, defaultOpen = fa
     const ctrl = new AbortController()
     setError(null)
     setData(null)
-    api.call(API.messageSources, { params: { id: chatId, messageId }, signal: ctrl.signal }).then(
+    ;(load ? load(ctrl.signal) : api.call(API.messageSources, { params: { id: chatId, messageId }, signal: ctrl.signal })).then(
       (r) => { if (!ctrl.signal.aborted) setData(r) },
       (e: unknown) => { if (!ctrl.signal.aborted) setError(errorText(e, locale, t('error.network'))) },
     )
@@ -101,12 +102,12 @@ function SourceRow({ f, t }: { f: MessageSourceFile; t: T }) {
       </button>
       {folder && <span className="min-w-0 max-w-[40%] truncate text-xs text-faint" title={f.path}>{folder}/</span>}
       {f.locs.map((l, i) => (
-        <button key={i} type="button" onClick={() => openTeamFile(f.path, l)} className="max-w-[16rem] truncate rounded-md border border-line bg-subtle px-1.5 py-0.5 text-[11px] text-muted hover:bg-hover hover:text-ink" data-testid="answer-source-loc">
+        <button key={i} type="button" onClick={() => openTeamFile(f.path, l)} className="max-w-[16rem] truncate rounded-md border border-line bg-subtle px-1.5 py-0.5 text-micro text-muted hover:bg-hover hover:text-ink" data-testid="answer-source-loc">
           {locChip(t, l)}
         </button>
       ))}
-      {onlyPassages && <span className="text-[11px] text-faint">{t('sources.passagesOnly')}</span>}
-      {f.subagent && <span className="text-[11px] text-faint">{t('sources.subagent')}</span>}
+      {onlyPassages && <span className="text-micro text-faint">{t('sources.passagesOnly')}</span>}
+      {f.subagent && <span className="text-micro text-faint">{t('sources.subagent')}</span>}
     </li>
   )
 }

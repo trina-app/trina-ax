@@ -11,8 +11,11 @@ import { C, USER_OF, WHO, type Who, type World } from './world'
 import { P4_SPECS } from './p4-cases'
 import { INTEGRATION_SPECS } from './integrations-cases'
 import { TEAM_ICON_SPECS } from './team-icon-cases'
+import { PEOPLE_SPECS } from './people-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
+import { ROOM_SPECS } from './rooms-cases'
+import { SLACK_SPECS } from './slack-cases'
 import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -29,6 +32,7 @@ type Scope =
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
+  | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
 export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
@@ -50,6 +54,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
+    case 'room-dm': return who === 'memberIn' || who === 'other'
     case 'nobody': return false
   }
 }
@@ -70,8 +75,11 @@ export const SPECS: Record<string, Spec> = {
   ...P4_SPECS,
   ...INTEGRATION_SPECS,
   ...TEAM_ICON_SPECS,
+  ...PEOPLE_SPECS,
   ...REMOTE_MCP_SPECS,
   ...PLUGIN_SPECS,
+  ...ROOM_SPECS,
+  ...SLACK_SPECS,
   ...PROMO_VIDEO_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
@@ -91,6 +99,17 @@ export const SPECS: Record<string, Spec> = {
   revokeMySession: { skipPositive: true, build: (c, w) => c.del(`/api/me/sessions/${w.ids.aliceSession}`), scope: 'byLevel',
     // alice's session id: no one else may revoke it (cross-user). bob etc must 404, not kill her session.
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} revoked alice's session`) } },
+  // own account deletion request (shared/src/api/account-deletion.ts): the caller's own only, whatever the request
+  // names; the owner cannot ask (409, a state to change first, not a permission check)
+  myDeletionRequest: { build: (c) => c.get('/api/me/deletion-request?userId=alice'), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none') && r.json?.state !== 'pending') throw new Error(`unexpected state for ${who}: ${r.text}`) } },
+  requestAccountDeletion: { build: (c) => c.post('/api/me/deletion-request?userId=alice', { confirm: true }), scope: 'self',
+    check: (r, _w, who) => {
+      if (who === 'owner' && r.status !== 409) throw new Error(`the owner asked for their own account to be deleted: ${r.status}`)
+      if (who !== 'owner' && r.status < 300 && r.json?.state !== 'pending') throw new Error(`${who}'s request is not their own: ${r.text}`)
+    } },
+  cancelAccountDeletion: { build: (c) => c.del('/api/me/deletion-request?userId=alice'), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none')) throw new Error(`${who}'s cancel left a request open: ${r.text}`) } },
   inviteInfo: { build: (c, w) => c.get(`/api/invites/${w.ids.inviteToken}`), scope: 'byLevel' },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },

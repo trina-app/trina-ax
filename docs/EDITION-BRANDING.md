@@ -39,6 +39,11 @@ An edition with its own hosted service sets its addresses in `editions/<name>/br
 { "teamDomain": "example.app", "officialRelayUrl": "wss://relay.example.app/connect", "accountHost": "account.example.app", "statusHost": "status.example.app" }
 ```
 
+The phone app's own name, bundle id and icons are in `editions/<name>/branding/mobile.json` and `mobile/`
+(`MYCEL_MOBILE_EDITION=<name>` when building mobile/, see mobile/README.md). Native phone push is off on every team
+server until its operator sets a push gateway (`MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json); a hosted
+service sets it in the server.json it writes.
+
 `bun scripts/edition-service.ts editions/<name>/branding/service.json --apply` writes them into
 `shared/src/service-hosts.ts`. They set the desktop app's team address domain and its examples, the official relay
 in Admin > System (and how the server tells it from a self-hosted relay), the claim-code hint, and the relay's account

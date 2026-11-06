@@ -60,6 +60,8 @@ test('own connector settings show the address and revoke the selected connection
   await signIn(page)
   await page.goto('/settings/connectors')
   const pane = page.getByTestId('connector-connections')
+  // the team uses Slack (the mock's /api/slack/me): its line is in App connectors, with how to link
+  await expect(pane.getByTestId('slack-account')).toContainText('Slack')
   await expect(pane).toContainText('https://team.example/mcp')
   await expect(pane.getByTestId('connector-item')).toHaveCount(1)
   await pane.getByRole('button', { name: '연결 해제', exact: true }).click()

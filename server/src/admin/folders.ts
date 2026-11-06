@@ -21,6 +21,7 @@ import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash } from './access-edit'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
+import { syncRoomsNow } from '../rooms/service'
 
 export interface FolderRow { id: string; path: string; created_at: string }
 interface RuleRow { id: string; folder_id: string; subject_type: FolderRule['subjectType']; subject_id: string | null; access: Access; updated_by: string | null; updated_at: string }
@@ -305,6 +306,8 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out } })
+  // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)
+  syncRoomsNow(ctx)
   return out
 }
 

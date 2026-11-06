@@ -7,7 +7,8 @@ The AI can use services outside the team server with a person's or the team's ow
 - **HTTP APIs with a key** (an internal tool such as AI PM): address, key and a note on how to use it. The AI gets one
   tool, `api_request`, that can only call addresses under that connection's address.
 
-Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)). These connections are the other direction
+Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), and so does asking the AI from Slack
+([SLACK.md](SLACK.md)). These connections are the other direction
 from the "connectors" of `server/src/connectors/remote-mcp` (claude.ai using this server's files).
 
 ## App connectors (the other direction)

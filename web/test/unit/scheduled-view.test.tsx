@@ -5,10 +5,10 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
-import type { Schedule } from '@mycel/shared/api'
+import type { Chat, Schedule } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
 import { cardLine, outcomeReason, outcomeTone, scheduleState } from '../../src/lib/scheduleText'
-import { snippetAround } from '../../src/components/SearchDialog'
+import { snippetAround, titleFirst } from '../../src/components/SearchDialog'
 import { ScheduleView } from '../../src/pages/Scheduled'
 
 const base: Schedule = { id: 'once-1', title: 'Team rule', prompt: 'Write today', repeat: 'once', time: '04:18', date: '2026-10-29', weekday: null, day: null,
@@ -79,6 +79,13 @@ describe('scheduled task page', () => {
     expect(cut.endsWith('…')).toBe(true)
     expect(cut).toContain('weekly')
     expect(snippetAround('nothing here', 'weekly')).toBe('')
+  })
+
+  test('search: a chat with the text in its title comes before a newer one that has it only in its messages', () => {
+    const chat = (id: string, title: string) => ({ id, title }) as Chat
+    const found = [chat('new', 'Two attachments'), chat('named', 'Onboarding guide'), chat('old', 'Q3 notes'), chat('also', 'onboarding v2')]
+    expect(titleFirst(found, 'onboarding').map((c) => c.id)).toEqual(['named', 'also', 'new', 'old'])
+    expect(titleFirst(found, 'zzz').map((c) => c.id)).toEqual(['new', 'named', 'old', 'also'])
   })
 
   test('a paused recurring or future task, or one that is on, keeps a working switch', () => {

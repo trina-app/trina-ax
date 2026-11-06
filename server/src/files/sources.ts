@@ -84,7 +84,15 @@ const VIA = new Set<SourceVia>(['read', 'search', 'grep'])
  * disabled account sees nothing. A file that fails any check is counted in `unavailable` only.
  */
 export function viewSources(db: Database, fx: FsCtx, rules: () => RuleSet, viewerId: string, messageId: string): MessageSources {
-  const rows = db.query('SELECT path, locs, via, by_main, by_subagent FROM message_sources WHERE message_id = ? ORDER BY ord').all(messageId) as { path: string; locs: string; via: string; by_main: number; by_subagent: number }[]
+  const rows = db.query('SELECT path, locs, via, by_main, by_subagent FROM message_sources WHERE message_id = ? ORDER BY ord').all(messageId) as SourceRow[]
+  return viewSourceRows(db, fx, rules, viewerId, rows)
+}
+
+/** A stored source row (message_sources, and room_message_sources for an AI answer in a team chat room). */
+export interface SourceRow { path: string; locs: string; via: string; by_main: number; by_subagent: number }
+
+/** Stored source rows as `viewerId` may see them now (viewSources' checks). */
+export function viewSourceRows(db: Database, fx: FsCtx, rules: () => RuleSet, viewerId: string, rows: readonly SourceRow[]): MessageSources {
   if (!rows.length) return { files: [], unavailable: 0 }
   const user = loadPrincipal(db, viewerId)
   if (!user) return { files: [], unavailable: rows.length }

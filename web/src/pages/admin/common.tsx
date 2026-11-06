@@ -180,7 +180,8 @@ export function OneLine({ children, className, testId, twoOnPhone }: { children:
     return () => ro.disconnect()
   }, [children, open])
   return (
-    <div className={clsx('flex items-baseline gap-1.5', className)} data-testid={testId}>
+    // phones with 2 lines: More sits on the last line, right after the cut ("…"), not beside the first
+    <div className={clsx('flex items-baseline gap-1.5', twoOnPhone && 'max-sm:items-end', className)} data-testid={testId}>
       {/* inline-size containment: a line that does not wrap must not widen what holds it (a grid cell, a fieldset) */}
       <p ref={ref} className={clsx('min-w-0 flex-1 [contain:inline-size]', !open && (twoOnPhone ? 'max-sm:line-clamp-2 sm:truncate' : 'truncate'))}>
         {children}

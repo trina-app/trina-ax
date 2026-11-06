@@ -30,6 +30,7 @@ import { TEXT as SAVE_URL_TEXT } from '../../server/src/tools/save-url'
 import { TEXT as SCHEDULE_CARD_TEXT } from '../../server/src/tools/schedules'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
 import { TEXT as TEAM_ICON_TEXT } from '../../server/src/admin/team-icon'
+import { AVATAR_TEXT } from '../../server/src/auth/profiles'
 import { TEXT as PUSH_TEXT } from '../../server/src/notifications/text'
 import { PRUNE_TEXT } from '../../server/src/system/prune'
 
@@ -72,6 +73,7 @@ describe('server and relay texts', () => {
     checkTable('scheduled task card', SCHEDULE_CARD_TEXT, 10)
     checkTable('external-service connections', INTEGRATION_TEXT)
     checkTable('team logo', TEAM_ICON_TEXT)
+    checkTable('profile photo', AVATAR_TEXT)
     checkTable('push notifications', PUSH_TEXT)
     checkTable('system routes', SYSTEM_ROUTE_TEXT)
     checkTable('relay notices', NOTICES, 2)
@@ -106,6 +108,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/files/locations.ts': { why: 'the words of the place labels the AI sees, "시트 \'매출\'", "슬라이드 3" (ko next to en/id/ja/es)' },
   'server/src/files/media.ts': { why: 'a whisper marker dropped from transcripts, and its video-outro inventions a retry may not be (not screen text)', also: /MUSIC\|음악|^const OUTRO = \// },
   'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en/id/ja/es)' },
+  'server/src/chat/schedule-templates.ts': { why: 'template schedule names and the instruction the AI is given (ko next to en/id/ja/es)' },
   'server/src/devenv/jobs.ts': { why: 'dev environment job and box stop notices (ko next to en/id/ja/es)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
@@ -151,7 +154,9 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en/id/ja/es)' },
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
+  'server/src/integrations/slack/text.ts': { why: 'what the Slack connector says in Slack and its screens\' refusals (ko next to en/id/ja/es)' },
   'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en/id/ja/es)' },
+  'server/src/auth/profiles.ts': { why: 'profile photo upload refusals (ko next to en/id/ja/es)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en/id/ja/es)' },
   'server/src/tools/save-url.ts': { why: 'the large-download card and the disk refusal (ko next to en/id/ja/es)' },
   'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en/id/ja/es)' },
@@ -167,6 +172,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/onboarding/brand-assets.ts': { why: 'the Korean word for logo (로고) looked for in a page\'s picture names and labels (not screen text)', also: /^const LOGO_WORD = / },
   'server/src/onboarding/welcome-result.ts': { why: 'the first result\'s chat title, messages, file names and the company intro file\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ head: \(n\) => / },
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
+  'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^const AI_OWN_NAMES = \['트리나', / },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
   'server/src/promo-video/tool.ts': { why: 'the promo video\'s style names and player words (ko next to en/id/ja/es)', also: /^\s*ko: \{ (ink|play): / },
   'server/src/promo-video/spec.ts': { why: 'the Korean brand folder names (브랜드/이미지) named in the problems the AI gets back (not screen text)', also: /…\/브랜드\/이미지\// },

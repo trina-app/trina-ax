@@ -36,6 +36,10 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   WELCOME: 'Onboarding: welcome steps',
   ONBOARDING_GOAL: 'Onboarding: the 7-day team goal',
   DEMO: 'Demo mode (development demo server only)',
+  PEOPLE: 'People directory and profiles',
+  ROOMS: 'Team chat rooms',
+  ACCOUNT_DELETION: 'Account deletion request',
+  SLACK: 'Slack connector',
   PROMO_VIDEO: 'Promo video (the welcome steps\' first result) and its MP4',
 }
 

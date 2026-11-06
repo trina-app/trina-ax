@@ -162,7 +162,7 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
         </form>
       ) : (
         item.content && (
-          <div className="max-w-full min-w-0 rounded-3xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-[15px] leading-7 text-muted" data-testid="outbox-text">
+          <div className="max-w-full min-w-0 rounded-3xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-reading leading-7 text-muted max-md:leading-reading" data-testid="outbox-text">
             <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]">{item.content}</div>
           </div>
         )

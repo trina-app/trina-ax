@@ -7,7 +7,7 @@
 // apart from people, activity and the server. Home (/admin) comes first: what needs attention, then one line per area
 // (Home.tsx).
 import clsx from 'clsx'
-import { Activity, Cable, Cpu, FolderLock, Gauge, House, KeyRound, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Cable, Cpu, FolderLock, Gauge, House, KeyRound, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
@@ -22,6 +22,7 @@ const Engines = lazy(() => import('./Engines'))
 const Credentials = lazy(() => import('./Credentials'))
 const Integrations = lazy(() => import('./Integrations'))
 const Plugins = lazy(() => import('./Plugins'))
+const Slack = lazy(() => import('./Slack'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
 const Usage = lazy(() => import('./Usage'))
 const Audit = lazy(() => import('./Audit'))
@@ -47,6 +48,8 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
       { id: 'credentials', label: 'admin.credentials', icon: KeyRound },
       { id: 'integrations', label: 'admin.integrations', icon: Cable },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
+      // the owner's: the Slack connector acts as each linked person (docs/SLACK.md)
+      { id: 'slack', label: 'slack.admin.title', icon: MessagesSquare, ownerOnly: true },
     ],
   },
   {
@@ -122,6 +125,7 @@ export default function AdminLayout() {
             {section === 'credentials' && <Credentials />}
             {section === 'integrations' && <Integrations />}
             {section === 'plugins' && <Plugins />}
+            {section === 'slack' && <Slack />}
             {section === 'usage' && <Usage />}
             {section === 'audit' && <Audit />}
             {section === 'settings' && <TeamSettingsPage />}

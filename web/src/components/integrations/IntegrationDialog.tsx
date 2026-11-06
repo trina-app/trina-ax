@@ -378,7 +378,7 @@ export function Choices<T extends string>({ legend, value, onChange, options, er
   const errorId = useId()
   return (
     <fieldset aria-describedby={error ? errorId : undefined}>
-      <legend className="mb-1.5 text-[13px] font-medium text-ink">{legend}</legend>
+      <legend className="mb-1.5 text-label font-medium text-ink">{legend}</legend>
       <div className={clsx(compact ? 'flex flex-wrap gap-2' : 'grid gap-2', !compact && options.length === 2 && 'sm:grid-cols-2', !compact && options.length === 3 && 'sm:grid-cols-3')}>
         {options.map((o) => (
           <label key={o.value} className={clsx('flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-sm hover:bg-hover', value === o.value ? 'border-accent bg-accent-soft' : 'border-line')}>
@@ -425,7 +425,7 @@ function AccessPicker({ value, onChange, groups, users, me, error, template }: {
   const active = users.filter((u) => u.status === 'active')
   return (
     <fieldset className="space-y-2" data-testid="integration-access">
-      <legend className="mb-1 text-[13px] font-medium text-ink">{t(template ? 'integrations.template.access' : 'integrations.access')}</legend>
+      <legend className="mb-1 text-label font-medium text-ink">{t(template ? 'integrations.template.access' : 'integrations.access')}</legend>
       <p className="text-xs text-muted">{t(template ? 'integrations.template.accessNote' : 'integrations.access.adminNote')}</p>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         <label className="flex items-center gap-2 text-sm">

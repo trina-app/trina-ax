@@ -22,6 +22,9 @@ import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { revokeTeamLinksBy } from '../auth/team-links'
 import { integrationsOf } from '../integrations/connections/service'
+import { syncRoomsNow } from '../rooms/service'
+import { closeDeletionRequest } from '../auth/deletion-requests'
+import { settleDeletionRequestNotices } from '../notifications/service'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -135,6 +138,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   }
   if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id) }
   if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  // disabled: out of the team rooms and the everyone room now; enabled again: back in, seeing messages from now on
+  // (afterAccessChange syncs the rooms too, so only a status change on its own needs this)
+  else if (changed.status !== undefined) syncRoomsNow(ctx)
   return toUser(ctx.db, getUser(ctx.db, id)!)
 }
 
@@ -202,6 +208,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
   // their sign-ins at services through connections made from templates: read now, the services told after the delete
   let revokeSignIns = () => {}
   try { revokeSignIns = integrationsOf(ctx).signInsToRevoke(id) } catch (e) { c.get('log').warn('sign-ins of a deleted member could not be read for revoking', { err: e, userId: id }) }
+  let requested = false
   ctx.db.transaction(() => {
     // tombstone: the username is freed for reuse, the id (personal folder name, usage, audit) is never reused
     ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ?, username = ?, password_hash = NULL, email = NULL WHERE id = ?")
@@ -215,8 +222,11 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
     // and templates' rules (an id nobody can see any more would block every later change of that rule)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    // the person had asked for this (Settings › Profile › 계정 삭제 요청): the request is handled
+    requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()
   revokeSignIns()
+  if (requested) settleDeletionRequestNotices(ctx, id)
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
   resetEngineSessions(ctx, id)
@@ -230,7 +240,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     folderError = (e as Error).message
     c.get('log').error('personal folder of a deleted member was not handled', { err: e, userId: id })
   }
-  audit(ctx.db, { actor: auth.user.id, action: 'user.delete', target: id, detail: { personalFolder, movedTo, ...(folderError ? { folderError } : {}) } })
+  audit(ctx.db, { actor: auth.user.id, action: 'user.delete', target: id, detail: { personalFolder, movedTo, ...(folderError ? { folderError } : {}), ...(requested ? { requested: true } : {}) } })
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
 }
 
