@@ -2,9 +2,10 @@
 // an app with accounts lets people start the deletion inside the app). Owner: A (server/src/auth/deletion-requests.ts,
 // registered by server/src/routes/auth.ts; tables: server/migrations/244_b_account_deletion_requests.sql).
 //
-// Team admins make the accounts and only the team owner deletes them (Admin › Members, DELETE /api/admin/users/:id),
-// so this does not delete anything: it tells the owner in their inbox (event 'account.deletion_request', not an OS
-// push), with a link to the person in Admin › Members. One open request per person; asking again while one is open
+// The request is for the team owner (accounts are deleted in Admin › Members, DELETE /api/admin/users/:id: by the
+// owner, or since 2026-11-06 by an admin for a member), so this does not delete anything: it tells the owner in their
+// inbox (event 'account.deletion_request', not an OS push), with a link to the person in Admin › Members. One open
+// request per person; asking again while one is open
 // changes nothing, and asking again after a cancel re-arms the same inbox entry. The owner cannot ask: their account
 // is deleted only after they made someone else the owner (Admin › Team settings). There is no fixed time: the owner
 // is told and handles it; deleting the account closes the request.

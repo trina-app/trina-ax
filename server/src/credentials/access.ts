@@ -2,13 +2,14 @@
 // the rules: the engines that answer a person come from admin/engine-choice.ts (the engines they may pick, else the
 // team default; an engine whose program is missing here answers nobody, as in the composer), and whether one of them
 // has a connection for the person comes from credentials/resolve.ts (the same candidates and checks as the turn and the
-// model proxy). A connection at a provider's short limit counts as usable: that person only waits.
+// model proxy). A connection at a provider's short limit counts as usable: that person only waits; a longer limit is
+// "No AI" with the time it ends (withoutAi `until`).
 import type { EngineId } from '@mycel/shared/api'
 import { allowedCredentialKinds, isManaged, type AllowedKinds } from '../app-config'
 import type { AppContext } from '../context'
 import { canChooseEngine, choosableEngines, engineOn, teamDefault, type Person } from '../admin/engine-choice'
 import type { EngineConfs } from '../chat/engines'
-import { hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
+import { credentialBackAt, hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
 import { hostedChatState } from './hosted-chat'
 
 type Ctx = Pick<AppContext, 'db' | 'config'>
@@ -63,10 +64,31 @@ export function connectionRoute(ctx: Ctx, p: { id: string }, engine: CredEngine,
 /** The ids of the active people who cannot use AI now, in the members list's order; null when this server does not
  * answer with AI connections (engine.authMode other than managed: the engines' own sign-in, which is not per person). */
 export function peopleWithoutAi(ctx: Ctx, o: AccessOptions = {}): string[] | null {
+  return withoutAi(ctx, o)?.ids ?? null
+}
+
+/**
+ * peopleWithoutAi, and for those of them whom waiting alone brings AI back, when (ISO): the earliest time a connection
+ * of theirs works again on any engine that answers them (credentials/resolve.ts credentialBackAt: a provider's limit
+ * that is not "out of credit", or the monthly block limit). Someone with nothing a wait fixes (no connection, switched
+ * off, refused, expired, out of credit) is in `ids` only. Admin › Members "AI limit until …".
+ */
+export function withoutAi(ctx: Ctx, o: AccessOptions = {}): { ids: string[]; until: Record<string, string> } | null {
   if (!isManaged(ctx.config)) return null
   const people = ctx.db.query("SELECT id, role FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY created_at, id").all() as Person[]
   const allowed = allowedCredentialKinds(ctx.config)
-  return people.filter((p) => !canUseAi(ctx, p, o, allowed)).map((p) => p.id)
+  const now = o.now ?? new Date()
+  const ids: string[] = []
+  const until: Record<string, string> = {}
+  for (const p of people) {
+    if (canUseAi(ctx, p, { ...o, now }, allowed)) continue
+    ids.push(p.id)
+    // the API engine answers with its own key (canUseAi would have said yes), so only Claude Code and Codex are left
+    const back = enginesAnswering(ctx, p, o.problems).filter((e): e is CredEngine => e !== 'api')
+      .map((e) => credentialBackAt(ctx.db, p.id, e, allowed, now)).filter((t): t is string => t !== null).sort()[0]
+    if (back) until[p.id] = back
+  }
+  return { ids, until }
 }
 
 /** What a person without a usable AI connection can do about it (the button in the chat error and the banner above the
