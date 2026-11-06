@@ -1,7 +1,9 @@
 // An admin asks a member to connect a service as the member's own connection, against the mock server
-// (components/integrations/RequestDialog.tsx, AnswerDialog.tsx): the admin fills in the service and picks the member,
-// copies the link; the member opens it, enters their own key and it becomes their connection; the admin sees it
-// connected and never the key. A withdrawn request's link says so; a decline shows on the admin's list.
+// (components/integrations/RequestDialog.tsx, AnswerDialog.tsx): from Add connection's menu, a popup takes the service
+// and the member; sent, it closes with a short note and the request is a row in the Connected list (its link copied
+// from there). The member opens the link, enters their own key and it becomes their connection; the admin sees it
+// connected and never the key. A withdrawn request leaves the list and its link says so; a decline shows on the row.
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -14,7 +16,11 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/admin/integrations')
-  await expect(page.getByText('아직 보낸 요청이 없어요')).toBeVisible()
+  // no card or empty list for requests on the page: asking is in Add connection's menu
+  await expect(page.getByText('아직 보낸 요청이 없어요')).toHaveCount(0)
+  await expect(page.getByTestId('integration-request')).toHaveCount(0)
+  await page.getByTestId('integration-add-more').click()
+  await expect(page.getByRole('menuitem')).toHaveText(['팀 연결', '멤버에게 연결 요청…'])
   await page.getByTestId('integration-request-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '멤버에게 연결 요청' })).toBeVisible()
@@ -31,16 +37,19 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await page.getByTestId('integration-request-name').fill('Ledger')
   await page.getByTestId('integration-request-url').fill('https://api.ledger.example/v1')
   await page.getByTestId('integration-request-notes').fill('GET /entries lists entries')
-  const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integration-requests') && r.method() === 'POST')
+  const sent = page.waitForResponse((r) => r.url().endsWith('/api/admin/integration-requests') && r.request().method() === 'POST')
   await page.getByTestId('integration-request-send').click()
-  expect((await sent).postDataJSON()).toEqual({ userId: 'bob', kind: 'http', name: 'Ledger', url: 'https://api.ledger.example/v1', auth: 'header', authHeader: 'X-API-Key', notes: 'GET /entries lists entries' })
-  await expect(page.getByTestId('integration-request-sent')).toContainText('Bob님에게 Ledger 연결 요청 알림을 보냈어요.')
-  const link = (await page.getByTestId('integration-request-link').textContent())!
+  const res = await sent
+  expect(res.request().postDataJSON()).toEqual({ userId: 'bob', kind: 'http', name: 'Ledger', url: 'https://api.ledger.example/v1', auth: 'header', authHeader: 'X-API-Key', notes: 'GET /entries lists entries' })
+  const link = ((await res.json()) as { link: string }).link
   expect(link).toMatch(/\/settings\/integrations\?request=[0-9a-f-]+$/)
-  await dialog.getByRole('button', { name: '닫기' }).first().click()
+  // sent: the popup closes with a short note, and the focus is back on the menu's button
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText('Bob님에게 요청을 보냈어요.')).toBeVisible()
+  await expect(page.getByTestId('integration-add-more')).toBeFocused()
   const asked = page.getByTestId('integration-request').filter({ hasText: 'Ledger' })
   await expect(asked).toHaveAttribute('data-state', 'waiting')
-  await expect(asked).toContainText('받는 사람 Bob')
+  await expect(asked.getByTestId('integration-request-chip')).toHaveText('요청함 · Bob')
   await expect(asked.getByRole('button', { name: '링크 복사' })).toBeVisible()
 
   // the owner opening the member's link finds nothing
@@ -101,7 +110,9 @@ test('withdrawn and declined requests: the member\'s link says what became of it
   await page.goto('/admin/integrations')
   await page.getByTestId('integration-request').filter({ hasText: 'Board' }).getByTestId('integration-request-withdraw').click()
   await page.getByRole('dialog').getByRole('button', { name: '철회' }).click()
-  await expect(page.getByTestId('integration-request').filter({ hasText: 'Board' })).toHaveAttribute('data-state', 'withdrawn')
+  // withdrawn: the row goes (the admin did it), with a short note
+  await expect(page.getByTestId('integration-request').filter({ hasText: 'Board' })).toHaveCount(0)
+  await expect(page.getByText('요청을 철회했어요.')).toBeVisible()
 
   await page.context().clearCookies()
   await signIn(page, BOB)
@@ -122,6 +133,76 @@ test('withdrawn and declined requests: the member\'s link says what became of it
   await signIn(page)
   await page.goto('/admin/integrations')
   await expect(page.getByTestId('integration-request').filter({ hasText: 'Wiki' })).toHaveAttribute('data-state', 'declined')
-  await expect(page.getByTestId('integration-request').filter({ hasText: 'Wiki' })).toContainText('거절됨')
+  const declined = page.getByTestId('integration-request').filter({ hasText: 'Wiki' })
+  await expect(declined.getByTestId('integration-request-chip')).toHaveText('거절됨 · Bob')
+  // asked again: the popup opens with the same service and member
+  await declined.getByTestId('integration-request-again').click()
+  await expect(page.getByTestId('integration-request-name')).toHaveValue('Wiki')
+  await expect(page.getByTestId('integration-request-url')).toHaveValue('https://mcp.wiki.example/mcp')
+  await expect(page.getByTestId('integration-request-user')).toHaveValue('bob')
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await expect(declined.getByTestId('integration-request-again')).toBeFocused()
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
+
+test('Add connection menu: ask a member in a popup, the request is a row, withdraw it; works at phone width', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await signIn(page)
+  await page.goto('/admin/integrations')
+  await page.getByTestId('integration-add-more').click()
+  // the menu works from the keyboard: Esc closes it and returns to its button
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(page.getByTestId('integration-add-more')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByTestId('integration-request-add')).toBeFocused()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') })
+  await expect(dialog.getByRole('heading', { name: '멤버에게 연결 요청' })).toBeVisible()
+  // why a member's own key: one line in the popup, not on the page
+  await expect(dialog).toContainText('호출마다 키 주인의 이름으로 기록하는 서비스에 써요.')
+  await page.getByTestId('integration-request-user').selectOption('bob')
+  await page.getByTestId('integration-request-name').fill('Tracker')
+  await page.getByTestId('integration-request-url').fill('https://mcp.tracker.example/mcp')
+  await page.getByTestId('integration-request-send').click()
+  await expect(dialog).toHaveCount(0)
+  const row = page.getByTestId('integration-request').filter({ hasText: 'Tracker' })
+  await expect(row.getByTestId('integration-request-chip')).toHaveText('요청함 · Bob')
+  await expect(row).toContainText('mcp.tracker.example')
+  const sideways = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+  expect(sideways).toBe(false)
+  await row.getByTestId('integration-request-withdraw').click()
+  await page.getByRole('dialog').getByRole('button', { name: '철회' }).click()
+  await expect(row).toHaveCount(0)
+  // the Team connection item opens the team dialog, like the main button
+  await page.getByTestId('integration-add-more').click()
+  await page.getByTestId('integration-add-team').click()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: '팀 연결 추가' })).toBeVisible()
+  expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
+})
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`asking a member: the menu, the popup and a request row have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    const r = await page.request.post('/api/admin/integration-requests', { headers: { [CSRF_HEADER]: '1' }, data: { userId: 'bob', kind: 'mcp', name: 'Board', url: 'https://mcp.board.example/mcp', auth: 'oauth' } })
+    expect(r.status()).toBe(201)
+    await page.goto('/admin/integrations')
+    await expect(page.getByTestId('integration-request')).toHaveCount(1)
+    const axe = async () => {
+      const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
+      return res.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)
+    }
+    expect(await axe()).toEqual([])
+    await page.getByTestId('integration-add-more').click()
+    await expect(page.getByRole('menu')).toBeVisible()
+    expect(await axe()).toEqual([])
+    await page.getByTestId('integration-request-add').click()
+    await expect(page.getByTestId('integration-request-user')).toBeVisible()
+    expect(await axe()).toEqual([])
+  })
+}

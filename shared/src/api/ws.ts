@@ -139,6 +139,10 @@ export const ConnectServiceRequest = z.object({
   scope: IntegrationScope,
   /** target 'service': the connection the AI filled in. host = the address's host, the card's main line */
   service: z.object({ kind: IntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
+  /** a connection template an admin shared with this person (scope personal): connecting it makes their own
+   * connection from the template (its address, sign-in method and header fixed), only while the template is the
+   * version shown here; older servers omit it */
+  template: z.object({ id: z.string(), version: z.number().int().positive() }).optional(),
   /** the AI's one line on what it is for */
   why: z.string().optional(),
   /** an HTTP API's usage notes as the AI wrote them: saved with the connection exactly as here and given to the AI in
