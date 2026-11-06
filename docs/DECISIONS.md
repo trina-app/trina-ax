@@ -10538,18 +10538,21 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   (a new AI chat, with ⇧⌘O) and a search icon (⌘K); one row of icons: 파일, 프로젝트, 예약 작업, 팀 스킬, 알림함 (the count on the bell), 관리자
   for owners and admins only. Each icon is a link named by its label (the Inbox's name carries the count, so a screen
   reader says it), reached by Tab with the focus ring, and shows its name as a tooltip on hover and on keyboard focus
-  (a native `title` shows on hover only). Then **two stacked panes with a hairline between them, no boxes**:
-  **대화** on top, the main list with no cap (rooms, group chats, DMs by latest activity, unread in bold with the count,
-  thread replies counted in, a long name cut with the whole of it on hover, ⊕ 새 대화), scrolling on its own; and
-  **트리나 기록** pinned to the bottom edge (the AI's name: `aiName`, the product's name in the core edition) with the five
-  latest AI chats, any older one that waits for me or has an unseen answer, and "모두 보기" for the whole history with its
-  filters (choosing a filter opens it too; "접기" goes back), which then scrolls inside its pane (at most 55 % of the
-  height). Each pane folds on its own, remembered in this browser (`mycel.sidebar.rooms`, `mycel.sidebar.recents`);
-  folded, 트리나 기록 is just its heading and the rooms get the height.
-- **Many rooms: two panes** (the owner, 2026-11-06: the AI list must not sink as people chats grow). This replaces the
-  first version, where the sidebar scrolled as one and the AI chats' heading stuck to the bottom edge while below the
-  fold. Rooms in sight without scrolling, with 트리나 기록 open (five rows and "모두 보기"): 11 at 1440×900 and 8 at
-  1280×800 (measured by the e2e, development-mode strip on; folded, the rooms get its height); 60 rooms tested.
+  (a native `title` shows on hover only). Then **one scroll with two capped sections, no boxes**: **대화** (rooms, group
+  chats, DMs by latest activity, unread in bold with the count, thread replies and mentions counted in, a long name cut
+  with the whole of it on hover, ⊕ 새 대화): the five latest, and beyond them always every room with something unread
+  and the room on screen, then "더 보기 (N)" that opens the rest in place ("접기" closes it); then **트리나 기록** (the
+  AI's name: `aiName`, the product's name in the core edition): the five latest AI chats and every older one that waits
+  for me or has an unseen answer, then "모두 보기" for the whole history with its filters in place (choosing a filter
+  opens it too; "접기"). Each section folds, and each one's whole list stays open or closed, remembered in this browser
+  (`mycel.sidebar.rooms`, `mycel.sidebar.roomsAll`, `mycel.sidebar.recents`, `mycel.sidebar.recentsAll`). The order is
+  latest activity; a row moves only when the list changes after a message is sent or received.
+- **Many rooms: capped sections in one scroll** (the owner, 2026-11-06, decided). The AI history must not sink as people
+  chats grow, and the owner chose caps over panes: first the sidebar scrolled as one with a sticky AI heading, then two
+  stacked panes (대화 scrolling on its own, 트리나 기록 pinned at the bottom); both are replaced. With the cap, a team of
+  any size shows five rooms plus the unread ones before 트리나 기록. With 60 rooms of which 9 are unread (13 shown) the
+  e2e sees all 13 rooms and 3 AI chats at 1440×900 and the 13 rooms at 1280×800, the AI chats one scroll down; with
+  nothing unread beyond the five, the AI chats are in sight at both sizes.
 - **Names: people and the AI never share a word** (the owner, 2026-11-06: no bare "채팅" in navigation). People: 대화 (the
   section, the tab, the /rooms page; one room can still be called a 대화방 in sentences), 새 대화. The AI: 트리나에게 묻기
   (the new-chat button, the chat's new-chat icon, the search palette's action), 트리나 기록 (the desktop section, the
