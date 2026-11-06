@@ -9911,3 +9911,43 @@ Then one change of order from the owner ("5분, 10분짜리도 괜찮을 것 같
   CLAUDE.md만 읽어요. 다른 파일은 열지 않아요.") and button "이 폴더에서 찾기". Picking the folder is the permission;
   nothing wider is asked for (owner decision 3). Other desktop builds keep Chromium's own folder panel (no hidden
   folders shown: the browser hint applies there).
+- **Reading the folder (browser).** Chrome and Edge: `showDirectoryPicker` and a walker that opens only known places of
+  `.claude` (`skills/*/`, plugin skills by name only, `commands/*.md`, `CLAUDE.md`), never `projects/`, transcripts,
+  `history.jsonl`, `.credentials.json` or settings; a picked `skills/` or single skill folder works too. Safari and
+  Firefox: `<input webkitdirectory>` filtered to the same places (the hint asks for `.claude/skills`); a folder drop
+  everywhere. Before anything leaves the browser: text files as text, small images as base64, script files as their
+  path only, other files left out; a key-file name or a `findSecrets` hit in any file keeps the whole skill in the
+  browser (only its name and the secret's kind go up: 빠진 것); CLAUDE.md lines with a secret are cut; size and count
+  limits (128 KB a file, 1 MB and 30 files a skill, 200 skills). The check errs towards excluding (a harmless
+  `API_KEY=$X` line excludes a skill): a skill left out is fixed by hand, a key sent cannot be taken back.
+- **The share proposal** (`skill_shares`, migration 249; `shared/src/api/skill-shares.ts`). One per send, of the
+  person who made it (only they read and apply it; members get 403: their way stays 스킬로 제안), expiring after 7
+  days. Candidate files are staged under the server's data folder, outside the team files (0700 / 0600), and deleted
+  on apply, dismiss or expiry; a secret-bearing skill's content is never written anywhere. The server is the authority
+  and checks again: format (the name made a valid skill name, the header rewritten to match), secrets (names that are
+  themselves keys are never stored either), scripts (a SKILL.md that tells the AI to run code is excluded; scripts it
+  does not need are dropped and counted), plugins, size, paths on the person's computer (그 밖에, unticked), a team skill
+  of the same name (merge by default; `add` is refused for it, the person picks merge or "따로 두기" `-2`).
+- **The recommendation** is one chat turn on the person's AI without any tool, like the S draft: its own instructions,
+  the company profile, the team's skill list and each candidate's name, description and first 2 KB as fenced data;
+  JSON per candidate (recommend or not, a reason code, a similar team skill, a short title in the team's language)
+  and the CLAUDE.md lines that fit the whole team as one rule (≤ 4,000 characters, tooling, personal lines and paths
+  dropped, counted). Excluded checks always win over it. Without AI (or a failed or 10-minute judgement) nothing is
+  pre-ticked ("AI 없이 찾았어요") and there is no rule. The judge chat is machine-only: once its answer is read it is
+  purged like the trash purges a chat (the turn rows stay, so usage and budgets count it).
+- **Apply** is the person's own save (`FileService.humanSave`: folder rules, versions, the skill change log), as
+  approving a suggestion: `skills/<name>/SKILL.md` with its files and the AI title as `metadata.title`
+  (`allowed-tools` kept, granting nothing); a merge opens a normal chat that asks the AI to merge the candidate into
+  the team skill and save it, so the existing confirmation card decides (only SKILL.md is merged); the rule becomes
+  `skills/<일하는-방식>.md` (no header: a team rule); Claude Code's remote MCP servers become connection templates
+  (kind mcp, no key; stdio servers cannot be shared). Idempotent per skill; 200 with each row's result when anything
+  went through, else 403 (folder rules) or 409 with the reason. The welcome row records what was added (`shared`).
+- **Claude Code** (`share_skills`, connector only, `mcp:write`): the tool's description tells Claude Code what to
+  scan and never to send a file with a key (list it under `excluded`); owners and admins get a proposal and a live
+  notice ("Claude Code에서 스킬 N개를 공유하자고 했어요 · 확인" → `/skills/share/<id>`, the same list); the welcome step
+  polls for one while it waits. Members are refused with a pointer to 스킬로 제안: suggestions cannot carry a SKILL.md
+  with its files yet. No inbox entry (it would need its own notification table); the live notice and the step's poll
+  carry it.
+- **The hole found in planning**: the connector refused writes to `skills/` but not to a person's own
+  `users/<id>/skills/` (their personal skills, which their AI follows). Every connector write path (write, edit,
+  upload_file, create_upload_link and its PUT) now refuses both, with the same "confirm inside the team app" answer.
