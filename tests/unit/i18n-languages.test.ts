@@ -184,6 +184,11 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/intro-deck/tool.ts': { why: 'the intro deck\'s theme names (ko next to en/id/ja/es)', also: /^\s*ko: \{ paper: / },
   'server/src/intro-deck/html.ts': { why: 'the deck pager\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ slide: / },
   'server/src/intro-deck/spec.ts': { why: 'the Korean superlatives a deck may use only when its sources do (a word list the check matches, not screen text), and the notes\' source label', also: /^export const SUPERLATIVES = / },
+  'server/src/skills/share.ts': { why: '내 스킬 가져오기: the judge and merge chats\' titles and requests, refusals, the notice and the team rule\'s file name (ko next to en/id/ja/es)' },
+  'server/src/skills/share-judge.ts': { why: 'the example title the skill share judge gets (ko next to en/id/ja/es)' },
+  'server/src/skills/share-check.ts': { why: 'Korean words that tell the AI to run a script (matched in a SKILL.md, not screen text)', also: /^\s*\/스크립트\[/ },
+  'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },
+  'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or
