@@ -501,7 +501,8 @@ function CommandLine({ text }: { text: string }) {
   )
 }
 
-/** Claude: open the authorize page (a new tab), paste the code it shows; then the check, then the result */
+/** Claude: open the authorize page (a new tab, or copy its link to another browser), paste the code it shows; then
+ * the check, then the result */
 function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLogin; code: string; onCode: (v: string) => void; onSubmit: () => void; error: string | null }) {
   const t = useT()
   if (l.state === 'starting') return <p className="text-sm text-muted" data-testid="claude-starting">{t('credentials.claude.starting')}</p>
@@ -509,9 +510,13 @@ function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLog
     const bad = code.trim() !== '' && !CLAUDE_CODE_RE.test(code.trim())
     return (
       <div className="space-y-4" data-testid="claude-code">
-        <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
-          {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
-        </a>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
+            {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
+          </a>
+          {/* the same link for another browser (the one signed in to Claude) or another device */}
+          <CopyButton text={l.url} label={t('credentials.claude.copyLink')} showLabel />
+        </div>
         <Field label={t('credentials.claude.code')} error={bad ? t('credentials.claude.codeInvalid') : null}>
           <input className={inputCls} autoComplete="off" spellCheck={false} value={code} disabled={l.state !== 'code'} data-testid="claude-code-input"
             onChange={(e) => onCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSubmit() }} />
