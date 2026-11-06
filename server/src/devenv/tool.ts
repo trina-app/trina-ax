@@ -30,7 +30,7 @@ import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from 
 import type { Change } from './snapshot'
 import type { Step } from '@mycel/shared/api'
 import { placeInLine, startWaiting } from './srt/runner'
-import { addTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
+import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -214,12 +214,13 @@ async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; show
   const { ctx } = h
   const rowId = addTicket(ctx.db, { space: o.space, turnId: h.turnId, shown: o.shown, cwd: o.cwd })
   const limitMs = commandWaitFor(o.timeoutMs)
-  const ended = waitTicket(ctx.db, rowId, h.userId, { waitMs: limitMs, signal: h.signal })
+  const ended = waitTicket(ctx.db, rowId, h.userId, { signal: h.signal })
   await startWaiting(ctx)
   // granted in that start round: no waiting state at all
   let end = await Promise.race([ended, Promise.resolve(null)])
   const waited = end === null
   if (waited) {
+    armTicket(rowId, limitMs)
     h.queueStep?.({ id: rowId, kind: 'command', state: 'waiting', position: placeInLine(ctx, rowId) })
     end = await ended
   }
@@ -231,7 +232,8 @@ async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; show
   const state = end === 'expired' ? 'expired' as const : 'cancelled' as const
   h.queueStep?.({ id: rowId, kind: 'command', state, position: null })
   audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: o.space.projectId, detail: { turnId: h.turnId, chatId: o.space.chatId, command: o.shown.slice(0, 2000), cwd: o.cwd, runner: 'srt', result: { error: end === 'expired' ? 'full' : end ?? 'stopped', waitedMs: limitMs } } })
-  const message = end === 'expired' ? `Error: ${FULL_MESSAGE} The command did not run: it waited ${Math.round(limitMs / 60_000)} minutes for a free slot. Tell the person. Do not try again in a loop.`
+  const waitedFor = limitMs >= 60_000 ? `it waited ${Math.round(limitMs / 60_000)} minutes for a free slot` : 'no slot was free, and its time limit leaves no time to wait'
+  const message = end === 'expired' ? `Error: ${FULL_MESSAGE} The command did not run: ${waitedFor}. Tell the person. Do not try again in a loop.`
     : end === 'cancelled' ? 'The person cancelled this command before it started. It did not run. Do not run it again unless the person asks.'
     : end === 'aborted' ? 'Stopped. The command did not run.'
     : 'The command did not run: the dev environment stopped (the setting changed, or the server disk is nearly full). Do not try again now.'

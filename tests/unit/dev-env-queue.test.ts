@@ -112,12 +112,12 @@ const finish = (runId: string) => {
 
 let h: Harness
 let devBase = ''
-let chatA = '', chatA2 = '', chatB = '', chatE = ''
+let chatA = '', chatA2 = '', chatB = '', chatE = '', falconId = '', chatFalcon = ''
 const plan = (maxRunning: number): DevEnvPlan => ({ format: 1, plan: 'test', maxRunning, cpus: 1.5, memoryMiB: 1536, pids: 512, diskGiB: 4, network: 'open' })
 const steps: { user: string; run: NonNullable<Step['devEnvRun']> }[] = []
 const publish: { user: string; frame: { type: string } }[] = []
-const shell = (userId: string, chatId: string, signal = new AbortController().signal) =>
-  boxShellTool({ ctx: h.ctx, project: null, userId, turnId: 'turn-1', chatId, signal, confirm: async () => null, redact: (s) => s, queueStep: (run) => steps.push({ user: userId, run }) })
+const shell = (userId: string, chatId: string, signal = new AbortController().signal, project: { id: string; folderPath: string; name: string } | null = null) =>
+  boxShellTool({ ctx: h.ctx, project, userId, turnId: 'turn-1', chatId, signal, confirm: async () => null, redact: (s) => s, queueStep: (run) => steps.push({ user: userId, run }) })
 const out = (r: { content: { type: string; text?: string }[] }) => r.content.map((c) => c.text ?? '').join('\n')
 const rows = () => h.ctx.db.query('SELECT * FROM dev_env_runs ORDER BY started_at, id').all() as Record<string, unknown>[]
 const active = () => [...runs.values()].filter((r) => r.state === 'active')
@@ -139,6 +139,8 @@ beforeAll(async () => {
   chatA2 = (await h.api('alice').call(API.createChat, { body: {} })).id
   chatB = (await h.api('bob').call(API.createChat, { body: {} })).id
   chatE = (await h.api('erin').call(API.createChat, { body: {} })).id
+  falconId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' } })).id
+  chatFalcon = (await h.api('alice').call(API.createChat, { body: { projectId: falconId } })).id
   const real = h.ctx.services.realtime.publish.bind(h.ctx.services.realtime)
   h.ctx.services.realtime.publish = ((user: string, frame: never) => { publish.push({ user, frame }); return real(user, frame) }) as typeof h.ctx.services.realtime.publish
 })
@@ -246,6 +248,18 @@ describe('cancel', () => {
     expect(runs.size).toBe(1)
     expect(publish.filter((x) => x.user === 'bob' && x.frame.type === 'notice')).toEqual([])
     expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM dev_env_notices WHERE user_id = 'bob'").get()).toEqual({ n: 0 })
+  })
+  test('the project page: other readers and admins cannot cancel a waiting command; its owner can', async () => {
+    await shell('bob', chatB).call({ command: 'sleep', job: true, log_name: 'long' })
+    const p = shell('alice', chatFalcon, undefined, { id: falconId, folderPath: 'projects/falcon', name: 'Falcon' }).call({ command: 'echo mine' })
+    await until(() => steps.length === 1)
+    const id = steps[0]!.run.id
+    // the project page lists it as a waiting command
+    expect((await h.api('bob').call(API.devEnv, { params: { id: falconId } })).runs?.waiting).toMatchObject([{ id, kind: 'command' }])
+    for (const who of ['bob', 'carol']) await expect(h.api(who).call(API.devEnvRunStop, { params: { id: falconId, runId: id } })).rejects.toThrow()
+    expect(rows().some((r) => r.id === id)).toBe(true)
+    await h.api('alice').call(API.devEnvRunStop, { params: { id: falconId, runId: id } })
+    expect(out(await p)).toContain('cancelled this command')
   })
   test('the owner cancels a waiting job from the chat', async () => {
     await shell('alice', chatA).call({ command: 'sleep', job: true, log_name: 'long' })

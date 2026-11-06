@@ -101,7 +101,7 @@ export const servedNow = (): ReadonlyMap<string, number> => served
 
 export type TicketEnd = 'granted' | 'expired' | 'cancelled' | 'stopped' | 'aborted'
 
-interface Ticket { rowId: string; userId: string; resolve: (end: TicketEnd) => void; timer: ReturnType<typeof setTimeout> | null }
+interface Ticket { rowId: string; userId: string; resolve: (end: TicketEnd) => void; timer: ReturnType<typeof setTimeout> | null; drop?: (end: TicketEnd) => void }
 /** the calls that wait, by row id */
 const tickets = new Map<string, Ticket>()
 /** granted commands that did not end yet: row id -> person */
@@ -133,8 +133,9 @@ export function addTicket(db: Database, o: { space: TicketSpace; turnId: string;
   return id
 }
 
-/** Wait until the ticket is granted, its time is up, it is cancelled, or the call stops. The row is gone after. */
-export function waitTicket(db: Database, rowId: string, userId: string, o: { waitMs: number; signal?: AbortSignal }): Promise<TicketEnd> {
+/** Wait until the ticket is granted, its time is up (armTicket), it is cancelled, or the call stops. The row is gone
+ * after. */
+export function waitTicket(db: Database, rowId: string, userId: string, o: { signal?: AbortSignal }): Promise<TicketEnd> {
   return new Promise<TicketEnd>((resolve) => {
     const t: Ticket = { rowId, userId, timer: null, resolve: (end) => {
       if (tickets.get(rowId) !== t) return
@@ -148,8 +149,16 @@ export function waitTicket(db: Database, rowId: string, userId: string, o: { wai
     tickets.set(rowId, t)
     if (o.signal?.aborted) return drop('aborted')
     o.signal?.addEventListener('abort', onAbort, { once: true })
-    t.timer = setTimeout(() => drop('expired'), o.waitMs)
+    t.drop = drop
   })
+}
+
+/** Start the time limit of a waiting ticket. The caller starts it after the first start round, so that a ticket that a
+ * free slot takes at once never expires first (a wait limit of 0 means: only a free slot now). */
+export function armTicket(rowId: string, waitMs: number) {
+  const t = tickets.get(rowId)
+  if (!t || t.timer) return
+  t.timer = setTimeout(() => t.drop?.('expired'), waitMs)
 }
 
 /** a waiting ticket's row goes; false when it was not waiting any more (granted or ended at the same moment) */

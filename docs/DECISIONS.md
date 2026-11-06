@@ -5341,7 +5341,8 @@ heavy. Code: `server/src/devenv/srt/queue.ts`, `runner.ts`, `tool.ts`; migration
   dev environment… #2 in line" with the live place (one poll of `GET /api/dev-env/runs`) and a Cancel button
   (`POST /api/dev-env/runs/:id/stop`, the owner only). A started command goes on in the same call, so the AI continues
   by itself. A queued job still returns at once; the chat shows its place until it starts, and the AI hears of the
-  result on its next call, as before.
+  result on its next call, as before. A waiting command can be cancelled only by its owner, also on the project page;
+  waiting jobs keep the old rule there (readers of the folder who may use the dev environment, and admins).
 - **Restart.** The rows keep the queue. A ticket whose call went with the old process ends (`end_reason` `lost`) at
   start and at each poll, with no notice and no result for the AI; its command never runs. An older build reads a
   ticket as a waiting job with no command file and ends it.
