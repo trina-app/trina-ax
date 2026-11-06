@@ -6,7 +6,7 @@ import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
-import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import { recordShared, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { WELCOME_PACK_SKILLS, WELCOME_RESULT_SKILL, WelcomeProgress } from '@mycel/shared/api'
@@ -254,4 +254,49 @@ test('the AI step (docs/DECISIONS.md "W2"): absent until shown, skipped while ne
   expect(fresh.progress.steps).toMatchObject({ ai: 'done', profile: 'skipped', result: 'skipped', invite: 'skipped' })
   expect(fresh.progress.finishedAt).not.toBeNull()
   expect(WelcomeProgress.safeParse(fresh.progress).success).toBe(true)
+})
+
+// K — 내 스킬 가져오기 (docs/DECISIONS.md): two more counted steps after the first result; 내 스킬 put off on a phone waits
+// for a computer (the steps are not finished meanwhile); the skills shared from it are recorded with the one the invite
+// opens, which only the shared skills can be.
+test('내 스킬 and 팀 파일: put off on a phone waits for a computer; the shared skills and the invite\'s landing skill', async () => {
+  const { owner, ownerId, ada } = await setup()
+  await owner.call('PATCH', '/api/onboarding/welcome', {})
+  for (const id of ['profile', 'result'] as const) await owner.call('PATCH', '/api/onboarding/welcome', { step: { id, state: 'done' } })
+  // the phone's "다음": skipped there, still waiting (finished never, even with the invite done)
+  let p = (await owner.call('PATCH', '/api/onboarding/welcome', { skillsLater: true })).progress
+  expect(p.steps.skills).toBe('skipped')
+  expect(p.skillsLater).toBe(true)
+  await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'files', state: 'done' } })
+  p = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'invite', state: 'done' } })).progress
+  expect(p.finishedAt).toBeNull()
+  // the landing can only be a shared skill: none shared yet
+  expect((await owner.try('PATCH', '/api/onboarding/welcome', { landing: 'skills/x/SKILL.md' })).status).toBe(400)
+  // the share (server/src/skills/share.ts apply) records what went in: an admin's share changes nothing here
+  recordShared(h.ctx, ada.id, [{ path: 'skills/nope/SKILL.md', title: 'Nope', recommended: true }])
+  expect((await owner.call('GET', '/api/onboarding/welcome')).progress.shared).toBeUndefined()
+  recordShared(h.ctx, ownerId, [{ path: 'skills/dev-notes/SKILL.md', title: '개발 메모', recommended: false }, { path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고', recommended: true }])
+  // a second share adds, each path once; the landing stays the first one set
+  recordShared(h.ctx, ownerId, [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고', recommended: true }, { path: 'skills/quote-draft/SKILL.md', title: '견적서 초안', recommended: true }])
+  p = (await owner.call('GET', '/api/onboarding/welcome')).progress
+  expect(p.shared.skills.map((x: { path: string }) => x.path)).toEqual(['skills/dev-notes/SKILL.md', 'skills/weekly-report/SKILL.md', 'skills/quote-draft/SKILL.md'])
+  expect(p.shared.landing).toBe('skills/weekly-report/SKILL.md')
+  // 바꾸기 on the invite: another shared skill; never one that was not shared; only the owner
+  expect((await owner.call('PATCH', '/api/onboarding/welcome', { landing: 'skills/quote-draft/SKILL.md' })).progress.shared.landing).toBe('skills/quote-draft/SKILL.md')
+  expect((await owner.try('PATCH', '/api/onboarding/welcome', { landing: 'skills/general/intro-deck/SKILL.md' })).status).toBe(400)
+  expect((await ada.client.try('PATCH', '/api/onboarding/welcome', { landing: 'skills/weekly-report/SKILL.md' })).status).toBe(403)
+  // done on a computer: no longer waiting, and the steps are finished
+  p = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'skills', state: 'done' } })).progress
+  expect(p.skillsLater).toBeUndefined()
+  expect(p.finishedAt).not.toBeNull()
+  expect(WelcomeProgress.parse(p)).toEqual(p)
+})
+
+test('a share recorded on a row that is not there, or not an object, changes nothing and never throws', async () => {
+  const { ownerId } = await setup()
+  recordShared(h.ctx, ownerId, [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고', recommended: true }])
+  expect(getSetting(h.ctx.db, WELCOME_SETTING) ?? null).toBeNull()
+  setSetting(h.ctx.db, WELCOME_SETTING, 'broken')
+  recordShared(h.ctx, ownerId, [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고', recommended: true }])
+  expect(getSetting(h.ctx.db, WELCOME_SETTING)).toBe('broken')
 })

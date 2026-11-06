@@ -10,6 +10,8 @@ import { makeEnv, WORK } from '../lib/env'
 import { recordSkillRead, recordSkillUse } from '../../server/src/admin/skill-usage'
 import { goalProgress, GOAL_SHOWN_KEY, noteGoalRun, REACHED_GRACE_MS, skillRunners } from '../../server/src/onboarding/goal'
 import { skillTitle } from '../../server/src/onboarding/goal-names'
+import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import { setSetting } from '../../server/src/admin/settings'
 import { migrate, MIGRATIONS_DIR, openDb } from '../../server/src/db'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { startHarness, type Harness as ChatHarness } from '../lib/b-harness'
@@ -206,6 +208,30 @@ describe('the card and the owners\' notice', () => {
     // a third person: reached, and still shown while the window runs
     turn(ids.erin, { skill: AD })
     expect(await goal()).toMatchObject({ state: 'reached', skill: { runners: 3 } })
+  })
+
+  test('the skill the invite opens (shared from 내 스킬, docs/DECISIONS.md "K") is counted while it has as many runners as the top one, even with none', async () => {
+    const abs = path.join(h.ctx.config.teamRoot, SEO.path)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\nname: seo-brief\ndescription: 검색 광고 정리\nmetadata:\n  title: 검색 광고 정리\n---\nWrite.\n')
+    setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: START, updatedAt: START, teamType: null, steps: { profile: 'done', result: 'done', skills: 'done', files: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, shared: { at: START, skills: [{ path: SEO.path, title: '검색 광고 정리' }], landing: SEO.path } })
+    try {
+      // nobody ran a team skill yet: the shared skill the link opens, with nobody yet
+      expect((await goal()).skill).toMatchObject({ path: SEO.path, name: '검색 광고 정리', runners: 0, people: [] })
+      // another skill with more people: that one
+      turn(ids.member, { skill: AD })
+      expect((await goal()).skill).toMatchObject({ path: AD.path, runners: 1 })
+      // as many: the shared one
+      turn(ids.erin, { skill: SEO })
+      expect((await goal()).skill).toMatchObject({ path: SEO.path, runners: 1, people: ['ERIN'] })
+      // a shared skill deleted since: the top one as before
+      fs.rmSync(abs)
+      h.ctx.db.query("DELETE FROM turns WHERE id LIKE 'card-%'").run()
+      expect((await goal()).skill).toBeNull()
+    } finally {
+      h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(WELCOME_SETTING)
+      fs.rmSync(abs, { force: true })
+    }
   })
 
   test('a deleted person counts but is not named', async () => {
