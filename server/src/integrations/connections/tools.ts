@@ -21,7 +21,8 @@ import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from
 import { addSources } from '../../chat/read-scope'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
-import { bareUrl, disabledTools, savedTools, toolsOffered, type Row } from './store'
+import { bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type Row } from './store'
+import { noteScheduleUse } from './schedule-needs'
 import { HIDDEN, secretHider } from './hide'
 import { say } from './text'
 import type { RemoteTool } from './mcp'
@@ -332,6 +333,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
       try {
         chat = turnChat(ctx, tc)
         current = h.use(svc.forCall(tc.userId, row.id))
+        noteScheduleUse(ctx.db, tc.turnId, current)
         const t = savedTools(ctx.db, current).find((x) => x.name === tool.name)
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
         // turned off since the turn began: the person who manages the connection said no to this tool
@@ -490,6 +492,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         if (!picked) throw new CallError(`unknown connection "${a.connection}"; use one of: ${[...byKey.keys()].join(', ')}`, 'unknown connection')
         key = connectionKey(picked)
         const row = h.use(svc.forCall(tc.userId, picked.id))
+        noteScheduleUse(ctx.db, tc.turnId, row)
         if (row.kind !== 'http') throw new CallError('this connection is not an HTTP API', 'unknown connection')
         const url = buildUrl(row.url, a.path, a.query)
         const req = bodyOf(a.method, a.body)
@@ -700,7 +703,12 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       for (const row of rows) {
         const who = row.scope === 'personal' ? 'personal' : 'team'
         const key = connectionKey(row)
-        if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) { lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in Settings > MCP)`); continue }
+        if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) {
+          // made from an admin's template: the person connects their own key again on a card in the chat
+          if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
+          else lines.push(`- ${row.name} (${who} connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (the user can fix it in Settings > MCP)`)
+          continue
+        }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }
         const saved = savedTools(ctx.db, row)
         const off = disabledTools(row)
@@ -735,6 +743,14 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         if (!entries.length && skipped && offered === null) lines.push(`- ${row.name} (${who} connection, MCP server): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)
         else if (direct) lines.push(`- ${row.name} (${who} connection, MCP server): ${entries.length} tools named ${key}__…${capped}${offNote}`)
         else lines.push(`- ${row.name} (${who} connection, MCP server): ${entries.length} tools, not loaded: look them up with find_tools and run them with call_tool (see "Tools to look up")${capped}${offNote}`)
+      }
+      // admins' templates for this person that they have not connected yet: the AI offers the card for their own key
+      // when they ask for the service (connect_service with the template's id). Never another member's connection.
+      const mine = new Set(rows.map((r) => r.template_id).filter(Boolean))
+      const templates = ctx.db.query('SELECT id, name FROM integration_templates ORDER BY name, id').all() as { id: string; name: string }[]
+      for (const t of templates) {
+        if (mine.has(t.id) || !templateCovers(ctx.db, t.id, b.userId)) continue
+        lines.push(`- ${t.name} (team template, not connected yet: each person connects their own key): when the user asks for ${t.name}, call connect_service with template "${t.id}" and name "${t.name}" so they can connect it (not in a scheduled run)`)
       }
       if (http.length) tools.push(apiRequestTool(ctx, b, http))
       const lookup = deferred.length ? lookupSection(deferred) : null

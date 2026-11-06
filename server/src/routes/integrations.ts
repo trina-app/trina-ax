@@ -47,6 +47,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.createIntegrationTemplate, ({ c, auth, body }) => tpl().create(viewer(auth), body, c.get('locale')))
   kit.handle(API.updateIntegrationTemplate, ({ c, auth, params, body }) => tpl().update(viewer(auth), params.id, body, c.get('locale')))
   kit.handle(API.deleteIntegrationTemplate, async ({ auth, params }) => { await tpl().remove(viewer(auth), params.id) })
+  kit.handle(API.listIntegrationTemplateMembers, async ({ auth, params }) => ({ items: await tpl().members(viewer(auth), params.id) }))
   kit.raw('GET', INTEGRATION_CALLBACK, async (c) => {
     let ok = false
     const cc = c as unknown as AppContextC

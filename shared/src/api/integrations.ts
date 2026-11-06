@@ -215,8 +215,9 @@ const RequestList = z.object({ items: z.array(IntegrationRequest) })
 // ---------------- templates: an admin registers a service once, each member connects it as their own ----------------
 // The admin fills in the service (as for a team connection, with who it is for, but without a key); each member it is
 // for connects it with their own key or sign-in, and it becomes that member's own connection, used only in their
-// chats with their key. The admin never sees a key and sees only how many members connected (docs/INTEGRATIONS.md
-// "Templates"). A new address, sign-in method or header on the template drops every member's key.
+// chats with their key. The admin never sees a key; they see who it is for has connected it and when, and whose key
+// stopped working (docs/INTEGRATIONS.md "Templates"). A new address, sign-in method or header on the template drops
+// every member's key.
 
 /** the most templates a team keeps */
 export const INTEGRATION_TEMPLATES_MAX = 50
@@ -283,6 +284,18 @@ export const MyIntegrationTemplate = z.object({
 })
 export type MyIntegrationTemplate = z.infer<typeof MyIntegrationTemplate>
 
+/** One person a template is for, as an admin sees them (Admin › MCP, a template's "N connected"): their name, and
+ * whether they connected it with their own key or sign-in. Never a key, an address, a tool or anything the service
+ * returned. stopped: their last check or call was refused for its key or sign-in (the connection's status
+ * needs_auth); error: the service could not be reached or answered with an error. */
+export const IntegrationTemplateMember = z.object({
+  user: Person,
+  state: z.enum(['connected', 'not_connected', 'stopped', 'error']),
+  /** when they connected it (connected, stopped, error); null when not connected */
+  since: IsoTime.nullable(),
+})
+export type IntegrationTemplateMember = z.infer<typeof IntegrationTemplateMember>
+
 /** Connecting a template: my key (auth bearer / header; write-only), or nothing for a sign-in (the app signs in next),
  * what the AI may change there (ask or refuse), and the template's version as I saw it: 409 when it changed since, so
  * a key goes only where I agreed to send it. */
@@ -311,6 +324,7 @@ export const INTEGRATIONS = {
   listTeamIntegrationTemplates: endpoint({ method: 'GET', path: '/api/admin/integration-templates', auth: 'admin', owner: 'C', response: z.object({ items: z.array(IntegrationTemplate) }), summary: 'Every template, with who it is for and how many members connected it. Never a key.' }),
   createIntegrationTemplate: endpoint({ method: 'POST', path: '/api/admin/integration-templates', auth: 'admin', owner: 'C', status: 201, body: IntegrationTemplateInput, response: IntegrationTemplate, summary: 'Register a service once for the team; each member it is for connects it with their own key or sign-in.' }),
   updateIntegrationTemplate: endpoint({ method: 'PATCH', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', body: IntegrationTemplatePatch, response: IntegrationTemplate, summary: 'Change a template. A new address, sign-in method or header deletes every member\'s connection made from it (and its key); they connect again. The address may not have a query (a key there would reach every member).' }),
+  listIntegrationTemplateMembers: endpoint({ method: 'GET', path: '/api/admin/integration-templates/:id/members', auth: 'admin', owner: 'C', response: z.object({ items: z.array(IntegrationTemplateMember) }), summary: 'Who a template is for, each with whether they connected it and when, or whether their key stopped working. Names and states only: never a key, an address or service data.' }),
   deleteIntegrationTemplate: endpoint({ method: 'DELETE', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a template and every member\'s connection made from it (OAuth: revocation is tried, the local tokens go first).' }),
   withdrawIntegrationRequest: endpoint({ method: 'POST', path: '/api/admin/integration-requests/:id/withdraw', auth: 'admin', owner: 'C', body: z.object({}), response: IntegrationRequest, summary: 'Withdraw a waiting request.' }),
 } as const

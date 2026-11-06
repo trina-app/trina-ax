@@ -3,17 +3,21 @@
 // - Settings › MCP, "From your team": the templates shared with this member. Not connected yet: the service and Connect,
 //   which opens the member's own-key dialog (AnswerDialog.tsx OwnKeyDialog) with the template filled in. Connected: the
 //   member's own connection, like any other (check again, sign in, tools, edit their key, disconnect).
-// - Admin › MCP: a template on one line, "Template · N connected", who it is for, edit and delete. The admin never sees
-//   a member's key or who connected, only how many.
+//   ?template=<id> (an inbox notice, a scheduled run that needed it) opens that template's Connect.
+// - Admin › MCP: a template on one line, "Template · N connected", who it is for, edit and delete. "N connected" opens
+//   who it is for, each with whether they connected it and when, or whether their key stopped working. The admin never
+//   sees a member's key or anything the service returned.
 import { Globe, Pencil, Plug, Trash2, Waypoints } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import type { Group, Integration, IntegrationTemplate, MyIntegrationTemplate, User } from '@mycel/shared/api'
+import { useSearchParams } from 'react-router-dom'
+import type { Group, Integration, IntegrationTemplate, IntegrationTemplateMember, MyIntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
-import { Badge, Button, IconButton, confirmDialog } from '../ui'
+import { formatDate } from '../../lib/format'
+import { Badge, Button, IconButton, Modal, Skeleton, confirmDialog } from '../ui'
 import { OwnKeyDialog } from './AnswerDialog'
 import { ConnectorLogo } from './ConnectorsView'
 import { IntegrationRow, type IntegrationActions } from './IntegrationRow'
@@ -65,8 +69,16 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
       throw e
     }
   }
+  const [params, setParams] = useSearchParams()
+  const asked = params.get('template')
   useEffect(() => {
-    void load()
+    void load().then((list) => {
+      // ?template=<id>: that template's Connect (a notice or a scheduled run sent the person here); once only
+      if (!asked || !list) return
+      const hit = list.find((x) => x.id === asked)
+      if (hit && (!hit.connection || hit.connection.status === 'needs_auth')) setOpen(hit)
+      setParams((p) => { const n = new URLSearchParams(p); n.delete('template'); return n }, { replace: true })
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
   const q = query.trim().toLocaleLowerCase()
@@ -112,6 +124,43 @@ export function MyTemplates({ version, query, actions, onEdit, onConnected }: {
   )
 }
 
+/** Admin › MCP, a template's "N connected": who it is for, each with whether they connected it and when, or whether
+ * their key stopped working. Names and states only. */
+function TemplateMembers({ tpl, onClose }: { tpl: IntegrationTemplate; onClose: () => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const [items, setItems] = useState<IntegrationTemplateMember[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    api.call(API.listIntegrationTemplateMembers, { params: { id: tpl.id } })
+      .then((r) => { if (live) setItems(r.items) })
+      .catch((e) => { if (live) setError(errorText(e, locale, t('error.network'))) })
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tpl.id])
+  const tone = (s: IntegrationTemplateMember['state']) => s === 'connected' ? 'ok' as const : s === 'not_connected' ? 'neutral' as const : 'warn' as const
+  return (
+    <Modal open onClose={onClose} title={t('integrations.template.membersTitle', { name: tpl.name })} footer={<Button onClick={onClose}>{t('common.close')}</Button>}>
+      <p className="text-xs text-muted">{t('integrations.template.membersHint')}</p>
+      {error && <p className="mt-3 text-sm text-danger" role="alert">{error}</p>}
+      {!items && !error && <div className="mt-3"><Skeleton lines={3} /></div>}
+      {items && !items.length && <p className="mt-3 text-sm text-muted">{t('integrations.users.nobody')}</p>}
+      {items && items.length > 0 && (
+        <ul className="mt-3 divide-y divide-line" data-testid="template-members">
+          {items.map((m) => (
+            <li key={m.user.id} className="flex items-center gap-3 py-2" data-testid="template-member" data-state={m.state}>
+              <span className="min-w-0 flex-1 truncate text-sm" title={m.user.name}>{m.user.name}</span>
+              {m.since && m.state === 'connected' && <span className="shrink-0 text-xs text-muted">{formatDate(m.since, locale)}</span>}
+              <Badge tone={tone(m.state)}>{t(`integrations.template.member.${m.state}`)}</Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  )
+}
+
 /** Admin › MCP: one template. Who it is for and who made it under the name; edit and delete on the line. */
 export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
   tpl: IntegrationTemplate
@@ -125,6 +174,7 @@ export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
   const a = tpl.access
   const names = [...a.groups.map((id) => groups.find((g) => g.id === id)?.name ?? '?'), ...a.users.map((id) => users.find((u) => u.id === id)?.name ?? '?')]
   const who = a.everyone ? t('integrations.access.everyone') : names.join(', ')
+  const [members, setMembers] = useState(false)
   const remove = async () => {
     const ok = await confirmDialog({
       title: t('integrations.template.deleteTitle', { name: tpl.name }),
@@ -148,7 +198,10 @@ export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span className="max-w-full truncate text-sm font-medium" title={tpl.name}>{tpl.name}</span>
-            <span className="inline-flex" data-testid="template-badge"><Badge tone="accent">{t('integrations.template.badge', { n: tpl.connected })}</Badge></span>
+            <button type="button" className="inline-flex rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" onClick={() => setMembers(true)}
+              aria-haspopup="dialog" title={t('integrations.template.membersOpen')} data-testid="template-badge">
+              <Badge tone="accent">{t('integrations.template.badge', { n: tpl.connected })}</Badge>
+            </button>
             {isEmptyAccess(a) && <Badge tone="warn">{t('integrations.users.nobody')}</Badge>}
           </span>
           <span className="mt-0.5 block truncate text-xs text-muted" data-testid="template-admin-line">
@@ -158,6 +211,7 @@ export function TemplateRow({ tpl, groups, users, onEdit, onDeleted }: {
       </div>
       <IconButton label={t('common.edit')} onClick={onEdit} data-testid="template-edit"><Pencil size={15} /></IconButton>
       <IconButton label={t('common.delete')} danger onClick={() => void remove()} data-testid="template-delete"><Trash2 size={15} /></IconButton>
+      {members && <TemplateMembers tpl={tpl} onClose={() => setMembers(false)} />}
     </li>
   )
 }

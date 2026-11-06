@@ -246,3 +246,76 @@ test('a new template is for the whole team unless the admin picks people; the me
   await page.goto('/settings/integrations')
   await expect(page.getByTestId('integrations-from-team').getByTestId('template-row').filter({ hasText: 'Wiki' })).toBeVisible()
 })
+
+// The brief's R2, R4 and R7 in the app: "N connected" opens who it is for (names and states, never a key); an inbox
+// notice and a scheduled task that needed the key both open that template's Connect.
+test('R4: "N connected" opens who it is for, who connected and when, never a key; phone and accessibility', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await makeTemplate(page)
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  await page.goto('/settings/integrations')
+  await page.getByTestId('template-row').filter({ hasText: 'Tasks' }).getByTestId('template-connect').click()
+  await page.getByTestId('integration-answer-key').fill(KEY)
+  await page.getByTestId('integration-answer-connect').click()
+  await expect(page.getByTestId('integrations-from-team').getByTestId('integration-row')).toHaveCount(1)
+
+  await page.context().clearCookies()
+  await signIn(page)
+  await page.goto('/admin/integrations')
+  const answer = page.waitForResponse((r) => /\/api\/admin\/integration-templates\/[^/]+\/members$/.test(r.url()))
+  await page.getByTestId('template-admin-row').filter({ hasText: 'Tasks' }).getByTestId('template-badge').click()
+  const body = await (await answer).text()
+  expect(body).not.toContain(KEY)
+  expect(body).not.toContain('mcp.tasks.example')
+  const d = modal(page)
+  await expect(d.getByRole('heading', { name: 'Who connected Tasks' })).toBeVisible()
+  const bob = d.getByTestId('template-member').filter({ hasText: 'Bob' })
+  await expect(bob).toHaveAttribute('data-state', 'connected')
+  await expect(bob).toContainText('Connected')
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme })
+    const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).include('[role="dialog"]').analyze()
+    expect(r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([])
+  }
+  await page.keyboard.press('Escape')
+  await expect(modal(page)).toHaveCount(0)
+  // phone width: the badge still opens it, nothing runs off the side
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByTestId('template-admin-row').filter({ hasText: 'Tasks' }).getByTestId('template-badge').click()
+  await expect(modal(page).getByTestId('template-member').filter({ hasText: 'Bob' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('R2 and R7: an inbox notice and a scheduled task that needed the key open that template\'s Connect', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await makeTemplate(page)
+  const tid = (await (await page.request.get('/api/admin/integration-templates')).json()).items.find((x: { name: string }) => x.name === 'Tasks').id
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  const at = new Date().toISOString()
+  await page.route('**/api/notifications?*', (r) => r.fulfill({ json: { unreadCount: 2, nextCursor: null, items: [
+    { id: 'n1', eventType: 'integration.template', code: 'integration.template', sourceId: tid, createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: null, template: { id: tid, name: 'Tasks' } },
+    { id: 'n2', eventType: 'schedule.failure', code: 'schedule.failure', sourceId: 's1', createdAt: at, readAt: null, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: tid, name: 'Tasks' } },
+  ] } }))
+  await page.goto('/settings/notifications')
+  const items = page.getByTestId('notification-item')
+  await expect(items.filter({ hasText: 'Tasks is ready: connect it with your own key.' })).toBeVisible()
+  await expect(items.filter({ hasText: 'A scheduled task did not run: it needs your own key for Tasks.' })).toBeVisible()
+  await items.filter({ hasText: 'Tasks is ready' }).getByTestId('notification-template-link').click()
+  await expect(page).toHaveURL(/\/settings\/integrations/)
+  await expect(modal(page).getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()
+  await expect(page).not.toHaveURL(/template=/)
+  await page.keyboard.press('Escape')
+
+  // the scheduled task's result names the template and links to its Connect
+  await page.unroute('**/api/notifications?*')
+  const task = { id: 'task-needs-key', title: 'Weekly tasks', prompt: 'Summarise my Tasks board', repeat: 'daily', time: '09:00', weekday: null, day: null, date: null, projectId: null, enabled: true, nextRunAt: at, lastRunAt: at, lastChatId: null, templateId: null, templateVersion: null, sourcePath: null, outputPath: null, pendingDueAt: null, retryAt: null, deferredCount: 0, lastOutcome: 'needs_key', lastNeed: { templateId: tid, name: 'Tasks' } }
+  await page.route('**/api/schedules', (r) => r.request().method() === 'GET' ? r.fulfill({ json: { items: [task], timeZone: 'Asia/Seoul' } }) : r.fallback())
+  await page.goto(`/scheduled/${task.id}`)
+  await expect(page.getByTestId('schedule-outcome-reason')).toContainText('Needs your own key for Tasks')
+  await page.getByTestId('schedule-connect-template').click()
+  await expect(modal(page).getByRole('heading', { name: 'Connect Tasks' })).toBeVisible()
+})

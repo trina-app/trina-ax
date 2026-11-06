@@ -24,6 +24,7 @@ import {
   type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
+import { notifyTemplateReconnect } from '../../notifications/service'
 
 export const MAX_PERSONAL = 20
 export const MAX_TEAM = 50
@@ -322,6 +323,12 @@ export class Integrations {
       toolListsOf(this.db).drop(row.id)
       audit(this.db, { actor, action: 'integration.delete', target: row.id, detail: { ...auditDetail(row), why } })
       if (old?.type === 'oauth') olds.push(old)
+      // the template moved (a new address, sign-in method or header): the member connects it again, and is told so
+      // (its id and new version only; never the address)
+      if (why === 'template_moved' && row.owner_user_id) {
+        const t = this.db.query('SELECT version FROM integration_templates WHERE id = ?').get(row.template_id) as { version: number } | null
+        if (t) notifyTemplateReconnect(this.ctx, row.owner_user_id, row.template_id, t.version)
+      }
     }
     const revoking = Promise.all(olds.map((o) => this.revokeTokens(o).catch(() => false)))
     if (wait) await revoking

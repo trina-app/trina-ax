@@ -78,7 +78,9 @@ The members it is for see it in **Settings › MCP** under **From your team**, a
 |---|---|---|
 | Key | One, added by the admin | Each member's own |
 | Whose rights the AI uses | The key owner's, for everyone | Each member's own |
-| What the admin sees | The connection | "Template · N connected", never a key or who connected |
+| What the admin sees | The connection | Who connected it and when, and whose key stopped working; never a key |
+
+The people it is for get a notice in their **Inbox** that opens its **Connect**. In a chat, the AI offers a card to connect your own key when you ask for that service. On the template's line in Admin › MCP, **N connected** shows who it is for: **Connected** (with the date), **Not connected** or **Key stopped working**. A scheduled task that needs a template doesn't run without your own key: its result says "Needs your own key for …" and links to **Connect**.
 
 A member can change only their key or sign-in and the write rule, and can disconnect at any time. If the admin changes a template's address or sign-in method, every member's key is deleted and they connect again; a new name or note keeps everyone connected. If a template changes while a member is connecting, they're asked to check it and connect again. Deleting the template, or removing someone from it, deletes their connections.
 

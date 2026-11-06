@@ -845,6 +845,24 @@ export class MockServer {
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       prompt += ` answered:${JSON.stringify(answer)}`
     }
+    if (/connecttemplate/i.test(prompt)) {
+      // like server/src/chat/connect-service.ts: the connect card for an admin's template this person has not connected
+      // (the person's own key, the template's address); it stays until the turn's time for it runs out
+      const t = this.integrationTemplates.find((x) => this.templateCovers(x, user) && !this.integrations.some((y) => y.templateId === x.id && y.ownerId === user.id))
+      if (t) {
+        const requestId = 'ct1'
+        const request: TurnRequest = {
+          kind: 'connect_service', requestId, target: 'service', name: t.name, scope: 'personal',
+          service: { kind: t.kind, url: t.url, host: new URL(t.url).host, auth: t.auth, authHeader: t.authHeader }, template: { id: t.id, version: t.version },
+          why: `You asked for your ${t.name} pages.`, expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }
+        this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+        pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+        await Promise.race([new Promise((r) => this.pendingAsk.set(turnId, r)), sleep(60_000)])
+        this.openAsks.delete(turnId)
+        pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      }
+    }
     if (/sendcard/i.test(prompt)) {
       // like server/src/integrations/connections/tools.ts gate: everything a connected service is sent, where it goes first
       const requestId = 'w1'
@@ -2320,6 +2338,17 @@ export class MockServer {
         else Object.assign(x, { name: t.name, notes: t.notes })
       }
       return this.templateView(t)
+    },
+    // like templates.ts members: who it is for, connected (when) / not connected / key stopped working; never a key
+    listIntegrationTemplateMembers: (c) => {
+      const t = this.integrationTemplates.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      return {
+        items: this.users.filter((u) => u.status === 'active' && this.templateCovers(t, u)).sort((a, b) => a.name.localeCompare(b.name)).map((u) => {
+          const x = this.integrations.find((y) => y.templateId === t.id && y.ownerId === u.id)
+          if (!x || !this.integrationSecrets.has(x.id)) return { user: { id: u.id, name: u.name }, state: 'not_connected' as const, since: null }
+          return { user: { id: u.id, name: u.name }, state: x.status === 'needs_auth' ? 'stopped' as const : x.status === 'error' ? 'error' as const : 'connected' as const, since: x.createdAt }
+        }),
+      }
     },
     deleteIntegrationTemplate: (c) => {
       if (!this.integrationTemplates.some((x) => x.id === c.params.id)) fail('not_found', 404)

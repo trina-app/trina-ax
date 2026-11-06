@@ -6,12 +6,15 @@
 // add themselves (service.ts create: the same checks, the key sealed for the member, the same audit), with the
 // template's address, sign-in method and header fixed: the member changes only their key or sign-in and the write rule
 // (service.ts update), so a key only ever goes to the address the admin registered. It is usable only while the
-// template covers its member (store.ts mayUse). The admin never sees a key, only how many members connected.
+// template covers its member (store.ts mayUse). The admin never sees a key: they see who it is for, whether each
+// person connected it and when, and whose key stopped working (members below), nothing the service returned. The people
+// it is for are told in their inbox that it is there (notifications/service.ts offerTemplates), and told again to
+// connect when its address or sign-in changed (service.ts dropFromTemplate).
 // A new address, sign-in method or header on the template, or deleting the template, deletes the members' connections
 // (and so their keys; OAuth sign-ins are revoked); a change of who it is for deletes the connections of members it no
 // longer covers. Nothing here holds, returns or logs a key.
 import { addressHasSecret } from '@mycel/shared'
-import { INTEGRATION_TEMPLATES_MAX, type Integration, type IntegrationAccess, type IntegrationTemplate, type IntegrationTemplateAnswer, type IntegrationTemplateInput, type IntegrationTemplatePatch, type Locale, type MyIntegrationTemplate } from '@mycel/shared/api'
+import { INTEGRATION_TEMPLATES_MAX, type Integration, type IntegrationAccess, type IntegrationTemplate, type IntegrationTemplateAnswer, type IntegrationTemplateInput, type IntegrationTemplateMember, type IntegrationTemplatePatch, type Locale, type MyIntegrationTemplate } from '@mycel/shared/api'
 import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
@@ -20,6 +23,7 @@ import { fail } from '../../http/errors'
 import { cleanNotes, fieldError, integrationsOf, normUrl, obviouslyPrivate, oneLine } from './service'
 import { activeUser, bareUrl, getRow, isAdmin, selectRows, templateCovers, view, type Row, type Viewer } from './store'
 import { say } from './text'
+import { notifyTemplateOffers } from '../../notifications/service'
 
 interface TemplateRow {
   id: string; created_by: string | null; kind: 'mcp' | 'http'; name: string; url: string; auth: 'bearer' | 'header' | 'oauth'
@@ -128,6 +132,7 @@ export class ConnectionTemplates {
       setTemplateAccess(this.db, t.id, input.access ?? { everyone: true, groups: [], users: [] })
     })()
     audit(this.db, { actor: viewer.id, action: 'integration_template.create', target: t.id, detail: auditDetail(t, { access: templateAccess(this.db, t.id) }) })
+    notifyTemplateOffers(this.ctx, t.id)
     return this.adminView(t)
   }
 
@@ -166,6 +171,8 @@ export class ConnectionTemplates {
     }
     if (moved) await this.svc.dropFromTemplate(madeFrom(this.db, id), viewer.id, 'template_moved')
     else if (accessChanged) await this.sweep(id)
+    // people it reaches now for the first time are told it is there
+    if (accessChanged) notifyTemplateOffers(this.ctx, id)
     return this.adminView(getTemplate(this.db, id)!)
   }
 
@@ -176,6 +183,22 @@ export class ConnectionTemplates {
     this.db.query('DELETE FROM integration_templates WHERE id = ?').run(id)
     audit(this.db, { actor: viewer.id, action: 'integration_template.delete', target: id, detail: auditDetail(t, { connections: rows.length }) })
     await this.svc.dropFromTemplate(rows, viewer.id, 'template_deleted')
+  }
+
+  /** Who a template is for (active people, as its rule covers them now), each with whether they connected it with their
+   * own key or sign-in and when, or whether that stopped working. Names and states only: never a key, an address, a
+   * tool or anything the service returned (brief R4). A sign-in begun but never finished counts as not connected. */
+  async members(viewer: Viewer, id: string): Promise<IntegrationTemplateMember[]> {
+    if (!isAdmin(viewer.role)) fail('forbidden')
+    if (!getTemplate(this.db, id)) fail('not_found')
+    await this.sweep(id)
+    const people = this.db.query("SELECT id, name FROM users WHERE status = 'active' AND deleted_at IS NULL ORDER BY name COLLATE NOCASE, id").all() as { id: string; name: string }[]
+    return people.filter((p) => templateCovers(this.db, id, p.id)).map((p) => {
+      const r = this.db.query('SELECT status, secret_enc IS NOT NULL AS has, created_at FROM integrations WHERE template_id = ? AND owner_user_id = ?').get(id, p.id) as { status: string; has: number; created_at: string } | null
+      if (!r || !r.has) return { user: { id: p.id, name: p.name }, state: 'not_connected' as const, since: null }
+      const state = r.status === 'needs_auth' ? 'stopped' as const : r.status === 'error' ? 'error' as const : 'connected' as const
+      return { user: { id: p.id, name: p.name }, state, since: r.created_at }
+    })
   }
 
   // ---------------- members ----------------

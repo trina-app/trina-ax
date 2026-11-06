@@ -36,6 +36,7 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   createIntegrationTemplate: { build: c => c.post('/api/admin/integration-templates', { kind: 'http', name: 'Matrix', url: `https://integration-matrix.invalid/api/${crypto.randomUUID()}`, auth: 'bearer', access: { everyone: false, groups: [], users: [] } }), scope: 'byLevel' },
   updateIntegrationTemplate: { build: c => c.patch(`/api/admin/integration-templates/${NONE}`, { name: 'x' }), scope: 'nobody' },
   deleteIntegrationTemplate: { build: c => c.del(`/api/admin/integration-templates/${NONE}`), scope: 'nobody' },
+  listIntegrationTemplateMembers: { build: c => c.get(`/api/admin/integration-templates/${NONE}/members`), scope: 'nobody' },
 }
 // GET /api/integrations/oauth/callback: state, session and person binding are tested in tests/unit/c-integrations-oauth.test.ts
 export const INTEGRATION_RAW_COVERED = ['RAW GET INTEGRATION_CALLBACK']

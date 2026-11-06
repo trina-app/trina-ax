@@ -28,8 +28,9 @@ import type { ChatRuntime } from './runtime'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { rememberUrls } from '../tools/url-gate'
 import { audit } from '../admin/audit'
+import { missingTemplateKey } from '../integrations/connections/schedule-needs'
 
-type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable'
+type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key'
 
 export const SCHEDULES_PER_PERSON = 20
 /** a run refused because the queue was full is tried again this much later */
@@ -200,6 +201,10 @@ export class Schedules {
     if (needsReview(s)) throw new HttpError('conflict', tr('scheduleReview', locale), { params: { reason: 'schedule_review' } })
     if (this.db.query("SELECT 1 FROM turns WHERE schedule_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(s.id, userId))
       throw new HttpError('conflict', tr('scheduleRunning', locale), { params: { reason: 'schedule_running' } })
+    // it needs the person's own key for an admin's template that they have not connected (or that stopped working):
+    // said now, not run without the service (integrations/connections/schedule-needs.ts)
+    const need = missingTemplateKey(this.db, s)
+    if (need) throw new HttpError('conflict', tr('scheduleNeedsKey', locale, { name: need.name }), { params: { reason: 'schedule_needs_key', templateId: need.templateId } })
     const blocked = budgetBlock(this.db, userId, locale, now)
     if (blocked) throw new HttpError('budget_exceeded', blocked.message)
     // its own occurrence key: never a whole minute, so never the key of a scheduled occurrence (turns_schedule_occurrence)
@@ -224,11 +229,18 @@ export class Schedules {
     const row = this.db.query(`SELECT code, run_outcome FROM (
       SELECT status code, run_outcome, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
       UNION ALL SELECT code, NULL run_outcome, created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
-    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
+      UNION ALL SELECT 'needs_key' code, NULL run_outcome, created_at at FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
     if (!row) return null
     if (row.code !== 'done') return row.code
     const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
     return outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error'
+  }
+
+  /** lastOutcome 'needs_key': the template the last skipped run needed, by the name it had then. */
+  lastNeed(userId: string, id: string): { templateId: string; name: string } | null {
+    const r = this.db.query('SELECT template_id, template_name FROM schedule_template_skips WHERE schedule_id=? AND user_id=? ORDER BY created_at DESC LIMIT 1').get(id, userId) as { template_id: string; template_name: string } | null
+    return r ? { templateId: r.template_id, name: r.template_name } : null
   }
 
   /** One pending occurrence per schedule. A retry never changes its original due key. */
@@ -259,14 +271,24 @@ export class Schedules {
             .run(s.id, JSON.stringify({ originalDue, acceptedAt: now.toISOString() }))
       }
       try {
-        const chatId = this.start(s, now, originalDue, commit)
+        // the owner's own key for a template the task needs is missing or stopped working: this occurrence does not
+        // start, and its result and the owner's inbox say which template to connect (never anyone else's key)
+        const ownerActive = !!this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
+        const need = ownerActive ? missingTemplateKey(this.db, s) : null
+        const chatId = need ? null : this.start(s, now, originalDue, commit)
         if (chatId) started.push(s.id)
         else this.db.transaction(() => {
           commit(null)
           const active = this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
           if (!active) this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
-          this.db.query('INSERT INTO schedule_outcomes(id,user_id,schedule_id,scheduled_for,code,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
-            .run(newId(), s.user_id, s.id, originalDue, active ? 'budget_exceeded' : 'user_unavailable', now.toISOString())
+          if (need) {
+            this.db.query('INSERT INTO schedule_template_skips(id,user_id,schedule_id,scheduled_for,template_id,template_name,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
+              .run(newId(), s.user_id, s.id, originalDue, need.templateId, need.name, now.toISOString())
+            this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.needs_key',?,?)").run(s.id, JSON.stringify({ originalDue, template: need.templateId }))
+          } else {
+            this.db.query('INSERT INTO schedule_outcomes(id,user_id,schedule_id,scheduled_for,code,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
+              .run(newId(), s.user_id, s.id, originalDue, active ? 'budget_exceeded' : 'user_unavailable', now.toISOString())
+          }
         })()
         if (!chatId) { try { notificationsOf(this.rt.ctx).reconcile(s.user_id) } catch { this.rt.log.warn('schedule notification deferred') } }
       } catch (e) {

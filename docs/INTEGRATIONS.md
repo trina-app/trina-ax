@@ -69,8 +69,30 @@ member's key, so a key there would reach every member and the service would log 
   it) at any time.
 - It is usable only while the template covers its member (`store.ts mayUse`, `templateCovers`), whatever
   `personalIntegrations` says (the admin registered the service), and it does not count toward a member's 20.
-- The admin sees "Template · N connected" (members with a key or sign-in now), never a key or who connected; the
-  activity log does not say either (below).
+- The admin sees "Template · N connected" (members with a key or sign-in now). It opens who the template is for, each
+  with **Connected** (and since when), **Not connected**, **Key stopped working** (the service refused their key or
+  sign-in: the connection's status `needs_auth`) or **Not working** (status `error`): names and states only, from
+  `GET /api/admin/integration-templates/:id/members` (admins). Never a key, the address, a tool or anything the
+  service returned. The activity log stays minimal (below): it does not say which template a member connected.
+- The people a template is for are told once in their inbox (`integration.template`, table
+  `integration_template_notices`; migration 334): when it is made for them, when a rule change, a group they join or
+  joining the team while it is for everyone brings it to them (the notification tick finds them every 30 seconds).
+  Its maker is not told about their own template, someone who connected it already is not told, and
+  `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
+  address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
+  (`integration.template_reconnect`, one per change). Both open Settings › MCP with the template's Connect
+  (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
+- In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
+  offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
+  card says "Connect your own key for <name>" and connects through the template's own path (`templates.ts connect`):
+  only while the template is for this person and is the version the card showed (409 otherwise), with the template's
+  address, sign-in method and header, also when members' own connections are turned off. Never anyone else's
+  connection; not in a scheduled run (nobody is there to finish a card).
+- A scheduled task that needs a template (it names the template, or one of its runs used a connection made from it,
+  noted in `schedule_template_needs`) does not start while its owner has no key for it or theirs stopped working: the
+  run's result is "Needs your own key for <name>" (`lastOutcome` `needs_key`, `lastNeed`; the occurrence is kept in
+  `schedule_template_skips`), the owner gets a failure notice that names the template and opens its Connect, and Run
+  now says the same (409). It never runs with anyone else's key; once the owner connects it, the next run starts.
 - A new address, sign-in method or header on the template deletes every member's connection made from it (keys and
   sign-ins; OAuth tokens are revoked): they connect again. A new name or note is copied to their connections without
   touching their version, so a sign-in, a token refresh or a write waiting for a yes is not thrown away. A rule that no
@@ -86,11 +108,12 @@ member's key, so a key there would reach every member and the service would log 
 - An admin's note on a template is the admin's: the AI reads it as "Note from your team admin".
 - The chat's connect card does not count template connections toward a member's 20, and does not call one the
   template no longer covers "already connected".
-- Not yet: an inbox notice when a template is shared, the chat's connect card for a template, a per-person list for
-  the admin, and choosing a default by sign-in method.
+- Not yet: choosing a default ("one team key" or "template") by sign-in method.
 
-Code: `server/src/integrations/connections/templates.ts`, migration `333_c_integration_templates.sql`; web:
-`web/src/components/integrations/TemplatesView.tsx`. Tests: `tests/unit/c-integration-templates.test.ts`,
+Code: `server/src/integrations/connections/templates.ts`, `schedule-needs.ts`, `server/src/notifications/service.ts`
+(offerTemplates), `server/src/chat/connect-service.ts`, migrations `333_c_integration_templates.sql` and
+`334_c_integration_template_notices.sql`; web: `web/src/components/integrations/TemplatesView.tsx`. Tests:
+`tests/unit/c-integration-templates.test.ts`, `tests/unit/c-template-chat-schedule.test.ts`,
 `web/test/e2e/integration-templates.spec.ts`.
 
 ## Asking a member to connect

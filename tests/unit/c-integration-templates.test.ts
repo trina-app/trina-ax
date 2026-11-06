@@ -17,6 +17,7 @@ import { connectRows } from '../../server/src/chat/connect-service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnToolContext } from '../../server/src/services'
+import { notificationsOf } from '../../server/src/notifications/service'
 
 setDefaultTimeout(30_000)
 
@@ -494,6 +495,98 @@ describe('security review: in chats', () => {
     const refused = await tool.call({ q: 'b' }, tc)
     expect(refused.isError).toBe(true)
     expect(fake.calls.length).toBe(calls)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+})
+
+// The brief's R2, R4 and R5 (docs/INTEGRATIONS.md "Templates"): the people a template is for are told in their inbox,
+// once each and only them, wherever it comes from (made for them, a rule change, a group they join, joining the team
+// while it is for everyone); told again to reconnect when its address changes; and an admin sees who connected it and
+// when, or whose key stopped working: names and states, never a key, an address or anything the service returned.
+describe('the brief: notices and who connected', () => {
+  const inbox = async (as: Client) => (await as.call('GET', '/api/notifications?limit=100')).items as any[]
+  const of = async (as: Client, id: string, event = 'integration.template') => (await inbox(as)).filter((n) => n.eventType === event && (n.template?.id === id || n.sourceId.startsWith(id)))
+  const reconcile = () => notificationsOf(h.ctx).reconcile()
+
+  test('R2: each person a template is for is told once in their inbox, never its maker or anyone else', async () => {
+    const t = await make(tpl({ name: 'Notice Board', access: { ...nobody, users: [ids.bob, ids.cara, ids.ada] } }))
+    for (const who of [bob, cara]) {
+      const n = await of(who, t.id)
+      expect(n.length).toBe(1)
+      expect(n[0]).toMatchObject({ eventType: 'integration.template', template: { id: t.id, name: 'Notice Board' }, link: 'integrations', readAt: null })
+      // metadata only: never the address or a key
+      expect(JSON.stringify(n)).not.toContain(fake.base)
+    }
+    // the admin who made it is not told about their own template; someone it is not for is never told
+    expect((await of(ada, t.id)).length).toBe(0)
+    expect((await of(olga, t.id)).length).toBe(0)
+    // again and again: still one each, also after the notice itself is gone (30 days): no second notice
+    reconcile(); reconcile()
+    expect((await of(bob, t.id)).length).toBe(1)
+    h.ctx.db.query('DELETE FROM integration_template_notices WHERE source_id = ?').run(t.id)
+    reconcile()
+    expect((await of(bob, t.id)).length).toBe(0)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+
+  test('R2: a rule change, a group someone joins, and joining the team while it is for everyone reach them too', async () => {
+    const g = await ada.call('POST', '/api/admin/groups', { name: 'Notified', memberIds: [] })
+    const t = await make(tpl({ name: 'Group Wiki', access: { ...nobody, groups: [g.id] } }))
+    expect((await of(cara, t.id)).length).toBe(0)
+    await ada.call('PATCH', `/api/admin/groups/${g.id}`, { memberIds: [ids.cara] })
+    reconcile()
+    expect((await of(cara, t.id)).length).toBe(1)
+    // a rule that now names bob: told at once
+    await ada.call('PATCH', `/api/admin/integration-templates/${t.id}`, { access: { ...nobody, groups: [g.id], users: [ids.bob] } })
+    expect((await of(bob, t.id)).length).toBe(1)
+    // someone who joins the team while a template is for everyone is told; one who connected it already is not
+    const e = await make(tpl({ name: 'Everyone Wiki', access: { everyone: true, groups: [], users: [] } }))
+    h.ctx.db.query('DELETE FROM integration_template_offers WHERE template_id = ? AND user_id = ?').run(e.id, ids.cara)
+    h.ctx.db.query('DELETE FROM integration_template_notices WHERE source_id = ? AND user_id = ?').run(e.id, ids.cara)
+    await connect(cara, e.id, { secret: MCP_KEY })
+    reconcile()
+    expect((await of(cara, e.id)).length).toBe(0)
+    const dave = await addMember(h, olga, { username: 'dave' })
+    reconcile()
+    expect((await of(dave.client, e.id)).length).toBe(1)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+    await ada.call('DELETE', `/api/admin/integration-templates/${e.id}`)
+  })
+
+  test('R5: a new address drops the key and tells only the members who had connected it to reconnect', async () => {
+    const t = await make(tpl({ name: 'Moving Tasks', access: { ...nobody, users: [ids.bob, ids.cara] } }))
+    await connect(bob, t.id, { secret: MCP_KEY })
+    await ada.call('PATCH', `/api/admin/integration-templates/${t.id}`, { url: `${fake.base}/mcp-open`, auth: 'bearer' })
+    const n = await of(bob, t.id, 'integration.template_reconnect')
+    expect(n.length).toBe(1)
+    expect(n[0]).toMatchObject({ template: { id: t.id, name: 'Moving Tasks' }, link: 'integrations' })
+    expect(JSON.stringify(n)).not.toContain(MCP_KEY)
+    expect(JSON.stringify(n)).not.toContain(fake.base)
+    expect((await of(cara, t.id, 'integration.template_reconnect')).length).toBe(0)
+    // a new name is not a move: no second reconnect notice
+    await ada.call('PATCH', `/api/admin/integration-templates/${t.id}`, { name: 'Moving Tasks 2' })
+    expect((await of(bob, t.id, 'integration.template_reconnect')).length).toBe(1)
+    await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
+  })
+
+  test('R4: an admin sees who it is for, who connected and when, and whose key stopped working; never a key', async () => {
+    const t = await make(tpl({ name: 'Seen Tasks', access: { ...nobody, users: [ids.bob, ids.cara] } }))
+    const c = (await connect(bob, t.id, { secret: MCP_KEY })).body
+    // members cannot see it; an unknown template is 404
+    expect((await bob.try('GET', `/api/admin/integration-templates/${t.id}/members`)).status).toBe(403)
+    expect((await ada.try('GET', '/api/admin/integration-templates/nope/members')).status).toBe(404)
+    const r = await ada.call('GET', `/api/admin/integration-templates/${t.id}/members`)
+    const by = Object.fromEntries(r.items.map((m: any) => [m.user.id, m]))
+    expect(Object.keys(by).sort()).toEqual([ids.bob, ids.cara].sort())
+    expect(by[ids.bob]).toMatchObject({ state: 'connected', since: expect.any(String) })
+    expect(by[ids.cara]).toEqual({ user: { id: ids.cara, name: expect.any(String) }, state: 'not_connected', since: null })
+    // only names and states: no key, address, tools or service data
+    const text = JSON.stringify(r)
+    for (const s of [MCP_KEY, fake.base, 'search_tasks', 'sealed', 'secret']) expect(text).not.toContain(s)
+    // a key the service refused shows as stopped working
+    h.ctx.db.query("UPDATE integrations SET status = 'needs_auth' WHERE id = ?").run(c.id)
+    const again = await ada.call('GET', `/api/admin/integration-templates/${t.id}/members`)
+    expect(again.items.find((m: any) => m.user.id === ids.bob).state).toBe('stopped')
     await ada.call('DELETE', `/api/admin/integration-templates/${t.id}`)
   })
 })
