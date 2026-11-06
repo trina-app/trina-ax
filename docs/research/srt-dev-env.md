@@ -360,6 +360,11 @@ The default list lives in code (`shared/src/dev-env-domains.ts`) and changes onl
 
 Known limit: an allowed domain can carry data out (for example a gist on github.com). The warning text says so.
 
+**Update 2026-11-06 (feat/devenv-user-allow-sites).** Each person can allow more sites for her own runs when a chat
+asks her (once or always), and turn on Full internet for herself, with no admin step. The admin's extra sites stay the
+team's list. The team's No network wins over both. Design and checks: `docs/DECISIONS.md` "Dev environment: sites a
+person allows".
+
 ### 3.3 Folder rules (summary)
 
 | Path | Read | Write |
@@ -495,6 +500,10 @@ CREATE INDEX dev_env_jobs_waiting ON dev_env_jobs(started_at) WHERE state = 'wai
 - Process list (`ps`): the pids in the scope's `cgroup.procs` and their `/proc/<pid>/cmdline`.
 - Network log: srt blocks a request and writes a line to stderr. v1 counts the blocked host names from the log files.
   It does not show every destination as conntrack did. The audit row keeps the allowlist that applied.
+
+**Update 2026-11-06.** v1 does not count blocked host names from the logs: srt writes them only with `SRT_DEBUG`, in
+the same stream as the command's own output. The AI names the host in `box_shell` `request_sites`, and the person
+answers a card (`docs/DECISIONS.md` "Dev environment: sites a person allows").
 
 ## 7. Move from the box
 

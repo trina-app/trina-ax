@@ -2,7 +2,7 @@
 // environment of the run and the argv of `systemd-run --scope`. Tests check each one (tests/unit/dev-env-srt.test.ts).
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEV_ENV_DEFAULT_DOMAINS, PRODUCT } from '@mycel/shared'
+import { DEV_ENV_DEFAULT_DOMAINS, PRODUCT, mergeSites } from '@mycel/shared'
 import type { FolderView } from './access'
 
 /** The pinned srt version. A new version goes into a new folder (scripts/dev-env/srt/install-srt.sh). */
@@ -11,6 +11,9 @@ export const SRT_VERSION = '0.0.81'
 export const SRT_PATHS = {
   node: '/opt/trina/node/bin/node',
   cli: `/opt/trina/srt/${SRT_VERSION}/cli.js`,
+  /** srt's CLI with an ask callback that allows every host: the Full internet switch of one person (srt-full.mjs). The
+   * deny lists and the resolved-address check stay in force; it widens only a settings file with strictAllowlist false */
+  cliFull: `/opt/trina/srt/${SRT_VERSION}/full.mjs`,
   runWrap: '/opt/trina/devenv/run-wrap',
   systemdRun: '/usr/bin/systemd-run',
   systemctl: '/usr/bin/systemctl',
@@ -55,6 +58,12 @@ export const DENIED_SYSTEM_PATHS = ['/tmp', '/var/log', '/run', '/home', '/root'
 /** Private, shared, link-local and unique-local ranges. srt has a built-in set too; this list is explicit. */
 export const DENIED_RANGES = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16', '127.0.0.0/8', '0.0.0.0/8', 'fc00::/7', 'fe80::/10', '::1/128']
 
+/** Metadata names that no run may reach, with Full internet too (the addresses are in DENIED_RANGES already). */
+export const DENIED_NAMES = ['metadata.google.internal']
+
+/** Does this run use Full internet? (The settings decide: the argv then names full.mjs.) */
+export const isFull = (s: { network: { strictAllowlist: boolean } }) => s.network.strictAllowlist === false
+
 export interface SettingsInput {
   /** the base folder (/var/lib/<ID>) */
   base: string
@@ -74,6 +83,11 @@ export interface SettingsInput {
   network: 'open' | 'offline'
   /** the team's extra domains (devEnv.team) */
   extraDomains: readonly string[]
+  /** the sites that the person allowed (always) and the sites allowed once for this run, already checked (sites.ts);
+   * only with network open */
+  userDomains?: readonly string[]
+  /** the person's Full internet switch: every host, except the denied hosts and addresses; only with network open */
+  full?: boolean
   /** host names of this Trina server and of other Trina servers */
   denyHosts: readonly string[]
   /** this VM's public IPs and other addresses to refuse */
@@ -90,7 +104,10 @@ const uniq = (a: string[]) => [...new Set(a)]
  * closed. */
 export function srtSettings(i: SettingsInput) {
   const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
-  const domains = i.network === 'open' ? [...new Set([...DEV_ENV_DEFAULT_DOMAINS, ...i.extraDomains])] : []
+  // the team's No network (and the plan's) wins over every site a person allowed and over Full internet
+  const open = i.network === 'open'
+  const domains = open ? mergeSites(DEV_ENV_DEFAULT_DOMAINS, i.extraDomains, i.userDomains ?? []) : []
+  const full = open && !!i.full
   const fixedHidden = [abs(i.teamRoot, 'users'), abs(i.teamRoot, PRODUCT.systemDir)]
   // srt binds a denied folder's allowed paths back writes first, then reads: a writable folder inside a read-only one
   // (the starting folder inside a folder that Q0 (b) made read-only, for example the team root of an admin) would be
@@ -109,10 +126,12 @@ export function srtSettings(i: SettingsInput) {
     },
     network: {
       allowedDomains: domains,
-      deniedDomains: [...new Set(i.denyHosts.map((h) => h.toLowerCase()))],
+      deniedDomains: [...new Set([...i.denyHosts.map((h) => h.toLowerCase()), ...DENIED_NAMES])],
       deniedResolvedAddresses: [...new Set([...DENIED_RANGES, ...i.denyAddrs])],
       allowLocalBinding: true,
-      strictAllowlist: true,
+      // false only for Full internet: then srt asks its callback for a host that is not on the list, and the callback
+      // of full.mjs says yes. The denied hosts and addresses are checked before it
+      strictAllowlist: !full,
     },
     mandatoryDenySearchDepth: 3,
   }
@@ -152,6 +171,15 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   }
   for (const r of s.filesystem.allowRead) if (!allowed(r, [logs])) out.push(`a path that a run may not read: ${r}`)
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
+  // the network: the private, link-local and metadata ranges are always denied, with every site list and Full internet
+  const n = s.network
+  for (const r of DENIED_RANGES) if (!n.deniedResolvedAddresses.includes(r)) out.push(`a denied range is missing: ${r}`)
+  for (const d of DENIED_NAMES) if (!n.deniedDomains.includes(d)) out.push(`a denied name is missing: ${d}`)
+  for (const a of n.allowedDomains) {
+    const host = a.startsWith('*.') ? a.slice(2) : a
+    if (host.includes('*') || host.includes(':') || host.includes('/') || /^[0-9.]+$/.test(host)) out.push(`an allowed site is not a host name: ${a}`)
+    if (n.deniedDomains.some((d) => d === host || d.endsWith('.' + host))) out.push(`an allowed site covers a denied host: ${a}`)
+  }
   return out
 }
 
@@ -202,7 +230,7 @@ export interface ScopeLimits { cpus: number; memoryMiB: number; pids: number; ru
 
 /** The argv of one run: systemd-run makes the scope with the limits, run-wrap sets rlimits and the OOM score and
  * writes the exit code, srt runs the command. One argv, no shell. */
-export function scopeArgv(o: { runId: string; id: string; limits: ScopeLimits; exitFile: string; settingsFile: string; command: string }): string[] {
+export function scopeArgv(o: { runId: string; id: string; limits: ScopeLimits; exitFile: string; settingsFile: string; command: string; full?: boolean }): string[] {
   const m = o.limits.memoryMiB
   return [
     SRT_PATHS.systemdRun, '--scope', '--quiet', '--no-ask-password',
@@ -216,6 +244,6 @@ export function scopeArgv(o: { runId: string; id: string; limits: ScopeLimits; e
 }
 
 /** run-wrap and srt, also used with no systemd (MYCEL_DEV_ENV_SRT_DIRECT=1: the Docker attack test). */
-export function wrappedArgv(o: { exitFile: string; settingsFile: string; command: string }): string[] {
-  return [SRT_PATHS.runWrap, o.exitFile, '--', SRT_PATHS.node, SRT_PATHS.cli, '--settings', o.settingsFile, '-c', o.command]
+export function wrappedArgv(o: { exitFile: string; settingsFile: string; command: string; full?: boolean }): string[] {
+  return [SRT_PATHS.runWrap, o.exitFile, '--', SRT_PATHS.node, o.full ? SRT_PATHS.cliFull : SRT_PATHS.cli, '--settings', o.settingsFile, '-c', o.command]
 }
