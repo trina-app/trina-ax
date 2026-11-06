@@ -9951,3 +9951,24 @@ Then one change of order from the owner ("5분, 10분짜리도 괜찮을 것 같
 - **The hole found in planning**: the connector refused writes to `skills/` but not to a person's own
   `users/<id>/skills/` (their personal skills, which their AI follows). Every connector write path (write, edit,
   upload_file, create_upload_link and its PUT) now refuses both, with the same "confirm inside the team app" answer.
+## K — Knowledge graph: CodeGraph's code map of the team folders, filtered at every question (2026-11-06)
+- **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
+  upload the files its automaticaly sync the folder for the knowledge graph". The AI gets `knowledge_explore`: functions,
+  classes, callers and callees across the team's folders that hold code, from CodeGraph indexes kept up to date after
+  file changes. Details, limits and measurements: [KNOWLEDGE-GRAPH.md](KNOWLEDGE-GRAPH.md).
+- **CodeGraph is found, not bundled.** MIT (fine in AGPL-3.0), but each platform's package is about 280 MB with its own
+  Node.js runtime, more than the rest of a Linux bundle. It is looked up on the PATH or named in `server.json`
+  (`knowledgeGraph.codegraph`). Without it the feature is off and Admin says to install it.
+- **The index is never in the team folder.** CodeGraph writes `.codegraph/` into the project and follows symbolic links
+  (`CODEGRAPH_DIR` only renames that folder inside the project). The server copies each folder's code into
+  `<data>/knowledge-graph/roots/<id>/project/tree` with the file tools' own name, link and quarantine rules, and
+  CodeGraph indexes only the copy, as a sandboxed converter with no network and its telemetry off.
+- **Access is checked at the question, not at indexing.** One index per folder holds the whole folder; each file an
+  answer names passes `authorize(read)` for the person asking, with the rules as they are then, and the lines shown are
+  read from the team file through the same checks. Rejected: one index per person (a copy of the code per person,
+  re-indexed on every rule change) and filtering at indexing (a rule change would need a re-index to take effect; hidden
+  sub-folders inside a readable folder would still leak through callers).
+- **Updates after a quiet time.** `publishChanges` and connected-folder syncs emit `tree-changed`; a folder runs 30 s
+  after its last change (at most 5 minutes after the first), one folder at a time below people's work, plus a check of
+  every folder after the start and each night. The 2026-11-01 semantic-index lesson (1.9 GB, most cores) is why CodeGraph
+  runs with two parse workers (~0.7 GB on 673 files) and pauses as long as each run between folders.
