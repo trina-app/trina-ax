@@ -4,7 +4,8 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
-import { previewWhy, RoomMessages } from '../../src/components/rooms/RoomMessages'
+import { previewWhy, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
+import { groupRuns } from '../../src/lib/rooms'
 import { useRooms } from '../../src/store/rooms'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { at, BEN, CY, ME, message } from './rooms-fixtures'
@@ -42,6 +43,26 @@ test('one name per run of one author', () => {
   expect(count(html, 'data-testid="room-run"')).toBe(2)
   expect(count(html, '>Ben<')).toBe(1)
   expect(count(html, 'data-testid="room-message"')).toBe(3)
+})
+
+test('phones: a run whose time reads like the one above shows no time; a new minute or a new day does', () => {
+  const sec = (s: number) => new Date(Date.parse(at(1)) + s * 1000).toISOString()
+  const ms = [
+    message({ roomId: R, seq: 1, createdAt: sec(0) }),
+    message({ roomId: R, seq: 2, author: CY, createdAt: sec(10) }),
+    message({ roomId: R, seq: 3, author: ME, createdAt: sec(20) }),
+    message({ roomId: R, seq: 4, createdAt: at(3) }),
+  ]
+  const html = render(ms)
+  const times = html.match(/<time[^>]*>/g) ?? []
+  expect(times.length).toBe(4)
+  expect(times.map((x) => x.includes('max-md:hidden'))).toEqual([false, true, true, false])
+  // the time stays on computers and in the tooltip
+  expect(times.every((x) => x.includes('title='))).toBe(true)
+  // a date line starts a day: its first run shows the time even when the clock reads the same
+  const minute = (iso: string) => iso.slice(11, 16)
+  const days = groupRuns([ms[0]!, { ...ms[1]!, createdAt: new Date(Date.parse(ms[0]!.createdAt) + 86_400_000).toISOString() }])
+  expect(sameTimeAsAbove(days, minute)).toEqual([false, false])
 })
 
 // ---------------- the AI in a room (docs/DECISIONS.md "대화방의 트리나") ----------------

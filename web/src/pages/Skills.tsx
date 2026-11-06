@@ -132,7 +132,8 @@ export default function Skills() {
             {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} />}
             {current === 'review' && (
               <>
-                <p className="mb-3 text-xs text-muted">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>
+                {/* phones: each row already says the folder it goes into */}
+                <p className="mb-3 text-xs text-muted max-md:hidden">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>
                 <SuggestionList items={review} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" />
               </>
             )}
@@ -179,7 +180,8 @@ function SuggestionList({ items, empty, onOpen, testId }: { items: SkillSuggesti
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{s.name}</span>
-              <StatusBadge s={s} />
+              {/* in the review tab ("검토 대기") a waiting row needs no badge saying so; decided ones keep theirs */}
+              {!(onOpen && s.status === 'pending') && <StatusBadge s={s} />}
             </span>
             {s.description && <span className="mt-0.5 block truncate text-xs text-muted" title={s.description}>{s.description}</span>}
             <span className="block truncate text-xs text-faint" title={meta(s)}>{meta(s)}</span>

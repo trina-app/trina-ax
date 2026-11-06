@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
@@ -70,8 +71,9 @@ export function PushNotifications() {
   // Phones: no frame inside the Settings card, and hints as large as the status line (they are read on a small screen).
   return <section className="space-y-3 md:rounded-xl md:border md:border-line md:p-4" data-testid="push-notifications">
     <h3 className="text-sm font-semibold">{t('push.title')}</h3>
-    {/* the description is about the browser's push service: the phone app's status line says what matters there */}
-    {!app && <p className="text-xs text-muted max-md:text-sm">{t('push.description')}</p>}
+    {/* the description is about the browser's push service: the phone app's status line says what matters there, and on
+        a phone a server without push says only that (there is nothing to turn on) */}
+    {!app && <p className={clsx('text-xs text-muted max-md:text-sm', !settings?.configured && 'max-md:hidden')}>{t('push.description')}</p>}
     {/* the phone app: one status line and one action */}
     {settings && app && (settings.native?.available ? <>
       <p className="text-sm" data-testid="phone-push-status">{t(view.status)}</p>

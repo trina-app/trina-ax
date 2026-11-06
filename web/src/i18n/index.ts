@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 import { PLURAL_PATTERN, fillPlurals, pluralNames } from '@mycel/shared/plural'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
 import { en } from './en'
@@ -42,8 +43,11 @@ export function koRo(value: string): string {
 
 export function format(template: string, callerParams?: Params, locale: string = DEFAULT_LOCALE): string {
   const params: Params = { ...PRODUCT_PARAMS, ...callerParams }
-  // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts)
-  return fillPlurals(template, params, locale).replace(/\{(\w+)\}(\(으\)로)?/g, (all, k: string, ro?: string) => {
+  // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts); the
+  // text's own honorific (님, さん) left out when the name has one already, with or without a space before it:
+  // "{name}님" and "{name} 님" with 대표님 read "대표님", never "대표님님" (shared/src/honorific.ts); after a value,
+  // "(으)로" as it is read (koRo)
+  return dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(/\{(\w+)\}(\(으\)로)?/g, (all, k: string, ro?: string) => {
     if (params[k] === undefined) return all
     const v = String(params[k])
     return ro ? v + (locale === 'ko' ? koRo(v) : ro) : v

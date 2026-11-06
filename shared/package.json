@@ -20,6 +20,7 @@
     "./cloud-protocol/relay-ops": "./src/cloud-protocol/relay-ops.ts",
     "./plugins": "./src/plugins.ts",
     "./plural": "./src/plural.ts",
+    "./honorific": "./src/honorific.ts",
     "./product": "./src/product.ts"
   }
 }

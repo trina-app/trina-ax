@@ -6,10 +6,12 @@
 // "메시지 복사" at once), an open link that leads elsewhere is changed to that skill (same address), and no files go
 // with it: the pack's skills read the team's own folders (the intro deck: the newest company intro in the brand
 // folder), and the link puts people in the team's group. Closing the bar asks the soft "most teams start with one or
-// two" first, as the invite step does. Only the owner sees it, and only until the invite is done or put off.
+// two" first, as the invite step does. Only the owner sees it, and only until the invite is done or put off. On a phone
+// it is one frameless line with a text button, as the other suggestions there (ResultSuggestion).
 // (Before, the bar drafted a team skill from the answer, "S": a near-copy of the pack's skill under another path, so a
 // member's run of it never counted with the owner's. The skill card, components/onboarding/SkillShareCard.tsx, opens
 // from the one suggestion under the lead's later answers instead: ResultSuggestion, docs/DECISIONS.md "W3".)
+import clsx from 'clsx'
 import { UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { Message, WelcomeStepState } from '@mycel/shared/api'
@@ -18,7 +20,7 @@ import { useT } from '../../i18n'
 import { isOwner, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
-import { Button, IconButton, Modal } from '../ui'
+import { Button, IconButton, Modal, useMediaQuery } from '../ui'
 import { InviteStep, SkipDialog } from './InviteStep'
 
 type ChatMessage = Pick<Message, 'role' | 'content' | 'receipt'>
@@ -30,6 +32,7 @@ export function WelcomeInviteBar({ chatId, answered, messages = [] }: { chatId: 
   const progress = useWelcome((s) => s.progress)
   const [open, setOpen] = useState(false)
   const [asking, setAsking] = useState(false)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   useEffect(() => {
     if (owner) void useWelcome.getState().load().catch(() => {})
   }, [owner])
@@ -52,11 +55,20 @@ export function WelcomeInviteBar({ chatId, answered, messages = [] }: { chatId: 
   return (
     <>
       {answered && (
-        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-subtle py-1.5 pr-1.5 pl-3 text-sm" data-testid="welcome-invite-bar" data-kind="share">
+        <div className={clsx('mb-2 flex items-center gap-2 text-sm', !phone && 'flex-wrap rounded-xl border border-line bg-subtle py-1.5 pr-1.5 pl-3')} data-testid="welcome-invite-bar" data-kind="share">
           <UserPlus size={15} className="shrink-0 text-accent-text" aria-hidden />
-          <span className="min-w-0 flex-[1_1_12rem] leading-6" data-testid="welcome-invite-text">{t('welcome.share.bar')}</span>
+          {phone ? (
+            <p className="min-w-0 flex-1 leading-6 text-muted">
+              <span data-testid="welcome-invite-text">{t('welcome.share.bar')}</span>{' '}
+              <button type="button" className="inline py-2 font-medium whitespace-nowrap text-accent-text underline-offset-2 hover:underline" onClick={invite} data-testid="welcome-invite-open">
+                {t('welcome.share.button')}
+              </button>
+            </p>
+          ) : (
+            <span className="min-w-0 flex-[1_1_12rem] leading-6" data-testid="welcome-invite-text">{t('welcome.share.bar')}</span>
+          )}
           <span className="flex items-center gap-1">
-            <Button size="sm" variant="primary" onClick={invite} data-testid="welcome-invite-open">{t('welcome.share.button')}</Button>
+            {!phone && <Button size="sm" variant="primary" onClick={invite} data-testid="welcome-invite-open">{t('welcome.share.button')}</Button>}
             <IconButton label={t('welcome.bar.later')} onClick={() => setAsking(true)} data-testid="welcome-invite-close">
               <X size={15} />
             </IconButton>

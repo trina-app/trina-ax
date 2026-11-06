@@ -194,8 +194,10 @@ const FlatCards = createContext(false)
 export const FlatCardsProvider = FlatCards.Provider
 
 /** headingRef: the title takes the focus (tabIndex -1) when a list has no row left to focus, see useFocusAfterRemove.
- * No title, no line and no buttons: the card has no header row (the page header above names it). */
-export function Card({ title, actions, children, desc, headingRef, testId }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string }) {
+ * No title, no line and no buttons: the card has no header row (the page header above names it).
+ * flat: below the md width no frame, a section that ends with a hairline (like the team invite link on Members), for a
+ * page whose cards would stack frame on frame on a phone. Its content must not reach into the card's padding. */
+export function Card({ title, actions, children, desc, headingRef, testId, flat }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; desc?: ReactNode; headingRef?: Ref<HTMLHeadingElement>; testId?: string; flat?: boolean }) {
   const head = title || desc || actions
   if (useContext(FlatCards)) {
     return (
@@ -214,9 +216,9 @@ export function Card({ title, actions, children, desc, headingRef, testId }: { t
     )
   }
   return (
-    <section className="mb-6 rounded-2xl border border-line bg-surface" data-testid={testId}>
+    <section className={clsx('mb-6 rounded-2xl border border-line bg-surface', flat && 'max-md:rounded-none max-md:border-x-0 max-md:border-t-0 max-md:bg-transparent max-md:pb-6')} data-testid={testId}>
       {head && (
-        <header className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+        <header className={clsx('flex flex-wrap items-center gap-2 border-b border-line px-4 py-3', flat && 'max-md:border-b-0 max-md:px-0 max-md:pt-0')}>
           {/* a phone: the title and its line take the whole row and the buttons go under them, so the line is not cut
               to a few words */}
           <div className="min-w-0 flex-1 max-sm:basis-full">
@@ -226,7 +228,7 @@ export function Card({ title, actions, children, desc, headingRef, testId }: { t
           {actions}
         </header>
       )}
-      <div className="p-4">{children}</div>
+      <div className={clsx('p-4', flat && 'max-md:p-0')}>{children}</div>
     </section>
   )
 }
