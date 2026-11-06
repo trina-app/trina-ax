@@ -2975,6 +2975,8 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.later": "Nanti saja",
   "onboarding.profile.readingHint": "Biasanya kurang dari semenit.",
   "skillPack.addMarketing": "Tambahkan {n} skill pemasaran",
+  "skillPack.addHr": "Tambahkan {n} skill dokumen SDM (Korea)",
+  "skillPack.hrHint": "Menambahkan tiga skill untuk dokumen SDM Korea: kontrak kerja, surat keterangan kerja, dan cuti tahunan. Hanya draf; perusahaan yang menandatangani dan memutuskan. Anda bisa mengubahnya nanti.",
   "onboarding.profile.understood": "Ini yang kami pahami: {line}",
   "onboarding.profile.unreadable": "Kami tidak bisa membaca profil perusahaan dari situs web.",
   "onboarding.profile.fallbackTitle": "Buat dengan cara lain",

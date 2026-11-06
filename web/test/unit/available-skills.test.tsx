@@ -105,4 +105,25 @@ describe('Available skills', () => {
       expect(render([...general, { path: 'users/u1/skills/marketing-note.md', name: 'marketing-note', description: '', personal: true }])).toContain('skill-pack-marketing')
     } finally { as(null) }
   })
+
+  test('the optional HR pack: owners and admins get one quiet "add the HR document skills" line until one of its skills is in the team', () => {
+    setLocale('ko')
+    const team: SkillInfo[] = [
+      { path: 'skills/general/meeting-tasks/SKILL.md', name: 'meeting-tasks', title: '할 일 정리', description: '' },
+      { path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' },
+    ]
+    try {
+      for (const role of ['owner', 'admin'] as const) {
+        as(role)
+        const html = render(team)
+        expect(html).toContain('data-testid="skill-pack-hr"')
+        expect(html).toContain('>인사 서류 스킬 3개 넣기<')
+        expect(html).toContain(`title="${translate('ko', 'skillPack.hrHint')}"`)
+        expect(render([...team, { path: 'skills/hr/annual-leave/SKILL.md', name: 'annual-leave', description: '' }])).not.toContain('skill-pack-hr')
+        expect(render(team, '할 일')).not.toContain('skill-pack-hr')
+      }
+      as('member')
+      expect(render(team)).not.toContain('skill-pack-hr')
+    } finally { as(null) }
+  })
 })

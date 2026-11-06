@@ -10,8 +10,10 @@ import { endpoint } from './endpoint'
 /** marketing: seven marketing skills and four team folders · general: every team's five skills (meeting notes → tasks,
  * a document's brief, the card news, the promo video, the intro deck), no folders (docs/DECISIONS.md "M — One meeting
  * note, everyone's own tasks") · work: six everyday skills for leads, sales, marketing, finance and HR (meeting summary,
- * weekly roundup, sales follow-up, creative brief, expense check, new hire guide), no folders */
-export const SKILL_PACK_IDS = ['marketing', 'general', 'work'] as const
+ * weekly roundup, sales follow-up, creative brief, expense check, new hire guide, natural writing), no folders · hr:
+ * three Korean HR document skills (employment contract, employment certificates, annual leave), optional: a team adds
+ * it from Available skills, it is never added by itself (OPTIONAL_SKILL_PACKS) */
+export const SKILL_PACK_IDS = ['marketing', 'general', 'work', 'hr'] as const
 export const SkillPackId = z.enum(SKILL_PACK_IDS)
 export type SkillPackId = z.infer<typeof SkillPackId>
 
@@ -19,6 +21,12 @@ export type SkillPackId = z.infer<typeof SkillPackId>
  * the server adds each of their skills once, in the team's language (onboarding/default-skills.ts). A skill the team
  * deleted, edited or already has under another path is never added again or replaced. */
 export const DEFAULT_SKILL_PACKS = ['general', 'marketing', 'work'] as const satisfies readonly SkillPackId[]
+
+/** The packs a team adds only when an owner or admin chooses to (Available skills offers each one that is not in the
+ * team yet): the server never adds them by itself. hr: Korean labour law forms, which only some teams need. */
+export const OPTIONAL_SKILL_PACKS = ['hr'] as const satisfies readonly SkillPackId[]
+/** How many skills the hr pack adds ("인사 서류 스킬 3개 넣기"). */
+export const HR_PACK_SKILLS = 3
 
 /** The general pack's skills, installed for every team by the welcome steps: "할 일 정리" (meeting notes → tasks per
  * person, or the asking person's own) and "핵심 정리" (a document's brief, or what the asking person needs to know). */
@@ -88,5 +96,5 @@ export const SkillPackInstallResult = z.object({
 export type SkillPackInstallResult = z.infer<typeof SkillPackInstallResult>
 
 export const ONBOARDING_PACKS = {
-  installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', response: SkillPackInstallResult, summary: 'Install a recommended skill pack (id: marketing, general or work) as the caller: its skills under skills/<id>/ and its team folders under shared/, in the team language. Adds only what is missing; never replaces a file.' }),
+  installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', response: SkillPackInstallResult, summary: 'Install a recommended skill pack (id: marketing, general, work or hr) as the caller: its skills under skills/<id>/ and its team folders under shared/, in the team language. Adds only what is missing; never replaces a file.' }),
 } as const

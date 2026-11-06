@@ -2975,6 +2975,8 @@ export const en: Record<MessageKey, string> = {
   "onboarding.profile.later": "Later",
   "onboarding.profile.readingHint": "This usually takes under a minute.",
   "skillPack.addMarketing": "Add {n} marketing skills",
+  "skillPack.addHr": "Add {n} HR document skills (Korea)",
+  "skillPack.hrHint": "Adds three skills for Korean HR documents: employment contract, employment certificates and annual leave. Drafts only; the company signs and decides. You can change them afterwards.",
   "onboarding.profile.understood": "Here's what we found: {line}",
   "onboarding.profile.unreadable": "We couldn't read a company profile from the website.",
   "onboarding.profile.fallbackTitle": "Try another way",
