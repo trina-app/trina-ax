@@ -642,8 +642,16 @@ export class Rooms {
    * (Notifications.roomNotice). Inside a person's quiet hours the notice is kept but marked quiet: never pushed.
    * Private messages (the AI's previews) and event lines notify nobody; an AI answer not the person who asked. The
    * notice is the message id only. Returns who got a notice that may ring, and which (Notifications.roomNotice): the
-   * room.message to each of them says so (docs/DECISIONS.md "Session markers"). */
+   * room.message to each of them says so (docs/DECISIONS.md "Session markers"). Never throws: it runs before the
+   * room.message goes out, and a failure here must not hold the message back from anyone (it is logged, nobody is
+   * marked). */
   notify(row: MessageRow): Map<string, RoomNoticeEvent> {
+    try { return this.recordNotices(row) } catch (e) {
+      this.ctx.log.warn('room notices not recorded', { err: e })
+      return new Map()
+    }
+  }
+  private recordNotices(row: MessageRow): Map<string, RoomNoticeEvent> {
     const out = new Map<string, RoomNoticeEvent>()
     if (row.visibility !== 'room' || row.deleted_at || row.event) return out
     const room = roomRow(this.db, row.room_id)

@@ -1802,6 +1802,9 @@ export class TurnExec {
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
     // run or a question from Slack (this.tells)
     const long = status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && performance.now() - this.startedAt >= this.rt.longAnswerMs
+    // a question asked from Slack got its answer there: the chat is not left unseen (no dot, nothing in the count for
+    // every Slack thread); a card it raised still shows its "?" (Chat.waiting) until it is answered in the app
+    if (this.spec.clientKind === 'slack') { try { this.rt.store.markSeen(this.spec.chatId) } catch (e) { this.rt.log.warn('marking a Slack chat seen failed', { err: e, turn: this.id }) } }
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
     this.resolveDone()
   }

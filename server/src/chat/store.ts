@@ -130,14 +130,16 @@ export class ChatStore {
   }
   /** The newest finished answer (done, error or stopped), in one read: whether it finished after the person last had
    * the chat on screen (never since it was made: after it was made), and how it ended when not well (Chat.lastOutcome:
-   * failed, a server stop included, or paused at the per-answer limit). Session markers: docs/DECISIONS.md. */
+   * failed, a server stop included, or paused at the per-answer limit). An answer the person stopped is never unseen:
+   * they stopped it, nothing waits for them there. Session markers: docs/DECISIONS.md. */
   answerState(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>): Pick<Chat, 'unseen' | 'lastOutcome'> {
     const row = this.db.query(`SELECT COALESCE(updated_at, created_at) AS t, status, stop_reason FROM messages
       WHERE chat_id = ? AND role = 'assistant' AND status <> 'streaming' ORDER BY COALESCE(updated_at, created_at) DESC, rowid DESC LIMIT 1`)
       .get(r.id) as { t: string; status: MessageStatus; stop_reason: string | null } | null
     if (!row) return {}
     const lastOutcome = row.status === 'error' ? 'error' as const : row.status === 'done' && stopReasonOf(row.stop_reason) ? 'paused' as const : null
-    return { ...(iso(row.t) > iso(r.seen_at ?? r.created_at) ? { unseen: true as const } : {}), ...(lastOutcome ? { lastOutcome } : {}) }
+    const unseen = row.status !== 'stopped' && iso(row.t) > iso(r.seen_at ?? r.created_at)
+    return { ...(unseen ? { unseen: true as const } : {}), ...(lastOutcome ? { lastOutcome } : {}) }
   }
   /** An answer finished after the person last had the chat on screen (answerState). */
   unseen(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>): boolean { return !!this.answerState(r).unseen }

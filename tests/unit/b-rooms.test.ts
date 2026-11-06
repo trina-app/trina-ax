@@ -271,6 +271,22 @@ test('session markers: each room.message says the notice its recipient got, as t
   expect(marks(t4.id)[nora.id]).toBeNull()
 })
 
+test('a failure while recording notices never holds a new message back from anyone (it goes out unmarked)', async () => {
+  const { mia, nora, hub, send } = await setup()
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  hub.clear()
+  // the notices' settings cannot be read: notify() fails inside, before the room.message is sent
+  h.ctx.db.exec('ALTER TABLE notification_preferences RENAME TO notification_preferences_gone')
+  try {
+    const m = await send(mia.client, dm.id, 'still delivered')
+    const got = hub.to('room.message').filter((e) => (e.data as any).data.message.id === m.id)
+    expect(got.map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
+    expect(got.every((e) => (e.data as any).data.notice === undefined)).toBe(true)
+  } finally {
+    h.ctx.db.exec('ALTER TABLE notification_preferences_gone RENAME TO notification_preferences')
+  }
+})
+
 test('notices: a DM or an @mention, one unread notice of each per room (pushed, never listed in the Inbox); muted rooms are quiet; reading clears them; no text', async () => {
   const { mia, nora, teamRoom, send } = await setup()
   const n = notificationsOf(h.ctx)

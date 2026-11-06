@@ -97,6 +97,8 @@ describe('Chat.lastOutcome: how the newest finished answer ended', () => {
     const c = await listed(chat.id)
     expect(c?.runState).toBe('idle')
     expect(c?.lastOutcome).toBeUndefined()
+    // and no dot: the person stopped it themselves
+    expect(c?.unseen).toBeUndefined()
   })
 
   test('paused at the per-answer limit of tool rounds: "paused"; at the time limit too', async () => {
@@ -174,7 +176,7 @@ describe('notify: what is worth telling', () => {
     } finally { h.rt().longAnswerMs = LONG_ANSWER_MS }
   })
 
-  test('never for a scheduled run or a question asked from Slack: their rows get the marker only', async () => {
+  test('never for a scheduled run or a question asked from Slack; a scheduled run gets its dot, a Slack answer none (it was delivered in Slack)', async () => {
     h.rt().longAnswerMs = 0
     try {
       for (const kind of ['schedule', 'slack'] as const) {
@@ -183,8 +185,15 @@ describe('notify: what is worth telling', () => {
         const t = serverTurn(chat.id, kind, fake({ say: `${kind} answer` }))
         await main.next('message.done', (f) => f.data.messageId === t.assistantMessage.id, 20_000)
         const done = await until(other, chat.id, (f) => f.data.chat?.runState === 'idle', from)
-        expect(done.data.chat!.unseen).toBe(true)
         expect(updates(other, chat.id, from).some((f) => f.data.notify)).toBe(false)
+        if (kind === 'schedule') {
+          expect(done.data.chat!.unseen).toBe(true)
+          expect((await listed(chat.id))?.unseen).toBe(true)
+        } else {
+          // every Slack thread would otherwise add a dot and one to the count until it was opened in the app
+          expect(done.data.chat!.unseen).toBeUndefined()
+          expect((await listed(chat.id))?.unseen).toBeUndefined()
+        }
       }
     } finally { h.rt().longAnswerMs = LONG_ANSWER_MS }
   })
@@ -196,8 +205,11 @@ describe('notify: what is worth telling', () => {
     const card = await openCard(main, t.turnId)
     await until(other, chat.id, (f) => f.data.chat?.waiting === true, from)
     expect(updates(other, chat.id, from).some((f) => f.data.notify)).toBe(false)
+    expect((await listed(chat.id))?.waiting).toBe(true) // its "?" stays until answered in the app
     await answerCard(t.turnId, card.data.request)
     await main.next('message.done', (f) => f.data.messageId === t.assistantMessage.id, 20_000)
+    await waitFor(async () => (await listed(chat.id))?.runState === 'idle', { timeoutMs: 10_000 })
+    expect((await listed(chat.id))?.unseen).toBeUndefined()
   })
 
   test('a card opens: \'card\' with Chat.waiting in every window; its close and the turn\'s end tell nothing more', async () => {
