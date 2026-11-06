@@ -68,9 +68,17 @@ export function mayUseBox(db: Database, files: FileService, project: ProjectRef,
 
 export const TEAM_SETTING_KEY = 'devEnv.team'
 
-/** the team setting (admins); a bad or missing row is off */
+/** The default of a new team (owner, 2026-11-06): on, network "Allowed sites only" (open = the allowlist on srt),
+ * with a consent of the product (by null) to the current srt warning. A team that had people before migration 236 got
+ * an explicit off row there, so the default does not turn an existing team on. Admins turn it off as before. */
+export const TEAM_DEFAULT_ON: DevEnvTeamSetting = DevEnvTeamSetting.parse({
+  enabled: true, network: 'open', consent: { by: null, at: '2026-11-06T00:00:00.000Z', warningVersion: DEV_ENV_SRT_WARNING_VERSION },
+})
+
+/** the team setting (admins); no row = the default of a new team (on); a bad row is off */
 export function teamSetting(db: Database): DevEnvTeamSetting {
-  const v = DevEnvTeamSetting.safeParse(getSetting(db, TEAM_SETTING_KEY) ?? {})
+  if (!db.query('SELECT 1 FROM settings WHERE key = ?').get(TEAM_SETTING_KEY)) return TEAM_DEFAULT_ON
+  const v = DevEnvTeamSetting.safeParse(getSetting(db, TEAM_SETTING_KEY))
   return v.success ? v.data : DevEnvTeamSetting.parse({})
 }
 
