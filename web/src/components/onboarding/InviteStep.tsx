@@ -4,10 +4,28 @@
 // (`prepare`) the link is made as the step opens, so the message is there at once (docs/DECISIONS.md "W2"). Skipping
 // asks once, softly, whether to invite one or two people first, because a team skill is only a team's once others use it.
 import { useState } from 'react'
-import type { TeamLinkStarter } from '@mycel/shared/api'
-import { useT } from '../../i18n'
+import type { TeamLinkStarter, WelcomeProgress } from '@mycel/shared/api'
+import { t as tNow, useT } from '../../i18n'
+import { toast } from '../../store/ui'
+import { useWelcome } from '../../store/welcome'
 import { Button, Modal } from '../ui'
 import { TeamLinkPanel } from './TeamLinkPanel'
+
+/** The skills the owner shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK"): the one the link opens, which "바꾸기"
+ * changes among them. The message names that one only (docs/DECISIONS.md "W5"). */
+export interface InviteShared { landing: string; options: { path: string; title: string }[]; onLanding: (path: string) => void }
+
+/** The invite's shared skills from the welcome progress; null when nothing was shared, or when the skill the server
+ * points at (`landingSkill`) is none of them (the shared one was deleted: 할 일 정리 alone, no 바꾸기 among gone skills). */
+export function sharedForInvite(progress: WelcomeProgress | null): InviteShared | null {
+  const sh = progress?.shared
+  const landing = progress?.landingSkill !== undefined ? progress.landingSkill : sh?.landing
+  if (!sh?.skills.length || !landing || !sh.skills.some((x) => x.path === landing)) return null
+  return {
+    landing, options: sh.skills,
+    onLanding: (path) => void useWelcome.getState().update({ landing: path }).catch(() => toast({ level: 'error', text: tNow('error.network') })),
+  }
+}
 
 export interface InviteStepProps {
   /** the person is done with this step (copied the link or the message, or just moves on) */
@@ -31,9 +49,12 @@ export interface InviteStepProps {
   /** the heading in place of "팀원을 초대해요" (the welcome steps name the skill just used); null: none, the dialog
    * around it already names the step (one heading on a phone, not two) */
   title?: string | null
+  /** the skills shared from 내 스킬 가져오기 (`skillPath` is the landing one): the message names that one, and one line
+   * says it opens first, with 바꾸기 */
+  shared?: InviteShared | null
 }
 
-export function InviteStep({ onDone, onSkip, skillPath, starter, made, retarget, prepare, title }: InviteStepProps) {
+export function InviteStep({ onDone, onSkip, skillPath, starter, made, retarget, prepare, title, shared }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
   return (
@@ -43,7 +64,7 @@ export function InviteStep({ onDone, onSkip, skillPath, starter, made, retarget,
         <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
-      <TeamLinkPanel skillPicker={false} skillPath={skillPath} starter={starter} made={made} retarget={retarget} prepare={prepare} folded />
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} starter={starter} made={made} retarget={retarget} prepare={prepare} shared={shared} folded />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">

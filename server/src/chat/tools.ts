@@ -36,6 +36,8 @@ import { ROOM_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
 import { hideUrls } from '../tools/audit-url'
+import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
+import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 
 export interface Tool {
   name: string
@@ -99,8 +101,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
-    // a team skill draft (onboarding/skill-draft.ts): no tool at all besides the refused file tools
-    if (exec.skillDraft) return false
+    // a team skill draft (onboarding/skill-draft.ts), a skill share's judgement (skills/share-judge.ts) or its merge
+    // (skills/share-merge.ts): no tool at all besides the file tools (refused, or for a merge only on its team skills)
+    if (exec.skillDraft || exec.shareJudge || exec.shareMerge) return false
     if(confidential && !localTool(t.name)) return false
     // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
     if (exec.room && !ROOM_TOOLS.has(t.name)) return false
@@ -166,6 +169,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const files = caller?.files ?? exec.files
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
       if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
+      if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
+      if (exec.shareMerge) return { ...text(SHARE_MERGE_REFUSAL, true), summary: `${name} -> refused: skill share merge (no tools)` }
       const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
       if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
@@ -232,6 +237,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
+      if (exec.shareJudge) return { refusal: SHARE_JUDGE_REFUSAL, summary: `${name} -> refused: skill share judgement (no team files)` }
+      // a skill share's merge: read, write and edit of exactly the team skills it merges into; write and edit go on to the
+      // skill-write card below like anywhere else
+      if (exec.shareMerge && !mergeAllows(exec, name, args)) return { refusal: SHARE_MERGE_REFUSAL, summary: `${name} -> refused: skill share merge (only its team skills)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -246,6 +255,18 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return typeof p === 'string' ? exec.confirmWidening(p) : null
     },
   }
+}
+
+/** A merge chat's file call: read, write or edit, on one of the team skill files it merges into (the path as the file
+ * layer resolves it for this person: its letter case and Unicode form). Anything else is refused. */
+function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
+  if (name !== 'read' && name !== 'write' && name !== 'edit') return false
+  const p = (args as { file_path?: unknown } | null)?.file_path
+  if (typeof p !== 'string' || !p.trim()) return false
+  const targets = mergeTargets(exec.shareMerge!)
+  let rel: string
+  try { rel = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, name === 'read' ? 'read' : 'write', { mustExist: name !== 'write' }).rel } catch { return false }
+  return targets.has(rel.normalize('NFC'))
 }
 
 /** The person of this turn for tools that need a server-raised confirmation (web_fetch URLs, design tab 7). */

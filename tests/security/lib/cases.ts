@@ -18,6 +18,7 @@ import { ROOM_SPECS } from './rooms-cases'
 import { SLACK_SPECS } from './slack-cases'
 import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
+import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { KNOWLEDGE_GRAPH_SPECS } from './knowledge-graph-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -85,6 +86,7 @@ export const SPECS: Record<string, Spec> = {
   ...SLACK_SPECS,
   ...PROMO_VIDEO_SPECS,
   ...INTRO_DECK_SPECS,
+  ...SKILL_SHARE_SPECS,
   ...KNOWLEDGE_GRAPH_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },

@@ -39,15 +39,15 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
  * (migration 223), room notices (a DM message or an @mention, migration 241), a person's request to have their
  * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
- * Drive shared with the team that needs a new sign-in (migration 337) have their own
- * tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices'] as const
+ * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
+ * steps, the skills to merge that waited for it (migration 253) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts: every notice but the rooms' (a DM message, an @mention). Those still push, and a
@@ -165,6 +165,14 @@ export class Notifications {
     if (!this.active(ownerId) || createdAt < this.cutoff()) return
     const r = this.ctx.db.query(`INSERT INTO onboarding_goal_notices(id,user_id,event_type,source_id,member_id,skill_path,runners,created_at,suppressed)
       VALUES(?,?,'onboarding.first_run',?,?,?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), ownerId, o.turnId, o.memberId, o.skillPath, o.runners, createdAt)
+    if (r.changes) this.signal(ownerId)
+  }
+  /** The end of the owner's welcome steps (skills/share-merge.ts startWaitingMerges): "합칠 스킬 N개 확인하기", one
+   * notice per merge chat (its id is the source; UNIQUE row, migration 253). Shown always: the merges waited for it. */
+  mergesWaiting(ownerId: string, chatId: string, n: number, createdAt = new Date().toISOString()) {
+    if (!this.active(ownerId) || createdAt < this.cutoff()) return
+    const r = this.ctx.db.query(`INSERT INTO skill_merge_notices(id,user_id,event_type,source_id,n,created_at,suppressed)
+      VALUES(?,?,'skills.merge_waiting',?,?,?,0) ON CONFLICT DO NOTHING`).run(newId(), ownerId, chatId, Math.max(1, n), createdAt)
     if (r.changes) this.signal(ownerId)
   }
   /** A request that no longer waits (connected, declined, withdrawn, expired): its inbox entry counts as read, so the
@@ -379,6 +387,13 @@ export class Notifications {
       const u = n ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(n.member_id) as { name: string } | null : null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(n ? { firstRun: { member: u?.name ?? null, skill: goalSkillTitle(this.ctx, row.user_id, n.skill_path), runners: n.runners, target: GOAL_PEOPLE } } : {}) }
+    }
+    // the skills to merge after the welcome steps: how many, and the merge chat while it is the owner's and not deleted
+    if (row.event_type === 'skills.merge_waiting') {
+      const n = this.ctx.db.query('SELECT n FROM skill_merge_notices WHERE id=?').get(row.id) as { n: number } | null
+      const chat = this.ctx.db.query('SELECT id FROM chats WHERE id=? AND user_id=? AND deleted_at IS NULL').get(row.source_id, row.user_id) as { id: string } | null
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: chat?.id ?? null, link: chat ? 'chat' : null, outcome: null,
+        ...(n ? { merges: { n: n.n } } : {}) }
     }
     // a Drive shared with the team that needs a new sign-in: its name while it is there, for an admin (Admin ›
     // Connectors › Google Drive opens it)
