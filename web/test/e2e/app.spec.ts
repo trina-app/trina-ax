@@ -137,7 +137,10 @@ test.describe('phone width', () => {
     await expect(page.getByTestId('new-chat')).not.toBeVisible()
     await page.getByRole('button', { name: '메뉴 열기' }).click()
     await expect(page.getByRole('dialog', { name: '사이드바' }).getByTestId('new-chat')).toBeVisible()
-    await page.getByRole('dialog', { name: '사이드바' }).getByRole('link', { name: '파일' }).click()
+    // 파일 is the tab on a phone, not a row of the drawer
+    await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('link', { name: '파일' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await page.getByTestId('tab-files').click()
     await page.getByTestId('file-row').filter({ hasText: 'marketing' }).getByRole('button').first().click()
     await page.getByTestId('file-row').filter({ hasText: 'plan.md' }).getByRole('button').first().click()
     const panel = page.getByTestId('file-panel')

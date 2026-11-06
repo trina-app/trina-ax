@@ -17,8 +17,10 @@ const policy: Record<string, string> = {
   users: 'id username password_hash role status must_change_password deleted_at temp_password_expires_at',
   groups: 'id folder_id', group_members: 'group_id user_id', folders: 'id path',
   folder_rules: 'id folder_id subject_type subject_id access',
-  integrations: 'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version',
+  integrations: 'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version template_id',
   integration_access: 'integration_id subject_type subject_id', connected_folders: 'id name source',
+  // connection templates (336): where a member's key goes, and who the template is for
+  integration_templates: 'id kind url auth auth_header version', integration_template_access: 'template_id subject_type subject_id',
 }
 const bookkeeping: Record<string, string> = {
   users: 'name email locale created_at prefs last_seen_at locale_follows_team password_reset_by password_reset_at temp_password_failures',
@@ -27,6 +29,8 @@ const bookkeeping: Record<string, string> = {
   // tools_json is the policy); tools_rev: moves on with tools_json (the parsed lists in memory, store.ts savedTools)
   integrations: 'created_by name notes last_error tools_updated_at tools_total tools_total_more tools_rev last_used_at created_at updated_at',
   integration_access: '', connected_folders: 'created_by created_at last_sync_at last_status last_error files bytes',
+  // a template's name and note change no one's access
+  integration_templates: 'created_by name notes created_at updated_at', integration_template_access: '',
 }
 
 test('R2-2: all policy trigger columns audited; no-op updates never advance epoch', async () => {
@@ -126,4 +130,26 @@ test('R2-2: independent writers preserve every ABA increment while bookkeeping i
     expect(() => a.ctx.db.transaction(() => { a.ctx.db.exec("UPDATE users SET role='admin' WHERE id='bob'"); throw new Error('rollback') })()).toThrow('rollback')
     expect(policyGeneration(a.ctx.db)).toBe(rolled)
   } finally { await a.close() }
+})
+
+test('connection templates: a new template, a rule change and a new address advance the policy generation; a new name does not', async () => {
+  const a = await makeCApp('epoch-templates')
+  try {
+    const db = a.ctx.db
+    const now = new Date().toISOString()
+    let g = policyGeneration(db)
+    const moved = () => { const n = policyGeneration(db); const changed = n !== g; g = n; return changed }
+    db.query("INSERT INTO integration_templates (id, created_by, kind, name, url, auth, created_at, updated_at) VALUES ('tp1', NULL, 'mcp', 'T', 'https://a.example/mcp', 'bearer', ?, ?)").run(now, now)
+    expect(moved()).toBe(true)
+    db.query("INSERT INTO integration_template_access (template_id, subject_type, subject_id) VALUES ('tp1', 'everyone', '')").run()
+    expect(moved()).toBe(true)
+    db.query("UPDATE integration_templates SET name = 'T2', notes = 'n', updated_at = ? WHERE id = 'tp1'").run(new Date().toISOString())
+    expect(moved()).toBe(false)
+    db.query("UPDATE integration_templates SET url = 'https://b.example/mcp', version = version + 1 WHERE id = 'tp1'").run()
+    expect(moved()).toBe(true)
+    db.query("DELETE FROM integration_template_access WHERE template_id = 'tp1'").run()
+    expect(moved()).toBe(true)
+    db.query("DELETE FROM integration_templates WHERE id = 'tp1'").run()
+    expect(moved()).toBe(true)
+  } finally { await a.close?.() }
 })

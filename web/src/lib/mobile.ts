@@ -1,4 +1,5 @@
-import { MAX_CHUNK_BYTES, MAX_FILE_BYTES, safeFileName, sameTeam, googleOAuthUrl, validConfig, type MobileConfig, type MobileMessage, type MobileReply } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
 export function mobileApp(): MobileConfig | null {
@@ -26,13 +27,13 @@ function receive(event: Event) {
   const p = pending.get(keyOf(reply.id, reply.for, reply.seq))
   if (!p || reply.v !== 1 || reply.type !== 'mobile-result' || reply.nonce !== p.config.nonce || reply.generation !== p.config.generation || typeof reply.ok !== 'boolean') return
   pending.delete(keyOf(reply.id, reply.for, reply.seq)); clearTimeout(p.timer)
-  if (reply.ok) p.resolve(reply); else p.reject(new Error('mobile_operation_failed'))
+  if (reply.ok) p.resolve(reply); else p.reject(new Error(reply.error === 'push_denied' || reply.error === 'push_unavailable' ? reply.error : 'mobile_operation_failed'))
 }
-function request(message: MobileMessage, config: MobileConfig): Promise<MobileReply> {
+function request(message: MobileMessage, config: MobileConfig, timeoutMs = 60_000): Promise<MobileReply> {
   if (!current(config)) return Promise.reject(cancelled())
   return new Promise((resolve, reject) => {
     const seq = 'seq' in message ? message.seq : undefined, key = keyOf(message.id, message.type, seq)
-    const timer = setTimeout(() => { pending.delete(key); reject(new Error('mobile_timeout')) }, 60_000)
+    const timer = setTimeout(() => { pending.delete(key); reject(new Error('mobile_timeout')) }, timeoutMs)
     pending.set(key, { config, type: message.type, seq, resolve, reject, timer })
     try { (window as PhoneWindow).ReactNativeWebView!.postMessage(JSON.stringify(message)) }
     catch { clearTimeout(timer); pending.delete(key); reject(new Error('mobile_unavailable')) }
@@ -62,6 +63,7 @@ export function resetMobileSession(): void {
     if (reply.nextGeneration !== config.generation + 1) throw new Error('mobile_protocol_mismatch')
     // Native also installs this config before delivering its acknowledgement.
     if (!mobileApp() || mobileApp()!.generation !== reply.nextGeneration) throw new Error('mobile_protocol_mismatch')
+    void sendAppearance().catch(() => {})
   })
   void barrier.catch(reportMobileError)
 }
@@ -137,11 +139,72 @@ export async function openExternal(url: string, options: { purpose: 'google-oaut
   const config = mobileApp(); if (!config) throw new Error('mobile_unavailable')
   await request({ ...envelope(config), type: 'external-open', url, purpose: options.purpose }, config)
 }
+/** The phone's APNs/FCM device token (push-token-v1). The app shows the OS permission prompt here if the person has not
+ * answered yet, so this is only called for a signed-in session. Rejects with push_denied / push_unavailable. */
+export async function requestPushToken(): Promise<PushToken> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_CAPABILITY)) throw new Error('push_unavailable')
+  // The OS dialog waits for the person: allow it five minutes.
+  const reply = await request({ ...envelope(config), type: 'push-token' }, config, 300_000)
+  if (turn !== epoch) throw cancelled()
+  if (!validPushToken(reply.push)) throw new Error('push_unavailable')
+  return reply.push
+}
+/** Tells the app which device id this team gave it (taps from other teams are ignored) and the removal key the app
+ * uses to remove the device when the person switches team. Only an app offering push-registered-v1 gets it: an older
+ * build would never answer. Returns whether the app took it. */
+export async function confirmPushDevice(deviceId: string, removeKey: string): Promise<boolean> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_REGISTERED_CAPABILITY)) return false
+  await request({ ...envelope(config), type: 'push-registered', deviceId, removeKey }, config)
+  return true
+}
+/** What the OS says about notifications for this app (push-permission-v1); the app never shows its prompt for this.
+ * null: this app cannot tell (store builds 1 and 2). Rejects with push_unavailable when the build has no push. */
+export async function requestPushPermission(): Promise<PushPermission | null> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_PERMISSION_CAPABILITY)) return null
+  const reply = await request({ ...envelope(config), type: 'push-permission' }, config, 10_000)
+  if (turn !== epoch) throw cancelled()
+  if (!pushPermission(reply.permission)) throw new Error('push_unavailable')
+  return reply.permission
+}
+/** The app can open its page in the phone's Settings (push-permission-v1). */
+export const canOpenAppSettings = () => !!mobileApp()?.capabilities.includes(PUSH_PERMISSION_CAPABILITY)
+export async function openAppSettings(): Promise<void> {
+  const turn = epoch
+  await barrier
+  if (turn !== epoch) throw cancelled()
+  const config = mobileApp()
+  if (!config?.capabilities.includes(PUSH_PERMISSION_CAPABILITY)) throw new Error('mobile_unavailable')
+  // Not awaited: the app answers when it is back, which may be long after the person left for the phone's Settings,
+  // and that is no failure. Coming back checks the permission again (lib/mobile-push.ts).
+  void request({ ...envelope(config), type: 'open-settings' }, config, 600_000).catch(() => {})
+}
+/** The page's look for the app's status bar (appearance-v1): when the bridge comes, when the theme changes, and again
+ * after every session reset (a send that the reset fenced off is not lost). Not tied to a session: the latest look
+ * always wins, so neither a pending reset nor a failed one stops it. */
+async function sendAppearance(): Promise<void> {
+  await barrier.catch(() => {})
+  const config = mobileApp()
+  if (!config?.capabilities.includes(APPEARANCE_CAPABILITY)) return
+  await request({ ...envelope(config), type: 'appearance', dark: document.documentElement.classList.contains('dark'), system: currentTheme() === 'system' }, config, 10_000)
+}
 export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return
   initialized = true; onError = errorHandler ?? onError
   window.addEventListener('mycel:mobile', receive)
-  window.addEventListener('mycel:mobile-ready', () => { abortPending(); barrier = Promise.resolve() })
+  window.addEventListener('mycel:mobile-ready', () => { abortPending(); barrier = Promise.resolve(); void sendAppearance().catch(() => {}) })
+  window.addEventListener('mycel:theme', () => void sendAppearance().catch(() => {}))
   window.addEventListener('pagehide', () => abortPending())
   window.addEventListener('mycel:download', (event) => {
     const url = (event as CustomEvent<{ url?: unknown }>).detail?.url

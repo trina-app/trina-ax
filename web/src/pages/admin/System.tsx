@@ -552,7 +552,7 @@ function ConnectedFolders() {
                 <input className={inputCls} value={source} onChange={(e) => setSource(e.target.value)} placeholder="/Volumes/…" data-testid="connected-source" />
               </Field>
               <div>
-                <span className="mb-1.5 hidden text-[13px] sm:block" aria-hidden>&nbsp;</span>
+                <span className="mb-1.5 hidden text-label sm:block" aria-hidden>&nbsp;</span>
                 <Button disabled={!name.trim() || !source.trim()} onClick={() => setAsking(true)}>{t('connected.add')}</Button>
               </div>
             </div>

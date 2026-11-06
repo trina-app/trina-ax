@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from '@playwright/test'
+import { expect, test, type Locator, type Page, type Request } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { reset, signIn } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
@@ -404,7 +404,7 @@ test('version history with restore; start a chat with a file', async ({ page }) 
   await expect(list).toContainText('Bob')
   await list.locator('[data-version="1"]').getByRole('button', { name: '되돌리기' }).click()
   await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('v1으로 되돌렸어요.')).toBeVisible()
+  await expect(page.getByText('v1로 되돌렸어요.')).toBeVisible()
 
   // a file goes into a new chat as an attached team file (a folder is still named in the prompt)
   await rowMenu(page, 'notes.txt', 'AI에게 이 파일 물어보기')
@@ -424,7 +424,7 @@ test('version history: every earlier version can be restored, the newest too; on
   for (const v of ['1', '2']) await expect(list.locator(`[data-version="${v}"]`).getByRole('button', { name: '되돌리기' })).toBeVisible()
   await list.locator('[data-version="2"]').getByRole('button', { name: '되돌리기' }).click()
   await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('v2으로 되돌렸어요.')).toBeVisible()
+  await expect(page.getByText('v2로 되돌렸어요.')).toBeVisible()
 
   // finance is read-only for this person: the history shows, versions download, nothing restores
   await page.goto('/files?path=finance/2026')
@@ -518,6 +518,14 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
 // ---------------- several items at once (checkboxes and the selection bar) ----------------
 const check = (page: Page, name: string) => row(page, name).getByTestId('file-check')
 const bar = (page: Page) => page.getByTestId('bulk-bar')
+
+/** A long press with a finger on a file row (Files.tsx, phones): it selects the row. */
+async function longPress(page: Page, target: Locator) {
+  const name = target.locator('button').first()
+  await name.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 10, clientY: 10 })
+  await page.waitForTimeout(800)
+  await name.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 10, clientY: 10 })
+}
 const moves = async (page: Page) => ((await (await page.request.post('/__test/log')).json()) as string[]).filter((l) => l === 'POST /api/files/move').length
 
 test('select several rows: Shift+click a range, the header selects all, Esc and another folder clear it', async ({ page }) => {
@@ -807,11 +815,16 @@ test('a file from disk through the browser\'s own drag input: refused folder row
 
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
-  test('phone: checkboxes and the selection bar fit the screen', async ({ page }) => {
+  test('phone: a long press selects, and the selection bar fits the screen', async ({ page }) => {
     await reset(page)
     await signIn(page)
     await page.goto('/files?path=marketing')
-    await page.getByTestId('select-all').tap()
+    // no checkboxes to see until something is selected: a long press on a row selects it
+    await longPress(page, row(page, 'notes.txt'))
+    await expect(bar(page)).toContainText('1개 선택됨')
+    // then the boxes are back: tap the rest
+    const unchecked = page.locator('[data-testid="file-check"]:not(:checked):not(:disabled)')
+    while (await unchecked.count()) await unchecked.first().tap()
     await expect(bar(page)).toContainText('5개 선택됨')
     for (const id of ['bulk-move', 'bulk-share', 'bulk-delete', 'bulk-clear']) await expect(page.getByTestId(id)).toBeInViewport({ ratio: 1 })
     const table = page.getByTestId('file-table')

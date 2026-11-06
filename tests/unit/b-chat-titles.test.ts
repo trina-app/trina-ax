@@ -243,7 +243,7 @@ describe('set_title in real turns', () => {
     expect(answer.content.split(',')).toContain('read')
     expect(answer.content.split(',')).not.toContain('set_title')
     expect(source(chatId)).toBe('schedule')
-    expect((await h.api('alice').call(API.getChat, { params: { id: chatId } })).title.startsWith('⏰ Digest · ')).toBe(true)
+    expect((await h.api('alice').call(API.getChat, { params: { id: chatId } })).title).toMatch(/^Digest · \d{4}-\d{2}-\d{2}$/)
   })
 })
 

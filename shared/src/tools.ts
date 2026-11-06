@@ -190,6 +190,7 @@ export const ConnectServiceInput = z.strictObject({
   scope: z.enum(['personal', 'team']).optional().describe('personal (default): only this person uses it. team: for the team, only when the person is an admin'),
   notes: z.string().max(4000).optional().describe('http only: how to use the API (endpoints, parameters), saved with the connection for later chats'),
   why: z.string().max(200).optional().describe('One short line shown on the card: what the person asked for'),
+  template: z.string().max(64).optional().describe('The id of a team template listed under "Connected services" as not connected yet: the card connects the person\'s own key for it (its address and sign-in come from the template; kind, url and auth are not needed)'),
 })
 export const ConnectServiceOutput = z.union([
   z.object({ connected: z.literal(true), name: z.string(), status: z.string(), tools: z.array(z.string()).optional() }),

@@ -39,7 +39,7 @@ export function inBrandFolder(rel: string): boolean {
   return seg[0] === 'shared' && seg.length > 2 && BRAND_NAMES.has(seg[1]!)
 }
 
-function kindOf(bytes: Uint8Array): 'png' | 'jpg' | 'webp' | null {
+export function kindOf(bytes: Uint8Array): 'png' | 'jpg' | 'webp' | null {
   if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'png'
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpg'
   if (bytes.length > 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'webp'
@@ -59,7 +59,7 @@ export function hasNumber(text: string, token: string): boolean {
   return new RegExp(`(?<!\\d)(?<!\\d[.,])${escRe(token)}(?!\\d)(?![.,]\\d)`).test(text)
 }
 /** A stat as written, its sign read loosely: "×5" is also "x5" or "5배" is not (the unit must be written). */
-const signVariants = (n: string) => {
+export const signVariants = (n: string) => {
   const s = squash(n)
   const out = new Set([s])
   if (/^[×xX]/.test(s)) for (const p of ['×', 'x', 'X']) out.add(p + s.slice(1))
@@ -69,8 +69,9 @@ const signVariants = (n: string) => {
 export interface CheckedSpec { doc: VideoDoc; sources: string[]; pictures: string[] }
 export type CheckResult = { ok: true; spec: CheckedSpec } | { ok: false; problems: string[] }
 
-/** The text of the source files (each as the read tool sees it), squashed for the number check. */
-async function sourceText(ctx: AppContext, t: ToolCtx, list: string[], problems: string[]): Promise<{ text: string; tight: string; paths: string[] }> {
+/** The text of the source files (each as the read tool sees it), squashed for the number check; `parts`: each file's
+ * own text (the intro deck quotes where a number came from in its notes, intro-deck/spec.ts). */
+export async function sourceText(ctx: AppContext, t: ToolCtx, list: string[], problems: string[]): Promise<{ text: string; tight: string; paths: string[]; parts: { path: string; text: string }[] }> {
   const parts: string[] = []
   const paths: string[] = []
   for (const raw of list) {
@@ -87,12 +88,13 @@ async function sourceText(ctx: AppContext, t: ToolCtx, list: string[], problems:
     }
   }
   const all = parts.join('\n')
-  return { text: spaced(all), tight: squash(all), paths }
+  return { text: spaced(all), tight: squash(all), paths, parts: paths.map((p, i) => ({ path: p, text: parts[i]! })) }
 }
 
-interface Read { rel: string; bytes: Buffer; kind: 'png' | 'jpg' | 'webp'; width: number; height: number }
-/** A picture or the logo: readable, in a brand folder, a real PNG / JPEG / WebP of at least `min` px. */
-function readPicture(ctx: AppContext, t: ToolCtx, raw: string, min: number, what: string, problems: string[]): Read | null {
+export interface Read { rel: string; bytes: Buffer; kind: 'png' | 'jpg' | 'webp'; width: number; height: number }
+/** A picture or the logo: readable, in a brand folder, a real PNG / JPEG / WebP of at least `min` px. `into` and
+ * `without` word the problems for what is being made (the video by default). */
+export function readPicture(ctx: AppContext, t: ToolCtx, raw: string, min: number, what: string, problems: string[], o: { into?: string; without?: string } = {}): Read | null {
   const p = raw.replace(/^\/+/, '')
   let rel: string
   let bytes: Buffer
@@ -105,16 +107,16 @@ function readPicture(ctx: AppContext, t: ToolCtx, raw: string, min: number, what
     problems.push(`${what}: "${raw}" is not a picture this person can open; use a file from the brand images folder or leave it out`)
     return null
   }
-  if (!inBrandFolder(rel)) { problems.push(`${what}: "${raw}" is not in a brand folder; only pictures from the team's brand images folder (…/브랜드/이미지/) can go into the video`); return null }
+  if (!inBrandFolder(rel)) { problems.push(`${what}: "${raw}" is not in a brand folder; only pictures from the team's brand images folder (…/브랜드/이미지/) can go into the ${o.into ?? 'video'}`); return null }
   const kind = kindOf(bytes)
   const size = kind ? imageSize(bytes) : null
   if (!kind || !size) { problems.push(`${what}: "${raw}" is not a PNG, JPEG or WebP picture`); return null }
-  if (Math.min(size.width, size.height) < min) { problems.push(`${what}: "${raw}" is too small (${size.width}×${size.height}; at least ${min} px on the short side); leave it out${what === 'logo' ? '' : ' and that beat is made with type and light'}`); return null }
+  if (Math.min(size.width, size.height) < min) { problems.push(`${what}: "${raw}" is too small (${size.width}×${size.height}; at least ${min} px on the short side); leave it out${what === 'logo' ? '' : ` and ${o.without ?? 'that beat is made with type and light'}`}`); return null }
   return { rel, bytes, kind, ...size }
 }
 const FOCUS: Record<string, string> = { center: 'center', top: 'center 20%', bottom: 'center 80%', left: '20% center', right: '80% center' }
 
-const host = (s: string) => {
+export const host = (s: string) => {
   const t = s.trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/[/?#].*$/, '').toLowerCase()
   return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(t) ? t : null
 }

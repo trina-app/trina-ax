@@ -7,7 +7,15 @@ import { HttpError } from '../../server/src/http/errors'
 import { tr } from '../../server/src/chat/i18n'
 import { SCHEDULES_PER_PERSON } from '../../server/src/chat/schedules'
 import { getChatRuntime } from '../../server/src/chat/runtime'
-import { createFromTemplate, templateToolRefusal, validateTemplateTurn } from '../../server/src/chat/schedule-templates'
+import { createFromTemplate, templatePrompt, templateTitle, templateToolRefusal, validateTemplateTurn } from '../../server/src/chat/schedule-templates'
+import { saveTemplate } from '../../server/src/chat/schedule-edit'
+import { updateTeamSettings } from '../../server/src/admin/settings'
+import type { Locale } from '@mycel/shared/api'
+import { ko } from '../../web/src/i18n/ko'
+import { en } from '../../web/src/i18n/en'
+import { id } from '../../web/src/i18n/id'
+import { ja } from '../../web/src/i18n/ja'
+import { es } from '../../web/src/i18n/es'
 let h: Harness
 const input = () => ({ requestId: crypto.randomUUID(), templateId: 'daily-file-index' as const, version: 1 as const, sourcePath: 'shared', outputPath: 'users/olga/reports', time: '09:00' })
 async function setup() {
@@ -20,7 +28,8 @@ test('templates are dormant; explicit creation is idempotent and changed input c
   await setup(); const rt = getChatRuntime(h.ctx)
   expect(rt.schedules.list('olga')).toHaveLength(0)
   const a = input(), first = createFromTemplate(h.ctx, rt, 'olga', a)
-  expect(first.repeat).toBe('daily'); expect(first.prompt).toContain('Do not move')
+  // the owner set the team up in Korean: the template is made in Korean
+  expect(first.repeat).toBe('daily'); expect(first.prompt).toContain('원본 파일을 옮기거나'); expect(first.prompt).not.toContain('Do not move')
   expect(createFromTemplate(h.ctx, rt, 'olga', a).id).toBe(first.id)
   expect(rt.schedules.list('olga')).toHaveLength(1)
   expect(() => createFromTemplate(h.ctx, rt, 'olga', { ...a, time: '10:00' })).toThrow()
@@ -96,4 +105,49 @@ test('20 stored schedules include paused ones; capacity is per person and preser
   // A late retry cannot resurrect a deleted schedule, even when capacity is full again.
   expect(() => createFromTemplate(h.ctx, rt, 'olga', requests[0]!)).toThrow(expect.objectContaining({ code: 'gone' }))
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM turns').get()).toEqual({ n: 0 })
+})
+
+const WEB = { ko, en, id, ja, es }
+const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es']
+const EMOJI = /\p{Extended_Pictographic}/u
+test('every language: the web app\'s name, no emoji, the folders as one JSON line and the same rules', () => {
+  const scope = { sourcePath: 'shared/회의록', outputPath: 'users/olga/reports' }
+  for (const templateId of ['daily-file-index', 'weekly-summary'] as const) {
+    const prompts = new Set<string>()
+    for (const L of LOCALES) {
+      expect(templateTitle(templateId, L)).toBe(WEB[L][`scheduleTemplates.${templateId}`])
+      expect(templateTitle(templateId, L)).not.toMatch(EMOJI)
+      const lines = templatePrompt(templateId, scope, L).split('\n')
+      expect(lines).toHaveLength(4)
+      expect(JSON.parse(lines[1]!)).toEqual(scope)
+      expect(lines[2]).toContain('sourcePath')
+      expect(lines[3]).toContain('sourcePath'); expect(lines[3]).toContain('outputPath'); expect(lines[3]).toContain('Markdown')
+      prompts.add(templatePrompt(templateId, scope, L))
+    }
+    expect(prompts.size).toBe(5)
+  }
+  expect(templatePrompt('daily-file-index', scope, 'en')).toContain('Do not move, rename, delete or edit source files.')
+})
+
+test('a template follows its person\'s language, else the team default; editing it brings both to the language now', async () => {
+  const owner = await setup(), rt = getChatRuntime(h.ctx)
+  const member = await addMember(h, owner, { username: 'bob' })
+  fs.mkdirSync(path.join(h.ctx.config.teamRoot, 'users', member.id), { recursive: true })
+  const make = (user: string, templateId: 'daily-file-index' | 'weekly-summary' = 'daily-file-index') =>
+    createFromTemplate(h.ctx, rt, user, { ...input(), templateId, outputPath: `users/${user}/reports`, ...(templateId === 'weekly-summary' ? { weekday: 1 } : {}) })
+  // bob has no language of his own: he gets the team default, also after the admin changes it
+  updateTeamSettings(h.ctx.db, { defaultLocale: 'ja' })
+  expect(make(member.id)).toMatchObject({ title: ja['scheduleTemplates.daily-file-index'] })
+  updateTeamSettings(h.ctx.db, { defaultLocale: 'es' })
+  const weekly = make(member.id, 'weekly-summary')
+  expect(weekly.title).toBe('Resumen semanal')
+  expect(weekly.prompt).toBe(templatePrompt('weekly-summary', { sourcePath: 'shared', outputPath: `users/${member.id}/reports` }, 'es'))
+  // olga chose her own language: the team default does not change hers
+  await owner.call('PATCH', '/api/me', { locale: 'id' })
+  const mine = make('olga')
+  expect(mine).toMatchObject({ title: 'Daftar file harian dan saran pengaturan', prompt: templatePrompt('daily-file-index', { sourcePath: 'shared', outputPath: 'users/olga/reports' }, 'id') })
+  // a template made in another language (or before templates followed it) is made again in hers when she edits it
+  await owner.call('PATCH', '/api/me', { locale: 'ko' })
+  const edited = saveTemplate(h.ctx, rt, 'olga', mine.id, { kind: 'template', time: '08:00', sourcePath: 'shared', outputPath: 'users/olga/notes' }, 'ko')
+  expect(edited).toMatchObject({ title: '매일 파일 목록과 정리 제안', prompt: templatePrompt('daily-file-index', { sourcePath: 'shared', outputPath: 'users/olga/notes' }, 'ko'), time: '08:00' })
 })

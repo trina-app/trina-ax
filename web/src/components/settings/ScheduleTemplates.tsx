@@ -7,8 +7,9 @@ import FolderPicker from '../FolderPicker'
 import { Button, ErrorNote, Field, inputCls } from '../ui'
 
 /** Templates are dormant until the person explicitly chooses folders and creates one. `inDialog`: inside the "From a
- * template" dialog of Scheduled tasks (pages/Scheduled.tsx), which has the title, so no box and no heading of its own. */
-export function ScheduleTemplates({ onCreated, inDialog }: { onCreated: (schedule: Schedule) => void; inDialog?: boolean }) {
+ * template" dialog of Scheduled tasks (pages/Scheduled.tsx), which has the title, so no box and no heading of its own;
+ * `onCancel` there: Cancel beside Create, as in other dialogs. */
+export function ScheduleTemplates({ onCreated, inDialog, onCancel }: { onCreated: (schedule: Schedule) => void; inDialog?: boolean; onCancel?: () => void }) {
   const t = useT(), locale = useLocale(), me = useMeStrict()
   const privateRoot = `users/${me.user.id}`
   const [available, setAvailable] = useState<('daily-file-index' | 'weekly-summary')[]>([])
@@ -65,7 +66,10 @@ export function ScheduleTemplates({ onCreated, inDialog }: { onCreated: (schedul
       </div>
       {timeZone && <p className="text-xs text-muted">{t('schedules.timeZone', { tz: timeZone })}</p>}
       <p className="text-xs text-muted">{t('scheduleTemplates.cost')}</p>
-      <Button variant="primary" busy={busy} disabled={!source || !time || !available.includes(templateId) || created} onClick={create} data-testid="template-create">{t('scheduleTemplates.create')}</Button>
+      <div className={onCancel ? 'flex flex-wrap justify-end gap-2' : undefined}>
+        {onCancel && <Button variant="ghost" onClick={onCancel} data-testid="template-cancel">{t('common.cancel')}</Button>}
+        <Button variant="primary" busy={busy} disabled={!source || !time || !available.includes(templateId) || created} onClick={create} data-testid="template-create">{t('scheduleTemplates.create')}</Button>
+      </div>
     </fieldset>
     {error != null && <ErrorNote>{errorMessage}</ErrorNote>}
     {created && <p role="status" className="text-sm text-accent-text">{t('scheduleTemplates.created')}</p>}

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { which } from '../config'
 import { makeWorkDir, runIsolated } from '../tools/isolate'
+import { exifOrientation } from './metadata'
 
 export function imageSize(b: Uint8Array): { width: number; height: number } | null {
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
@@ -34,6 +35,15 @@ export function imageSize(b: Uint8Array): { width: number; height: number } | nu
   return null
 }
 const ok = (width: number, height: number) => (width > 0 && height > 0 && width < 100_000 && height < 100_000 ? { width, height } : null)
+
+/** The size a picture is shown at: imageSize with its EXIF orientation applied (5–8 turn it a quarter, so width and
+ * height swap). A phone's portrait photo is often stored landscape with orientation 6; browsers, ffmpeg's thumbnail and
+ * the preview all show it upright, so a box made from the stored size would crop it. */
+export function displaySize(b: Uint8Array): { width: number; height: number } | null {
+  const s = imageSize(b)
+  if (!s) return null
+  return exifOrientation(b) >= 5 ? { width: s.height, height: s.width } : s
+}
 
 /** a thumbnail JPEG at most (320 px at -q:v 5 is a few tens of KB) */
 const THUMB_MAX_BYTES = 4 * 1024 * 1024
