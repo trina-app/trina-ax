@@ -353,21 +353,6 @@ test('Android stuck load: the bridge comes back only on the page that was loadin
   expect(stillStuck({ saved: 'https://evil.example/', current: 'https://evil.example/', origin, ready: false, failed: false })).toBe(false)
 })
 
-test('Android team-address screen: the form is lifted by the keyboard (it covered the Connect button)', () => {
-  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
-  // the setup screen pads itself by the keyboard on Android (KeyboardAvoidingView only works on iOS here)
-  expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)\s+return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
-})
-
-
-test('Android: the look around an older team page is read from the OS each time, not a stale cache', () => {
-  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
-  // the cached useColorScheme is gone; the scheme is read again on mount, on foreground and on change
-  expect(app).not.toContain('useColorScheme(')
-  expect(app).toContain("NativeAppearance?.getColorScheme()")
-  expect(app).toMatch(/AppState\.addEventListener\('change', state => \{ if \(state === 'active'\) read\(\) \}\)/)
-})
-
 test('Android: turned off in the phone\'s Settings reads as denied; before the first question as undetermined', async () => {
   const { permissionFrom } = await import('../../mobile/src/permission')
   // Android 13+ reports "denied, may ask" before the first question and after the person turned it off
@@ -380,3 +365,34 @@ test('Android: turned off in the phone\'s Settings reads as denied; before the f
   expect(permissionFrom({ status: 'denied', canAskAgain: false, android: false, askedBefore: true })).toBe('denied')
 })
 
+test('a reinstall (keychain id kept, files gone) ends the kept session; an update or a first install does not', async () => {
+  const { wasReinstalled, SIGN_OUT_SCRIPT } = await import('../../mobile/src/install')
+  const make = (id: string | null, file: boolean, writable = true) => {
+    let key = id, exists = file
+    return { deps: { keychain: { get: async () => key, set: async (v: string | null) => { key = v } }, marker: { exists: () => exists, create: () => { if (!writable) throw new Error('read-only'); exists = true } }, newId: () => 'install-1' }, state: () => ({ key, exists }) }
+  }
+  const reinstall = make('install-0', false)
+  expect(await wasReinstalled(reinstall.deps)).toBe(true)
+  expect(await wasReinstalled(reinstall.deps)).toBe(false) // only once: the marker is there now
+  const update = make(null, false) // from a build that wrote neither, or a first install
+  expect(await wasReinstalled(update.deps)).toBe(false)
+  expect(update.state()).toEqual({ key: 'install-1', exists: true })
+  expect(await wasReinstalled(make('install-0', true).deps)).toBe(false) // an ordinary launch
+  expect(await wasReinstalled(make('install-0', false, false).deps)).toBe(false) // cannot write the marker: never act
+  expect(SIGN_OUT_SCRIPT).toContain("fetch('/api/auth/logout',{method:'POST'")
+  expect(SIGN_OUT_SCRIPT).toContain("'x-mycel-csrf':'1'")
+})
+
+test('Android team-address screen: the form is lifted by the keyboard (it covered the Connect button)', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  // the setup screen pads itself by the keyboard on Android (KeyboardAvoidingView only works on iOS here)
+  expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)\s+return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
+})
+
+test('Android: the look around an older team page is read from the OS each time, not a stale cache', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  // the cached useColorScheme is gone; the scheme is read again on mount, on foreground and on change
+  expect(app).not.toContain('useColorScheme(')
+  expect(app).toContain("NativeAppearance?.getColorScheme()")
+  expect(app).toMatch(/AppState\.addEventListener\('change', state => \{ if \(state === 'active'\) read\(\) \}\)/)
+})

@@ -3,6 +3,8 @@ import { Directory, File, Paths } from 'expo-file-system'
 import * as Crypto from 'expo-crypto'
 import * as Sharing from 'expo-sharing'
 import type { TransferIO } from './bridge'
+import type { InstallDeps } from './install'
+import * as SecureStore from 'expo-secure-store'
 const cache = () => new Directory(Paths.cache, 'team-ax-transfers')
 export function clearDownloadCache() { const root = cache(); if (root.exists) root.delete() }
 export function fileTransferIO(): TransferIO {
@@ -35,5 +37,16 @@ export function fileTransferIO(): TransferIO {
       const item = open.get(id); open.delete(id)
       if (item?.dir.exists) item.dir.delete()
     },
+  }
+}
+
+/** The reinstall marker (src/install.ts): a file the app's deletion removes, next to an id in the keychain, which iOS
+ * keeps. */
+export function reinstallDeps(): InstallDeps {
+  const marker = () => new File(Paths.document, 'team-ax-installed')
+  return {
+    keychain: { get: () => SecureStore.getItemAsync('team-ax.install'), set: v => v === null ? SecureStore.deleteItemAsync('team-ax.install') : SecureStore.setItemAsync('team-ax.install', v) },
+    marker: { exists: () => marker().exists, create: () => { marker().create() } },
+    newId: () => Crypto.randomUUID(),
   }
 }

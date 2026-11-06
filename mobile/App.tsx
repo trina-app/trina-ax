@@ -17,6 +17,8 @@ import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Inse
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
 import { offlineError, stringsFor } from './src/strings'
 import { checkTeam, parseTeamAddress, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
+import { SIGN_OUT_SCRIPT, wasReinstalled } from './src/install'
+import { reinstallDeps } from './src/files'
 import type { TeamAddress } from './src/address'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
@@ -72,6 +74,8 @@ export default function App() {
   // A tapped notification's path on the current team, with a counter so the same path can be opened twice.
   const [opened, setOpened] = useState<{ path: string; n: number } | null>(null)
   const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null), padsAtLaunch = useRef<string | null>(null)
+  // deleted and installed again: the team address (keychain) is still there, the session the WebView kept is ended
+  const reinstalled = useRef(false)
   // the page's look (appearance-v1): status bar text and the native screens follow it; null until a page said
   const [page, setPage] = useState<PageLook | null>(null)
   const dark = isDark(page?.dark ?? null, usePhoneScheme())
@@ -81,8 +85,8 @@ export default function App() {
     let off = () => {}
     // removals owed to teams left while their server could not be reached
     void retryRemovals(devices).catch(() => {})
-    void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam()]).then(async ([origin, chosen, pads]) => {
-      since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads
+    void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam(), wasReinstalled(reinstallDeps()).catch(() => false)]).then(async ([origin, chosen, pads, again]) => {
+      since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads; reinstalled.current = again
       device.current = origin ? (await currentDevice(devices, origin).catch(() => null))?.deviceId ?? null : null
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
@@ -94,7 +98,7 @@ export default function App() {
   return <SafeAreaProvider><Look.Provider value={dark ? DARK : LIGHT}>{Platform.OS === 'android' && <><StatusBar style={dark ? 'light' : 'dark'} /><NavigationBar style={dark ? 'light' : 'dark'} /></>}
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup onDone={async address => { await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true; setOpened(null); setTeam(address) }} />
-      : <TeamWeb key={team.origin} address={team} pads={padsAtLaunch.current === team.origin} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+      : <TeamWeb key={team.origin} address={team} pads={padsAtLaunch.current === team.origin} signOut={reinstalled.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
         onChangeTeam={async () => {
           hasTeam.current = false; device.current = null; forgetDelivered()
           // remove this phone from the team it leaves (now, or at a later start if that server cannot be reached)
@@ -136,7 +140,7 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
   </KeyboardAvoidingView></View>
 }
 type Failure = 'offline' | 'unreachable'
-function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; pads: boolean; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => Promise<void> }) {
+function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; pads: boolean; signOut: boolean; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => Promise<void> }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
@@ -148,6 +152,7 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
   const padRef = useRef(pad), insetsRef = useRef<Insets>(insets), stuck = useRef(new StuckLoad(10_000))
   // the top-level URL on screen: every load start and navigation state change (the stuck-load check compares it)
   const currentUrl = useRef(address.origin + address.entryPath)
+  const signOutOnce = useRef(signOut)
   padRef.current = pad; insetsRef.current = insets
   const selfPadded = pad.selfPadded
   const receiver = useRef<MobileReceiver | null>(null)
@@ -218,6 +223,7 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
   function settle(url: string) {
     void loaded(url).then(() => {
       ready.current = !loadFailed.current
+      if (signOutOnce.current && ready.current) { signOutOnce.current = false; web.current?.injectJavaScript(SIGN_OUT_SCRIPT) }
       const page = navigation.current
       setTimeout(() => {
         if (page !== navigation.current || !ready.current || padRef.current.confirmed || !padRef.current.selfPadded) return
