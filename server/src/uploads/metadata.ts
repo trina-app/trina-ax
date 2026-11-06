@@ -191,6 +191,8 @@ function jpegTableFits(b: Uint8Array, i: number, m: number, len: number): boolea
   if (m === 0xdd || m === 0xdc) return len === 4 // DRI, DNL
   if (m === 0xdf) return len === 3 // EXP
   if (m === 0xcc) return len % 2 === 0 // DAC: two bytes per table
+  if (m === 0xe0) return len >= 16 && len === 16 + 3 * b[i + 16]! * b[i + 17]! // JFIF: its fields and an RGB thumbnail
+  if (m === 0xee) return len === 14 // Adobe
   if (m === 0xdb) { // DQT: tables of 1 + 64 or 1 + 128 bytes
     let k = i + 4
     while (k < end) k += 1 + (b[k]! >> 4 ? 128 : 64)
@@ -221,12 +223,18 @@ function cleanJpeg(b: Uint8Array, o: CleanOptions): Uint8Array | null {
     out.push(app1)
   }
   let i = 2
+  // the last segment was one that is kept (or the start): stray bytes after it are skipped. After a dropped one they
+  // refuse the file: a metadata segment whose length is wrong ends inside its own data, and what follows there is
+  // that metadata, which a skip could take for a marker and keep
+  let afterKept = true
   // a marker is two bytes (the end-of-image marker can be the file's last two bytes); a segment adds a 2-byte length
   while (i + 2 <= b.length) {
     if (b[i] !== 0xff) {
       // stray bytes between segments: skipped up to the next marker, as libjpeg does (with a warning), and never kept
+      if (!afterKept) return null
       i = strayEnd(b, i)
       if (i < 0) return null
+      afterKept = false
       continue
     }
     const m = b[i + 1]!
@@ -236,7 +244,8 @@ function cleanJpeg(b: Uint8Array, o: CleanOptions): Uint8Array | null {
     if (i + 4 > b.length) return null
     const len = (b[i + 2]! << 8) | b[i + 3]!
     if (len < 2 || i + 2 + len > b.length) return null
-    if (jpegPicture(b, i, m, o)) {
+    afterKept = jpegPicture(b, i, m, o)
+    if (afterKept) {
       if (!jpegTableFits(b, i, m, len)) return null
       out.push(b.subarray(i, i + 2 + len))
     }

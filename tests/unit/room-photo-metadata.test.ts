@@ -149,7 +149,7 @@ describe('crafted JPEG segments', () => {
     }
   })
 
-  test('stray bytes between two segments are skipped, as libjpeg does, and never kept; too many are refused', () => {
+  test('stray bytes after a picture segment are skipped, as libjpeg does, and never kept; after metadata or too many, refused', () => {
     // after the first segment behind SOI: a few junk bytes, then the rest of the file
     const firstEnd = 4 + ((jpg[4]! << 8) | jpg[5]!)
     const junk = lat('\x00\x12JUNK\x34')
@@ -160,17 +160,26 @@ describe('crafted JPEG segments', () => {
       .toEqual({ gps: false, leaks: [], junk: false, orientation: 6, size: { width: 64, height: 48 } })
     // the same as the file without them
     expect(Buffer.from(c).equals(Buffer.from(cleanImage(jpg, PHOTO) as Uint8Array))).toBe(true)
+    // after a dropped (metadata) segment they refuse it: a wrong length there ends inside the metadata, which a skip
+    // could take for markers (the fuzz found EXIF kept that way)
+    const app1 = Buffer.from(jpg).indexOf(Buffer.from([0xff, 0xe1]))
+    const app1End = app1 + 2 + ((jpg[app1 + 2]! << 8) | jpg[app1 + 3]!)
+    expect(cleanImage(new Uint8Array(Buffer.concat([jpg.subarray(0, app1End), junk, jpg.subarray(app1End)])), PHOTO)).toBeNull()
     // more than JPEG_STRAY_MAX bytes before the next marker: not a JPEG this reads
     const long = new Uint8Array(Buffer.concat([jpg.subarray(0, firstEnd), Buffer.alloc(JPEG_STRAY_MAX + 1, 0x20), jpg.subarray(firstEnd)]))
     expect(cleanImage(long, PHOTO)).toBeNull()
   })
 
-  test('JFIF in APP0 and Adobe in APP14 stay (they draw the picture)', () => {
-    for (const [m, id] of [[0xe0, 'JFIF\0'], [0xee, 'Adobe']] as const) {
-      const s = seg(m, id)
+  test('JFIF in APP0 and Adobe in APP14 stay (they draw the picture); with room for more than their fields, refused', () => {
+    // JFIF 1.02, no units, 72 x 72, no thumbnail; Adobe DCT version 100, flags, colour transform 1
+    const jfif = Buffer.concat([u8(0xff, 0xe0, 0, 16), lat('JFIF\0'), u8(1, 2, 0, 0, 72, 0, 72, 0, 0)])
+    const adobe = Buffer.concat([u8(0xff, 0xee, 0, 14), lat('Adobe'), u8(0, 100, 0, 0, 0, 0, 1)])
+    for (const s of [jfif, adobe]) {
       const c = cleanImage(withSeg(s), PHOTO) as Uint8Array
       expect(Buffer.from(c).includes(s)).toBe(true)
     }
+    // metadata dressed as JFIF or Adobe does not fit their layouts
+    for (const [m, id] of [[0xe0, 'JFIF\0'], [0xee, 'Adobe']] as const) expect(cleanImage(withSeg(seg(m, id)), PHOTO)).toBeNull()
   })
 })
 
