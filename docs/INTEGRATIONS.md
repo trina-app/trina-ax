@@ -58,7 +58,9 @@ would log every call under that one person; a template keeps each call under its
 the default; or **Template: each member connects their own**, which takes the kind, name, address, sign-in method (an
 API key with its header, or OAuth), who it is for (everyone, groups, people; admins only when named) and an optional
 note, and never a key or a write rule. The address may not have a query or a fragment (`?…`, `#…`): it goes with every
-member's key, so a key there would reach every member and the service would log their calls under its owner.
+member's key, so a key there would reach every member and the service would log their calls under its owner. The
+name reaches every member's AI, so it may not hold hidden or direction-changing characters, a double quote or control
+characters (and the note no hidden characters).
 
 - The members it is for see it in Settings › MCP under **From your team**. **Connect** opens the same dialog as an
   admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and the write rule
@@ -77,7 +79,9 @@ member's key, so a key there would reach every member and the service would log 
   service returned. The activity log stays minimal (below): it does not say which template a member connected.
 - The people a template is for are told once in their inbox (`integration.template`, table
   `integration_template_notices`; migration 334): when it is made for them, when a rule change, a group they join or
-  joining the team while it is for everyone brings it to them (the notification tick finds them every 30 seconds).
+  joining the team while it is for everyone brings it to them: told at once on those events (a template made or its rule
+  changed, a group's members changed, someone added, invited, joined or enabled again), with the notification tick as a
+  backstop every 30 seconds (one set-based query, at most 500 notices per pass).
   Its maker is not told about their own template, someone who connected it already is not told, and
   `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
   address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
@@ -88,9 +92,12 @@ member's key, so a key there would reach every member and the service would log 
   card says "Connect your own key for <name>" and connects through the template's own path (`templates.ts connect`):
   only while the template is for this person and is the version the card showed (409 otherwise), with the template's
   address, sign-in method and header, also when members' own connections are turned off. Never anyone else's
-  connection; not in a scheduled run (nobody is there to finish a card).
-- A scheduled task that needs a template (it names the template, or one of its runs used a connection made from it,
-  noted in `schedule_template_needs`) does not start while its owner has no key for it or theirs stopped working: the
+  connection; not in a scheduled run (nobody is there to finish a card). For a template the member already has (its key
+  stopped working), the card only sends the new key: their write rule and tool switches stay, and "Not now" removes
+  only a connection that card itself made.
+- A scheduled task that needs a template (one of its runs used a connection made from it, noted in
+  `schedule_template_needs`; or its instruction names the template, but only when the owner has no working connection
+  of their own to the same service, and never for everyday or short names such as "the" or "Notes") does not start while its owner has no key for it or theirs stopped working: the
   run's result is "Needs your own key for <name>" (`lastOutcome` `needs_key`, `lastNeed`; the occurrence is kept in
   `schedule_template_skips`), the owner gets a failure notice that names the template and opens its Connect, and Run
   now says the same (409). It never runs with anyone else's key; once the owner connects it, the next run starts.
