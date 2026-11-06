@@ -93,7 +93,7 @@ export function ConnectAiPanel({ disabled }: { disabled?: boolean }) {
           )}
           <details className="group text-sm" open={!claude || undefined} data-testid="welcome-ai-other">
             <summary className="cursor-pointer text-muted select-none hover:text-ink">{t('welcome.ai.other')}</summary>
-            <div className="mt-3 space-y-3 border-l border-line pl-3">
+            <div className="mt-3 space-y-3 border-l border-line pl-3 text-left">
               <p className="text-[13px] text-muted">{t('welcome.ai.otherDesc')}</p>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <Button size="sm" variant={claude ? 'secondary' : 'primary'} disabled={!ways || disabled} onClick={() => setOpen('other')} data-testid="welcome-ai-other-open">
@@ -169,18 +169,20 @@ export function NoAiCard() {
   const trialNote = trial && <p className="mb-1 text-sm font-medium text-ink" data-testid="ai-access-trial">{t(trialLine(trial))}</p>
   if (action === 'connect_team')
     return (
-      <section className="mb-6 rounded-2xl border border-line p-4 sm:p-5" aria-labelledby="no-ai-title" data-testid="no-ai-card" data-action={action}>
+      // phones (below 768px): no frame, centred like the greeting under it
+      <section className="mb-6 rounded-2xl border border-line p-4 sm:p-5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" aria-labelledby="no-ai-title" data-testid="no-ai-card" data-action={action}>
         {trialNote}
         <h2 id="no-ai-title" className="font-semibold text-ink">{t('welcome.ai.title')}</h2>
-        <p className="mt-1 mb-4 text-sm text-muted">{t('welcome.ai.why')}</p>
+        <p className="mt-1 mb-4 text-sm text-muted text-pretty">{t('welcome.ai.why')}</p>
         <ConnectAiPanel />
       </section>
     )
   return (
-    <section role="status" className="mb-6 rounded-2xl border border-line px-4 py-3.5" data-testid="no-ai-card" data-action={action}>
+    // phones (below 768px): no frame; the line, then its button under it, centred like the greeting
+    <section role="status" className="mb-6 rounded-2xl border border-line px-4 py-3.5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" data-testid="no-ai-card" data-action={action}>
       {trialNote}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="min-w-0 flex-[1_1_12rem] text-sm leading-6 text-ink">{t(requested ? 'aiAccess.banner.asked' : 'aiConnect.member')}</p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 max-md:flex-col max-md:gap-y-3">
+        <p className="min-w-0 flex-[1_1_12rem] text-sm leading-6 text-ink text-pretty max-md:flex-none">{t(requested ? 'aiAccess.banner.asked' : 'aiConnect.member')}</p>
         {!requested && (
           <Button size="sm" variant="primary" busy={sending} onClick={() => void ask()} data-testid="ai-access-button" data-action="ask_owner">
             {sending ? t('aiAccess.asking') : t('aiAccess.askOwner')}
@@ -189,7 +191,7 @@ export function NoAiCard() {
       </div>
       {failed && <p role="alert" className="mt-1 text-xs text-danger">{t('aiAccess.askFailed')}</p>}
       {action === 'connect_own' && (
-        <p className="mt-2 text-[13px]">
+        <p className="mt-2 text-label">
           <ConnectAiButton personal quiet data-testid="no-ai-own" />
         </p>
       )}

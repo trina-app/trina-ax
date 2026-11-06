@@ -36,17 +36,19 @@ export function PopularSkillsList({ result, limit, min = 1, onChoose, className 
   const all = result?.items ?? []
   const items = all.slice(0, limit)
   if (!items.length || all.length < min) return null
-  return <section className={`${className} rounded-2xl border border-line p-4`} data-testid="popular-skills" aria-labelledby="popular-skills-title">
-    <h2 id="popular-skills-title" className={`text-sm font-semibold ${onChoose ? 'mb-3' : ''}`}>{t('skills.popularTitle')}</h2>
+  // on Home (onChoose), phones (below 768px): no frame, the rows in line with Home's other rows, a 44px tap area
+  const home = !!onChoose
+  return <section className={`${className} ${home ? 'md:rounded-2xl md:border md:border-line md:p-4' : 'rounded-2xl border border-line p-4'}`} data-testid="popular-skills" aria-labelledby="popular-skills-title">
+    <h2 id="popular-skills-title" className={`text-sm font-semibold ${home ? 'mb-3 max-md:mb-1 max-md:px-3' : ''}`}>{t('skills.popularTitle')}</h2>
     {!onChoose && <p className="mb-3 mt-1 text-xs text-muted">{t('skills.popularHint')}</p>}
-    <ol className="space-y-3">{items.map(item => <li key={item.path} className="flex items-center gap-3">
+    <ol className={home ? 'space-y-3 max-md:space-y-0' : 'space-y-3'}>{items.map(item => <li key={item.path} className={`flex items-center gap-3 ${home ? 'max-md:min-h-11 max-md:px-3 max-md:py-1.5' : ''}`}>
       <div className="min-w-0 flex-1">
         {onChoose
-          ? <button type="button" onClick={() => onChoose(skillPrompt(item.name))} className="text-left text-sm font-medium text-accent-text hover:underline">{skillTitle(item)}</button>
+          ? <button type="button" onClick={() => onChoose(skillPrompt(item.name))} className="touch-hit text-left text-sm font-medium text-accent-text hover:underline">{skillTitle(item)}</button>
           : <Link to={`/?prompt=${encodeURIComponent(skillPrompt(item.name))}`} className="text-sm font-medium text-accent-text hover:underline">{skillTitle(item)}</Link>}
         <p className="line-clamp-2 text-xs text-muted">{skillSummary(item)}</p>
       </div>
-      <span className="shrink-0 text-xs text-muted">{t('skills.popularCount', { uses: item.uses, users: item.users })}</span>
+      <span className="shrink-0 text-xs text-muted tabular-nums">{t('skills.popularCount', { uses: item.uses, users: item.users })}</span>
     </li>)}</ol>
   </section>
 }
