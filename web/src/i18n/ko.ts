@@ -885,6 +885,8 @@ export const ko = {
   'settings.thisDevice': '지금 이 기기',
   'settings.devicesMore': '기기 {n}개 더 보기',
   'settings.signOutDevice': '로그아웃',
+  'settings.signOutDeviceConfirm': '{device}에서 로그아웃할까요?',
+  'settings.signOutDeviceConfirmBody': '그 기기에서는 다시 로그인해야 쓸 수 있어요.',
 
   'settings.schedules': '예약 작업',
   'schedules.desc': 'AI가 정해진 때에 대신 실행하는 작업이에요. 실행할 때마다 새 채팅이 생겨요. 아래 기본 작업을 설정하거나 채팅에서 AI에게 예약을 요청하세요.',

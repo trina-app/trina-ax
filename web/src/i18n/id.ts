@@ -886,6 +886,8 @@ export const id: Record<MessageKey, string> = {
   'settings.thisDevice': 'Perangkat ini',
   'settings.devicesMore': 'Tampilkan {n} perangkat lagi',
   'settings.signOutDevice': 'Keluarkan',
+  'settings.signOutDeviceConfirm': 'Keluarkan {device}?',
+  'settings.signOutDeviceConfirmBody': 'Untuk memakainya lagi di perangkat itu, Anda harus masuk lagi.',
 
   'settings.schedules': 'Tugas terjadwal',
   'schedules.desc': 'Tugas yang dijalankan AI sesuai jadwal, setiap kali di chat baru. Atur templat di bawah atau minta AI menjadwalkan tugas lewat chat.',

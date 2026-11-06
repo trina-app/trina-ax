@@ -863,6 +863,8 @@ export const ja: Record<MessageKey, string> = {
   'settings.thisDevice': "この端末",
   'settings.devicesMore': "ほかの端末を{n}件表示",
   'settings.signOutDevice': "ログアウト",
+  'settings.signOutDeviceConfirm': "{device} からログアウトしますか？",
+  'settings.signOutDeviceConfirmBody': "その端末でもう一度使うには、再度ログインする必要があります。",
   'settings.schedules': "定期タスク",
   'schedules.desc': "AIが指定した予定で実行するタスクです。毎回新しいチャットで実行されます。下のテンプレートを設定するか、チャットでAIにタスクの予約を依頼してください。",
   'drive.mobileBrowserLogin': "Googleのログインがブラウザーで開きます。同じチームユーザーでログインしてから、このアプリに戻ってアカウントを確認してください。",

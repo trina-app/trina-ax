@@ -392,8 +392,18 @@ function Security() {
                 {s.current ? (
                   <Badge tone="accent">{t('settings.thisDevice')}</Badge>
                 ) : phone ? (
-                  // phones: the icon, so the same word is not said on every row; its name says which device
-                  <IconButton label={`${t('settings.signOutDevice')} · ${deviceLabel(s.client, s.userAgent, t)}`} onKeyDown={noKeyRepeat} onClick={() => void signOut()} data-testid="device-sign-out">
+                  // phones: the icon, so the same word is not said on every row; its name says which device. A tap is
+                  // easily made by mistake there: 44px to hit, and a question before the device is signed out
+                  <IconButton
+                    label={`${t('settings.signOutDevice')} · ${deviceLabel(s.client, s.userAgent, t)}`}
+                    onKeyDown={noKeyRepeat}
+                    onClick={async () => {
+                      const device = deviceLabel(s.client, s.userAgent, t)
+                      if (await confirmDialog({ title: t('settings.signOutDeviceConfirm', { device }), body: t('settings.signOutDeviceConfirmBody'), confirm: t('settings.signOutDevice'), danger: true })) void signOut()
+                    }}
+                    className="touch-hit"
+                    data-testid="device-sign-out"
+                  >
                     <LogOut size={17} />
                   </IconButton>
                 ) : (

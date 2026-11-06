@@ -863,6 +863,8 @@ export const es: Record<MessageKey, string> = {
   'settings.thisDevice': "Este dispositivo",
   'settings.devicesMore': "Ver {n} dispositivos más",
   'settings.signOutDevice': "Cerrar sesión",
+  'settings.signOutDeviceConfirm': "¿Cerrar sesión en {device}?",
+  'settings.signOutDeviceConfirmBody': "Para volver a usarlo en ese dispositivo, tendrá que iniciar sesión de nuevo.",
   'settings.schedules': "Tareas programadas",
   'schedules.desc': "Tareas que la IA ejecuta según un horario, cada una en un chat nuevo. Configure una plantilla a continuación o pida a la IA en el chat que programe una tarea.",
   'drive.mobileBrowserLogin': "El inicio de sesión de Google se abre en su navegador. Inicie sesión allí con el mismo usuario del equipo y vuelva a esta aplicación para confirmar la cuenta.",

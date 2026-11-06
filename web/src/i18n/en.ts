@@ -886,6 +886,8 @@ export const en: Record<MessageKey, string> = {
   'settings.thisDevice': 'This device',
   'settings.devicesMore': 'Show {n} more devices',
   'settings.signOutDevice': 'Sign out',
+  'settings.signOutDeviceConfirm': 'Sign out on {device}?',
+  'settings.signOutDeviceConfirmBody': 'To use it on that device again, you will need to sign in again.',
 
   'settings.schedules': 'Scheduled tasks',
   'schedules.desc': 'Tasks the AI runs for you on a schedule, each run in a new chat. Configure a template below or ask the AI to schedule a task in chat.',
