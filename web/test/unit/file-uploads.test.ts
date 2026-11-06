@@ -44,7 +44,7 @@ describe('sign-out, or the end of a session', () => {
 
   test('folder uploads: every run stops, and no row stays', () => {
     const reasons: unknown[] = []
-    const run = (id: number) => ({ run: { id, stop: (r: unknown) => reasons.push(r) } }) as unknown as Run
+    const run = (id: number) => ({ run: { id, stop: (r: unknown) => reasons.push(r) }, view: { status: 'running' } }) as unknown as Run // a view like a real run: FolderUploads' module-level guard reads it once that module is loaded
     useRuns.setState({ runs: [run(1), run(2)] })
     forgetFolderUploads()
     expect(reasons).toEqual([SIGNED_OUT, SIGNED_OUT])
@@ -68,7 +68,7 @@ describe('sign-out, or the end of a session', () => {
   test('the session store does all of it', () => {
     const file = addFileUpload('private.pdf', 'users/me')
     const reasons: unknown[] = []
-    useRuns.setState({ runs: [{ run: { id: 3, stop: (r: unknown) => reasons.push(r) } } as unknown as Run] })
+    useRuns.setState({ runs: [{ run: { id: 3, stop: (r: unknown) => reasons.push(r) }, view: { status: 'running' } } as unknown as Run] })
     useSession.getState().signedOut('expired')
     expect(file.abort.signal.reason).toBe(SIGNED_OUT)
     expect(reasons).toEqual([SIGNED_OUT])
