@@ -10,6 +10,8 @@
 //     (SkillShareCard: the draft, then [팀에 공유] and the invite with that skill; docs/DECISIONS.md "S", "W3": the card
 //     had no entry since the first result shares the pack's own skill).
 // Closing one (X) closes it for good for this person (stored on the server). Acting on one hides it under that answer.
+// The promo video from the intro deck (`deck-video`, docs/DECISIONS.md "D2") is not built yet: the server never sends it
+// while DECK_VIDEO_SUGGESTION is off, and this line shows nothing for it.
 import { CalendarClock, Presentation, Sparkles, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { SavedSkillDraft, ResultSuggestion as Suggestion } from '@mycel/shared/api'
@@ -25,12 +27,12 @@ import { InviteStep } from './InviteStep'
 import { SkillShareCard } from './SkillShareCard'
 import { WelcomeInviteBar } from './WelcomeInviteBar'
 
-/** Each suggestion's line and button. */
+/** Each suggestion's line and button (`deck-video` has none yet: it is never shown). */
 const WORDS = {
   schedule: { text: 'resultTip.schedule.text', act: 'resultTip.schedule.act' },
   'team-skill': { text: 'resultTip.teamSkill.text', act: 'resultTip.teamSkill.act' },
   ppt: { text: 'resultTip.ppt.text', act: 'resultTip.ppt.act' },
-} as const satisfies Record<Suggestion['kind'], { text: MessageKey; act: MessageKey }>
+} as const satisfies Record<Exclude<Suggestion['kind'], 'deck-video'>, { text: MessageKey; act: MessageKey }>
 
 /** "매주 수요일 오후 2:30에 …": the weekday and time of now, in the person's language. */
 export function weeklyAt(now: Date, locale: string): { day: string; time: string } {
@@ -75,7 +77,7 @@ export function ResultSuggestion({ chatId, messages, busy, onSend }: { chatId: s
     </Modal>
   )
   const bar = <><WelcomeInviteBar chatId={chatId} answered={answered} messages={messages} />{cardDialog}</>
-  if (inviteHere || !lastId || got?.messageId !== lastId || !got.suggestion || done === lastId) return bar
+  if (inviteHere || !lastId || got?.messageId !== lastId || !got.suggestion || done === lastId || got.suggestion.kind === 'deck-video') return bar
   const s = got.suggestion
   const act = () => {
     setDone(lastId)

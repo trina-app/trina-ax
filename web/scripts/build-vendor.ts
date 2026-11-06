@@ -54,13 +54,16 @@ if (!result.success) {
 
 const pkgDir = (p: string) => path.dirname(require.resolve(`${p}/package.json`))
 
-// the promo video templates' typeface (docs/DECISIONS.md "V"; OFL-1.1, resources/notices/pretendard): the artifact page
-// loads fonts/promo-video.css (the frame allows fonts from /vendor/ only), the MP4 render reads the same file
+// Pretendard (OFL-1.1, resources/notices/pretendard), one variable file for two artifact pages that load it from here
+// (the frame allows fonts from /vendor/ only): the promo video templates (docs/DECISIONS.md "V") link
+// fonts/promo-video.css, kept as it is because saved promo videos link it (the MP4 render reads the same woff2), and the
+// intro deck's preview ("D2") links fonts/pretendard.css
 const FONT = path.resolve(WEB, '..', 'resources', 'promo-video', 'fonts', 'PretendardVariable.woff2')
+const fontFace = (family: string) => `@font-face{font-family:"${family}";src:url("PretendardVariable.woff2") format("woff2");font-weight:45 930;font-style:normal;font-display:block}\n`
 fs.mkdirSync(path.join(OUT, 'fonts'), { recursive: true })
 fs.copyFileSync(FONT, path.join(OUT, 'fonts', 'PretendardVariable.woff2'))
-fs.writeFileSync(path.join(OUT, 'fonts', 'promo-video.css'),
-  '@font-face{font-family:"Pretendard Promo";src:url("PretendardVariable.woff2") format("woff2");font-weight:45 930;font-style:normal;font-display:block}\n')
+fs.writeFileSync(path.join(OUT, 'fonts', 'promo-video.css'), fontFace('Pretendard Promo'))
+fs.writeFileSync(path.join(OUT, 'fonts', 'pretendard.css'), fontFace('Pretendard Web'))
 // the promo video's sounds (docs/DECISIONS.md "V"; CC0, resources/promo-video/audio/SOURCES.md): the artifact frame lets a
 // sound in only as a data: address, so each one is a script that puts its address in window.__pvAudio (the player loads
 // them only when the person turns the sound on); the MP4 render reads the files themselves

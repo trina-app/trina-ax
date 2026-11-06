@@ -33,7 +33,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
+  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
@@ -112,8 +112,11 @@ const OWNER_PASSWORD = 'correct horse battery'
  * a member who joins with the first result's invite lands on it */
 const CARDNEWS_TEXT = '---\nname: card-news\ndescription: 카드뉴스 — 회사 소개서나 자료를 읽고 정사각형 카드뉴스 5장을 만들어요.\nmetadata:\n  title: 카드뉴스\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 소개 전체"}, {"name": "channel", "label": "어디에 올릴까요", "type": "choice", "default": "instagram", "options": [{"value": "instagram", "label": "인스타그램"}, {"value": "linkedin", "label": "링크드인"}, {"value": "blog", "label": "블로그"}]}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 카드뉴스\n'
 /** the general pack's promo video (resources/skill-packs/general/ko/promo-video), its form included: the welcome steps'
- * first result since docs/DECISIONS.md "V"; a member who joins with its invite lands on it */
+ * first result of docs/DECISIONS.md "V", still installed */
 const PROMO_TEXT = '---\nname: promo-video\ndescription: 홍보 영상 — 회사 소개서나 자료를 읽고 팀 브랜드 폴더의 사진과 브랜드 색으로 세로형 홍보 영상을 만들어요.\nmetadata:\n  title: 홍보 영상\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 소개 전체"}, {"name": "channel", "label": "어디에 올릴까요", "type": "choice", "default": "instagram", "options": [{"value": "instagram", "label": "인스타그램"}, {"value": "linkedin", "label": "링크드인"}, {"value": "website", "label": "홈페이지"}]}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 홍보 영상\n'
+/** the general pack's intro deck (resources/skill-packs/general/ko/intro-deck), its form included: the welcome steps'
+ * first result since docs/DECISIONS.md "D2"; a member who joins with its invite lands on it */
+const DECK_TEXT = '---\nname: intro-deck\ndescription: 회사 소개서 — 회사 소개 자료나 홈페이지에서 읽은 내용으로 팀 브랜드 폴더의 사진과 브랜드 색을 써서 회사 소개서 슬라이드를 만들어요.\nmetadata:\n  title: 회사 소개서\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 전체"}, {"name": "audience", "label": "누구에게 보낼까요", "placeholder": "예: 제조업 고객사 · 비워 두면 누구에게나"}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 회사 소개서\n'
 
 /** like server/src/admin/settings.ts LOCALE_CHANGED */
 const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
@@ -924,6 +927,15 @@ export class MockServer {
       const { content: _c, ...summary } = a
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
     }
+    if (/^\/intro-deck\b/.test(prompt)) {
+      // like the team server (server/src/intro-deck/): the intro deck arrives saved, with no "writing" previews
+      const content = '<!DOCTYPE html><html lang="ko"><body><section class="slide" aria-roledescription="slide"><h1>조용한 책상 선풍기</h1></section></body></html>'
+      const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === DECK_ARTIFACT_KEY).length + 1
+      const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: DECK_ARTIFACT_KEY, version, type: 'html', title: 'Acme 회사 소개서', language: null, content, createdAt: now() }
+      this.artifacts.push(a)
+      const { content: _c, ...summary } = a
+      pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+    }
     if (/^\/card-news\b/.test(prompt)) {
       // like the team server (server/src/tools/artifact.ts): the card news arrives saved, with no "writing" previews
       const content = '<!DOCTYPE html><html lang="ko"><body><section class="card"><h1>조용한 책상 선풍기</h1></section></body></html>'
@@ -1545,6 +1557,11 @@ export class MockServer {
       const a = this.artifacts.find((x) => x.id === c.params.id && x.key === PROMO_ARTIFACT_KEY) ?? fail('not_found', 404)
       return { artifactId: a.id, chatId: a.chatId, title: a.title, style: PROMO_STYLES[0], duration: 18.5, mp4: { available: false, state: 'none' as const, seconds: null, bytes: null } }
     },
+    // an intro deck's info (server/src/intro-deck/): the mock never builds the files, so neither download is offered
+    getIntroDeck: (c) => {
+      const a = this.artifacts.find((x) => x.id === c.params.id && x.key === DECK_ARTIFACT_KEY) ?? fail('not_found', 404)
+      return { artifactId: a.id, chatId: a.chatId, title: a.title ?? '', theme: 'paper' as const, slides: 1, pptx: false, pdf: false }
+    },
     getJob: (c) => this.jobs.get(c.params.id!) ?? fail('not_found', 404),
     cancelJob: (c) => {
       const j = this.jobs.get(c.params.id!) ?? fail('not_found', 404)
@@ -1735,12 +1752,12 @@ export class MockServer {
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
       let install = null
       if (!p.general) {
-        const skills = [['meeting-tasks', GENERAL_TASKS_SKILL, '할 일 정리'], ['doc-brief', GENERAL_BRIEF_SKILL, '핵심 정리'], ['card-news', GENERAL_CARDNEWS_SKILL, '카드뉴스'], ['promo-video', GENERAL_PROMO_SKILL, '홍보 영상']] as const
+        const skills = [['meeting-tasks', GENERAL_TASKS_SKILL, '할 일 정리'], ['doc-brief', GENERAL_BRIEF_SKILL, '핵심 정리'], ['card-news', GENERAL_CARDNEWS_SKILL, '카드뉴스'], ['promo-video', GENERAL_PROMO_SKILL, '홍보 영상'], ['intro-deck', GENERAL_DECK_SKILL, '회사 소개서']] as const
         for (const [name, path, title] of skills) {
           for (const d of ['skills/general', `skills/general/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-          if (!this.files.has(path)) this.putFile(path, path === GENERAL_CARDNEWS_SKILL ? CARDNEWS_TEXT : path === GENERAL_PROMO_SKILL ? PROMO_TEXT : `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
+          if (!this.files.has(path)) this.putFile(path, path === GENERAL_CARDNEWS_SKILL ? CARDNEWS_TEXT : path === GENERAL_PROMO_SKILL ? PROMO_TEXT : path === GENERAL_DECK_SKILL ? DECK_TEXT : `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
         }
-        p.general = { at, tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL }
+        p.general = { at, tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL }
         install = { pack: 'general' as const, locale: this.settings.defaultLocale, skills: skills.map(([name, path]) => ({ name, path, status: 'created' as const })), folders: [] }
       }
       if (!p.teamGroup) {
@@ -1763,8 +1780,8 @@ export class MockServer {
       p.updatedAt = at
       return { progress: p, install, outcome: install ? 'installed' : 'already' }
     },
-    // the first result, the company promo video (server/src/onboarding/welcome-result.ts, short): the owner's files in
-    // the brand folder, or a 회사 소개.md written there; a new chat of the owner's; the promo video skill once for an
+    // the first result, the company intro deck (server/src/onboarding/welcome-result.ts, short): the owner's files in
+    // the brand folder, or a 회사 소개.md written there; a new chat of the owner's; the intro deck skill once for an
     // older row.
     // The mock collects no website images (images: []).
     startFirstResult: (c) => {
@@ -1774,10 +1791,10 @@ export class MockServer {
       if (!p || !p.general || !g?.brandFolder) fail('conflict', 409, '팀 폴더가 아직 없어요. 시작 설정을 다시 열어 주세요.')
       const files = (c.body as import('@mycel/shared/api').StartFirstResult).files
       for (const f of files) if (this.files.get(f)?.type !== 'file' || !f.startsWith(g!.brandFolder! + '/')) fail('not_found', 404)
-      if (!p!.general!.promoVideoPath) {
-        for (const d of ['skills/general', 'skills/general/promo-video']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-        if (!this.files.has(GENERAL_PROMO_SKILL)) this.putFile(GENERAL_PROMO_SKILL, PROMO_TEXT)
-        p!.general = { ...p!.general!, promoVideoPath: GENERAL_PROMO_SKILL }
+      if (!p!.general!.introDeckPath) {
+        for (const d of ['skills/general', 'skills/general/intro-deck']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
+        if (!this.files.has(GENERAL_DECK_SKILL)) this.putFile(GENERAL_DECK_SKILL, DECK_TEXT)
+        p!.general = { ...p!.general!, introDeckPath: GENERAL_DECK_SKILL }
       }
       const imagesFolder = `${g!.brandFolder}/${this.localized(BRAND_IMAGES_FOLDER)}`
       this.files.set(imagesFolder, this.files.get(imagesFolder) ?? { type: 'folder', mtime: at })
@@ -1786,9 +1803,9 @@ export class MockServer {
         intro = `${g!.brandFolder}/회사 소개.md`
         this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p!.site ? ` · ${p!.site}` : ''}\n`)
       }
-      const chat = (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 홍보 영상' } }) as { body: Chat }).body
+      const chat = (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 소개서' } }) as { body: Chat }).body
       p!.updatedAt = at
-      return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.promoVideoPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
+      return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.introDeckPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
     },
     // the one suggestion under a result (server/src/onboarding/suggestions.ts): none unless a test sets one
     // (/__test/result-suggestion); closing one keeps it closed

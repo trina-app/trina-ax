@@ -9,7 +9,7 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillTitle, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillTitle, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
 import { formAnswers } from '../../lib/skillForm'
@@ -346,8 +346,9 @@ function ArtifactCards({ chatId, messageId, className = 'mt-3' }: { chatId: stri
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">{a.title || a.key}</span>
               <span className="block text-xs text-muted">
-                {/* a promo video (docs/DECISIONS.md "V") is a video to people, whatever page plays it */}
-                {a.key === PROMO_ARTIFACT_KEY ? t('promo.kind') : t(TYPE_LABEL[a.type])}
+                {/* a promo video (docs/DECISIONS.md "V") is a video to people and an intro deck ("D2") a deck, whatever
+                    page shows it */}
+                {a.key === PROMO_ARTIFACT_KEY ? t('promo.kind') : a.key === DECK_ARTIFACT_KEY ? t('deck.kind') : t(TYPE_LABEL[a.type])}
                 {a.version ? ` · v${a.version}` : ''} · {a.writing ? t('artifact.writing') : t('artifact.clickToOpen')}
               </span>
             </span>
