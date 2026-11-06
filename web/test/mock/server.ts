@@ -1073,6 +1073,18 @@ export class MockServer {
     },
     logout: () => ({ cookie: `${DEV_SESSION_COOKIE}=; Path=/; Max-Age=0`, body: undefined }),
     me: (c) => this.me(c.user, ''),
+    // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
+    // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
+    listRooms: () => ({ items: [] }),
+    // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
+    // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
+    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
+    slackAdmin: () => ({
+      enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
+      state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
+      signIn: false, redirectUrl: null,
+    }),
+    listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name })) }),
     updateMe: (c) => {
       const u = c.user as User & { prefs?: Me['user']['prefs'] }
       if (c.body.name) u.name = c.body.name
@@ -2331,7 +2343,7 @@ export class MockServer {
       const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
       if (x.needsReview) throw new Fail('conflict', 409, '이 예약 작업은 확인 카드 없이 만들어져서 멈춰 뒀어요.', undefined, { reason: 'schedule_review' })
       if (/budget/.test(x.title)) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 내일 오전 12:00부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.')
-      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `⏰ ${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
       this.chats.push(chat)
       this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'created', chat } })
       x.lastChatId = chat.id

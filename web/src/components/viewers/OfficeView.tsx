@@ -165,7 +165,7 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
       )}
       <div
         ref={tableRef}
-        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-source-cell]]:bg-accent-soft"
+        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-t=n]]:text-right [&_td[data-t=n]]:tabular-nums [&_td[data-source-cell]]:bg-accent-soft"
         data-sheet={current?.name}
         dangerouslySetInnerHTML={{ __html: current?.html ?? '' }}
       />
@@ -175,7 +175,7 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
             <button key={i} role="tab" type="button" aria-selected={i === active} onClick={() => setActive(i)} title={s.hidden ? t('preview.sheetHiddenTitle') : undefined} className={clsx('inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs whitespace-nowrap focus-visible:-outline-offset-2', i === active ? 'bg-surface font-semibold shadow-sm' : 'text-muted hover:bg-hover', s.hidden && 'italic')}>
               {s.name}
               {s.hidden && (
-                <span className="rounded border border-line px-1 text-[10px] font-normal not-italic text-faint" data-testid="sheet-hidden-badge">
+                <span className="rounded border border-line px-1 text-nano font-normal not-italic text-faint" data-testid="sheet-hidden-badge">
                   {t('preview.sheetHidden')}
                 </span>
               )}

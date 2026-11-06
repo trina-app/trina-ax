@@ -1,14 +1,14 @@
 // App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
-import { Menu, MessageSquarePlus, ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { Menu, MessageCirclePlus, MessageSquarePlus, ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { mayReloadNow } from '../lib/reload-guard'
 import { api, API } from '../lib/api'
 import { setNavigator } from '../lib/nav'
-import { closeSidePanel, openArtifact, setSidePanel, typingOnPhone, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, keepsFilePanel, openArtifact, setSidePanel, typingOnPhone, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
@@ -19,6 +19,9 @@ import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
+import { BottomTabs, hidesTabs } from './BottomTabs'
+import { PhonePushAsk } from './settings/PushNotifications'
+import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
 import { IconButton, Spinner } from './ui'
@@ -37,6 +40,8 @@ export default function Layout() {
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
   const unread = useUnreadInbox()
+  // the team chat rooms: the list (sidebar group, the phone tab's count) stays loaded while the app is open
+  useRoomsSync()
 
   // banners raised by the server (e.g. a changed team skill) open app addresses through the router
   useEffect(() => {
@@ -77,9 +82,23 @@ export default function Layout() {
     } else if (location.pathname.startsWith('/c/')) useChats.setState({ autoOpen: null })
   }, [autoOpen, location.pathname])
 
-  // a chat's artifact panel doesn't belong to another chat
+  // a file panel belongs to the page it was opened on (fileFrom: that page's address)
+  const fileFrom = useRef<{ key: number; path: string } | null>(null)
+  useEffect(() => {
+    if (panel?.kind !== 'file') fileFrom.current = null
+    else if (fileFrom.current?.key !== panel.key) fileFrom.current = { key: panel.key, path: location.pathname }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel])
+
+  // a chat's artifact panel doesn't belong to another chat; a file panel stays only on its own page, on the Files page
+  // (open in folder, a file link) and in the chat a new-chat page's first message opens: not in another or a new chat
   useEffect(() => {
     if (panel?.kind === 'artifact' && location.pathname !== `/c/${panel.chatId}`) setSidePanel(null)
+    const from = fileFrom.current
+    if (panel?.kind === 'file' && from && from.path !== location.pathname) {
+      if (keepsFilePanel(from.path, location.pathname)) from.path = location.pathname
+      else setSidePanel(null)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname])
 
@@ -109,27 +128,36 @@ export default function Layout() {
         {drawer && (
           <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('sidebar.label')} data-drawer>
             <div className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />
-            <div className="absolute inset-y-0 left-0 w-[84vw] max-w-xs shadow-xl">
+            <div className="absolute inset-y-0 left-0 w-[84vw] max-w-xs bg-subtle pt-[var(--safe-top)] pb-[var(--safe-bottom)] shadow-xl">
               <Sidebar />
             </div>
           </div>
         )}
         <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden">
+          {/* inside a room or an AI chat its own header (with its back arrow) is the only bar on a phone */}
+          <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden', hidesTabs(location.pathname) && 'hidden')}>
             {/* the Inbox count lives in the drawer: a dot on the menu button says that something is unread */}
             <IconButton
               label={unread > 0 ? `${t('sidebar.open')} (${t('notifications.unread', { count: unread })})` : t('sidebar.open')}
               onClick={() => setDrawer(true)}
-              className="relative"
+              className="touch-hit relative"
               data-testid="menu-open"
             >
               <Menu size={20} />
               {unread > 0 && <span className="absolute top-1 right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas" aria-hidden data-testid="menu-unread" />}
             </IconButton>
-            <span className="flex-1 truncate text-center text-sm font-semibold">{PRODUCT.displayName}</span>
-            <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')}>
-              <MessageSquarePlus size={20} />
-            </IconButton>
+            {/* the 대화 list: its own name here (no second title row on the page) and a new 1:1 chat instead of a new AI
+                chat (the AI chat is pinned on top of the list) */}
+            <span className="flex-1 truncate text-center text-sm font-semibold">{location.pathname === '/rooms' ? t('tabs.chats') : PRODUCT.displayName}</span>
+            {location.pathname === '/rooms' ? (
+              <IconButton label={t('rooms.newDm')} onClick={() => navigate('/rooms?new=1', { replace: true })} className="touch-hit" data-testid="topbar-new-dm">
+                <MessageCirclePlus size={20} />
+              </IconButton>
+            ) : (
+              <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} className="touch-hit" data-testid="topbar-new-chat">
+                <MessageSquarePlus size={20} />
+              </IconButton>
+            )}
           </div>
           <div className="min-h-0 flex-1">
             {/* a page that cannot be loaded after a server update: here, with the sidebar still there (another page resets it) */}
@@ -137,13 +165,17 @@ export default function Layout() {
               <Outlet />
             </ChunkErrorBoundary>
           </div>
+          {/* the phone app's own question before the OS prompt (only while the OS has not been asked) */}
+          <PhonePushAsk />
+          {/* phones: 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
+          <BottomTabs />
         </main>
         {panel && (
           <div
             className={clsx(
-              'min-w-0 border-l border-line bg-surface',
-              // phones: a full-screen sheet over everything
-              'max-md:fixed max-md:inset-0 max-md:z-40',
+              'min-w-0 border-line bg-surface md:border-l',
+              // phones: a full-screen sheet over everything (no edge of its own)
+              'max-md:fixed max-md:inset-0 max-md:z-40 max-md:pt-[var(--safe-top)] max-md:pb-[var(--safe-bottom)]',
               'md:w-[46%] md:max-w-[880px] md:min-w-[360px]',
             )}
           >

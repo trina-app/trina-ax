@@ -9,6 +9,7 @@ import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
 import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
+import { setMobilePushSession } from './lib/mobile-push'
 import './index.css'
 import './theme.edition.css'
 
@@ -20,6 +21,7 @@ useSession.subscribe(state => {
   const status = state.status
   setMobileSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
   setPushSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
+  setMobilePushSession(status.kind === 'signed-in' && !status.me.user.mustChangePassword ? `${status.me.user.id}:${status.me.session.id}` : null)
 })
 initPwa()
 followVisualViewport()

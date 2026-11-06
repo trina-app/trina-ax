@@ -288,7 +288,8 @@ export class StorageMonitor {
       const t = this.o.teamRoot, d = this.o.dataDir
       const sys = path.join(t, '.system')
       const m: Measure = { ...ZERO }
-      m.team = await treeBytes(t, (a) => a === sys)
+      // the team's own files, and the files sent in its chat rooms (kept in .system/rooms, rooms/files.ts)
+      m.team = await treeBytes(t, (a) => a === sys) + await treeBytes(path.join(sys, 'rooms'))
       m.history = await treeBytes(path.join(sys, 'history'))
       m.trash = await treeBytes(path.join(sys, 'trash'))
       m.backups = await treeBytes(path.join(sys, 'backups')) + await treeBytes(path.join(d, 'backups'))

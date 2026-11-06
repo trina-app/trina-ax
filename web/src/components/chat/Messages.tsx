@@ -93,7 +93,7 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
     <>
       <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">{a.name}</span>
       {team && <span className="sr-only">{t('composer.teamFile', { path: a.path })}</span>}
-      <span className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pt-2 text-[11px] text-faint">
+      <span className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pt-2 text-micro text-faint">
         {ext && <span className="rounded border border-line px-1 leading-4 font-medium text-muted">{ext}</span>}
         {formatSize(a.size, locale)}
         {team && a.changed && <span className="text-warn">{t('attach.changed')}</span>}
@@ -261,7 +261,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
         <FormRun run={run} sending={!!m.local} />
       ) : (
         m.content && (
-          <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-[15px] leading-7 sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
+          <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-reading leading-7 max-md:leading-reading sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
             <UserText content={m.content} clamp={!open} />
             {long && (
               <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted hover:text-ink">
@@ -469,7 +469,7 @@ export function AssistantMessage({
 
   return (
     <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming}>
-      <div className="min-w-0 text-[15px]">
+      <div className="min-w-0 text-reading">
         {switchedFrom && m.engine && (
           <div className="mb-3 flex items-center gap-2 text-xs text-faint">
             <span className="h-px flex-1 bg-line" />
@@ -546,21 +546,21 @@ export function AssistantMessage({
           </p>
         )}
         {!streaming && (
-          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1', !isLast && ON_HOVER)} data-testid="answer-actions">
-            {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} />}
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER)} data-testid="answer-actions">
+            {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
             {/* the newest failed answer has "Try again" in its error box: one control for one action */}
             {!(m.status === 'error' && isLast) && (
-              <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} data-testid="regenerate">
+              <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
                 <RotateCcw size={13} />
               </IconButton>
             )}
             {m.content && m.status === 'done' && (
-              <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} data-testid="suggest-skill">
+              <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
                 <BookmarkPlus size={13} />
               </IconButton>
             )}
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-            {m.model && <span className="ml-1 text-[11px] text-faint">{m.model}</span>}
+            {m.model && <span className="ml-1 text-micro text-faint">{m.model}</span>}
           </div>
         )}
         {suggesting && (

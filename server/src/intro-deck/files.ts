@@ -20,7 +20,7 @@ import { makeWorkDir, readOutput, runIsolated } from '../tools/isolate'
 import { typstJobs } from '../system/limits'
 import { imageSize } from '../uploads/image'
 import { layoutDeck, type DeckDoc, type DeckOut } from './layout'
-import { buildPptx, PRETENDARD_FILES } from './pptx'
+import { buildPptx, extOf, PRETENDARD_FILES } from './pptx'
 import { buildTypst } from './typst'
 
 export interface StoredDeck { title: string; sources: string[]; doc: DeckDoc }
@@ -59,8 +59,10 @@ export function isOwnOutput(ctx: Pick<AppContext, 'db'>, sha256: string): boolea
   return !!ctx.db.query('SELECT 1 FROM intro_decks WHERE pptx_sha256 = ? OR pdf_sha256 = ? LIMIT 1').get(sha256, sha256)
 }
 
-/** The document laid out again with the pictures the chat's owner can read now. */
-function relayout(ctx: AppContext, r: Row): { out: DeckOut; read: (src: string) => Uint8Array | null; spec: StoredDeck } {
+/** The document laid out again with the pictures the chat's owner can read now. `webp: false` (the PowerPoint file):
+ * a WebP picture or logo is left out, so its slide takes its type-only version (Apple's renderers show a WebP inside a
+ * .pptx as an empty box; the preview and the PDF keep it). */
+function relayout(ctx: AppContext, r: Row, o: { webp: boolean }): { out: DeckOut; read: (src: string) => Uint8Array | null; spec: StoredDeck } {
   const spec = JSON.parse(r.spec) as StoredDeck
   const user = ctx.files.principal(r.owner_id)
   const bytes = new Map<string, Uint8Array | null>()
@@ -77,6 +79,7 @@ function relayout(ctx: AppContext, r: Row): { out: DeckOut; read: (src: string) 
   const pics: DeckDoc['pics'] = {}
   for (const [src, info] of Object.entries(spec.doc.pics)) {
     const b = read(src)
+    if (b && !o.webp && extOf(b) === 'webp') continue
     const size = b ? imageSize(b) : null
     // the picture as it is now (replaced by one of another size: the crop follows it)
     if (b && size) pics[src] = { ...info, width: size.width, height: size.height }
@@ -94,7 +97,7 @@ export function introDeckPptx(ctx: AppContext, userId: string, id: string): { ab
   const spec = JSON.parse(r.spec) as StoredDeck
   if (!fs.existsSync(file)) {
     const started = Date.now()
-    const { out, read } = relayout(ctx, r)
+    const { out, read } = relayout(ctx, r, { webp: false })
     const bytes = buildPptx(out, { title: spec.title, lang: spec.doc.lang, read, fonts: pretendardDir(), created: r.created_at })
     fs.mkdirSync(deckDir(ctx), { recursive: true })
     fs.writeFileSync(`${file}.part`, bytes, { mode: 0o600 })
@@ -114,7 +117,7 @@ export async function introDeckPdf(ctx: AppContext, userId: string, id: string):
   const spec = JSON.parse(r.spec) as StoredDeck
   if (!fs.existsSync(file)) {
     const started = Date.now()
-    const { out, read } = relayout(ctx, r)
+    const { out, read } = relayout(ctx, r, { webp: true })
     const t = buildTypst(out, { title: spec.title, lang: spec.doc.lang, read })
     const work = makeWorkDir()
     try {

@@ -56,10 +56,11 @@ export function orderProblems(slides: DeckSlide[]): string[] {
   return p
 }
 
-/** Every text a slide shows, with where it is, for the number and wording checks. */
-export function slideTexts(s: DeckSlide): [string, string][] {
+/** Every text a slide shows, with where it is, for the number and wording checks (`stars`: as written, the *stars*
+ * of the key phrase kept). */
+export function slideTexts(s: DeckSlide, stars = false): [string, string][] {
   const out: [string, string][] = []
-  const add = (where: string, v: string | undefined) => { if (v?.trim()) out.push([where, v.replace(/\*/g, '')]) }
+  const add = (where: string, v: string | undefined) => { if (v?.trim()) out.push([where, stars ? v : v.replace(/\*/g, '')]) }
   add('eyebrow', s.eyebrow)
   switch (s.kind) {
     case 'cover': add('headline', s.headline); add('sub', s.sub); break
@@ -217,7 +218,7 @@ export async function checkDeckInput(ctx: AppContext, t: ToolCtx, a: IntroDeckIn
     if (s.kind === 'contact') for (const k of ['email', 'phone', 'address'] as const) { const v = s[k]; if (v && !known(v)) problems.push(where(`${k}: "${v}" is not written in the sources or the company profile exactly like that; leave it out`)) }
     if (s.kind === 'contact' && s.website) { const h = host(s.website); if (!h || !(src.text.toLowerCase().includes(h) || (profile?.website && host(profile.website) === h))) problems.push(where(`website: "${s.website}" is not written in the sources or the company profile; leave it out`)) }
     for (const [w, text] of slideTexts(s)) if (['headline', 'title', 'line', 'statement'].includes(w) && /[.。]$/.test(text.trim()) && !/(\.\.\.|…)$/.test(text.trim())) problems.push(where(`${w}: no full stop at the end of a headline`))
-    for (const [w, text] of slideTexts(s)) if (((text.match(/\*/g) ?? []).length) > 2) problems.push(where(`${w}: mark at most one key phrase with a pair of *stars*`))
+    for (const [w, text] of slideTexts(s, true)) if (((text.match(/\*/g) ?? []).length) > 2) problems.push(where(`${w}: mark at most one key phrase with a pair of *stars*`))
   }
   const doc: DeckDoc = { theme, lang, title: a.title.trim(), company: a.company.trim(), website, brand, logo, slides, pics, notes: slides.map((s) => notesFor(s, src.parts, lang)) }
   // the layout measures every line; its problems are the AI's too

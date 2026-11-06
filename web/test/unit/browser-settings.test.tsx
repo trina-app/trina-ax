@@ -9,7 +9,7 @@ import { DESKTOP_BRIDGE_GLOBAL, type DesktopBridge, type DesktopBrowserSettings 
 import { translate } from '../../src/i18n'
 import { browserSettingsBridge } from '../../src/lib/desktop'
 import { allowAllPermitted, BrowserSettingsView } from '../../src/pages/BrowserSettings'
-import { settingsTabs } from '../../src/pages/settingsTabs'
+import { sectionMatches, settingsTabs } from '../../src/pages/settingsTabs'
 import { BrowserPolicySwitch } from '../../src/pages/admin/TeamSettings'
 
 const noop = () => {}
@@ -61,6 +61,20 @@ describe('where Settings > Browser shows', () => {
     expect(settingsTabs(true, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'credentials'])
     expect(settingsTabs(false, true).map((x) => x.id).slice(0, 5)).toEqual(['profile', 'security', 'usage', 'memory', 'credentials'])
   })
+})
+
+test('the settings search finds a section by what is inside it, in every language (비밀번호 → 보안·기기)', () => {
+  const tabs = settingsTabs(true, true)
+  const find = (l: 'ko' | 'en' | 'id' | 'ja' | 'es', q: string) => tabs.filter((x) => sectionMatches(x, q.trim().toLowerCase(), (k) => translate(l, k))).map((x) => x.id)
+  expect(find('ko', '비밀번호')).toEqual(['security'])
+  expect(find('en', 'Password')).toEqual(['security'])
+  expect(find('id', 'kata sandi')).toEqual(['security'])
+  expect(find('ja', 'パスワード')).toEqual(['security'])
+  expect(find('es', 'contraseña')).toEqual(['security'])
+  // the name still finds it, and an empty search shows every section
+  expect(find('ko', '보안')).toEqual(['security'])
+  expect(find('ko', '다크 모드')).toEqual(['profile'])
+  expect(find('ko', '')).toEqual(tabs.map((x) => x.id))
 })
 
 describe('the Browser section', () => {

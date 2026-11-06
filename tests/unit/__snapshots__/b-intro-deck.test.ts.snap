@@ -11,7 +11,7 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "text eyebrow 120,553 w1536.67 24/700 lh31 l: [#ffffffd9]회사 소개서",
   "text headline 120,616 w1536.67 112/800 lh125 l: [#ffffff]정밀 부품을 ⏎ [#ffffff]제때[#ffffff] 만드는 회사",
   "text sub 120,902 w1106.67 32/400 lh50 l: [#ffffffd9]반도체 장비와 의료기기 부품을 만듭니다",
-  "text website 1200,923 w600 22/700 lh29 r: [#ffffffa6]hanbit.example",
+  "text website 1200,923 w600 22/700 lh29 r: [#ffffffa6]acme-precision.example",
 ]
 `;
 
@@ -163,11 +163,11 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "line 680,471 → 680,795 #d3d3cf 2",
   "line 1240,471 → 1240,795 #d3d3cf 2",
   "text name 152,512 w496 40/700 lh52 c: [#555553]아크메전자",
-  "text name 712,512 w496 40/700 lh52 c: [#555553]누리메디칼",
-  "text name 1272,512 w496 40/700 lh52 c: [#555553]세온테크",
-  "text name 152,702 w496 40/700 lh52 c: [#555553]다온로보틱스",
-  "text name 712,702 w496 40/700 lh52 c: [#555553]한결기계",
-  "text name 1272,702 w496 40/700 lh52 c: [#555553]미래정공",
+  "text name 712,512 w496 40/700 lh52 c: [#555553]아크메메디칼",
+  "text name 1272,512 w496 40/700 lh52 c: [#555553]아크메테크",
+  "text name 152,702 w496 40/700 lh52 c: [#555553]아크메로보틱스",
+  "text name 712,702 w496 40/700 lh52 c: [#555553]아크메기계",
+  "text name 1272,702 w496 40/700 lh52 c: [#555553]아크메정공",
   "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]08",
   "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
 ]
@@ -209,8 +209,8 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "line 120,800 → 1800,800 #59765a 2",
   "text person 120,840 w533.33 32/700 lh50 l: [#ffffff]영업팀 박서준 이사",
   "text phone 120,894 w533.33 32/400 lh50 l: [#c5cfc5]031-555-0142",
-  "text email 693.33,840 w533.33 32/400 lh50 l: [#c5cfc5]sales@hanbit.example",
-  "text website 693.33,894 w533.33 32/400 lh50 l: [#c5cfc5]hanbit.example",
+  "text email 693.33,840 w533.33 32/400 lh50 l: [#c5cfc5]sales@acme-precision.example",
+  "text website 693.33,894 w533.33 32/400 lh50 l: [#c5cfc5]acme-precision.example",
   "text address 1266.67,840 w533.33 32/400 lh50 l: [#c5cfc5]경기도 안산시 단원구 예시로 12",
   "text footer 1680,1006 w120 22/700 lh29 r tabular: [#a1b1a1]10",
 ]
@@ -309,8 +309,8 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "text sub 120,802 w1106.67 32/400 lh50 l: [#c5cfc5]정밀 가공 파트너",
   "rect 120,488 96×12 r0 {"solid":"#ffffff"}",
   "line 120,936 → 1800,936 #59765a 2",
-  "text company 120,960 w800 22/700 lh29 l: [#a1b1a1]한빛정밀",
-  "text website 1100,960 w700 22/700 lh29 r: [#a1b1a1]hanbit.example",
+  "text company 120,960 w800 22/700 lh29 l: [#a1b1a1]아크메정밀",
+  "text website 1100,960 w700 22/700 lh29 r: [#a1b1a1]acme-precision.example",
 ]
 `;
 
@@ -321,8 +321,8 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1e4620]고객의 말",
   "text title 120,160 w1393.33 64/700 lh78 l: [#111111]고객이 직접 말해요",
   "rect 120,505 8×174 r0 {"solid":"#1e4620"}",
-  "text quote 184,497 w1329.33 72/700 lh95 l: [#111111]한빛정밀 덕분에 장비 조립 ⏎ [#111111]일정이 두 주 빨라졌어요",
-  "text who 184,731 w1106.67 32/700 lh50 l: [#555553]누리메디칼 구매팀 김하늘 팀장",
+  "text quote 184,497 w1329.33 72/700 lh95 l: [#111111]아크메정밀 덕분에 장비 조립 ⏎ [#111111]일정이 두 주 빨라졌어요",
+  "text who 184,731 w1106.67 32/700 lh50 l: [#555553]아크메메디칼 구매팀 김하늘 팀장",
   "text footer 1680,1006 w120 22/700 lh29 r tabular: [#828280]04",
   "image logo-wide.png 120,1008 104×26 crop 0,0,480,120 r0 logo",
 ]
@@ -536,14 +536,14 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "line 960,402 → 960,850 #393331 2",
   "line 1380,402 → 1380,850 #393331 2",
   "text name 152,434.50 w356 36/700 lh47 c: [#a3a09e]Acme Studio",
-  "text name 572,434.50 w356 36/700 lh47 c: [#a3a09e]Northwind",
-  "text name 992,434.50 w356 36/700 lh47 c: [#a3a09e]Blue Harbor",
-  "text name 1412,434.50 w356 36/700 lh47 c: [#a3a09e]Pine & Co",
-  "text name 152,602.50 w356 36/700 lh47 c: [#a3a09e]Lumen Labs",
-  "text name 572,602.50 w356 36/700 lh47 c: [#a3a09e]Orbit Foods",
-  "text name 992,602.50 w356 36/700 lh47 c: [#a3a09e]Kite Media",
-  "text name 1412,602.50 w356 36/700 lh47 c: [#a3a09e]Atlas Works",
-  "text name 152,770.50 w356 36/700 lh47 c: [#a3a09e]Juniper Law",
+  "text name 572,434.50 w356 36/700 lh47 c: [#a3a09e]Acme North",
+  "text name 992,434.50 w356 36/700 lh47 c: [#a3a09e]Acme Harbor",
+  "text name 1412,434.50 w356 36/700 lh47 c: [#a3a09e]Acme Pine & Co",
+  "text name 152,602.50 w356 36/700 lh47 c: [#a3a09e]Acme Labs",
+  "text name 572,602.50 w356 36/700 lh47 c: [#a3a09e]Acme Foods",
+  "text name 992,602.50 w356 36/700 lh47 c: [#a3a09e]Acme Media",
+  "text name 1412,602.50 w356 36/700 lh47 c: [#a3a09e]Acme Works",
+  "text name 152,770.50 w356 36/700 lh47 c: [#a3a09e]Acme Law",
   "text footer 1680,1006 w120 22/700 lh29 r tabular: [#777371]08",
   "text footer 120,1006 w600 22/700 lh29 l: [#777371]Acme Cloud",
 ]
@@ -813,7 +813,7 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "text label 1428,661 w372 30/400 lh47 l: [#c5cce3]재주문 증가",
   "text note 120,940 w1680 24/400 lh35 l: [#a1acd2]2025년 12월 기준",
   "text footer 1680,1006 w120 22/700 lh29 r tabular: [#a1acd2]04",
-  "text footer 120,1006 w600 22/700 lh29 l: [#a1acd2]모래알 커피",
+  "text footer 120,1006 w600 22/700 lh29 l: [#a1acd2]아크메 커피",
   "note 출처: 회사 소개.md — "…340곳의 고객사에 납품합니다…"",
 ]
 `;
@@ -896,11 +896,11 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "line 680,471 → 680,795 #dedede 2",
   "line 1240,471 → 1240,795 #dedede 2",
   "text name 152,512 w496 40/700 lh52 c: [#585858]아크메전자",
-  "text name 712,512 w496 40/700 lh52 c: [#585858]누리메디칼",
-  "text name 1272,512 w496 40/700 lh52 c: [#585858]세온테크",
-  "text name 152,702 w496 40/700 lh52 c: [#585858]다온로보틱스",
-  "text name 712,702 w496 40/700 lh52 c: [#585858]한결기계",
-  "text name 1272,702 w496 40/700 lh52 c: [#585858]미래정공",
+  "text name 712,512 w496 40/700 lh52 c: [#585858]아크메메디칼",
+  "text name 1272,512 w496 40/700 lh52 c: [#585858]아크메테크",
+  "text name 152,702 w496 40/700 lh52 c: [#585858]아크메로보틱스",
+  "text name 712,702 w496 40/700 lh52 c: [#585858]아크메기계",
+  "text name 1272,702 w496 40/700 lh52 c: [#585858]아크메정공",
   "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]08",
   "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
 ]
@@ -943,8 +943,8 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "line 120,800 → 1800,800 #596daf 2",
   "text person 120,840 w533.33 32/700 lh50 l: [#ffffff]영업팀 박서준 이사",
   "text phone 120,894 w533.33 32/400 lh50 l: [#c5cce3]031-555-0142",
-  "text email 693.33,840 w533.33 32/400 lh50 l: [#c5cce3]sales@hanbit.example",
-  "text website 693.33,894 w533.33 32/400 lh50 l: [#c5cce3]hanbit.example",
+  "text email 693.33,840 w533.33 32/400 lh50 l: [#c5cce3]sales@acme-precision.example",
+  "text website 693.33,894 w533.33 32/400 lh50 l: [#c5cce3]acme-precision.example",
   "text address 1266.67,840 w533.33 32/400 lh50 l: [#c5cce3]경기도 안산시 단원구 예시로 12",
   "text footer 1680,1006 w120 22/700 lh29 r tabular: [#a1acd2]10",
 ]
@@ -1045,7 +1045,7 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "text sub 120,802 w1106.67 32/400 lh50 l: [#c5cce3]정밀 가공 파트너",
   "rect 120,488 96×12 r0 {"solid":"#ffffff"}",
   "line 120,936 → 1800,936 #596daf 2",
-  "text company 120,960 w800 22/700 lh29 l: [#a1acd2]모래알 커피",
+  "text company 120,960 w800 22/700 lh29 l: [#a1acd2]아크메 커피",
 ]
 `;
 
@@ -1056,8 +1056,8 @@ exports[`the display list a snapshot per kind × variant × theme (made-up compa
   "text eyebrow 120,104 w1393.33 24/700 lh31 l: [#1f3a93]고객의 말",
   "text title 120,160 w1393.33 64/700 lh78 l: [#111111]고객이 직접 말해요",
   "rect 120,505 8×174 r0 {"solid":"#1f3a93"}",
-  "text quote 184,497 w1329.33 72/700 lh95 l: [#111111]한빛정밀 덕분에 장비 조립 ⏎ [#111111]일정이 두 주 빨라졌어요",
-  "text who 184,731 w1106.67 32/700 lh50 l: [#585858]누리메디칼 구매팀 김하늘 팀장",
+  "text quote 184,497 w1329.33 72/700 lh95 l: [#111111]아크메정밀 덕분에 장비 조립 ⏎ [#111111]일정이 두 주 빨라졌어요",
+  "text who 184,731 w1106.67 32/700 lh50 l: [#585858]아크메메디칼 구매팀 김하늘 팀장",
   "text footer 1680,1006 w120 22/700 lh29 r tabular: [#888888]04",
   "image logo-square.png 120,1004 34×34 crop 0,0,300,300 r0 logo",
 ]

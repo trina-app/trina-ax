@@ -84,9 +84,9 @@ function koDecks(): DeckSlide[][] {
     { kind: 'products', eyebrow: '제품', title: '주요 부품', items: [{ name: '정밀 샤프트', body: '장비 구동부에 들어가는 축이에요', picture: IMG + 'p1.png' }, { name: '진공 블록', body: '반도체 공정 챔버용 블록이에요', picture: IMG + 'p2.png', focus: 'top' }, { name: '의료용 핀', body: '수술 기구에 쓰는 작은 핀이에요', picture: IMG + 'p3.png', focus: 'bottom' }] },
     { kind: 'products', eyebrow: '제품', title: '맞춤 가공도 해요', items: [{ name: '시제품 가공', body: '도면만 있으면 한 개부터 만들어요' }, { name: '소량 양산', body: '적은 수량의 주문도 받아요' }] },
     { kind: 'process', eyebrow: '진행 방식', title: '주문은 이렇게 진행돼요', steps: [{ head: '도면 상담', body: '도면을 보고 가공 방법을 정해요' }, { head: '견적', body: '사흘 안에 보내 드려요' }, { head: '가공', body: '전담 팀이 맡아요' }, { head: '검사와 납품' }] },
-    { kind: 'proof', eyebrow: '고객사', title: '함께 일하는 고객사', names: ['아크메전자', '누리메디칼', '세온테크', '다온로보틱스', '한결기계', '미래정공'] },
+    { kind: 'proof', eyebrow: '고객사', title: '함께 일하는 고객사', names: ['아크메전자', '아크메메디칼', '아크메테크', '아크메로보틱스', '아크메기계', '아크메정공'] },
     { kind: 'history', eyebrow: '연혁', title: '한 걸음씩 걸어온 길', items: [{ when: '2009', what: '안산에서 창업' }, { when: '2014', what: '의료기기 부품 시작' }, { when: '2019', what: '두 번째 공장 준공' }, { when: '2025.03', what: '가공 라인 증설' }] },
-    { kind: 'contact', eyebrow: '문의', line: '부품 견적이 필요하면\n*연락 주세요*', offer: '첫 견적 무료', person: '영업팀 박서준 이사', email: 'sales@hanbit.example', phone: '031-555-0142', website: 'hanbit.example', address: '경기도 안산시 단원구 예시로 12' },
+    { kind: 'contact', eyebrow: '문의', line: '부품 견적이 필요하면\n*연락 주세요*', offer: '첫 견적 무료', person: '영업팀 박서준 이사', email: 'sales@acme-precision.example', phone: '031-555-0142', website: 'acme-precision.example', address: '경기도 안산시 단원구 예시로 12' },
   ], [
     { kind: 'cover', headline: '작은 공장의\n큰 정밀함', sub: '정밀 가공 부품 전문', picture: IMG + 'portrait.jpg', focus: 'top' },
     { kind: 'about', eyebrow: '회사 소개', statement: '도면 한 장으로 *정밀 부품*을 만들어 드려요' },
@@ -94,12 +94,12 @@ function koDecks(): DeckSlide[][] {
     { kind: 'offer', eyebrow: '하는 일', title: '세 가지를 약속해요', pillars: [{ head: '빠른 견적', body: '도면을 받으면 바로 답해요' }, { head: '같은 품질', body: '몇 번을 만들어도 같아요' }, { head: '소량도 환영', body: '한 개부터 만들어요' }] },
     { kind: 'scene', eyebrow: '공장', line: '안산 공장의 아침', picture: IMG + 'hall.png', focus: 'right' },
     { kind: 'numbers', eyebrow: '숫자', stats: [{ number: '340곳', label: '고객사' }, { number: '15년', label: '업력' }] },
-    { kind: 'contact', line: '견적 문의는 메일로', email: 'sales@hanbit.example' },
+    { kind: 'contact', line: '견적 문의는 메일로', email: 'sales@acme-precision.example' },
   ], [
     { kind: 'cover', eyebrow: '회사 소개서', headline: '부품이 멈추지 않게', sub: '정밀 가공 파트너' },
     { kind: 'about', eyebrow: '회사 소개', statement: '반도체 장비 부품을 만드는 *작은 공장*입니다', facts: [{ label: '설립', value: '2009년' }, { label: '대표', value: '한지민' }] },
     { kind: 'offer', eyebrow: '하는 일', title: '가공과 검사를 함께 해요', pillars: [{ head: '가공', body: '도면대로 깎아요' }, { head: '검사', body: '하나씩 재요' }, { head: '포장', body: '흠 없이 보내요' }] },
-    { kind: 'proof', eyebrow: '고객의 말', title: '고객이 *직접* 말해요', quote: { text: '한빛정밀 덕분에 장비 조립 일정이 두 주 빨라졌어요', who: '누리메디칼 구매팀 김하늘 팀장' } },
+    { kind: 'proof', eyebrow: '고객의 말', title: '고객이 *직접* 말해요', quote: { text: '아크메정밀 덕분에 장비 조립 일정이 두 주 빨라졌어요', who: '아크메메디칼 구매팀 김하늘 팀장' } },
     { kind: 'history', eyebrow: '인증', title: '품질을 인증받았어요', trust: ['ISO 9001', 'ISO 13485', '벤처기업 인증', '이노비즈 인증'] },
     { kind: 'contact', line: '언제든 연락 주세요', phone: '031-555-0142', address: '경기도 안산시 단원구 예시로 12' },
   ], [
@@ -108,7 +108,7 @@ function koDecks(): DeckSlide[][] {
     { kind: 'needs', eyebrow: '이런 분께', title: '이런 분께 맞아요', points: [{ head: '장비 제조사', body: '부품을 제때 받아야 하는 곳' }, { head: '연구소', body: '시제품이 급한 곳' }] },
     { kind: 'offer', eyebrow: '하는 일', title: '필요한 만큼 만들어요', pillars: [{ head: '시제품', body: '한 개부터' }, { head: '양산', body: '필요한 만큼' }, { head: '재주문', body: '같은 품질로' }] },
     { kind: 'proof', eyebrow: '사례', title: '조립 일정을 앞당긴 사례', case: { before: { label: '이전', text: '부품이 늦어 조립이 자주 멈췄어요' }, action: { label: '한 일', text: '전담 팀이 가공 순서를 다시 짰어요' }, result: { label: '결과', text: '조립 일정이 두 주 빨라졌어요' } } },
-    { kind: 'contact', line: '견적을 받아 보세요', offer: '첫 견적 무료', email: 'sales@hanbit.example' },
+    { kind: 'contact', line: '견적을 받아 보세요', offer: '첫 견적 무료', email: 'sales@acme-precision.example' },
   ]]
 }
 
@@ -122,7 +122,7 @@ function enDecks(): DeckSlide[][] {
     { kind: 'products', eyebrow: 'Plans', title: 'Pick a plan', items: [{ name: 'Starter', body: 'For teams of up to ten', picture: IMG + 'p1.png' }, { name: 'Business', body: 'For growing teams', picture: IMG + 'p2.png' }, { name: 'Enterprise', body: 'For large companies', picture: IMG + 'p3.png' }] },
     { kind: 'products', eyebrow: 'Add-ons', title: 'Add what you need', items: [{ name: 'Archive', body: 'Keep old files for years' }, { name: 'Audit log', body: 'See who opened what' }, { name: 'Support', body: 'A person answers' }, { name: 'Training', body: 'One session for the team' }] },
     { kind: 'process', eyebrow: 'How it works', title: 'Three steps to start', steps: [{ head: 'Sign up', body: 'Make an account' }, { head: 'Connect', body: 'Pick your folders' }, { head: 'Relax', body: 'We do the rest' }] },
-    { kind: 'proof', eyebrow: 'Customers', title: 'Teams that trust us', names: ['Acme Studio', 'Northwind', 'Blue Harbor', 'Pine & Co', 'Lumen Labs', 'Orbit Foods', 'Kite Media', 'Atlas Works', 'Juniper Law'] },
+    { kind: 'proof', eyebrow: 'Customers', title: 'Teams that trust us', names: ['Acme Studio', 'Acme North', 'Acme Harbor', 'Acme Pine & Co', 'Acme Labs', 'Acme Foods', 'Acme Media', 'Acme Works', 'Acme Law'] },
     { kind: 'history', eyebrow: 'Milestones', title: 'How we grew', items: [{ when: '2018', what: 'Founded in Seoul' }, { when: '2020', what: 'First thousand teams' }, { when: '2023', what: 'Opened in Tokyo' }, { when: '2024', what: 'Encrypted archive' }, { when: '2025', what: 'New restore engine' }] },
     { kind: 'contact', eyebrow: 'Contact', line: 'Try it free\nfor a month', offer: 'First month free', person: 'Mina Seo, Sales', email: 'hello@acmecloud.example', website: 'acmecloud.example' },
   ], [
@@ -152,10 +152,10 @@ function enDecks(): DeckSlide[][] {
 
 interface Sample { theme: DeckTheme; lang: Locale; company: string; website: string | null; brand: string; logo: DeckLogo | null; decks: DeckSlide[][] }
 const SAMPLES: Sample[] = [
-  { theme: 'paper', lang: 'ko', company: '한빛정밀', website: 'hanbit.example', brand: '#1e4620', decks: koDecks(),
+  { theme: 'paper', lang: 'ko', company: '아크메정밀', website: 'acme-precision.example', brand: '#1e4620', decks: koDecks(),
     logo: { src: IMG + 'logo-wide.png', width: 480, height: 120, light: 'direct', dark: 'mono' } },
   { theme: 'ink', lang: 'en', company: 'Acme Cloud', website: 'acmecloud.example', brand: '#ff5a1f', decks: enDecks(), logo: null },
-  { theme: 'brand', lang: 'ko', company: '모래알 커피', website: null, brand: '#1f3a93', decks: koDecks(),
+  { theme: 'brand', lang: 'ko', company: '아크메 커피', website: null, brand: '#1f3a93', decks: koDecks(),
     logo: { src: IMG + 'logo-square.png', width: 300, height: 300, light: 'direct', dark: 'chip' } },
 ]
 const NOTE = '출처: 회사 소개.md — "…340곳의 고객사에 납품합니다…"'
@@ -193,7 +193,7 @@ const k = (kind: DeckSlide['kind']) => ({ kind }) as DeckSlide
 // ── the pure parts ───────────────────────────────────────────────────────────────────────────────────────────────
 describe('schema and order', () => {
   const slides = koDecks()[0]!
-  const input = (over: Record<string, unknown> = {}) => ({ title: '한빛정밀 회사 소개서', company: '한빛정밀', sources: ['shared/브랜드/회사 소개.md'], slides, ...over })
+  const input = (over: Record<string, unknown> = {}) => ({ title: '아크메정밀 회사 소개서', company: '아크메정밀', sources: ['shared/브랜드/회사 소개.md'], slides, ...over })
 
   test('a strict schema: 6–10 slides of the eleven kinds, no field of HTML or layout, products of 2–4 items', () => {
     expect(IntroDeckInput.safeParse(input()).success).toBe(true)
@@ -780,8 +780,8 @@ describe('the PowerPoint file (our own writer)', () => {
   test.if(!!pretendardDir())('Pretendard embedded: three EOT files, "Pretendard" Regular and Bold and "Pretendard ExtraBold" in the font list', () => {
     const s = SAMPLES[0]!
     const out = layoutDeck(sampleDoc(s, koDecks()[0]!))
-    const bytes = buildPptx(out, { title: '한빛정밀 회사 소개서', lang: 'ko', read: sampleBytes, fonts: pretendardDir(), created: '2026-11-06T09:00:00.000Z' })
-    checkPptx(bytes, out, { lang: 'ko', title: '한빛정밀 회사 소개서', fonts: true })
+    const bytes = buildPptx(out, { title: '아크메정밀 회사 소개서', lang: 'ko', read: sampleBytes, fonts: pretendardDir(), created: '2026-11-06T09:00:00.000Z' })
+    checkPptx(bytes, out, { lang: 'ko', title: '아크메정밀 회사 소개서', fonts: true })
     // the whole TrueType font follows its header
     const font = readZip(bytes).find((e) => e.name === 'ppt/fonts/font1.fntdata')!.data
     const ttf = fs.readFileSync(path.join(pretendardDir()!, 'Pretendard-Regular.ttf'))
@@ -835,6 +835,7 @@ describe('the PDF (typst)', () => {
   })
 
   test.if(!!typst && !!pretendardDir())('typst compiles it: one page per slide, the hostile name printed as text, pictures in clipped boxes', () => {
+    fs.mkdirSync(WORK, { recursive: true })
     const work = fs.mkdtempSync(path.join(WORK, 'intro-deck-typst-'))
     try {
       const s = SAMPLES[0]!
@@ -865,22 +866,22 @@ describe('the PDF (typst)', () => {
 describe('the intro deck with real team files (a real app, the fake engine)', () => {
   let h: Harness
   const SRC = 'shared/브랜드/회사 소개.md'
-  const MATERIAL = `# 한빛정밀 회사 소개
+  const MATERIAL = `# 아크메정밀 회사 소개
 
-한빛정밀은 2009년 경기도 안산에서 시작한 정밀 가공 부품 회사입니다. 국내 최초로 의료용 티타늄 핀을 5축 장비로 가공했습니다.
+아크메정밀은 2009년 경기도 안산에서 시작한 정밀 가공 부품 회사입니다. 국내 최초로 의료용 티타늄 핀을 5축 장비로 가공했습니다.
 반도체 장비와 의료기기에 들어가는 부품을 만들어 340곳의 고객사에 납품합니다 (2025년 12월 기준).
 불량률 0.02%, 납기 준수율 99.1%, 직원 48명.
 
-고객사: 아크메전자, 누리메디칼, 세온테크, 다온로보틱스
+고객사: 아크메전자, 아크메메디칼, 아크메테크, 아크메로보틱스
 인증: ISO 9001, ISO 13485
 
-누리메디칼 구매팀 김하늘 팀장: "한빛정밀 덕분에 장비 조립 일정이 두 주 빨라졌어요"
+아크메메디칼 구매팀 김하늘 팀장: "아크메정밀 덕분에 장비 조립 일정이 두 주 빨라졌어요"
 
 영업팀 박서준 이사
-이메일 sales@hanbit-precision.example
+이메일 sales@acme-precision.example
 전화 031-555-0142
 주소 경기도 안산시 단원구 예시로 12
-웹사이트 hanbit-precision.example
+웹사이트 acme-precision.example
 `
   const put = (rel: string, b: Buffer | string) => { const abs = path.join(h.team, rel); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, b) }
   const tc = (user: string): ToolCtx => ({ user: h.ctx.files.principal(user), turnId: null, files: new TurnFiles() })
@@ -898,12 +899,12 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
     { kind: 'offer', eyebrow: '하는 일', title: '설계부터 납품까지 한 곳에서', picture: IMG + 'line.png', pillars: [{ head: '정밀 가공', body: '도면대로 정확하게 깎아요' }, { head: '품질 검사', body: '모든 부품을 하나씩 재요' }, { head: '제때 납품', body: '약속한 날짜에 보내요' }] },
     { kind: 'numbers', eyebrow: '숫자로 보는 회사', stats: [{ number: '340곳', label: '고객사' }, { number: '0.02%', label: '불량률' }, { number: '99.1%', label: '납기 준수율' }], note: '2025년 12월 기준' },
     { kind: 'products', eyebrow: '제품', title: '주요 부품', items: [{ name: '정밀 샤프트', body: '장비 구동부에 들어가는 축', picture: IMG + 'part1.png' }, { name: '진공 블록', body: '공정 챔버용 블록', picture: IMG + 'part2.png' }, { name: '의료용 핀', body: '수술 기구에 쓰는 핀', picture: IMG + 'part3.png' }] },
-    { kind: 'proof', eyebrow: '고객사', title: '함께 일하는 고객사', names: ['아크메전자', '누리메디칼', '세온테크', '다온로보틱스'] },
+    { kind: 'proof', eyebrow: '고객사', title: '함께 일하는 고객사', names: ['아크메전자', '아크메메디칼', '아크메테크', '아크메로보틱스'] },
     { kind: 'history', eyebrow: '인증', title: '품질을 인증받았어요', trust: ['ISO 9001', 'ISO 13485'] },
-    { kind: 'contact', line: '부품 견적이 필요하면\n연락 주세요', person: '영업팀 박서준 이사', email: 'sales@hanbit-precision.example', phone: '031-555-0142', address: '경기도 안산시 단원구 예시로 12' },
+    { kind: 'contact', line: '부품 견적이 필요하면\n연락 주세요', person: '영업팀 박서준 이사', email: 'sales@acme-precision.example', phone: '031-555-0142', address: '경기도 안산시 단원구 예시로 12' },
   ]
   const input = (over: Partial<IntroDeckInput> = {}, slides: Slides = slidesOf()): IntroDeckInput => IntroDeckInput.parse({
-    title: '한빛정밀 회사 소개서', company: '한빛정밀', website: 'hanbit-precision.example', brand_color: '#1e4620', logo: IMG + 'logo.png', sources: [SRC], slides, ...over,
+    title: '아크메정밀 회사 소개서', company: '아크메정밀', website: 'acme-precision.example', brand_color: '#1e4620', logo: IMG + 'logo.png', sources: [SRC], slides, ...over,
   })
   /** the deck with one slide changed */
   const withSlide = (i: number, change: (s: DeckSlide) => DeckSlide, over: Partial<IntroDeckInput> = {}) => { const s = slidesOf(); s[i] = change(s[i]!); return input(over, s) }
@@ -942,7 +943,7 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       const r = await checkDeckInput(h.ctx, tc('dana'), input(), 'ko')
       if (!r.ok) throw new Error(r.problems.join('\n'))
       const { doc, out, pictures } = r.deck
-      expect(doc).toMatchObject({ theme: 'brand', lang: 'ko', company: '한빛정밀', website: 'hanbit-precision.example', brand: '#1e4620' })
+      expect(doc).toMatchObject({ theme: 'brand', lang: 'ko', company: '아크메정밀', website: 'acme-precision.example', brand: '#1e4620' })
       expect(out.slides.map((s) => `${s.kind} ${s.variant}`)).toEqual(['cover A', 'about A', 'offer A', 'numbers A', 'products A', 'proof A', 'history B', 'contact A'])
       expect(pictures.sort()).toEqual([IMG + 'factory.png', IMG + 'line.png', IMG + 'logo.png', IMG + 'part1.png', IMG + 'part2.png', IMG + 'part3.png'].sort())
       expect(doc.logo).toMatchObject({ src: IMG + 'logo.png', width: 400, height: 120 })
@@ -970,24 +971,24 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
     })
 
     test('names as written (NFKC, spaces aside): customers, certifications, people; a quote word for word', async () => {
-      const p = (await problems(withSlide(5, (s) => ({ ...s, names: ['아크메 전자', '누리메디칼', '가나다물산'] }) as DeckSlide))).join('\n')
-      expect(p).toContain('slides[5] (proof) names[2]: "가나다물산" is not written in the sources like that')
+      const p = (await problems(withSlide(5, (s) => ({ ...s, names: ['아크메 전자', '아크메메디칼', '아크메물산'] }) as DeckSlide))).join('\n')
+      expect(p).toContain('slides[5] (proof) names[2]: "아크메물산" is not written in the sources like that')
       expect(p).not.toContain('names[0]')
       const t = (await problems(withSlide(6, (s) => ({ ...s, trust: ['ＩＳＯ 9001', '혁신 대상'] }) as DeckSlide))).join('\n')
       expect(t).toContain('slides[6] (history) trust[1]: "혁신 대상" is not written in the sources like that')
       expect(t).not.toContain('trust[0]')
       const who = (await problems(withSlide(7, (s) => ({ ...s, person: '영업팀 김철수 과장' }) as DeckSlide))).join('\n')
       expect(who).toContain('slides[7] (contact) person: "영업팀 김철수 과장" is not written in the sources like that')
-      const quote = (text: string, by = '누리메디칼 구매팀 김하늘 팀장') => withSlide(5, (s) => ({ kind: 'proof', eyebrow: '고객의 말', title: '고객이 직접 말해요', quote: { text, who: by } }) as DeckSlide)
-      expect(await problems(quote('한빛정밀 덕분에 장비 조립 일정이 두 주 빨라졌어요'))).toEqual([])
-      expect((await problems(quote('한빛정밀 덕분에 장비 조립 일정이 한 달 빨라졌어요'))).join('\n')).toContain('slides[5] (proof) quote.text: a quote must stand in the sources word for word')
-      expect((await problems(quote('한빛정밀 덕분에 장비 조립 일정이 두 주 빨라졌어요', '누리메디칼 대표'))).join('\n')).toContain('slides[5] (proof) quote.who: "누리메디칼 대표" is not written in the sources like that')
+      const quote = (text: string, by = '아크메메디칼 구매팀 김하늘 팀장') => withSlide(5, (s) => ({ kind: 'proof', eyebrow: '고객의 말', title: '고객이 직접 말해요', quote: { text, who: by } }) as DeckSlide)
+      expect(await problems(quote('아크메정밀 덕분에 장비 조립 일정이 두 주 빨라졌어요'))).toEqual([])
+      expect((await problems(quote('아크메정밀 덕분에 장비 조립 일정이 한 달 빨라졌어요'))).join('\n')).toContain('slides[5] (proof) quote.text: a quote must stand in the sources word for word')
+      expect((await problems(quote('아크메정밀 덕분에 장비 조립 일정이 두 주 빨라졌어요', '아크메메디칼 대표'))).join('\n')).toContain('slides[5] (proof) quote.who: "아크메메디칼 대표" is not written in the sources like that')
     })
 
     test('contact details: from the sources or the saved company profile, exact', async () => {
       const contact = (c: Record<string, string>) => withSlide(7, (s) => ({ ...s, ...c }) as DeckSlide)
-      const p = (await problems(contact({ email: 'info@hanbit-precision.example', phone: '031-555-0143', address: '경기도 안산시 단원구 예시로 21', website: 'elsewhere.example' }))).join('\n')
-      expect(p).toContain('slides[7] (contact) email: "info@hanbit-precision.example" is not written in the sources or the company profile exactly like that')
+      const p = (await problems(contact({ email: 'info@acme-precision.example', phone: '031-555-0143', address: '경기도 안산시 단원구 예시로 21', website: 'elsewhere.example' }))).join('\n')
+      expect(p).toContain('slides[7] (contact) email: "info@acme-precision.example" is not written in the sources or the company profile exactly like that')
       expect(p).toContain('slides[7] (contact) phone: "031-555-0143" is not written')
       expect(p).toContain('slides[7] (contact) address: "경기도 안산시 단원구 예시로 21" is not written')
       expect(p).toContain('slides[7] (contact) website: "elsewhere.example" is not written in the sources or the company profile')
@@ -1009,6 +1010,9 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       // written in the material: allowed
       expect(await problems(withSlide(2, (s) => ({ ...s, title: '국내 최초 의료용 핀 가공' }) as DeckSlide))).toEqual([])
       expect((await problems(withSlide(2, (s) => ({ ...s, title: '설계부터 납품까지 한 곳에서.' }) as DeckSlide))).join('\n')).toContain('slides[2] (offer) title: no full stop at the end of a headline')
+      // one starred key phrase at most (counted on the text as written, before the stars are taken off)
+      expect((await problems(withSlide(1, (s) => ({ ...s, statement: '*정밀한* 부품을 *한곳에서* 만드는 회사예요' }) as DeckSlide))).join('\n')).toContain('slides[1] (about) statement: mark at most one key phrase with a pair of *stars*')
+      expect(await problems(withSlide(1, (s) => ({ ...s, statement: '*정밀한* 부품을 한곳에서 만드는 회사예요' }) as DeckSlide))).toEqual([])
     })
 
     test('a source that is one of the deck\'s own outputs is refused (by its hash)', async () => {
@@ -1076,16 +1080,16 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
 
     test('checked slots: the artifact "intro-deck" (HTML, a new version per call) and a row in intro_decks; the answer in plain words', async () => {
       const { chat, id, answer } = await make()
-      expect(answer).toContain('Made the intro deck "한빛정밀 회사 소개서" (8 slides, the "브랜드색" look; slides made with type only although they could take a picture: none)')
+      expect(answer).toContain('Made the intro deck "아크메정밀 회사 소개서" (8 slides, the "브랜드색" look; slides made with type only although they could take a picture: none)')
       expect(answer).not.toContain('since the material was thin')
       const art = h.ctx.db.query('SELECT id, key, type, title, content, version FROM artifacts WHERE chat_id = ?').get(chat) as { id: string; key: string; type: string; title: string; content: string; version: number }
-      expect(art).toMatchObject({ id, key: DECK_ARTIFACT_KEY, type: 'html', title: '한빛정밀 회사 소개서', version: 1 })
+      expect(art).toMatchObject({ id, key: DECK_ARTIFACT_KEY, type: 'html', title: '아크메정밀 회사 소개서', version: 1 })
       expect(art.content.match(/<section class="s/g)).toHaveLength(8)
       expect(art.content).toContain('<link rel="stylesheet" href="/vendor/fonts/pretendard.css">')
       const row = h.ctx.db.query('SELECT chat_id, user_id, spec, pptx_sha256, pdf_sha256 FROM intro_decks WHERE artifact_id = ?').get(id) as { chat_id: string; user_id: string; spec: string; pptx_sha256: string | null; pdf_sha256: string | null }
       expect(row).toMatchObject({ chat_id: chat, user_id: 'dana', pptx_sha256: null, pdf_sha256: null })
       const spec = JSON.parse(row.spec)
-      expect(spec.title).toBe('한빛정밀 회사 소개서')
+      expect(spec.title).toBe('아크메정밀 회사 소개서')
       expect(spec.sources).toEqual([SRC])
       expect(spec.doc.theme).toBe('brand')
       expect(spec.doc.pics[IMG + 'factory.png']).toEqual({ width: 1920, height: 1080 })
@@ -1102,7 +1106,7 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
     test('the info and the downloads only for the chat\'s owner; the PDF hidden where typst is missing', async () => {
       const { chat, id } = await make()
       const info = await h.api('dana').call(API.getIntroDeck, { params: { id } })
-      expect(info).toEqual({ artifactId: id, chatId: chat, title: '한빛정밀 회사 소개서', theme: 'brand', slides: 8, pptx: true, pdf: pdfAvailable() })
+      expect(info).toEqual({ artifactId: id, chatId: chat, title: '아크메정밀 회사 소개서', theme: 'brand', slides: 8, pptx: true, pdf: pdfAvailable() })
       for (const p of ['', '/pptx', '/pdf']) expect((await h.req('alice', `/api/intro-decks/${id}${p}`)).status, p).toBe(404)
       expect((await h.req('dana', '/api/intro-decks/nope')).status).toBe(404)
       const prev = process.env.MYCEL_TYPST_BIN
@@ -1121,11 +1125,11 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       const { id } = await make()
       const res = await h.req('dana', `/api/intro-decks/${id}/pptx`)
       expect(res.status).toBe(200)
-      expect(res.headers.get('content-disposition')).toContain(encodeURIComponent('한빛정밀 회사 소개서.pptx'))
+      expect(res.headers.get('content-disposition')).toContain(encodeURIComponent('아크메정밀 회사 소개서.pptx'))
       const bytes = new Uint8Array(await res.arrayBuffer())
       const spec = JSON.parse((h.ctx.db.query('SELECT spec FROM intro_decks WHERE artifact_id = ?').get(id) as { spec: string }).spec)
       const out = layoutDeck(spec.doc)
-      checkPptx(bytes, out, { lang: 'ko', title: '한빛정밀 회사 소개서', fonts: !!pretendardDir() })
+      checkPptx(bytes, out, { lang: 'ko', title: '아크메정밀 회사 소개서', fonts: !!pretendardDir() })
       // the notes are the sources
       expect(out.slides[3]!.notes.join('\n')).toContain('출처: 회사 소개.md — "')
       const file = path.join(h.dataDir, 'intro-decks', `${id}.pptx`)
@@ -1136,9 +1140,9 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       // given again from the cache, the same bytes
       expect(sha(new Uint8Array(await (await h.req('dana', `/api/intro-decks/${id}/pptx`)).arrayBuffer()))).toBe(sha(bytes))
       // downloaded and put back into the brand folder: never a source of the next deck
-      put('shared/브랜드/한빛정밀 회사 소개서.pptx', Buffer.from(bytes))
-      const p = await problems(input({ sources: [SRC, 'shared/브랜드/한빛정밀 회사 소개서.pptx'] }), 'dana', (s) => isOwnOutput(h.ctx, s))
-      expect(p).toContain('source "shared/브랜드/한빛정밀 회사 소개서.pptx" is an intro deck this tool made; name the material it was made from instead')
+      put('shared/브랜드/아크메정밀 회사 소개서.pptx', Buffer.from(bytes))
+      const p = await problems(input({ sources: [SRC, 'shared/브랜드/아크메정밀 회사 소개서.pptx'] }), 'dana', (s) => isOwnOutput(h.ctx, s))
+      expect(p).toContain('source "shared/브랜드/아크메정밀 회사 소개서.pptx" is an intro deck this tool made; name the material it was made from instead')
       // our own extractor reads the slots back
       if (which('pandoc')) {
         const back = await readBack(bytes, out.slides.length)
@@ -1151,13 +1155,34 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       const { id } = await make()
       const res = await h.req('dana', `/api/intro-decks/${id}/pdf`)
       expect(res.status, await res.clone().text().then((t) => t.slice(0, 300))).toBe(200)
-      expect(res.headers.get('content-disposition')).toContain(encodeURIComponent('한빛정밀 회사 소개서.pdf'))
+      expect(res.headers.get('content-disposition')).toContain(encodeURIComponent('아크메정밀 회사 소개서.pdf'))
       const pdf = new Uint8Array(await res.arrayBuffer())
       expect(Buffer.from(pdf.subarray(0, 5)).toString('latin1')).toBe('%PDF-')
       const file = path.join(h.dataDir, 'intro-decks', `${id}.pdf`)
       expect(pageCount(pdf, file)).toBe(8)
       expect((h.ctx.db.query('SELECT pdf_sha256 FROM intro_decks WHERE artifact_id = ?').get(id) as { pdf_sha256: string }).pdf_sha256).toBe(sha(pdf))
       expect(fs.readdirSync(path.join(h.dataDir, 'intro-decks')).filter((f) => f.endsWith('.part'))).toEqual([])
+    })
+
+    test('a WebP picture is left out of the PowerPoint file (its slide type-only); the preview keeps it', async () => {
+      // RIFF … WEBP with a VP8X header: 2000 × 1100 (the server reads the size, never the pixels)
+      const webp = Buffer.alloc(30)
+      webp.write('RIFF', 0, 'ascii'); webp.writeUInt32LE(22, 4); webp.write('WEBPVP8X', 8, 'ascii'); webp.writeUInt32LE(10, 16)
+      webp.writeUIntLE(2000 - 1, 24, 3); webp.writeUIntLE(1100 - 1, 27, 3)
+      put(IMG + 'cover.webp', webp)
+      const s = slidesOf()
+      s[0] = { ...s[0]!, picture: IMG + 'cover.webp' } as DeckSlide
+      const { chat, id } = await make(input({}, s))
+      const html = (h.ctx.db.query('SELECT content FROM artifacts WHERE id = ?').get(id) as { content: string }).content
+      expect(html).toContain('cover.webp')
+      const res = await h.req('dana', `/api/intro-decks/${id}/pptx`)
+      expect(res.status).toBe(200)
+      const zip = readZip(new Uint8Array(await res.arrayBuffer()))
+      expect(zip.filter((e) => e.name.startsWith('ppt/media/') && e.name.endsWith('.webp'))).toEqual([])
+      const slide1 = parseXml(Buffer.from(zip.find((e) => e.name === 'ppt/slides/slide1.xml')!.data).toString('utf8'), 'slide1')
+      // the type-only cover's brand bar (96 × 12 px)
+      expect(all(slide1, 'a:ext').some((e) => e.attrs.cx === String(96 * 6350) && e.attrs.cy === String(12 * 6350))).toBe(true)
+      expect(chat).toBeTruthy()
     })
 
     test('a picture no longer readable at build time turns its slide into the type-only version (never a broken file)', async () => {
@@ -1180,7 +1205,7 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       const out = layoutDeck({ ...spec.doc, pics })
       expect(out.slides[0]!.variant).toBe('C')
       expect(out.typeOnly).toEqual([0])
-      checkPptx(bytes, out, { lang: 'ko', title: '한빛정밀 회사 소개서', fonts: !!pretendardDir() })
+      checkPptx(bytes, out, { lang: 'ko', title: '아크메정밀 회사 소개서', fonts: !!pretendardDir() })
     })
 
     test('the trash keeps the files; purging the chat removes them (and a cut-off part file), never another deck\'s', async () => {
@@ -1209,7 +1234,7 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       const promo = deckToPromoInput(r.deck.doc, r.deck.sources)
       const parsed = PromoVideoInput.safeParse(promo)
       expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true)
-      expect(promo).toMatchObject({ title: '한빛정밀 회사 소개서', company: '한빛정밀', website: 'hanbit-precision.example', brand_color: '#1e4620', logo: IMG + 'logo.png', sources: [SRC] })
+      expect(promo).toMatchObject({ title: '아크메정밀 회사 소개서', company: '아크메정밀', website: 'acme-precision.example', brand_color: '#1e4620', logo: IMG + 'logo.png', sources: [SRC] })
       expect(promo.proof.stats?.map((s) => s.number)).toEqual(['340곳', '0.02%'])
       // the sample decks too (thin ones, English ones)
       for (const s of SAMPLES) for (const slides of s.decks) {

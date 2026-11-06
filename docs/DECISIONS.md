@@ -1046,7 +1046,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 
 ## 예약 작업 (feat/scheduled-tasks, 2026-10-21)
 
-- **사람의 프롬프트를 정해진 때에 서버가 대신 보낸다**(`server/src/chat/schedules.ts`, 표 `schedules`, 마이그레이션 203). 실행마다 그 사람의 새 채팅("⏰ <제목> · <날짜>", 만든 채팅이 프로젝트 안이면 그 프로젝트)에서 그 사람의 권한으로 돈다: 폴더 규칙·사용 한도(다 쓴 block 한도면 건너뜀)·감사가 그대로. 반복: 한 번·매일·평일·매주·매월(1–28일), 시각은 팀 시간대(DST 안전). 30초마다 확인, 꺼져 있던 동안 놓친 실행은 다시 켜졌을 때 한 번, 그다음은 지금부터. 실행 전에 다음 시각으로 옮겨 두어 같은 실행이 두 번 되지 않는다. 사람당 20개.
+- **사람의 프롬프트를 정해진 때에 서버가 대신 보낸다**(`server/src/chat/schedules.ts`, 표 `schedules`, 마이그레이션 203). 실행마다 그 사람의 새 채팅("<제목> · <날짜>", 이모지 없음: 실행 채팅은 제목이 아니라 `title_source` 'schedule'과 턴의 `client_kind`로 알아본다. 만든 채팅이 프로젝트 안이면 그 프로젝트)에서 그 사람의 권한으로 돈다: 폴더 규칙·사용 한도(다 쓴 block 한도면 건너뜀)·감사가 그대로. 반복: 한 번·매일·평일·매주·매월(1–28일), 시각은 팀 시간대(DST 안전). 30초마다 확인, 꺼져 있던 동안 놓친 실행은 다시 켜졌을 때 한 번, 그다음은 지금부터. 실행 전에 다음 시각으로 옮겨 두어 같은 실행이 두 번 되지 않는다. 사람당 20개.
 - **아무도 보지 않는 실행**: 턴의 `client_kind`가 `schedule`(표 turns에 남아 재시작 뒤 대기열 복구에도 유지). `waitForPerson`이 바로 "답 없음"을 돌려준다: ask_user는 skipped, 확인 카드가 필요한 일(처음 보는 주소, 더 넓은 폴더에 저장, generate_video)은 거절. 메시지 앞에 `<scheduled_run>` 블록으로 AI에게도 알린다.
 - **만들기·관리**: AI 도구 `schedule_create`·`schedule_list`·`schedule_delete`(예약 실행 안에서는 만들 수 없음: 스스로 늘어나는 작업 방지). 사람은 설정 › 예약 작업에서 보고 끄고/켜고 지운다(`GET/PATCH/DELETE /api/schedules`, 자기 것만).
 - **사무실 모드**: 맥이 켜져 있고 사용자가 로그인해 있어야 돈다(LaunchAgent). 꺼져 있던 시간의 실행은 켜질 때 한 번.
@@ -1407,7 +1407,7 @@ D7의 Claude 구독 연결은 Claude Code를 설치하고 터미널에서 `claud
 - **대기열 상한(L07)**: 팀 대기 ≥ max(10, 4×동시 실행) 또는 한 사람 대기 ≥ 3이면 429 + `Retry-After: 30`. 명세는 새 오류 코드
   세 개를 더하라고 했지만 **기존 `rate_limited`(429)에 `params.reason`(`queue_full`·`queue_full_user`·`jobs_full`)**으로 정했다:
   클라이언트가 이미 429와 `retryAfter`를 다루고, 공유 계약은 꼭 필요할 때만 넓힌다. 예약 실행이 막히면 채팅을 만들기 전에
-  확인해(빈 "⏰" 채팅이 남지 않음) 1분 뒤로 미루고 감사 `schedule.deferred`. 작업(받아쓰기·내보내기)은 한 사람 대기+실행 5개.
+  확인해(빈 실행 채팅이 남지 않음) 1분 뒤로 미루고 감사 `schedule.deferred`. 작업(받아쓰기·내보내기)은 한 사람 대기+실행 5개.
 - **저장 공간(L17, BIZ-03)**: 진실은 팀 폴더 파일 시스템의 `statfs`(명세 D20). 검토 BIZ-03의 "쿼터 = 팀 폴더+버전+휴지통+DB" 장부
   대신 이것을 택했다: 호스팅 테넌트의 디스크가 곧 요금제 크기이고, 장부는 어긋나며, 로컬 백업은 요금제 보존일(클라우드 3일)로
   묶인다. 단계 80%(owner·관리자 알림 24시간에 한 번, 재시작해도 설정 표에 기억, 감사 `storage.warn`) · 90%(진단 경고) ·
@@ -8034,6 +8034,766 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   No released server ever had our 222.
 
 
+## 대화방 v1 — team chat rooms, people to people (feat/team-rooms, 2026-11-05)
+
+- **Apart from the AI chats.** Rooms are new tables (migration 240: `rooms`, `room_members`, `room_messages`,
+  `room_files`; 241: `room_notices`, `room_push_deliveries`, `notification_preferences.room_messages`), a new route
+  module (`server/src/routes/rooms.ts`, logic in `server/src/rooms/`) and a new contract (`shared/src/api/rooms.ts`,
+  events `room.*` in `ws.ts`). The one-person AI chats (`chats`, `server/src/chat/`) are untouched. No AI in rooms yet.
+- **Three kinds, no hand-picked group rooms in v1.** `team`: one per group, its members are the group's active people;
+  `all`: one per team, every active person; `dm`: exactly two people, one per pair (`dm_key` = the two ids sorted,
+  unique). Rooms of hand-picked people and reactions were cut from v1 after review. The table's CHECK already allows
+  `group` (tables are never rebuilt, so a later step can add such rooms without a new table); no code writes one, the
+  contract's `RoomKind` does not list it, and `POST /api/rooms` takes `dm` only. Team rooms
+  and the everyone room are made by the server only (`POST /api/rooms` opens DMs only).
+- **Rooms follow groups and accounts.** `Rooms.sync()` makes a team room for every group and the everyone room, and
+  sets their members from `group_members` and the active accounts. It runs at start, at the end of every
+  `afterAccessChange` (group create, edit, delete, a person's role or groups), when a person's rooms are out of step on
+  their `GET /api/rooms` (a new account from an invite or the team link), and once a minute. A disabled or deleted
+  account leaves the rooms (its unread count would never go down otherwise); turned on again it joins again, from then
+  on. A group deleted: its room is archived with nobody in it (rows kept; nobody can read them; a purge is for later).
+  Team and everyone rooms' creation and member changes are audited (`room.create`, `room.members`, `room.archive`); a
+  DM is not (admins read the audit log and must not learn who talks to whom), and a message's text never is.
+- **A later member sees from their join on.** `room_members.visible_from_seq` is the room's `last_seq` when they
+  joined (0 for the first members at the first start): messages, the last-message line, unread counts, quotes of earlier
+  messages ("deleted" for them) and room files all go by it. Their read position starts there too.
+- **Members only, admins included.** Every read and write starts from the caller's member row; anyone else gets 404
+  (not 403: a room's existence is not told). The owner and admins have no way into a room they are not in, through the
+  API or a room file. The author is the session's person: the request schemas are `.strict()`, so a body naming
+  `author`, `authorId`, `authorKind` or `visibility` is refused (400), and edit and delete are the author's only (403).
+  Message text from another member is data, shown as plain text in the app (never Markdown or HTML); the AI step must
+  treat it as untrusted input too, and can rely on `author_id` being the real sender.
+- **KakaoTalk's unread number.** Every message carries `unread`: members who may see it (`visible_from_seq < seq`) and
+  whose `last_read_seq < seq`. The sender has read their own message (sending moves their read position to it). Reads
+  only move forward (`POST /api/rooms/:id/read`, clamped to the room's last seq). Nobody's read position is in any
+  response: `room.read` tells the others only "fromSeq < seq <= toSeq has one reader more", so the number updates
+  without saying who; `mine: true` goes to the reader's own windows (their badge). Deleted and private messages show 0.
+  The room badge (`Room.unreadCount`, capped at 999) counts messages after my position that I can see and did not write.
+- **Reserved for the AI step, not built.** `room_messages.author_kind` ('user' | 'ai'), `asked_by`, and `visibility`
+  ('room' | 'private') with `visible_to`. A private message is seen by its one person only (`canSee` / `SEE_SQL` in
+  `server/src/rooms/store.ts` filter every list, event, quote, last line and file), makes no notice (`notify()` skips
+  it), no badge and no unread count for anyone else. Where a turn would hook in: `Rooms.send()` is the one writer of
+  room messages; an AI answer is a second writer with `author_kind 'ai'`, `asked_by` = who asked, first as a private
+  preview to that person (`visibility 'private'`, `visible_to`), and sharing it turns it to `'room'` (and notifies then).
+- **Room files where no person reaches them, but in every backup.** Owners and admins can read everything in the team
+  folder outside `users/<id>/` (`server/src/policy/access.ts`), so room files are not in a folder people can open. They
+  are in `<team>/.system/rooms/<room id>/<file id>` (0700 / 0600, with a `.thumb.jpg` preview): `.system/` is closed to
+  every person, the AI's tools, the dev environment and the owner's export, and it is part of every team-folder backup,
+  archive, off-site copy and restore (a first version kept them in `<data dir>/rooms/`, which no backup covered; such
+  files move over at the next start, file by file through a temporary name). With the team folder on a network share or
+  another disk, room files are there too. At every start `RoomFiles.reconcile()` compares files and rows and deletes
+  nothing on a guess: a file without a row (a database restored from a backup is older than the folder) moves to
+  `.system/rooms-orphans/<time>/` and is deleted after 30 days, so going back to the newer database stays possible; a
+  row without its file is kept (the file answers 404) and counted in the log, because the folder may be a share not
+  mounted yet, unreadable, or put in place after the first start; when `.system/rooms/` is missing or unreadable the
+  whole check is skipped. They count as team storage.
+  They are reached only through `GET /api/rooms/:id/files/:fileId`, which checks
+  on every read that the caller is in the room now and may see the message it was sent with (before sending: the
+  uploader only). The upload is the chat attachment's path and limits (multipart ≤ 50 MB, the storage check, the temp
+  file and its sha256, the image size and thumbnail helpers, no preview of a quarantined file). A deleted message's files
+  are removed from disk; uploads never sent are swept after a day. The AI step reads them from there, with the same check.
+- **Photos: upright, and without where they were taken (end-to-end run, 2026-11-06).** A phone's portrait photo is
+  often stored landscape with EXIF orientation 6: the thumbnail (ffmpeg) and the browser show it upright, but its
+  stored size was the landscape one, so the room's 320×240 box cropped it to the middle band. The size is now the
+  shown one (`displaySize` in `uploads/image.ts`: orientations 5–8 swap width and height; chat attachments too). Rows
+  from before keep their size; the web shows a thumbnail in its own shape once it has loaded (`RoomThumb`), so no
+  backfill. Every member gets the original, so a photo's metadata is cut out on upload, as messengers do
+  (`uploads/metadata.ts`, the profile photo's cleaner with a messenger's settings): EXIF (with GPS, camera, times),
+  XMP, comments, PNG text chunks, other cameras' extras and anything after a JPEG's end; JPEG, PNG, WebP and HEIC.
+  Kept: the picture byte for byte, its colour profile, an animation, and its orientation, written back as the only EXIF
+  tag, so it still stands upright. Profile photos stay as strict as before (no colour profile, no animation, no
+  orientation tag).
+  - **Keep-lists, and refusal when unsure (review of bf51a728).** Every format keeps only what draws the picture:
+    JPEG the frame, scan, Huffman, quantisation and restart segments (each checked against its fixed layout), APP0
+    only as JFIF, APP14 only as Adobe, APP2 only as an ICC profile (JFXX, JPGn 0xF0–0xFD, every other APPn and
+    comments go; Adobe must fit its layout, a JFIF that does not is dropped (it is not needed to draw the picture),
+    and the ICC parts are kept only when together they are exactly the profile its header describes, else all dropped
+    (colours as without a profile, never a profile stretched over EXIF); stray bytes after a kept segment are skipped up to the
+    next marker, as libjpeg does, up to 4 KB, and never kept, while after a dropped metadata segment they refuse the
+    file, because a wrong length there ends inside the metadata and a skip could take it for markers and keep it, as
+    a fuzz showed); PNG and WebP their picture chunks, and an animated WebP's frames only their picture chunks; HEIC its
+    picture items (EXIF becomes an empty block, every other item spaces), the parts of mdat they use (the rest zeros)
+    and its item tables and properties (other boxes' payloads zeros). A file that does not read exactly (a box that
+    does not fit, an item table it cannot follow) is refused with a reason instead of being passed on. HEIC's tables
+    are bounded (10,000 items, 1,000 extents an item, 20,000 steps; sizes 0, 4 or 8 only): a crafted 400 KB file whose
+    tables took 45 s is refused in under a millisecond. The cleaner runs in the upload request, not in a worker: every
+    parser is linear (a 50 MB JPEG, crafted or not, takes 60–100 ms, about as long as hashing it), which a worker would only
+    move. A 24,000-file mutation fuzz threw nothing, kept no metadata and took at most 2 ms a file.
+  - Shown only when cleaned or harmless: GIF, BMP and SVG (no place in practice) are shown as they are; a TIFF (it
+    can hold GPS like any camera EXIF) or a file whose bytes are not the picture its name says goes as a plain file
+    (no preview, no thumbnail), like a document, whose metadata is not cleaned either.
+  - Photos sent before this change keep their metadata: they are not rewritten (no backfill).
+- **The keyboard keeps the newest message in sight (end-to-end run, 2026-11-06).** The page uses
+  `interactive-widget=resizes-content`, so a phone's keyboard shrinks the message list from below with its scroll
+  position unchanged and no scroll event; the list followed only its content's size, so the newest messages went
+  behind the message box. The list now also follows its own size: when it gets shorter and the reader was at the
+  bottom, it stays at the bottom (`lib/stickToBottom.ts`, the room and the AI chat alike).
+- **Realtime to members only.** Every room event goes through `publishEach` with the room's member rows (and `canSee`
+  for a message), so a person outside the room never gets one. Payloads are one message (≤ 10,000 characters, ≤ 10
+  files) or a few ids, well under the per-user buffer. Reconnect: the hub's replay check (`stillVisible`) now also
+  replays `room.*` only while the person is still in that room, else `resync`; a person removed from a room also loses
+  their replay buffer (`forgetReplay`) and gets `room.updated removed`. The app reloads its rooms after any reset or
+  resync (gaps are not patched from events).
+- **Notices: a DM message or an @mention.** `room.dm` (the other person) and `room.mention` (each member picked as a
+  mention; only people in the room count); nobody who muted the room gets either. No second notice of the same kind
+  while one of that room is unread, so a burst of messages or mentions is one notice and one push; reading the room
+  marks its notices read and a deleted message takes its notice with it. Sending is rate limited per person (a burst of
+  20, then one a second, all rooms together; 429 with the seconds to wait; a resend of the same clientMessageId is
+  free). They live in `room_notices` (notification_inbox has a fixed event_type
+  list and is never rebuilt) and are part of the one inbox; the inbox entry names the room and who wrote it, never the
+  text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
+  `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
+  notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
+  (`roomMessages`), turns both off; per room there is mute. An edit notifies nobody.
+- **People directory.** The room screens use `GET /api/people` and the photo address from feat/profile (merged into this
+  branch): one `Avatar` (feat/profile's, `web/src/components/Avatar.tsx`), one people store (`web/src/store/people.ts`,
+  with the lookups the rooms need) and one quiet handler for `profile_changed` (no toast; the people list, once read,
+  loads again). The person who changed it gets `my_profile_changed` instead, so only their own windows read their
+  account (GET /api/me) again.
+- **Web.** Desktop and web: a foldable "대화방" group in the sidebar above the AI chats (team rooms, 전체, DMs; one count
+  pill per room, "@" in front when one mentions me; "+" opens the people list for a DM); a room opens in the main area at
+  `/rooms/:roomId` (the mobile app deep-links there), the list at `/rooms`. The room screen groups consecutive messages
+  by author (avatar, name, time once), shows the unread number beside a message only while it is above 0, quotes a reply
+  (a click scrolls to it), offers reply, edit and delete in one "…" menu per message (always visible on touch screens),
+  @mention autocomplete of the room's members, files and images, and one primary action, Send. A message's unread
+  number only ever goes down, so the app keeps the lower of two copies (the answer to my own send can arrive after the
+  other person already read it). Text is plain text with line breaks, never Markdown or HTML.
+- **Phones.** Below 768 px a bottom tab bar with three tabs, 대화 (`/rooms`) · 파일 · 나 (Settings, with the profile
+  page from feat/profile), hairline above, one unread count on 대화. The 대화 list starts with a pinned row for the
+  AI chat (the product's name; it opens Home), like KakaoTalk's "나와의 채팅"; the AI chat has no tab of its own. Inside
+  a room and inside an AI chat there is no tab bar (their message box needs the bottom), and inside a room the room's
+  header with its back arrow replaces the phone top bar. Rows are separated by hairlines, no cards near the edge. The
+  desktop sidebar keeps the AI chats where they were.
+- **Notices on a device.** The service worker shows a room push with the generic text, and a click opens `/rooms/<id>`
+  with the room id taken from the signed-in fetch of the notice at show time, never from the payload (the room page
+  checks membership again); other pushes still open Settings › Notifications.
+
+## 프로필과 사람 목록 (feat/profile, 2026-11-05)
+
+팀 채팅이 "누가 말했는지"를 보여 주려면 사람 목록과 프로필이 먼저 있어야 해서, 둘을 코어에 먼저 넣었다.
+
+- **사람 목록** `GET /api/people`은 로그인한 모든 구성원이 부른다. 줄 수 있는 것은 `id`, 이름, 직함, 사진 버전뿐이다(한 줄 상태 `status`는 아래 "한 줄 상태는 쓰지 않는다" 참고). 이메일·역할·그룹·아이디(username)는 넣지 않는다(이메일은 지금처럼 관리자만). 비활성화·삭제된 사람은 빠진다. 사진 주소는 `/api/people/:id/avatar?v=<버전>`이고 구성원만 받는다. 현재 버전이 주소에 있으면 1년 캐시(`immutable`), 아니면 매번 확인한다. 사진이 없으면 404이고 웹은 첫 글자 아바타를 그린다.
+- **이름은 본인이 바꿀 수 있다.** 지금도 `PATCH /api/me`로 본인 이름을 바꿀 수 있어서(관리자만 바꾸는 규칙이 없었다) 그 규칙을 그대로 두고, 같은 일을 `PATCH /api/me/profile`(`name`, `title`)에서도 한다. 직함은 60자까지. 비워서 보내면 지워진다. 아무도 다른 사람의 프로필을 바꿀 수 없다: 대상은 항상 세션의 사람이고 요청에 아이디를 받지 않는다.
+- **저장 위치.** 새 테이블 `user_profiles`(마이그레이션 115): 사람마다 한 줄, 직함·상태(쓰지 않음)·사진 바이트·사진 종류·사진 버전. `users`는 건드리지 않는다. 사진을 파일이 아니라 DB에 두는 이유는 256KB 이하의 작은 정사각형이라 백업·복원과 사람 삭제가 따로 챙길 것 없이 함께 가기 때문이다. 사진 버전은 밀리초 시계로 올라가기만 해서(지웠다가 다시 올려도 같은 주소가 다른 사진을 가리키지 않는다) 긴 캐시가 안전하다.
+- **사진 규칙은 팀 로고와 같은 생각, 더 엄격하게.** PNG·JPEG·WebP만, 파일 머리글이 말한 종류와 같아야 하고, SVG와 그 밖의 것은 거절한다. 정사각형이고 64~512px, 256KB 이하. 움직이는 WebP는 거절한다. 올릴 때 브라우저가 가운데 정사각형으로 잘라 256px로 줄여 다시 그려서(카메라 정보·촬영 위치가 빠진다) 보낸다. 서버는 이를 믿지 않고 한 번 더 메타데이터 블록(JPEG의 EXIF·XMP·주석, PNG의 텍스트·EXIF·시간 청크, WebP의 EXIF·XMP·색 프로필)을 잘라 낸다. 이미지 라이브러리 없이 컨테이너만 읽는다. 사진은 팀 로고처럼 이미지 전용 헤더(`nosniff`, `default-src 'none'; sandbox`, `inline`)로만 내보낸다. 팀 로고와 달리 로그인 전에는 받을 수 없다.
+- **감사 기록.** `profile.update`(바뀐 항목 이름, 이름이 바뀌면 이전·이후), `profile.avatar_set`(크기·이전 버전), `profile.avatar_remove`. 아무것도 바뀌지 않으면 기록하지 않는다. 바뀌면 실시간 알림 `profile_changed`가 가서 열린 창이 `/api/me`와 사람 목록을 다시 읽는다.
+- **웹.** `components/Avatar.tsx`(`<Avatar user size />`: 사진, 없거나 못 불러오면 첫 글자)를 사이드바 하단 본인 줄에 썼다. `store/people.ts`가 사람 목록을 들고 있어 채팅이 가져다 쓴다. 프로필은 설정의 기존 "프로필" 탭에 있다(나중에 하단 탭 "나"가 같은 화면을 연다). 사진 고르기·미리 보기·지우기와 이름·직함·이메일을 한 번의 저장 버튼으로 저장한다. 안쪽 카드 테두리는 없앴다(구분선만).
+- **한 줄 상태는 쓰지 않는다**(fde814b2, 대화방 UX 검토에서 대표 결정). 프로필은 상태를 묻지 않고, 사람 목록·사람 고르기·대화방 어디에도 보이지 않는다. 테이블은 다시 만들지 않으므로 `user_profiles.status_text` 열은 남고, API도 예전 앱을 위해 `status`를 계속 받고(80자) 값이 있으면 돌려준다. 새 화면은 이 값을 읽지 않는다.
+
+## 대화방의 트리나 — the AI in team chat rooms (feat/rooms-trina, 2026-11-05)
+
+- **A room question is a normal chat turn of the person who asked.** "@트리나 …" (or `@Trina`, `@トリナ`, the product's
+  names; `roomAiMentions` in `shared/src/api/rooms.ts`, not when a person picked from the list has that name) in
+  `Rooms.send()` asks the AI as the sender: the same engine choice, tools, folder checks, budget, queue limits and fair
+  queue as a chat send, and the turn's usage is theirs. The turn runs in a chat of theirs with `chats.room_id` set
+  (migration 242; one per room and person, `chats_room_session`), so the turn code, sessions (`--resume`), the read
+  scope and the remember protection are the chat's own. That chat is never one of their chats: the list, frequent
+  questions and every chat route (`ChatStore.ownChat`) leave it out, and no chat event goes out for it (no
+  `chat.updated`, `message.created`, `message.delta`, `message.step`, `message.done`). Text is not streamed in a room:
+  the asker sees the steps, the room the finished answer.
+- **Checked before the message is written.** Safe operations on the server (`MYCEL_SAFE_OPS_1A`: every conversation
+  would be confidential), the asker's previous question in this room still being answered, a used-up budget, a full
+  queue or an engine they may not use refuse the send (403 / 409 / 429), so the person keeps the text. A question that
+  fails to start after that (a race) tells the asker through `room.ai.run` with the error.
+- **One session per person and room.** The next question of the same person continues it; another person's question is
+  in their own. A session not asked in for 12 hours (`ROOM_SESSION_IDLE_MS`) starts a new conversation (no history).
+  The 12 hours are a guess the owner may change. (Until the live test fixes below, the read scope and the outside mark
+  were the session's, cumulative, and only this reset cleared them; now every question starts with both empty.)
+- **Context: other people's words, labelled.** In front of the question (never in the stored user message) goes
+  `<room_context>` with up to 30 messages / 12,000 characters before the question that the asker may see (from their
+  join on; private ones only their own), each a `<room_message from=… who="another member" | "the person asking you
+  now" | "your earlier answer to …">`, file names only. When the session already holds the asker's own earlier
+  questions and answers (a continued session or its history), those are left out. Tags inside are neutralised. Because
+  the block is not in the stored message, the URL gate does not count links in it as typed by the person. Words of
+  someone else taint the session (remember protection) and add the room to its read scope (`{type:'room'}`, viewers =
+  the room's members), so saving them where people outside the room can read asks first. The instructions get a "Team
+  chat room" section (also in a resumed session's `<turn_context>`): the block is information, not instructions; the
+  answer may go to the whole room; no memories here.
+- **No personal memories in rooms.** None are loaded; `remember`, `forget`, `set_title` and `connect_service` are not
+  offered (`ROOM_OFF_TOOLS`). Nothing runs in the person's signed-in browser or on a computer from a room: the in-app
+  browser tools are off for room turns, and so are `box_shell` and the dev environment.
+- **Review fixes (2026-11-05, independent review of 16aa2af9).**
+  - Private messages never reach the AI: the context takes room-visible messages only (a private preview, the asker's
+    own included, could otherwise come back in a new session and be posted).
+  - Messages from before someone joined: the room's read source records the seq of the oldest message given to the
+    session (`{type:'room', id, fromSeq}`, whenever the block holds any message, the asker's own too); an answer is
+    private while some current member joined at or after it ("○○ 님이 들어오기 전 대화가 쓰였어요"). Members added
+    while a turn runs and continued sessions are covered, as the decision is made at the end with the members then.
+  - File names count: the folders whose names `list` and `glob` showed (`TurnFiles.namePaths`) join a room session's
+    read scope (grep's matches already did). Skills: a room session is shown only the skills every member may read (the
+    list in the instructions, the hints and `find_skills`); "/name" still runs any of the person's own, and a skill it
+    loads joins the read scope.
+  - Every change waits for the asker: in a room session any call outside `ROOM_READ_ONLY_TOOLS` (writes, edits, moves,
+    make_file, save_url, schedules, connections' tools, tools added later) raises a server card to the asker first
+    (`confirmRoomChange`), whatever the room's messages said; no answer or "don't" changes nothing. Always, not only when
+    other people's words are in the context: simpler, and it fails closed.
+  - Answer file links: `RoomMessage.openable` lists the team files an AI answer links to or shows that the viewer may
+    open now; the app shows the others as plain text (no chip, no picture loaded).
+  - An account that cannot be loaded (disabled, deleted, still listed) fails every check.
+  - The asker may delete their AI answer or private preview (the "…" menu; the preview keeps its one button), an owner
+    or admin any AI answer they can see (audited `room.ai_delete`).
+  - Posting a preview decides again: reasons that changed (a member joined, rules changed) are saved on the preview and
+    the post answers 409 `room_ai_reasons_changed`; the asker sees them and posts again.
+- **Second review fixes (2026-11-05, re-review of bd7a6b95).**
+  - The `skill` tool's "Similar:" and "several skills are called …" replies name only skills everyone in the room may
+    read (a skill named exactly still loads; its folder joins the read scope).
+  - The team rule files and the company profile in the instructions are recorded in the read scope at the start of
+    every room turn (recorded, not left out: a resumed session keeps the instructions it started with), so a member who
+    cannot read `skills/` keeps the answer private. The asker's writable and read-only folder lists name only folders
+    everyone in the room may read.
+  - When the room's members changed since the session's current conversation began (`room.members` in the audit log),
+    the next question starts a new conversation: its instructions and lists were made for the members then.
+  - A `share_file` link counts its path like a name read. `edit_files` raises one card for the whole batch
+    (`TurnToolSet.beforeBatch`), and the yes covers each file's edit.
+  - Each viewer's access is loaded once per message list for the answer links, and the skill check caches by path.
+- **Third review fixes (2026-11-05, re-review of fcfbf3a7): allowlists instead of one fix per finding.**
+  - Instructions: the three prompt builders (`buildTurnPrompt`, `buildSubagentPrompt`, `buildTurnContext`) are made of
+    named sections, and a room session gets only those `ROOM_PROMPT_SECTIONS` allows: product and tool rules, the
+    person lines in their room form (display name and id, folders everyone in the room may read; no role, no groups),
+    the environment, team rules and company profile (recorded as read), skills everyone may read, the room section,
+    the session's own history. Memories, project, connected services and the browser are left out. The record has
+    every section id, so a new section needs a room answer to compile, and a test builds all three prompts with every
+    section filled and checks that only allowed ones are there.
+  - Tools: a room session gets only `ROOM_TOOLS` (file tools and the tools that work on team files, ask_user, skills,
+    web_fetch, save_url), and no connection at all: personal ones are the person's, and a team one's results are not
+    team files (its answers would be private anyway). Google Drive, schedules, video generation and box_shell are out.
+  - A room session never resumes an engine session: its instructions are made again for every question, so a member
+    who joined or lost access is never answered from instructions made for others. Its history holds only the
+    questions whose answers went to the room (posted, not deleted): no private preview, stopped or failed answer.
+  - Every team path a call names (file_path, path, output, paths, …) counts as a name read in a room, whatever the
+    call answers: a folder someone cannot see ("is a folder"), a path that does not exist ("not found") and a search
+    with no result there keep the answer private alike (a path the asker cannot open themselves no longer counts:
+    live test fixes below). share_file also records the path as the server resolved it
+    (actual case, NFC). The skill tool answers as if skills only the person may read did not exist when several share
+    the name. The edit_files card lists every file and the replacement.
+- **Where the answer goes** (`RoomAi.decide`). To the room (`author_kind 'ai'`, `asked_by` = asker, `reply_to_id` =
+  the question; the app shows "○○ 님이 물어봄") only when every current member may read every source in the question's
+  read scope (not only this answer's list; the live test fixes below say what a source is and that the scope is per
+  question): each ruled folder (or the team root) by the rules now; the
+  person's own folder (also what the browser or a personal connection showed) only if nobody else is in the room; a team
+  connection never; the room itself always. And the question used nothing outside the team files: any tool outside
+  `ROOM_FILE_TOOLS` (`server/src/rooms/ai-tools.ts`: file tools, search, skills, ask_user, sub-tasks, make_file and the
+  other team-file tools), the engine's web search included, and any tool added later, sets `chats.room_outside`.
+  Folders listed with `list` also join the read scope in a room session (their names may go into the answer).
+  Otherwise the answer is a private preview (`visibility 'private'`, `visible_to` = asker): no notice, badge or unread
+  for anyone else (rooms v1 filters), and the asker sees why (`RoomMessage.preview`: the folders some member cannot
+  open, their own folder, outside sources). A member added later is counted from then on: the next answer is decided
+  with them. The answer's "참고한 파일" are copied to `room_message_sources` and checked for each viewer when opened.
+  Answers over 60,000 characters are cut with a line saying so.
+- **Posting a preview** (`POST /api/rooms/:id/messages/:messageId/share`, the asker only; 404 for anyone else, also once
+  it is posted): it gets a new place at the end of the room (new seq and time, so the others see it as new and their
+  unread counts and DM notices work), the sources some current member cannot read leave the shared copy's list, the
+  asker's read position moves to it, and `room.ai_share` is audited with the number left out. There is no "only me"
+  button: not posting is the default.
+- **While it works.** The asker gets `room.ai.run` (queued with its place, running, done, stopped, error) and
+  `room.ai.step` (the step labels name files and searches: never to the room); every member gets `room.ai` with the
+  number of questions being answered, nobody named. `GET /api/rooms/:id/ai` gives the same after a reload (the asker's
+  runs with their steps). Stop is `POST /api/rooms/:id/ai/:turnId/stop`, the asker only. Cards the AI raises (ask_user,
+  a confirmation) come as `turn.request` as in a chat and are answered there. A question that ends without an answer
+  (stopped, failed, the asker left the room) writes nothing in the room; the asker sees one line they can close. At
+  start, questions whose turn ended while the server was down are finished (`RoomAi.reconcile`).
+- **Web.** The AI is the first entry of the "@" list in the message box (not in the edit form: an edit never asks).
+  An AI answer renders like a chat answer (Markdown, sources) without steps; "@트리나" in a message stands out like a
+  mention. Under the messages: my question's block (name, "답하는 중" or its place, the last steps, cards, Stop), or for
+  the others one line "트리나가 답하는 중". A preview is the answer plus a left-bordered note (no card in a card) and one
+  primary button, 대화방에 올리기.
+- **UX review (2026-11-05, owner's decisions; supersedes the Web lines above where they differ).**
+  - A private preview says "나만 볼 수 있어요" (lock) where "○○ 님이 물어봄" was; above its button one sentence: "올리면
+    이 폴더를 못 여는 사람도 이 내용을 봐요: 마케팅팀" (the last part of each folder path, never `skills/`; 내 폴더 for the
+    person's own; else the one other reason). 대화방에 올리기 is an outline button: not posting is the default.
+  - The others: "트리나가 답하는 중" ends as "○○ 님에게만 답했어요" under the question when the answer stays private
+    (the question's `RoomMessage.answeredPrivately`, from its `room_ai_turns` row with status `private`: for the
+    members who see the question, never for the asker; nothing of the answer or why; sent live as
+    `room.message.updated` of the question and listed with it after a reload; first it was a live-only
+    `room.ai.privateAnswer`, so after a reload the question looked ignored), and goes when it is posted (the question
+    is sent again without it). The room section no longer tells the AI where its
+    answer goes; one allowed sentence instead: it may also search folders only the asker can open (named nowhere), such
+    answers stay private and the screen says so, and it does not write about who can see the answer.
+  - My question's progress is one plain line ("파일 찾는 중", "'예산' 문서 읽는 중": a file by its name only, no search
+    patterns or paths). A stopped or failed question's line sits under that question. A refused send (409 the AI still
+    busy, any 4xx but 401/404) goes back to the message box with the reason as a toast, not a failed bubble.
+  - Phones (below 768 px, where the tab bar is): sign-in lands on the 대화 list; its top bar has no new-chat icon; the
+    drawer has no rooms group (the desktop sidebar keeps it); a long press opens a message's menu (reply, copy, edit and
+    delete my own) and there is no "…" per message (desktop keeps it on hover). The 나 tab opens Settings on the
+    profile with the tab bar kept (the way out; no ✕), the list without its search box, MCP, 앱 커넥터 and AI 연결 behind
+    one 더 보기 row. The room's one setting is the bell in its header (no menu of one item).
+  - The pinned AI row is "트리나" (rooms.aiName) where the product is named after its AI (`PRODUCT_NAMED_AFTER_AI`); the
+    core edition keeps the product's name. Room DMs and mentions still push and still count on the 대화 tab but are not
+    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id). The profile no
+    longer shows or asks for the one-line status (the column stays). Letter avatars are on a neutral tile; an AI answer
+    is one plain line in the rooms list; a muted room's badge is grey and not in the tab's count; a mention shows "@"
+    alone; an AI answer's unread number sits by its time.
+- **Fourth review fixes (2026-11-05).** Every path a room session names is recorded by its real spelling on disk (case
+  on a case-insensitive disk, Unicode form; a missing tail as typed, NFC) besides as typed, so another spelling of a
+  restricted folder no longer maps to a parent everyone may read. `to_folder` (move_files, copy_files) is a path
+  argument. grep, glob and search count the folder they start in and every ruled folder under it the asker may read
+  (the whole team folder without a path; the asker's own folder is left to what was found there), so a search that
+  found nothing stays private too.
+- **Live test fixes (2026-11-05, fix/room-ai-ux): what makes an answer private.** In the live test a member with no
+  group (Noah) got only private previews, in the everyone room and in a DM, saying "내 폴더, 다른 사람이 못 여는
+  폴더". The copied database showed why. Everyone room: Mia's posted answer linked `groups/재무/budget-2027.txt`; Noah's
+  AI tried to read that path (refused: "not found or no access"), and the path rule above recorded its folder
+  `groups/재무`, which Noah cannot open (decision `otherFolders: true`). His next question ("make shared/메모.txt")
+  stayed private only because the scope was cumulative. DM: `list .`, `list users` and the refused `list groups`
+  recorded the team root (`users/` and `groups` have no ruled folder above them, so they mapped to the root, which a
+  member may list but not read), and `users/noah` recorded his own folder (`personal`; that one was right: he asked about
+  his folder). Rule files and the company profile were not the cause (`skills/` is everyone's in that team).
+  - **The rule.** A source keeps an answer private only when some member of the room now could not see what the
+    answer could reveal from it, and what it can reveal is bounded by what the asker's own tools answered:
+    - *content* (a file read, a grep hit, a listing that showed files, a search's folders, a path the asker may read
+      that a call named): every member must be able to read its folder, as before;
+    - *a name* (a sub-folder a listing showed; a path a call named that the asker may only list, such as the team
+      root for a member, `users/`, or a folder on the way to theirs): every member must be able to list it
+      (`RuleSet.canList`), because then they would see the same name. New source `{type:'name', path}` in
+      `chat/read-scope.ts`, recorded only in room sessions (`TurnFiles.listedNames`);
+    - *a path the asker can neither read nor list*: the tools answer it "not found or no access", the same for a
+      folder hidden from them and for a name that does not exist (`policy/authorize.ts` checks access before it looks
+      at the disk). It counts exactly as a missing name in the same place would, or where the answer goes would tell
+      which it was (independent review of ae4c861c: `groups/marketing/salaries/…`, hidden from marketing members,
+      was posted while `groups/marketing/nosuch/…` was private, so the outcome said that salaries/ exists). The nearest
+      folder above it that the asker may list decides: one they may read counts as read (only its readers can tell a
+      name is not there); one they may only list (the team root for a member, `users/`) counts for nothing, because
+      anyone without access gets that same answer and it carries no more than the path the AI typed (a guess, or a
+      name from the room's messages or the question, which the room has seen).
+    This only stops over-counting: content still needs read for everyone, a missing path in a folder the asker may
+    read still counts (only readers can tell it is missing), a search still counts every folder it looked in, and a
+    folder the asker read and can no longer open (a rule changed since) still counts, unnamed to them.
+  - **Per question, not per session.** A room session never resumes an engine session (third review) and its history
+    holds only questions whose answers went to the room; private previews never return as context. So a later
+    question carries nothing private from an earlier one: what it carries is the room's (the posted answers, the
+    room's messages). The read scope and the outside mark are emptied when each room question starts
+    (`chat/turn.ts`), and the history counts as the room from its oldest question (`{type:'room', fromSeq}`), so
+    someone who joined after it still keeps the answer private ("들어오기 전 대화"). The history's answers are the
+    room's copies (`room_messages.body`, cut at 60,000 characters with a line saying so), not the chat's full text:
+    the history keeps the end of a long newest message, which the room may never have got (review of ae4c861c). The
+    questions are the room's too, as they read now: an edited question comes back edited, a deleted one not at all
+    (its answer stays while it is in the room) (re-review of 57ef7383). The
+    12-hour rule now only starts a
+    new conversation. What a question used is kept on its row (`room_ai_turns.scope`, migration 246) so that posting
+    its preview later decides again on that question, not the latest one. A row from before has none: it is never
+    decided from the session (whose scope is now a later question's); the reasons the person was shown stand and are
+    not overwritten, and a preview with no reasons kept either is not posted (409 `room_ai_ask_again`, "다시 물어봐
+    주세요") (review of ae4c861c). Kept as they were: previews never return as context, the pre-join check, the card for
+    every change, the room prompt and tool allowlists.
+  - **The change card in words.** Under "바꿀 내용" the card showed the call's JSON (`{"file_path":…,"content":…}`).
+    It now shows what the call does (the step verb: 파일 저장, 파일 수정, 파일 옮기기, …), the file or folder, and
+    what it writes: the first 400 characters, with all of it (up to 100,000, the whole length said beyond that) one
+    click away ("전체 보기", `ConfirmDetail.collapsedAt`; the size above counts all of it). The review of ae4c861c
+    noted that a 400-character cut alone let a planted write hide its payload after the preview. For skills/, a
+    person's skills and instruction files by name (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) all of it shows from the
+    start (`instructionLike`, matched on the path as the file layer reads it: `./users/a/skills/x.md`,
+    `users/a//skills/x.md`, `shared/CLAUDE.md/` and other spellings count). `roomChangeDetails` in `chat/turn.ts`;
+    a tool without its own lines shows its arguments one per line. A detail without text (a rename) shows no empty
+    box. Content a card cannot show (a file made from a source or template, a file saved from the web, an edited copy
+    saved as a new file) is said plainly on it ("저장될 내용은 이 카드에 다 보이지 않아요. …에서 가져와요."). Such a
+    call, or a move, copy or rename (a folder brings every file in it), that would put content into a skill, team rule
+    or instruction file is not made from a room at all, with no card: the AI is told why, and the person can do it in
+    their own chat or have the content written out with write or edit (`roomChangeWrites`, re-review of 57ef7383).
+    A text longer than the card carries (100,000 characters) counts as not shown, and save_url into a folder (or
+    with no path) is checked under the name the address gives the file (final review of 0da5c721).
+  - **Why a preview is private, in short sentences** (supersedes the one sentence of the UX review). "올리면 이 폴더를
+    못 여는 사람도 이 내용을 봐요: 재무, 내 폴더, 다른 사람이 못 여는 폴더" mixed reasons into a list, and "다른 사람이
+    못 여는" was wrong when the asker cannot open the folder either. Now one plain sentence per reason, in this order:
+    "방 사람 중 일부가 열 수 없는 폴더(재무)를 읽었어요." (named only when the asker may open them, never `skills/`;
+    without a name to give: "방 사람 중 일부가 열 수 없는 폴더를 읽었어요."), "내 폴더를 읽었어요.", "○○ 님이 들어오기
+    전 대화를 참고했어요.", "웹이나 연결된 서비스의 내용을 참고했어요."; an older preview without reasons keeps
+    "올리면 대화방 모두가 이 내용을 봐요." (`previewWhy`, `rooms.aiWhy*` in the five languages).
+  - **A file chip sits in the sentence like a word** (AI chat and room answers, `TeamFileLink` in
+    `components/Markdown.tsx`): 0.9em text on a 20px line with a 1px border, no vertical margin or padding, so it is
+    22px in the answer's 28px line and the line it is on keeps the paragraph's spacing (it was 34px plus margins, a
+    visibly taller line). Checked at 1280px and 390px with a real answer. Not changed here: Chrome still wraps Korean
+    after a closing parenthesis ("…(473,000,000원)" / "입니다.") even with `word-break: keep-all`; that is the text's
+    own wrapping, not the chip's.
+- **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
+  first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
+  runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.
+
+## 모바일 앱 출시와 네이티브 푸시 (feat/mobile-app, 2026-11-05)
+
+The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to TestFlight / the App Store as
+"Trina AX", and phones get native push. There is no Expo account and none is made.
+
+- **Identity through the edition, not the neutral defaults.** `MYCEL_MOBILE_EDITION=trina` makes `app.config.ts` read
+  `editions/trina/branding/mobile.json` (the fields `src/product.ts` already validated, plus `background` and
+  `appleTeamId`) and the fixed asset names in `editions/trina/branding/mobile/` (icon 1024 px without alpha, adaptive
+  icon foreground, launch image, all made from the web mark `web/public/favicon.svg`; the SVG sources sit next to them).
+  Without the variable the neutral "Team AX" app and `app.teamax.mobile.dev` stay. Asset paths in the config are
+  relative, because the resolved config is embedded in the app.
+- **Store build**: bundle id `app.trina.ax` (the same App Store Connect record as the Mac App Store app, team
+  YWW96288YY), version 1.0.0, build number from `MYCEL_MOBILE_BUILD_NUMBER` (default 1), iPhone only (no iPad
+  screenshots for v1), `ITSAppUsesNonExemptEncryption=false` (HTTPS only), React Native's privacy-manifest reasons, the
+  `aps-environment` entitlement from expo-notifications (development in the project; Xcode's App Store export signs it
+  as production). Camera, microphone and photo library usage strings in Korean and English, because the web app opens
+  the camera (photo attachment) and the microphone (voice input) inside the WebView and iOS stops an app that asks
+  without them. The WebView grants capture to the team's own host only (`grantIfSameHostElseDeny`); iOS asks the person
+  once. Android keeps blocking camera and microphone until the app ships there. Android target SDK 36 is set explicitly
+  (expo-build-properties; also React Native 0.88's default).
+- **Local iOS build** (`mobile/scripts/ios-release.sh`): expo prebuild → `xcodebuild archive` with automatic signing and
+  an App Store Connect API key (`-allowProvisioningUpdates -authenticationKey…`) → export (`app-store-connect`) →
+  `altool --validate-app` / `--upload-app` with `--p8-file-path`. The key comes from environment variables, is never
+  copied or printed, and must lie outside the repository. eas.json is kept for later and is not needed.
+- **Push permission after sign-in, never at first launch.** The signed-in web page asks the app for its token through a
+  new optional bridge capability, `push-token-v1` (message `push-token`; reply `push: { platform, token, environment }`
+  or `push_denied` / `push_unavailable`). It goes through the same receiver as `file-share-v1`: trusted top-level origin,
+  document nonce and generation; a token that arrives after logout or navigation is dropped. The capability is
+  optional, so an older app or page keeps working with push off. The OS prompt appears on that first request; a person
+  who turned push off (`optedOut`) is not asked again by the app, only from Settings.
+- **Native device tokens, not Expo tokens.** `getDevicePushTokenAsync`: APNs hex token (lower case) on iOS, FCM token on
+  Android. The environment comes from the embedded provisioning profile (development → sandbox); App Store and TestFlight
+  installs have none and use production. Android push needs the owner's `google-services.json`
+  (`MYCEL_MOBILE_GOOGLE_SERVICES`); without it an Android build logs one line and push stays off.
+- **A tap opens only an id path on the current team** (`/rooms/<id>` style, no scheme, host, `//`, `..`, query or
+  fragment; the same rule as the gateway's `validPushPath`, a test keeps them equal), and only when the notification's
+  `device` (the team's device id; the request field is `tag`, the data key is `device` because expo-notifications on
+  Android uses `data.tag` as the notification id) is the device the app registered with the current team; a notification delivered before
+  the current team was chosen opens nothing either. Changing team clears delivered notifications. In the foreground a
+  notification goes to the list without a banner (the web app is live). On iOS, expo-notifications reads remote data
+  from the APNs payload's `body` dictionary, so the gateway puts `{ notificationId, code, path, device }` there; FCM
+  data stays flat.
+- **Server: a native device is a `push_subscriptions` row of kind `native`** (migration 243: `kind`; 245: `remove_hash`), not
+  a second table. Every event the push service delivers, including codes other branches add, reaches phones through the
+  same `push_deliveries`, session binding (`ON DELETE CASCADE`: logout removes the device), opt-out, beforeSend
+  re-check after DNS, retry budget and expiry. The token is vault-encrypted (kind `native-push`, so an older build
+  cannot misread it as Web Push). `POST /api/push/devices` / `DELETE /api/push/devices/:id`; `GET /api/push` adds
+  `native: { available, deviceId, gateway }` and `optedOut`. A token belongs to the latest session that registered it,
+  also for another account: on a reinstalled phone the previous account's row is replaced, never kept delivering.
+- **Leaving a team removes the phone there.** Registration returns a removal key (only its sha256 is stored); the page
+  hands device id and key to the app (`push-registered`), only when the app offers `push-registered-v1`: the first
+  store build (1.0.0 build 1) has push-token-v1 but would never answer that message, so it gets push without the
+  removal and the device check. On a team switch, also from the cannot-reach screen, the app
+  calls the public `POST /api/push/devices/:id/remove` with the key (always 204, no session: the person is leaving that
+  team). If that server cannot be reached, the removal is kept (at most four, 30 days) and retried at each app start.
+- **Off until the operator chooses a gateway.** Team servers never get Apple's .p8 key or Google's service account;
+  they POST `{ v, platform, environment, token, notificationId, code, locale, tag?, path?, ttlSeconds }` to
+  `<gateway>/v1/send` (contract `shared/src/cloud-protocol/push-gateway.ts`, MIT), signed with the team's Ed25519 key:
+  the relay's `<data>/relay/team-key.pem`, created the same way when missing (enrolment reuses an existing file). There
+  is no built-in default: phone tokens go nowhere until `MYCEL_PUSH_GATEWAY` or `push.gatewayUrl` in server.json names a
+  gateway (the Trina hosted service writes `https://push.trina.app`). Owners and admins see one line in Settings ›
+  Notifications: phone push off, or on through `<host>`. `push` and `push-gateway` are reserved relay team names, so
+  nobody can take `push.<domain>` under the relay wildcard. The request goes through the Web Push transport's pinned
+  public-address HTTPS post; only 410 deletes a device (the gateway's 404 means a wrong address). `path` comes from
+  `registerPushPath(code, resolver)`; the three existing codes open the inbox, as a Web Push click does.
+- **The gateway** (`push-gateway/`) runs on Bun (`src/bun.ts`), behind a TLS terminator: APNs requires HTTP/2 and a
+  Cloudflare Worker's outbound fetch speaks HTTP/1.1, so there is no Worker. Trust on first use per team public key (a
+  key that never sent successfully is forgotten after a day), a per-client-IP limit before signature checks, per-key
+  limits (120/min for a key younger than a day, 1200/min after), per-(key, token) limits (20/min, 200/day, so one server
+  cannot use up a phone's budget for other teams), a 10-minute dedupe that is also the replay guard, generic text from
+  code and locale only (App Review 4.5.4; room codes say "새 메시지가 있어요"), APNs token auth (production only unless
+  `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Not deployed.
+- **App Review screens**: a native "offline" / "cannot reach your team" screen with Try again and Change team address
+  (Korean and English by the phone's language). Account deletion starts inside the app: Settings › Profile › 계정 삭제
+  opens `/settings/account/delete` ("계정 삭제 요청"). Admins create accounts and only the owner deletes them, so the
+  person confirms and the owner (only the owner: admins cannot act on it) gets an in-app notice (no OS push) that opens
+  Admin › Members at that person. Removing that person works as for anyone: the account goes and the personal files
+  are archived for the owner (they are not deleted). The owner cannot ask (409; hand over the role first). Requests are
+  idempotent, audited, at most five a day (migration 244).
+- **Release build**: Expo's "Generate app.config" build phase runs `expo config` again inside xcodebuild, so
+  `scripts/ios-release.sh` exports the edition for the whole run and refuses an export whose embedded config is not the
+  edition's (build 1 showed "Team AX" inside the app because only prebuild had the edition).
+- **Android release** (`mobile/scripts/android-release.sh`): prebuild and `./gradlew bundleRelease` on this Mac, signed by
+  the upload key that `plugins/release-signing.js` makes Gradle read from the environment (keystore outside the
+  repository, no secret in any file); the script checks the bundle's embedded config and its signer against the key.
+  targetSdk 36; compileSdk 37 because the SDK 58 modules (expo-application, expo-asset) refuse to compile against 36.
+  Camera and microphone are declared on Android too, for the same uses as on iOS: Android's
+  WebView has no per-origin grant (react-native-webview grants any page once the app holds the permission), but only the
+  team's origin is ever a top-level page and a cross-origin frame cannot ask without the team page's Permissions-Policy
+  delegation. SYSTEM_ALERT_WINDOW (Expo's default) is blocked. Without `google-services.json` Android has no push and
+  never prompts; notification setup is guarded so it cannot stop the app.
+- Known limits: an iOS build made in Xcode with a development profile but Release configuration reports sandbox only if
+  its profile says so; a removal owed to a team whose server stays unreachable for 30 days is dropped, and that team
+  keeps the device until the session ends (its pushes show generic text, a tap opens nothing because of the tag).
+
+## 대화방 알림이 폰으로 (rooms and native push together, feat/team-chat, 2026-11-05)
+
+- **Every notice source reaches every kind of device.** The push service queues `notification_inbox` →
+  `push_deliveries` and `room_notices` → `room_push_deliveries` alike for Web Push rows (current VAPID key) and phone
+  rows (`kind 'native'`, current gateway address); the due delivery is taken across both sources with its device row's
+  config key and sent by the row's kind. The room rules (one notice per unread run, mute, the "Room messages" switch,
+  reading the room) decide whether a room notice exists or is still unread, so they hold for phones too; the gateway
+  shows its generic "새 메시지가 있어요" for both room codes.
+- **A tapped room push opens the room.** `room.dm` and `room.mention` resolve to `/rooms/<room id>` (ids only,
+  `server/src/notifications/push-events.ts`), only while the person is still in that room and it is not archived;
+  otherwise the app opens its start page. The room page checks membership again. Web Push keeps its own way (the room
+  id from the signed-in fetch at show time, never from the payload).
+
+## 휴대폰 알림 허용과 안전 영역 (fix/mobile-permission-safearea, 2026-11-05)
+
+The owner on TestFlight build 2: no notification permission prompt ("앱 내 퍼미션을 요청해야하는거 아니야?"), and the
+status bar and home indicator areas were not in the page's colours (the bottom inset looked missing).
+
+- **Why no prompt.** The app showed the OS prompt only inside `push-token`, which the page sent by itself as soon as it
+  was signed in, and only while the OS had no answer (expo-notifications reports iOS `.authorized` as granted, `.denied`
+  as denied, everything else as undetermined). The test server registered the owner's phone 2 s after sign-in, so iOS
+  already said yes for app.trina.ax: it keeps the answer across TestFlight updates, logouts and team changes (only
+  deleting the app resets it), and the app had asked before (build 1, or an earlier sign-in). A first ask was no
+  better: it popped up over the page the moment sign-in ended, with no word from the app (simulator: sign-in
+  13:45:17.4, prompt over the rooms list; after Allow, signing in again registered 0.4 s later with no prompt). A
+  prompt left unanswered (the app closed while it was up) came back by itself at the next launch, even after a
+  reinstall, so a load-time ask also resurfaced at odd moments. On Android the prompt never
+  came at all: react-native-webview reports every `history.pushState` as a load start (`doUpdateVisitedHistory`) with
+  no load end, and the app fenced its bridge on every load start, so after the sign-in navigation the session reset,
+  the token request and file shares got no answer until the next full page load. The app now ignores a load start
+  that is not loading (`nativeEvent.loading`), on Android only.
+- **The app's own question first; the OS prompt only from its button.** Signed in, push available on the server, not
+  turned off by the person, and the OS not asked yet: one card above the tab bar (not in a room or an AI chat, whose
+  message box needs the bottom), "새 메시지와 @트리나 답을 알림으로 받을까요?" [알림 켜기] [나중에]. Only [알림 켜기]
+  (or Settings › Notifications) sends `push-token`. Already granted: the page registers without a word, as before.
+  Denied: no card; Settings › Notifications and the 나 list's 알림 row say so with [설정에서 켜기].
+- **Not nagging: [나중에] puts the card away for a week; after the second [나중에] it does not come back by itself.**
+  Settings › Notifications always keeps [알림 켜기]. The answers live in the team page's storage on that phone
+  (granted, denied, later), so a reinstalled app starts over like the OS permission does; another team asks once more.
+  A "no" from the OS prompt stands even where Android would let the app ask once more; turning it on in the phone's
+  Settings is seen when the app comes back to the foreground, and the page then registers by itself.
+- **`push-permission-v1` (new build).** `push-permission` answers `granted` / `undetermined` / `denied` without ever
+  prompting (Android 13+ "denied with canAskAgain" before the first question is undetermined; iOS provisional too);
+  `open-settings` opens the app's page in the phone's Settings (`Linking.openSettings`). Same origin, nonce and
+  generation checks as every message; open-settings works only while the app is on screen, at most once every 3 s.
+  **Store builds 1 and 2** lack it: the page cannot tell granted from not asked without prompting, so a session that
+  already has a registered phone counts as granted (no card, registered again at sign-in as before), and otherwise the
+  card shows until that phone has given a token once (remembered as granted). After a "no" Settings keeps [알림 켜기]
+  with the "allow it in the phone's Settings" text: those builds cannot open Settings or tell when it was turned on,
+  and the OS answers at once without a prompt. One registration runs at a time (coming back from the OS prompt
+  checks again). Nothing waits on a message an old build would not answer.
+- **Safe areas: edge to edge, the page's own colours.** The app draws the WebView over the whole screen (no native
+  bands) once the page has reported its look (appearance-v1), which only pages that pad themselves do; until then,
+  and again after every full load, it keeps the padding it had before, so build 3 still fits a team server that has
+  not updated (some never update by themselves). The page pads itself: `--safe-top` / `--safe-bottom` in `web/src/index.css` are the larger of
+  `env(safe-area-inset-*)` and `--app-inset-*`, which the app sets before every page loads (Android's WebView 133
+  reports no insets). The page's root pads the top, so its canvas runs under the status bar; full-screen layers on
+  phones (Settings, the drawer, side panels, search, sheets) pad themselves in their own colour; the tab bar, the room
+  and AI chat message boxes, sheet footers and toasts keep clear of the home indicator / navigation bar with their
+  background continuing under it. While the keyboard is open the bottom inset is 0 (`.keyboard-open`, from the visual
+  viewport). Rejected: the page reporting its top and bottom colours for native bands (every overlay, sheet and dim
+  layer would need reporting, and a band never matches a scrolling or dimmed page).
+- **`appearance-v1` (new build).** The page reports its look (dark or light) and whether it follows the phone's
+  (theme "system"): when the bridge comes, when the theme changes, and again after every session reset (the first
+  send was often fenced off by the sign-in's reset). Android: React Native's StatusBar and expo-navigation-bar
+  (58.0.4) set the status bar icons and the three-button bar's contrast scrim to the page's look (React Native set
+  the scrim once, from the phone's look at launch). iOS: in the simulator (iOS 26) React Native's StatusBar style
+  kept the launch look, so iOS sets none; the status bar's default style follows the windows' look, and a page
+  with a theme of its own sets that look on the windows (`Appearance.setColorScheme`), while a page that follows the
+  phone leaves them to the phone (else the page would never see the phone's look change again). Native screens
+  (team address, offline, cannot reach) use the web app's light and dark tokens (`mobile/src/look.ts`).
+- **Keyboard.** Android: edge to edge (target SDK 36) the window no longer shrinks for the keyboard, and the room's
+  message box sat under it; the app lifts the page by the keyboard's height plus the navigation bar. iOS: the page
+  kept its home-indicator padding above the keyboard, and the WebView's ^ v ✓ bar sat between; `.keyboard-open`
+  drops the inset and the app hides that bar (`hideKeyboardAccessoryView`), so the message box sits on the keyboard.
+- **Which build.** The question, the settings texts and every CSS change ship with the server and work in store builds
+  1 and 2 (on iOS their tab bar and message boxes already kept clear of the home indicator through env(); the
+  drawer, side panels, search, sheets and toasts did not, and do now). Those builds still paint their fixed light band
+  under the status bar and keep the status bar text at the launch look, so the top in dark mode, the keyboard
+  accessory bar and Android's bottom need build 3 (edge to edge, `appearance-v1`, `push-permission-v1`, the Android
+  fixes).
+
+## Slack 커넥터 (feat/slack-connector, 2026-11-05)
+
+People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guide: [SLACK.md](SLACK.md).
+
+- **Distribution: an internal app per workspace, in Socket Mode.** The owner makes it in their own workspace from a
+  manifest the server generates (Admin › Slack opens Slack's "create app" with it filled in,
+  `https://api.slack.com/apps?new_app=1&manifest_json=…`, docs.slack.dev "Configuring apps with app manifests"). Socket
+  Mode needs no public address, so an office Mac behind NAT works like a hosted server. A distributed (Marketplace) app
+  was left out: Marketplace apps may not use Socket Mode, so a NAT server would need a relay we run, and unlisted
+  distributed apps got 1 request a minute for conversation history (Slack changelog 2025-05-29).
+- **Tokens.** The bot token (`xoxb-`) and the app-level token (`xapp-`, `connections:write`) are sealed in the browser for
+  their own purpose `slack.token` and kept with their own key directory `<secrets>/integrations/slack` (the same
+  `SecretBox` checks as the connections' directory). Saving checks them with Slack first (`auth.test`, the scopes in
+  `X-OAuth-Scopes`, `apps.connections.open`). Owner only, for every Admin › Slack route: the app answers as every linked
+  person, which is more than an admin's own reach.
+- **Scopes:** `app_mentions:read`, `im:history`, `chat:write`, and `users:read`. `users:read` was added beyond the first
+  plan: the link page has to name the Slack account (the design asks for both names), "Asked by" needs a name without
+  pinging the asker, and `users.info` says whether the asker is a bot or of another workspace. No channel history (so no
+  thread context: other people's messages would be untrusted input), no files, no slash command, no user token.
+- **Who asked** is the event's `user`, the envelope's `team_id` and `enterprise_id`; the envelope must name the connected
+  workspace and the app id Slack's hello gave. Socket Mode has no request signature; every shape is checked with zod
+  (`envelope.ts`) and anything else is dropped. A person of another workspace (`user_team`, or `users.info` `team_id`)
+  is never offered a link or answered. An organization-wide install is refused.
+- **The one-time link** is a random 32-byte token (stored as its SHA-256), not a signed one: a row we look up is as
+  strong and is single-use by an atomic `UPDATE … WHERE used_at IS NULL AND expires_at > now`. 10 minutes, the newest of
+  a Slack account only, at most one a minute and 10 an hour. It travels in `/slack/link?t=` (the request log writes paths
+  only, and a signed-out visitor keeps it through `/login?next=`) and reaches the API only in POST bodies. Opening it
+  needs a sign-in; it binds the Slack account it was sent to, never one named in the request. "Send the victim my link":
+  the page names both accounts and warns that whoever uses the Slack account asks with your permissions; an account
+  linked to another Slack account cannot confirm (unlink first, 409), and a Slack account linked to someone else cannot
+  be taken (409). One Slack account per person and one person per Slack account.
+- **Unlink**: from Settings › App connectors, and by a trigger on `users` (status not active, or deleted), so it holds
+  whichever path disables an account; the trigger writes `slack.unlinked` with `account_disabled`. A temporary password
+  to change keeps the link and answers "sign in first".
+- **A question is a normal turn** (`runtime.createTurn`, `clientKind: 'slack'`, the person's engine choice and budget
+  checks, the chat's queue rules). One chat per (workspace, conversation, thread root, person): a top-level message's own
+  `ts` is the root, so each new thread is a new chat and replies in it continue it. The chat is made inside the
+  admission transaction, so a refused question (queue full, a running answer, a used-up budget) leaves no empty chat.
+  The `clientMessageId` comes from the message's ts, so a resend is the same turn.
+- **Where answers go.** DM: "working…" is a message of its own in the DM thread, replaced by the answer (`chat.update`).
+  Channel: "working…" and the answer are ephemeral to the asker (in the thread only when the question was asked in a
+  thread: Slack shows ephemeral messages in a thread only when it already exists), with one button, Post to channel. It
+  posts the answer alone, "Asked by <Slack name>", to the thread, once (`posted` claimed atomically), by the asker only
+  (the button's value is checked against the request's Slack user, the link and the account). Nothing the channel sees
+  carries steps, file names, sources or the chat's link. Ephemeral messages are not kept by Slack, so every message to the
+  asker links to the chat. Answers are converted from Markdown to mrkdwn with `&`, `<`, `>` written out, so an answer can
+  never mention `@channel` or a person or hide a link; at most 4 sections of 2,900 characters ephemeral and 10 posted
+  (rich text since 2026-11-06, below).
+- **Delivery** is a poll of `slack_requests` against `turns.status` (1 s), not a hook in the turn code: it survives a
+  restart (an interrupted turn is delivered as interrupted), needs no change in B's files, and a row is claimed before it
+  is sent. A 429 or a network failure puts it back for the next tick. A turn waiting for a card tells the asker once to
+  answer it in the app (`openRequests()`); questions wait 2 hours at most.
+- **Retries and dedupe.** The socket acknowledges every envelope before anything else (Slack resends after 3 seconds).
+  `slack_events` keeps event ids and `channel:ts` of messages for a day, so a resent event and the same message seen as
+  two events run once, across restarts and processes (`INSERT OR IGNORE`). The Web API client waits out `Retry-After`
+  (at most 30 s, twice).
+- **Not in this step:** files, thread context, a slash command, streaming answers (`chat.startStream`), Slack's AI app
+  surface (`assistant:write`), Enterprise Grid org installs, more than one workspace, telling the person in the app that
+  their account was linked (they confirmed it themselves on the page).
+- **Review (2026-11-05), what changed:** the notification `text` of every message is escaped plain text (it carried the
+  raw Markdown, so `<!channel>` or a disguised link could reach a channel through "Post to channel"); a Markdown link
+  whose text reads like an address is shown as `text (<address>)`, `|` in an address is `%7C`; NUL characters are
+  dropped before conversion (one crashed it after the row was claimed); an answer is sent only while the asker's Slack
+  account is still linked to the person and that person may use the app (`slack_requests.enterprise_id` kept for it);
+  finished answers are taken before waiting ones (20 running turns no longer hold them back); a 30-second ping finds a
+  dead connection; Socket Mode turned off in Slack keeps its reason instead of a reconnect wiping it; no link when
+  `users.info` fails or names another workspace (it failed open); `bots.info` and the socket address's `app_id` must
+  name one app (tokens of two apps are refused, `app_mismatch`), the saved app id is what envelopes must carry and
+  nothing is handled without one; at most `max` sections; DM answers are a new message (notified) and "working…" is
+  deleted; posting from a chat deleted in the app is refused; a stopped connection's late attempt writes no state; the
+  clean-up runs once a minute; two quick link requests make one link; a request past 2 hours tells the asker.
+- **"Send the victim my link" is closed with an e-mail proof (2026-11-05, before shipping).** An attacker's Slack account
+  bound to someone else's account would ask with that person's permissions, so names on a page were not enough. Confirm
+  now binds only when Slack's e-mail of the Slack account the link was sent to (`users.info` with `users:read.email`,
+  read by the server at confirm time, from the Slack id bound in the link, never from the request) equals the confirming
+  person's e-mail: Unicode NFC, trimmed, lower case. NFKC was rejected: it would make a full-width look-alike equal to a
+  real address. No e-mail on either side (Slack hides it, a bot, a guest without one, an account here without one),
+  another workspace, or the same e-mail on another active account here: refused, nothing bound, `slack.link_refused`
+  audited. The preview says `emailCheck` so the page shows the reason ("이 Slack 계정의 이메일이 … 계정과 달라요.
+  팀장에게 연결을 부탁하세요") instead of a Link button. Sign in with Slack was not chosen: it needs a redirect address
+  registered per team and a second OAuth flow, while the e-mail is already verified by Slack.
+- **Residual:** the e-mail here is self-set (Settings › Profile) and not verified. Someone could set theirs to a
+  colleague's Slack e-mail, but would still need that colleague's own one-time link (only their Slack account gets it,
+  ephemeral); the same e-mail on two accounts is refused; and Slack tells the Slack account which account it was linked
+  to. Verified e-mails here would close this too.
+- **The owner proposes, the member accepts** (second review, 2026-11-05; removed later for Sign in with Slack, below). A link the owner made directly let the owner
+  bind their own Slack account to a member and ask as that member (their personal folder, connections and memories):
+  impersonation, against "personal connections are their owner's only" and "no sign-in as someone else". Now Admin ›
+  Slack › People only *proposes* (`slack_link_proposals`, 7 days, one waiting per member and per Slack person, audited
+  `slack.proposed`); nothing is answered for that Slack account until the member accepts in Settings › App connectors
+  with their own session (`POST /api/slack/proposals/:id/accept`: only the member it is for finds it, the owner gets
+  404). Slack is asked again at accept time. The member gets an in-app notice (realtime, linking to Settings); the Slack
+  person gets one DM at the proposal naming no account, and one after the accept naming it and how to undo it. The owner
+  can withdraw a waiting proposal; a disabled account's proposals are cancelled by the same trigger that unlinks it.
+- **Sign in with Slack replaces the owner's proposal** (2026-11-05, the owner: many people's Slack e-mail differs from
+  theirs here, and e-mails here are optional and often empty, so propose → accept → Slack link was too much). Checked
+  first on docs.slack.dev: "Sign in with Slack" (OpenID Connect: `https://slack.com/openid/connect/authorize`,
+  `openid.connect.token`, id_token claims `https://slack.com/user_id` / `https://slack.com/team_id`, nonce) is not limited
+  to distributed apps; an app that is not distributed authorizes on the workspace that created it only
+  (`invalid_team_for_non_distributed_app`), which is ours; the redirect URL must be https and match one registered in
+  the app (manifest `oauth_config.redirect_urls`); the browser follows it, so the server needs no inbound access, and
+  Socket Mode and the bot token are untouched. PKCE was not used: enabling it makes the app a public client for good;
+  this is a confidential client (the secret stays on the server) with state and nonce. Not verified: whether Slack
+  accepts a private (office LAN) host name as a redirect URL. Now each person links their own account by signing in to
+  Slack (Settings, or the link page when the e-mails differ); the e-mail match stays as the zero-click shortcut with the
+  admin-set e-mail rule. The owner's proposals, Admin › Slack › People, their DMs, routes, table and texts are gone. The
+  owner pastes the app's Client ID and Client Secret with the tokens (step 4; the secret sealed like them).
+- **A proposal proves the Slack side too** (third review, 2026-11-05; removed by the decision above). Accepting in the app alone let an owner propose
+  an unlinked colleague's Slack account for the owner's own account and accept it (squatting), or propose a renamed Slack
+  account. Now a proposal only stands in for the e-mail check: it completes when the member accepts it in the app
+  (`member_accepted_at`) and confirms the one-time link that Slack account got in Slack (`slack_confirmed_at`), in either
+  order, both within the 7 days, which are checked again in the transaction that links. The Slack account's DM at the
+  proposal says how (ask the app once, open the link signed in as that account). Someone else holding that link meets
+  the plain e-mail check and is refused.
+- **An e-mail someone else set proves nothing for 7 days.** Admins set e-mails (Admin › Members: a new member, a change),
+  so an admin could give a member a colleague's Slack e-mail. Triggers on `users` record when each e-mail was last set
+  (`slack_email_changes`); who set it is the audit log (`user.create`, `user.update` with `email`, actor not the
+  person, at or after that time less a second's margin). Such an e-mail is not taken as proof for 7 days, unless the
+  person set it again themselves since (Settings › Profile writes no audit entry). Those people link with Sign in with
+  Slack (below; it was the owner's proposal until that decision). The
+  link page shows the compared e-mail (the person's own; Slack's is never shown there). The migration seeds the times of
+  e-mails admins set before it from the audit log (an e-mail changed back by its person before the migration counts as
+  the admin's until they set it again). The person is told in the app when an admin changes their e-mail (the poll
+  reads new `user.update` entries), and Settings says the e-mail proves nothing for now.
+- **Slack Connect channels** (`is_ext_shared_channel`): the flag is kept with the question and the answer has no Post to
+  channel there, saying why; a replayed button is refused too. The button asks Slack again (`conversations.info`, scopes
+  `channels:read` and `groups:read`): shared since, or no `is_ext_shared` in the answer, and nothing is posted.
+- Smaller: "Asked by" never falls back to a mention (`<@U…>` would ping): the Slack name, or "a teammate". A 429 keeps a
+  not-before time per answer (Slack's `Retry-After`, up to an hour); a network failure waits 15 s. A DM answer tried
+  again after a timeout first reads the DM thread (`conversations.replies`, `im:history`) so it is not posted twice;
+  only the app's messages written after the question count (an earlier answer with the same words does not). A
+  person counts as of the workspace only by its own `team_id` (users.list, users.info and a question's `user_team`
+  agree; another workspace of the same Enterprise Grid organization is not).
+- Scopes are now `app_mentions:read`, `channels:read`, `chat:write`, `groups:read`, `im:history`, `im:write`,
+  `users:read`, `users:read.email`; the token check refuses a bot token without any of them.
+- Tests: `tests/unit/c-slack.test.ts` with `tests/lib/fake-slack.ts` (owner only; wrong tokens, missing scopes, a seal
+  for another purpose; the link prompt to the asker only; somebody else's link refused by the e-mail check, no e-mail on
+  either side refused, the matching e-mail binds (case and spaces aside), NFC and full-width e-mails, an admin-set e-mail
+  refused until the person sets it again; Sign in with Slack (see its own entry: no e-mail needed, back without a
+  session, another account, expiry, reuse, the checked claims, Grid); a Slack Connect channel without the button; both
+  names, used once, expiry, cancel, linked elsewhere;
+  Slack Connect; a turn as the linked person answered ephemerally with the button; posting once, not by someone else; a
+  thread follow-up in the same chat; a DM; dedupe; other workspace or app and malformed events; a refresh; the tokens in
+  no log, row or answer; unlink and a disabled account; off and remove), the permission matrix
+  (`tests/security/lib/slack-cases.ts`, 63 cases) and `web/test/unit/slack-link.test.tsx`. Nothing reaches Slack.
+- **Screens after the UX review (2026-11-05).** Fewer elements, one main button per screen, no box in a box on phones.
+  Admin › Slack is four steps, each linking to its Slack page; the manifest viewer is gone (the "create app" link carries
+  it), and the last step saves the tokens and turns it on. A refused token is said under its field until the next try,
+  never in a toast. `SlackAdmin.appId` (not secret) lets a problem link to the app's own settings page in Slack
+  (`api.slack.com/apps/<id>/socket-mode`, `/oauth`, `/install-on-team`, `/general`); before the app id is known the link
+  is the list of the owner's apps. Remove is behind Replace tokens. (People rows opened one dialog to propose a link;
+  gone with the proposals.)
+  Settings › App connectors shows the Slack line instead of the "admin has to set up connectors" card while the team
+  uses Slack. The link page is two plain lines; the Slack user id is no longer shown there (the display name, full name
+  and @handle are; the e-mail proof decides). In Slack, reason codes in "could not start / could not answer" are
+  plain sentences. No security rule changed: the e-mail proof, ephemeral answers first and no Post to channel in shared
+  channels stay as above. Tests: `web/test/unit/slack-screens.test.tsx`.
+- **Sign in with Slack from the desktop and phone apps; review of 65fc2dec (2026-11-05).**
+  - The desktop app opens slack.com in the system browser and the phone app in an in-app browser with its own cookies,
+    so the browser Slack sends back has no session of the app, and a flow bound to the session that started it could
+    never finish there (nor on another address of the team than the saved one). The flow is now bound to the person,
+    not the session: a browser signed in as that person finishes it; signed in as somebody else, it is refused and
+    ends ("다른 계정으로 로그인돼 있어요 …"); with no session, the flow waits and the browser goes to the sign-in page,
+    whose next page (the existing internal-only `next`, which takes a path starting with one `/`) is a fixed page of the
+    app, `/slack/signin-return`, with only the state and the code, both checked by their shape; that page sends the
+    browser to the callback again with only those two. No address from the request is ever followed. A flow started in
+    the desktop or phone app ends on `/slack/done` ("이 창을 닫고 앱으로 돌아가도 돼요"); one started on the web ends in
+    Settings. The app's Settings line reads the link again when its window is focused or shown again. No change in the
+    desktop or phone app (both are in store review).
+  - Enterprise Grid: Slack's id_token has no enterprise claim; links now keep the workspace's enterprise id from
+    auth.test (events carry the same), and a link is one per workspace and Slack user (`UNIQUE (team_id,
+    slack_user_id)`), with one check used by the one-time link and by Sign in with Slack (`bindable`): before, the two
+    disagreed on the enterprise id and the same Slack user could be linked twice.
+  - Smaller: the outcome in Settings is looked up with `Object.hasOwn` (`?slack=constructor` no longer breaks the page)
+    and taken out of the address once shown; signing in again with the same Slack account records and says nothing new;
+    the user token is revoked even when the id_token is not one; the manifest's redirect URL and the address links open
+    at come from one value (the page's own address, sent with the GET that shows the manifest and the PUT that saves).
+  - The manifest no longer lists `openid` and `profile` as user scopes. docs.slack.dev "Sign in with Slack": "A scope
+    conflict occurs when attempting to combine Sign in with Slack user scopes with non-Sign in with Slack scopes in the
+    same OAuth flow. Each set of scopes must be requested in separate OAuth flows." Its app setup asks only to "configure
+    a Redirect URL"; the scopes go in the authorization request ("You request the OpenID scopes—openid, email, and
+    profile"). The manifest reference says `oauth_config.scopes.user` are "user scopes to request upon app
+    installation", so listing them would add them to the owner's "Install to Workspace" flow with the bot scopes.
+  - Migration `335_c_slack.sql` was changed in place again (the link key, the flow's `client`): no server outside this
+    Mac's throwaway development databases ever ran it.
+- **Answers in rich text, not mrkdwn (fix/slack-format, 2026-11-06).** In real Slack, "**하나뿐**이에요" came out as
+  "*하나뿐*이에요" with the asterisks showing: mrkdwn closes `*bold*` only before a space or punctuation, and Korean puts a
+  particle right after the word. A zero-width space around the markers was not chosen: Slack does not document it, and
+  it is copied along with the text. Answers are now `rich_text` blocks (`rich-text.ts`; docs.slack.dev "Rich text block",
+  "Text element": `style` takes `bold`, `italic`, `strike`, `code`; "Link element": `url`, `text`), which Slack does not
+  parse, in DMs, ephemeral messages and posted thread replies alike. Our own Markdown reading pairs `**`, `*`, `_`, `~~`
+  and backticks whatever letter comes next (`_` not inside a word), so bold before a particle works; headings are bold
+  lines, lists are `rich_text_list` (nesting by `indent`, numbers by `offset`), quotes and code blocks their elements.
+  A text element shows `<!channel>` as text, so nothing needs escaping in the blocks. A link to the app's own page on
+  the team's address shows its text alone (`budget-2027.txt`); any other link shows its host next to its text
+  ("급여명세서.pdf (evil.example)", punycode for a look-alike letter) unless the text names that same host, because an
+  answer can carry words from a page or a file the AI read; a text that names another address is shown as text, with
+  the host as the link. The first version showed the address only when the whole text was one, which let
+  `[bank.example.]`, `[Log in at bank.example]`, `[토스.com]` or `[급여명세서.pdf]` hide it (review of 864989cd). The
+  notification `text` is the answer as plain text (no markers, a link as its text, `&`, `<`, `>` written out). Slack
+  documents no size for a rich text block: blocks keep the 2,900 characters a section had (4 ephemeral, 10 posted), and
+  when Slack refuses them (`invalid_blocks`, `msg_blocks_too_long`, …) the answer goes again once as plain text in one
+  block. Marker pairing finds each closing run by a binary search in the line's runs, so a line costs its length once
+  (it was a scan to the line's end for each unpaired marker: 54 s for 200,000 characters; now about 15 ms).
+  Admin › Slack names the bot as Slack shows it (`/invite @trina-ax`): `users.info` of the bot user, its display name
+  or else its full name, read when the tokens are saved and at each connection (a rename in Slack shows up), with the
+  manifest's name when Slack does not say. `auth.test` gives the user name (`trinaax`), which `@` and `/invite` do not
+  find.
+
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 
 The owner: "회의록이 아닐 수도 있고 … 이렇게 스킬을 만들어서 팀과 공유할까요? 이런 느낌으로 가는 건?" The landing's promise (one
@@ -8915,7 +9675,9 @@ section of its own, not a follow-up of D (the company profile), though the deck 
 - **Found by the tests, fixed**: a company name without a logo longer than about eight Hangul syllables did not fit its
   one line on the cover and contact slides (it now takes two lines in a wider box); the secondary type on some brand
   grounds fell under 4.5:1 (dim is now held at 4.5:1 and mute at 3:1 on every ground); a typst path that does not exist
-  offered the PDF; "previous" was not disabled on the first slide.
+  offered the PDF; "previous" was not disabled on the first slide. From the review: the one-starred-phrase check now
+  counts the stars as written (it ran on the text with its stars already taken off), and the tests' companies are
+  named "Acme …".
 
 ### Verified and not
 - Verified here: the PPTX opens in LibreOffice 26.8 and Quick Look, and python-pptx reads and saves it. **The embedded
@@ -8944,8 +9706,9 @@ section of its own, not a follow-up of D (the company profile), though the deck 
   shows as a red failed step under the answer although the second call made the deck.
 - On a phone the stacked slides' small type (labels, page numbers) is about 4 px; on a computer the panel leaves empty
   space under the 16:9 stage, and the keys work only after a click inside the frame.
-- A WebP picture or logo (the website reading keeps small WebP files as they are) shows in PowerPoint 365 and
-  LibreOffice but as an empty box in Quick Look; convert WebP to PNG or JPEG when the PowerPoint file is built (needs a
+- A WebP picture or logo (the website reading keeps small WebP files as they are) showed as an empty box in Quick Look,
+  so the PowerPoint file leaves WebP out for now (that slide takes its type-only version, a WebP logo becomes the
+  company's name; the preview and the PDF keep it); next: convert WebP to PNG or JPEG when the file is built (needs a
   decoder on hosted Linux, which has no ffmpeg). The contact slide's offer pill can overflow its pill in a wider
   substitute face.
 - The toast when a picture became type-only at download time (the info answer could say how many).

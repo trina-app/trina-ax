@@ -26,6 +26,11 @@ test('template snapshot is committed before dispatch; repeated due tick admits e
   expect(rt.schedules.runDue(now)).toEqual([s.id]); expect(rt.schedules.runDue(now)).toEqual([])
   expect(starts).toHaveLength(1)
   const exec = starts[0]!
+  // the run is in the person's language (olga set the team up in Korean): its chat's name has no emoji, and the
+  // message shown as hers is the Korean instruction
+  const run = h.ctx.db.query('SELECT c.title, m.content FROM turns t JOIN chats c ON c.id=t.chat_id JOIN messages m ON m.id=t.user_message_id WHERE t.id=?').get(exec.id) as { title: string; content: string }
+  expect(run.title).toMatch(/^매일 파일 목록과 정리 제안 · \d{4}-\d{2}-\d{2}$/)
+  expect(run.content).toBe(s.prompt); expect(run.content).toContain('승인된 기본 예약 작업을 실행해 주세요.')
   expect(h.ctx.db.query('SELECT template_source_path,template_output_path,scheduled_for FROM turns WHERE id=?').get(exec.id))
     .toEqual({ template_source_path: 'shared', template_output_path: 'users/olga/reports', scheduled_for: due })
   rt.schedules.delete('olga',s.id)
