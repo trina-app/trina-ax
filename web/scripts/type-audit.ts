@@ -214,7 +214,7 @@ async function ownerViews(browser: Browser) {
   for (const s of ['profile', 'security', 'usage', 'memory', 'credentials', 'drive', 'integrations', 'connectors', 'notifications', 'apps', 'about'])
     await view(page, `settings:${s}`, `/settings/${s}`)
   // another device's sign-out asks first (보안·기기; needs a second session of the owner)
-  await view(page, 'settings:security:sign-out', '/settings/security', { open: click('[data-testid="device-sign-out"]'), scope: '[role="dialog"]' })
+  await view(page, 'settings:security:sign-out', '/settings/security', { open: click('[data-testid="device-sign-out"]'), scope: '[role="dialog"]:has([data-testid="dialog-confirm"])' })
   await view(page, 'settings:schedules', '/settings/schedules')
   await view(page, 'settings:account-delete', '/settings/account/delete')
   // admin: every section
