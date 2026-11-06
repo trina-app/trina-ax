@@ -29,6 +29,14 @@ test('a company intro in, the intro deck out; [팀에 공유] invites with that 
   // who sees it (the group's members and the owners and admins): the owner alone so far (docs/DECISIONS.md "W3")
   await expect(page.getByTestId('welcome-files-who')).toHaveText('여기 올린 파일은 지금은 나만 봐요 · 팀원을 초대하면 Acme 모두가 봐요')
   await page.getByTestId('welcome-files-input').setInputFiles([doc('회사 소개서.md', '# Acme\n- 조용한 책상 선풍기를 만들어요\n')])
+  // the deck builds on the server and the steps go on at once (docs/DECISIONS.md "K"): 내 스킬, then 팀 파일, put off
+  // here; then the finished deck opens by itself
+  await expect(page.locator('[data-step="skills"]')).toBeVisible()
+  await expect(page.getByTestId('welcome-progress')).toContainText('3/4 내 스킬')
+  await expect(page.getByTestId('welcome-deck-status')).toBeVisible()
+  await page.getByTestId('skills-later').click()
+  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  await page.getByTestId('welcome-later').click()
   await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
   const question = page.getByTestId('user-message').first()
   // the skill by its title, then the question (the command runs underneath)
@@ -98,6 +106,11 @@ test('"자료 없이 만들게요" on a phone: the intro deck from the server\'s
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
   await page.getByTestId('welcome-files-none').click()
+  // on a phone 내 스킬 waits for a computer ("다음"); 팀 파일 put off; then the deck
+  await expect(page.getByTestId('skills-phone-next')).toBeVisible()
+  await page.getByTestId('skills-phone-next').click()
+  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  await page.getByTestId('welcome-later').click()
   await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
   const question = page.getByTestId('user-message').first()
   await expect(question.getByTestId('skill-chip')).toHaveText('회사 소개서')
