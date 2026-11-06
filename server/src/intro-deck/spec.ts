@@ -119,7 +119,7 @@ export function notesFor(s: DeckSlide, parts: { path: string; text: string }[], 
 }
 
 /** A logo's look on a ground: as it is, in one colour (a transparent PNG), on a card, or a tile of its own. */
-async function logoLook(bytes: Buffer, kind: 'png' | 'jpg' | 'webp', ground: string): Promise<LogoTreat> {
+export async function logoLook(bytes: Buffer, kind: 'png' | 'jpg' | 'webp', ground: string): Promise<LogoTreat> {
   if (kind === 'jpg') return 'tile'
   let raw: Uint8Array | null = null
   if (kind === 'png') { const img = decodePng(bytes); raw = img ? sampleRgba(img, 64) : null }

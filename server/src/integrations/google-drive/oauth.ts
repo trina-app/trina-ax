@@ -10,8 +10,10 @@ import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, typ
 import type { DriveConnection, DriveFlow } from '@mycel/shared/api'
 import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../notifications/service'
 import { membersCanConnect, onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
+import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
 
-export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number }
+/** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (hosted, no own client). */
+export interface DriveDeps { config?: DriveConfig | null; fetch?: DriveFetch; now?: () => number; broker?: BrokerOptions | null }
 /** One Drive connection's way to call Google: a person's own, or a team share's (read.ts). */
 export interface DriveConn {
   api(resource: string, query: Record<string, string>, maxBytes: number, signal?: AbortSignal): Promise<{ bytes: Uint8Array; assertCurrent: () => void }>
@@ -21,12 +23,26 @@ export interface DriveConn {
  * gone), so nothing from an old connection is delivered. */
 interface Holder { id: string; op: string; fence(): void; load(): Tokens; save(t: Tokens): void; invalidate(): void }
 const TTL = 10 * 60_000
+/** how often a hosted server asks the hosting service whether its Google sign-in serves this team (broker.ts) */
+const BROKER_CHECK_MS = 10 * 60_000, BROKER_RETRY_MS = 60_000
+const challengeOf = (verifier: string) => crypto.createHash('sha256').update(verifier).digest('base64url')
 const clean = (s: unknown, max: number) => typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, max) : null
 export class GoogleDrive {
   private cfg: DriveConfig | null
   private cfgKey: string
-  /** the Google client in use (null: Drive is off); an admin's in-app setup replaces it (admin-setup.ts reload()) */
+  /** the Google client in use (null: none of its own; Drive is off unless the hosting service signs in, `broker`); an
+   * admin's in-app setup replaces it (admin-setup.ts reload()) */
   get config() { return this.cfg }
+  /** sign-in through the hosting service (a hosted server without a client of its own), else null */
+  readonly broker: DriveBroker | null
+  private brokerOk = false
+  private brokerCheckedAt = 0
+  private brokerSeq = 0
+  /** Drive can be used: a Google client of its own, or the hosting service's sign-in answered that it serves this team */
+  get enabled() { return !!this.cfg || (!!this.broker && this.brokerOk) }
+  /** 'direct': this server's own Google client; 'broker': the hosting service's; 'off' */
+  get mode(): 'direct' | 'broker' | 'off' { return this.cfg ? 'direct' : this.broker && this.brokerOk ? 'broker' : 'off' }
+  private get viaBroker() { return !this.cfg && !!this.broker }
   /** which client a connection or flow was made with: a new client makes old ones reconnect */
   get key() { return this.cfgKey }
   /** where the client is read from: MYCEL_GOOGLE_DRIVE_CLIENT_FILE, or <secrets>/integrations/google-drive/client.json */
@@ -45,12 +61,15 @@ export class GoogleDrive {
     this.clientFromEnv = !!process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE
     this.clientFile = process.env.MYCEL_GOOGLE_DRIVE_CLIENT_FILE || path.join(dir, 'client.json')
     this.cfg = deps.config !== undefined ? deps.config : readDriveConfig(this.clientFile, ctx.config.teamRoot)
-    this.cfgKey = this.cfg ? configKey(this.cfg) : ''
+    const brokerOpts = deps.broker !== undefined ? deps.broker : driveBrokerFor(ctx, !!this.cfg, this.clientFromEnv)
+    this.broker = brokerOpts ? new DriveBroker(brokerOpts, deps.fetch ?? fetch, this.now) : null
+    this.cfgKey = this.cfg ? configKey(this.cfg) : this.broker ? brokerKey(this.broker.o.origin) : ''
     this.store = new DriveStore(ctx.db, dir, this.now)
     this.transport = new GoogleTransport(deps.fetch)
     const sweep = () => {
       try { this.store.sweep() } catch { ctx.log.warn('Drive flow cleanup deferred') }
       try { this.checkShareOwners() } catch { ctx.log.warn('Drive share check deferred') }
+      if (this.broker && !this.cfg && this.now() - this.brokerCheckedAt >= (this.brokerOk ? BROKER_CHECK_MS : BROKER_RETRY_MS)) void this.checkBroker()
     }
     onShareOwnerCheck(ctx, () => this.checkShareOwners())
     sweep()
@@ -61,20 +80,32 @@ export class GoogleDrive {
    * fail their config_key checks and ask the person to reconnect, as after an operator's change and restart. */
   reload() {
     this.cfg = readDriveConfig(this.clientFile, this.ctx.config.teamRoot)
-    this.cfgKey = this.cfg ? configKey(this.cfg) : ''
+    this.cfgKey = this.cfg ? configKey(this.cfg) : this.broker ? brokerKey(this.broker.o.origin) : ''
     return this.cfg
   }
+  /** Ask the hosting service whether its Google sign-in serves this team (signed with the team key). Until it says
+   * yes, Drive stays off here: no Connect button and no tools that would fail. */
+  async checkBroker(): Promise<boolean> {
+    if (!this.broker) return false
+    this.brokerCheckedAt = this.now()
+    const seq = ++this.brokerSeq
+    const ok = await this.broker.ready()
+    if (seq !== this.brokerSeq) return ok // a newer check's answer counts
+    if (ok !== this.brokerOk) this.ctx.log.info(ok ? 'Google Drive sign-in through the hosting service is available' : 'Google Drive sign-in through the hosting service is not available')
+    this.brokerOk = ok
+    return ok
+  }
   status(user: string): DriveConnection {
-    const status = this.store.publicConnection(!!this.config, user, this.key)
+    const status = this.store.publicConnection(this.enabled, user, this.key)
     if (status.status === 'needs_reconnect') {
       const row = this.store.connection(user)
       if (row) this.invalidate(row)
     }
-    return { ...status, personalAllowed: membersCanConnect(this.ctx.db), teamShares: this.config ? teamSharesFor(this.ctx.db, user, this.key) : [] }
+    return { ...status, personalAllowed: membersCanConnect(this.ctx.db), teamShares: this.enabled ? teamSharesFor(this.ctx.db, user, this.key) : [] }
   }
   /** Keep cancellation registered throughout a tool's download and conversion. */
   run<T>(user: string, signal: AbortSignal | undefined, fn: (signal: AbortSignal) => Promise<T>) { return this.operation(user, signal, fn) }
-  private configured() { if (!this.config) throw new DriveError('not_configured', 503); return this.config }
+  private configured() { if (!this.enabled) throw new DriveError('not_configured', 503) }
   private busy(user: string) { if (this.revoking.has(user)) throw new DriveError('disconnecting', 409) }
   private async operation<T>(user: string, outer: AbortSignal | undefined, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const c = new AbortController(), set = this.operations.get(user) ?? new Set<AbortController>()
@@ -86,7 +117,29 @@ export class GoogleDrive {
   /** Start a Google sign-in: the person's own Drive (only while the team allows it), or, for an admin, a Drive to share
    * with the team (`share`; with a share id, a new sign-in for that share). */
   authorize(user: string, session: string, share?: { shareId?: string }) {
-    const cfg = this.configured(); this.busy(user); this.store.session(user, session); this.store.sweep()
+    if (this.viaBroker) throw new DriveError('use_begin', 500) // the hosting service's sign-in is asynchronous: begin()
+    const p = this.prepare(user, session, share), cfg = this.config!
+    const url = new URL(GOOGLE_AUTH)
+    for (const [k, v] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.redirectUri, response_type: 'code', scope: DRIVE_SCOPE, access_type: 'offline', prompt: 'consent', state: p.state, code_challenge: challengeOf(p.verifier), code_challenge_method: 'S256' })) url.searchParams.set(k, v)
+    return { flowId: p.id, authorizationUrl: url.href, expiresAt: p.expiresAt }
+  }
+  /** Start a Google sign-in either way: this server's own client (authorize), or the hosting service's (broker.ts),
+   * which makes the Google address for this flow. The routes use this. */
+  async begin(user: string, session: string, share?: { shareId?: string }) {
+    if (!this.viaBroker) return this.authorize(user, session, share)
+    const p = this.prepare(user, session, share)
+    try {
+      const authorizationUrl = await this.broker!.start(share ? 'share' : 'personal', p.state, challengeOf(p.verifier))
+      return { flowId: p.id, authorizationUrl, expiresAt: p.expiresAt }
+    } catch (e) {
+      const reason = e instanceof DriveError ? e.reason : 'broker_unavailable'
+      this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason=?,secret_enc=NULL WHERE id=? AND state='pending'").run(reason, p.id)
+      throw e instanceof DriveError ? e : new DriveError('broker_unavailable', 503)
+    }
+  }
+  /** The flow row both ways share: who, which session, the state's hash and the sealed PKCE verifier. */
+  private prepare(user: string, session: string, share?: { shareId?: string }) {
+    this.configured(); this.busy(user); this.store.session(user, session); this.store.sweep()
     const purpose = share ? 'share' : 'personal'
     if (share) {
       this.store.admin(user)
@@ -103,9 +156,7 @@ export class GoogleDrive {
       this.ctx.db.query(`INSERT INTO drive_oauth_flows(id,user_id,session_id,state_hash,config_key,state,secret_enc,key_version,expires_at,created_at,purpose,share_id) VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?)`)
         .run(id, user, session, hash(state), this.key, sealed.enc, sealed.keyVersion, expiresAt, new Date(now).toISOString(), purpose, share?.shareId ?? null)
     })()
-    const url = new URL(GOOGLE_AUTH)
-    for (const [k, v] of Object.entries({ client_id: cfg.clientId, redirect_uri: cfg.redirectUri, response_type: 'code', scope: DRIVE_SCOPE, access_type: 'offline', prompt: 'consent', state, code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' })) url.searchParams.set(k, v)
-    return { flowId: id, authorizationUrl: url.href, expiresAt }
+    return { id, state, verifier, expiresAt }
   }
   flow(user: string, session: string, id: string): DriveFlow {
     const r = this.store.ownFlow(user, session, id)
@@ -116,7 +167,8 @@ export class GoogleDrive {
     this.store.ownFlow(user, session, id)
     this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='cancelled',secret_enc=NULL,account=NULL WHERE id=? AND state!='completed'").run(id)
   }
-  async callback(input: { state?: string; code?: string; error?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {
+  /** Google's (direct) or the hosting service's (broker: `handoff` instead of `code`) return to this server. */
+  async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean> {
     this.configured(); this.store.sweep()
     if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) throw new DriveError('invalid_flow')
     const r = this.ctx.db.query('SELECT * FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state)) as ReturnType<DriveStore['flow']>
@@ -128,11 +180,15 @@ export class GoogleDrive {
     this.store.session(r.user_id, r.session_id); this.busy(r.user_id)
     if (!this.ctx.db.query("UPDATE drive_oauth_flows SET state='exchanging' WHERE id=? AND state='pending'").run(r.id).changes) throw new DriveError('invalid_flow')
     try {
-      if (input.error) throw new DriveError('consent_denied')
-      if (!input.code || input.code.length > 4096) throw new DriveError('invalid_flow')
-      const s = this.store.open<FlowSecret>(r), cfg = this.config!
+      if (input.error) throw new DriveError(input.error === 'provider_error' ? 'provider_unavailable' : 'consent_denied')
+      const viaBroker = this.viaBroker
+      if (viaBroker ? !input.handoff || !/^[A-Za-z0-9_-]{43}$/.test(input.handoff) : !input.code || input.code.length > 4096) throw new DriveError('invalid_flow')
+      const s = this.store.open<FlowSecret>(r), cfg = this.config
       const result = await this.operation(r.user_id, undefined, async signal => {
-        const json = await this.exchange({ grant_type: 'authorization_code', code: input.code!, redirect_uri: cfg.redirectUri, code_verifier: s.verifier }, signal)
+        // broker: the hosting service exchanges Google's code only now, for this team and this flow's verifier
+        const json = viaBroker
+          ? await this.broker!.redeem(input.handoff!, s.verifier, signal)
+          : await this.exchange({ grant_type: 'authorization_code', code: input.code!, redirect_uri: cfg!.redirectUri, code_verifier: s.verifier }, signal)
         const scopes = typeof json.scope === 'string' ? json.scope.split(/\s+/) : []
         if (!scopes.includes(DRIVE_SCOPE)) throw new DriveError('scope_denied')
         const tokens = this.tokens(json)
@@ -222,6 +278,8 @@ export class GoogleDrive {
   /** Revoke a refresh token at Google (best effort). */
   async revoke(token: string | null): Promise<'revoked' | 'unavailable' | 'not_needed'> {
     if (!token) return 'not_needed'
+    // a token sealed by the hosting service (broker.ts) is revoked there: this server cannot open it
+    if (token.startsWith('ev1.')) return this.broker ? this.broker.revoke(token) : 'unavailable'
     try {
       const r = await this.transport.request(GOOGLE_REVOKE, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) }, 16_384)
       return r.status === 200 ? 'revoked' : 'unavailable'
@@ -289,7 +347,8 @@ export class GoogleDrive {
     }
   }
   private exchange(fields: Record<string, string>, signal?: AbortSignal) {
-    const c = this.configured()
+    const c = this.config
+    if (!c) throw new DriveError('not_configured', 503)
     return this.transport.json(GOOGLE_TOKEN, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ ...fields, client_id: c.clientId, client_secret: c.clientSecret }), signal }, 32_768)
   }
   private tokens(j: Record<string, any>, previous?: Tokens): Tokens {
@@ -314,7 +373,9 @@ export class GoogleDrive {
     const task = this.operation(h.op, undefined, async signal => {
       try {
         h.fence()
-        const j = await this.exchange({ grant_type: 'refresh_token', refresh_token: prev.refreshToken }, signal)
+        const j = this.viaBroker
+          ? await this.broker!.refresh(prev.refreshToken, signal)
+          : await this.exchange({ grant_type: 'refresh_token', refresh_token: prev.refreshToken }, signal)
         if (typeof j.scope === 'string' && !j.scope.split(/\s+/).includes(DRIVE_SCOPE)) throw new DriveError('needs_reconnect', 409)
         const tokens = this.tokens(j, prev)
         checkAbort(signal); h.fence()

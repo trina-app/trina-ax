@@ -54,6 +54,13 @@ machine only (scripts/promo-video/).
 The promo video's music and sound effects are CC0 1.0 or public domain; their
 sources and licences are listed in resources/promo-video/audio/SOURCES.md.
 
+The intro deck draws a subset of the Lucide icons (from lucide-react, the icon
+set the web app uses), converted to path data in server/src/intro-deck/icons.ts
+by scripts/gen-deck-icons.ts. Lucide is ISC, Copyright (c) 2026 Lucide Icons and
+Contributors; the icons Lucide lists as derived from Feather are MIT, Copyright
+(c) 2013-present Cole Bemis. See resources/notices/lucide/; release bundles
+carry it in licenses/lucide/.
+
 HWP previews use rhwp 0.8.7 (MIT) and unchanged Noto Sans KR Regular (OFL-1.1).
 Exact pins, upstream notices and source-offer details: resources/hwp/.
 Release distributions preserve these in licenses/hwp/.

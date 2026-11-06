@@ -19,6 +19,7 @@ import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
 import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
+import { useDeckBuilds } from '../store/deckBuilds'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, useMeStrict } from '../store/session'
 import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
@@ -44,6 +45,11 @@ function ChatView({ chatId }: { chatId: string }) {
   const me = useMeStrict()
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
+  // an intro deck that finished while the person was elsewhere: seen now (its dot in the sidebar goes)
+  const deckReady = useDeckBuilds((s) => !!s.unseen[chatId])
+  useEffect(() => {
+    if (deckReady) useDeckBuilds.getState().seen(chatId)
+  }, [deckReady, chatId])
   const announce = useAnnounce()
   const navigate = useNavigate()
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId))

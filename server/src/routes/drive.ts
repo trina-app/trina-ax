@@ -18,7 +18,7 @@ async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
 }
 export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.myDriveConnection, ({ auth }) => safe(() => googleDriveOf(ctx).status(auth.user.id)))
-  kit.handle(API.authorizeDrive, ({ auth }) => safe(() => googleDriveOf(ctx).authorize(auth.user.id, auth.session.id)))
+  kit.handle(API.authorizeDrive, ({ auth }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id)))
   kit.handle(API.driveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).flow(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.completeDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).complete(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.cancelDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).cancel(auth.user.id, auth.session.id, params.id)))
@@ -30,7 +30,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   // service checks the caller is an active admin again
   kit.handle(API.setDriveMembers, ({ auth, body }) => safe(() => { setMembersCanConnect(ctx, auth.user.id, body.on); return driveAdminStatus(ctx) }))
   kit.handle(API.listDriveShares, ({ auth }) => safe(() => ({ items: listShares(ctx, auth.user.id) })))
-  kit.handle(API.authorizeDriveShare, ({ auth, body }) => safe(() => googleDriveOf(ctx).authorize(auth.user.id, auth.session.id, { shareId: body.shareId })))
+  kit.handle(API.authorizeDriveShare, ({ auth, body }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, { shareId: body.shareId })))
   kit.handle(API.completeDriveShareFlow, ({ auth, params, body }) => safe(() => { const svc = googleDriveOf(ctx); return shareView(ctx.db, svc.completeShare(auth.user.id, auth.session.id, params.id, body.name), svc.key) }))
   kit.handle(API.driveShareFolders, ({ auth, params, query }) => safe(async () => ({ items: await shareFolders(ctx, auth.user.id, params.id, query.q) })))
   kit.handle(API.updateDriveShare, ({ auth, params, body }) => safe(() => updateShare(ctx, auth.user.id, params.id, body)))
@@ -38,7 +38,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.raw('GET', CALLBACK_PATH, async c => {
     let ok = false
     const auth = (c as unknown as AppContextC).get('auth')
-    try { ok = await googleDriveOf(ctx).callback({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined) } catch {}
+    try { ok = await googleDriveOf(ctx).callback({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined) } catch {}
     c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
     c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
     // Only static same-origin navigation. Never carry code/state into a login return URL or a native deep link.
