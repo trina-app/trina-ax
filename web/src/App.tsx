@@ -32,6 +32,7 @@ const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
 const Skills = lazy(() => import('./pages/Skills'))
+const SkillSharePage = lazy(() => import('./pages/SkillSharePage'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
@@ -192,6 +193,8 @@ function Gate() {
           <Route path="admin/:section" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
           <Route path="skills" element={<Skills />} />
+          {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
+          <Route path="skills/share/:id" element={<SkillSharePage />} />
           <Route path="scheduled" element={<ScheduledList />} />
           <Route path="scheduled/:id" element={<ScheduledTask />} />
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
