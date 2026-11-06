@@ -103,7 +103,8 @@ export async function refreshPhonePush(): Promise<void> {
 export type PhonePushView = { status: 'push.on' | 'push.off' | 'push.deniedPhone' | 'push.deniedApp'; action: 'disable' | 'enable' | 'open-settings' }
 export function phonePushView(o: { permission: PushPermission | null; on: boolean; canOpenSettings: boolean }): PhonePushView {
   if (o.permission === 'denied') return o.canOpenSettings ? { status: 'push.deniedPhone', action: 'open-settings' } : { status: 'push.deniedApp', action: 'enable' }
-  return o.on ? { status: 'push.on', action: 'disable' } : { status: 'push.off', action: 'enable' }
+  // a device the server still has does not make it on while the OS has not allowed notifications
+  return o.on && o.permission !== 'undetermined' ? { status: 'push.on', action: 'disable' } : { status: 'push.off', action: 'enable' }
 }
 
 /** The question's [알림 켜기] and Settings' "turn on" (an explicit choice, so an earlier opt-out does not stop it). The

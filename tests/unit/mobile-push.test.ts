@@ -367,3 +367,16 @@ test('Android: the look around an older team page is read from the OS each time,
   expect(app).toContain("NativeAppearance?.getColorScheme()")
   expect(app).toMatch(/AppState\.addEventListener\('change', state => \{ if \(state === 'active'\) read\(\) \}\)/)
 })
+
+test('Android: turned off in the phone\'s Settings reads as denied; before the first question as undetermined', async () => {
+  const { permissionFrom } = await import('../../mobile/src/permission')
+  // Android 13+ reports "denied, may ask" before the first question and after the person turned it off
+  expect(permissionFrom({ status: 'denied', canAskAgain: true, android: true, askedBefore: false })).toBe('undetermined')
+  expect(permissionFrom({ status: 'denied', canAskAgain: true, android: true, askedBefore: true })).toBe('denied')
+  expect(permissionFrom({ status: 'denied', canAskAgain: false, android: true, askedBefore: false })).toBe('denied')
+  expect(permissionFrom({ status: 'granted', canAskAgain: true, android: true, askedBefore: true })).toBe('granted')
+  // iOS says it plainly
+  expect(permissionFrom({ status: 'undetermined', canAskAgain: true, android: false, askedBefore: true })).toBe('undetermined')
+  expect(permissionFrom({ status: 'denied', canAskAgain: false, android: false, askedBefore: true })).toBe('denied')
+})
+

@@ -372,3 +372,18 @@ test('store builds 1 and 2: a registered session does not override a "no" this p
     expect(server.stored.has('mycel.phonePush.granted')).toBe(false)
   } finally { server.restore() }
 })
+
+test('notifications turned off in the OS: a registered device does not make it "on", and does not override the "no"', async () => {
+  expect(phonePushView({ permission: 'undetermined', on: true, canOpenSettings: true })).toEqual({ status: 'push.off', action: 'enable' })
+  const server = pushServer({ enabled: true, native: { available: true, deviceId: 'device-1', gateway: 'push.example.test' } })
+  try {
+    handler = withPermission('denied')
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('user:os-turned-off')
+    await settle(() => usePhonePush.getState().permission !== null)
+    await settle()
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'denied', ask: false })
+    expect(messages.filter(m => m.type === 'push-token')).toHaveLength(0)
+    expect(phonePushView({ permission: 'denied', on: true, canOpenSettings: true })).toEqual({ status: 'push.deniedPhone', action: 'open-settings' })
+  } finally { server.restore() }
+})
