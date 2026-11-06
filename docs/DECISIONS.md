@@ -11037,7 +11037,10 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
   intro deck's own dot are gone: one system, one marker.
 - **`Chat.lastOutcome`** (`'error' | 'paused'`, absent = ended normally or stopped by the person): read in
   `ChatStore.answerState` from the same newest finished answer as `unseen`, in one query. Paused = `stop_reason`
-  `tool_limit` or `time_limit`; a server stop is an error. Seen, the outcome alone shows nothing.
+  `tool_limit` or `time_limit`; a server stop is an error. Seen, the outcome alone shows nothing. An answer the person
+  stopped is never `unseen` (they stopped it; nothing waits there), and an answer to a question asked from Slack is
+  marked seen when it ends (it was delivered in Slack: every Slack thread would otherwise add a dot and one to n until
+  it was opened in the app); a card such a turn raises still shows its "?" until it is answered in the app.
 - **"모두 보기 · 답 필요 K"** counts the hidden rows that show "?" or a dot: phone-nav's set (waiting, or unseen while not
   running again), now with one rule; amber when one of them is a "?", which now includes a failed or paused answer (it
   was amber for a card only). The filter "답변 중이거나 내 답을 기다림" shows ring and "?" rows, failed and paused
@@ -11058,7 +11061,9 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
   page closes). On a phone ☰ (Home only) gets a dot for the drawer's part of it, the AI chats (amber with a "?"): rooms
   are not in the drawer, and the 대화 tab beside it keeps **its own count, unchanged** (every unread message of rooms not
   muted; review item 7: the owner has not approved a change, so the first build's "rooms that want me" there is not
-  taken).
+  taken). While @트리나 waits on me in a room, 대화's pill is an amber "?" in place of that number (one pill, as the
+  room's own: ? > count; a screen reader hears both, and the number comes back when the wait ends), so a phone shows
+  the room's "?" outside the rooms list too.
 - **Rooms.** A room's one pill is "?" (amber) while its @트리나 waits on me (a card of my question shown in the room; not
   a connect card), else "@", else the count. `Room.aiWaits` comes from memory (`ChatRuntime.roomCardOpen`, no read per
   room); `room.updated` goes to the asker when a card opens or closes. "더 보기" leads its pill with "?" when a hidden
@@ -11078,9 +11083,11 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
 - **Rooms in the desktop app follow the server's notice, not a copy of it** (review MUST 3). `room.message` carries
   `notice` (`room.mention` | `room.dm`) for each recipient whose notice was recorded and may ring: the room's level for
   them, mentions, thread followers, quiet hours (a quiet notice is not marked) and one per unread run are decided once,
-  on the server (`Notifications.roomNotice` returns it). The page tells only marked messages, after the same wait and
-  only while the room still wants me; plus the room's "?". One notification per room (tag `room-<id>`), its click opens
-  the room; a toast only for the room's "?" (a message has the room sound and the phone's push).
+  on the server (`Notifications.roomNotice` returns it). Recording them runs before the `room.message` goes out, so a
+  failure there is logged and the message still goes to everyone, unmarked. The page tells only marked messages, after
+  the same wait and only while the room still wants me; plus the room's "?". One notification per room (tag
+  `room-<id>`), its click opens the room; a toast only for the room's "?" (a message has the room sound and the
+  phone's push).
 - **A team switch closes the desktop notifications** the team page made (review SHOULD 8): they name that team's chats,
   and a click must not open an address in the next team's page (`makeNotifier().closeAll`, and a click on a stale one
   only brings the window up).
@@ -11090,7 +11097,10 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
 - **Noted, not changed** (review SHOULD 9): n and the markers count the chats the list has loaded (the first 50; "더
   보기" in the full list loads more), so a very old unseen chat beyond them is counted once it loads. Each scheduled run
   is a new chat whose answer ends unseen: an hourly task adds a dot (and one to n) every hour until those chats are
-  opened; it gets no notification (the Inbox and push have it). Phone push for a "?" is later.
+  opened; it gets no notification (the Inbox and push have it). A card never sends `/seen` (it is answered, not seen),
+  so a card can be told on a second device (the desktop app unfocused, a phone toast) while I look at it on the first;
+  answering it on either ends both. Slack: a card of a Slack turn is not told anywhere (Slack says a card waits in the
+  app), only its row's "?". Phone push for a "?" is later.
 - **Setup row.** Onboarding's setup row (PR #100) sits between 대화 and 트리나 기록 in the one scroll (phone-nav's
   placement), and the steps name the AI's list by the sidebar's own heading (`historyName`: `sidebar.aiChats`).
 - Rejected: an `attention` field computed per window and a second seen column (the first build; it duplicated

@@ -150,6 +150,8 @@ describe('this window: /seen, notifications and toasts', () => {
   let seenCalls: string[] = []
   /** what the fake server does on POST /seen (null: answers the chat, sends nothing) */
   let onSeen: ((chatId: string) => void) | null = null
+  /** how long the fake server takes to answer POST /seen */
+  let seenDelayMs = 0
   let notified: { title: string; body: string; tag?: string; open?: string }[] = []
   let badges: number[] = []
   let openCb: ((p: string) => void) | null = null
@@ -165,6 +167,7 @@ describe('this window: /seen, notifications and toasts', () => {
     saved = {}
     seenCalls = []
     onSeen = null
+    seenDelayMs = 0
     notified = []
     badges = []
     went = []
@@ -183,6 +186,7 @@ describe('this window: /seen, notifications and toasts', () => {
         seenCalls.push(id)
         // the server's chat.updated comes on the socket, after the reply (in order with the other events)
         if (onSeen) setTimeout(() => onSeen!(id), 1)
+        if (seenDelayMs) await wait(seenDelayMs)
       }
       return new Response(JSON.stringify(chat()), { headers: { 'content-type': 'application/json' } })
     }) as typeof fetch
@@ -276,6 +280,24 @@ describe('this window: /seen, notifications and toasts', () => {
     expect(seenCalls).toEqual([c.id, c.id])
     expect(notified).toEqual([])
     expect(useUi.getState().toasts).toEqual([])
+  })
+
+  test('a newer answer that ends while a /seen is on its way is seen too, once that one is back', async () => {
+    const c = chat({ unseen: true, updatedAt: iso(30) })
+    useChats.setState({ chats: [c] })
+    seenDelayMs = 60
+    useSessionMarkers.getState().setOnScreen(c.id)
+    await wait(5)
+    expect(seenCalls).toEqual([c.id])
+    // the next answer ends while the first /seen is still out (the server had not marked it yet)
+    dispatch(updated({ ...c, unseen: true, updatedAt: iso(40) }))
+    await wait(20)
+    expect(seenCalls).toEqual([c.id])
+    await wait(120)
+    expect(seenCalls).toEqual([c.id, c.id])
+    // and no more after that (the same state is never asked for twice)
+    await wait(150)
+    expect(seenCalls).toEqual([c.id, c.id])
   })
 
   test('no /seen loop either when a server keeps saying unseen after /seen and tells it every time (an answer dated ahead of its clock, an older server)', async () => {

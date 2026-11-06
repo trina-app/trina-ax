@@ -72,7 +72,11 @@ function seen(chatId: string, state: string) {
   asked.set(chatId, state)
   inFlight.add(chatId)
   // the answer changes nothing here: the server's chat.updated follows to every window (this one too), in order
-  void api.call(API.markChatSeen, { params: { id: chatId } }).catch(() => {}).finally(() => inFlight.delete(chatId))
+  // a newer state that came meanwhile (another answer ended) is asked for once this one is back
+  void api.call(API.markChatSeen, { params: { id: chatId } }).catch(() => {}).finally(() => {
+    inFlight.delete(chatId)
+    recheck()
+  })
 }
 /** The chat on screen in a visible window, when the list says it has an answer not seen yet: /seen, once per state.
  * A chat that is not in the list (an old one opened by its address) is asked for once when it comes on screen. */

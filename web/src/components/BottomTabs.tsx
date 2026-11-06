@@ -2,7 +2,9 @@
 // new chat and the latest chats, its history behind ☰), 대화 (rooms, DMs and group chats), 파일, 나 (Settings, opened on
 // its list: the Inbox and, for admins, Admin on top). lib/tabs.ts says which tab an address belongs to and which one the
 // app opens on. A hairline above, no frame; the tab on screen in ink and medium weight. One count per kind of thing: my
-// unread room messages on 대화, my unread Inbox notices on 나. Not shown inside a conversation (a room, an AI chat):
+// unread room messages on 대화, my unread Inbox notices on 나. While @트리나 waits on me in a room (Room.aiWaits), 대화's
+// pill is an amber "?" instead, as that room's own pill is (docs/DECISIONS.md "Session markers"); the count is the same
+// and comes back when the wait ends (a screen reader hears both). Not shown inside a conversation (a room, an AI chat):
 // their message box needs the bottom.
 import clsx from 'clsx'
 import { FolderOpen, MessageCircle, Sparkles, UserRound } from 'lucide-react'
@@ -21,6 +23,7 @@ export function BottomTabs() {
   // under the Settings dialog the page below it is what the router shows; the bar marks "나" by the real address
   const path = useRealPath()
   const unread = useRooms((s) => totalUnread(s.rooms))
+  const aiWaits = useRooms((s) => s.rooms.some((r) => r.aiWaits))
   const inbox = useInboxUnread()
   if (hidesTabs(path)) return null
   const current = tabOf(path)
@@ -28,7 +31,14 @@ export function BottomTabs() {
     <nav aria-label={t('tabs.label')} className="flex shrink-0 border-t border-line bg-canvas pb-[max(0.75rem,var(--safe-bottom))] md:hidden" data-bottom-bar data-testid="bottom-tabs">
       <TabLink to={TAB_ROOT.ai} active={current === 'ai'} icon={<Sparkles size={22} aria-hidden />} label={aiName(t)} testId="tab-ai" />
       <TabLink to={TAB_ROOT.chats} active={current === 'chats'} icon={<MessageCircle size={22} aria-hidden />} label={t('tabs.chats')} testId="tab-chats">
-        {unread > 0 && <Count n={unread} label={t('rooms.unread', { n: unread })} testId="tab-chats-unread" />}
+        {aiWaits ? (
+          <span className="absolute -top-1 left-1/2 ml-2 min-w-4 rounded-full bg-warn px-1 text-center text-nano leading-4 font-bold text-canvas" data-testid="tab-chats-unread" data-ai-waits="">
+            <span aria-hidden>?</span>
+            <span className="sr-only">{[t('rooms.aiWaits'), unread > 0 && t('rooms.unread', { n: unread })].filter(Boolean).join(', ')}</span>
+          </span>
+        ) : (
+          unread > 0 && <Count n={unread} label={t('rooms.unread', { n: unread })} testId="tab-chats-unread" />
+        )}
       </TabLink>
       <TabLink to={TAB_ROOT.files} active={current === 'files'} icon={<FolderOpen size={22} aria-hidden />} label={t('tabs.files')} testId="tab-files" />
       <TabLink to={TAB_ROOT.me} active={current === 'me'} icon={<UserRound size={22} aria-hidden />} label={t('tabs.me')} testId="tab-me" onClick={(el) => settingsOpenedFrom(el)}>

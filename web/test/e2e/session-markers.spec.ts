@@ -128,10 +128,13 @@ test('rooms: "?" over "@" over the count; the one count holds DMs, mentions and 
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(3\) /)
   await hide(page, false)
-  // the phone: the 대화 tab keeps its own count (every unread message of rooms not muted: 18); the ☰ dot is for the AI
-  // chats in the drawer only, and none wants me
+  // the phone: 영업팀's @트리나 waits on me, so the 대화 tab's pill is an amber "?" (its own count, every unread message of
+  // rooms not muted, 18, is said with it and comes back when the wait ends); the ☰ dot is for the AI chats in the drawer
+  // only, and none wants me
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
+  await expect(page.getByTestId('tab-chats-unread')).toHaveAttribute('data-ai-waits', '')
+  await expect(page.getByTestId('tab-chats-unread').locator('[aria-hidden]')).toHaveText('?')
   await expect(page.getByTestId('tab-chats-unread')).toContainText('18')
   await expect(page.getByTestId('menu-open')).toBeVisible()
   await expect(page.getByTestId('menu-dot')).toHaveCount(0)
