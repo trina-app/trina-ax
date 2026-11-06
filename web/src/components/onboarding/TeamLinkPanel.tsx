@@ -490,18 +490,18 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, starter, seatsLef
   )
 }
 
-/** Admin › Members: the team invite link. A card from 640px (the admin cards' frame); on a phone no frame of its own,
- * only a hairline under it, as the Home goal card (a frame near the screen edge reads as tight). */
+/** Admin › Members: the team invite link. A card from 768px (the admin cards' frame); on a phone no frame of its own,
+ * only a hairline under it, as the Home goal card and the page's other sections there (Card's flat). */
 export function TeamLinkCard() {
   const t = useT()
   const id = useId()
   return (
-    <section className="mb-6 border-b border-line pb-6 sm:rounded-2xl sm:border sm:bg-surface sm:pb-0" aria-labelledby={id} data-testid="team-link-card">
-      <header className="pb-4 sm:border-b sm:border-line sm:px-4 sm:py-3">
+    <section className="mb-6 border-b border-line pb-6 md:rounded-2xl md:border md:bg-surface md:pb-0" aria-labelledby={id} data-testid="team-link-card">
+      <header className="pb-3 md:border-b md:border-line md:px-4 md:py-3">
         <h2 id={id} className="text-sm font-semibold">{t('teamLink.title')}</h2>
         <OneLine className="mt-0.5 text-xs text-muted">{t('teamLink.desc')}</OneLine>
       </header>
-      <div className="sm:p-4">
+      <div className="md:p-4">
         <TeamLinkPanel />
       </div>
     </section>

@@ -3,15 +3,16 @@
 // one link for many people, members only, with a ready-made message for KakaoTalk or Slack. Members: role, groups, disable (ends their sessions),
 // temporary password reset or a one-time reset link to hand over (both audited; the owner resets only on the server
 // Mac), remove. Each person links to the folders they see (Folder permissions › By person); the invite and add dialogs
-// preview the folders someone new with that role and those groups will see. Below the md width each member is a card
-// (name, role and status, the skills switch) with the row's actions in a "…" menu; wider screens keep the table.
+// preview the folders someone new with that role and those groups will see. Below the md width each member is a row
+// (name; role and username; the skills switch under one column label, not one per person) with no card around the
+// list, and the row's actions and the folders they see in a "…" menu; wider screens keep the table.
 // The owner sees who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge. Removing
 // that person works as for anyone: their personal files go to the owner's archive. The owner's inbox entry opens /admin/members?member=<id>: that person's
 // row is marked and scrolled to.
-import { KeyRound, Link2, MoreHorizontal, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
+import { FolderLock, KeyRound, Link2, MoreHorizontal, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { z } from 'zod'
 import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
@@ -39,6 +40,7 @@ export default function Members() {
   const me = useMeStrict()
   const act = useAction()
   const actOk = useActionOk()
+  const navigate = useNavigate()
   // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
   const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
@@ -106,6 +108,9 @@ export default function Members() {
       : { label: t('members.enable'), icon: <UserRoundCheck size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `enable-member-${u.username}` },
     ...(isOwner(me) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `delete-member-${u.username}` }] : []),
   ]
+  /** On a phone the folders someone sees are the first item of their "…" menu (a link under every person was the same
+   * words five times), so every row has the menu, the owner's own too. */
+  const accessItem = (u: User): MemberMenuItem => ({ label: t('accessView.membersLink'), icon: <FolderLock size={14} aria-hidden />, onSelect: () => navigate(personViewLink({ person: u.id })), testId: 'member-access-link' })
   // an invite is revoked at once, with no confirm dialog: one at a time, a held key does not repeat it, and the focus goes
   // to the list's title (the next row's button is another revoke)
   const invitesTitle = useRef<HTMLHeadingElement>(null)
@@ -117,6 +122,106 @@ export default function Members() {
       inviteFocus.removed(0)
       await invites.reload()
     })
+
+  const memberList = (
+    <Loadable state={users}>
+      {({ items: list, noAi }) => phone ? (
+        <>
+          {/* the column's name once, above the switches (the switch itself is named per person for screen readers) */}
+          <div className="grid grid-cols-[minmax(0,1fr)_6rem_2.25rem] gap-x-3 border-b border-line pb-2 text-xs text-faint" aria-hidden>
+            <span>{t('auth.name')}</span>
+            <span>{t('skillMgr.column')}</span>
+          </div>
+          <ul className="divide-y divide-line border-b border-line" data-testid="members-list">
+            {list.map((u) => (
+              <li key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx('grid grid-cols-[minmax(0,1fr)_6rem_2.25rem] items-center gap-x-3 py-3 text-sm', u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')} data-testid={`member-card-${u.username}`}>
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{u.name}</p>
+                  <p className="truncate text-xs text-faint">
+                    {t(`role.${u.role}`)} · {u.username} · users/{u.id}
+                  </p>
+                  {/* only what needs the admin's eye gets a badge (the role is the line above) */}
+                  <div className="mt-1 flex flex-wrap items-center gap-1 empty:hidden [&>*]:ml-0">
+                    <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} withRole={false} />
+                  </div>
+                </div>
+                <div className="min-w-0 text-xs">{skillCell(u)}</div>
+                <MemberMenu
+                  name={u.name}
+                  items={[
+                    accessItem(u),
+                    ...(canManage(u)
+                      ? [
+                          { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(u), testId: `edit-member-${u.username}` },
+                          { label: t('members.reset'), icon: <KeyRound size={14} aria-hidden />, onSelect: () => resetPassword(u), testId: `reset-password-${u.username}` },
+                          ...moreActions(u),
+                        ]
+                      : []),
+                  ]}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" data-testid="members-table">
+            <thead>
+              {/* the headers keep one line (only the long skills header may wrap); the name column keeps room for a name and its path */}
+              <tr className="text-left text-xs whitespace-nowrap text-faint">
+                <th className="min-w-40 py-2 pr-3 font-medium">{t('auth.name')}</th>
+                <th className="py-2 pr-3 font-medium">{t('members.role')}</th>
+                <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('admin.groups')}</th>
+                <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('members.lastSeen')}</th>
+                <th className="w-24 py-2 pr-3 font-medium whitespace-normal">{t('skillMgr.column')}</th>
+                <th className="py-2">
+                  <span className="sr-only">{t('files.actions')}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {list.map((u) => (
+                <tr key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}>
+                  <td className="py-2 pr-3">
+                    <span className="block font-medium">{u.name}</span>
+                    <span className="block text-xs text-faint">
+                      {u.username} · users/{u.id}
+                    </span>
+                    {/* Folder permissions › By person, opened on this person (read only) */}
+                    <Link to={personViewLink({ person: u.id })} className="mt-0.5 inline-block text-xs text-accent-text underline-offset-2 hover:underline" aria-label={t('accessView.membersLinkFor', { name: u.name })} data-testid="member-access-link">
+                      {t('accessView.membersLink')}
+                    </Link>
+                  </td>
+                  <td className="py-2 pr-3">
+                    <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
+                  </td>
+                  <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.groupIds.map(groupName).join(', ') || '—'}</td>
+                  <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
+                  <td className="py-2 pr-3">{skillCell(u)}</td>
+                  <td className="py-2">
+                    {canManage(u) && (
+                      // one line: Edit and Reset password (used most), the rest behind "…"
+                      <div className="flex items-center justify-end whitespace-nowrap">
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
+                          {t('common.edit')}
+                        </Button>
+                        {/* the key icon only, so the row fits at 1280 next to the admin menu; the name stays for screen
+                            readers and as a tooltip */}
+                        <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} title={t('members.reset')} data-testid={`reset-password-${u.username}`}>
+                          <KeyRound size={14} aria-hidden /> <span className="sr-only">{t('members.reset')}</span>
+                        </Button>
+                        <MemberMenu name={u.name} items={moreActions(u)} />
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Loadable>
+  )
 
   return (
     <>
@@ -133,106 +238,14 @@ export default function Members() {
           </>
         }
       />
-      <Card title={t('members.title')}>
-        <Loadable state={users}>
-          {({ items: list, noAi }) => phone ? (
-            <ul className="-my-3 divide-y divide-line" data-testid="members-list">
-              {list.map((u) => (
-                <li key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx('flex items-start gap-2 py-3 text-sm', u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')} data-testid={`member-card-${u.username}`}>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{u.name}</p>
-                    <p className="truncate text-xs text-faint">
-                      {u.username} · users/{u.id}
-                    </p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-y-1">
-                      <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
-                    </div>
-                    <div className="mt-2 flex items-start gap-3 text-xs">
-                      <span className="pt-0.5 text-muted">{t('skillMgr.column')}</span>
-                      {skillCell(u)}
-                    </div>
-                    <Link to={personViewLink({ person: u.id })} className="mt-1.5 inline-block text-xs text-accent-text underline-offset-2 hover:underline" aria-label={t('accessView.membersLinkFor', { name: u.name })} data-testid="member-access-link">
-                      {t('accessView.membersLink')}
-                    </Link>
-                  </div>
-                  {canManage(u) && (
-                    <MemberMenu
-                      name={u.name}
-                      items={[
-                        { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(u), testId: `edit-member-${u.username}` },
-                        { label: t('members.reset'), icon: <KeyRound size={14} aria-hidden />, onSelect: () => resetPassword(u), testId: `reset-password-${u.username}` },
-                        ...moreActions(u),
-                      ]}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm" data-testid="members-table">
-                <thead>
-                  {/* the headers keep one line (only the long skills header may wrap); the name column keeps room for a name and its path */}
-                  <tr className="text-left text-xs whitespace-nowrap text-faint">
-                    <th className="min-w-40 py-2 pr-3 font-medium">{t('auth.name')}</th>
-                    <th className="py-2 pr-3 font-medium">{t('members.role')}</th>
-                    <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('admin.groups')}</th>
-                    <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('members.lastSeen')}</th>
-                    <th className="w-24 py-2 pr-3 font-medium whitespace-normal">{t('skillMgr.column')}</th>
-                    <th className="py-2">
-                      <span className="sr-only">{t('files.actions')}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {list.map((u) => (
-                    <tr key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}>
-                      <td className="py-2 pr-3">
-                        <span className="block font-medium">{u.name}</span>
-                        <span className="block text-xs text-faint">
-                          {u.username} · users/{u.id}
-                        </span>
-                        {/* Folder permissions › By person, opened on this person (read only) */}
-                        <Link to={personViewLink({ person: u.id })} className="mt-0.5 inline-block text-xs text-accent-text underline-offset-2 hover:underline" aria-label={t('accessView.membersLinkFor', { name: u.name })} data-testid="member-access-link">
-                          {t('accessView.membersLink')}
-                        </Link>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <MemberBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
-                      </td>
-                      <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.groupIds.map(groupName).join(', ') || '—'}</td>
-                      <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
-                      <td className="py-2 pr-3">{skillCell(u)}</td>
-                      <td className="py-2">
-                        {canManage(u) && (
-                          // one line: Edit and Reset password (used most), the rest behind "…"
-                          <div className="flex items-center justify-end whitespace-nowrap">
-                            <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
-                              {t('common.edit')}
-                            </Button>
-                            {/* the key icon only, so the row fits at 1280 next to the admin menu; the name stays for screen
-                                readers and as a tooltip */}
-                            <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} title={t('members.reset')} data-testid={`reset-password-${u.username}`}>
-                              <KeyRound size={14} aria-hidden /> <span className="sr-only">{t('members.reset')}</span>
-                            </Button>
-                            <MemberMenu name={u.name} items={moreActions(u)} />
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Loadable>
-      </Card>
+      {/* a phone: the list under the page title, no card around it (the title says what it is); wide: the table's card */}
+      {phone ? <section className="mb-6" aria-label={t('members.title')}>{memberList}</section> : <Card title={t('members.title')}>{memberList}</Card>}
 
       <ScheduleReviews />
 
       <TeamLinkCard />
 
-      <Card title={t('members.invites')} desc={t('members.invitesDesc')} headingRef={invitesTitle}>
+      <Card title={t('members.invites')} desc={t('members.invitesDesc')} headingRef={invitesTitle} flat>
         <Loadable state={invites}>
           {(list) =>
             !list.length ? (
@@ -320,12 +333,13 @@ export default function Members() {
   )
 }
 
-/** The role, and what needs the admin's eye: disabled, a temporary password, no AI. */
-function MemberBadges({ user: u, noAi, requested }: { user: User; noAi: boolean; requested: boolean }) {
+/** The role, and what needs the admin's eye: disabled, a temporary password, no AI. withRole false: a phone row, where
+ * the role is plain text on the line under the name. */
+function MemberBadges({ user: u, noAi, requested, withRole = true }: { user: User; noAi: boolean; requested: boolean; withRole?: boolean }) {
   const t = useT()
   return (
     <>
-      <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>
+      {withRole && <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>}
       {u.status === 'disabled' && <Badge tone="danger" className="ml-1">{t('members.disabled')}</Badge>}
       {requested && <span className="ml-1 inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{t('accountDeletion.badge')}</Badge></span>}
       {u.mustChangePassword && <TempPasswordBadge user={u} />}
@@ -349,7 +363,9 @@ export function MemberMenu({ name, items }: { name: string; items: MemberMenuIte
     const r = box.current?.querySelector('button')?.getBoundingClientRect()
     if (!r) return
     const right = window.innerWidth - r.right
-    const up = window.innerHeight - r.bottom < items.length * 34 + 24 && r.top > window.innerHeight - r.bottom
+    // a row is about 34px, 44px below 640px (taller rows to tap)
+    const row = window.matchMedia?.('(max-width: 639.98px)').matches ? 44 : 34
+    const up = window.innerHeight - r.bottom < items.length * row + 24 && r.top > window.innerHeight - r.bottom
     setPos(up ? { position: 'fixed', bottom: window.innerHeight - r.top + 4, right } : { position: 'fixed', top: r.bottom + 4, right })
   }
   const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
@@ -399,7 +415,7 @@ export function MemberMenu({ name, items }: { name: string; items: MemberMenuIte
               key={it.testId}
               role="menuitem"
               type="button"
-              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover', it.danger && 'text-danger')}
+              className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover max-sm:py-2.5', it.danger && 'text-danger')}
               onClick={() => {
                 setOpen(false)
                 // focus on "…" first: the item goes away, and a dialog it opens gives focus back to "…" when it closes
@@ -439,7 +455,7 @@ function ScheduleReviews() {
   if (!state.data?.length) return null
   const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
   return (
-    <Card title={t('members.scheduleReviews')} desc={t('members.scheduleReviewsDesc')}>
+    <Card title={t('members.scheduleReviews')} desc={t('members.scheduleReviewsDesc')} flat>
       <ul className="divide-y divide-line rounded-xl border border-line text-sm" data-testid="admin-schedule-reviews">
         {state.data.map((s) => (
           <li key={s.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5" data-testid="admin-schedule-review">

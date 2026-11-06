@@ -1,8 +1,10 @@
 // Admin > Usage: everyone's usage per person / engine / model / day / group / AI connection / skill, in the calm look of
 // Claude's Settings > Usage (a title row with Download CSV, compact controls, quiet rows with thin share bars, the long
-// notes on one line with "More"). Amounts are estimates, not bills. A person's own usage is Settings > Usage
+// notes on one line with "More"). On a phone the period is one row of two dates ("–" between, the labels for screen
+// readers) and Download CSV has no frame, so the table starts higher. Amounts are estimates, not bills. A person's own usage is Settings > Usage
 // (components/settings/MyUsage.tsx).
 import clsx from 'clsx'
+import { Download } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
@@ -10,7 +12,7 @@ import { TRIAL_CREDENTIAL_ID, type UsageResponse } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob } from '../../lib/api'
 import { formatNumber, formatUsd, localDay, localDayRange } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { Button } from '../../components/ui'
+import { Button, useMediaQuery } from '../../components/ui'
 import { UsageBar } from '../../components/UsageBar'
 import { AdminPageHeader, Loadable, OneLine, USAGE_LIMITS_LINK } from './common'
 import { usageCsv } from '../../lib/usage-csv'
@@ -27,6 +29,7 @@ export default function Usage() {
   const range = useMemo(() => localDayRange(from, to), [from, to])
   const queryKey = JSON.stringify([groupBy, range.from, range.to])
   const [retry, setRetry] = useState(0)
+  const phone = useMediaQuery('(max-width: 767.98px)')
   const [report, setReport] = useState<{ key: string; data: z.output<typeof UsageResponse> | null; error: string | null }>({ key: '', data: null, error: null })
   useEffect(() => {
     let cancelled = false
@@ -61,8 +64,8 @@ export default function Usage() {
             <Link to={USAGE_LIMITS_LINK} className="text-sm font-medium text-accent-text underline-offset-2 hover:underline" data-testid="usage-limits-link">
               {t('adminux.usageLimitsLink')}
             </Link>
-            <Button size="sm" disabled={!state.data} data-testid="usage-csv" onClick={csv}>
-              {t('usage.exportCsv')}
+            <Button size="sm" variant={phone ? 'ghost' : 'secondary'} disabled={!state.data} data-testid="usage-csv" onClick={csv}>
+              {phone && <Download size={14} aria-hidden />} {t('usage.exportCsv')}
             </Button>
           </>
         }
@@ -79,14 +82,18 @@ export default function Usage() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2">
-          <span className="text-muted">{t('usage.from')}</span>
-          <input className={small} type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} />
-        </label>
-        <label className="flex items-center gap-2">
-          <span className="text-muted">{t('usage.to')}</span>
-          <input className={small} type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} />
-        </label>
+        {/* the period: on a phone one row, the two dates side by side */}
+        <div className="flex items-center gap-x-4 max-md:w-full max-md:gap-x-2">
+          <label className="flex items-center gap-2 max-md:min-w-0 max-md:flex-1">
+            <span className="text-muted max-md:sr-only">{t('usage.from')}</span>
+            <input className={clsx(small, 'max-md:w-full max-md:min-w-0')} type="date" value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} />
+          </label>
+          <span className="text-faint md:hidden" aria-hidden>–</span>
+          <label className="flex items-center gap-2 max-md:min-w-0 max-md:flex-1">
+            <span className="text-muted max-md:sr-only">{t('usage.to')}</span>
+            <input className={clsx(small, 'max-md:w-full max-md:min-w-0')} type="date" value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} />
+          </label>
+        </div>
       </div>
       {groupBy === 'skill' && <p className="mt-3 text-xs text-muted" data-testid="usage-skill-note">{t('usage.skillNote')}</p>}
       <div className="mt-4">
