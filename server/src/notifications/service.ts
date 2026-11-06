@@ -46,7 +46,7 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * (migration 223), room notices (a DM message or an @mention, migration 241), a person's request to have their
  * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
- * steps, the skills to merge that waited for it (migration 252) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
+ * steps, the skills to merge that waited for it (migration 253) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
 const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
@@ -167,7 +167,7 @@ export class Notifications {
     if (r.changes) this.signal(ownerId)
   }
   /** The end of the owner's welcome steps (skills/share-merge.ts startWaitingMerges): "합칠 스킬 N개 확인하기", one
-   * notice per merge chat (its id is the source; UNIQUE row, migration 252). Shown always: the merges waited for it. */
+   * notice per merge chat (its id is the source; UNIQUE row, migration 253). Shown always: the merges waited for it. */
   mergesWaiting(ownerId: string, chatId: string, n: number, createdAt = new Date().toISOString()) {
     if (!this.active(ownerId) || createdAt < this.cutoff()) return
     const r = this.ctx.db.query(`INSERT INTO skill_merge_notices(id,user_id,event_type,source_id,n,created_at,suppressed)

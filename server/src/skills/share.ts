@@ -52,7 +52,7 @@ const DAY = 86_400_000
 interface Row {
   id: string; created_by: string; source: SkillShareSource; status: SkillShareStatus; ai: SkillShare['ai']; where_label: string | null
   projects: number | null; result: string; created_at: string; expires_at: string; updated_at: string
-  /** 'codex' for a share Codex sent through the connector (the source column's CHECK has no 'codex': migration 252) */
+  /** 'codex' for a share Codex sent through the connector (the source column's CHECK has no 'codex': migration 253) */
   source_detail: string | null
 }
 const COLS = 'id, created_by, source, status, ai, where_label, projects, result, created_at, expires_at, updated_at, source_detail'
@@ -168,7 +168,7 @@ function localeOf(ctx: AppContext, id: string): Locale {
 
 const readResult = (r: Row): Result => JSON.parse(r.result) as Result
 const rowOf = (ctx: AppContext, id: string) => ctx.db.query(`SELECT ${COLS} FROM skill_shares WHERE id = ?`).get(id) as Row | null
-/** How it arrived: the source column, or 'codex' kept beside it (migration 252). */
+/** How it arrived: the source column, or 'codex' kept beside it (migration 253). */
 const sourceOf = (r: Row): SkillShareSource => (r.source_detail === 'codex' ? 'codex' : r.source)
 /** What a dismissed or expired share keeps of what it proposed: nothing (the audit rows keep the counts). */
 const EMPTY: Result = { candidates: [], rule: null, ruleIn: null, tools: [], landing: null }
@@ -324,7 +324,7 @@ export function createSkillShare(ctx: AppContext, rt: ChatRuntime | null, who: S
   const id = newId(), now = new Date()
   const app: ShareApp = body.source === 'codex' ? 'codex' : body.app ?? 'claude'
   const res: Result = { candidates: checked.candidates, rule: null, ruleIn: checked.rule ? { lines: checked.rule.lines, dropped: checked.rule.dropped } : null, tools: checked.tools, landing: null, app }
-  // a Codex share keeps 'claude_code' in the source column (its CHECK) and 'codex' beside it (migration 252)
+  // a Codex share keeps 'claude_code' in the source column (its CHECK) and 'codex' beside it (migration 253)
   ctx.db.query(`INSERT INTO skill_shares (${INSERT_COLS}) VALUES (?,?,?,'checking','pending',?,?,?,?,?,?,?)`)
     .run(id, who.id, body.source === 'codex' ? 'claude_code' : body.source, checked.where, checked.projects, JSON.stringify(res), now.toISOString(), new Date(now.getTime() + SKILL_SHARE_LIMITS.days * DAY).toISOString(), now.toISOString(), body.source === 'codex' ? 'codex' : null)
   try {

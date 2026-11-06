@@ -1,7 +1,7 @@
 // 내 스킬 가져오기 (docs/DECISIONS.md "SK", "W5"): merging a shared skill into a team skill that is already there.
 // The review of PR #100 found the first version a prompt-injection risk: a normal chat with every tool whose first
 // message was the candidate's SKILL.md (a skill from the internet can tell the AI anything). Now the merge chat is a
-// RESTRICTED turn, like the share's judgement (share-judge.ts), marked by skill_share_merges (migration 252):
+// RESTRICTED turn, like the share's judgement (share-judge.ts), marked by skill_share_merges (migration 253):
 //   - its own short instructions, the candidates' SKILL.md inside <material> as data (its tags broken: noTag), never
 //     in the person's message; no team instructions, skill list, memories, project, attachments, browser, sub-agents
 //     or web search (TurnExec.restricted);

@@ -10149,7 +10149,7 @@ items of SK.
     phone) starts its merge at once with its own notice. Outside the steps every merge of one apply goes into one merge
     chat.
   - The share's `source` column has a CHECK without `codex` and tables are never rebuilt: a Codex connector share keeps
-    `claude_code` there and `codex` in the new `source_detail` column (migration 252); the API shows `codex`.
+    `claude_code` there and `codex` in the new `source_detail` column (migration 253); the API shows `codex`.
   - Old open invite links to the intro deck are pointed at the landing skill once per server, at start
     (`onboarding.deckLinksRepointedAt`, audited `team_link.update` with `reason: intro_deck_link`), only when a new
     member with the link's groups can open it.
@@ -10157,7 +10157,7 @@ items of SK.
     is finished); the second save's 409 is expected (one console line).
   - The live proposal notice is matched by its action label and "Claude Code" / "Codex" in its text (store/ui.ts
     `holdToasts`): live.ts, which shows it, belongs to Part A and passes nothing else.
-- **Migration 252** (`252_b_skill_share_merges.sql`, reader 1, additive): `skill_shares.source_detail`,
+- **Migration 253** (`253_b_skill_share_merges.sql`, reader 1, additive): `skill_shares.source_detail`,
   `skill_share_merges` (the waiting or started merges: the checked candidate text, the target, the merge chat: the
   restricted turn's marker), `skill_merge_notices` (the Inbox table of `skills.merge_waiting`), and the one-time clearing
   of closed shares' `result`.
