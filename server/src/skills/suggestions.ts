@@ -30,7 +30,9 @@ import { notifySkillSuggestion } from '../notifications/service'
 import { isSkillFolder, managedSkillFolders, managesSkillFolder, skillFolders } from './managers'
 import { st } from './text'
 import { checkSkill, listSkills, listTeamSkills, SKILL_NAME_MAX, type SkillProblem } from '../chat/skills'
-import { checkShare, readHeader, writeSkillMd } from './share-check'
+import { checkShare, needsScripts, readHeader, writeSkillMd } from './share-check'
+import fs from 'node:fs'
+import path from 'node:path'
 import { SKILLS_DIR } from './guard'
 import { buildSkillList, descriptionOrder, usageScores } from '../chat/skill-list'
 import { neutralizeTags, teamRuleFiles } from '../chat/prompt'
@@ -213,7 +215,25 @@ export function getSuggestion(ctx: AppContext, userId: string, id: string): Skil
   const rules = RuleSet.load(ctx.db)
   const r = getRow(ctx.db, id)
   if (!r || !visible(ctx, r, p, rules)) return fail('not_found')
-  return toSuggestion(ctx, r, p, rules)
+  const out = toSuggestion(ctx, r, p, rules)
+  // a skill folder's reviewer reads every file that would go with it, not only SKILL.md (what the team's AI will read)
+  if (out.folder && out.canReview && r.status === 'pending') {
+    const kept = new Map((ctx.db.query('SELECT path, data FROM skill_suggestion_files WHERE suggestion_id = ?').all(r.id) as { path: string; data: Uint8Array }[]).map((f) => [f.path, f.data]))
+    out.folder = { ...out.folder, files: out.folder.files.map((f) => {
+      const d = f.path === 'SKILL.md' ? null : kept.get(f.path)
+      return d && !IMAGE_FILE.test(f.path) ? { ...f, text: Buffer.from(d).toString('utf8') } : f
+    }) }
+  }
+  return out
+}
+const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp)$/i
+/** A file of a member's folder that would make the team's AI (or a browser opening it) run something: a command or a
+ * code fence of a shell or a language (share-check.ts needsScripts, now on every text file, not only SKILL.md), or
+ * active content in a page or an image (a script tag, an event handler, a javascript: address). The owner's import
+ * checks SKILL.md only; a member's folder is read by someone else first, so every file is checked. */
+function runsSomething(rel: string, text: string): boolean {
+  if (needsScripts(text, [])) return true
+  return /\.(?:html?|svg|xml)$/i.test(rel) && /<script\b|\bjavascript:|\son[a-z]+\s*=|<iframe\b|<object\b|<embed\b/i.test(text)
 }
 
 /** The row a reviewer acts on: 404 when the caller cannot see it at all, 403 for the suggester who does not manage it. */
@@ -260,6 +280,7 @@ export function approveSuggestion(ctx: AppContext, userId: string, id: string, b
   const r = forReview(ctx, p, id, locale)
   if (isFolder(r)) return approveFolder(ctx, p, r, b, locale)
   // a suggestion without a folder keeps its limits (the body's are a skill folder's)
+  if (b.name.trim().length > 60) fail('validation', undefined, { fields: { 'body.name': 'at most 60 characters' } })
   if (b.description.length > 300) fail('validation', undefined, { fields: { 'body.description': 'at most 300 characters' } })
   if (b.content.length > SKILL_CONTENT_MAX) fail('validation', undefined, { fields: { 'body.content': `at most ${SKILL_CONTENT_MAX} characters` } })
   const target = targetFolder(ctx, p, b.targetFolder, locale)
@@ -336,7 +357,11 @@ export function contributeSkills(ctx: AppContext, userId: string, body: Contribu
   for (const c of checked.candidates) {
     if (c.group === 'excluded') refused.push({ name: c.name, reason: c.reason as ContributeRefusal['reason'], detail: c.detail })
     else if (waiting.has(c.name)) refused.push({ name: c.name, reason: 'pending', detail: null })
-    else kept.push(c)
+    else if ((checked.files.get(c.name) ?? []).some((f) => f.path !== 'SKILL.md' && !IMAGE_FILE.test(f.path) && runsSomething(f.path, f.data.toString('utf8')))) {
+      // nothing of it is stored
+      checked.files.delete(c.name)
+      refused.push({ name: c.name, reason: 'scripts', detail: null })
+    } else kept.push(c)
   }
   if (!kept.length) {
     audit(ctx.db, { actor: userId, action: 'skills.contribute', target: SKILLS_DIR, detail: { batchId: null, app, kept: 0, refused: refused.length } })
@@ -411,12 +436,14 @@ function approveFolder(ctx: AppContext, p: Principal, r: Row, b: { targetFolder:
     const field = check.problem === 'name' || check.problem === 'name_folder' ? 'body.name' : check.problem === 'description' ? 'body.description' : 'body.content'
     return fail('validation', st('notLoadable', locale, { problem: check.problem }), { fields: { [field]: check.problem } })
   }
-  let there = true
-  try { there = authorize(ctx.files.fx, ctx.files.rules(), p, folder, 'read', { mustExist: false }).exists } catch (e) {
+  let there: { exists: boolean; segs: string[] } | null = null
+  try { const a = authorize(ctx.files.fx, ctx.files.rules(), p, folder, 'read', { mustExist: false }); there = { exists: a.exists, segs: a.segs } } catch (e) {
     if (e instanceof Denied) fail('forbidden', st('notManager', locale))
-    if (!(e instanceof ToolError)) throw e
+    // a name the team folder does not take (CON, NUL …): the name is the problem, not a folder that is there
+    if (e instanceof ToolError) fail('validation', st('folderName', locale), { fields: { 'body.name': e.message } })
+    throw e
   }
-  if (there) fail('conflict', st('fileExists', locale, { path: `${folder}/` }))
+  if (there!.exists) fail('conflict', st('fileExists', locale, { path: `${folder}/` }))
   const written: string[] = []
   let at = folder
   try {
@@ -427,9 +454,12 @@ function approveFolder(ctx: AppContext, p: Principal, r: Row, b: { targetFolder:
       written.push(at)
     }
   } catch (e) {
+    // back as before: the files written go to the trash, and the folders this approval made (empty now) go, so a
+    // retry does not find a half folder that is "already there"
     for (const w of written.reverse()) { try { ctx.files.deleteFile(p.id, w) } catch { /* best effort */ } }
+    removeEmptyDirs(path.join(ctx.files.fx.root, ...there!.segs))
     if (e instanceof Denied) fail('forbidden', st('notManager', locale))
-    if (e instanceof ToolError) fail('conflict', st('fileExists', locale, { path: at }))
+    if (e instanceof ToolError) fail('conflict', st('folderNotSaved', locale, { path: at }))
     throw e
   }
   let saved = rel
@@ -446,4 +476,12 @@ function approveFolder(ctx: AppContext, p: Principal, r: Row, b: { targetFolder:
     notify(ctx, r.suggester_id, 'skill_suggestion_reviewed', st('approved', localeOf(ctx, r.suggester_id), { name: title || name, path: saved }), `/skills?mine=${r.id}`, r.id)
   }
   return toSuggestion(ctx, getRow(ctx.db, r.id)!, p, RuleSet.load(ctx.db))
+}
+
+/** Remove `dir` and the folders under it while they hold nothing (deepest first); anything with a file stays. */
+function removeEmptyDirs(dir: string): void {
+  let entries: fs.Dirent[]
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+  for (const e of entries) if (e.isDirectory() && !e.isSymbolicLink()) removeEmptyDirs(path.join(dir, e.name))
+  try { fs.rmdirSync(dir) } catch { /* not empty, or gone */ }
 }

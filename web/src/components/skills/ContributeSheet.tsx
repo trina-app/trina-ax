@@ -50,7 +50,8 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
   const handle = !app && canPickHandle()
   const source = isDesktop() ? 'desktop' : 'browser'
   const [found, setFound] = useState<Found | null>(null)
-  const [ticked, setTicked] = useState<Set<string>>(new Set())
+  // by place in the list: a folder can hold two skills of one name (skills/review and commands/review.md)
+  const [ticked, setTicked] = useState<Set<number>>(new Set())
   const [sent, setSent] = useState<ContributedSkills | null>(null)
   const [reading, setReading] = useState(false)
   const [sending, setSending] = useState(false)
@@ -106,10 +107,10 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
     if (dir) void begin(dir)
     else setNone(true)
   }
-  const toggle = (name: string, on: boolean) => setTicked((x) => {
+  const toggle = (i: number, on: boolean) => setTicked((x) => {
     const next = new Set(x)
-    if (on && next.size < cap) next.add(name)
-    else next.delete(name)
+    if (on && next.size < cap) next.add(i)
+    else next.delete(i)
     return next
   })
   const send = async () => {
@@ -117,7 +118,7 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
     setSending(true)
     setError(null)
     try {
-      const skills = found.skills.filter((s) => ticked.has(s.name))
+      const skills = found.skills.filter((_, i) => ticked.has(i))
       const r = await api.call(API.contributeSkills, { body: { ...(found.app === 'codex' ? { app: 'codex' as const } : {}), skills } })
       setWaiting((w) => (w ?? 0) + r.items.length)
       setSent(r)
@@ -162,7 +163,7 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
           <div className="space-y-1.5">
             <p className="text-label font-medium text-ink">{t('contribute.refused', { n: refused.length })}</p>
             <ul className="space-y-1">
-              {refused.map((r) => <li key={r.name} className="text-label text-muted" data-testid="contribute-refused">{r.name} · {refusalText(t, r)}</li>)}
+              {refused.map((r, i) => <li key={i} className="text-label text-muted" data-testid="contribute-refused">{r.name} · {refusalText(t, r)}</li>)}
             </ul>
           </div>
         )}
@@ -174,6 +175,8 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
     )
   } else if (found) {
     const atCap = ticked.size >= cap
+    // the member's waiting count decides the cap: nothing is ticked before it is in
+    const counting = waiting === null
     body = (
       <div className="space-y-4" data-testid="contribute-list">
         <p className="text-sm text-muted">{t('contribute.found', { n: found.skills.length })}</p>
@@ -184,10 +187,10 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
               {found.skills.map((s, i) => {
                 const head = skillHead(s)
                 const id = `${ids}-${i}`
-                const on = ticked.has(s.name)
+                const on = ticked.has(i)
                 return (
-                  <li key={s.name} className={clsx('flex items-start gap-3 border-line px-3 py-2.5', i > 0 && 'border-t')} data-testid="contribute-row" data-name={s.name}>
-                    <input id={id} type="checkbox" checked={on} disabled={!on && atCap} onChange={(e) => toggle(s.name, e.target.checked)}
+                  <li key={i} className={clsx('flex items-start gap-3 border-line px-3 py-2.5', i > 0 && 'border-t')} data-testid="contribute-row" data-name={s.name}>
+                    <input id={id} type="checkbox" checked={on} disabled={counting || (!on && atCap)} onChange={(e) => toggle(i, e.target.checked)}
                       className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark]" data-testid="contribute-check" />
                     <label htmlFor={id} className={clsx('min-w-0 flex-1 cursor-pointer', !on && atCap && 'opacity-60')}>
                       <span className="block text-sm font-medium break-words text-ink">{head.title}<span className="ml-1.5 font-mono text-xs font-normal text-faint">/{s.name}</span></span>
@@ -210,7 +213,7 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
             </button>
             {showExcluded && (
               <ul id={`${ids}-excluded`} className="mt-1 space-y-1 pl-5" data-testid="contribute-excluded">
-                {found.excluded.map((x) => <li key={x.name} className="text-label text-muted">{x.name} · {reasonText(t, asCandidate(x.name, x.reason, x.kind ?? null))}</li>)}
+                {found.excluded.map((x, i) => <li key={i} className="text-label text-muted">{x.name} · {reasonText(t, asCandidate(x.name, x.reason, x.kind ?? null))}</li>)}
               </ul>
             )}
           </div>

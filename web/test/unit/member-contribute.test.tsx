@@ -81,6 +81,11 @@ function route(method: string, path: string, body: any): Response {
   if (key === 'GET /api/skills/popular') return json(200, { items: [], days: 30 })
   if (key === 'GET /api/notifications') return json(200, { items: inbox, nextCursor: null, unreadCount: inbox.length })
   if (key === 'GET /api/notification-preferences') return json(200, { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true })
+  const one = /^\/api\/skills\/suggestions\/([^/]+)$/.exec(path)
+  if (method === 'GET' && one) {
+    const s = review.find((x) => x.id === one[1])
+    return s ? json(200, { ...s, folder: s.folder && { ...s.folder, files: s.folder.files.map((f) => (f.path === 'quote.md' ? { ...f, text: '| 품목 | 가격 |' } : f)) } }) : json(404, { error: { code: 'not_found', message: 'x' } })
+  }
   const approve = /^\/api\/skills\/suggestions\/([^/]+)\/approve$/.exec(path)
   if (method === 'POST' && approve) {
     const s = review.find((x) => x.id === approve[1])!
@@ -301,6 +306,54 @@ describe('the skill folder pick', () => {
     } finally { await m.unmount() }
   })
 
+  test('two skills of one name in a folder are two rows: ticking one sends that one', async () => {
+    signIn('member')
+    suggestion = { kind: 'contribute', key: 'contribute', folder: null }
+    g.showDirectoryPicker = async () => dirHandle('.claude', { skills: { review: { 'SKILL.md': skillMd('review') } }, commands: { 'review.md': '# Review a diff\n1. Read it.\n' } })
+    const m = await mount(line())
+    try {
+      await m.until(() => m.find('result-suggestion'), 'the line')
+      await m.click('result-suggestion-act')
+      await m.until(() => called('GET /api/skills/overview').length && m.find('contribute-find'), 'the pick')
+      await m.settle()
+      await m.click('contribute-find')
+      await m.until(() => m.find('contribute-list'), 'the list')
+      const checks = [...m.container.ownerDocument!.body.querySelectorAll('[data-testid="contribute-check"]')]
+      expect(checks).toHaveLength(2)
+      await tick(m, checks[1]!)
+      expect(checks.filter(isChecked)).toHaveLength(1)
+      expect(m.get('contribute-send').textContent).toBe(ko('contribute.send', { n: 1 }))
+      await m.click('contribute-send')
+      await m.until(() => called('POST /api/skills/suggestions/batch').length, 'sent')
+      expect(called('POST /api/skills/suggestions/batch')[0]!.body.skills.map((x: { name: string; origin: string }) => `${x.origin}:${x.name}`)).toEqual(['command:review'])
+    } finally { await m.unmount() }
+  })
+
+  test('nothing can be ticked before the member\'s waiting count is in', async () => {
+    signIn('member')
+    suggestion = { kind: 'contribute', key: 'contribute', folder: null }
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const fetchBefore = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith('/api/skills/overview')) await gate
+      return fetchBefore(input, init)
+    }) as unknown as typeof fetch
+    g.showDirectoryPicker = async () => dirHandle('.claude', CLAUDE)
+    const m = await mount(line())
+    try {
+      await m.until(() => m.find('result-suggestion'), 'the line')
+      await m.click('result-suggestion-act')
+      await m.until(() => m.find('contribute-find'), 'the pick')
+      await m.click('contribute-find')
+      await m.until(() => m.find('contribute-list'), 'the list')
+      const checks = () => [...m.container.ownerDocument!.body.querySelectorAll('[data-testid="contribute-check"]')]
+      expect(checks().every((c) => c.hasAttribute('disabled'))).toBe(true)
+      release()
+      await m.until(() => checks().some((c) => !c.hasAttribute('disabled')), 'the count')
+    } finally { globalThis.fetch = fetchBefore; release(); await m.unmount() }
+  })
+
   test('what the server did not take, with its reason', async () => {
     contributed = { batchId: BATCH, items: [folderSuggestion('quote-maker')], refused: [{ name: 'weekly-report', reason: 'pending', detail: null }, { name: 'runs-python', reason: 'scripts', detail: null }] }
     const m = await open()
@@ -352,6 +405,9 @@ describe('Skills › 검토', () => {
       await m.until(() => m.find('review-dialog'), 'the dialog')
       expect(m.get('review-dialog').textContent).toContain(ko('skills.folderPersonalPath'))
       expect(m.get('review-dialog').textContent).toContain('quote.md')
+      // the reviewer reads the file that goes with it, not only SKILL.md
+      await m.until(() => m.find('review-file-text'), 'the file\'s text')
+      expect(m.get('review-file-text').textContent).toBe('| 품목 | 가격 |')
       expect(m.find('review-file-name')).toBeNull()
       // a name that is no folder name: the primary waits
       await m.type('review-name', 'Quote Maker')

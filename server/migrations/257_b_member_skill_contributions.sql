@@ -16,7 +16,6 @@ ALTER TABLE skill_suggestions ADD COLUMN source_detail TEXT;
 ALTER TABLE skill_suggestions ADD COLUMN batch_id TEXT;
 ALTER TABLE skill_suggestions ADD COLUMN folder_info TEXT;
 CREATE INDEX skill_suggestions_batch ON skill_suggestions (batch_id) WHERE batch_id IS NOT NULL;
-CREATE INDEX skill_suggestions_suggester ON skill_suggestions (suggester_id, status);
 
 CREATE TABLE skill_suggestion_files (
   suggestion_id TEXT NOT NULL REFERENCES skill_suggestions(id) ON DELETE CASCADE,

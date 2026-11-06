@@ -299,8 +299,17 @@ export const FOLDER_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; folders: string[]; onClose: () => void; onDone: () => void }) {
   const t = useT()
   const locale = useLocale()
-  const dir = s.source.kind === 'folder' ? s.folder ?? null : null
   const isDir = s.source.kind === 'folder'
+  // a skill folder: the files that go with it, with their text (GET …/:id gives it to its reviewer), so the owner reads
+  // everything the team's AI would read, not only SKILL.md
+  const [full, setFull] = useState<SkillSuggestion['folder'] | null>(null)
+  useEffect(() => {
+    if (!isDir) return
+    let live = true
+    api.call(API.getSkillSuggestion, { params: { id: s.id } }).then((x) => live && setFull(x.folder ?? null), () => {})
+    return () => { live = false }
+  }, [isDir, s.id])
+  const dir = isDir ? full ?? s.folder ?? null : null
   // a skill folder goes into a folder of skills, never into another skill's folder (the server refuses that too)
   const [skillDirs, setSkillDirs] = useState<string[] | null>(null)
   useEffect(() => {
@@ -405,8 +414,19 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
         {dir && dir.files.some((f) => f.path !== 'SKILL.md') && (
           <div className="space-y-1" data-testid="review-files">
             <p className="text-label font-medium text-ink">{t('skills.folderFiles')}</p>
-            <ul className="space-y-0.5 text-xs text-muted">
-              {dir.files.filter((f) => f.path !== 'SKILL.md').map((f) => <li key={f.path} className="font-mono break-all">{f.path} <span className="font-sans text-faint">· {formatSize(f.bytes, locale)}</span></li>)}
+            <ul className="space-y-1 text-xs text-muted">
+              {dir.files.filter((f) => f.path !== 'SKILL.md').map((f) => (
+                <li key={f.path} data-testid="review-file">
+                  {f.text === undefined ? (
+                    <span className="font-mono break-all">{f.path} <span className="font-sans text-faint">· {formatSize(f.bytes, locale)}</span></span>
+                  ) : (
+                    <details>
+                      <summary className="cursor-pointer font-mono break-all hover:text-ink">{f.path} <span className="font-sans text-faint">· {formatSize(f.bytes, locale)}</span></summary>
+                      <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-line bg-subtle px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink" data-testid="review-file-text">{f.text}</pre>
+                    </details>
+                  )}
+                </li>
+              ))}
             </ul>
           </div>
         )}

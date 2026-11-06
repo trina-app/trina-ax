@@ -155,7 +155,9 @@ export const SkillSuggestion = z.object({
     app: ShareApp,
     /** the SKILL.md's metadata title, if any */
     title: z.string().nullable(),
-    files: z.array(z.object({ path: z.string(), bytes: z.number().int().nonnegative() })),
+    /** `text`: a text file's content (not SKILL.md's: that is `content`), only in GET …/:id for a reviewer of a waiting
+     * suggestion, so the owner reads everything the team's AI would read */
+    files: z.array(z.object({ path: z.string(), bytes: z.number().int().nonnegative(), text: z.string().optional() })),
     /** script files left out: the team never runs them */
     scriptsDropped: z.number().int().nonnegative(),
     /** it names a path on the member's computer: it may not work for the team */
@@ -198,8 +200,9 @@ export const CreateSkillSuggestionBody = z.object({
 })
 export const ApproveSkillSuggestionBody = z.object({
   targetFolder: SkillFolderPath,
-  /** a skill folder (source `folder`): its folder name, lowercase letters, digits and hyphens (the server checks it) */
-  name: SkillName,
+  /** a skill folder (source `folder`): its folder name, lowercase letters, digits and hyphens, at most 64; another
+   * suggestion's name at most 60 (the server checks which applies) */
+  name: z.string().trim().min(1).max(64).refine((s) => !s.includes('/') && !/[\r\n]/.test(s), { message: 'one line, no "/"' }),
   /** at most 300 characters, a skill folder's at most 1024 (the server checks which applies) */
   description: z.string().trim().max(1024),
   /** at most SKILL_CONTENT_MAX characters, a skill folder's SKILL.md body at most a skill file's size (the server

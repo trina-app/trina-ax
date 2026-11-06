@@ -50,6 +50,11 @@ function packInstallByAudit(db: Database, e: Ev): boolean {
 /** The account that made the first version of `rel`, or null: unknown (older than the history, changed outside the
  * app), or a starter pack's install. */
 export function skillMakerId(db: Database, rel: string): string | null {
+  return makerEvent(db, rel)?.user_id ?? null
+}
+
+/** The event that made the first version of `rel` (who and when), or null as skillMakerId. */
+function makerEvent(db: Database, rel: string): Ev | null {
   let e: Ev | null
   try { e = firstEvent(db, rel) } catch { e = null }
   if (!e) {
@@ -61,7 +66,7 @@ export function skillMakerId(db: Database, rel: string): string | null {
     if (!e) return null
   }
   if (parse(e.detail).tool === 'pack_install' || packInstallByAudit(db, e)) return null
-  return e.user_id
+  return e
 }
 
 /**
@@ -70,13 +75,16 @@ export function skillMakerId(db: Database, rel: string): string | null {
  * file's first version (`makerId`), so a skill deleted and made again there by someone else is not theirs. Their name
  * while the account is there.
  */
-export function skillSuggester(db: Database, rel: string, makerId: string | null = skillMakerId(db, rel)): { id: string; name: string } | null {
-  if (!makerId) return null
+export function skillSuggester(db: Database, rel: string, made: Pick<Ev, 'user_id' | 'at'> | null = makerEvent(db, rel)): { id: string; name: string } | null {
+  if (!made) return null
   let r: { id: string; name: string } | null = null
   try {
+    // the approval saved it: the same person, within a few minutes of that save (a skill the same admin deleted and
+    // wrote again later at that path is theirs)
     r = db.query(`SELECT s.suggester_id AS id, u.name FROM skill_suggestions s JOIN users u ON u.id = s.suggester_id
       WHERE s.result_path = ? AND s.status = 'approved' AND s.reviewer_id = ? AND s.suggester_id != s.reviewer_id AND u.deleted_at IS NULL
-      ORDER BY s.reviewed_at DESC LIMIT 1`).get(rel, makerId) as { id: string; name: string } | null
+        AND ABS(julianday(s.reviewed_at) - julianday(?)) * 86400 <= 300
+      ORDER BY s.reviewed_at DESC LIMIT 1`).get(rel, made.user_id, made.at) as { id: string; name: string } | null
   } catch { return null }
   return r && r.name.trim() ? { id: r.id, name: r.name.trim() } : null
 }
@@ -88,20 +96,28 @@ export function suggestersOf(db: Database, rels: readonly string[]): Map<string,
   if (!rels.length) return out
   let made: Set<string>
   try { made = new Set((db.query("SELECT DISTINCT result_path AS p FROM skill_suggestions WHERE status = 'approved' AND result_path IS NOT NULL").all() as { p: string }[]).map((x) => x.p)) } catch { return out }
+  // kept a minute per path, and for as long as no suggestion was approved meanwhile (the skills list asks often)
+  const generation = made.size
+  const now = Date.now()
+  if (suggesterCache.size > 1000) suggesterCache.clear()
   for (const rel of rels) {
     if (!made.has(rel)) continue
-    const s = skillSuggester(db, rel)
-    if (s) out.set(rel, s.name)
+    const had = suggesterCache.get(rel)
+    const name = had && had.generation === generation && now - had.at < 60_000 ? had.name : (skillSuggester(db, rel)?.name ?? null)
+    suggesterCache.set(rel, { at: now, generation, name })
+    if (name) out.set(rel, name)
   }
   return out
 }
+const suggesterCache = new Map<string, { at: number; generation: number; name: string | null }>()
 
 /** The maker's name as people know them (an account that was deleted has none); a skill a member suggested is theirs
  * (skillSuggester), not its approver's. */
 export function skillMakerName(db: Database, rel: string): { id: string; name: string } | null {
-  const id = skillMakerId(db, rel)
-  if (!id) return null
-  const suggested = skillSuggester(db, rel, id)
+  const made = makerEvent(db, rel)
+  if (!made) return null
+  const id = made.user_id
+  const suggested = skillSuggester(db, rel, made)
   if (suggested) return suggested
   const u = db.query('SELECT name, deleted_at FROM users WHERE id = ?').get(id) as { name: string; deleted_at: string | null } | null
   return u && !u.deleted_at && u.name.trim() ? { id, name: u.name.trim() } : null

@@ -11052,6 +11052,26 @@ and its review (REVIEW-3: build on 스킬로 제안, use the one suggestion slot
   (JSON: app, title, files and sizes, scripts left out, personal path, same name; never content), and
   `skill_suggestion_files`. 252, 254 and 255 are reserved by other branches and 256 may be taken for session markers,
   so this is 257.
+- **From the review of this branch.**
+  - The reviewer reads every file that goes with a skill folder, not only SKILL.md: `GET /api/skills/suggestions/:id`
+    gives an owner or admin of a waiting folder suggestion each text file's content (`folder.files[].text`; never in
+    the list, never to the sender), and the dialog shows each under its name.
+  - Every text file of a member's folder is checked for running code (`needsScripts`, which the owner's import runs on
+    SKILL.md only) and pages and SVGs for active content (a script tag, an event handler, `javascript:`); such a skill
+    is refused as `scripts`. A member's folder is read by someone else first, so the check is wider than for the owner.
+  - A file under another file's name (`SKILL.md/x.md` beside SKILL.md) is left out by the shared checks (for the
+    owner's import too): writing it made a folder where SKILL.md had to go. An approval that fails half way moves what
+    it wrote to the trash and removes the folders it made, so a retry finds nothing "already there"; a failed write
+    says it could not be saved (not "a file of that name exists"), and a folder name the team folder does not take is a
+    name error.
+  - The approve body takes a folder name of up to 64 characters (a skill's name limit); other suggestions keep 60
+    characters, 300 for the description and 16,000 for the content, checked on the server.
+  - The sheet ticks by place in the list, not by name (a folder can hold `skills/review` and `commands/review.md`), and
+    nothing can be ticked before the member's waiting count is in.
+  - "님이 제안" stays only on the file the approval saved: the approver's save within five minutes of the approval
+    (a skill the same admin deleted and wrote again later is theirs). Suggestions approved before this branch (an
+    answer or a file) now name their suggester too, on the answer's receipt and the join page: the person whose way it
+    is, as "S" meant. The skills list's lookups are kept a minute while no new suggestion is approved.
 - **Tests.** Server `b-member-contribute` (the line: first good run only, ranking, ✕, the folder and the phone; a batch:
   files kept outside the team files, one Inbox line per batch without names, every refusal of the owner's import and no
   key stored anywhere, limits 10 and 20, members only; review: who sees and approves, a name or folder refused, the
