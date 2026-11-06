@@ -190,6 +190,9 @@ export const AppConfigFile = z.object({
    * the default) or "hosted" (the hosted service: the operator owns server.json, the team's server account only reads
    * it; the control plane writes it at enrolment). Office mode and dev stay what `office` / `mode` say. */
   deployment: z.enum(['self', 'hosted']).optional(),
+  /** the knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): `codegraph` is the CodeGraph command
+   * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any. */
+  knowledgeGraph: z.object({ codegraph: z.string().max(1000).optional() }).strict().optional(),
 })
 export type AppConfigFile = z.infer<typeof AppConfigFile>
 
@@ -240,6 +243,8 @@ export interface AppConfig {
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
    * server (readDemoFile); absent everywhere else, and then the demo endpoints answer 404. */
   demo?: DemoFile
+  /** see AppConfigFile.knowledgeGraph: codegraph absent = look on the PATH, '' = none */
+  knowledgeGraph?: { codegraph?: string }
 }
 
 export class ConfigError extends Error { name = 'ConfigError' }
@@ -335,6 +340,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
     ...(demo ? { demo } : {}),
+    ...(f.knowledgeGraph?.codegraph !== undefined ? { knowledgeGraph: { codegraph: f.knowledgeGraph.codegraph === '' ? '' : abs(f.knowledgeGraph.codegraph) } } : {}),
   }
 }
 

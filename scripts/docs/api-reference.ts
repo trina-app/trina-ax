@@ -42,6 +42,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   SLACK: 'Slack connector',
   PROMO_VIDEO: 'Promo video and its MP4',
   INTRO_DECK: 'Company intro deck (the welcome steps\' first result): PowerPoint and PDF',
+  KNOWLEDGE_GRAPH: 'Knowledge graph: the code map of the team folders (CodeGraph), its folders, rebuild',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {
