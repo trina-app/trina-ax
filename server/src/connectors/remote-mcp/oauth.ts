@@ -4,7 +4,7 @@ import type { AppConfig } from '../../app-config'
 import type { AppContext } from '../../context'
 import type { AuthInfo } from '../../services'
 import { audit } from '../../admin/audit'
-import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, GRANT_MS, MCP_PATH, OAuthError, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
+import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
 
 type Client = { id: string; name: string; redirects: string }
 type Pending = { id: string; client_id: string; redirect_uri: string; challenge: string; state: string | null; scopes: string; resource: string; user_id: string | null; session_id: string | null; expires_at: number }
@@ -122,13 +122,22 @@ export class RemoteOAuth {
   private offered(scopes: string[], userId: string): string[] {
     return scopes.filter(s => s !== ADMIN_SCOPE || isTeamAdmin(this.db, userId))
   }
+  /** The scopes the person chooses on the consent page, whatever the app asked for (OPTIONAL_SCOPES). */
+  private optional(userId: string): string[] {
+    return OPTIONAL_SCOPES.filter(s => s !== ADMIN_SCOPE || isTeamAdmin(this.db, userId))
+  }
+  /** `scopes`: what the app asked for (its mcp:write is the write box's starting state). `optional`: the boxes. */
   consent(id: string, auth: AuthInfo) {
     const r = this.pending(id, auth), c = this.client(r.client_id)
-    return { id, clientName: c.name, redirectOrigin: new URL(r.redirect_uri).origin, scopes: this.offered(JSON.parse(r.scopes), auth.user.id), resource: r.resource, expiresAt: iso(r.expires_at) }
+    return { id, clientName: c.name, redirectOrigin: new URL(r.redirect_uri).origin, scopes: this.offered(JSON.parse(r.scopes), auth.user.id), optional: this.optional(auth.user.id), resource: r.resource, expiresAt: iso(r.expires_at) }
   }
-  /** `admin`: the person ticked mcp:admin on the consent page. Without it, or when they are not an owner or admin now,
-   * the grant has no mcp:admin. */
-  decide(id: string, auth: AuthInfo, allow: boolean, o: { admin?: boolean } = {}) {
+  /**
+   * The grant: mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:admin when `admin`
+   * and the person is an active owner or admin now, plus offline_access when the app asked for it. It may hold a scope
+   * the app did not ask for; the token answer's `scope` names exactly what was granted (RFC 6749 3.3), and a refresh
+   * can only narrow it.
+   */
+  decide(id: string, auth: AuthInfo, allow: boolean, o: { write?: boolean; admin?: boolean } = {}) {
     return this.db.transaction(() => {
       const r = this.pending(id, auth), url = new URL(r.redirect_uri)
       this.db.query('DELETE FROM remote_mcp_requests WHERE id=?').run(id)
@@ -139,10 +148,14 @@ export class RemoteOAuth {
       const active = this.db.query('SELECT count(*) AS n FROM remote_mcp_grants WHERE user_id=? AND revoked_at IS NULL AND expires_at>?').get(auth.user.id, this.now()) as { n: number }
       if (active.n >= 50) throw new OAuthError('temporarily_unavailable', 503)
       const grant = secret('tax_grant_'), code = secret('tax_code_'), end = Math.min(this.now() + GRANT_MS, this.browser(auth))
-      const selected = this.offered(JSON.parse(r.scopes), auth.user.id).filter(s => s !== ADMIN_SCOPE || o.admin === true)
+      const asked = JSON.parse(r.scopes) as string[], chosen = new Set<string>(['mcp:read'])
+      if (o.write ?? asked.includes('mcp:write')) chosen.add('mcp:write')
+      if (o.admin === true && this.optional(auth.user.id).includes(ADMIN_SCOPE)) chosen.add(ADMIN_SCOPE)
+      if (asked.includes('offline_access')) chosen.add('offline_access')
+      const selected = SCOPES.filter(s => chosen.has(s))
       this.db.query('INSERT INTO remote_mcp_grants(id,client_id,user_id,session_id,resource,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(grant, r.client_id, auth.user.id, auth.session.id, r.resource, JSON.stringify(selected), this.now(), end)
       this.db.query('INSERT INTO remote_mcp_codes VALUES(?,?,?,?,?,NULL)').run(hash(code), grant, r.redirect_uri, r.challenge, this.now() + CODE_MS)
-      audit(this.db, { actor: auth.user.id, action: 'remote_mcp.connected', target: grant, detail: { scopes: selected } })
+      audit(this.db, { actor: auth.user.id, action: 'remote_mcp.connected', target: grant, detail: { scopes: selected, asked } })
       url.searchParams.set('code', code)
       return { redirectUrl: url.href }
     }).immediate()

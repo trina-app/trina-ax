@@ -4,6 +4,12 @@ export const SCOPES = ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'] a
 /** The team-admin tools (groups). Only an active owner or admin can be granted it, only when they tick it on the
  * consent page, and every call checks their current role again (oauth.ts isTeamAdmin, tools.ts). Never a default. */
 export const ADMIN_SCOPE = 'mcp:admin'
+/**
+ * What the person chooses on the consent page, whatever the app asked for: MCP clients ask for what the 401 header
+ * names (mcp:read), so an asked-for list would never offer more. mcp:read is always granted; offline_access only when
+ * asked. mcp:admin is offered to an active owner or admin only.
+ */
+export const OPTIONAL_SCOPES = ['mcp:write', ADMIN_SCOPE] as const
 export const ACCESS_MS = 60 * 60_000, GRANT_MS = 30 * 86400_000, REQUEST_MS = 10 * 60_000, CODE_MS = 5 * 60_000
 export const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
 export const secret = (prefix = '') => prefix + crypto.randomBytes(32).toString('base64url')

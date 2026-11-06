@@ -27,12 +27,16 @@ set. Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` 
 With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_list`, `group_create`, `group_update` and
 `group_delete` (`remote-mcp/groups.ts`).
 
+- Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
+  is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
+  start only when the app asked for it; **그룹 관리** (`mcp:admin`) a checkbox for owners and admins only, always unticked.
+  The token's `scope` names exactly what was granted, and a refresh can only narrow it.
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
-- Group tools: offered on the consent page only to an owner or admin, as a checkbox that is off; a member's request
-  for `mcp:admin` is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
+- Group tools: offered on the consent page only to an owner or admin, as a checkbox that is off; a member is never
+  offered `mcp:admin`, and an app's request for it is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
   their grants for good. The changes call the Admin › Groups server functions (same checks, same audit lines plus
   `via: 'connector'`) and answer with who now opens or loses which folders.
 

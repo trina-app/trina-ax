@@ -25,13 +25,13 @@ async function setup(name: string) {
   const oauth = new RemoteOAuth(h.ctx.db, { origin: 'https://team.example' }), tools = new RemoteTools(h.ctx, () => oauth)
   const client = oauth.register({ redirect_uris: [redirect] })
   const request = (scope: string) => new URL(oauth.authorize({ client_id: client.client_id, redirect_uri: redirect, resource: oauth.resource(), response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), scope })).searchParams.get('id')!
-  /** sign in as the person with `cookie`, see the consent, allow (ticking group management when `admin`) */
-  const connect = async (cookie: string, scope = ALL, admin = true) => {
+  /** sign in as the person with `cookie`, see the consent, allow with these boxes ticked (left out: as the old page) */
+  const connect = async (cookie: string, scope = ALL, choice: { write?: boolean; admin?: boolean } = { admin: true }) => {
     const auth = (await h.auth.resolve(new Request('http://team.localhost', { headers: { cookie } }), { ip: '10.0.0.7', via: 'test' }))!
-    const id = request(scope), offered = oauth.consent(id, auth).scopes
-    const code = new URL(oauth.decide(id, auth, true, { admin }).redirectUrl).searchParams.get('code')!
+    const id = request(scope), consent = oauth.consent(id, auth)
+    const code = new URL(oauth.decide(id, auth, true, choice).redirectUrl).searchParams.get('code')!
     const issued = oauth.token({ client_id: client.client_id, code, grant_type: 'authorization_code', code_verifier: verifier, redirect_uri: redirect, resource: oauth.resource() })
-    return { offered, token: issued.access_token, refresh: issued.refresh_token, scope: issued.scope, grant: () => oauth.authenticate(issued.access_token) }
+    return { asked: consent.scopes, optional: consent.optional, token: issued.access_token, refresh: issued.refresh_token, scope: issued.scope, grant: () => oauth.authenticate(issued.access_token) }
   }
   const names = (token: string) => tools.list(oauth.authenticate(token)).map(t => t.name)
   const call = (token: string, name: string, args: unknown = {}) => tools.call(token, name, args) as Promise<Res>
@@ -46,14 +46,17 @@ test('mcp:admin is never a default, is offered to owners and admins only, and st
   const f = await setup('consent')
   expect(scopes(undefined)).toEqual(['mcp:read'])
   expect(f.oauth.metadata().scopes_supported).toContain('mcp:admin')
-  // the owner, not ticked: no group tools
-  const off = await f.connect(f.owner.cookie!, ALL, false)
-  expect(off.offered).toEqual(['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'])
+  // the owner, not ticked: no group tools, even when the app asked for it
+  const off = await f.connect(f.owner.cookie!, ALL, { admin: false })
+  expect(off.asked).toEqual(['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'])
+  expect(off.optional).toEqual(['mcp:write', 'mcp:admin'])
   expect(off.scope).toBe('mcp:read mcp:write offline_access')
   expect(f.names(off.token).filter(n => GROUP.includes(n))).toEqual([])
   for (const name of GROUP) expect(text(await f.call(off.token, name))).toContain('no permission')
+  // left out (the old page's body): never assumed
+  expect((await f.connect(f.owner.cookie!, ALL, {})).scope).toBe('mcp:read mcp:write offline_access')
   // ticked: listed, with the right annotations
-  const on = await f.connect(f.owner.cookie!, ALL, true)
+  const on = await f.connect(f.owner.cookie!, ALL, { admin: true })
   expect(on.scope).toBe('mcp:read mcp:write mcp:admin offline_access')
   const listed = f.tools.list(on.grant()).filter(t => GROUP.includes(t.name))
   expect(listed.map(t => t.name)).toEqual(GROUP)
@@ -64,17 +67,29 @@ test('mcp:admin is never a default, is offered to owners and admins only, and st
     if (t.name === 'group_update' || t.name === 'group_delete') expect(destructive).toBe(true)
     if (t.name === 'group_create') expect(destructive).toBe(false)
   }
-  // an admin may have it too, without the write scope
-  const admin = await f.connect(f.helper.client.cookie!, 'mcp:read mcp:admin', true)
+  // an admin may have it too, without the write scope; and when the app asked only for read (what the 401 names)
+  const admin = await f.connect(f.helper.client.cookie!, 'mcp:read', { write: false, admin: true })
+  expect(admin.optional).toEqual(['mcp:write', 'mcp:admin'])
+  expect(admin.scope).toBe('mcp:read mcp:admin')
   expect(f.names(admin.token)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list', ...GROUP])
-  expect(f.audits('remote_mcp.connected').map(a => a.detail.scopes)).toEqual([['mcp:read', 'mcp:write', 'offline_access'], ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], ['mcp:read', 'mcp:admin']])
+  expect(f.audits('remote_mcp.connected').map(a => a.detail)).toEqual([
+    { scopes: ['mcp:read', 'mcp:write', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'] },
+    { scopes: ['mcp:read', 'mcp:write', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'] },
+    { scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'] },
+    { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'] },
+  ])
 })
 
 test('a member is never offered or granted mcp:admin and cannot use the group tools', async () => {
   const f = await setup('member')
-  const m = await f.connect(f.reader.client.cookie!, ALL, true)
-  expect(m.offered).toEqual(['mcp:read', 'mcp:write', 'offline_access'])
+  const m = await f.connect(f.reader.client.cookie!, ALL, { admin: true })
+  expect(m.asked).toEqual(['mcp:read', 'mcp:write', 'offline_access'])
+  expect(m.optional).toEqual(['mcp:write'])
   expect(m.scope).toBe('mcp:read mcp:write offline_access')
+  // asked for read only: the member may still tick write, never group management
+  const r1 = await f.connect(f.reader.client.cookie!, 'mcp:read', { write: true, admin: true })
+  expect(r1.optional).toEqual(['mcp:write'])
+  expect(r1.scope).toBe('mcp:read mcp:write')
   expect(f.names(m.token).filter(n => GROUP.includes(n))).toEqual([])
   for (const name of GROUP) {
     const r = await f.call(m.token, name, name === 'group_create' ? { name: 'Sneaky' } : {})
@@ -94,12 +109,15 @@ test('a member is never offered or granted mcp:admin and cannot use the group to
 
 test('existing grants are unaffected: the same nine tools, and a refresh cannot add mcp:admin', async () => {
   const f = await setup('existing')
-  const old = await f.connect(f.owner.cookie!, 'mcp:read mcp:write offline_access', true)
-  expect(old.offered).not.toContain('mcp:admin')
-  expect(f.names(old.token)).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'upload_file', 'create_upload_link', 'skills_list'])
+  // a grant as the consent before this change made it (body { allow: true }: the asked scopes, never mcp:admin)
+  const old = await f.connect(f.owner.cookie!, 'mcp:read mcp:write offline_access', {})
+  expect(old.scope).toBe('mcp:read mcp:write offline_access')
+  const nine = ['list', 'glob', 'grep', 'read', 'write', 'edit', 'upload_file', 'create_upload_link', 'skills_list']
+  expect(f.names(old.token)).toEqual(nine)
   expect(() => f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: old.refresh, scope: ALL, resource: f.oauth.resource() })).toThrow('invalid_scope')
   const next = f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: old.refresh, resource: f.oauth.resource() })
   expect(next.scope).toBe('mcp:read mcp:write offline_access')
+  expect(f.names(next.access_token)).toEqual(nine)
 })
 
 test('an admin demoted after granting loses the group tools on the next call, for good', async () => {
