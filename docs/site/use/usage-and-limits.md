@@ -21,13 +21,18 @@ Personal usage is new in 0.4.0. Before that, only admins see usage, in **Admin �
 
 ## The team's usage
 
-Admins open **Admin › Usage**.
+Admins open **Admin › Usage**. It is laid out like the Claude Console's usage page.
 
-- **Group by** person, group, engine, model, day, AI connection or skill.
-- Pick a date range.
-- **Download CSV** to work with the numbers elsewhere.
+- **Filters** at the top, each a small button that shows what is chosen:
+  - **Group** (only when the team has groups) and **Range**: today, the last 7 or 30 days, this month, or a custom range.
+  - **Person**, **Engine**, **Model** and **AI connection**, to look at one of them. **Clear filters** shows everything again.
+  - **Group by** person, group, engine, model, day, AI connection or skill.
+- **Cards** with the totals: tokens in, tokens out, answers and the estimated cost.
+- **Token usage**: tokens per day as stacked bars, one colour per Group by value (the five biggest, the rest as "Other"). Point at a day, or focus the chart and use the arrow keys, to see that day's numbers.
+- **Breakdown**: a row per Group by value with answers, tokens, its share and the estimated cost.
+- The **download** button saves the breakdown as CSV.
 
-![Admin › Usage: Group by, the date range, a row per person with answers, tokens and estimated cost, and Download CSV](../images/usage/team.webp "The team's usage, in Admin")
+![Admin › Usage: filter buttons, cards with the totals, the Token usage chart and the breakdown](../images/usage/team.webp "The team's usage, in Admin")
 
 Personal skills are never counted by name, so no admin sees what someone keeps privately.
 

@@ -2173,12 +2173,30 @@ export class MockServer {
       this.teamIcon = null
       return undefined
     },
-    usage: (c) => ({ from: c.query.from ?? now(), to: c.query.to ?? now(), rows: c.query.groupBy === 'skill'
-      ? [{ key: 'skills/report.md', label: '주간 보고서', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }]
-      : c.query.groupBy === 'model'
-        ? [{ key: 'model-test', label: 'model-test', turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }]
-        : [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }],
-      totals: { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 } }),
+    // like server/src/admin/budgets.ts usage: made-up rows per Group by; with series=1 the same rows spread over the
+    // last three days of the range (tokens per day by key, adding up to the rows), with facets=1 the filter choices.
+    // A person filter (user=bob) keeps only that person's row and totals.
+    usage: (c) => {
+      const rows = c.query.groupBy === 'skill'
+        ? [{ key: 'skills/report.md', label: '주간 보고서', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }]
+        : c.query.groupBy === 'model'
+          ? [{ key: 'model-test', label: 'model-test', turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }]
+          : [{ key: 'olga', label: 'Olga', turns: 12, inputTokens: 12000, outputTokens: 3400, costUsd: 0.42 }, { key: 'bob', label: 'Bob', turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 }]
+      const only = c.query.user && c.query.groupBy === 'user' ? rows.filter((r) => r.key === c.query.user) : rows
+      const totals = c.query.user === 'bob' ? { turns: 3, inputTokens: 2000, outputTokens: 700, costUsd: 0.05 } : { turns: 15, inputTokens: 14000, outputTokens: 4100, costUsd: 0.47 }
+      const to = new Date(c.query.to ?? now())
+      const day = (back: number) => new Date(to.getTime() - (back + 1) * 86_400_000 + 3600_000).toISOString().slice(0, 10)
+      const split = [0.5, 0.3, 0.2]
+      const series = c.query.series ? only.flatMap((r) => split.map((f, i) => ({ day: day(i), key: c.query.groupBy === 'day' ? 'all' : r.key, turns: Math.round(r.turns * f), inputTokens: Math.round(r.inputTokens * f), outputTokens: Math.round(r.outputTokens * f) }))) : undefined
+      const facets = c.query.facets ? {
+        users: [{ key: 'bob', label: 'Bob' }, { key: 'olga', label: 'Olga' }],
+        engines: [{ key: 'claude-code', label: 'claude-code' }, { key: 'codex', label: 'codex' }],
+        models: [{ key: '', label: '(default)' }, { key: 'model-test', label: 'model-test' }],
+        credentials: [],
+        groups: this.groups.map((g) => ({ key: g.id, label: g.name })),
+      } : undefined
+      return { from: c.query.from ?? now(), to: c.query.to ?? now(), rows: only, totals, ...(series ? { series } : {}), ...(facets ? { facets } : {}) }
+    },
     // like server/src/admin/audit.ts listAudit: newest first, filtered by kind, person, path (file events only) and
     // [from, to); paged by an index cursor. Made-up rows: today's invite first, repeats, a refused AI tool call, a team
     // skill change yesterday, and a sign-in every day before that (enough to scroll and to need "Load more").
