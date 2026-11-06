@@ -190,7 +190,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/admin/users` | Admin | All members, and with ?noAi=1 who cannot use AI now ("No AI"). |
 | `POST` | `/api/admin/users` | Admin | Add a member with a temporary password (alternative to an invite). |
 | `PATCH` | `/api/admin/users/:id` | Admin | Role, groups, disable (ends their sessions). Only the owner changes admins. |
-| `DELETE` | `/api/admin/users/:id` | Owner | Owner only. Remove a member: sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted. |
+| `DELETE` | `/api/admin/users/:id` | Admin | Remove a member (admins delete members; only the owner deletes admins; never the owner or yourself): sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted. |
 | `POST` | `/api/admin/users/:id/reset-password` | Admin | New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited. |
 | `POST` | `/api/admin/users/:id/reset-link` | Admin | One-time password reset link (24 h) to hand over; ends their sessions when used; audited. |
 | `POST` | `/api/admin/transfer-ownership` | Owner + password | Make another member the owner (password re-entry); the old owner becomes admin. |

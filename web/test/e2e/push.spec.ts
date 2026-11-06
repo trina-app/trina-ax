@@ -65,5 +65,20 @@ test.describe('iPhone in a browser tab', () => {
     await expect(guide.getByTestId('install-guide-ios')).toContainText('이 기기')
     await expect(guide.getByTestId('install-guide-ios')).toContainText('홈 화면에 추가')
     await expect(guide.getByRole('link', { name: '푸시 알림 켜기' })).toHaveAttribute('href', '/settings/notifications')
+    // the other devices' steps are one line away, folded
+    await expect(guide.getByTestId('install-guide-android')).toHaveCount(0)
+    await guide.getByTestId('install-guide-others').locator('summary').click()
+    // each step of a phone has a picture with the place to tap; the words are in the caption, for every reader
+    for (const g of ['ios', 'android']) {
+      const steps = guide.getByTestId(`install-steps-${g}`).getByRole('listitem')
+      await expect(steps).toHaveCount(4)
+      for (const step of await steps.all()) await expect(step.locator('[aria-hidden="true"]').first()).toBeVisible()
+    }
+    await expect(guide.getByTestId('install-steps-ios')).toContainText('주소창 옆 ⋯')
+    await expect(guide.getByTestId('install-steps-android')).toContainText('"앱 설치" 또는 "홈 화면에 추가"')
+    // a computer, seen from a phone: Chrome's and Edge's three steps, with pictures too
+    await expect(guide.getByTestId('install-guide-desktop')).toHaveAttribute('data-flow', 'chromium')
+    await expect(guide.getByTestId('install-steps-chromium').getByRole('listitem')).toHaveCount(3)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   })
 })

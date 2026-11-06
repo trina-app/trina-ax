@@ -304,6 +304,7 @@ export const SPECS: Record<string, Spec> = {
   listUsers: { build: (c) => c.get('/api/admin/users'), scope: 'byLevel' },
   createUser: { build: (c) => c.post('/api/admin/users', { username: 'cu' + Math.random().toString(36).slice(2, 7), name: 'C U', role: 'member' }), scope: 'byLevel' },
   updateUser: { build: (c) => c.patch('/api/admin/users/bob', { name: 'Bob Renamed' }), scope: 'byLevel' },
+  // erin is a member: owner and admin allowed (admin-level since 2026-11-06; admin targets: permission-matrix.test.ts)
   deleteUser: { build: (c) => c.del('/api/admin/users/erin'), scope: 'byLevel' },
   resetPassword: { build: (c) => c.post('/api/admin/users/bob/reset-password'), scope: 'byLevel' },
   createResetLink: { build: (c) => c.post('/api/admin/users/bob/reset-link'), scope: 'byLevel' },
