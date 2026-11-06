@@ -146,3 +146,25 @@ test('Files on a phone: the search box takes the width the buttons leave, its pl
   })
   expect(fits).toBe(true)
 })
+
+test('Home on a phone: opening the goal row under the box moves nothing above it', async ({ page }) => {
+  await reset(page)
+  const now = Date.now()
+  const r = await page.request.post('/__test/team-goal', {
+    data: { goal: { state: 'open', target: 3, days: 7, startedAt: new Date(now - 2 * 86_400_000).toISOString(), endsAt: new Date(now + 5 * 86_400_000).toISOString(), daysLeft: 5, skill: null, reachedAt: null, joined: 1, waiting: { first: '민지', more: 0 } } },
+  })
+  expect(r.ok()).toBeTruthy()
+  await phone(page)
+  await signIn(page)
+  const toggle = page.getByTestId('team-goal-toggle')
+  await expect(toggle).toBeVisible()
+  const composer = page.getByTestId('composer')
+  const greeting = page.getByRole('heading', { level: 1 })
+  const before = [(await composer.boundingBox())!.y, (await greeting.boundingBox())!.y]
+  await toggle.click()
+  await expect(page.getByTestId('team-goal-next')).toBeVisible()
+  expect([(await composer.boundingBox())!.y, (await greeting.boundingBox())!.y]).toEqual(before)
+  await toggle.click()
+  await expect(page.getByTestId('team-goal-next')).toBeHidden()
+  expect([(await composer.boundingBox())!.y, (await greeting.boundingBox())!.y]).toEqual(before)
+})

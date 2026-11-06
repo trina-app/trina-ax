@@ -7,7 +7,8 @@
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
 // Phones (below 768px): no cards; the greeting and the box come first, and the "one thing" (the setup row, the goal)
-// is the first quiet row under the box (the goal opens its next step in place), so the box stays put. A project's new
+// is the first quiet row under the box (the goal opens its next step in place). The greeting and the box sit a third of
+// the way down and the rows hang below them, so opening a row moves nothing above it. A project's new
 // chat ("/?project=") shows neither: the goal and the setup row are about the team.
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
 // one line each, with nothing else added:
@@ -87,42 +88,50 @@ export default function Home() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
-        <div className="w-full max-w-[720px]">
-          {noAi ? <NoAiCard /> : !phone && top}
-          {project && (
-            <p className="mb-2 text-center text-sm text-muted">
-              <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
-                {project.name}
-              </Link>{' '}
-              · {t('home.inProject')}
-            </p>
-          )}
-          {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight text-balance sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>}
-          {extras && (starter ? <StarterLine starter={starter} /> : notes && !projectId && <NotesLine notes={notes} />)}
-          <NewChatComposer
-            projectId={projectId}
-            initialText={preset?.text}
-            resetKey={preset?.n ?? 0}
-            // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
-            autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
-            onSent={starter ? () => clearStarter(me.user.id) : undefined}
-            skill={starter ? { name: starter.skill.name, title: starter.skill.title } : undefined}
-            aiLine={!noAi}
-          />
-          {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
-          {extras && starter && (
-            <p className="mt-2 text-center text-xs text-faint" data-testid="starter-private">
-              {starter.by ? t('starter.privateBy', { name: me.user.name, by: starter.by }) : t('starter.private', { name: me.user.name })}
-            </p>
-          )}
-          {/* phones: the top row is the first row under the box */}
-          {phone && top && <div className="mt-3">{top}</div>}
-          {suggest && firstTime && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
-          {suggest && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
-          {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
-              siblings render twice */}
-          {suggest && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 max-md:min-h-0">
+        {/* phones: the greeting and the box at one place (a third of the way down) and the rows under the box hanging
+            below them, so opening one (the goal's next step) moves nothing above it and a long list scrolls. From 768px
+            one centred column (the wrappers are display: contents there) */}
+        <div className="w-full max-w-[720px] max-md:grid max-md:min-h-0 max-md:flex-1 max-md:grid-rows-[minmax(0,1fr)_auto_minmax(0,2fr)]" data-testid="home-column">
+          <div className="md:hidden" aria-hidden />
+          <div className="md:contents" data-testid="home-head">
+            {noAi ? <NoAiCard /> : !phone && top}
+            {project && (
+              <p className="mb-2 text-center text-sm text-muted">
+                <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
+                  {project.name}
+                </Link>{' '}
+                · {t('home.inProject')}
+              </p>
+            )}
+            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight text-balance sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>}
+            {extras && (starter ? <StarterLine starter={starter} /> : notes && !projectId && <NotesLine notes={notes} />)}
+            <NewChatComposer
+              projectId={projectId}
+              initialText={preset?.text}
+              resetKey={preset?.n ?? 0}
+              // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
+              autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
+              onSent={starter ? () => clearStarter(me.user.id) : undefined}
+              skill={starter ? { name: starter.skill.name, title: starter.skill.title } : undefined}
+              aiLine={!noAi}
+            />
+            {extras && starter && (
+              <p className="mt-2 text-center text-xs text-faint" data-testid="starter-private">
+                {starter.by ? t('starter.privateBy', { name: me.user.name, by: starter.by }) : t('starter.private', { name: me.user.name })}
+              </p>
+            )}
+          </div>
+          <div className="max-md:pb-6 md:contents" data-testid="home-tail">
+            {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
+            {/* phones: the top row is the first row under the box */}
+            {phone && top && <div className="mt-3">{top}</div>}
+            {suggest && firstTime && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+            {suggest && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+            {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
+                siblings render twice */}
+            {suggest && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+          </div>
         </div>
       </div>
       <p className="px-4 pb-3 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>
