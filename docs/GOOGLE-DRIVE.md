@@ -1,6 +1,6 @@
-# Personal Google Drive integration
+# Google Drive integration
 
-The core server implements one personal connection per team user and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves the Google Drive card in Settings › App connectors unavailable ("Not available yet", Connect turned off) and the three tools are not offered. An admin can set the client up in Admin › App connectors (below); the tools are offered as soon as a client is there, without a restart. No Google client or account is provisioned by this code.
+The core server implements one personal connection per team user, Drives an admin shares with the team, and three read-only tools: `drive_search`, `drive_list`, `drive_read`. A configured OAuth client makes Drive available; it turns nothing on by itself (below). A configured OAuth client enables these tools at server startup. Missing or invalid configuration leaves the Google Drive card in Settings › App connectors unavailable ("Not available yet", Connect turned off) and the three tools are not offered. An admin can set the client up in Admin › App connectors (below); the tools are offered as soon as a client is there, without a restart. No Google client or account is provisioned by this code.
 
 ## Setting it up in Admin › App connectors
 
@@ -11,6 +11,38 @@ On a self-installed server with a public address (`tunnel.host`), an admin can s
 - offers the Drive tools from then on (`server/src/tools/drive.ts` registers them always, `available` while a client is set). Replacing the client makes connected members reconnect, as after an operator's change.
 
 The page does not change: a hosted server (the hosting service owns its setup), a server without a public address, a client set through `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`, or a `client.json` the installer or the operator wrote (shown as "Set in the server's own setup"). Only a client set on this page can be replaced there. `GET /api/admin/google-drive` says which applies (`blocked`) and how many active members are connected with the current client.
+
+## What is on: the members' switch and team shares
+
+A Google client only makes Drive available: Admin › Connectors › Google Drive says **Ready to set up** until an admin turns something on, and **On** once members may connect their own Drive or a Drive is shared with the team (`GET /api/admin/google-drive`: `membersCanConnect`, `sharesOn`).
+
+- **Members can connect their own Google Drive** (`PUT /api/admin/google-drive/members`, settings `integrations.driveMembers`, audited `drive.members_switch`). Off for a new team. Migration 337 sets it on for a team whose members had already connected their own Drive, so nothing they use stops working. Off: Connect is turned off in Settings › Connectors, `authorize` and `complete` answer `drive_members_off`, and a connection made before is kept but not used (its row says the admin turned it off, Disconnect still works). The switch is for everyone's own Drive, admins included.
+
+## Sharing a Drive with the team
+
+An admin connects one Google account for the team (`server/src/integrations/google-drive/shares.ts`, `share-admin.ts`; migration 337):
+
+1. **Share a Google Drive with the team** starts a Google sign-in with the server's own client and `drive.readonly` (`POST /api/admin/google-drive/shares/authorize`). It is the same PKCE flow as a person's own, held in `drive_oauth_flows` with `purpose = 'share'`, polled and cancelled the same way; the callback still needs the same signed-in admin in the browser. A personal flow cannot be completed as a share, nor a share flow as one's own Drive.
+2. The admin confirms the account (`POST …/shares/flows/:id/complete`): the share is made with a name ("Company Drive"), no folders and nobody in its rule. Cancelling the dialog before the first Save stops it again.
+3. The folder picker lists the account's top-level folders and shared drives, or folders and shared drives whose name has the search (`GET …/shares/:id/folders?q=`). The whole Drive is allowed only with a warning: everything the account can open, including files shared with it and its shared drives.
+4. Who may use it is a rule like a team connection's (everyone / groups / people); being an admin is not one. `PATCH …/shares/:id` checks every chosen folder with Google (a folder this account can read, or a shared drive) and stores Google's names, never the request's.
+
+Each share is a row: the account, its folders, who may use it and how many active people that is, and ⋯ (change folders or people, reconnect, stop sharing). **Stop sharing** (`DELETE …/shares/:id`) deletes the share, its rule and its tokens at once, aborts calls under way, then revokes the token at Google.
+
+The tokens are sealed like a person's own, in their own key context (`drive-share:<id>`), and no response, log line or audit entry carries them. A member sees only the share's name and folders (`GET /api/integrations/google-drive` `teamShares`), never the account. Audit entries say who did what to which share: `drive.share_created`, `drive.share_folders_changed` (a count and whether it is the whole Drive), `drive.share_audience_changed` (counts), `drive.share_renamed`, `drive.share_reconnected`, `drive.share_stopped`, `drive.share_owner_gone`; never a file name, an email or a token.
+
+When the admin whose Google account it is leaves, is disabled or stops being an admin, the share stops: its tokens are deleted (and revoked at Google), it says why, and every admin gets an Inbox notice (`drive.share_reconnect`, `drive_share_notices`) with a link to Google Drive's page, where another admin signs in again (its folders and rule stay). This is checked after any change of people (`admin/folders.ts` `afterAccessChange`), every minute, and on every use. Google refusing the sign-in (`invalid_grant`, a 401) or a new server client also asks for a new sign-in.
+
+### How the tools use a share
+
+`drive_search`, `drive_list` and `drive_read` take `source`: `"mine"` (the person's own Drive) or `"team:<name>"`. Left out, it is the person's own when it works, else the first team share they may use. Every result names its `source` and lists the `otherSources`, so the AI learns what is there; an unknown source answers with the sources there are. Labelled sources were chosen over merged results because a file ID belongs to one account: the AI reads a file through the source that listed it.
+
+The folder limit is decided on the server for every call, never by the model or the browser (`read.ts` `FolderScope`, `Ancestry`):
+
+- `drive_list` without a folder lists the shared folders; a folder is listed only when it is inside (it is a shared folder, or one of its parents is, all the way up); a shared drive only when it is one of the share's.
+- `drive_search` searches the account and keeps only results inside: a file is inside when it is a shared folder, is in a shared drive of the share, or **any** of its parents is inside (a file in two folders is inside when either is). Each folder is looked up once a call, at most 200 lookups; a file not placed by then counts as outside and `incompleteSearch` is set.
+- `drive_read` reads only a file inside; a shortcut is judged by its target. A file outside answers exactly like a file that is not there.
+- The rule, the share (its version: a change of folders fences calls under way) and its admin are checked before and after each call. What a share returned is a `drive_share` read source: its viewers are the active people its rule includes today, so saving it where more people can see asks first (`chat/read-scope.ts`).
 
 ## Operator configuration
 
@@ -66,6 +98,6 @@ Body limits are enforced while streaming even without Content-Length. Stop/disco
 
 ## Offline validation
 
-Focused tests are `tests/unit/c-drive-{api,oauth,store,tools,transport,registration}.test.ts` with `tests/lib/fake-google-drive.ts`. They use synthetic users, PKCE exchanges, file bytes, rotated tokens, provider errors, cancellation, and revocation barriers entirely in process. They check account/session isolation and authorization-URL phishing, ciphertext/AAD and AI/Drive key-rotation separation, absence of secret canaries in DB/log/API output, shared-drive query escaping, bounded responses, private read scope/taint, spreadsheet multi-tab and Google document extraction, registration in MCP/turn tool paths, and generic reconnect notification deduplication.
+Focused tests are `tests/unit/c-drive-{api,oauth,store,tools,transport,registration,shares}.test.ts` with `tests/lib/fake-google-drive.ts`. `c-drive-shares` covers team shares: only admins create, change or stop one; a member outside the rule gets nothing; nothing outside the shared folders (search filtered, list and read refused, also through a shortcut and a file in two folders); tokens never returned; stop sharing revokes; a gone admin stops the share and the admins get a notice; the members' switch. They use synthetic users, PKCE exchanges, file bytes, rotated tokens, provider errors, cancellation, and revocation barriers entirely in process. They check account/session isolation and authorization-URL phishing, ciphertext/AAD and AI/Drive key-rotation separation, absence of secret canaries in DB/log/API output, shared-drive query escaping, bounded responses, private read scope/taint, spreadsheet multi-tab and Google document extraction, registration in MCP/turn tool paths, and generic reconnect notification deduplication.
 
 No actual Google/provider request, OAuth registration, account consent, mobile device authorization, or production key operation is part of those tests. PDF/Office/OCR converter installation checks and whole-product browser/type/build validation are separate from these focused fake-provider checks. HWPX and XLSX fixtures exercise the in-process conversion path here.

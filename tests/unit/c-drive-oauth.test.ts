@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { harness, withOwner, addMember, OWNER_PW, type Harness, type Client } from './a-lib'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
 import { DRIVE_SCOPE } from '../../server/src/integrations/google-drive/config'
-import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
+import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
 import { createLogger } from '../../server/src/log'
 
 let h: Harness, c: Client, other: Client, svc: GoogleDrive, fake: FakeGoogleDrive
@@ -14,7 +14,7 @@ const base = '/api/integrations/google-drive'
 beforeEach(async () => {
   logs = []
   h = await harness('drive-oauth-' + ++seq, {}, { log: createLogger({ level: 'debug', sink: line => logs.push(line) }) }); c = await withOwner(h); other = (await addMember(h, c, { username: 'bob', role: 'member' })).client
-  fake = new FakeGoogleDrive(); svc = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: fake.fetch, now: () => fake.now })
+  fake = new FakeGoogleDrive(); svc = googleDriveOf(h.ctx, { config: DRIVE_CONFIG, fetch: fake.fetch, now: () => fake.now }); membersMayConnect(h.ctx.db)
   browser = h.ctx.db.query("SELECT s.id sessionId,s.user_id userId FROM sessions s JOIN users u ON u.id=s.user_id WHERE u.username='olga'").get() as typeof browser
 })
 afterEach(async () => { await h?.close() })

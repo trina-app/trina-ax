@@ -33,6 +33,14 @@ export const P4_SPECS: Record<string, Spec> = {
   // Admin › App connectors: setting up Google (admins only; this world has no public address, so a 409 after the check)
   driveAdminStatus: { build: c => c.get('/api/admin/google-drive'), scope: 'byLevel' },
   setDriveClient: { build: c => c.put('/api/admin/google-drive/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
+  // Drives shared with the team and the members' switch (admins only; c-drive-shares covers a configured server)
+  setDriveMembers: { build: c => c.put('/api/admin/google-drive/members', { on: false }), scope: 'byLevel' },
+  listDriveShares: { build: c => c.get('/api/admin/google-drive/shares'), scope: 'byLevel' },
+  authorizeDriveShare: { build: c => c.post('/api/admin/google-drive/shares/authorize', {}), scope: 'byLevel' },
+  completeDriveShareFlow: { build: c => c.post('/api/admin/google-drive/shares/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'byLevel' },
+  driveShareFolders: { build: c => c.get('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000/folders'), scope: 'byLevel' },
+  updateDriveShare: { build: c => c.patch('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000', { name: 'Matrix Drive' }), scope: 'byLevel' },
+  stopDriveShare: { build: c => c.del('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
 }
 // Callback state/session binding is exercised by c-drive-oauth and p4-route-access (static HTML never reflects input).
 export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH']

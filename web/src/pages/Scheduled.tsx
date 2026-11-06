@@ -354,7 +354,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
                 )}
                 {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
                 {s.lastOutcome === 'needs_key' && s.lastNeed && (
-                  <Link to={`/settings/integrations?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
+                  <Link to={`/settings/connectors?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
                     {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
                   </Link>
                 )}

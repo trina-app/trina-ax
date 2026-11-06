@@ -11,6 +11,7 @@ import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
 import { readScope } from '../chat/read-scope'
 import { getRow as getIntegration, mayUse as mayUseIntegration, templateCovers } from '../integrations/connections/store'
+import { shareCovers, shareRow } from '../integrations/google-drive/shares'
 import { eventEnabled, getPreferences, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
@@ -38,14 +39,15 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
  * (migration 223), room notices (a DM message or an @mention, migration 241), a person's request to have their
- * account deleted (migration 244) and connection templates to connect or reconnect (migration 334) have their own
+ * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
+ * Drive shared with the team that needs a new sign-in (migration 337) have their own
  * tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts: every notice but the rooms' (a DM message, an @mention). Those still push, and a
@@ -224,6 +226,12 @@ export class Notifications {
   templateReconnect(userId: string, templateId: string, version: number, at = new Date().toISOString()) {
     this.record(userId, 'integration.template_reconnect', reconnectSource(templateId, version), at, true)
   }
+  /** A Drive shared with the team stopped (its admin left, or Google signed it out): every active admin is told to sign
+   * in again, once per episode (`sourceId`: the share and its version). Shown always: members lose the folders. */
+  driveShareReconnect(sourceId: string, at = new Date().toISOString()) {
+    if (!/^[A-Za-z0-9_.-]{1,160}$/.test(sourceId)) throw new HttpError('validation')
+    for (const id of admins(this.ctx.db)) this.record(id, 'drive.share_reconnect', sourceId, at, true)
+  }
   /** Terminal DB rows are the source of truth. Missing hooks, queued cancellation and interrupted recovery converge. */
   reconcile(userId?: string) {
     const db = this.ctx.db
@@ -370,6 +378,14 @@ export class Notifications {
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(n ? { firstRun: { member: u?.name ?? null, skill: goalSkillTitle(this.ctx, row.user_id, n.skill_path), runners: n.runners, target: GOAL_PEOPLE } } : {}) }
     }
+    // a Drive shared with the team that needs a new sign-in: its name while it is there, for an admin (Admin ›
+    // Connectors › Google Drive opens it)
+    if (row.event_type === 'drive.share_reconnect') {
+      const share = shareRow(this.ctx.db, row.source_id.replace(/\.v\d+$/, ''))
+      const shown = !!share && admins(this.ctx.db).includes(row.user_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: shown ? 'admin_connectors' : null, outcome: null,
+        ...(shown ? { driveShare: { id: share!.id, name: share!.name } } : {}) }
+    }
     // a connection template: its id and name while it is there and still for this person (Settings › MCP opens it);
     // a reconnect notice's source is the template id and its version (reconnectSource)
     if (isTemplateEvent(row.event_type)) {
@@ -408,6 +424,7 @@ export class Notifications {
           for (const source of readScope(this.ctx.db, chat.id) ?? []) {
             if (source.type === 'user') { if (source.id !== row.user_id) throw new Error('private source revoked'); continue }
             if (source.type === 'integration') { const c = getIntegration(this.ctx.db, source.id); if (!c || !mayUseIntegration(this.ctx.db, c, row.user_id)) throw new Error('source revoked'); continue }
+            if (source.type === 'drive_share') { if (!shareCovers(this.ctx.db, source.id, row.user_id)) throw new Error('source revoked'); continue }
             let folder = ''
             if (source.type === 'folder') {
               const found = this.ctx.db.query('SELECT path FROM folders WHERE id=?').get(source.id) as { path: string } | null
@@ -507,6 +524,10 @@ export function notifyConnectionReconnect(ctx: AppContext, userId: string, sourc
 export function notifyTemplateOffers(ctx: AppContext, scope: { templateId?: string; userId?: string } = {}) {
   try { notificationsOf(ctx).offerTemplates({ ...scope, limit: scope.templateId || scope.userId ? 100_000 : OFFER_BATCH }) }
   catch { ctx.log.warn('template notices deferred') }
+}
+export function notifyDriveShareReconnect(ctx: AppContext, _shareId: string, sourceId: string) {
+  try { notificationsOf(ctx).driveShareReconnect(sourceId) }
+  catch { ctx.log.warn('drive share notice deferred') }
 }
 export function notifyTemplateReconnect(ctx: AppContext, userId: string, templateId: string, version: number) {
   try { notificationsOf(ctx).templateReconnect(userId, templateId, version) }
