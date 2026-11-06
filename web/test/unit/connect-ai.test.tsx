@@ -186,13 +186,15 @@ describe('a failed answer without AI', () => {
       await m.until(() => q('claude-login-how'), 'the dialog')
     } finally { await m.unmount() }
   })
-  test('an admin is told to tell the owner; a member keeps the server\'s words; the trial texts fit the owner too', async () => {
+  test('an admin hears what they can do like the owner, and "AI 연결하기" opens the dialog; a member keeps the server\'s words; the trial texts fit them too', async () => {
     signIn('admin')
-    access = { usable: false, action: 'ask_owner', requested: false }
+    access = { usable: false, action: 'connect_team', requested: false }
     let m = await failed('credential_unusable')
     try {
-      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.admin.credential_unusable'))
-      expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.askOwner'))
+      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.credential_unusable'))
+      expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.connectTeam'))
+      await m.click('ai-access-button')
+      await m.until(() => q('claude-login-how'), 'the dialog')
     } finally { await m.unmount() }
     signIn('member')
     m = await failed('no_credential')

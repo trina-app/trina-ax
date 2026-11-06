@@ -89,7 +89,7 @@ export function roomMessageSound(roomId: string, message: RoomMessage, replay: b
   if (!sound) return
   const room = useRooms.getState().rooms.find((r) => r.id === roomId) ?? null
   const st = useSession.getState().status
-  void sound.message(roomId, message, room, st.kind === 'signed-in' ? st.me.user.id : null, replay).catch(() => {})
+  void sound.message(roomId, message, room, st.kind === 'signed-in' ? st.me.user.id : null, replay, useRooms.getState().alerts).catch(() => {})
 }
 
 // ---------------- the switch ----------------

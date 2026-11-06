@@ -25,6 +25,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Admin | An admin or the owner |
 | Owner | The owner only |
 | Owner + password | The owner, who enters their password again (updates, restores) |
+| Admin + password | An admin or the owner, who enters their own password again (the team's AI connections) |
 
 ## Setup, sign-in and account
 
@@ -212,8 +213,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/admin/access/tree` | Admin | One level of the team folder for the admin tree: each child folder with who sees it, from where, and its risks. users/ is one row, never listed. |
 | `POST` | `/api/admin/access/edit-preview` | Admin | What saving these rules on one folder would change: who loses and gains access there and below, what "follow the folder above" gives now, warnings, and the hash of the rules now. Nothing is saved. |
 | `GET` | `/api/admin/engines` | Admin | Engine install/login/lockdown status, models, defaults, concurrency. |
-| `GET` | `/api/admin/engines/api-config` | Owner | The team API engine settings (the key is never returned, only whether one is set). |
-| `PUT` | `/api/admin/engines/api-config` | Owner | Set the team API engine: OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep. |
+| `GET` | `/api/admin/engines/api-config` | Admin | The team API engine settings (the key is never returned, only whether one is set). |
+| `PUT` | `/api/admin/engines/api-config` | Admin + password | Set the team API engine (the caller's own password again): OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep it. A changed address (scheme, host or port) never keeps the old key: send a key for it, or null (400 otherwise). An admin cannot set a private, loopback or link-local address (403; the owner can). |
 | `PATCH` | `/api/admin/engines` | Admin | Defaults, concurrency, enable/disable, who else may pick the engine, Claude-limit fallback to Codex. |
 | `POST` | `/api/admin/engines/:id/check` | Admin | Re-check one engine now (bounded, no model call unless needed). |
 | `GET` | `/api/admin/budgets` | Admin | Budgets with current spend. |
@@ -235,18 +236,18 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/me/ai-access` | Signed in | Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), and did I already ask. |
-| `POST` | `/api/me/ai-access/request` | Signed in | Tell the owner(s) I have no AI connection: one inbox notice per owner, a second ask changes nothing. Not for the owner, nor for someone who can use AI. |
+| `POST` | `/api/me/ai-access/request` | Signed in | Tell the owner(s) and admins I have no AI connection: one inbox notice per owner or admin, a second ask changes nothing. Not for the owner or an admin, nor for someone who can use AI. |
 | `GET` | `/api/admin/credentials` | Admin | AI connections of the team (and that members have their own), with state and this month's use. Never a secret. |
-| `POST` | `/api/admin/credentials` | Owner + password | Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member's personal copy moves to the team. |
-| `PATCH` | `/api/admin/credentials/:id` | Owner | Rename, order, switch off, assign to groups / people, monthly limit. |
-| `POST` | `/api/admin/credentials/:id/secret` | Owner + password | Put a new token / key on an existing connection (same kind). |
-| `DELETE` | `/api/admin/credentials/:id` | Owner | Remove a connection (usage history stays). |
+| `POST` | `/api/admin/credentials` | Admin + password | Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member's personal copy moves to the team. |
+| `PATCH` | `/api/admin/credentials/:id` | Admin | Rename, order, switch off, assign to groups / people, monthly limit. |
+| `POST` | `/api/admin/credentials/:id/secret` | Admin + password | Put a new token / key on an existing connection (same kind). |
+| `DELETE` | `/api/admin/credentials/:id` | Admin | Remove a connection (usage history stays). |
 | `POST` | `/api/admin/credentials/:id/check` | Admin | Check a connection again now, without spending tokens. |
-| `POST` | `/api/admin/credential-logins` | Owner + password | Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login. |
-| `GET` | `/api/admin/credential-logins/:id` | Owner | State of a sign-in this owner started. |
-| `DELETE` | `/api/admin/credential-logins/:id` | Owner | Stop a sign-in. |
-| `POST` | `/api/admin/credential-logins/:id/code` | Owner | The code Claude showed after approval (sealed), for a Claude sign-in this owner started. |
-| `PATCH` | `/api/admin/credential-settings` | Owner | Personal connections and explicit shared-subscription consent. |
+| `POST` | `/api/admin/credential-logins` | Admin + password | Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login. |
+| `GET` | `/api/admin/credential-logins/:id` | Admin | State of a sign-in this person started (the owner or an admin; no one else can read it). |
+| `DELETE` | `/api/admin/credential-logins/:id` | Admin | Stop a sign-in: the person who started it, or the owner or an admin for any (also a member's own, who is told). Only one runs at a time; a start while one runs answers 409 with LoginBusyParams. |
+| `POST` | `/api/admin/credential-logins/:id/code` | Admin | The code Claude showed after approval (sealed), for a Claude sign-in this person started. |
+| `PATCH` | `/api/admin/credential-settings` | Admin | Personal connections and explicit shared-subscription consent. |
 | `GET` | `/api/credentials/sealing-key` | Signed in | Public key the browser seals a token / key with before sending it. |
 | `GET` | `/api/me/credentials` | Signed in | My own AI connections (when the team allows them). |
 | `POST` | `/api/me/credentials` | Signed in | Add my own Claude token or API key; used for my turns first. |
@@ -314,7 +315,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/notifications` | Signed in | Own metadata-only inbox, retained for 30 days. |
 | `POST` | `/api/notifications/:id/read` | Signed in | Mark an own notification read. |
 | `GET` | `/api/notification-preferences` | Signed in | Own inbox event preferences. OS push opt-in is separate. |
-| `PATCH` | `/api/notification-preferences` | Signed in | Change own inbox event preferences. |
+| `PATCH` | `/api/notification-preferences` | Signed in | Change own inbox event preferences and room notification settings (room default, thread replies, quiet hours). |
 
 ## Push notifications
 
@@ -465,10 +466,10 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/rooms` | Signed in | The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count and the last message. |
+| `GET` | `/api/rooms` | Signed in | The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message and my notification level; alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone). |
 | `POST` | `/api/rooms` | Signed in | Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom. |
 | `GET` | `/api/rooms/:id` | Signed in | One room I am in (404 for anyone else, admins included). |
-| `PATCH` | `/api/rooms/:id` | Signed in | Mute or unmute a room for me, or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM). |
+| `PATCH` | `/api/rooms/:id` | Signed in | Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM). |
 | `GET` | `/api/rooms/:id/messages` | Signed in | The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. |
 | `POST` | `/api/rooms/:id/messages` | Signed in | Send a message as myself (never another author), or a reply in a thread, with @mentions and files; DMs, group chats, mentions and followed threads notify. |
 | `GET` | `/api/rooms/:id/messages/:messageId/thread` | Signed in | A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root). |

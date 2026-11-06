@@ -21,7 +21,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
-import { aiMentionNames, eventText, groupRuns, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
+import { aiMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
@@ -31,11 +31,12 @@ import { useMe } from '../../store/session'
 import { useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
+import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
 import { MenuButton, useLongPress } from './MenuButton'
 import { reactable, ReactionChips, ReactionPicker, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
-import { useMentionMenu } from './useMentionMenu'
+import { pickedInMessage, useMentionMenu } from './useMentionMenu'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -512,14 +513,19 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
 function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: string; m: RoomMessage; initial: UserRef[]; members: UserRef[]; meId: string | null; onDone: () => void }) {
   const t = useT()
   const locale = useLocale()
-  const [draft, setDraft] = useState(m.body)
+  // the box gives line breaks back as "\n" (a message from another app may have "\r\n"): the mentions' places are counted
+  // in the same text
+  const body0 = useMemo(() => lineBreaks(m.body), [m.body])
+  const [draft, setDraft] = useState(body0)
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
-  const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial })
+  // the mentions it has stand out as they do on the message, and stay mentions while they are whole
+  const [picked] = useState(() => pickedInMessage(body0, initial))
+  const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked })
   const save = async () => {
     const body = draft.trim()
     if (!body || busy) return
-    if (body === m.body) return onDone()
+    if (body === body0) return onDone()
     setBusy(true)
     try {
       await useRooms.getState().edit(roomId, m.id, body, mention.mentions())
@@ -538,16 +544,12 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
       }}
     >
       {mention.list}
-      <textarea
+      <TokenTextarea
         ref={input}
         autoFocus
         aria-label={t('rooms.editLabel')}
         value={draft}
         {...mention.inputProps}
-        onChange={(e) => {
-          setDraft(e.target.value)
-          mention.track()
-        }}
         onKeyDown={(e) => {
           if (mention.onKeyDown(e)) return
           if (e.key === 'Escape') {

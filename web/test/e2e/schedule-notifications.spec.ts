@@ -66,7 +66,8 @@ test('inbox shows generic events, persists preferences and marks items read with
   const pane = page.getByTestId('notifications')
   await expect(pane).toContainText('읽지 않은 알림 1개')
   await expect(pane.getByTestId('notification-item')).toContainText('예약 작업이 완료됐어요')
-  await pane.getByTestId('notification-pref-scheduleSuccess').uncheck()
+  // a switch now (ui.tsx Switch): its track sits over the hidden checkbox, which is what a person clicks
+  await pane.getByTestId('notification-pref-scheduleSuccess').uncheck({ force: true })
   await expect(pane.getByTestId('notification-pref-scheduleSuccess')).not.toBeChecked()
   expect(preferenceUpdates).toBe(1)
   await pane.getByRole('button', { name: '읽음 표시' }).click()
@@ -93,7 +94,7 @@ test('access revocation drops an inbox chat link; changing locale during a save 
   allowed = false
   await page.request.post('/__test/revoke', { data: { path: 'shared' } })
   await expect(pane.locator('a[href="/c/private-result"]')).toHaveCount(0)
-  await pref.uncheck(); await started
+  await pref.uncheck({ force: true }); await started
   const result = await page.request.patch('/api/me', { headers: { [CSRF_HEADER]: '1' }, data: { locale: 'en' } })
   expect(result.ok()).toBeTruthy()
   await expect(pane.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible()

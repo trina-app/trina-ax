@@ -15,7 +15,7 @@ export const P4_SPECS: Record<string, Spec> = {
   getNotification: { build: c => c.get('/api/notifications/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
   markNotificationRead: { build: c => c.post('/api/notifications/00000000-0000-7000-8000-000000000000/read'), scope: 'nobody' },
   getNotificationPreferences: { build: c => c.get('/api/notification-preferences?userId=alice'), scope: 'self' },
-  updateNotificationPreferences: { build: c => c.patch('/api/notification-preferences', { scheduleSuccess: false }), scope: 'self' },
+  updateNotificationPreferences: { build: c => c.patch('/api/notification-preferences', { scheduleSuccess: false, roomLevel: 'direct', roomThreadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }), scope: 'self' },
   getPushSettings: { build: c => c.get('/api/push'), scope: 'self' },
   subscribePush: { build: c => c.post('/api/push/subscriptions', { consent: true, endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic-matrix', keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } }), scope: 'self' },
   updatePushSettings: { build: c => c.patch('/api/push', { enabled: false }), scope: 'self' },

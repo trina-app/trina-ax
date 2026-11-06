@@ -23,15 +23,14 @@ test('the no-AI errors get the button: no connection, none usable, the trial AI 
   expect(isNoAiReason('auth')).toBe(false)
   expect(isNoAiReason(null)).toBe(false)
 })
-test('a failed answer\'s words by who reads it: the owner can connect, an admin tells the owner, a member keeps the server\'s', () => {
+test('a failed answer\'s words by who reads it: the owner and an admin can connect, a member keeps the server\'s', () => {
   expect(noAiErrorKey('no_credential', 'owner', true)).toBe('aiConnect.error.no_credential')
   expect(noAiErrorKey('credential_unusable', 'owner', true)).toBe('aiConnect.error.credential_unusable')
   expect(noAiErrorKey('trial_credit_used', 'owner', true)).toBe('aiConnect.error.trial_credit_used')
   expect(noAiErrorKey('trial_ended', 'owner', true)).toBe('aiConnect.error.trial_ended')
-  expect(noAiErrorKey('no_credential', 'admin', true)).toBe('aiConnect.error.admin.no_credential')
-  expect(noAiErrorKey('credential_unusable', 'admin', true)).toBe('aiConnect.error.admin.credential_unusable')
-  // the trial texts already say "the owner can connect …": right for an admin
-  expect(noAiErrorKey('trial_ended', 'admin', true)).toBeNull()
+  expect(noAiErrorKey('no_credential', 'admin', true)).toBe('aiConnect.error.no_credential')
+  expect(noAiErrorKey('credential_unusable', 'admin', true)).toBe('aiConnect.error.credential_unusable')
+  expect(noAiErrorKey('trial_ended', 'admin', true)).toBe('aiConnect.error.trial_ended')
   expect(noAiErrorKey('no_credential', 'member', true)).toBeNull()
   expect(noAiErrorKey('no_credential', undefined, true)).toBeNull()
   expect(noAiErrorKey('rate_limit', 'owner', true)).toBeNull()

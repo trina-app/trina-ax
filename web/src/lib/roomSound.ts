@@ -1,14 +1,15 @@
 // The room sound (docs/DECISIONS.md "대화방 알림 소리"): a short, soft chime when a room message that is meant for me
 // arrives and I am not already looking at it. Nothing else in the app makes a sound.
 //
-// - What rings: shouldRing below (a pure function; test/unit/room-sound.test.ts). Every message in a DM or a group chat
-//   (any kind but 'team' and 'all'), a message that mentions me in a team room or the everyone room, and an AI answer to
-//   my own question (my private preview, or the answer that went to the room). A reply in a thread (docs/DECISIONS.md
-//   "스레드와 반응") rings like a DM message when the thread is mine to follow (I wrote the root, replied, or was
-//   mentioned: RoomMessage.following) or it mentions me; any other reply stays quiet, in a DM or a group chat too,
-//   unless it was sent to the room as well (then the room's rule). Reactions never ring (they are no room.message).
-//   Never: my own messages, a muted room, event lines, deleted messages, a message seen before (a replay after a
-//   reconnect, the copy of a preview I posted), or the room this device shows in a visible, focused window.
+// - What rings: shouldRing below (a pure function; test/unit/room-sound.test.ts): what the server notifies, by the same
+//   rule (shared room-alerts.ts roomAlert, docs/DECISIONS.md "대화방 알림 설정") with the room's level the server sends
+//   (Room.notify.level: my own for the room, else my default for its kind) and my thread-replies switch and quiet hours
+//   (the rooms list's alerts). By default: every message in a DM or a group chat, a message that mentions me in a team
+//   room or the everyone room, a reply in a thread I follow (RoomMessage.following) or that mentions me; plus an AI
+//   answer to my own question (my private preview, or the answer that went to the room). Reactions never ring (they
+//   are no room.message). Never: a room at 끄기 (or a default of 받지 않음), inside my quiet hours, my own messages, event
+//   lines, deleted messages, a message seen before (a replay after a reconnect, the copy of a preview I posted), or the
+//   room this device shows in a visible, focused window.
 // - One sound per device: every tab gets the same events, so a tab rings only when (a) its audio may play, (b) it takes
 //   the device's slot: one sound every COALESCE_MS for all rooms and tabs. Where there is a Web Lock the tab that
 //   rings holds it for COALESCE_MS (the browser's one lock manager decides, at once); without one (plain http, older
@@ -23,7 +24,7 @@
 // - Web Push in a browser: the service worker asks the open pages before it shows a room notification and shows it
 //   silently when one of them takes care of the sound (web/pwa/sw.js).
 // - The switch (Settings › Notifications, "알림 소리") is this device's only, in localStorage; on by default.
-import { uuidv7Time, type RoomMessage } from '@mycel/shared/api'
+import { inQuietHours, roomAlert, roomLevel, uuidv7Time, type Room, type RoomAlertSettings, type RoomMessage } from '@mycel/shared/api'
 
 /** at most one sound this often, all rooms and tabs together */
 export const COALESCE_MS = 3000
@@ -45,8 +46,13 @@ export type RingMessage = Pick<RoomMessage, 'id' | 'authorKind' | 'author' | 'as
 export interface RingInput {
   roomId: string
   message: RingMessage
-  /** the room as this window knows it (null: not in my list yet) */
-  room: { kind: string; muted: boolean } | null
+  /** the room as this window knows it (null: not in my list yet); `notify` from the server (absent: an older one) */
+  room: { kind: string; muted: boolean; notify?: Room['notify'] } | null
+  /** my thread-replies switch, quiet hours and the team's time zone (the rooms list's alerts; absent: an older server,
+   * replies in threads I follow ring and there are no quiet hours) */
+  alerts?: RoomAlertSettings | null
+  /** the time it arrived (quiet hours) */
+  now?: number
   meId: string | null
   /** sent again after a reconnect (lib/realtime.ts) */
   replay: boolean
@@ -62,7 +68,9 @@ export function shouldRing(i: RingInput): boolean {
   if (!meId || !room || i.replay || i.seen) return false
   // an event line (someone joined, the room was renamed …): not a message anyone wrote
   if (m.event !== undefined && m.event !== null) return false
-  if (m.deletedAt || room.muted || i.viewing === i.roomId) return false
+  const level = room.notify?.level ?? roomLevel(room.kind, room.muted ? 'off' : null, 'direct')
+  if (m.deletedAt || level === 'off' || i.viewing === i.roomId) return false
+  if (i.alerts && inQuietHours(i.alerts.quietHours, i.alerts.timeZone, i.now ?? Date.now())) return false
   if (m.authorKind === 'user' && m.author?.id === meId) return false
   if (m.authorKind === 'ai' && m.askedBy?.id === meId) {
     // the answer to my question; but not the copy that goes to the room when I post my preview: I did that myself
@@ -71,15 +79,11 @@ export function shouldRing(i: RingInput): boolean {
     return !(posted > REPOST_MS)
   }
   if (m.visibility !== 'room') return false
-  // a reply in a thread: for me when I follow the thread or it mentions me, like a DM message whatever the room; any
-  // other reply only when it went to the room too (then as a message of the room, below)
-  if (m.threadRootId) {
-    if (m.following || m.mentions.includes(meId)) return true
-    if (!m.alsoInRoom) return false
-  }
-  if (room.kind === 'team' || room.kind === 'all') return m.mentions.includes(meId)
-  // a DM, a group chat, and any kind added later: every message is for its few people
-  return true
+  // the server's rule for its notices: a mention, a reply in a thread I follow, and at 모든 메시지 any message of the room
+  return roomAlert({
+    level, mentioned: m.mentions.includes(meId), reply: !!m.threadRootId, alsoInRoom: !!m.alsoInRoom,
+    following: !!m.following, threadReplies: i.alerts?.threadReplies ?? true,
+  }) !== null
 }
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
@@ -162,11 +166,11 @@ export class RoomSound {
   }
 
   /** A room.message event: rings when it should and this tab takes the device's slot. Resolves whether it rang. */
-  async message(roomId: string, message: RingMessage, room: RingInput['room'], meId: string | null, replay: boolean): Promise<boolean> {
+  async message(roomId: string, message: RingMessage, room: RingInput['room'], meId: string | null, replay: boolean, alerts: RoomAlertSettings | null = null): Promise<boolean> {
     const seen = this.seen.has(message.id)
     this.remember(message.id)
     if (!roomSoundOn(this.d.storage) || this.d.quiet()) return false
-    if (!shouldRing({ roomId, message, room, meId, replay, seen, viewing: this.viewing() })) return false
+    if (!shouldRing({ roomId, message, room, alerts, now: this.d.now(), meId, replay, seen, viewing: this.viewing() })) return false
     // a tab whose audio cannot play leaves the slot to one that can
     if (!this.d.audio.ready()) return false
     if (!(await this.claim())) return false

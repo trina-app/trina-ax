@@ -72,7 +72,7 @@ export function levelExp(route: string, who: Who): Exp {
   if (who === 'anon') return 'deny'
   if (who === 'pwchange' && !ep.allowWhilePasswordChange) return 'deny'
   if (ep.auth === 'user') return 'allow'
-  if (ep.auth === 'admin') return who === 'owner' || who === 'admin' ? 'allow' : 'deny'
+  if (ep.auth === 'admin' || ep.auth === 'admin-reauth') return who === 'owner' || who === 'admin' ? 'allow' : 'deny'
   return who === 'owner' ? 'allow' : 'deny' // owner, owner-reauth
 }
 

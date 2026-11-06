@@ -82,6 +82,9 @@ describe('permission matrix: every route x every persona', () => {
 // 설계서 4번 탭 / DECISIONS.md 역할 규칙: the owner deletes anyone but themselves; an admin deletes a plain member only,
 // with their own password in the body. Never the owner, another admin or themselves.
 describe('account deletion by role', () => {
+  // the matrix above sent wrong passwords for the admin-reauth cases (AI connections, the API engine) as the admin and the
+  // owner: their re-entry limit (5 wrong passwords per person) is used up, which these tests are not about
+  beforeAll(() => { inst.ctx.db.query("DELETE FROM login_attempts WHERE key LIKE 'reauth:%'").run() })
   const fresh = async (role: 'member' | 'admin') => (await W.as.owner.ok('POST', '/api/admin/users', { username: 'victim' + crypto.randomUUID().slice(0, 6), name: 'Victim', role })).user.id as string
   test('an admin cannot delete a member without the password, nor with a wrong one', async () => {
     const id = await fresh('member')

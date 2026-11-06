@@ -21,7 +21,8 @@ import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
-import { credentialsOf } from '../credentials/store'
+import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
+import { credentialsOf, noticeOwners } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
@@ -34,14 +35,16 @@ import { ENGINE_CHOICE_CHANGED, codexOffHere, engineOn, limitFallbackAvailable, 
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 import { listSkillManagers, setSkillManager } from '../skills/managers'
 import { listSkillChanges } from '../skills/changes'
-import { readApiEngine, writeApiEngine } from '../engine/api-agent'
+import { addressOf, hasStoredApiKey, readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
 import { registerCredentialRoutes } from './credentials'
 import { registerTeamLinkRoutes } from './team-links'
 import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
-import { checkApiEngineUrl } from '../system/egress'
+import { checkApiEngineUrl, checkApiEngineUrlForAdmin } from '../system/egress'
 import { feature } from '../system/deployment'
 import { readTeamIcon, removeTeamIcon, saveTeamIcon, TEAM_ICON_CHANGED, teamIconInfo } from '../admin/team-icon'
+
+const hostOf = (u: string) => { try { return new URL(u).host } catch { return '' } }
 
 async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale: Locale) {
   const enabled = enginesEnabled(ctx.db)
@@ -232,10 +235,52 @@ export const adminRoutes: RouteModule = {
     }
     kit.handle(API.getApiEngine, () => apiConfigOut())
     kit.handle(API.putApiEngine, async ({ c, body, auth }) => {
-      await checkApiEngineUrl(ctx.config, body.baseUrl, c.get('locale')) // the hosted cloud: https to public addresses only
-      writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, ...(body.key !== undefined ? { key: body.key } : {}) })
+      const locale = c.get('locale')
+      await checkApiEngineUrl(ctx.config, body.baseUrl, locale) // the hosted cloud: https to public addresses only
+      // who is asking, read again every time it matters (the checks below wait for DNS): an owner demoted, or an admin
+      // disabled or deleted, meanwhile is who they are now
+      const actorNow = (): 'owner' | 'admin' => {
+        const u = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { role: string; status: string; deleted_at: string | null } | null
+        if (!u || u.deleted_at || u.status !== 'active' || (u.role !== 'owner' && u.role !== 'admin')) fail('forbidden')
+        return u!.role as 'owner' | 'admin'
+      }
+      const wanted = addressOf(body.baseUrl)
+      // An admin (not the owner) does not set an address on a private network, on this server or link-local, nor an http
+      // one; an address that is already set stays as it is (a model change). The check waits for DNS, so what is "already
+      // set" and who asks are read again after every wait, and the decisions below (the key rule) are made from a read with
+      // no wait before the write.
+      let validated: string | null = null
+      let role = actorNow()
+      for (;;) {
+        const now = readApiEngine(ctx.config.dataDir)
+        if (role !== 'owner' && !(now && addressOf(now.baseUrl) === wanted) && validated !== wanted) {
+          await checkApiEngineUrlForAdmin(body.baseUrl, { owner: msg('apiAddressOwnerOnly', locale), https: msg('apiAddressNeedsHttps', locale) })
+          validated = wanted
+          role = actorNow()
+          continue
+        }
+        break
+      }
+      role = actorNow()
+      // from here to the write nothing waits: the stored key belongs to the whole address it was made for (it is stored
+      // with it, and read back only for it: not for another host, port or path), and a new address never inherits it: the
+      // caller sends a key for the new address, or null. (An admin could otherwise point the engine at their own server, or
+      // at another tenant's path on the same gateway, and collect it.)
+      const old = readApiEngine(ctx.config.dataDir)
+      const sameAddress = !!old && addressOf(old.baseUrl) === wanted
+      if (!sameAddress && body.key === undefined && hasStoredApiKey(ctx.config.dataDir)) {
+        fail('validation', msg('apiKeyForNewAddress', locale), { fields: { 'body.key': 'a key for the new address is required' } })
+      }
+      // who set the address: an address an admin set stays checked to be a public https one before every call, whoever
+      // saves it next; only an owner who sets a NEW address makes it theirs
+      const setBy: 'owner' | 'admin' = sameAddress ? (old!.setBy === 'admin' ? 'admin' : 'owner') : role === 'owner' ? 'owner' : 'admin'
+      const nothingChanged = sameAddress && old!.model === body.model && (body.label === undefined || (body.label.trim() || body.model) === old!.label) && setBy === (old!.setBy ?? 'owner')
+        && (body.key === undefined || (body.key === null && !hasStoredApiKey(ctx.config.dataDir)))
+      writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, setBy, ...(body.key !== undefined ? { key: body.key } : {}) })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.api', target: 'api', detail: { baseUrl: body.baseUrl, model: body.model, key: body.key === undefined ? 'kept' : body.key ? 'set' : 'removed' } })
       engineCache.forget('api')
+      // an admin's change is told to the owner(s): who and the model, never the key (credentials/store.ts noticeOwners)
+      if (!nothingChanged) noticeOwners(credentialsOf(ctx), auth.user.id, 'engine', `${hostOf(body.baseUrl)}, ${body.model}`, { model: body.model, host: hostOf(body.baseUrl) })
       try { (getChatRuntime(ctx).engines as { reset?: () => void }).reset?.() } catch {}
       return apiConfigOut()
     })
@@ -322,6 +367,8 @@ export const adminRoutes: RouteModule = {
       if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
       // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)
       if ('timeZone' in changed) { try { getChatRuntime(ctx).schedules.recomputeAll() } catch {} }
+      // ...and everyone's quiet hours are read in it: the web app's sound takes the zone from the rooms list again
+      if ('timeZone' in changed) ctx.services.realtime.publishEach(() => ROOM_ALERTS_CHANGED)
       if ('concurrency' in changed) getChatRuntime(ctx).schedule()
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
       if ('browserAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)

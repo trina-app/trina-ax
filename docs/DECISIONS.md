@@ -1219,7 +1219,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **D9 Codex는 진짜 토큰을 받지 않는다**: 턴의 `CODEX_HOME/auth.json`은 가짜(접근 토큰·API 키 자리 = 이 턴의 프록시 토큰, refresh 자리 = `teamax-no-refresh`, account_id = `teamax-<sha256(연결 id)[:12]>`, 서명 없는 id_token에 진짜 플랜 종류만). 공급자 `teamax`(이름은 PRODUCT.displayName, "OpenAI"가 아님)가 `http://127.0.0.1:<proxy>/codex/<chatgpt|openai>`로 보내고, 프록시가 진짜 Authorization·ChatGPT-Account-ID(또는 키)를 넣는다. Codex 턴의 CONNECT 터널은 없앴다(`connect.ts`의 `codexTurns`는 F1·옛 구성에서만). `chatgpt_base_url`·갱신 주소도 프록시로: `/codex/backend/wham/config/bundle`은 `{}`, 그 밖 배경 호출은 404(Codex 0.163이 ChatGPT 턴마다 부르는 `accounts/check`·`settings/user`는 경고 없이), `/codex/oauth/token`은 400 invalid_grant + 감사.
 - **D10 갱신은 서버가**: 연결별 single-flight, 회전된 refresh token을 같은 트랜잭션에서 먼저 저장한 뒤 새 접근 토큰을 쓴다. `invalid_grant`·`refresh_token_*`·401이면 `needs_reconnect`. 일시 실패는 그 요청만 502. 하루 한 번 8일 넘게 안 쓴 연결을 갱신.
 - **D12 봉인**: 브라우저(`web/src/lib/seal.ts`)가 서버 공개키(`<secrets>/credential-sealing.jwk`, P-256)로 ECDH + HKDF-SHA256(info `mycel-seal-v1|<kid>`) + AES-256-GCM으로 봉인. 평문 `{secret, nonce, purpose}`: purpose가 엔드포인트와 다르면 거부, 같은 nonce는 10분 안에 두 번 받지 않음. 계약에 봉인 안 된 비밀값 필드가 없다. `crypto.subtle`이 없는 화면(LAN의 http)은 "https에서만"이라고 말한다.
-- **D13 권한**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
+- **D13 권한 (대체됨: 맨 아래 「관리자도 팀 AI 연결을 한다」)**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
 - **D14 상태는 연결별**: 401 → 그 연결만 `invalid`(ChatGPT는 갱신 1번·재전송 1번 뒤), 긴 429 → 그 연결만 `limited_until`(DB, 재시작해도 유지). 프록시 전역 `limitedUntil`은 없앴다.
 - **D15 넘기기**: 묶인 연결이 한도·거절·월 한도에 걸리면 같은 계열 다음 연결로 새 시도(최대 2번, Claude는 새 세션, 단계·알림·감사 `engine.credential_switch`). 없으면 `rate_limited`일 때만 `limitFallback`(Claude→Codex, Codex 연결이 있을 때만), 그다음 오류.
 - **D16 비용**: `credentials/prices.ts`(2026-10-22 정가). API 키만 계산, 구독은 0(토큰은 셈). 모르는 모델은 계열 최대값 + 서버 시작 뒤 모델마다 한 번 감사.
@@ -8251,7 +8251,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
   `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
   notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
-  (`roomMessages`), turns both off; per room there is mute. An edit notifies nobody.
+  (`roomMessages`), turns both off; per room there is mute (amended 2026-11-06: a default of three, thread replies,
+  quiet hours and four levels per room, see "대화방 알림 설정"). An edit notifies nobody.
 - **People directory.** The room screens use `GET /api/people` and the photo address from feat/profile (merged into this
   branch): one `Avatar` (feat/profile's, `web/src/components/Avatar.tsx`), one people store (`web/src/store/people.ts`,
   with the lookups the rooms need) and one quiet handler for `profile_changed` (no toast; the people list, once read,
@@ -8291,7 +8292,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 ## 대화방의 트리나 — the AI in team chat rooms (feat/rooms-trina, 2026-11-05)
 
 - **A room question is a normal chat turn of the person who asked.** "@트리나 …" (or `@Trina`, `@トリナ`, the product's
-  names; `roomAiMentions` in `shared/src/api/rooms.ts`, not when a person picked from the list has that name) in
+  names; `roomAiMentions` in `shared/src/api/rooms.ts`, not when a person picked from the list has that name, or a
+  name that goes on from it there, "@Trina Kim") in
   `Rooms.send()` asks the AI as the sender: the same engine choice, tools, folder checks, budget, queue limits and fair
   queue as a chat send, and the turn's usage is theirs. The turn runs in a chat of theirs with `chats.room_id` set
   (migration 242; one per room and person, `chats_room_session`), so the turn code, sessions (`--resume`), the read
@@ -10360,7 +10362,8 @@ web app's rooms and settings); no server change.
   applies to it as to a browser), and the page does the rest. Checked in desktop Chromium and with unit tests; not yet
   on an iPhone or an Android phone.
 - **The switch**: Settings › Notifications, one row "알림 소리 · 이 기기에서만" under a hairline below the server's event
-  choices (it is this device's, in localStorage `mycel.roomSound`, on by default, kept at sign-out like the theme).
+  choices (since "대화방 알림 설정": the row 알림 소리 in the section 이 기기, and what rings follows the room's level and
+  quiet hours) (it is this device's, in localStorage `mycel.roomSound`, on by default, kept at sign-out like the theme).
   It is not disabled while a server choice saves and shows even when those could not be read. Turning it on plays
   the chime once; searching Settings for 소리 / sound finds it. In all five languages.
 - **Not in this step.** The personal Inbox (scheduled results, skill suggestions, approvals) has no event that says "a
@@ -10961,6 +10964,157 @@ default skills, accepting that they become public here, leaving out anything int
 - Rejected: shipping the Korean lint script (a pack is one SKILL.md, and the checks are in the text); making the HR
   pack a default (labour-law forms only some teams need, and wrong for teams outside Korea).
 
+## 메시지 상자의 멘션 — mentions stand out in a room's message box (feat/composer-mention-highlight, 2026-11-06)
+넣을 곳: trina-ax `web/src/components` (TokenTextarea.tsx, rooms/useMentionMenu.tsx) and `web/src/lib` (textTokens.ts,
+rooms.ts), 이유: the room's message box showed a picked "@name" as plain text, so nobody could tell who would be notified.
+
+- **A picked name is a token at once, Slack-like.** Picking from the "@" list writes "@name " (the name the room shows:
+  the directory's, as the messages show it) and keeps where it stands; the box draws it in the accent colour of a sent
+  mention on `accent-soft`. `@트리나` gets the same look wherever the server takes it as a call (`roomAiMentions` with the
+  picked people's names). The composer, a thread's reply box and the edit form (which shows a message's mentions the way
+  the message marks them, `mentionParts`) all use it.
+- **What stands out is what is sent.** `mentions` is exactly the people whose tokens are in the box
+  (`lib/rooms.ts mentionTokens`): text that only looks like "@name" (pasted, typed without the list, a token broken by an
+  edit) is plain and notifies nobody; a letter typed right before the "@" pauses a token, because the message would show
+  it as text (`mentionCanStart`, the rule of `mentionParts` and the server's AI check). Where an AI name runs past a
+  shorter picked name the call wins and the person is not sent; a picked name that goes on from an AI name ("@Trina Kim")
+  keeps it, and the server now asks no AI there either.
+- **Tokens act as one piece.** Backspace at a token's end or Delete at its start selects the token and lets the
+  browser delete it (native undo stays); the arrow keys step over one; a caret put inside one goes to its nearer edge; an
+  edit inside one (through a selection) makes it text. A phone keyboard whose Backspace arrives as an edit and no key
+  (Android, also as its IME taking back the word) gets the same: a deletion into a token from its edge takes all of it.
+  While an IME writes, the box does nothing of its own, except for such a deletion of text from before the IME began.
+- **How it is drawn: the browser's own `<textarea>` between two layers** (`components/TokenTextarea.tsx`, generic:
+  tokens are ranges with a kind, so the AI chat's box can show `#room` the same way). The text area keeps typing, every
+  IME, autocorrect, spell check and undo; while it has text its letters are not painted (`-webkit-text-fill-color:
+  transparent`, index.css). The layer under it draws only the tokens' backgrounds, the one over it the letters with the
+  tokens in colour, so what the browser draws stays seen in between: the caret, a selection (see-through), an IME's
+  background, spell check, the placeholder. While an IME writes (compositionstart to compositionend) the text area
+  paints its own letters, because Blink and WebKit draw an IME's default underline in their colour, and the front layer
+  draws only the tokens, on their background over the text area's letters: the same pixels either way (checked in
+  Chromium), so nothing flickers per syllable. The layers copy the text area's computed font, padding, borders,
+  wrapping and colour (the touch-screen font size too; again when a theme class or style on `<html>` changes), its
+  width without a scroll bar and its scroll offset. A token's look may use colour, background and box-shadow only,
+  never anything that moves a letter. Checked in Chromium, WebKit and iOS Safari on the simulator (iOS 26.5): the text
+  area's letters drawn over the layers land on them, also at 390 and 320 px and scrolled; iOS adds no inset of its
+  own. Forced colours: the text area draws its own letters and the layers hide. Texts use "\n" line breaks (an edit of
+  a message with "\r\n" from another app is normalised first).
+- Rejected: `contenteditable` (as Slack) — no rich-input component exists here, and Korean composition, the caret and
+  mobile keyboards in a contenteditable are where editors break; the text area gets them right for free. Highlighting
+  only the background (the text area's own letters on top, as react-mentions does) — then a mention could not have the
+  accent colour of a sent one. Matching "@name" in the text for everyone picked (the old `keptMentions`) — a pasted or
+  retyped name would notify someone the box does not show.
+- A keyboard that answers the Backspace (turned into "delete this token") with a deletion of its own, one letter of the
+  token or the letter before it, still takes the token. A person who left the room is no token any more, and the
+  "@트리나" calls are counted with the names that are sent, as the server counts them.
+- Known limits: an undo after a token was deleted brings its letters back as text, not as a mention. On Android a
+  deletion that reaches into a token while the keyboard's IME holds the word rewrites the text through React (the
+  keyboard restarts its input); not tried on a device. A screen reader hears the text as typed, not which names are
+  mentions. A sent message still marks every "@name" of the people it mentions (also a pasted one), as before.
+
+## 대화방 알림 설정 — room notification settings (feat/room-notify-prefs, 2026-11-06)
+
+넣을 곳: Team AX core (`server/src/rooms`, `server/src/notifications`, `shared/src/api/room-alerts.ts`, the web app's
+Settings › Notifications and the room's bell), 이유: chat and notifications are core, and one rule has to serve the
+server's notices, every push and the web app's sound.
+
+The owner, on Settings › Notifications: "여기에 채팅 관련 내용이 들어가야 하지 않을까?" Chat had one checkbox ("1:1·그룹
+대화 메시지와 나를 언급한 메시지") and the device's sound switch; a room had mute. Rooms follow Slack almost entirely, so
+the settings do too. Naming (the owner's rule): the people's side is **대화** (the section is 대화, rooms are 대화방,
+"1:1·그룹 대화"), never a bare "채팅"; English "Conversations".
+
+- **My default for rooms** (Settings › Notifications › 대화, "알림 받을 메시지", `NotificationPreferences.roomLevel`):
+  `direct` = 1:1·그룹 대화와 나를 멘션한 메시지 (the default and the behaviour before: every message of a DM or group
+  chat, in team rooms and the everyone room what mentions me), `all` = 모든 새 메시지 (every message of every room I am
+  in), `none` = 받지 않음. It replaces the one `roomMessages` checkbox; a person who had it off is 받지 않음.
+- **Replies in threads I follow** ("내가 참여한 스레드의 답글", `roomThreadReplies`, on by default): followers as the
+  threads define them (the root's author or asker, everyone who replied, people mentioned in a reply). Off: a followed
+  reply alerts only when it mentions me.
+- **Each room's own level** (the room's bell, `PATCH /api/rooms/:id {notifyLevel}`): 기본값 (설정 따름) = null, 모든
+  메시지, 멘션만, 끄기. The room's level wins over my default, 받지 않음 included (a room set to 모든 메시지 still alerts),
+  as Slack's channel settings do. Mute is 끄기. The bell is a menu of the four, the chosen one ticked and the default
+  saying what it gives this room now ("기본값 (설정 따름) · 멘션만"); the bell is crossed out at 끄기. Members only, 404
+  for anyone else as for every room route; the body is strict (`muted` and `notifyLevel` together are refused).
+- **The one rule** (`shared/src/api/room-alerts.ts`, used by the server and the web app): `roomLevel(kind, own, default)`
+  gives the level (own, else the default for the kind: `direct` is 모든 메시지 for any kind but `team` and `all`, 멘션만
+  for those); `roomAlert(...)` says what a new message is to a member: a mention (any level but 끄기), a reply in a
+  thread I follow with the switch on (a message, any level but 끄기), any other message of the timeline only at 모든
+  메시지, a reply that stays in its thread nothing else (a reply sent to the room too is a message of the room). The
+  server makes its notices with it (`Rooms.notify`), so Web Push and the phone push (both send the notices, ids only)
+  follow it, and the web app's sound (`lib/roomSound.ts shouldRing`) calls the same function with the level the server
+  sends: `Room.notify = {own, byDefault, level}` on every room (list, get, `room.updated`), and the rooms list's
+  `alerts = {threadReplies, quietHours, timeZone}`. The app never works the level out itself; with an older server
+  (no `notify`) it uses the rule before (muted, else `direct`). Before, mute and the switch were checked in
+  `Rooms.notify` and the sound kept its own copy of the kind rule.
+- **A message notice is `room.dm` whatever the room.** `room_notices.event_type` has a fixed CHECK list and tables are
+  never rebuilt, so a team room's message at 모든 메시지 is a `room.dm` notice; the push text is the same generic line
+  ("새 메시지가 왔어요"), the path opens the room or its thread. One notice per unread run, as before.
+- **Quiet hours** ("방해 금지 시간", `quietHours = {on, start, end, weekends}`, off by default, 22:00–08:00): from start up
+  to end, across midnight when the end comes first; with weekends, all of Saturday and Sunday too. In the team's time
+  zone (Admin › Team settings, settings `timeZone`, `teamTimeZone()`; the line under the row names it), not the
+  device's: the server decides the pushes and the people of one team share one clock. `inQuietHours(q, tz, now)` is the
+  one function; an unknown zone reads as UTC; start = end is refused (400). Inside them: the notice is kept
+  (`room_notices.quiet = 1`; the room's badge and the notice by id as before; room notices are not listed in the Inbox,
+  "대화방의 트리나") but never queued for a push, and the web app does not ring. One quiet notice per unread run; once
+  the quiet hours are over, the next message makes a new notice that pushes, even while the quiet one is unread (it no
+  longer holds the run back). Nothing that waited is pushed when they end (Slack does the same). Only room alerts are
+  quiet: a scheduled task's result or a connection that needs a sign-in still pushes at night (they are rare and the
+  person asked for them; a later step can widen it).
+- **Pushes are checked again.** A push of a room notice is sent only while the room's level still asks for it (a
+  message notice below 모든 메시지 only for a reply in a thread I still follow) and outside my quiet hours at that moment
+  (`rooms/alerts.ts noticeWanted`, before and after each send, like the other eligibility checks), and a change of my
+  settings cancels what waits for a retry (`cancelDisabledPushDeliveries`); a change on a room's bell aborts a push on its
+  way (`cancelPushUser`). In a browser the service worker no longer checks a switch of its own for room codes (it used
+  `roomMessages`, now false for 받지 않음, and would have dropped the push of a room at its own level, which iOS punishes
+  by taking the subscription away): the server's check is the one, the worker still shows only a current, unread notice.
+- **The app follows changes.** A preference change that touches rooms sends `notice room_alerts_changed` to my own
+  windows, and a new team time zone (Admin › Team settings) sends it to everyone's; they read the rooms list again
+  (levels, quiet hours, the zone). A room's own level answers with the room and `room.updated` to my windows only.
+- **Settings › Notifications, lean.** No frames: the inbox stays first (on a phone this page is the 나 tab's 알림함 row,
+  feat/phone-nav), then three plain sections under a hairline, **대화** → **작업·연결 알림** (scheduled task done /
+  failed, connection sign-in, team skill suggestions) → **이 기기** (알림 소리, 기기 푸시 알림), one row per setting with
+  a short line under its name and the control on the right, like Admin › Team settings (a switch stays on the right on a
+  phone). 알림 받을 메시지 is three radio rows under its line; 방해 금지 시간 shows its hours and "주말은 하루 종일" only
+  while on, and saves a time as soon as it is whole and differs from the other; **알림 끈 대화방 N개** lists the rooms at
+  끄기, each with the same four levels to turn it back on (a room changed there stays in the list until the page is
+  left). The push box became a row (its status under the name, its button on the right, what push sends below).
+  Changes save at once, in order (a change made while one saves goes with the next request), so nothing is disabled
+  while saving. Settings search finds the page by 소리, 방해 금지, 스레드, 멘션 (and 언급). In all five languages. Checked
+  at 1440 and 390×844, light and dark, ko and en (screenshots and a before/after sheet for the owner); the impeccable
+  detector found nothing.
+- **Rollback: reader 1.** Migration 255 is additive: `room_members.notify_level`, `notification_preferences.room_level`,
+  `room_thread_replies`, `quiet_*`, `room_notices.quiet`. `room_members.muted` and `notification_preferences.room_messages`
+  stay in step and stay the source of truth for 끄기 and 받지 않음 (an older build that unmutes or turns the switch on is
+  followed). An older build ignores the rest: it alerts as before this change (a DM at 멘션만 notifies every message, a
+  team room at 모든 메시지 only mentions, no quiet hours; a quiet notice of the last day still unread may be pushed).
+  Nothing is exposed that should not be, so `SCHEMA_READER_LEVEL` stays 6. The migration number is 255 (249 and 253 are
+  the skill-share PR's, 252 feat/phone-nav's, 254 feat/chat-reads-rooms').
+- **The older apps.** `roomMessages` stays in the preferences (false = 받지 않음; true brings 받지 않음 back to `direct`;
+  `roomLevel` wins when both come) and `muted` in `PATCH /api/rooms/:id` (true = 끄기, false brings 끄기 back to the
+  default). `Room.muted` now means 끄기, as before; the grey badge and the 대화 tab's count go by it, not by 받지 않음.
+- **Independent review (2026-11-06) fixes.** The service worker's room switch (above); a change made while the page
+  read the settings again after a save was kept on screen but never sent (now every change is sent, in order, and a read
+  never overwrites what is being saved); a waiting push re-checked the thread reply without asking whether I still follow
+  it, and not the quiet hours at the moment of sending; a new team time zone left open windows on the old one; the bell
+  menu's heading was a stray element inside the menu (now its accessible name, shown once); an unreadable weekday read
+  as Sunday (now no weekend); Indonesian rows say "kamu" like the rest. Left as is: Korean notice and lock-screen texts
+  say 언급 where the new rows say 멘션 (the owner's words for the settings; the room screens use both already).
+- **Not in this step.** Quiet hours for the other notices; a schedule per weekday; "30분 동안 알림 끄기" (snooze); the
+  phone app's own notification settings (the OS's) and the desktop app's OS notices (rooms do not use them).
+- **Tests.** `tests/unit/room-alerts.test.ts` (levels × kinds × defaults, the alert rule with mentions, followed and
+  unfollowed replies and the switch, quiet hours across midnight, inside one day, weekends, daylight saving, Seoul vs
+  Los Angeles, an unknown zone, the schema), `tests/unit/b-rooms-notify.test.ts` (the preferences API and its strict
+  body, the older apps' switch and an older build's columns, migration 255's data, a room's level through the API with
+  members only, events to my windows only, notices for every default × room kind × mention and each room's level
+  winning, thread replies and the switch, replies sent to the room too, quiet notices kept and never pushed in the team's
+  zone and the run after them pushing, pushes re-checked and cancelled), the permission matrix (`updateRoom` with
+  `notifyLevel`, `updateNotificationPreferences` with the new fields), `web/test/unit/room-notify.test.tsx` (the sound
+  with the server's levels, thread replies, quiet hours and an older server; the bell's four choices; the page's order,
+  rows and saves, changes made during a save or the read after it; an older server's one switch;
+  `room_alerts_changed`), `web/test/unit/push-worker.test.ts` (a room notice shows with the default 받지 않음), and the
+  e2e specs `room-sound`,
+  `schedule-notifications` and `push` updated for switches and rows.
+- Version impact: **minor** (new settings and an additive migration; nothing removed).
 ## Admins delete members (feat/admin-delete-member, 2026-11-06)
 
 넣을 곳: trina-ax server/src/admin + web/src/pages/admin, 이유: the product owner asked that admins can delete a
@@ -11079,3 +11233,145 @@ and its review (REVIEW-3: build on 스킬로 제안, use the one suggestion slot
   member's direct writes to `skills/` and another's `users/<id>/` refused); the permission matrix case
   `contributeSkills` (scope `members`). Web `member-contribute` (the line and its sheet, a key never in what goes up,
   the caps, refusals, 검토 grouped by person and the folder approval, the Inbox line, "님이 제안").
+
+## Admins connect the team's AI too (2026-11-06, product owner)
+
+**Decision.** The owner and admins have the same powers over the team's AI connections and the team API engine
+settings (Admin › Providers). Before, only the owner could add, replace, rename, order, assign, limit, switch off or
+remove a team connection, start a ChatGPT or Claude sign-in, change the two team switches ("members' own connections",
+"shared subscriptions") or edit the API engine; admins could only list and re-check. Members' own connections
+(`/api/me/credentials`) are unchanged: they are theirs alone.
+
+**Why.** An admin is who keeps the team running day to day, and a refused or expired connection is an admin's job to
+fix. "Tell the owner" was a dead end when the owner is not around, and the product owner asked for it.
+
+- **Re-auth: `admin-reauth`.** A new auth level next to `owner-reauth`, in the auth layer only (`shared/src/api/endpoint.ts`,
+  `server/src/http/route.ts`): the caller must be an admin or the owner, and the body carries `password`, checked
+  against the caller's **own** password (same rate limit as every re-entry). `createCredential`,
+  `replaceCredentialSecret` and `startCredentialLogin` use it (so does "Move it to the team", which is an add). The
+  rest (`updateCredential`, `deleteCredential`, the sign-in's get / cancel / code, `updateCredentialSettings`,
+  `getApiEngine`, `putApiEngine`) are plain `admin`. A demo server refuses `admin-reauth` like `owner-reauth`.
+  Nothing of member deletion (`deleteUser`, `owner-reauth`) was touched.
+- **Either may change what the other added.** There is no per-row "who may" check: a connection is the team's. Audit
+  lines keep the actor as before (`created_by` and `audit_log.actor_id` are the admin).
+- **The owner hears of an admin's change.** When an admin adds, replaces, removes or switches off a team connection
+  (including through a Claude or ChatGPT sign-in), or saves the API engine settings, each active owner gets one short
+  in-app notice (`credential_admin_change`, link Admin › Providers): who, what, and the connection's name or the model.
+  Never a token or key. It uses the channel the connection notices already use (`CredCtx.notify`, the live `notice`
+  event); no new channel. The owner's own changes send nothing. Renames, ordering, assigning and limits send nothing
+  (too noisy, and not a change of what answers).
+- **A sign-in belongs to who started it.** `credentialLogins` already keyed a sign-in, its address, its state events and
+  the code step by the starter's user id (404 for anyone else, the owner included), so an admin's Claude sign-in
+  works end to end with no change to it, the launcher or native code. Only one sign-in runs at a time on a server.
+- **Owner-specific assumptions found, and what changed.**
+  - *Who is told of a refused, expiring, limited or disconnected connection:* already the owner and admins
+    (`admins()` in `credentials/store.ts`). Unchanged.
+  - *"AI access requests"* (`requestAiAccess`, a member without AI): went to owners only. Now to the owner(s) and the
+    admins (`onboarding.ai_request` rows per person; the same name-and-link notice; settled together when the member
+    can use AI). An admin or owner cannot ask (403).
+  - *The button for "no AI"* (`aiAccessFor`): an admin got `connect_own` / `ask_owner`. Now `connect_team`, like the
+    owner: the Home card, the banner above the composer and the chat error offer the connect dialog. The chat error's
+    separate "tell the owner" words for admins are gone (`aiConnect.error.admin.*`).
+  - *Admin › Providers:* the buttons, the connection menu, the reconnect button, the two switches and the API engine
+    form were hidden unless `isOwner`; now `isAdmin` (owner or admin).
+  - *Left owner-only, on purpose:* the owner's setup checklist on Admin Home and the welcome steps (they walk through
+    backups and System, which stay the owner's, and belong to the owner's onboarding progress); member deletion,
+    updates, restores, the team name, transfer of ownership.
+  - *Members' own connections:* admin endpoints could already switch off or delete a member's personal connection for
+    the owner. Admins get the same (one rule: the team's policy), they still never see a secret.
+- **Hosted / managed installs.** No owner-only rule there turned out to be about billing or a provider-managed
+  connection. What a hosted server restricts stays as it is, and it never depended on the role: the hosting
+  service's trial AI credit is not a connection row (nobody edits it here), the allowed kinds come from
+  `engine.credentialKinds`, and the API engine address must be public https (`apiEngineAnyUrl`). All of these apply to
+  admins exactly as to the owner.
+- **Rejected:** a lighter re-auth for admins, or none (a connection is the team's money and access; the password
+  again stays); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
+  to other admins too (the owner is the one who answers for the team, and admins see the change in Activity log).
+
+### Review round 1 of "Admins connect the team's AI too" (2026-11-06)
+
+An independent review found one hole and several gaps. What changed, and why:
+
+- **The team API engine's key cannot be sent to a new address** (the hole: an admin could save a new address without a
+  key, which kept the stored key, and "check again" then sent it there; every API-engine turn after that went there
+  too). Now: a changed address (scheme, host or port) never keeps the stored key: the caller sends a key for it, or
+  `null` (400 otherwise; for the owner too). `putApiEngine` is `admin-reauth` (the caller's own password). An admin
+  (not the owner) cannot set a private, loopback or link-local address on a self-hosted or office install (403): the
+  address rules are web_fetch's own (`isPublicAddress` / `isLocalAddress` / `checkHostName` through
+  `assertPublicHttps`, now with `allowHttp`), not new ones. A private address already set stays as it is when only
+  the model changes. The owner's notice names the host and the model.
+- **The notice reaches an owner who is away.** Next to the live notice (the channel of the connection notices) it is
+  an inbox row (`credential.change`, table `credential_change_notices`, migration 116, additive, reader level 1;
+  who, action, the connection's name or the engine's host and model, never a key), in all five languages. It is sent
+  whenever the actor is **not an owner** (so a person demoted a moment ago is still reported). Also told, after
+  consideration: giving a connection to other people (`reassigned`), a zero limit (`zero_limit`), turning shared
+  subscriptions on (`shared_on`: a provider-terms risk the owner answers for). Not told, with a reason: turning
+  shared subscriptions off or the members' own connections on or off (no new risk; Activity log), renames, order and
+  normal limits (noise).
+- **A sign-in belongs to its starter and to the right door.** A team sign-in can be reached only through
+  `/api/admin/credential-logins`, a personal one only through `/api/me/...` (404 through the other). At store time a
+  team sign-in (Claude and ChatGPT) checks that its starter is still an active owner or admin
+  (`policy_changed` otherwise). Making someone a member ends their running team sign-ins; disabling them ends all
+  (`credentials/login.ts cancelLoginsOf`, called from `updateUser`). The owner or any admin can stop any **team**
+  sign-in (only one runs at a time, and a forgotten one blocked everybody for up to 16 minutes); the Activity log
+  says who (`credential.login_cancel`). Reading the address and sending the code stay the starter's alone.
+- **A member's own connection through the admin endpoints.** The owner keeps what the owner had. An admin may only
+  switch off or remove a **member's** (not the owner's, not another admin's), never rename, reorder, limit or
+  replace its key, and the member is told (live and in the inbox). Reversing it (switching it on again) is the
+  member's. This replaces the earlier "admins get the owner's powers here" line.
+- **Copy.** Texts for members who are told to ask now say owner or admin (all five languages).
+
+### Review round 2 of "Admins connect the team's AI too" (2026-11-07)
+
+- **The API engine's key is stored with its address, and read only for it.** The round-1 rule ("a changed address needs
+  a key") was decided from a read made before the admin's DNS wait and written after it, so an owner's new key saved
+  during that wait ended up paired with the admin's address. Now the key file holds the key and the origin it was
+  made for (`engine/api-agent.ts`); `readApiEngine`, which every reader that sends the key goes through, returns
+  `key: null` for any other origin. An older bare key is bound to the address that was set when it is first rewritten.
+  The handler also decides the rule from a fresh read with no wait before the write. Regression test: the review's
+  race, adapted (`a-credentials-api`).
+- **Redirects and re-pointed names.** API-engine calls never follow a redirect (`redirect: 'error'`, every install).
+  An address an admin set (`setBy: 'admin'` in `engine-api.json`; an address the owner set and an admin left alone stays
+  the owner's) must be a public address at every call, not only when it was saved, with the same classification as
+  before (`assertPublicHttps`, `allowHttp`). No cache: one DNS lookup per call is cheap beside the model call.
+- **A busy sign-in can be stopped from the dialog.** Only one sign-in runs per server. The 409 for an owner or an admin
+  starting one carries `LoginBusyParams` (the running sign-in's id, whether it is the team's or a member's own, and the
+  starter's name); a member starting their own gets none of it. The Add account dialog shows it with **Stop it**, and
+  the owner or an admin may stop any sign-in, a member's own included (that member is told, live and in the inbox,
+  `personal_login_stopped`). Reading the address and sending the code stay the starter's alone.
+- **A save counts as a change only when something differs.** Assignments are compared as sets and the limit by value, so
+  the edit dialog (which always sends its whole form) no longer tells the owner, nor writes a false "changed" line in
+  the Activity log, when only the name changed.
+- **The inbox row's `action` has no CHECK list** (migration 116, not released): a later build may add actions, and a
+  reader that does not know one shows a generic line. 116 is still free in the A range on dev after this merge.
+- **Sign-in rights, finished.** Deleting a member also ends their running sign-ins; a personal sign-in of a disabled or
+  deleted account stores nothing; a Claude sign-in looks at its starter's role again inside the write itself (after
+  the provider check, which takes seconds).
+- **Texts.** "The team owner moved your connection" now names who did (an admin may).
+- **Matrix tests.** The admin-reauth cases are sent with a wrong password and check the reason: the owner and an admin
+  must be refused at the password (or by its rate limit), a member for the role, so a refusal for the wrong reason does
+  not pass.
+
+### Review round 3 of "Admins connect the team's AI too" (2026-11-07)
+
+- **The key is bound to the whole address, path included.** On a gateway that serves many tenants under one host (for
+  example `/v1/{account}/{gateway}/…`) an origin is not an address. The key file now holds `{"key","url"}` with the
+  normalised address (scheme, host, port, path, query; no trailing slash, no fragment), and `readApiEngine` returns the key
+  only for exactly that address. The "a changed address needs a key of its own, or null" rule uses the same comparison, for
+  the owner too (a path change without a key is a 400). Key files of this change's earlier commits (origin-bound) and the
+  older bare ones are bound to the address that was set the first time they are rewritten. The key file is written before
+  the settings, so a failed key write never leaves an older key readable for a new address.
+- **An address an admin set stays "the admin's" whoever saves next.** `setBy` is kept while the address is unchanged (an
+  owner changing only the model does not make it trusted); only an owner who sets a new address makes it theirs.
+- **An admin sets https addresses only**, at save and before each call (and the per-call public check stays). The check and
+  the connection resolve a name separately, and Bun's fetch has its own DNS cache, so a name can be re-pointed in between;
+  with https the TLS name check still stops a request to an internal host. http (a local Ollama, a LAN address) stays the
+  owner's.
+- **The role is read again after every wait.** The API-engine save re-reads who asks (role, status) after the DNS
+  lookups and before the write; creating or replacing a team connection from the admin routes does the same inside
+  the write, after the provider check (`ensure`). A sign-in already did.
+- **Stopping a sign-in follows the document.** The owner may stop anyone's sign-in; an admin a team sign-in or a member's
+  own; an admin's own only the owner; the owner's own nobody else. A stop that does not happen because the sign-in is
+  saving its token (409) is neither recorded nor told.
+- **No notice for a save that changes nothing** (the same address, model, name, and no new key).
+

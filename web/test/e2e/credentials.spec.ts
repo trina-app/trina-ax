@@ -5,6 +5,8 @@
 // fallback), and the https-only note where the browser cannot seal.
 // The mock opens the sealed values with the server's real sealing code, so a value sealed wrongly fails here.
 import { expect, test } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
+import { DICTS } from '../../src/i18n'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 
 const TOKEN = 'sk-ant-oat01-' + 'e2e'.repeat(15)
@@ -217,4 +219,88 @@ test('where the browser cannot seal (no crypto.subtle: http on a LAN address), a
   await page.getByTestId('provider-add-claude').click()
   await expect(page.getByTestId('credential-https-only')).toContainText('https')
   await expect(page.getByTestId('credential-submit')).toBeDisabled()
+})
+
+// An admin who is not the owner connects the team's AI like the owner does (docs/DECISIONS.md "Admins connect the team's
+// AI too"): the same Add account, the menu (switch off, remove) and the API engine form, with their own password again.
+test('an admin sees and uses the Providers buttons: adds a key with their own password, switches it off, removes it, saves the API engine', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  expect((await page.request.patch('/api/admin/users/bob', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' } })).ok()).toBe(true)
+  await page.evaluate(() => localStorage.clear())
+  await page.context().clearCookies()
+  const BOB = { username: 'bob', password: 'bob password 1' }
+  await signIn(page, BOB)
+  await page.goto('/admin/providers')
+  await expect(page.getByTestId('provider-add-claude')).toBeVisible()
+  await expect(page.getByTestId('provider-add-codex')).toBeVisible()
+
+  // the owner's password is not the admin's: the server says so; their own works
+  await page.getByTestId('provider-add-claude').click()
+  await page.getByTestId('kind-anthropic-api-key').check()
+  await page.getByTestId('credential-label').fill('관리자 키')
+  await page.getByTestId('credential-secret').fill(KEY)
+  await page.getByTestId('credential-password').fill(OWNER.password)
+  const refused = page.waitForResponse((r) => r.url().endsWith('/api/admin/credentials') && r.request().method() === 'POST')
+  await page.getByTestId('credential-submit').click()
+  expect((await refused).status()).toBe(403)
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
+  const added = page.waitForRequest((r) => r.url().endsWith('/api/admin/credentials') && r.method() === 'POST')
+  await page.getByTestId('credential-password').fill(BOB.password)
+  await page.getByTestId('credential-submit').click()
+  expect((await added).postDataJSON()).toMatchObject({ label: '관리자 키', password: BOB.password })
+  const rows = page.getByTestId('credentials-claude').getByTestId('credential-row')
+  await expect(rows).toHaveCount(1)
+  await expect(page.getByTestId('credentials-claude')).toContainText('…WXYZ')
+
+  // the row's menu: switch off, then remove
+  await rows.first().getByTestId('credential-menu').click()
+  const off = page.waitForRequest((r) => /\/api\/admin\/credentials\/[^/]+$/.test(r.url()) && r.method() === 'PATCH')
+  await page.getByRole('menuitem', { name: '끄기' }).click()
+  expect((await off).postDataJSON()).toEqual({ disabled: true })
+  await rows.first().getByTestId('credential-menu').click()
+  await page.getByRole('menuitem', { name: '삭제' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '삭제' }).click()
+  await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
+
+  // the API engine form is theirs too
+  await page.goto('/admin/providers?engine=api')
+  const form = page.locator('[data-engine="api"]').getByTestId('api-engine-form')
+  await expect(form).toBeVisible()
+  await form.getByLabel(DICTS.ko['engines.api.preset']).selectOption('openrouter')
+  await form.getByTestId('api-engine-password').fill(BOB.password)
+  const saved = page.waitForRequest((r) => r.method() === 'PUT' && /\/api\/admin\/engines\/api-config$/.test(r.url()))
+  await form.getByRole('button', { name: '저장', exact: true }).click()
+  expect((await saved).postDataJSON()).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1' })
+
+  // and the switches of the team's AI settings
+  await page.goto('/admin/settings#ai')
+  await expect(page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')).toBeEnabled()
+})
+
+// Only one AI sign-in runs at a time. When another is in the way, the owner or an admin is told whose it is and stops
+// it from the dialog, then starts their own.
+test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and the start goes through', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const call = (method: 'patch' | 'post', url: string, data: object) => page.request[method](url, { headers: { [CSRF_HEADER]: '1' }, data })
+  expect((await call('patch', '/api/admin/credential-settings', { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })).ok()).toBe(true)
+  // someone's sign-in is running (here the owner's own, started elsewhere)
+  const running = await call('post', '/api/admin/credential-logins', { kind: 'anthropic-oauth', label: 'Elsewhere', assignments: [], priority: 100, acknowledgedPlanNotice: true, password: OWNER.password })
+  expect(running.status()).toBe(202)
+  await page.goto('/admin/providers')
+  await page.getByTestId('provider-add-claude').click()
+  await page.getByTestId('kind-anthropic-oauth').check()
+  await page.getByTestId('credential-label').fill('Mine')
+  await page.getByTestId('credential-password').fill(OWNER.password)
+  await page.getByTestId('plan-notice-ack').check()
+  await page.getByTestId('credential-submit').click()
+  const busy = page.getByTestId('login-busy')
+  await expect(busy).toBeVisible()
+  await expect(busy).toContainText('Olga')
+  await busy.getByTestId('login-busy-stop').click()
+  await expect(page.getByTestId('login-busy')).toHaveCount(0)
+  await page.getByTestId('credential-submit').click()
+  await expect(page.getByTestId('claude-open')).toBeVisible()
 })

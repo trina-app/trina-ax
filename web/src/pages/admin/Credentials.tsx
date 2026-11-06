@@ -1,20 +1,20 @@
 // The accounts the team's AI answers with (docs/DECISIONS.md "AI 연결" 3.13) — Claude subscription tokens, API keys,
 // ChatGPT sign-ins — shown inside each provider's row in Admin › AI providers (pages/admin/Engines.tsx; it was a page of
 // its own, Admin > AI connections, and /admin/credentials leads there): their state, who uses them, this month's use and
-// the order they are tried in. Admins see and re-check; only the owner adds, replaces, orders, assigns, limits,
-// switches off and removes (adding and replacing ask for the password again). Tokens and keys are sealed in the browser
+// the order they are tried in. The owner and admins alike add, replace, order, assign, limit,
+// switch off, remove and re-check them (adding and replacing ask for the person's own password again). Tokens and keys are sealed in the browser
 // before they are sent (lib/seal.ts) and never shown again. Settings › AI providers (MyCredentials) is a member's own
 // accounts by provider, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
 // folded under a small disclosure.
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { DuplicateCredentialParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
+import { DuplicateCredentialParams, LoginBusyParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { isOwner, useMeStrict } from '../../store/session'
+import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
@@ -55,7 +55,8 @@ export type Family = 'claude' | 'codex'
 export function useTeamCredentials() {
   const t = useT()
   const me = useMeStrict()
-  const owner = isOwner(me)
+  // the owner and admins change the team's AI connections alike (docs/DECISIONS.md "Admins connect the team's AI too")
+  const owner = isAdmin(me)
   const act = useAction()
   const actOk = useActionOk()
   const state = useLoad(() => api.call(API.listCredentials))
@@ -112,7 +113,7 @@ export function useTeamCredentials() {
       {editing && <EditCredential c={editing} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void state.reload() }} />}
     </>
   )
-  return { me, owner, state, trial, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
+  return { me, owner, users, state, trial, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
 }
 export type TeamCredentials = ReturnType<typeof useTeamCredentials>
 
@@ -153,7 +154,8 @@ export function PersonalCredentialList({ tc }: { tc: TeamCredentials }) {
   return (
     <ul className="divide-y divide-line rounded-xl border border-line" data-testid="credentials-personal">
       {d.items.filter((x) => x.scope === 'personal').map((c) => (
-        <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={tc.owner} checking={tc.checking === c.id} personal
+        // the owner may switch off or remove any; an admin only a member's (not the owner's or another admin's)
+        <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={isOwner(tc.me) || tc.users.data?.find((u) => u.id === c.owner?.id)?.role === 'member'} checking={tc.checking === c.id} personal
           onCheck={() => tc.check(c)} onEdit={() => {}} onReplace={() => {}} onRemove={() => tc.remove(c)} onToggle={() => tc.patch(c, { disabled: !c.disabled })} />
       ))}
     </ul>
@@ -268,6 +270,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** a sign-in is already running (one at a time): whose, so the owner or an admin can stop it from here */
+  const [busyLogin, setBusyLogin] = useState<LoginBusyParams | null>(null)
   const [login, setLogin] = useState<CredentialLogin | null>(null)
   /** Claude: the terminal fallback is open (paste a setup-token token instead of the sign-in) */
   const [manual, setManual] = useState(false)
@@ -301,7 +305,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
 
   const submit = async () => {
     if (!kind || !ready) return
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setBusyLogin(null)
     try {
       if (signIn) {
         const loginKind = kind as CredentialLoginKind
@@ -326,6 +330,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       onDone()
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
+      if (isApiError(e, 'busy')) { const b = LoginBusyParams.safeParse(e.body.params); setBusyLogin(b.success ? b.data : null) }
       // already a personal connection: offer "Move it to the team", with the password typed again for it (another
       // answer to a move, such as a wrong password, keeps the offer)
       if (isApiError(e, 'conflict')) {
@@ -333,6 +338,12 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
         if (dup?.success && dup.data.movable && dup.data.credentialId) { setMove(dup.data); setPassword('') } else setMove(null)
       }
     } finally { setBusy(false) }
+  }
+  /** stop the sign-in that is in the way (any, for the owner or an admin), then the start can be pressed again */
+  const stopBusy = async () => {
+    if (!busyLogin) return
+    try { await api.call(API.cancelCredentialLogin, { params: { id: busyLogin.loginId } }) } catch (e) { if (!isApiError(e, 'not_found')) { setError(errorText(e, locale, t('error.network'))); return } }
+    setBusyLogin(null); setError(null)
   }
   /** Claude: the pasted code, sealed like a token, to the sign-in that waits for it */
   const sendCode = async () => {
@@ -449,6 +460,12 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
               </div>
             )}
             {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
+            {busyLogin && !personal && (
+              <p className="flex flex-wrap items-center gap-2 text-sm text-muted" data-testid="login-busy">
+                {t('credentials.loginBusy', { name: busyLogin.starter, kind: t(busyLogin.personal ? 'credentials.loginBusyPersonal' : 'credentials.loginBusyTeam') })}
+                <Button size="sm" variant="secondary" onClick={() => void stopBusy()} data-testid="login-busy-stop">{t('credentials.loginStop')}</Button>
+              </p>
+            )}
             {move && (
               <div className="rounded-lg bg-subtle p-3 text-sm" data-testid="credential-move">
                 <p className="font-medium">{t('credentials.moveToTeam')}</p>

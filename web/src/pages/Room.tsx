@@ -1,12 +1,12 @@
 // One room (/rooms/:roomId; the mobile app links here from a notice): a 48px header with the room's name (its mark
 // beside it on computers) and member count, which open the room's info (components/rooms/MembersDialog.tsx: the name,
-// 초대하기, the members, 나가기), and the bell (mute, its only setting); the messages (components/rooms/RoomMessages.tsx),
+// 초대하기, the members, 나가기), and the bell (my notifications for the room, components/rooms/RoomNotifyMenu.tsx); the messages (components/rooms/RoomMessages.tsx),
 // older ones loaded on scrolling up; the message box at the bottom. What I see is marked read (POST
 // /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
 // A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
-import { Bell, BellOff, ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
+import { ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
@@ -18,13 +18,13 @@ import { useLocale, useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
 import { useRooms, type PendingSend } from '../store/rooms'
 import { useMe } from '../store/session'
-import { toast } from '../store/ui'
 import { MembersDialog } from '../components/rooms/MembersDialog'
 import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
 import { RoomMessages } from '../components/rooms/RoomMessages'
 import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
+import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 
@@ -171,15 +171,6 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
 
   if (notFound) return <RoomNotFound />
 
-  const toggleMute = async () => {
-    if (!room) return
-    try {
-      await useRooms.getState().setMuted(roomId, !room.muted)
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
-
   // threads I follow with replies I have not read: the newest of them is one tap away (none open already)
   const nextThread = room && room.threadsUnread > 0 && room.nextThreadId && room.nextThreadId !== threadId ? room.nextThreadId : null
 
@@ -224,12 +215,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
           </IconButton>
         )}
-        {/* the room's one setting, right here (a menu of one item is one tap too many): the bell shows how it is now */}
-        {room && (
-          <IconButton label={room.muted ? t('rooms.unmute') : t('rooms.mute')} className="touch-hit shrink-0" onClick={() => void toggleMute()} data-testid="room-mute">
-            {room.muted ? <BellOff size={16} aria-hidden /> : <Bell size={16} aria-hidden />}
-          </IconButton>
-        )}
+        {/* the room's one setting, right here: the bell shows how it is now and opens its four levels */}
+        {room && <RoomNotifyMenu room={room} />}
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-4">

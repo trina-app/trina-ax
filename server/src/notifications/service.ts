@@ -12,10 +12,11 @@ import { atLeast } from '../policy/access'
 import { readScope } from '../chat/read-scope'
 import { getRow as getIntegration, mayUse as mayUseIntegration, templateCovers } from '../integrations/connections/store'
 import { shareCovers, shareRow } from '../integrations/google-drive/shares'
-import { eventEnabled, getPreferences, savePreferences } from './preferences'
+import { eventEnabled, getPreferences, roomAlertsChanged, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
 import { contributionOf } from '../skills/suggestions'
+import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -40,7 +41,7 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
@@ -48,7 +49,7 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
  * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
  * steps, the skills to merge that waited for it (migration 253) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices'] as const
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts: every notice but the rooms' (a DM message, an @mention). Those still push, and a
@@ -79,15 +80,17 @@ export class Notifications {
   /** A DM message, an @mention or a reply in a followed thread in a room (rooms/service.ts notify). The source is the
    * message id only, never its text. No second notice of the same kind while one of that room's timeline (or, for a
    * reply, of that thread: `threadRootId`) is still unread (one per unread run: a burst of messages or mentions is one
-   * notice and one push); reading the room, or the thread, marks them read. Follows the person's room setting. */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null) {
+   * notice and one push); reading the room, or the thread, marks them read. Whether there is a notice at all is the
+   * room's level for the person (Rooms.notify). `quiet`: made inside their quiet hours (docs/DECISIONS.md "대화방 알림
+   * 설정"): kept, never pushed (room_notices.quiet), and it does not hold back the room's next notice once the quiet
+   * hours are over (that one pushes); while they last, any unread notice of the run holds the next one back. */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false) {
     if (!this.active(userId) || at < this.cutoff()) return
     if (this.ctx.db.query(`SELECT 1 FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ?`).get(userId, roomId, event, this.cutoff(), threadRootId)) return
-    const enabled = eventEnabled(this.preferences(userId), event)
-    const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
-      .run(newId(), userId, event, messageId, roomId, at, enabled ? 0 : 1)
-    if (r.changes && enabled) this.signal(userId)
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1)`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0)) return
+    const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed,quiet) VALUES(?,?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
+      .run(newId(), userId, event, messageId, roomId, at, quiet ? 1 : 0)
+    if (r.changes) this.signal(userId)
   }
   /** A dev environment job ended, or boxd stopped a box. The source is the id of the job or the stop row only. */
   devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {
@@ -98,7 +101,7 @@ export class Notifications {
   integrationRequest(userId: string, requestId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'integration.request', requestId, createdAt, true)
   }
-  /** A member without AI asks this owner to connect one. The source is the member's id only; a second ask is a no-op
+  /** A member without AI asks this owner or admin to connect one. The source is the member's id only; a second ask is a no-op
    * (UNIQUE row, migration 231). Shown always. */
   onboardingAiRequest(ownerId: string, memberId: string, createdAt = new Date().toISOString()) {
     // a settled or read row from an earlier ask is armed again (unread, new time) instead of being swallowed by the unique row
@@ -293,14 +296,20 @@ export class Notifications {
   setPreferences(userId: string, patch: Partial<NotificationPreferences>) {
     if (!this.active(userId)) throw new HttpError('not_found')
     // Process previous terminal events with the old preferences before committing a change.
-    const result = this.ctx.db.transaction(() => {
+    const { before, result } = this.ctx.db.transaction(() => {
       while (this.reconcile(userId) === 500) { /* drain all prior events under the old preferences */ }
+      const before = this.preferences(userId)
       const preferences = savePreferences(this.ctx.db, userId, patch)
       cancelDisabledPushDeliveries(this.ctx, userId, preferences)
-      return preferences
+      return { before, result: preferences }
     })()
     cancelPushUser(this.ctx, userId)
     this.signal(userId)
+    // every room's level and the quiet hours may have changed: the person's windows read their rooms again
+    if (roomAlertsChanged(before, result)) {
+      try { this.ctx.services.realtime.publish(userId, ROOM_ALERTS_CHANGED) }
+      catch { this.ctx.log.warn('room alerts signal failed') }
+    }
     return result
   }
   /** The job's text and the chat link only while the person can read the project folder now, as for a scheduled run. A
@@ -401,6 +410,14 @@ export class Notifications {
       const u = n ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(n.member_id) as { name: string } | null : null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(n ? { firstRun: { member: u?.name ?? null, skill: goalSkillTitle(this.ctx, row.user_id, n.skill_path), runners: n.runners, target: GOAL_PEOPLE } } : {}) }
+    }
+    // an admin's change to the team's AI, told to the owners, or to a member's own connection: who, what, the name (the
+    // text is the page's); the owners' open Admin › Providers
+    if (row.event_type === 'credential.change') {
+      const n = this.ctx.db.query('SELECT actor_name, action, subject FROM credential_change_notices WHERE id=?').get(row.id) as { actor_name: string; action: string; subject: string } | null
+      const own = !!n && n.action.startsWith('personal_')
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: n && !own ? 'admin_credentials' : null, outcome: null,
+        ...(n ? { credentialChange: { who: n.actor_name, action: n.action, subject: n.subject } } : {}) }
     }
     // the skills to merge after the welcome steps: how many, and the merge chat while it is the owner's and not deleted
     if (row.event_type === 'skills.merge_waiting') {
