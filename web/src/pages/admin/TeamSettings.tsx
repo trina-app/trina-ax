@@ -15,7 +15,7 @@ import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
@@ -378,13 +378,13 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
   )
 }
 
-/** How long the company intro deck may take (server/src/intro-deck/tiers.ts): 3 minutes (default), 5 or 10. */
+/** How long the company intro deck may take (server/src/intro-deck/tiers.ts): 3, 5 (the default, DEFAULT_DECK_TIER) or 10 minutes. */
 export function DeckTierField({ value, onChange }: { value: TeamSettings['introDeckTier'] | undefined; onChange: (v: TeamSettings['introDeckTier']) => void }) {
   const t = useT()
   return (
     <SettingRow id="ts-deck-tier" testId="team-deck-tier" title={t('teamSettings.deckTier')} desc={t('teamSettings.row.deckTierDesc')} more={t('teamSettings.deckTierHint')}
       control={
-        <select id="ts-deck-tier" aria-describedby="ts-deck-tier-desc" className={clsx(inputCls, 'sm:w-64')} value={value ?? 'quick'} onChange={(e) => onChange(e.target.value as TeamSettings['introDeckTier'])}>
+        <select id="ts-deck-tier" aria-describedby="ts-deck-tier-desc" className={clsx(inputCls, 'sm:w-64')} value={value ?? DEFAULT_DECK_TIER} onChange={(e) => onChange(e.target.value as TeamSettings['introDeckTier'])}>
           <option value="quick">{t('teamSettings.deckTierQuick')}</option>
           <option value="standard">{t('teamSettings.deckTierStandard')}</option>
           <option value="deep">{t('teamSettings.deckTierDeep')}</option>

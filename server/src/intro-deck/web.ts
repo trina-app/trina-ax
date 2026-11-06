@@ -31,7 +31,8 @@ const TAG_MAX = 2000, LABEL_MAX = 400
  * regular expression over the whole page: an unclosed `<a href` repeated over megabytes must not take seconds). */
 export function siteLinks(htmlIn: string, base: URL, inScope: (u: string) => boolean): string[] {
   const html = htmlIn.slice(0, LINK_HTML_MAX)
-  const low = html.toLowerCase()
+  // ASCII-only lowercase: a full toLowerCase() can change the length ('İ' → 'i̇') and shift every position
+  const low = html.replace(/[A-Z]+/g, (m) => m.toLowerCase())
   const n = low.length
   // the next ">" from every position, and every "</a" in order (one pass each)
   const nextGt = new Int32Array(n + 1)
