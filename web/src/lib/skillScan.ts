@@ -1,4 +1,4 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "K — 내 스킬 가져오기"): reads the skills in a folder the person picked or dropped
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"): reads the skills in a folder the person picked or dropped
 // and makes the body of POST /api/skill-shares. Nothing leaves the browser before this has filtered it:
 //  - only known paths are opened. In a .claude folder: skills/*/ (a folder with SKILL.md: its files, at most 3 folders
 //    down), plugins/**/skills/*/SKILL.md (only the name goes up, as excluded `plugin`; nothing in it is read),
@@ -11,12 +11,19 @@
 //    (excluded `too_big`); a secret file name (.env, *.pem, id_rsa …) or a text file in which findSecrets finds
 //    anything (shared/src/secrets.ts) sends the name and the kind only (excluded `secret`), never the content;
 //  - CLAUDE.md goes without the lines that hold a secret.
+// Codex (docs/DECISIONS.md "W5"; https://learn.chatgpt.com/docs/build-skills): a picked .codex folder (or a project
+// folder holding one) gives skills/*/ the same way (its .system folder, Codex's own built-in skills, is a dot folder and
+// never read), prompts/*.md like Claude's commands (custom prompts, removed from Codex in 2026 but still on disk),
+// AGENTS.override.md, else AGENTS.md, like CLAUDE.md, and the remote MCP servers of config.toml as tools without a key
+// (lib/codexToml.ts reads only those, at most CODEX_TOML_MAX_BYTES); a picked .agents folder (where Codex keeps
+// personal and project skills now) gives its skills/. The body then says `app: 'codex'`.
 // Three ways in give the same walk (ScanDir): a File System Access handle (Chrome, Edge: fromHandle), a dropped folder
 // (any browser: fromEntry, read lazily) and the file list of <input webkitdirectory> (Safari, Firefox and the desktop
 // app, which lists every file of the picked folder: fromFiles, of which only the known paths are read).
 import { findSecrets } from '@mycel/shared'
-import { SHARE_IMAGE_EXTENSIONS, SHARE_SCRIPT_EXTENSIONS, SHARE_TEXT_EXTENSIONS, SKILL_SHARE_LIMITS, type CreateSkillShare, type ShareExcludedIn, type ShareFileIn, type ShareSkillIn, type SkillShareSource } from '@mycel/shared/api'
+import { SHARE_IMAGE_EXTENSIONS, SHARE_SCRIPT_EXTENSIONS, SHARE_TEXT_EXTENSIONS, SKILL_SHARE_LIMITS, type CreateSkillShare, type ShareExcludedIn, type ShareFileIn, type ShareSkillIn, type ShareToolIn, type SkillShareSource } from '@mycel/shared/api'
 import { isSystemName } from './folderUpload'
+import { CODEX_TOML_MAX_BYTES, codexTools } from './codexToml'
 
 /** A folder as the walk sees it: a child is asked for by name; `list` gives names only (nothing is opened). */
 export interface ScanDir {
@@ -33,8 +40,9 @@ export interface ScanFile {
   get(): Promise<Blob>
 }
 
-/** What the picked folder turned out to be. */
-export type ScanKind = 'claude' | 'skills' | 'skill' | 'none'
+/** What the picked folder turned out to be: a .claude folder, a .codex folder, a .agents folder, a skills/ folder, one
+ * skill, or none of them. */
+export type ScanKind = 'claude' | 'codex' | 'agents' | 'skills' | 'skill' | 'none'
 export interface ScanResult {
   kind: ScanKind
   /** the body for POST /api/skill-shares; null when nothing was found */
@@ -223,11 +231,20 @@ export async function scanFolder(picked: ScanDir, source: Extract<SkillShareSour
   let rule: string | null = null
   // asked for by name, one at a time: the folder itself is never listed
   const probe = async (d: ScanDir) => ({ skillMd: await d.file('SKILL.md'), skills: await d.dir('skills'), plugins: await d.dir('plugins'), commands: await d.dir('commands'), claudeMd: await d.file('CLAUDE.md') })
+  // a picked .codex or .agents folder, or a project folder holding one (and no .claude): Codex's places
+  const codex = picked.name === '.codex' ? picked : null
+  const agents = picked.name === '.agents' ? picked : null
+  if (codex || agents) return codexScan(g, source, codex, agents)
   let p = await probe(root)
   // a project folder with its .claude in it
   if (!p.skillMd && !p.skills && !p.plugins && !p.commands && !p.claudeMd && root.name !== '.claude') {
     const inner = await root.dir('.claude')
     if (inner) { root = inner; p = await probe(root) }
+    else {
+      const innerCodex = await root.dir('.codex')
+      const innerAgents = await root.dir('.agents')
+      if (innerCodex || innerAgents) return codexScan(g, source, innerCodex, innerAgents)
+    }
   }
   if (p.skillMd) {
     kind = 'skill'
@@ -254,11 +271,39 @@ export async function scanFolder(picked: ScanDir, source: Extract<SkillShareSour
       await g.skillsFolder(root)
     }
   }
-  if (!g.skills.length && !g.excluded.length && !rule) return { kind: kind === 'none' ? 'none' : kind, body: null, cut: g.cut }
-  const body: CreateSkillShare = { source, where: cap(where), skills: g.skills }
+  return result(g, kind, { source, where, rule, tools: [] })
+}
+
+/** The body of a walk, or none when it found nothing (no skill, nothing left out, no rule, no tool). */
+function result(g: Gather, kind: ScanKind, o: { source: Extract<SkillShareSource, 'browser' | 'desktop'>; where: string; rule: string | null; tools: ShareToolIn[]; app?: 'codex' }): ScanResult {
+  if (!g.skills.length && !g.excluded.length && !o.rule && !o.tools.length) return { kind: kind === 'none' ? 'none' : kind, body: null, cut: g.cut }
+  const body: CreateSkillShare = { source: o.source, ...(o.app ? { app: o.app } : {}), where: cap(o.where), skills: g.skills }
   if (g.excluded.length) body.excluded = g.excluded
-  if (rule) body.rule = { text: rule }
+  if (o.rule) body.rule = { text: o.rule }
+  if (o.tools.length) body.tools = o.tools
   return { kind, body, cut: g.cut }
+}
+
+/** Codex's places (see the top of this file): a .codex folder (skills/, prompts/, AGENTS.override.md or AGENTS.md,
+ * config.toml) and a .agents folder (skills/), each asked for by name; neither folder is listed. */
+async function codexScan(g: Gather, source: Extract<SkillShareSource, 'browser' | 'desktop'>, codex: ScanDir | null, agents: ScanDir | null): Promise<ScanResult> {
+  let rule: string | null = null
+  let tools: ShareToolIn[] = []
+  if (codex) {
+    const skills = await codex.dir('skills')
+    if (skills) await g.skillsFolder(skills)
+    const prompts = await codex.dir('prompts')
+    if (prompts) await g.commands(prompts)
+    const agentsMd = (await codex.file('AGENTS.override.md')) ?? (await codex.file('AGENTS.md'))
+    if (agentsMd) rule = await ruleText(await agentsMd.get())
+    const config = await codex.file('config.toml')
+    if (config) tools = codexTools(await (await config.get()).slice(0, CODEX_TOML_MAX_BYTES).text())
+  }
+  if (agents) {
+    const skills = await agents.dir('skills')
+    if (skills) await g.skillsFolder(skills)
+  }
+  return result(g, codex ? 'codex' : 'agents', { source, where: codex ? '.codex' : '.agents', rule, tools, app: 'codex' })
 }
 
 // ---- the three ways in
