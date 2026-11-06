@@ -47,7 +47,7 @@ export function PhoneTopBar() {
         {title}
       </span>
       {rooms ? (
-        <IconButton label={t('rooms.newDm')} onClick={() => navigate('/rooms?new=1', { replace: true })} className={icon} data-testid="topbar-new-dm">
+        <IconButton label={t('rooms.newChat')} onClick={() => navigate('/rooms?new=1', { replace: true })} className={icon} data-testid="topbar-new-dm">
           <MessageCirclePlus size={20} />
         </IconButton>
       ) : (

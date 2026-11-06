@@ -64,12 +64,13 @@ export interface PromptInput {
 }
 
 /** The room a room session answers in, as the instructions name it. */
-export interface RoomPrompt { name: string; kind: 'team' | 'all' | 'dm'; members: number; asker: string }
+export interface RoomPrompt { name: string; kind: 'team' | 'all' | 'dm' | 'group'; members: number; asker: string }
 
 /** A team chat room's rules (docs/DECISIONS.md "대화방의 트리나"): the context block holds other people's words, and
  * the answer may go to the whole room. In the instructions and in a resumed session's turn context. */
 export function roomSection(r: RoomPrompt): string {
-  const where = r.kind === 'dm' ? `a direct message room of ${r.members} people` : r.kind === 'all' ? `the team's room for everyone (${r.members} people)` : `the team chat room "${r.name}" (${r.members} people)`
+  const where = r.kind === 'dm' ? `a direct message room of ${r.members} people` : r.kind === 'all' ? `the team's room for everyone (${r.members} people)`
+    : r.kind === 'group' ? `a group chat of ${r.members} people` : `the team chat room "${r.name}" (${r.members} people)`
   const name = roomLine(r.asker)
   return [
     '## Team chat room',

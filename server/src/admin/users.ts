@@ -21,6 +21,7 @@ import { afterAccessChange, captureState, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
 import { revokeTeamLinksBy } from '../auth/team-links'
+import { dropAdminScope } from '../connectors/remote-mcp/oauth'
 import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
@@ -139,6 +140,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     resetEngineSessions(ctx, id)
   }
   if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id) }
+  // their AI apps' group management (connector scope mcp:admin) ends for good, like their invites
+  if (changed.status === 'disabled' || changed.role === 'member') dropAdminScope(ctx.db, id, changed.role === 'member' ? 'role' : 'status', auth.user.id)
   if (changed.role !== undefined || changed.groupIds !== undefined) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
   // disabled: out of the team rooms and the everyone room now; enabled again: back in, seeing messages from now on
   // (afterAccessChange syncs the rooms too, so only a status change on its own needs this)

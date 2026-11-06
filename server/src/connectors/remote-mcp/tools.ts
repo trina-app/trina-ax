@@ -6,10 +6,11 @@ import { authorize } from '../../policy/authorize'
 import { listSkills, skillInfo } from '../../chat/skills'
 import { sourceKey, sourceOf, widening, type ReadSource } from '../../chat/read-scope'
 import { audit } from '../../admin/audit'
-import { hash, OAuthError } from './policy'
-import { remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
+import { ADMIN_SCOPE, hash, OAuthError } from './policy'
+import { dropAdminScope, isTeamAdmin, remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
 import { uploadFile, uploadTool } from './upload'
 import { createUploadLink, uploadLinkTool } from './upload-link'
+import { GROUP_TOOLS, groupTool, groupTools } from './groups'
 
 const WRITE = new Set(['write', 'edit', 'upload_file', 'create_upload_link'])
 const CONNECTOR_ONLY = new Set(['upload_file', 'create_upload_link'])
@@ -22,13 +23,19 @@ const skillTool = { name: 'skills_list', description: 'Discover the team skills 
 const result = (text: string, isError = false) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}) })
 type Memory = { files: TurnFiles; tail: Promise<void>; queued: number; touched: number }
 
-/** Only core file tools. The local Unix turn registry, admin/Drive/browser/network tools are never imported. */
+/**
+ * Core file tools, plus the connector's own upload tools and, with mcp:admin for an owner or admin, the group tools
+ * (groups.ts, the server functions of Admin › Groups). The local Unix turn registry, and the in-app AI's admin, Drive,
+ * browser and network tools are never imported.
+ */
 export class RemoteTools {
   private memory = new Map<string, Memory>()
   constructor(readonly ctx: AppContext, readonly oauth: () => RemoteOAuth = () => remoteOAuthOf(ctx)) {}
   list(g: Grant) {
     const scopes = JSON.parse(g.scopes) as string[]
-    return [...[...toolList, uploadTool, uploadLinkTool].filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool]
+    // the group tools: the scope, and the person's role now (a demoted admin's grant does not list them)
+    const admin = scopes.includes(ADMIN_SCOPE) && isTeamAdmin(this.ctx.db, g.user_id)
+    return [...[...toolList, uploadTool, uploadLinkTool].filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool, ...(admin ? groupTools : [])]
   }
   private policy(user: string) {
     return hash(JSON.stringify({
@@ -39,7 +46,7 @@ export class RemoteTools {
   async call(token: string, name: string, args: unknown, signal?: AbortSignal) {
     const oauth = this.oauth(), grant = oauth.authenticate(token)
     oauth.rate('tool-user', grant.user_id, 120)
-    if (name !== 'skills_list' && !CONNECTOR_ONLY.has(name) && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
+    if (name !== 'skills_list' && !CONNECTOR_ONLY.has(name) && !GROUP_TOOLS.has(name) && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
     // Bound idle memory; read sources survive eviction/restart in the grant row.
     for (const [id, m] of this.memory) if (!m.queued && m.touched < oauth.now() - 10 * 60_000) this.memory.delete(id)
     let m = this.memory.get(grant.id)
@@ -58,8 +65,21 @@ export class RemoteTools {
       await before
       if (signal?.aborted) throw new OAuthError('invalid_request', 400)
       const fresh = oauth.authenticate(token), scopes = JSON.parse(fresh.scopes) as string[]
-      if (!scopes.includes('mcp:read') || (WRITE.has(name) && !scopes.includes('mcp:write'))) return result('This connection has no permission for that tool. Reconnect with the required scope.', true)
-      const user = this.ctx.files.principal(fresh.user_id), policy = this.policy(user.id)
+      if (!scopes.includes('mcp:read') || (WRITE.has(name) && !scopes.includes('mcp:write')) || (GROUP_TOOLS.has(name) && !scopes.includes(ADMIN_SCOPE))) return result('This connection has no permission for that tool. Reconnect with the required scope.', true)
+      const user = this.ctx.files.principal(fresh.user_id)
+      if (GROUP_TOOLS.has(name)) {
+        // The role now, not at consent: a person who is no longer an owner or admin loses mcp:admin on this grant for
+        // good. Nothing awaits between this check and the change (groups.ts is synchronous).
+        if (user.role !== 'owner' && user.role !== 'admin') {
+          dropAdminScope(this.ctx.db, user.id, 'role')
+          audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: false, via: 'connector', reason: 'not_admin' } })
+          return result('Only an owner or admin can manage groups. This connection can no longer use the group tools.', true)
+        }
+        const out = groupTool(this.ctx, oauth, user, name, args)
+        audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: !out.isError, via: 'connector', ...out.audit } })
+        return result(out.text, out.isError)
+      }
+      const policy = this.policy(user.id)
       if (name === 'skills_list') {
         if (args !== undefined && (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length)) return result('Invalid input.', true)
         const skills = listSkills(this.ctx.files, user).map(skillInfo)

@@ -41,7 +41,7 @@ test('a phone opens on 트리나: the box, four tabs, ☰ only there, one action
   await expect(page.getByTestId('rooms-ai')).toBeHidden()
   await page.getByTestId('topbar-new-dm').click()
   await expect(page).toHaveURL(/\/rooms\?new=1$/)
-  await page.getByRole('dialog', { name: t['rooms.newDm'] }).getByRole('button', { name: t['common.close'] }).click()
+  await page.getByRole('dialog', { name: t['rooms.newChat'] }).getByRole('button', { name: t['common.close'] }).click()
   await expect(page).toHaveURL(/\/rooms$/)
 
   // 파일: the page's own header is the bar

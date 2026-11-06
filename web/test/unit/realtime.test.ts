@@ -119,6 +119,36 @@ describe('RealtimeClient', () => {
     expect(r.events.map((e) => e.seq)).toEqual([1, 2])
   })
 
+  test('a resumed connection marks what the server replays (up to its hello seq) as a replay, nothing after it', () => {
+    const replays: [number, boolean][] = []
+    const sockets: FakeSocket[] = []
+    const timers = new FakeTimers()
+    const client = new RealtimeClient({
+      baseUrl: 'ws://team.localhost', windowId: () => 'w1234567', renewWindowId: () => 'w7654321',
+      createSocket: (url, p) => { const s = new FakeSocket(url, p); sockets.push(s); return s },
+      onEvent: (e, meta) => replays.push([e.seq, meta.replay]), onReload: () => {}, timers, random: () => 0.5,
+    })
+    client.start()
+    sockets[0]!.open()
+    sockets[0]!.recv(hello('E1', 0))
+    sockets[0]!.recv(delta(1, 0, 'a'))
+    sockets[0]!.drop(1006)
+    timers.advance(500)
+    sockets[1]!.open()
+    sockets[1]!.recv(hello('E1', 3, true))
+    sockets[1]!.recv(delta(2, 1, 'b'))
+    sockets[1]!.recv(delta(3, 2, 'c'))
+    sockets[1]!.recv(delta(4, 3, 'd'))
+    // a server that could not resume: what follows its hello is new again
+    sockets[1]!.drop(1006)
+    timers.advance(500)
+    sockets[2]!.open()
+    sockets[2]!.recv(hello('E2', 9))
+    sockets[2]!.recv(delta(10, 4, 'e'))
+    expect(replays).toEqual([[1, false], [2, true], [3, true], [4, false], [10, false]])
+    client.stop()
+  })
+
   test('resumes with epoch and after; replays continue without a reload', () => {
     const r = setup()
     r.client.start()

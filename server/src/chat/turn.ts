@@ -1436,7 +1436,10 @@ export class TurnExec {
     if (!binding && allowed && w.narrower.every((s) => allowed.has(sourceKey(s)))) return null
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
-    const from = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels)).join(', ')
+    // the card names a room by its own name (shown to the person as text); the refusal the AI reads back by the
+    // server's name only (any member of a group chat may set its own name)
+    const from = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels, { ownNames: true })).join(', ')
+    const fromForAi = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels)).join(', ')
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('widenConfirm', L, { sources: from, target: segs.join('/'), n: String(w.targetViewers) }) + (binding ? '\nSHA-256: ' + JSON.parse(binding).hash : ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
@@ -1450,7 +1453,7 @@ export class TurnExec {
       }
       return null
     }
-    return `The user did not allow saving to '${segs.join('/')}': more people can see that folder than can see what you read in this chat (${from}). Do not save it anywhere else that more people can see; ask the user where to put it.`
+    return `The user did not allow saving to '${segs.join('/')}': more people can see that folder than can see what you read in this chat (${fromForAi}). Do not save it anywhere else that more people can see; ask the user where to put it.`
   }
 
   // ---------------- team skills (skills/guard.ts) ----------------
