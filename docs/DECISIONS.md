@@ -11060,3 +11060,35 @@ An independent review found one hole and several gaps. What changed, and why:
   replace its key, and the member is told (live and in the inbox). Reversing it (switching it on again) is the
   member's. This replaces the earlier "admins get the owner's powers here" line.
 - **Copy.** Texts for members who are told to ask now say owner or admin (all five languages).
+
+### Review round 2 of "Admins connect the team's AI too" (2026-11-07)
+
+- **The API engine's key is stored with its address, and read only for it.** The round-1 rule ("a changed address needs
+  a key") was decided from a read made before the admin's DNS wait and written after it, so an owner's new key saved
+  during that wait ended up paired with the admin's address. Now the key file holds the key and the origin it was
+  made for (`engine/api-agent.ts`); `readApiEngine`, which every reader that sends the key goes through, returns
+  `key: null` for any other origin. An older bare key is bound to the address that was set when it is first rewritten.
+  The handler also decides the rule from a fresh read with no wait before the write. Regression test: the review's
+  race, adapted (`a-credentials-api`).
+- **Redirects and re-pointed names.** API-engine calls never follow a redirect (`redirect: 'error'`, every install).
+  An address an admin set (`setBy: 'admin'` in `engine-api.json`; an address the owner set and an admin left alone stays
+  the owner's) must be a public address at every call, not only when it was saved, with the same classification as
+  before (`assertPublicHttps`, `allowHttp`). No cache: one DNS lookup per call is cheap beside the model call.
+- **A busy sign-in can be stopped from the dialog.** Only one sign-in runs per server. The 409 for an owner or an admin
+  starting one carries `LoginBusyParams` (the running sign-in's id, whether it is the team's or a member's own, and the
+  starter's name); a member starting their own gets none of it. The Add account dialog shows it with **Stop it**, and
+  the owner or an admin may stop any sign-in, a member's own included (that member is told, live and in the inbox,
+  `personal_login_stopped`). Reading the address and sending the code stay the starter's alone.
+- **A save counts as a change only when something differs.** Assignments are compared as sets and the limit by value, so
+  the edit dialog (which always sends its whole form) no longer tells the owner, nor writes a false "changed" line in
+  the Activity log, when only the name changed.
+- **The inbox row's `action` has no CHECK list** (migration 116, not released): a later build may add actions, and a
+  reader that does not know one shows a generic line. 116 is still free in the A range on dev after this merge.
+- **Sign-in rights, finished.** Deleting a member also ends their running sign-ins; a personal sign-in of a disabled or
+  deleted account stores nothing; a Claude sign-in looks at its starter's role again inside the write itself (after
+  the provider check, which takes seconds).
+- **Texts.** "The team owner moved your connection" now names who did (an admin may).
+- **Matrix tests.** The admin-reauth cases are sent with a wrong password and check the reason: the owner and an admin
+  must be refused at the password (or by its rate limit), a member for the role, so a refusal for the wrong reason does
+  not pass.
+

@@ -9,6 +9,11 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { SealingKey } from '@mycel/shared/api'
 import { PRODUCT } from '../../shared/src/product'
 import { createLogger } from '../../server/src/log'
+import dns from 'node:dns/promises'
+import fs from 'node:fs'
+import { readApiEngine, writeApiEngine, apiEngineKeyPath } from '../../server/src/engine/api-agent'
+import { apiEngineFetch } from '../../server/src/system/egress'
+import { createCredential, replaceSecret } from '../../server/src/credentials/service'
 import { credentialsOf, markInvalid, markNeedsReconnect, noticeOwners } from '../../server/src/credentials/store'
 import { sealSecret } from '../../web/src/lib/seal'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
@@ -341,6 +346,37 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     noticeOwners(credentialsOf(h.ctx), ownerId, 'added', 'Owner one')
     expect(mine()).toHaveLength(1)
   })
+  test('a rename with the edit dialog\'s whole body (the same assignments and limit) tells nobody and is not audited as more than the rename', async () => {
+    const g = await owner.call('POST', '/api/admin/groups', { name: 'dialog-team', memberIds: [] })
+    const cid = (await adminCreate('anthropic-api-key', AKEY('dialog1'), { label: 'Dialog', assignments: [{ subjectType: 'group', subjectId: g.id }] })).body.id
+    await admin.call('PATCH', `/api/admin/credentials/${cid}`, { spendLimit: { usd: 5, tokens: null, action: 'warn' } })
+    told.length = 0
+    const same = { label: 'Dialog renamed', assignments: [{ subjectType: 'group', subjectId: g.id }], spendLimit: { usd: 5, tokens: null, action: 'warn' } }
+    const r = await admin.call('PATCH', `/api/admin/credentials/${cid}`, same)
+    expect(r.label).toBe('Dialog renamed')
+    expect(mine()).toHaveLength(0)
+    const last = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'credential.update' AND target = ? ORDER BY id DESC").get(cid) as { detail: string }
+    expect(JSON.parse(last.detail).changed).toEqual(['label'])
+    // the same people in another order, a repeated entry: still the same set
+    await admin.call('PATCH', `/api/admin/credentials/${cid}`, { assignments: [{ subjectType: 'group', subjectId: g.id }, { subjectType: 'group', subjectId: g.id }] })
+    expect(mine()).toHaveLength(0)
+    // a real change still tells (and a limit that is not zero does not)
+    await admin.call('PATCH', `/api/admin/credentials/${cid}`, { ...same, assignments: [] })
+    expect(mine().map((m) => m.message.en)).toEqual(["ADAM changed who may use the team AI connection 'Dialog renamed'."])
+    await owner.try('DELETE', `/api/admin/credentials/${cid}`)
+  })
+  test('the write itself looks again at who may make it (a sign-in\'s starter who lost the right during the provider check)', async () => {
+    const cc = credentialsOf(h.ctx)
+    const stop = () => { throw Object.assign(new Error('lost the right'), { stopped: true }) }
+    const before = (h.ctx.db.query('SELECT COUNT(*) AS n FROM engine_credentials').get() as { n: number }).n
+    await expect(createCredential(cc, { kind: 'anthropic-api-key', label: 'late', secret: AKEY('lateone'), assignments: [], priority: 100, ownerUserId: null, actor: adminId, ensure: stop }, 'en')).rejects.toMatchObject({ stopped: true })
+    expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM engine_credentials').get() as { n: number }).n).toBe(before)
+    const cid = (await create(owner, 'anthropic-api-key', AKEY('replaceme'))).body.id
+    const hint = (h.ctx.db.query('SELECT hint FROM engine_credentials WHERE id = ?').get(cid) as { hint: string }).hint
+    await expect(replaceSecret(cc, cid, AKEY('replaced2'), adminId, 'en', stop)).rejects.toMatchObject({ stopped: true })
+    expect((h.ctx.db.query('SELECT hint FROM engine_credentials WHERE id = ?').get(cid) as { hint: string }).hint).toBe(hint)
+    await owner.try('DELETE', `/api/admin/credentials/${cid}`)
+  })
   describe('connections members made for themselves', () => {
     let ann: { client: Client; id: string; password: string }
     let ownerMine = '', memberMine = '', adamMine = '', annMine = ''
@@ -421,6 +457,66 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     expect(await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'again', label: 'Team API', password: adminPw })).toMatchObject({ model: 'again', hasKey: true })
     expect(await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'back', label: 'Team API', key: null, password: adminPw })).toMatchObject({ model: 'back', hasKey: false })
     expect(mine()).toHaveLength(2)
+  })
+  test('a save that waits for the admin\'s DNS cannot pair the owner\'s new key with the admin\'s address (regression: review round 2)', async () => {
+    const OWNER_A = 'https://93.184.216.34/v1'
+    const realLookup = dns.lookup
+    let slow = 0
+    ;(dns as any).lookup = async (host: string, o: unknown) => {
+      if (host === 'evil.example') { if (slow) await new Promise((r) => setTimeout(r, slow)); return [{ address: '93.184.216.35', family: 4 }] }
+      return realLookup(host, o as never)
+    }
+    try {
+      const dir = h.ctx.config.dataDir
+      // 1. the owner's engine, with the owner's key
+      await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: OWNER_A, model: 'm', label: 'x', key: 'owner-key-1-' + 'a'.repeat(20), password: OWNER_PW })
+      // 2. the admin moves it to their own name, key removed (allowed: a changed address with key null)
+      await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://evil.example/v1', model: 'm', label: 'x', key: null, password: adminPw })
+      expect(readApiEngine(dir)).toMatchObject({ baseUrl: 'https://evil.example/v1', key: null })
+      // 3. the admin starts another save at that origin, key absent ("kept"), whose DNS answer is slow
+      slow = 400
+      const pending = admin.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://evil.example/v2', model: 'm', label: 'x', password: adminPw })
+      await new Promise((r) => setTimeout(r, 150))
+      // 4. meanwhile the owner fixes the engine: their own address and a new key
+      await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: OWNER_A, model: 'm', label: 'x', key: 'owner-key-2-' + 'b'.repeat(20), password: OWNER_PW })
+      const r = await pending
+      slow = 0
+      // the late save sees the owner's key now: a new address without a key for it is refused, nothing is written
+      expect(r.status).toBe(400)
+      expect(readApiEngine(dir)).toMatchObject({ baseUrl: OWNER_A, key: 'owner-key-2-' + 'b'.repeat(20) })
+      // and if it had been written anyway, the key belongs to the address it was stored for and is never read for another
+      writeApiEngine(dir, { baseUrl: 'https://evil.example/v2', model: 'm', label: 'x' })
+      expect(readApiEngine(dir)).toMatchObject({ baseUrl: 'https://evil.example/v2', key: null })
+      writeApiEngine(dir, { baseUrl: OWNER_A, model: 'm', label: 'x' })
+      expect(readApiEngine(dir)?.key).toBe('owner-key-2-' + 'b'.repeat(20))
+      // a key file from before this fix (the bare key) is bound to the address that was set, the first time it is rewritten
+      fs.writeFileSync(apiEngineKeyPath(dir), 'bare-old-key-' + 'c'.repeat(20))
+      expect(readApiEngine(dir)?.key).toBe('bare-old-key-' + 'c'.repeat(20))
+      writeApiEngine(dir, { baseUrl: 'https://evil.example/v3', model: 'm', label: 'x' })
+      expect(readApiEngine(dir)?.key).toBeNull()
+      writeApiEngine(dir, { baseUrl: OWNER_A, model: 'm', label: 'x', key: null })
+    } finally { slow = 0; ;(dns as any).lookup = realLookup }
+  })
+  test('the engine\'s calls never follow a redirect, and an address an admin set is checked to be public at every call', async () => {
+    const seen: string[] = []
+    const stub = (async (url: string, init: RequestInit) => { seen.push(`${url} ${init.redirect}`); return new Response('{}') }) as unknown as typeof fetch
+    await apiEngineFetch(stub)('http://127.0.0.1:9/v1/models')
+    expect(seen).toEqual(['http://127.0.0.1:9/v1/models error'])
+    // an admin's address: a private one is refused before anything is sent, a public one goes (http too)
+    seen.length = 0
+    await expect(apiEngineFetch(stub, { publicCheck: true })('http://127.0.0.1:9/v1/models')).rejects.toThrow(/private|local|reserved/)
+    await expect(apiEngineFetch(stub, { publicCheck: true })('http://169.254.169.254/latest')).rejects.toThrow()
+    expect(seen).toEqual([])
+    await apiEngineFetch(stub, { publicCheck: true })('http://93.184.216.34/v1/models')
+    expect(seen).toEqual(['http://93.184.216.34/v1/models error'])
+    // who set it is kept: an admin's address stays checked, the owner's is not
+    const dir = h.ctx.config.dataDir
+    await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:9/v1', model: 'm', label: 'x', key: null, password: OWNER_PW })
+    expect(readApiEngine(dir)?.setBy).toBeUndefined()
+    await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:9/v1', model: 'm2', label: 'x', password: adminPw }) // a model change keeps the owner's address as the owner's
+    expect(readApiEngine(dir)?.setBy).toBeUndefined()
+    await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://93.184.216.34/v1', model: 'm2', label: 'x', key: null, password: adminPw })
+    expect(readApiEngine(dir)?.setBy).toBe('admin')
   })
   test('the stored key never goes to a new address: a changed address needs a key of its own (or null), the check sends nothing old', async () => {
     const seen: { auth: string | null; path: string }[] = []

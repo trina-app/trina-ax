@@ -2532,7 +2532,7 @@ export class MockServer {
     submitMyCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
     getCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
-    cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
+    cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user, true); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
 
     // Google Drive (server/src/routes/drive.ts): this test server has no Google client, like a server not set up for it.
@@ -3018,6 +3018,9 @@ export class MockServer {
   /** a ChatGPT sign-in: the code after a moment, then the connection. A Claude sign-in: the authorize address after a
    * moment, then it waits for the pasted code (good-code#good-state connects, anything else is a wrong code). */
   startLogin(user: User, label: string, personal: boolean, reconnectId?: string, kind: CredentialLogin['kind'] = 'chatgpt'): CredentialLogin {
+    // one sign-in at a time (like the server): the owner or an admin is told whose it is and can stop it
+    const running = [...this.credLogins.values()].find((x) => x.state === 'starting' || x.state === 'code' || x.state === 'checking')
+    if (running) fail('busy', 409, '다른 AI 로그인이 진행 중이에요. 하나씩만 할 수 있어요.', undefined, user.role !== 'member' && !personal ? { reason: 'login_busy', loginId: running.loginId, personal: running.personal, starter: this.users.find((u) => u.id === running.userId)?.name ?? '' } : undefined)
     const loginId = 'login' + uuidv7().replace(/-/g, '')
     const l = { loginId, kind, state: 'starting' as CredentialLogin['state'], url: null as string | null, code: null as string | null, expiresAt: new Date(Date.now() + 16 * 60_000).toISOString(), credential: null as Credential | null, reason: null as string | null, userId: user.id, personal, label, reconnectId }
     this.credLogins.set(loginId, l)
@@ -3065,9 +3068,9 @@ export class MockServer {
     if (!l || l.userId !== user.id) return fail('not_found', 404)
     return this.loginView(l)
   }
-  cancelLogin(id: string, user: User) {
+  cancelLogin(id: string, user: User, anyLogin = false) {
     const l = this.credLogins.get(id)
-    if (!l || l.userId !== user.id) fail('not_found', 404)
+    if (!l || (l.userId !== user.id && !anyLogin)) fail('not_found', 404)
     // like the server while it saves the new token: 409 (here for the whole check)
     if (l!.state === 'checking') fail('conflict', 409, '새 토큰을 확인하고 저장하는 중이에요. 곧 끝나요.')
     if (l!.state === 'starting' || l!.state === 'code') { l!.state = 'cancelled'; this.publish({ type: 'credential.login', data: this.loginView(l!) }) }

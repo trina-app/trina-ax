@@ -413,24 +413,35 @@ describe('Claude sign-in started by an admin', () => {
     } finally { setFake({}) }
   })
 
-  test('the owner (or an admin) stops any team sign-in, so a forgotten one does not block for 16 minutes; a member\'s own stays theirs', async () => {
+  test('a start while one runs: the owner or an admin is told whose it is (and can stop it); a member is not; the owner or an admin stops any, a member\'s own too (and the member is told)', async () => {
     const s = await team('Forgotten', { userId: 'carol' })
     await waiting(carol, s.loginId)
-    expect(logins().all.get(s.loginId)?.userId).toBe('carol')
-    // a second one cannot start meanwhile (one at a time)
-    expect((await startOver('dana', PW('dana'), 'Owner wants it')).status).toBe(409)
+    // one at a time: the owner starting hears whose it is, its kind and how to stop it; a member hears only that it is busy
+    const busy = await startOver('dana', PW('dana'), 'Owner wants it')
+    expect(busy.status).toBe(409)
+    expect(((await busy.json()) as { error: { code: string; params?: unknown } }).error).toMatchObject({ code: 'busy', params: { reason: 'login_busy', loginId: s.loginId, personal: false, starter: 'Carol Park' } })
+    const own409 = await h.req('alice', '/api/me/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label: 'mine', acknowledgedPlanNotice: true }) })
+    expect(own409.status).toBe(409)
+    expect(((await own409.json()) as { error: { params?: unknown } }).error.params).toBeUndefined()
     expect((await h.req('alice', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })).status).toBe(403)
     expect((await h.req('dana', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })).status).toBe(204)
     expect((await final(carol, s.loginId)).state).toBe('cancelled')
     const a = h.ctx.db.query("SELECT actor_id FROM audit_log WHERE action = 'credential.login_cancel' AND target = ?").get(s.loginId) as { actor_id: string }
     expect(a.actor_id).toBe('dana')
     expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
-    // a member's own sign-in: the owner's admin door does not reach it
+    // a member's own sign-in that is in the way: an admin hears it is a personal one and whose, and may stop it; the member is told
     const own = await h.api('alice').call(API.startMyCredentialLogin, { body: { kind: 'anthropic-oauth', label: 'mine', acknowledgedPlanNotice: true } })
     await waiting(alice, own.loginId)
-    expect((await h.req('dana', `/api/admin/credential-logins/${own.loginId}`, { method: 'DELETE' })).status).toBe(404)
-    expect((await h.req('alice', `/api/me/credential-logins/${own.loginId}`, { method: 'DELETE' })).status).toBe(204)
-    await final(alice, own.loginId)
+    const busy2 = await startOver('carol', PW('carol'), 'Carol wants it')
+    expect(((await busy2.json()) as { error: { params?: unknown } }).error.params).toMatchObject({ reason: 'login_busy', loginId: own.loginId, personal: true, starter: 'Alice Kim' })
+    expect((await h.req('bob', `/api/me/credential-logins/${own.loginId}`, { method: 'DELETE' })).status).toBe(404)
+    expect((await h.req('carol', `/api/admin/credential-logins/${own.loginId}`, { method: 'DELETE' })).status).toBe(204)
+    expect((await final(alice, own.loginId)).state).toBe('cancelled')
+    const told = await alice.next('notice', (f) => f.data.code === 'credential_admin_change', 10_000)
+    expect(told.data.message).toContain('Carol Park')
+    const mine = ((await (await h.req('alice', '/api/notifications')).json()) as { items: { eventType: string; credentialChange?: { action: string; who: string; subject: string } }[] }).items
+    expect(mine.find((i) => i.eventType === 'credential.change')?.credentialChange).toEqual({ who: 'Carol Park', action: 'personal_login_stopped', subject: 'mine' })
+    expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
   })
 
   test('an admin made a member (or disabled) while signing in: the sign-in is stopped, and one already past the code stores nothing', async () => {
@@ -461,11 +472,28 @@ describe('Claude sign-in started by an admin', () => {
     } finally { setRole('carol', 'admin'); setFake({}) }
   })
 
+  test('a member deleted while signing in: the sign-in ends with the account', async () => {
+    const made = await h.req('dana', '/api/admin/users', { method: 'POST', headers: json, body: JSON.stringify({ username: 'zed', name: 'Zed', role: 'member', groupIds: [] }) })
+    expect(made.status).toBe(201)
+    const zed = ((await made.json()) as { user: { id: string } }).user.id
+    const l = await logins().start({ userId: zed, locale: 'en', personal: true, kind: 'anthropic-oauth', label: 'zed own', assignments: [], priority: 100 })
+    expect(await waitFor(() => logins().all.get(l.loginId)?.state === 'code', { timeoutMs: 20_000 })).toBe(true)
+    expect(logins().all.get(l.loginId)!.endedAt).toBeNull()
+    expect((await h.req('dana', `/api/admin/users/${zed}?personalFolder=delete`, { method: 'DELETE' })).status).toBe(204)
+    expect(logins().all.get(l.loginId)!.state).toBe('cancelled')
+    expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+  })
+
   test('a ChatGPT team sign-in also looks at its starter\'s role when it stores (a member, a disabled admin: refused)', () => {
     const store = (userId: string) => (logins() as unknown as { storeChatgpt(l: unknown, json: string): { ok: boolean; reason?: string } }).storeChatgpt({ userId, personal: false, label: 'x', assignments: [], priority: 100, reconnectId: null }, '{}')
     expect(store('alice')).toEqual({ ok: false, reason: 'policy_changed' })
     h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'carol'").run()
     try { expect(store('carol')).toEqual({ ok: false, reason: 'policy_changed' }) } finally { h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'carol'").run() }
+    // a personal sign-in of a disabled or deleted account stores nothing either
+    const mine = (userId: string) => (logins() as unknown as { storeChatgpt(l: unknown, json: string): { ok: boolean; reason?: string } }).storeChatgpt({ userId, personal: true, label: 'x', assignments: [], priority: 100, reconnectId: null }, '{}')
+    h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'alice'").run()
+    try { expect(mine('alice')).toEqual({ ok: false, reason: 'policy_changed' }) } finally { h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'alice'").run() }
+    expect(mine('alice')).toEqual({ ok: false, reason: 'incomplete' })
     // an active admin gets past the role check (this empty file is then refused for what it is)
     expect(store('carol')).toEqual({ ok: false, reason: 'incomplete' })
   })

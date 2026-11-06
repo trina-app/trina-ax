@@ -34,8 +34,7 @@ import { ENGINE_CHOICE_CHANGED, codexOffHere, engineOn, limitFallbackAvailable, 
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 import { listSkillManagers, setSkillManager } from '../skills/managers'
 import { listSkillChanges } from '../skills/changes'
-import fs from 'node:fs'
-import { apiEngineKeyPath, readApiEngine, writeApiEngine } from '../engine/api-agent'
+import { hasStoredApiKey, originOf, readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
 import { registerCredentialRoutes } from './credentials'
 import { registerTeamLinkRoutes } from './team-links'
@@ -237,18 +236,31 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.putApiEngine, async ({ c, body, auth }) => {
       const locale = c.get('locale')
       await checkApiEngineUrl(ctx.config, body.baseUrl, locale) // the hosted cloud: https to public addresses only
+      const norm = body.baseUrl.replace(/\/+$/, '')
+      // An admin (not the owner) does not set an address on a private network, on this server or link-local; an address
+      // that is already set stays as it is (a model change). The check waits for DNS, so what is "already set" is read
+      // again after every wait, and the decision below (the key rule) is made from a read with no wait before the write.
+      let validated: string | null = null
+      for (;;) {
+        const now = readApiEngine(ctx.config.dataDir)
+        if (auth.user.role !== 'owner' && !(now && now.baseUrl === norm) && validated !== norm) {
+          await checkApiEngineUrlForAdmin(body.baseUrl, msg('apiAddressOwnerOnly', locale))
+          validated = norm
+          continue
+        }
+        break
+      }
+      // from here to the write nothing waits: the stored key belongs to the address it was made for (it is stored with
+      // that address, and read back only for it), and a new address never inherits it: the caller sends a key for the
+      // new address, or null. (An admin could otherwise point the engine at their own server and collect it.)
       const old = readApiEngine(ctx.config.dataDir)
-      const origin = (u: string) => { try { return new URL(u).origin } catch { return u } }
-      const sameAddress = !!old && origin(old.baseUrl) === origin(body.baseUrl)
-      // an admin (not the owner) does not set an address on a private network, on this server or link-local; an address
-      // that was already set stays as it is (a model change)
-      if (auth.user.role !== 'owner' && !(old && old.baseUrl === body.baseUrl.replace(/\/+$/, ''))) await checkApiEngineUrlForAdmin(body.baseUrl, msg('apiAddressOwnerOnly', locale))
-      // the stored key belongs to the address it was made for: a new address never inherits it (an admin could point it
-      // at their own server and collect it). The caller sends a key for the new address, or null.
-      if (!sameAddress && body.key === undefined && fs.existsSync(apiEngineKeyPath(ctx.config.dataDir))) {
+      const sameAddress = !!old && originOf(old.baseUrl) === originOf(body.baseUrl)
+      if (!sameAddress && body.key === undefined && hasStoredApiKey(ctx.config.dataDir)) {
         fail('validation', msg('apiKeyForNewAddress', locale), { fields: { 'body.key': 'a key for the new address is required' } })
       }
-      writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, ...(body.key !== undefined ? { key: body.key } : {}) })
+      // who set the address: an admin's (or one the admin left as it was) is checked to be a public one before every call
+      const setBy = auth.user.role === 'owner' ? 'owner' : old && old.baseUrl === norm && old.setBy !== 'admin' ? 'owner' : 'admin'
+      writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, setBy, ...(body.key !== undefined ? { key: body.key } : {}) })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.api', target: 'api', detail: { baseUrl: body.baseUrl, model: body.model, key: body.key === undefined ? 'kept' : body.key ? 'set' : 'removed' } })
       engineCache.forget('api')
       // an admin's change is told to the owner(s): who and the model, never the key (credentials/store.ts noticeOwners)

@@ -84,7 +84,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     const code = await unsealOrFail(cc(), sealed, 'credential.login-code', locale)
     return logins().submitCode(id, userId, code, locale, personal)
   }
-  kit.handle(API.startCredentialLogin, ({ c, body, auth }) => logins().start({ userId: auth.user.id, locale: loc(c), personal: false, kind: body.kind, label: body.label, assignments: body.assignments, priority: body.priority, reconnectId: body.reconnectId }))
+  kit.handle(API.startCredentialLogin, ({ c, body, auth }) => logins().start({ userId: auth.user.id, locale: loc(c), personal: false, showBusy: true, kind: body.kind, label: body.label, assignments: body.assignments, priority: body.priority, reconnectId: body.reconnectId }))
   kit.handle(API.getCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id, false))
   kit.handle(API.cancelCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c), false, true))
   kit.handle(API.submitCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c), false))

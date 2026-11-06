@@ -4,14 +4,14 @@
 -- and the connection's name or the engine's address and model: never a token or key). An admin who switches off or
 -- removes a member's own connection tells that member the same way. notification_inbox has a fixed event_type CHECK
 -- list and tables are never rebuilt, so these rows have their own table (same shape as drive_share_notices, plus
--- the words: actor_name, action, subject). Additive only (reader 1): an older build does not list them.
+-- the words: actor_name, action (no CHECK list: a later build may add actions; a reader shows a generic line for one it does not know), subject). Additive only (reader 1): an older build does not list them.
 CREATE TABLE credential_change_notices (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   event_type TEXT NOT NULL CHECK(event_type IN ('credential.change')),
   source_id TEXT NOT NULL,
   actor_name TEXT NOT NULL,
-  action TEXT NOT NULL CHECK(action IN ('added','replaced','removed','disabled','reassigned','zero_limit','shared_on','engine','personal_disabled','personal_removed')),
+  action TEXT NOT NULL,
   subject TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   read_at TEXT,

@@ -401,7 +401,7 @@ export class Notifications {
     // an admin's change to the team's AI, told to the owners, or to a member's own connection: who, what, the name (the
     // text is the page's); the owners' open Admin › Providers
     if (row.event_type === 'credential.change') {
-      const n = this.ctx.db.query('SELECT actor_name, action, subject FROM credential_change_notices WHERE id=?').get(row.id) as { actor_name: string; action: NonNullable<InboxNotification['credentialChange']>['action']; subject: string } | null
+      const n = this.ctx.db.query('SELECT actor_name, action, subject FROM credential_change_notices WHERE id=?').get(row.id) as { actor_name: string; action: string; subject: string } | null
       const own = !!n && n.action.startsWith('personal_')
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: n && !own ? 'admin_credentials' : null, outcome: null,
         ...(n ? { credentialChange: { who: n.actor_name, action: n.action, subject: n.subject } } : {}) }

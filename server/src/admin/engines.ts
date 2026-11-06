@@ -260,7 +260,7 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
     const anthropic = /^https:\/\/api\.anthropic\.com\//.test(conf.baseUrl + '/')
     const openrouter = /^https:\/\/openrouter\.ai\//.test(conf.baseUrl + '/')
     const headers: Record<string, string> = conf.key ? { Authorization: `Bearer ${conf.key}`, ...(anthropic ? { 'x-api-key': conf.key, 'anthropic-version': '2023-06-01' } : {}) } : {}
-    const get = (p: string) => apiEngineFetch()(`${conf.baseUrl}${p}`, { headers, signal: AbortSignal.timeout(10_000) })
+    const get = (p: string) => apiEngineFetch(fetch, { publicCheck: conf.setBy === 'admin' })(`${conf.baseUrl}${p}`, { headers, signal: AbortSignal.timeout(10_000) })
     // OpenRouter: GET /key (older servers: /auth/key); neither there = the key is not checked, and the card says so
     let keyUnchecked = false
     if (openrouter) {

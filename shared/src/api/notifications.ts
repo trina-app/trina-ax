@@ -55,9 +55,10 @@ export const InboxNotification = z.object({
    * Drive's page in Admin › Connectors); older servers omit it */
   driveShare: z.object({ id: z.string(), name: z.string() }).optional(),
   /** 'credential.change' only: who did what to the team's AI (the connection's name, or the engine's address and model;
-   * never a token or key); older servers omit it */
+   * never a token or key); older servers omit it. `action` is one of added, replaced, removed, disabled, reassigned, zero_limit, shared_on,
+   * engine, personal_disabled, personal_removed, personal_login_stopped; a page that does not know one shows a generic line */
   credentialChange: z.object({
-    who: z.string(), action: z.enum(['added', 'replaced', 'removed', 'disabled', 'reassigned', 'zero_limit', 'shared_on', 'engine', 'personal_disabled', 'personal_removed']), subject: z.string(),
+    who: z.string(), action: z.string(), subject: z.string(),
   }).optional(),
   /** 'skills.merge_waiting' only (the owner, at the end of the welcome steps): how many skills wait to be merged into
    * team skills; link 'chat' opens the one merge chat (chatId); older servers omit it */

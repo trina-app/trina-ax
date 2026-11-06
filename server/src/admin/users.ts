@@ -268,6 +268,8 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   revokeInvitesBy(ctx, id)
   revokeResetLinksBy(ctx, id)
   revokeTeamLinksBy(ctx, id)
+  // an AI sign-in they were in the middle of (theirs, team or personal) ends with the account
+  { const cc = existingCredentialsOf(ctx); if (cc) cancelLoginsOf(cc, id, { teamOnly: false }) }
   // the account is gone either way; a folder that could not be handled stays where it is (only nobody sees it now)
   let movedTo: string | null = null
   let folderError: string | null = null

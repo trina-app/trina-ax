@@ -113,10 +113,10 @@ export function admins(db: Database): string[] {
 }
 
 /** What changed, for the notice (the inbox row's `action`, and the text that goes with it) */
-export type ChangeAction = 'added' | 'replaced' | 'removed' | 'disabled' | 'reassigned' | 'zero_limit' | 'shared_on' | 'engine' | 'personal_disabled' | 'personal_removed'
+export type ChangeAction = 'added' | 'replaced' | 'removed' | 'disabled' | 'reassigned' | 'zero_limit' | 'shared_on' | 'engine' | 'personal_disabled' | 'personal_removed' | 'personal_login_stopped'
 const CHANGE_TEXT: Record<ChangeAction, keyof typeof CT> = {
   added: 'nAdminAdded', replaced: 'nAdminReplaced', removed: 'nAdminRemoved', disabled: 'nAdminDisabled', reassigned: 'nAdminReassigned',
-  zero_limit: 'nAdminZeroLimit', shared_on: 'nAdminSharedOn', engine: 'nAdminEngine', personal_disabled: 'nPersonalDisabled', personal_removed: 'nPersonalRemoved',
+  zero_limit: 'nAdminZeroLimit', shared_on: 'nAdminSharedOn', engine: 'nAdminEngine', personal_disabled: 'nPersonalDisabled', personal_removed: 'nPersonalRemoved', personal_login_stopped: 'nPersonalLoginStopped',
 }
 /** One change, told to `to`: a live notice now (cc.notify, the channel the connection notices use) and a row in their
  * inbox for when they are away (credential_change_notices). Who and what only; `subject` is a connection's name or the
@@ -148,7 +148,7 @@ export function noticeOwners(cc: CredCtx, actor: string | null, action: ChangeAc
   } catch (e) { cc.log.warn('could not tell the owner about a change to the AI connections', { err: e }) }
 }
 /** The owner or an admin switched off or removed a member's own connection: that member is told (live and in the inbox). */
-export function noticeMember(cc: CredCtx, member: string, actor: string, action: 'personal_disabled' | 'personal_removed', label: string) {
+export function noticeMember(cc: CredCtx, member: string, actor: string, action: 'personal_disabled' | 'personal_removed' | 'personal_login_stopped', label: string) {
   try {
     if (member === actor) return
     const who = (cc.db.query('SELECT name FROM users WHERE id = ?').get(actor) as { name: string } | null)?.name

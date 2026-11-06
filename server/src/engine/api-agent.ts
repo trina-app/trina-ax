@@ -14,7 +14,9 @@ import { apiEngineFetch } from '../system/egress'
 import { claudeCost, claudePrice, openaiCost, openaiPrice } from '../credentials/prices'
 import { LinkGuard } from './api-links'
 
-export interface ApiEngineConf { baseUrl: string; model: string; label: string; key: string | null }
+/** `setBy: 'admin'`: the address was set by an admin, not the owner: it is checked to be a public address before every call
+ * (system/egress.ts apiEngineFetch), as the address may name a private place through DNS or a redirect */
+export interface ApiEngineConf { baseUrl: string; model: string; label: string; key: string | null; setBy?: 'admin' }
 
 /**
  * Spend control per completion, for a key someone else pays for (the hosting service's trial credit,
@@ -52,23 +54,56 @@ export const API_GROUNDING_RULES = [
 export function apiEngineConfPath(dataDir: string) { return path.join(dataDir, 'engine-api.json') }
 export function apiEngineKeyPath(dataDir: string) { return path.join(dataDir, 'secrets', 'api-engine.key') }
 
-/** The configured API engine, or null (not set up, or the file is broken). */
+/** scheme + host + port of an address (what a key belongs to); the text itself when it is not an address */
+export function originOf(u: string): string { try { return new URL(u).origin } catch { return u } }
+
+/**
+ * The key file holds the key AND the address it was made for: {"key":"…","origin":"https://api.example.com"}. A key
+ * is only ever read back for that same origin (readApiEngine), so no sequence of saves, however they interleave, can
+ * leave one address holding a key made for another. An older file (the bare key) is bound to the address that was set
+ * when it is first rewritten (writeApiEngine); until then it is read for the address that is set.
+ */
+function readKeyFile(dataDir: string): { key: string; origin: string | null } | null {
+  let raw: string
+  try { raw = fs.readFileSync(apiEngineKeyPath(dataDir), 'utf8').trim() } catch { return null }
+  if (!raw) return null
+  if (raw.startsWith('{')) {
+    try {
+      const j = JSON.parse(raw) as { key?: unknown; origin?: unknown }
+      if (typeof j.key === 'string' && j.key.trim() && typeof j.origin === 'string') return { key: j.key.trim(), origin: j.origin }
+    } catch {}
+    return null
+  }
+  return { key: raw, origin: null }
+}
+
+/** Is a key stored (whatever address it is for)? */
+export function hasStoredApiKey(dataDir: string): boolean { return readKeyFile(dataDir) !== null }
+
+/** The configured API engine, or null (not set up, or the file is broken). The key comes back only for the address it
+ * was stored for: another address gets `key: null`. */
 export function readApiEngine(dataDir: string): ApiEngineConf | null {
   try {
     const j = JSON.parse(fs.readFileSync(apiEngineConfPath(dataDir), 'utf8')) as Partial<ApiEngineConf>
     if (typeof j.baseUrl !== 'string' || !/^https?:\/\//.test(j.baseUrl) || typeof j.model !== 'string' || !j.model) return null
-    let key: string | null = null
-    try { key = fs.readFileSync(apiEngineKeyPath(dataDir), 'utf8').trim() || null } catch {}
-    return { baseUrl: j.baseUrl.replace(/\/+$/, ''), model: j.model, label: typeof j.label === 'string' && j.label.trim() ? j.label.trim().slice(0, 40) : j.model, key }
+    const stored = readKeyFile(dataDir)
+    const key = stored && (stored.origin === null || stored.origin === originOf(j.baseUrl)) ? stored.key : null
+    return { baseUrl: j.baseUrl.replace(/\/+$/, ''), model: j.model, label: typeof j.label === 'string' && j.label.trim() ? j.label.trim().slice(0, 40) : j.model, key,
+      ...((j as { setBy?: unknown }).setBy === 'admin' ? { setBy: 'admin' as const } : {}) }
   } catch { return null }
 }
 
-export function writeApiEngine(dataDir: string, c: { baseUrl: string; model: string; label?: string; key?: string | null }) {
-  fs.writeFileSync(apiEngineConfPath(dataDir), JSON.stringify({ baseUrl: c.baseUrl, model: c.model, label: c.label ?? '' }, null, 2), { mode: 0o600 })
-  if (c.key !== undefined) {
-    const p = apiEngineKeyPath(dataDir)
-    if (c.key === null || c.key === '') fs.rmSync(p, { force: true })
-    else { fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 }); fs.writeFileSync(p, c.key.trim(), { mode: 0o600 }) }
+export function writeApiEngine(dataDir: string, c: { baseUrl: string; model: string; label?: string; key?: string | null; setBy?: 'owner' | 'admin' }) {
+  const keyPath = apiEngineKeyPath(dataDir)
+  const was = readApiEngine(dataDir)
+  const stored = readKeyFile(dataDir)
+  fs.writeFileSync(apiEngineConfPath(dataDir), JSON.stringify({ baseUrl: c.baseUrl, model: c.model, label: c.label ?? '', ...(c.setBy === 'admin' ? { setBy: 'admin' } : {}) }, null, 2), { mode: 0o600 })
+  const put = (key: string, origin: string) => { fs.mkdirSync(path.dirname(keyPath), { recursive: true, mode: 0o700 }); fs.writeFileSync(keyPath, JSON.stringify({ key, origin }), { mode: 0o600 }) }
+  if (c.key === null || c.key === '') fs.rmSync(keyPath, { force: true })
+  else if (c.key !== undefined) put(c.key.trim(), originOf(c.baseUrl))
+  else if (stored && stored.origin === null) {
+    // an older bare key: it belongs to the address that was set until now, and to no other
+    if (was && was.key) put(stored.key, originOf(was.baseUrl)); else fs.rmSync(keyPath, { force: true })
   }
 }
 
@@ -257,7 +292,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   /** spend control per completion (ApiMeter); `maxTokens`: sent as max_tokens (none: the provider's default) */
   meter?: ApiMeter; maxTokens?: number }): Promise<void> {
   // the hosted cloud: every call's address is checked first (public https only, system/egress.ts)
-  const fetchFn = apiEngineFetch(o.fetchFn ?? fetch)
+  const fetchFn = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: o.conf.setBy === 'admin' })
   const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
   const tools = (listed?.result?.tools ?? []).map((t: { name: string; description: string; inputSchema: unknown }) => ({ type: 'function', function: { name: t.name, description: t.description.slice(0, 1024), parameters: t.inputSchema } }))
   const systemPrompt = `${o.systemPrompt}\n\n${API_GROUNDING_RULES}`

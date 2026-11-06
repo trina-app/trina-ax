@@ -122,6 +122,11 @@ export const DuplicateCredentialParams = z.object({
   movable: z.boolean().optional(),
 })
 export type DuplicateCredentialParams = z.infer<typeof DuplicateCredentialParams>
+/** The 409/busy `params` of a sign-in start for an owner or an admin: a sign-in is already running (one at a time on a
+ * server). Whose it is and whether it is the team's or a member's own, so it can be stopped from the dialog
+ * (DELETE /api/admin/credential-logins/:id works for any of them). A member starting their own gets none of this. */
+export const LoginBusyParams = z.object({ reason: z.literal('login_busy'), loginId: z.string(), personal: z.boolean(), starter: z.string() })
+export type LoginBusyParams = z.infer<typeof LoginBusyParams>
 export const CredentialSettings = z.object({ memberOwn: z.boolean(), sharedSubscriptions: z.boolean() })
 export const UpdateCredentialSettingsBody = CredentialSettings.partial().extend({
   /** Required when enabling shared subscriptions; not a grant of hosting/resale rights. */
@@ -167,7 +172,7 @@ export const CREDENTIALS = {
   checkCredential: endpoint({ method: 'POST', path: '/api/admin/credentials/:id/check', auth: 'admin', owner: 'A', response: Credential, summary: 'Check a connection again now, without spending tokens.' }),
   startCredentialLogin: endpoint({ method: 'POST', path: '/api/admin/credential-logins', auth: 'admin-reauth', owner: 'A', status: 202, body: StartCredentialLoginBody, response: CredentialLogin, summary: 'Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login.' }),
   getCredentialLogin: endpoint({ method: 'GET', path: '/api/admin/credential-logins/:id', auth: 'admin', owner: 'A', response: CredentialLogin, summary: 'State of a sign-in this person started (the owner or an admin; no one else can read it).' }),
-  cancelCredentialLogin: endpoint({ method: 'DELETE', path: '/api/admin/credential-logins/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Stop a sign-in.' }),
+  cancelCredentialLogin: endpoint({ method: 'DELETE', path: '/api/admin/credential-logins/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Stop a sign-in: the person who started it, or the owner or an admin for any (also a member\'s own, who is told). Only one runs at a time; a start while one runs answers 409 with LoginBusyParams.' }),
   submitCredentialLoginCode: endpoint({ method: 'POST', path: '/api/admin/credential-logins/:id/code', auth: 'admin', owner: 'A', body: SubmitLoginCodeBody, response: CredentialLogin, summary: 'The code Claude showed after approval (sealed), for a Claude sign-in this person started.' }),
   updateCredentialSettings: endpoint({ method: 'PATCH', path: '/api/admin/credential-settings', auth: 'admin', owner: 'A', body: UpdateCredentialSettingsBody, response: CredentialSettings, summary: 'Personal connections and explicit shared-subscription consent.' }),
   sealingKey: endpoint({ method: 'GET', path: '/api/credentials/sealing-key', auth: 'user', owner: 'A', response: SealingKey, summary: 'Public key the browser seals a token / key with before sending it.' }),

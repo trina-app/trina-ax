@@ -9,7 +9,7 @@
 // folded under a small disclosure.
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { DuplicateCredentialParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
+import { DuplicateCredentialParams, LoginBusyParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
@@ -270,6 +270,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** a sign-in is already running (one at a time): whose, so the owner or an admin can stop it from here */
+  const [busyLogin, setBusyLogin] = useState<LoginBusyParams | null>(null)
   const [login, setLogin] = useState<CredentialLogin | null>(null)
   /** Claude: the terminal fallback is open (paste a setup-token token instead of the sign-in) */
   const [manual, setManual] = useState(false)
@@ -303,7 +305,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
 
   const submit = async () => {
     if (!kind || !ready) return
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setBusyLogin(null)
     try {
       if (signIn) {
         const loginKind = kind as CredentialLoginKind
@@ -328,6 +330,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
       onDone()
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
+      if (isApiError(e, 'busy')) { const b = LoginBusyParams.safeParse(e.body.params); setBusyLogin(b.success ? b.data : null) }
       // already a personal connection: offer "Move it to the team", with the password typed again for it (another
       // answer to a move, such as a wrong password, keeps the offer)
       if (isApiError(e, 'conflict')) {
@@ -335,6 +338,12 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
         if (dup?.success && dup.data.movable && dup.data.credentialId) { setMove(dup.data); setPassword('') } else setMove(null)
       }
     } finally { setBusy(false) }
+  }
+  /** stop the sign-in that is in the way (any, for the owner or an admin), then the start can be pressed again */
+  const stopBusy = async () => {
+    if (!busyLogin) return
+    try { await api.call(API.cancelCredentialLogin, { params: { id: busyLogin.loginId } }) } catch (e) { if (!isApiError(e, 'not_found')) { setError(errorText(e, locale, t('error.network'))); return } }
+    setBusyLogin(null); setError(null)
   }
   /** Claude: the pasted code, sealed like a token, to the sign-in that waits for it */
   const sendCode = async () => {
@@ -451,6 +460,12 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
               </div>
             )}
             {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
+            {busyLogin && !personal && (
+              <p className="flex flex-wrap items-center gap-2 text-sm text-muted" data-testid="login-busy">
+                {t('credentials.loginBusy', { name: busyLogin.starter, kind: t(busyLogin.personal ? 'credentials.loginBusyPersonal' : 'credentials.loginBusyTeam') })}
+                <Button size="sm" variant="secondary" onClick={() => void stopBusy()} data-testid="login-busy-stop">{t('credentials.loginStop')}</Button>
+              </p>
+            )}
             {move && (
               <div className="rounded-lg bg-subtle p-3 text-sm" data-testid="credential-move">
                 <p className="font-medium">{t('credentials.moveToTeam')}</p>

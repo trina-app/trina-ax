@@ -73,13 +73,17 @@ let lookupOverride: Lookup | undefined
 export function setApiEnginePublicOnly(v: boolean, o: { lookup?: Lookup } = {}) { publicOnly = v; lookupOverride = o.lookup }
 export function apiEnginePublicOnly() { return publicOnly }
 
-/** fetch for the API engine: in the cloud every call's address is checked first (the check's error is the failure). */
-export function apiEngineFetch(base: typeof fetch = fetch): typeof fetch {
-  if (!publicOnly) return base
+/**
+ * fetch for the API engine. Never follows a redirect (a public address could answer 307 to 127.0.0.1, the LAN or
+ * 169.254.169.254; the error is the failure). In the cloud every call's address is checked first (public https only).
+ * `publicCheck`: the address was set by an admin, not the owner: on any install it must be a public address (http or
+ * https) at the moment of every call too, as a name can be re-pointed after it was saved.
+ */
+export function apiEngineFetch(base: typeof fetch = fetch, o: { publicCheck?: boolean } = {}): typeof fetch {
   const guarded = async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    await assertPublicHttps(url, { lookup: lookupOverride })
-    // no redirect to somewhere else: a public address could answer 307 to http://169.254.169.254/
+    if (publicOnly) await assertPublicHttps(url, { lookup: lookupOverride })
+    else if (o.publicCheck) await assertPublicHttps(url, { lookup: lookupOverride, allowHttp: true })
     return base(input, { ...init, redirect: 'error' })
   }
   return guarded as typeof fetch
