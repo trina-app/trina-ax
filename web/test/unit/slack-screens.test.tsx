@@ -1,8 +1,8 @@
 // Admin › Slack and Settings › App connectors › Slack (docs/SLACK.md): the setup is four steps, each with its Slack page,
 // and no manifest on the page; a refused token is said under its own field until the next try, never in a toast; once
 // set up, one status line with one button, a problem names the one place to fix it, "Remove" waits behind "Replace
-// tokens"; without an https address one line says "Sign in with Slack" needs it. Settings: the Slack line replaces the
-// empty card; "Sign in with Slack" goes to Slack and its outcome is said when it comes back.
+// tokens"; without an https address one line says "Sign in with Slack" needs it. Settings: the Slack line sits under the
+// app cards; "Sign in with Slack" goes to Slack and its outcome is said when it comes back.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { MySlack, SlackAdmin } from '@mycel/shared/api'
@@ -181,19 +181,21 @@ describe('Admin › Slack', () => {
 describe('Settings › App connectors', () => {
   const settings = () => mount(<MemoryRouter><ConnectorConnections /></MemoryRouter>)
 
-  test('the team uses Slack: the Slack line, no empty card saying the admin must set connectors up', async () => {
+  test('the team uses Slack: the Slack line under the app cards, no empty card', async () => {
     const m = await settings()
     await m.until(() => m.find('slack-account'), 'the Slack line')
     await m.settle()
     expect(m.find('connectors-empty')).toBeNull()
+    expect(m.find('drive-card')).not.toBeNull()
     expect(m.get('slack-account').textContent).toContain('Mention @Trina AX in Acme')
     await m.unmount()
   })
 
-  test('no Slack: the empty card stays', async () => {
+  test('no Slack: no Slack line; the app cards (Google Drive) are there', async () => {
     me = { ...me, available: false }
     const m = await settings()
-    await m.until(() => m.find('connectors-empty'), 'the empty card')
+    await m.until(() => m.find('drive-card'), 'the Google Drive card')
+    await m.settle()
     expect(m.find('slack-account')).toBeNull()
     await m.unmount()
   })

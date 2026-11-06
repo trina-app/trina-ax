@@ -11,7 +11,7 @@ const t = DICTS.en
 const MENU: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
   // the owner (this test signs in as the owner) also has Slack, owner-only (AdminLayout MENU)
-  ['admin.group.shared', ['admin.engines', 'admin.credentials', 'admin.integrations', 'admin.plugins', 'slack.admin.title']],
+  ['admin.group.shared', ['admin.engines', 'admin.credentials', 'admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins', 'slack.admin.title']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.settings', ['admin.settings', 'admin.system']],
 ]

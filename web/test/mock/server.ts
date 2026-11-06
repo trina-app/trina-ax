@@ -200,6 +200,8 @@ export class MockServer {
   codexEnabled = true
   // the API engine: listed like on a real server, off here so chats and Admin Home do not count it
   apiEngineEnabled = false
+  /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
+  driveClient: 'none' | 'app' = 'none'
   /** Admin > AI connections: the team's connections (secrets are opened with the real server sealing code and dropped) */
   credentials: Credential[] = []
   credMemberOwn = true
@@ -323,6 +325,7 @@ export class MockServer {
     this.limitFallback = false
     this.codexEnabled = true
     this.apiEngineEnabled = false
+    this.driveClient = 'none'
     this.credentials = []
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
@@ -2325,6 +2328,26 @@ export class MockServer {
     cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
 
+    // Google Drive (server/src/routes/drive.ts): this test server has no Google client, like a server not set up for it.
+    // e2e tests that need the other states answer these addresses themselves (test/e2e/drive.spec.ts).
+    myDriveConnection: () => (this.driveClient === 'none'
+      ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }
+      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null }),
+    // Admin › App connectors (integrations/google-drive/admin-setup.ts): this test server has a public address, so an
+    // admin can set Google up; a file must list the redirect URI, like the real server checks.
+    driveAdminStatus: () => this.driveAdminStatus(),
+    setDriveClient: (c) => {
+      const redirect = this.driveAdminStatus().redirectUri!
+      if (c.body.file !== undefined) {
+        let j: { web?: { redirect_uris?: unknown } } | null = null
+        try { j = JSON.parse(c.body.file) } catch { fail('bad_request', 400, 'drive_client_invalid') }
+        if (!j?.web) fail('bad_request', 400, 'drive_client_invalid')
+        if (!Array.isArray(j!.web!.redirect_uris) || !j!.web!.redirect_uris.includes(redirect)) fail('bad_request', 400, 'drive_client_redirect')
+      }
+      this.driveClient = 'app'
+      return this.driveAdminStatus()
+    },
+
     // ---------------- external services (like server/src/routes/integrations.ts) ----------------
     listIntegrations: (c) => ({
       items: this.integrations.filter((x) => this.integrationAllows(x, c.user)).map((x) => this.integrationView(x, c.user)),
@@ -2688,6 +2711,11 @@ export class MockServer {
     const state = this.requestState(r)
     if (state !== 'waiting') throw new Fail('conflict', 409, '이 요청은 더 이상 기다리고 있지 않아요.', undefined, { state })
     return r
+  }
+  driveAdminStatus() {
+    const configured = this.driveClient !== 'none'
+    return { configured, source: configured ? 'app' as const : 'none' as const, canSetUp: true, blocked: null,
+      redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0 }
   }
   templateCovers(t: { access: IntegrationAccess }, u: User): boolean {
     return t.access.everyone || t.access.users.includes(u.id) || t.access.groups.some((g) => u.groupIds.includes(g))

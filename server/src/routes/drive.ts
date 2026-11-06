@@ -5,6 +5,7 @@ import { HttpError } from '../http/errors'
 import type { AppContextC } from '../http/env'
 import { CALLBACK_PATH } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
+import { driveAdminStatus, setDriveClient } from '../integrations/google-drive/admin-setup'
 import { DriveError } from '../integrations/google-drive/store'
 
 async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
@@ -20,6 +21,9 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.completeDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).complete(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.cancelDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).cancel(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.disconnectDrive, ({ auth }) => safe(() => googleDriveOf(ctx).disconnect(auth.user.id)))
+  // Admin › App connectors: set up Google Drive here instead of in the installer (integrations/google-drive/admin-setup.ts)
+  kit.handle(API.driveAdminStatus, () => safe(() => driveAdminStatus(ctx)))
+  kit.handle(API.setDriveClient, ({ auth, body }) => safe(() => setDriveClient(ctx, auth.user.id, body)))
   kit.raw('GET', CALLBACK_PATH, async c => {
     let ok = false
     const auth = (c as unknown as AppContextC).get('auth')

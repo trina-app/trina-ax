@@ -30,6 +30,9 @@ export const P4_SPECS: Record<string, Spec> = {
   completeDriveFlow: { build: c => c.post('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'self' },
   cancelDriveFlow: { build: c => c.del('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
   disconnectDrive: { build: c => c.del('/api/integrations/google-drive'), scope: 'self' },
+  // Admin › App connectors: setting up Google (admins only; this world has no public address, so a 409 after the check)
+  driveAdminStatus: { build: c => c.get('/api/admin/google-drive'), scope: 'byLevel' },
+  setDriveClient: { build: c => c.put('/api/admin/google-drive/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
 }
 // Callback state/session binding is exercised by c-drive-oauth and p4-route-access (static HTML never reflects input).
 export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH']
