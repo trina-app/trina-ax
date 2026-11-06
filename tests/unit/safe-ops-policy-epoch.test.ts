@@ -21,6 +21,8 @@ const policy: Record<string, string> = {
   integration_access: 'integration_id subject_type subject_id', connected_folders: 'id name source',
   // connection templates (336): where a member's key goes, and who the template is for
   integration_templates: 'id kind url auth auth_header version', integration_template_access: 'template_id subject_type subject_id',
+  // Drives shared with the team (337): which folders, whose account, signed in or not, and who may use it
+  drive_team_shares: 'id folders whole_drive status owner_user_id config_key', drive_team_share_access: 'share_id subject_type subject_id',
 }
 const bookkeeping: Record<string, string> = {
   users: 'name email locale created_at prefs last_seen_at locale_follows_team password_reset_by password_reset_at temp_password_failures',
@@ -31,6 +33,8 @@ const bookkeeping: Record<string, string> = {
   integration_access: '', connected_folders: 'created_by created_at last_sync_at last_status last_error files bytes',
   // a template's name and note change no one's access
   integration_templates: 'created_by name notes created_at updated_at', integration_template_access: '',
+  // the name, the account shown, the sealed tokens (a refresh rotates them) and the times change no one's access
+  drive_team_shares: 'name account scopes secret_enc key_version reason version expires_at created_at updated_at', drive_team_share_access: '',
 }
 
 test('R2-2: all policy trigger columns audited; no-op updates never advance epoch', async () => {

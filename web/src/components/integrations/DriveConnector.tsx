@@ -4,12 +4,16 @@
 //    a security step (the server holds the connection until the same person confirms it, docs/GOOGLE-DRIVE.md). Once
 //    linked it is a row in Yours (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
 //    client on this server yet: "Your admin needs to turn this on".
-//  - Admin › Connectors: its page (DriveAdminDetail) says on / not set up and how many members are connected, with the
-//    one-time setup (or Replace) in a small dialog (DriveSetupDialog) when this page may do it
-//    (integrations/google-drive/admin-setup.ts). True zero setup needs a Google sign-in Trina itself runs: there is none.
-import { Check, Copy, Upload } from 'lucide-react'
-import { useRef, useState, type ChangeEvent } from 'react'
-import { API, type DriveAdminStatus, type DriveConnection } from '@mycel/shared/api'
+//    An admin may not let members connect their own (Admin › Connectors › Google Drive): Connect is then off, and a
+//    connection made before says the admin turned it off. A Drive the team shares with the person shows as "Shared by
+//    your team" with its folders, with nothing to connect (DriveTeamShares).
+//  - Admin › Connectors: its page (DriveAdminDetail) says Not set up, Ready to set up (a Google client is there, nothing
+//    is on yet) or On (members may connect their own, or a Drive is shared with the team), with the one-time setup (or
+//    Replace) in a small dialog (DriveSetupDialog) when this page may do it (integrations/google-drive/admin-setup.ts),
+//    and below it the members' switch and the shares (DriveShares.tsx). A client alone turns nothing on.
+import { Check, Copy, FolderOpen, Upload } from 'lucide-react'
+import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { API, type DriveAdminStatus, type DriveConnection, type DriveTeamShare } from '@mycel/shared/api'
 import { APP_CONNECTORS, appConnectorLogo } from '../../lib/connectors'
 import { api, ApiError } from '../../lib/api'
 import { mobileApp, openExternal } from '../../lib/mobile'
@@ -23,6 +27,11 @@ const DRIVE = APP_CONNECTORS[0]
 
 /** Linked (or linked and needing a new sign-in). */
 export const driveLinked = (c: DriveConnection | null) => !!c?.configured && (c.status === 'connected' || c.status === 'needs_reconnect')
+/** The team lets members connect their own Drive (an older server does not say: it does). */
+export const drivePersonalAllowed = (c: DriveConnection | null) => c?.personalAllowed !== false
+/** Something on in Admin › Connectors' Google Drive: members connect their own, or a Drive is shared with the team. An
+ * older server does not say: its client is what turned it on. */
+export const driveAdminOn = (s: DriveAdminStatus) => s.configured && (s.membersCanConnect === undefined || s.membersCanConnect || (s.sharesOn ?? 0) > 0)
 
 export function DriveLogo({ className }: { className?: string }) {
   return <LogoTile src={appConnectorLogo(DRIVE)} className={className} />
@@ -39,11 +48,17 @@ export function useDriveParts(s: DriveConnectionState) {
   const linked = driveLinked(c)
   const reconnect = c?.status === 'needs_reconnect'
   const unavailable = !!c && !c.configured
+  // the admin did not let members connect their own: Connect is off, and one made before is not used
+  const off = !!c && c.configured && !drivePersonalAllowed(c)
+  const shares = c?.teamShares ?? []
   const flow = d.inProgress ? d.flow : null
 
   let line: string = t('drive.cardDesc')
   if (!c && s.loadFailed) line = t('drive.loadFailed')
   else if (unavailable) line = t('connectors.adminNeeded')
+  else if (off && linked) line = t('drive.membersOffLinked')
+  else if (off && shares.length) line = t('drive.teamShared', { name: shares.map((x) => x.name).join(', ') })
+  else if (off) line = t('connectors.adminNeeded')
   else if (reconnect) line = t('drive.status.needs_reconnect')
   else if (linked && c?.account) line = c.account.email ?? c.account.name ?? t('drive.status.connected')
 
@@ -51,6 +66,12 @@ export function useDriveParts(s: DriveConnectionState) {
     ? (s.loadFailed ? <Button size="sm" onClick={s.load} data-testid="drive-retry">{t('common.retry')}</Button> : null)
     : unavailable
       ? <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
+      : off
+        ? linked
+          ? <CardMenu label={t('appConnectors.more', { name: DRIVE.name })} testId="drive-menu" items={[
+              { label: t('drive.disconnect'), onSelect: () => void s.disconnect(), danger: true, disabled: d.busy, testId: 'drive-menu-disconnect' },
+            ]} />
+          : shares.length ? null : <Button size="sm" disabled data-testid="drive-connect">{t('aiApps.connect')}</Button>
       : flow
         ? null
         : linked
@@ -90,16 +111,37 @@ export function useDriveParts(s: DriveConnectionState) {
       {s.revokeWarning && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
     </>
   )
-  const state = !c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : c.status
-  return { line, action, steps, state, linked, reconnect, unavailable, busy: !!flow }
+  const state = !c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : off && !linked ? (shares.length ? 'team' : 'off') : c.status
+  return { line, action, steps, state, linked, reconnect, unavailable, off, shares, busy: !!flow }
+}
+
+/** The Drives the team shares with this person: nothing to connect, the AI can use them in their chats. */
+export function DriveTeamShares({ shares }: { shares: DriveTeamShare[] }) {
+  const t = useT()
+  if (!shares.length) return null
+  return (
+    <ul className="space-y-2" data-testid="drive-team-shares">
+      {shares.map((x) => (
+        <li key={x.id} className="flex items-start gap-2 rounded-xl border border-line px-3 py-2 text-sm" data-testid="drive-team-share">
+          <FolderOpen size={16} className="mt-0.5 shrink-0 text-muted" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium">{t('drive.teamShared', { name: x.name })}</span>
+            <span className="block text-xs text-muted break-words">{x.wholeDrive ? t('drive.teamWhole') : t('drive.teamFolders', { list: x.folders.map((f) => f.name).join(', ') || '—' })}</span>
+            <span className="block text-xs text-faint">{t('drive.teamHint')}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 /** The person's own Google Drive as one row (Connectors › Yours): the account, Connected and ⋯. */
 export function DriveCard({ s }: { s: DriveConnectionState }) {
   const p = useDriveParts(s)
   return (
-    <AppConnectorCard testId="drive-card" state={p.state} logo={<DriveLogo className="size-10" />} name={DRIVE.name} line={p.line} lineTone={p.reconnect ? 'warn' : 'muted'} action={p.action}>
+    <AppConnectorCard testId="drive-card" state={p.state} logo={<DriveLogo className="size-10" />} name={DRIVE.name} line={p.line} lineTone={p.reconnect || (p.off && p.linked) ? 'warn' : 'muted'} action={p.action}>
       {p.steps}
+      <DriveTeamShares shares={p.shares} />
     </AppConnectorCard>
   )
 }
@@ -115,26 +157,39 @@ export function DriveDetail({ s, onBack }: { s: DriveConnectionState; onBack: ()
     <ConnectorDetail testId="drive-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={p.line} official action={p.action}
       description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
       {p.steps}
+      {p.shares.length > 0 && <div className={p.steps ? 'mt-3' : undefined}><DriveTeamShares shares={p.shares} /></div>}
     </ConnectorDetail>
   )
 }
 
-/** Google Drive's page in Admin › Connectors: on or not, how many members use it, and the one-time setup. */
-export function DriveAdminDetail({ status, onSetUp, onBack }: { status: DriveAdminStatus; onSetUp: () => void; onBack: () => void }) {
-  const t = useT()
-  const line = status.configured
-    ? t('appConnectors.connectedMembers', { count: status.connectedMembers })
-    : status.blocked === 'hosted' ? t('appConnectors.blocked.hosted')
+/** One line for Google Drive in Admin › Connectors: what is on, or why nothing is. */
+export function driveAdminLine(t: ReturnType<typeof useT>, status: DriveAdminStatus) {
+  if (!status.configured) {
+    return status.blocked === 'hosted' ? t('appConnectors.blocked.hosted')
       : status.blocked === 'public_host' ? t('appConnectors.blocked.publicHost')
         : t('connectors.setUpOnceLine')
+  }
+  if (!driveAdminOn(status)) return t('driveAdmin.readyLine')
+  return [
+    status.membersCanConnect !== false ? t('appConnectors.connectedMembers', { count: status.connectedMembers }) : null,
+    status.sharesOn ? t('driveAdmin.shares', { count: status.sharesOn }) : null,
+  ].filter(Boolean).join(' · ')
+}
+
+/** Google Drive's page in Admin › Connectors: whether anything is on (a Google client alone is only "Ready to set up"),
+ * the one-time setup, and (children) the members' switch and the Drives shared with the team. */
+export function DriveAdminDetail({ status, onSetUp, onBack, children }: { status: DriveAdminStatus; onSetUp: () => void; onBack: () => void; children?: ReactNode }) {
+  const t = useT()
+  const on = driveAdminOn(status)
   return (
-    <ConnectorDetail testId="drive-admin-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={line} official
+    <ConnectorDetail testId="drive-admin-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={driveAdminLine(t, status)} official
       action={<>
-        <Badge tone={status.configured ? 'ok' : 'neutral'} className="shrink-0">{t(status.configured ? 'appConnectors.on' : 'appConnectors.notSetUp')}</Badge>
+        <Badge tone={on ? 'ok' : 'neutral'} className="shrink-0"><span data-testid="drive-admin-state" data-state={on ? 'on' : status.configured ? 'ready' : 'not_set_up'}>{t(on ? 'appConnectors.on' : status.configured ? 'driveAdmin.ready' : 'appConnectors.notSetUp')}</span></Badge>
         {status.canSetUp && <Button variant={status.configured ? 'secondary' : 'primary'} onClick={onSetUp} data-testid="drive-setup">{t(status.configured ? 'appConnectors.replace' : 'connectors.setUpOnce')}</Button>}
       </>}
       description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
       {status.configured && status.source === 'server' && <p className="text-xs text-faint" data-testid="drive-by-server">{t('appConnectors.byServer')}</p>}
+      {status.configured && <div className={status.source === 'server' ? 'mt-4' : undefined}>{children}</div>}
     </ConnectorDetail>
   )
 }

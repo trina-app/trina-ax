@@ -46,11 +46,25 @@ test('Connectors is in the Admin menu; Drive not set up yet: Set up takes the cl
   await upload(page, webClient())
   await dialog.getByTestId('drive-setup-save').click()
   await expect(dialog).toHaveCount(0)
-  await expect(card(page)).toContainText('켜짐')
+  // a Google client only makes Drive available: nothing is on yet
+  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('설정 대기')
   await expect(card(page).getByTestId('drive-setup')).toHaveText('바꾸기')
+  await expect(card(page).getByTestId('drive-members-switch')).not.toBeChecked()
   expect(realErrors(errors)).toEqual([])
 
-  // a member now sees Connect turned on, on Drive's page
+  // a member cannot connect their own yet
+  await page.context().clearCookies()
+  await signIn(page, { username: 'bob', password: 'bob password 1' })
+  await page.goto('/settings/drive')
+  await expect(page.getByTestId('drive-detail').getByTestId('drive-connect')).toBeDisabled()
+  await expect(page.getByTestId('drive-detail-line')).toHaveText('관리자가 먼저 켜야 해요')
+
+  // the admin's switch turns it on
+  await page.context().clearCookies()
+  await signIn(page)
+  await openDrive(page)
+  await card(page).getByTestId('drive-members-switch').check({ force: true })
+  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('켜짐')
   await page.context().clearCookies()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/settings/drive')
@@ -68,7 +82,7 @@ test('the client ID and secret work too; Save waits until both are there', async
   await expect(dialog.getByTestId('drive-setup-save')).toBeDisabled()
   await dialog.getByTestId('drive-setup-secret').fill('synthetic-secret')
   await dialog.getByTestId('drive-setup-save').click()
-  await expect(card(page)).toContainText('켜짐')
+  await expect(card(page).getByTestId('drive-admin-state')).toHaveText('설정 대기')
 })
 
 test('where this page may not set it up: one line instead of Set up', async ({ page }) => {

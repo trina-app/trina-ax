@@ -18,12 +18,13 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (onboarding_goal_notices; shared/src/api/onboarding-goal.ts), for the owners a person who asks for their account
  * to be deleted (account_deletion_notices; shared/src/api/account-deletion.ts), and a connection template an admin
  * shared with the person or whose address or sign-in changed (integration_template_notices; docs/INTEGRATIONS.md
- * "Templates"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect'])
+ * "Templates"), and for admins a Drive shared with the team that stopped working and needs a new sign-in
+ * (drive_share_notices; docs/GOOGLE-DRIVE.md "Sharing a Drive with the team"). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
-  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members']).nullable(),
+  createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
   /** 'integration.request' only, while the request is there: the service's name and the host of its address (where the
@@ -46,6 +47,9 @@ export const InboxNotification = z.object({
   /** 'integration.template' and 'integration.template_reconnect' only, while the template is there and still for this
    * person: its id and name (Settings › MCP opens it with ?template=<id>); older servers omit it */
   template: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** 'drive.share_reconnect' only (admins), while the share is there: its name (link 'admin_connectors' opens Google
+   * Drive's page in Admin › Connectors); older servers omit it */
+  driveShare: z.object({ id: z.string(), name: z.string() }).optional(),
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),

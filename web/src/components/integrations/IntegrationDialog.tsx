@@ -439,8 +439,9 @@ export function Warning({ children }: { children: ReactNode }) {
   )
 }
 
-/** Who may use a team connection in their chats: the whole team, or chosen groups and people. Admins are not implied. */
-function AccessPicker({ value, onChange, groups, users, me, error, template }: {
+/** Who may use a team connection in their chats: the whole team, or chosen groups and people. Admins are not implied.
+ * Also who may use a Drive shared with the team (DriveShares.tsx: `legend`, `note`). */
+export function AccessPicker({ value, onChange, groups, users, me, error, template, legend, note }: {
   value: IntegrationAccess
   onChange: (a: IntegrationAccess) => void
   groups: Group[]
@@ -449,6 +450,9 @@ function AccessPicker({ value, onChange, groups, users, me, error, template }: {
   error?: string | null
   /** a template: who sees it to connect with their own key */
   template?: boolean
+  /** another heading and note than a connection's */
+  legend?: string
+  note?: string
 }) {
   const t = useT()
   const name = useId()
@@ -456,8 +460,8 @@ function AccessPicker({ value, onChange, groups, users, me, error, template }: {
   const active = users.filter((u) => u.status === 'active')
   return (
     <fieldset className="space-y-2" data-testid="integration-access">
-      <legend className="mb-1 text-label font-medium text-ink">{t(template ? 'integrations.template.access' : 'integrations.access')}</legend>
-      <p className="text-xs text-muted">{t(template ? 'integrations.template.accessNote' : 'integrations.access.adminNote')}</p>
+      <legend className="mb-1 text-label font-medium text-ink">{legend ?? t(template ? 'integrations.template.access' : 'integrations.access')}</legend>
+      <p className="text-xs text-muted">{note ?? t(template ? 'integrations.template.accessNote' : 'integrations.access.adminNote')}</p>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         <label className="flex items-center gap-2 text-sm">
           <input type="radio" name={name} checked={value.everyone} onChange={() => onChange({ ...value, everyone: true })} data-testid="integration-access-everyone" /> {t('integrations.access.everyone')}

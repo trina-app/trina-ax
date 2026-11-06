@@ -1,8 +1,10 @@
 // Setting up Google Drive from Admin › App connectors, instead of the installer's --google-drive-client: an admin gives
 // the Google OAuth web client (the JSON file Google Cloud downloads, or its client ID and secret), and the server writes
 // the same private file the installer writes (<secrets>/integrations/google-drive/client.json, mode 0600, through a new
-// file that is renamed into place) and reads it back with the same checks (config.ts readDriveConfig). Members can then
-// connect their own Google account; the Drive tools are offered from then on (tools/drive.ts `available`).
+// file that is renamed into place) and reads it back with the same checks (config.ts readDriveConfig). That only makes
+// Drive available: members connect their own Google account once an admin turns on "Members can connect their own
+// Google Drive", and an admin can share a Drive with the team (shares.ts). The Drive tools are offered from then on
+// (tools/drive.ts `available`).
 //
 // What the page may not change:
 //  - a hosted server: the hosting service owns its setup (as the installer refuses --google-drive-client there);
@@ -23,6 +25,7 @@ import { isHosted } from '../../system/deployment'
 import { CALLBACK_PATH, parseDriveConfig, type DriveConfig } from './config'
 import { googleDriveOf } from './oauth'
 import { DriveError } from './store'
+import { membersCanConnect, shareRows, shareWorks } from './shares'
 
 /** the key of the client set on this page (configKey): a client.json with another key was written by someone else */
 export const DRIVE_CLIENT_BY_APP = 'integrations.googleDriveClientByApp'
@@ -40,7 +43,9 @@ export function driveAdminStatus(ctx: AppContext): DriveAdminStatus {
     ? (ctx.db.query(`SELECT count(*) n FROM drive_connections d JOIN users u ON u.id=d.user_id
         WHERE d.config_key=? AND d.status='connected' AND u.status='active' AND u.deleted_at IS NULL`).get(svc.key) as { n: number }).n
     : 0
-  return { configured, source, canSetUp: blocked === null, blocked, redirectUri: blocked === 'hosted' ? null : redirectUri, connectedMembers }
+  // a client alone turns nothing on: members connect their own only with the switch, and shares work on their own
+  const sharesOn = configured ? shareRows(ctx.db).filter((r) => shareWorks(ctx.db, r, svc.key)).length : 0
+  return { configured, source, canSetUp: blocked === null, blocked, redirectUri: blocked === 'hosted' ? null : redirectUri, connectedMembers, membersCanConnect: membersCanConnect(ctx.db), sharesOn }
 }
 
 /** The client from the request: Google's downloaded web-client JSON ({"web": {...}}, which must list our redirect URI),
