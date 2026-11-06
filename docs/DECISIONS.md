@@ -9783,6 +9783,89 @@ section of its own, not a follow-up of D (the company profile), though the deck 
 - The toast when a picture became type-only at download time (the info answer could say how many).
 - The video hook (`DECK_VIDEO_SUGGESTION`) and pictures from an uploaded PPTX's `ppt/media/`.
 
+### Round 2 — figures, grounds, a live build and one self-review (feat/deck-visuals, 2026-11-06)
+The owner on the merged deck: "깔끔하긴 한데, 배경도 없고, 뭔가 도식화가 안되어서 너무 허전해 보여 … 3분까지는 괜찮을 것 같아. 뭐하고 있는지만
+조금씩 보여준다면", and on a history slide that was a plain table of years: "아직도 디자인이 이따구 밖에 안되는데 이게 맞는거야?".
+The bar is the approved mockups (the design system: three looks from the brand colour, one drawing language for every
+figure, grounds, the progress block). The owner's three decisions, as recommended: AI accents are shapes and lines only;
+no numbers slide when the material has no numbers; about twice the AI usage per deck is acceptable (measured below).
+
+- **The build in steps** (`intro-deck/build.ts`, migration 248 `intro_deck_builds`): `intro_deck` takes `step: "outline"`
+  (6–10 stubs: kind, section, a headline draft, the figure, its `basis`, the picture; notes on every picture: lettering,
+  calm side, tone; the deck's `pattern`), then `step: "slide"` once per slide, then `step: "finish"` (≤ 3 fixes, accents
+  dropped). The draft lives in `intro_deck_builds` (plan, state, step times; `started_at` is the turn's start, the
+  click); the artifact is made once, at the end, as round 1's (one version, the PDF and PPTX built on demand).
+  - **The tool's schema is one object** (`IntroDeckListing`): the model API refuses a tool whose input schema is a union
+    (a bare `oneOf`), and Claude Code then dropped every team tool of the turn (found on the first real run). Calls are
+    still parsed with the strict union `IntroDeckStep`.
+  - **Fix and finish are one step** (a deviation from the plan's separate `fix` then `finish`): one round trip less; a
+    fix that fails its checks keeps the slide as it was and never blocks the finish.
+  - **A failed slide** returns only its own problems; after two tries a content slide is left out and the flow goes on
+    (the cover and the closing get a third, then the build fails). Each slide is laid out among the others (page numbers,
+    neighbours) for the fit.
+- **Server first, then the AI.** Every accepted slide is drawn to a 960 × 540 PNG with typst (`render.ts`, one compile
+  with a second page without the type), the measurable checks run on its pixels (`review.ts`: the worst contrast under
+  each text box at its 2nd percentile — 4.5:1, or 3:1 for type ≥ 36 px or bold ≥ 28 px; edge density under type; type
+  under 22 px; overlaps; the same layout three times in a row; ink coverage under 18 %), and the mechanical fixes apply
+  at once (a stronger scrim, then the drawn ground instead of the picture). The pictures go to the panel and the chat as
+  the slide's thumbnail. After the last slide every picture goes back to the AI in the tool result (`images`, through
+  `FileService.toolImage`: the team's vision switch, the engine and the per-answer budget) with the server's findings,
+  unless typst is missing, the engine takes no images or the answer is past the cutoff (2:30 for the 3-minute budget):
+  then the deck is finished at once.
+- **One drawing language** (`draw.ts`, `figures.ts`, `layout2.ts`, `look.ts`): the type scale (display 120, section 96,
+  title 60, statement 56, head 36, body 28; nothing under 22 px), the grid (title at 150, the figure band 330–930, the
+  running footer "company · section" and "03 / 09"), the three looks computed from the brand colour (text, dim 4.5:1, mute
+  3:1, lineStrong 3:1, mark ≥ 3:1, accent ≥ 4.5:1, tints; a vivid colour lifted in HSL on ink instead of washed toward
+  white; a hueless brand on paper takes its accent from the brand pictures by k-means or stays monochrome; ink for a deep
+  colour whose cover and opening pictures are mostly dark, from the AI's tone notes), and fourteen figures drawn from
+  slots only: flow, cycle, hub, layers, timeline (years at one common size; places with contours; a "next" ring on a
+  dotted axis), compare (panels, or before → a picture of now), funnel, merge, grid (icons, product tags), picture cards,
+  donut, bars (true scale from zero, durations compared in minutes, a value too small to see drawn as a 6 px tick), line,
+  big figures (two to a row when long). Exactly one key element per figure in the mark colour; the about statement keeps
+  one colour when its hub carries the key. A content slide whose figure would reach the footer is a problem for the AI.
+- **The relationship a figure implies needs a basis**: flow, cycle, hub, layers, timeline, compare, funnel and merge need
+  a sentence from the sources (squashed, word for word); a chart value must be written exactly with its unit; every
+  other fact rule of round 1 holds for every text of every figure (`spec2.ts`).
+- **Icons**: 174 Lucide icons (1.54.0, the version the web app uses), generated into `intro-deck/icons.ts` as absolute
+  M/L/C/Z paths (arcs as cubic Béziers) by `scripts/gen-deck-icons.ts`; an unknown name becomes `circle-dot`. ISC for
+  Lucide and MIT for the Feather-derived icons, both in NOTICE, docs/THIRD-PARTY-NOTICES.md and every bundle's
+  `licenses/lucide/`.
+- **Grounds** (`grounds.ts`): glow and mesh as radial fields; dots, lines and contours (marching squares on seeded value
+  noise) from a seed of the team and the title, so a rebuild looks the same; every pattern fades to zero 48 px before
+  the type (a linear or radial mask) and never sits behind a figure. In the preview and the PDF they are SVG (typst renders
+  SVG through usvg); in the PowerPoint file a PNG rasterized in plain code (no image library: hosted Linux has none).
+- **The AI accent** (`accent.ts`): at most two per deck, only on the cover, an opening or the closing, drawn on the right
+  half of a slide without a picture. The AI writes SVG in a small grammar; a strict allowlist sanitizer parses it as XML
+  with its own parser (no DTD, no entities), rebuilds a new SVG from allowed elements and attributes only, maps the five
+  colour names to the theme, caps elements (150), depth (8), size (12 KB) and numbers (finite, ±10,000), and rejects
+  everything else (script, foreignObject, image, use, href, style, on*, url() other than a local gradient or clip path,
+  filter, mask, text, any other colour). A rejection costs only the accent. It is drawn as an image: a data URI in the
+  preview, a file in the PDF, a PNG through typst in the PowerPoint file (left out where typst is missing).
+- **Outputs**: the display list has three new items (`path` with absolute M/L/C/Z, `pattern`, `svg`), and strokes on
+  rects and lines. HTML: one inline SVG per run of vector items; PDF: typst strokes and SVG files; PowerPoint: native
+  `custGeom` shapes (editable, grouped per icon or slab), patterns and accents as pictures. Round 1's decks stored as
+  `doc` without `v` keep round 1's layout (`layout.ts`) for their downloads.
+- **Pictures**: the setup's website reading keeps up to 12 pictures (was 8) and makes big ones 1,920 px JPEGs (was 1,600),
+  so a cover can bleed. A picture whose note says it has lettering never goes under type; a full-bleed cover puts the
+  type on the picture's calm side (right or left).
+- **The live build** (`deck.progress` events, `GET /api/intro-decks/builds?chatId=`, `GET …/builds/:id/slides/:n`, the
+  chat's owner only): the chat shows one block with four steps (reading, the outline with N slides, slide k/N with a live
+  sub-line such as "5장 · 숫자를 도넛 차트로 그리는 중", the review) and a strip of thumbnails; the desktop panel shows the
+  newest finished slide large, `‹ 4 / 9 ›`, the strip and "만드는 중 · 5 / 9" with [받기] disabled. Finished, the block
+  folds to one row ("회사 소개서 · 9장 · 2분 34초"); the per-slide tool steps are not shown, so a retried slide never
+  shows a red failed step. Done while elsewhere: a toast with the cover thumbnail and [열기], a dot on the chat, a
+  system notification in the desktop app when the window is not focused. On a phone the preview pages at full width
+  instead of stacking; on a computer the deck page shows a thumbnail strip under the stage when there is room.
+- **The time budgets** (the owner's "3분 5분 10분", `intro-deck/tiers.ts`): one team setting `introDeckTier` (no screen;
+  the welcome's default stays `quick` until the owner picks; `MYCEL_DECK_TIER` on a dev server). quick ≈ 3 min as above.
+  standard ≈ 5 min: a `read` step where the server reads up to 10 pages of the company's own site (the scope of the
+  website saved in the profile, the setup draft's rule: that host and its subdomains; fetched like web_fetch), 2–3
+  WebSearch searches by the AI, and outside articles used only when listed in the outline's `web_sources` (url, outlet,
+  date), each of which the AI must have opened with web_fetch in this answer (the URL gate applied there) and the server
+  reads again: their text joins the material the fact check reads and the speaker notes cite "outlet · date · address";
+  a second review round when the first found more than two problems. deep ≈ 10 min: about 15 pages, 6–8 searches, the
+  chat made with the strongest model the engine offers (Claude Code's "opus"), two review rounds and a headline pass.
+
 ## W4 — The owner's walk: setup in two groups, the AI ways at once, coming back resumes (fix/setup-form-sections, 2026-11-06)
 - **Setup form.** "어디까지가 팀이고, 어디부터가 팀장 계정인지 모르겠어": the fields sit in two fieldsets under quiet headings
   with a hairline, 팀 (team name, team language) and 내 계정 · 팀장 (내 이름, username, password). The password is asked once

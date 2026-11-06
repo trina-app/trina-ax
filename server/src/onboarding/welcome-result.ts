@@ -21,6 +21,8 @@ import type { AuthInfo } from '../services'
 import type { ChatRuntime } from '../chat/runtime'
 import { getTeamSettings, teamDefaultLocale } from '../admin/settings'
 import { newChatEngine } from '../admin/engine-choice'
+import { claudeModels } from '../admin/engines'
+import { deckTier, TIERS } from '../intro-deck/tiers'
 import { audit } from '../admin/audit'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -218,7 +220,11 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
     files.push(r.rel)
   }
   // the chat: titled after the result (the AI does not rename a title the server gave)
-  const { engine, model } = newChatEngine(ctx, auth.user, {}, locale)
+  const chosen = newChatEngine(ctx, auth.user, {}, locale)
+  // the deck's longest time budget (intro-deck/tiers.ts) writes its outline and copy with the strongest model the engine
+  // offers (Claude Code's "opus" when it is on the list); otherwise the team's choice as for any chat
+  const strong = TIERS[deckTier(ctx.db)].strongModel && chosen.engine === 'claude-code' && claudeModels(ctx.config).some((m) => m.id === 'opus') ? 'opus' : null
+  const { engine, model } = { engine: chosen.engine, model: strong ?? chosen.model }
   const id = newId(), now = new Date().toISOString()
   ctx.db.query("INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,NULL,?,'user',?,?,?,?)")
     .run(id, userId, TEXT.title[locale], engine, model ?? null, now, now)

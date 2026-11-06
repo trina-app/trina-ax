@@ -5,7 +5,7 @@
 //
 // The grid: 1920 × 1080, margins 120 left and right, 104 top, 96 bottom, 12 columns with 40 px gutters; the eyebrow
 // and the title stand in the same place on every content slide; content sits between y 360 and 984.
-import type { DeckSlide, DeckTheme, Locale } from '@mycel/shared/api'
+import type { Deck2Kind, DeckSlide, DeckTheme, Locale } from '@mycel/shared/api'
 import { fitText, labelCase, perLine, ROLES, SLACK, width, type Fitted, type Role, type Weight } from './text'
 import { lookFor, type DeckLook, type Ground } from './theme'
 
@@ -81,11 +81,45 @@ export interface Stop { at: number; color: string }
 /** linear: `angle` as in CSS (0 runs from the bottom up, 90 from left to right); radial: from the centre to the edge of
  * an ellipse that fills the box */
 export type Fill = { solid: string } | { linear: { angle: number; stops: Stop[] } } | { radial: { stops: Stop[] } }
-export interface RectItem { t: 'rect'; x: number; y: number; w: number; h: number; fill: Fill; radius: number; ellipse?: boolean }
-export interface LineItem { t: 'line'; x1: number; y1: number; x2: number; y2: number; color: string; width: number }
-export type Item = TextItem | ImageItem | RectItem | LineItem
+/** A stroke (round 2): colour "#rrggbb" or "#rrggbbaa", width in px; `dash` [on, off] in px (a dotted axis: [2, 12]
+ * with round caps). */
+export interface Stroke { color: string; width: number; dash?: [number, number]; cap?: 'round' | 'butt'; join?: 'round' | 'miter' }
+export interface RectItem { t: 'rect'; x: number; y: number; w: number; h: number; fill: Fill; radius: number; ellipse?: boolean; /** round 2: a ring or an outline */ stroke?: Stroke }
+export interface LineItem { t: 'line'; x1: number; y1: number; x2: number; y2: number; color: string; width: number; dash?: [number, number]; cap?: 'round' | 'butt' }
+/** Round 2: a vector shape in slide px. `d` uses absolute M, L, C and Z only (figures, chevrons, slabs, curves, icons),
+ * so every output can draw it natively (an SVG path, a typst curve or SVG, a DrawingML custGeom). `fill` "#rrggbb" or
+ * "#rrggbbaa" (absent: none). Consecutive items with the same `group` are one editable group in the PowerPoint file
+ * (an icon, a slab). */
+export interface PathItem { t: 'path'; d: string; fill?: string; stroke?: Stroke; group?: string; role?: string }
+/** Where a drawn pattern fades: its opacity multiplied by a value running linearly from `from` at (x1, y1) to `to` at
+ * (x2, y2) (clamped beyond), or radially from `inner` at the centre to `outer` at radius r and beyond. */
+export type Fade =
+  | { linear: { x1: number; y1: number; x2: number; y2: number; from: number; to: number } }
+  | { radial: { cx: number; cy: number; r: number; inner: number; outer: number } }
+/** Round 2: a drawn ground pattern over the box (grounds.ts makes its geometry from the seed, the same in every output):
+ * dots (`step` apart, radius `size`), lines (`step` apart, `size` wide, at `angle`°) or contours (`levels` isolines of a
+ * seeded noise field at `scale`, `size` wide). `opacity` at full strength, faded by `fade`. */
+export interface PatternItem {
+  t: 'pattern'
+  kind: 'dots' | 'lines' | 'contours'
+  x: number; y: number; w: number; h: number
+  color: string
+  opacity: number
+  step: number
+  size: number
+  angle?: number
+  seed?: number
+  levels?: number
+  scale?: number
+  fade?: Fade
+}
+/** Round 2: the AI's accent, already sanitized (accent.ts) with the theme's colours put in, drawn into the box (its
+ * viewBox 0 0 800 800 kept square, centred). Never inline in a page: an <img> in the preview, an image in the PDF, a
+ * picture in the PowerPoint file. */
+export interface SvgItem { t: 'svg'; x: number; y: number; w: number; h: number; svg: string; role: string }
+export type Item = TextItem | ImageItem | RectItem | LineItem | PathItem | PatternItem | SvgItem
 export interface SlideOut {
-  kind: DeckSlide['kind']
+  kind: DeckSlide['kind'] | Deck2Kind
   variant: string
   ground: string
   dark: boolean
