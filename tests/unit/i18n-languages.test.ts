@@ -193,6 +193,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/skills/share-check.ts': { why: 'Korean words that tell the AI to run a script (matched in a SKILL.md, not screen text)', also: /^\s*\/스크립트\[/ },
   'server/src/connectors/remote-mcp/share.ts': { why: 'the app\'s own name of "스킬로 제안", quoted to Claude Code and to a member it refuses (not screen text of this server)', also: /스킬로 제안/ },
   'shared/src/api/skill-shares.ts': { why: 'the step\'s button names quoted in the API summaries (not screen text)', also: /나중에 하기/ },
+  'server/src/knowledge-graph/documents/text.ts': { why: 'Korean particles, endings, stopwords and generic document titles for the knowledge graph\'s search tokenizer, and its Hangul range (word lists, not screen text)', also: /^const (HANGUL|KO_SUFFIX) = |^\s+'[^']*'(, '[^']*')*(,|\]\)?)$/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

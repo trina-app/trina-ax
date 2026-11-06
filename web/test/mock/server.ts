@@ -2833,7 +2833,7 @@ export class MockServer {
     })) }),
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
-    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }),
+    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }),
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
     // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "K") ----------------
     // The team connector is on here (GET /api/connectors/remote: configured, at this server's /mcp), so the welcome

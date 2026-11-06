@@ -287,3 +287,34 @@ test('a name changed since the messages were read shows at once: the directory h
     removeDom()
   }
 })
+
+// ---------------- group chats and room names (docs/DECISIONS.md "그룹 대화와 방 이름") ----------------
+test('an event line is one quiet line in the middle: no avatar, menu, unread number; a room name stays text', () => {
+  const html = render([
+    message({ roomId: R, seq: 1, body: 'hello' }),
+    message({ roomId: R, seq: 2, body: '', author: BEN, event: { type: 'renamed', name: '<b>Plan</b>' } }),
+    message({ roomId: R, seq: 3, body: '', author: BEN, event: { type: 'added', users: [CY] } }),
+    message({ roomId: R, seq: 4, body: 'after' }),
+  ])
+  expect(count(html, 'data-testid="room-event"')).toBe(2)
+  expect(html).not.toContain('<b>Plan</b>')
+  expect(html).toContain('&lt;b&gt;Plan&lt;/b&gt;')
+  // the lines have no menu and break the run: Ben's two messages are two runs with his name twice
+  expect(count(html, 'data-testid="message-menu"')).toBe(2)
+  expect(count(html, 'data-testid="room-run"')).toBe(2)
+  expect(html).toContain(translate('en', 'rooms.event.invited', { actor: 'Ben', names: 'Cy Park' }))
+})
+
+test('phones: the first message after an event line keeps its time unless the message run above has the same one', () => {
+  const sec = (s: number) => new Date(Date.parse(at(1)) + s * 1000).toISOString()
+  const minute = (iso: string) => iso.slice(11, 16)
+  const runs = groupRuns([
+    message({ roomId: R, seq: 1, createdAt: at(0) }),
+    message({ roomId: R, seq: 2, author: CY, body: '', event: { type: 'left' }, createdAt: sec(0) }),
+    message({ roomId: R, seq: 3, author: ME, createdAt: sec(5) }),
+    message({ roomId: R, seq: 4, author: CY, body: '', event: { type: 'left' }, createdAt: sec(10) }),
+    message({ roomId: R, seq: 5, createdAt: sec(20) }),
+  ])
+  // seq 3 is a minute after seq 1 (the event line's time does not count): shown; seq 5 has seq 3's minute: once
+  expect(sameTimeAsAbove(runs, minute)).toEqual([false, false, false, false, true])
+})

@@ -13,6 +13,8 @@ export function room(o: Partial<RoomT> = {}): RoomT {
     id: uuidv7(),
     kind: 'team',
     name: 'acme-design',
+    canRename: false,
+    managerId: null,
     groupId: uuidv7(),
     memberCount: 3,
     peers: [BEN, CY],

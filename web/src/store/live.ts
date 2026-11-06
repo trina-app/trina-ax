@@ -16,6 +16,7 @@ import { useEngines } from './engines'
 import { useJobs } from './jobs'
 import { usePeople } from './people'
 import { useRooms } from './rooms'
+import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
 import { toast, useUi } from './ui'
 
@@ -42,7 +43,8 @@ let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
 let firstServerVersion: string | null = null
 
-export function dispatch(ev: ServerEvent) {
+/** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
+export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: false }) {
   if (ev.type === 'message.done' && typeof document !== 'undefined' && document.hidden) {
     useUi.getState().setUnseenDone(useUi.getState().unseenDone + 1)
   }
@@ -71,6 +73,10 @@ export function dispatch(ev: ServerEvent) {
       filesChanged.emit(ev.data.changes)
       return
     case 'room.message':
+      useRooms.getState().handleEvent(ev)
+      // a new message meant for me rings once on this device (store/roomSound.ts); an edit or a delete never does
+      roomMessageSound(ev.data.roomId, ev.data.message, meta.replay)
+      return
     case 'room.message.updated':
     case 'room.read':
     case 'room.updated':
@@ -199,6 +205,8 @@ export function startLive() {
   })
   relay = new BrowserRelay((f) => client?.send(f))
   client.start()
+  // the room sound never stops the live updates
+  try { startRoomSound() } catch { /* no sound in this window */ }
   window.addEventListener('online', nudge)
   document.addEventListener('visibilitychange', onVisible)
 }
@@ -207,6 +215,7 @@ const nudge = () => client?.nudge()
 const onVisible = () => document.visibilityState === 'visible' && client?.nudge()
 
 export function stopLive() {
+  stopRoomSound()
   client?.stop()
   client = null
   relay = null

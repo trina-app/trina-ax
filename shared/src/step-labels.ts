@@ -31,7 +31,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo"),
   hwp_render: t('한글 문서 쪽 보기', 'View HWP page', 'Lihat halaman HWP', "HWPのページを表示", "Ver página HWP"),
   search: t('뜻으로 찾기', 'Search by meaning', 'Cari berdasarkan makna', "意味で検索", "Buscar por significado"),
-  knowledge_explore: t('코드 탐색', 'Explore code', 'Jelajahi kode', "コードを探索", "Explorar código"),
+  knowledge_explore: t('지식 그래프 검색', 'Search knowledge graph', 'Cari di grafik pengetahuan', "ナレッジグラフを検索", "Buscar en el grafo de conocimiento"),
   schedule_create: t('예약 작업 만들기', 'Create scheduled task', 'Buat tugas terjadwal', "定期タスクを作成", "Crear tarea programada"),
   schedule_list: t('예약 작업 보기', 'List scheduled tasks', 'Lihat tugas terjadwal', "定期タスクを一覧表示", "Listar tareas programadas"),
   schedule_delete: t('예약 작업 지우기', 'Delete scheduled task', 'Hapus tugas terjadwal', "定期タスクを削除", "Eliminar tarea programada"),

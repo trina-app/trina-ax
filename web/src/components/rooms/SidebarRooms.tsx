@@ -54,7 +54,7 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
             <ChevronDown size={12} className={clsx('transition-transform', !open && '-rotate-90')} aria-hidden />
           </button>
         </h2>
-        <button type="button" onClick={() => setPicking(true)} aria-label={t('rooms.newDm')} title={t('rooms.newDm')} className="ml-auto flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink" data-testid="rooms-new-dm">
+        <button type="button" onClick={() => setPicking(true)} aria-label={t('rooms.newChat')} title={t('rooms.newChat')} className="ml-auto flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink" data-testid="rooms-new-dm">
           <Plus size={15} aria-hidden />
         </button>
       </div>

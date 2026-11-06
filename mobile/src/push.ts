@@ -77,7 +77,8 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
   return asking
 }
 
-/** In the foreground the web app already shows new things live: keep the notification in the list, no banner/sound. */
+/** In the foreground the web app already shows new things live: keep the notification in the list, no banner/sound.
+ * The web app plays its own room sound while it is on screen (web/src/lib/roomSound.ts), so the open app has one. */
 export function quietForeground() {
   // Never let notifications break the app (an Android build without FCM has no push at all).
   try { Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) }) }

@@ -28,6 +28,7 @@ import { authorize } from '../policy/authorize'
 import { listTeamSkills, sameSkillName } from '../chat/skills'
 import { componentC } from '../team-files/component'
 import { installSkillPack } from './skill-packs'
+import { seedDefaultSkills } from './default-skills'
 
 export const WELCOME_SETTING = 'onboarding.welcome'
 
@@ -299,6 +300,9 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
     }
     p = save(ctx, raw, now)
   }
+  // the other default skills (marketing, work) right away for a new team, not at the server's next run; a failure here
+  // never stops the steps (the server's own runs try again)
+  try { seedDefaultSkills(ctx, userId) } catch (e) { ctx.log.warn('adding the default skills failed in the welcome steps', { err: e }) }
   raw.teamGroup = teamGroupFor(ctx, userId, p.teamGroup ?? null, locale)
   return { progress: save(ctx, raw, now), install, outcome }
 }

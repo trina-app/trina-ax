@@ -1,24 +1,29 @@
-// What stands for a room in a list or a header: the other person's picture in a DM, a "#" for a group's room and the
-// people mark for the everyone room. Decorative: the room's name is always written beside it.
-import { Hash, Users } from 'lucide-react'
+// What stands for a room in a list or a header: the other person's picture in a DM, a "#" for a group's room, the
+// people mark for the everyone room and two speech bubbles for a group chat. Decorative: the room's name is always
+// written beside it.
+import { Hash, MessagesSquare, Users } from 'lucide-react'
 import { useCallback } from 'react'
 import type { Room } from '@mycel/shared/api'
-import { useT } from '../../i18n'
+import { translate, useLocale, useT } from '../../i18n'
 import { roomTitle } from '../../lib/rooms'
 import { useAvatarOf, usePeople, usePeopleList } from '../../store/people'
 import { Avatar } from '../Avatar'
 
-/** The room's name as the app shows it (DMs: the other person; the everyone room: "전체"). */
+/** The room's name as the app shows it (its own name; DMs: the other person; the everyone room: "전체"; an unnamed group
+ * chat: "가, 나, 다 외 2명"). */
 export function useRoomTitle() {
   const t = useT()
   const all = t('rooms.all')
   const gone = t('rooms.goneUser')
-  // a DM is named after the other person as the directory has them now (a changed name shows at once)
+  const alone = t('rooms.groupAlone')
+  const sep = t('rooms.nameSep')
+  const locale = useLocale()
+  // a DM and an unnamed group chat are named after the people as the directory has them now (a changed name shows at once)
   const byId = usePeople((s) => s.byId)
-  return useCallback((room: Pick<Room, 'kind' | 'name' | 'peers'>) => {
-    const peer = room.kind === 'dm' ? room.peers[0] : undefined
-    return roomTitle(peer && byId[peer.id] ? { ...room, peers: [{ ...peer, name: byId[peer.id]!.name }] } : room, { all, gone })
-  }, [all, gone, byId])
+  return useCallback((room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<Pick<Room, 'memberCount'>>) => {
+    const peers = room.kind === 'dm' || room.kind === 'group' ? room.peers.map((p) => (byId[p.id] ? { ...p, name: byId[p.id]!.name } : p)) : room.peers
+    return roomTitle({ ...room, peers }, { all, gone, alone, sep, names: (names, n) => (n > 0 ? translate(locale, 'rooms.groupNamesMore', { names, n }) : names) })
+  }, [all, gone, alone, sep, locale, byId])
 }
 
 /** `tile`: the icon on a round tile the size of an avatar (lists); without it a bare 16px icon in a box of that size
@@ -28,7 +33,7 @@ export function RoomIcon({ room, size, tile }: { room: Room; size: number; tile?
   usePeopleList()
   const peer = useAvatarOf(room.kind === 'dm' ? (room.peers[0] ?? null) : null)
   if (room.kind === 'dm') return peer ? <Avatar user={peer} size={size} /> : <span aria-hidden className="shrink-0 rounded-full bg-hover" style={{ width: size, height: size }} />
-  const Icon = room.kind === 'all' ? Users : Hash
+  const Icon = room.kind === 'all' ? Users : room.kind === 'group' ? MessagesSquare : Hash
   if (!tile)
     return (
       <span aria-hidden className="flex shrink-0 items-center justify-center text-muted" style={{ width: size, height: size }}>

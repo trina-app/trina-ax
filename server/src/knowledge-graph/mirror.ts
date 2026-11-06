@@ -65,7 +65,7 @@ const ext = (name: string) => { const i = name.lastIndexOf('.'); return i > 0 ? 
 export const wanted = (name: string) => CODE_EXT.has(ext(name)) || PROJECT_FILES.has(name)
 const tick = () => new Promise<void>((r) => setImmediate(r))
 
-interface Seen { size: number; mtimeMs: number; dev: number; ino: number }
+export interface Seen { size: number; mtimeMs: number; dev: number; ino: number }
 
 /** The folder's actual-name chain is plain folders all the way (no link anywhere on it). */
 export function plainChain(root: string, segs: readonly string[]): boolean {
@@ -81,18 +81,34 @@ export function plainChain(root: string, segs: readonly string[]): boolean {
   } catch { return false }
 }
 
-/** What the team folder holds for the copy: relative path → what the listing saw. null: over the limits. */
-async function listTeam(o: MirrorOptions, lim: MirrorLimits): Promise<{ want: Map<string, Seen>; hasCode: boolean; bytes: number } | null> {
+export interface ListOptions {
+  teamRoot: string
+  segs: readonly string[]
+  /** folder names not gone into */
+  skipDirs: ReadonlySet<string>
+  /** the files to keep (already a regular file with one link, a name the team folder accepts, not quarantined) */
+  keep: (name: string, st: fs.Stats) => boolean
+  quarantined?: (abs: string) => boolean
+  maxEntries: number
+  maxFiles: number
+}
+
+/**
+ * The files of one team folder as the file tools would show them: accepted names, no server temp names or .system/, no
+ * symbolic links (never followed), regular files with one link, not quarantined. Relative path → what the listing saw
+ * (size, mtime, device and inode: readSeen reads only that file). null: more entries or files than the limits.
+ */
+export async function listFiles(o: ListOptions): Promise<Map<string, Seen> | null> {
   const base = path.join(o.teamRoot, ...o.segs)
-  const want = new Map<string, Seen>()
-  let entries = 0, bytes = 0, hasCode = false
+  const out = new Map<string, Seen>()
+  let entries = 0
   const stack: string[][] = [[]]
   while (stack.length) {
     const rel = stack.pop()!
     let names: string[]
     try { names = fs.readdirSync(path.join(base, ...rel)) } catch { continue }
     for (const name of names) {
-      if (++entries > lim.maxEntries) return null
+      if (++entries > o.maxEntries) return null
       if (entries % 500 === 0) await tick()
       const depth = o.segs.length + rel.length
       if (hiddenEntry(name, depth) || badSegment(name) !== null) continue
@@ -100,15 +116,26 @@ async function listTeam(o: MirrorOptions, lim: MirrorLimits): Promise<{ want: Ma
       let st: fs.Stats
       try { st = fs.lstatSync(abs) } catch { continue }
       if (st.isSymbolicLink()) continue
-      if (st.isDirectory()) { if (!SKIP_DIRS.has(name)) stack.push([...rel, name]); continue }
-      if (!st.isFile() || st.nlink !== 1 || !wanted(name) || st.size > lim.maxFileBytes) continue
+      if (st.isDirectory()) { if (!o.skipDirs.has(name)) stack.push([...rel, name]); continue }
+      if (!st.isFile() || st.nlink !== 1 || !o.keep(name, st)) continue
       if (o.quarantined?.(abs)) continue
-      want.set([...rel, name].join('/'), { size: st.size, mtimeMs: Math.floor(st.mtimeMs), dev: st.dev, ino: st.ino })
-      bytes += st.size
-      if (REAL_CODE.has(ext(name))) hasCode = true
-      if (want.size > lim.maxFiles || bytes > lim.maxBytes) return null
+      out.set([...rel, name].join('/'), { size: st.size, mtimeMs: Math.floor(st.mtimeMs), dev: st.dev, ino: st.ino })
+      if (out.size > o.maxFiles) return null
     }
   }
+  return out
+}
+
+/** What the team folder holds for the copy. null: over the limits. */
+async function listTeam(o: MirrorOptions, lim: MirrorLimits): Promise<{ want: Map<string, Seen>; hasCode: boolean; bytes: number } | null> {
+  const want = await listFiles({ teamRoot: o.teamRoot, segs: o.segs, skipDirs: SKIP_DIRS, keep: (name, st) => wanted(name) && st.size <= lim.maxFileBytes, quarantined: o.quarantined, maxEntries: lim.maxEntries, maxFiles: lim.maxFiles })
+  if (!want) return null
+  let bytes = 0, hasCode = false
+  for (const [rel, seen] of want) {
+    bytes += seen.size
+    if (REAL_CODE.has(ext(rel.slice(rel.lastIndexOf('/') + 1)))) hasCode = true
+  }
+  if (bytes > lim.maxBytes) return null
   return { want, hasCode, bytes }
 }
 
@@ -147,7 +174,7 @@ function dest(tree: string, rel: string): string | null {
 }
 
 /** Read a team file the listing saw, without following a link, only if it is still that file. */
-function readSeen(abs: string, seen: Seen): Buffer | null {
+export function readSeen(abs: string, seen: Seen): Buffer | null {
   let fd: number
   try { fd = fs.openSync(abs, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | (fs.constants.O_NONBLOCK ?? 0)) } catch { return null }
   try {

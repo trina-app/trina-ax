@@ -26,8 +26,14 @@ set. Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` 
 `write`, `edit`, `upload_file`, `create_upload_link` and `share_skills`. All of them use the person's current folder
 permissions. No write reaches `skills/` (team skills and rules) or `users/<id>/skills/` (the person's own skills): the
 team app changes them only after its own confirmation, which an outside model cannot give (any letter case; the link's
-`PUT` too).
+`PUT` too). With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_list`, `group_create`,
+`group_update` and `group_delete` (`remote-mcp/groups.ts`).
 
+- Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
+  is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
+  start only when the app asked for it; `mcp:admin` comes with every new connection of an active owner or admin (no
+  box; one line on the page says so), never a member's. The token's `scope` names exactly what was granted, and a
+  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › AI apps says so).
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
@@ -42,8 +48,15 @@ team app changes them only after its own confirmation, which an outside model ca
   become connection templates, below, each member connecting their own key). Owners and admins only: a member is told
   to use "스킬로 제안" in the app. At most 50 skills and 5 proposals a minute; a call may be larger than the usual 1 MiB
   (like `upload_file`).
+- Group tools: an owner's or admin's connection only; a member never gets `mcp:admin`, and an app's request for it
+  is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
+  their grants for good. The changes call the Admin › Groups server functions (same checks, same audit lines plus
+  `via: 'connector'`) and answer with who now opens or loses which folders and what else the group gives (team
+  connections, templates, team Drive shares, AI connections, budgets, engine choice, dev environment, team room). Names in answers are
+  JSON-quoted (a name can hold a line break); the tools and the `initialize` instructions say they are data.
 
-Details: docs/DECISIONS.md "App connectors: upload_file for binary files" and "App connectors: one-time upload links".
+Details: docs/DECISIONS.md "App connectors: upload_file for binary files", "App connectors: one-time upload links" and
+"App connectors: group management for owners and admins, scope mcp:admin".
 
 Code: `server/src/integrations/connections/` (`store.ts` rows and secrets, `net.ts` requests, `mcp.ts` the MCP client,
 `oauth.ts` sign-in, `service.ts` the operations, `tools.ts` the AI's tools, `hide.ts` hiding secrets a service sends
