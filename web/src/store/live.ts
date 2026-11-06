@@ -10,6 +10,7 @@ import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { t } from '../i18n'
 import { useChats } from './chats'
+import { useDeckBuilds } from './deckBuilds'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { useJobs } from './jobs'
@@ -61,6 +62,10 @@ export function dispatch(ev: ServerEvent) {
     case 'turn.request.closed':
     case 'artifact.updated':
       useChats.getState().handleEvent(ev)
+      return
+    case 'deck.progress':
+      // an intro deck being built (docs/DECISIONS.md "D2", round 2): the chat's block, the panel, the toast at the end
+      useDeckBuilds.getState().handleEvent(ev.data.chatId, ev.data.build)
       return
     case 'files.changed':
       filesChanged.emit(ev.data.changes)
@@ -175,6 +180,7 @@ export function startLive() {
     onEvent: dispatch,
     onReload: (reason) => {
       void useChats.getState().reloadAll()
+      void useDeckBuilds.getState().reloadAll()
       void useSession.getState().refreshMe() // a language change may have happened while we were away
       reloadAsked.emit(reason)
     },

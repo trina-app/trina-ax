@@ -15,6 +15,18 @@ export const EMBEDDED_DATA = [
     dir: 'resources/notices/public-suffix-list', files: ['NOTICE.txt', 'MPL-2.0.txt'] },
 ] as const
 /**
+ * Third-party data copied into the project's own source, not a package of the closure: the project keeps its notice
+ * (`dir`; `texts` must be in its licence file) and it is copied to `licenses/<id>/` whenever the workspace holding the
+ * file (`workspace`) is a root of the release and the file exists (a release without the notice fails). The intro deck
+ * draws a subset of Lucide's icons (ISC; the Feather-derived ones MIT) from server/src/intro-deck/icons.ts, converted
+ * from lucide-react by scripts/gen-deck-icons.ts: the web app's lucide-react brings its own LICENSE as a package, a
+ * server bundle without the web app would not.
+ */
+export const SOURCE_DATA = [
+  { id: 'lucide', name: 'Lucide icons', workspace: 'server', file: 'server/src/intro-deck/icons.ts', license: 'ISC AND MIT', source: 'https://github.com/lucide-icons/lucide',
+    dir: 'resources/notices/lucide', files: ['NOTICE.txt', 'LICENSE.txt'], texts: ['ISC License', 'Copyright (c) 2013-present Cole Bemis'] },
+] as const
+/**
  * Font files a bundle ships unchanged (scripts/build-bundle.ts: app/<version>/fonts/ of the Linux server bundle, for the
  * PDFs the AI makes). Whenever the artifact holds one of `staged`, the project's notice for the fonts (`dir`: what they
  * are, their copyright, source and the full licence) is copied to `licenses/<id>/`; a release with a font and without
@@ -32,9 +44,10 @@ export const BUNDLED_FONTS = [
     staged: ['vendor/fonts/PretendardVariable.woff2', 'web/vendor/fonts/PretendardVariable.woff2', 'web/dist/vendor/fonts/PretendardVariable.woff2', 'resources/promo-video/fonts/PretendardVariable.woff2',
       'fonts/Pretendard-Regular.ttf', 'fonts/Pretendard-Bold.ttf', 'fonts/Pretendard-ExtraBold.ttf', 'resources/fonts/pretendard/Pretendard-Regular.ttf', 'resources/fonts/pretendard/Pretendard-Bold.ttf', 'resources/fonts/pretendard/Pretendard-ExtraBold.ttf'], dir: 'resources/notices/pretendard', files: ['NOTICE.txt', 'OFL-1.1.txt'] },
 ] as const
-/** what every server and office bundle must hold (the server always carries tldts) */
+/** what every server and office bundle must hold (the server always carries tldts and the deck's icons) */
 export const RELEASE_NOTICE_FILES = ['LICENSE', 'licenses/manifest.json', 'licenses/README.txt',
-  ...EMBEDDED_DATA[0].files.map((f) => `licenses/${EMBEDDED_DATA[0].id}/${f}` as const)] as const
+  ...EMBEDDED_DATA[0].files.map((f) => `licenses/${EMBEDDED_DATA[0].id}/${f}` as const),
+  ...SOURCE_DATA[0].files.map((f) => `licenses/${SOURCE_DATA[0].id}/${f}` as const)] as const
 const NAME = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i
 const VERSION = /^[0-9][a-z0-9.+_-]{0,127}$/i
 const MAX_TEXT = 4 * 1024 * 1024
@@ -306,6 +319,23 @@ function collect(o: ReleaseNoticeOptions): ReleaseNoticeManifest {
     // the notice names where the list's source is (MPL-2.0 3.2) and the licence it is under
     const notice = fs.readFileSync(path.join(artifact, `licenses/${e.id}/${e.files[0]}`), 'utf8')
     if (!notice.includes(e.source) || !notice.includes(e.license)) fail('release_notice_embedded_notice_invalid')
+    m.embeddedData.push({ id: e.id, name: e.name, license: e.license, source: e.source, carriedBy: carriers.map(p => p.id).sort(), documents })
+  }
+  // Third-party data in the project's own source (SOURCE_DATA): its notice, never optional once the file ships.
+  for (const e of SOURCE_DATA) {
+    const carriers = m.packages.filter(p => p.workspace && p.consumers.includes(`workspace:${e.workspace}`))
+    if (!carriers.length || !fs.existsSync(path.join(repo, e.file))) continue
+    const documents: string[] = []
+    for (const name of e.files) {
+      const src = path.join(repo, e.dir, name)
+      if (!fs.existsSync(src)) fail('release_notice_embedded_notice_missing')
+      const file = `licenses/${e.id}/${name}`
+      copy(textFile(src, repo), file, 'embedded-data', `${e.dir}/${name}`, e.id); documents.push(file)
+    }
+    // the notice names the source and each licence; the licence file holds the texts the package ships
+    const notice = fs.readFileSync(path.join(artifact, `licenses/${e.id}/${e.files[0]}`), 'utf8')
+    const licence = fs.readFileSync(path.join(artifact, `licenses/${e.id}/${e.files[1]}`), 'utf8')
+    if (!notice.includes(e.source) || e.license.split(' AND ').some(l => !notice.includes(l)) || e.texts.some(t => !licence.includes(t))) fail('release_notice_embedded_notice_invalid')
     m.embeddedData.push({ id: e.id, name: e.name, license: e.license, source: e.source, carriedBy: carriers.map(p => p.id).sort(), documents })
   }
 
