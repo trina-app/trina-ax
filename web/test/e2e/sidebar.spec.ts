@@ -1,8 +1,8 @@
 // The computer's sidebar in a real browser (docs/DECISIONS.md "Desktop sidebar: rooms first"): its order, the icon row
 // by keyboard (focus ring, tooltip on focus, the Inbox count in its name), Admin for owners only, both groups folded
-// across a reload, 60 rooms in one scroll (대화 capped at five plus every unread room and the room on screen, "더 보기 (N)"
-// for the rest, remembered), and "답변 필요" / the new-answer dot that come from the chat list (they survive a reload,
-// and no request is made per chat).
+// across a reload, 60 rooms in one scroll (대화 strictly capped at the five latest and the room on screen, "더 보기 (N)"
+// with what is unread behind it, remembered; 트리나 기록 in sight below at 1440 and 1280), and "답변 필요" / the
+// new-answer dot that come from the chat list (they survive a reload, and no request is made per chat).
 import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
@@ -108,7 +108,7 @@ test('both groups fold and stay folded after a reload', async ({ page }) => {
 })
 
 for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {
-  test(`60 rooms at ${size.width}: one scroll; 대화 shows the five latest, every unread room and the room on screen, "더 보기 (N)" the rest, remembered`, async ({ page }) => {
+  test(`60 rooms at ${size.width}: one scroll; 대화 shows strictly the five latest and the room on screen, "더 보기 (N)" the rest with what is unread there, remembered; 트리나 기록 in sight`, async ({ page }) => {
     await page.setViewportSize(size)
     await reset(page)
     const list = rooms(60)
@@ -117,37 +117,39 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }])
     await someChats(page, 7)
     await page.reload()
     const s = side(page)
-    // the five latest, and the eight unread rooms beyond them (every seventh has 2 unread)
-    await expect(s.getByTestId('sidebar-room')).toHaveCount(13)
-    await expect(s.getByTestId('rooms-more')).toHaveText(t['sidebar.showMore'].replace('{n}', '47'))
+    // the five latest only; the eight unread rooms beyond them (every seventh has 2 unread) are counted on "더 보기"
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(5)
+    await expect(s.getByTestId('rooms-more').locator('span').first()).toHaveText(t['sidebar.showMore'].replace('{n}', '55'))
+    await expect(s.getByTestId('rooms-more-unread').locator('[aria-hidden]')).toHaveText(t['sidebar.moreUnread'].replace('{n}', '16'))
+    await expect(s.getByTestId('rooms-more')).toHaveAccessibleName(new RegExp(t['rooms.unread'].replace('{n}', '16')))
     const first = s.getByTestId('sidebar-room').first()
     await expect(first.locator('[title]')).toHaveAttribute('title', /합동\) 2026 상반기/)
     expect((await first.boundingBox())!.width).toBeLessThanOrEqual(280)
-    // one scroll: nothing pinned, the AI history follows the rooms
+    // one scroll: nothing pinned, the AI history follows the rooms, all of its five in sight without scrolling
     await expect(s.getByTestId('sidebar-ai-pane')).toHaveCount(0)
     const scroll = s.getByTestId('sidebar-scroll')
     const aiHead = s.getByTestId('recents-toggle')
-    const inSight = async () => scroll.evaluate((pane) => {
+    await expect(s.getByTestId('ai-chats-latest').getByRole('link')).toHaveCount(5)
+    const inSight = await scroll.evaluate((pane) => {
       const b = pane.getBoundingClientRect()
       const seen = (q: Element) => { const r = q.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1 }
       return { rooms: [...pane.querySelectorAll('[data-testid="sidebar-room"]')].filter(seen).length, ai: [...pane.querySelectorAll('[data-testid="ai-chats-latest"] a[href^="/c/"]')].filter(seen).length }
     })
-    test.info().annotations.push({ type: 'in sight', description: `${size.width}×${size.height} with 13 rooms: ${JSON.stringify(await inSight())}` })
-    await aiHead.scrollIntoViewIfNeeded()
-    await expect(s.getByTestId('ai-chats-latest').getByRole('link')).toHaveCount(5)
+    test.info().annotations.push({ type: 'in sight', description: `${size.width}×${size.height}: ${JSON.stringify(inSight)}` })
+    expect(inSight).toEqual({ rooms: 5, ai: 5 })
     // "더 보기": the rest in place, and still so after a reload
-    await scroll.evaluate((e) => { e.scrollTop = 0 })
     await s.getByTestId('rooms-more').click()
     await expect(s.getByTestId('sidebar-room')).toHaveCount(60)
     await expect(s.getByTestId('rooms-more')).toHaveText(t['common.less'])
+    await expect(s.getByTestId('rooms-more-unread')).toHaveCount(0)
     await page.reload()
     await expect(s.getByTestId('sidebar-room')).toHaveCount(60)
-    // the room on screen stays when the list closes again
+    // the room on screen stays, the sixth, when the list closes again
     await s.getByTestId('sidebar-room').nth(30).click()
     await expect(page).toHaveURL(new RegExp(`/rooms/${list[30]!.id}`))
     await s.getByTestId('rooms-more').click()
-    await expect(s.getByTestId('sidebar-room')).toHaveCount(14)
-    await expect(s.getByTestId('sidebar-room').nth(9)).toHaveAttribute('href', `/rooms/${list[30]!.id}`)
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(6)
+    await expect(s.getByTestId('sidebar-room').nth(5)).toHaveAttribute('href', `/rooms/${list[30]!.id}`)
     // 트리나 기록's 모두 보기 stays open after a reload too
     await page.goto('/')
     await aiHead.scrollIntoViewIfNeeded()

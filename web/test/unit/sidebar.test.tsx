@@ -1,6 +1,7 @@
 // The computer's sidebar (768 px and wider; docs/DECISIONS.md "Desktop sidebar: rooms first"), rendered and pressed:
 // - its order: the team's name, one row for a new chat and search, one row of icons (Admin only for owners and admins),
-//   every room (no cap), then the AI's chats ("트리나 채팅": five, then "모두 보기", which shows the whole history);
+//   then one scroll: 대화 (the five latest rooms and the room on screen, "더 보기 (N)" with what is unread behind it) and
+//   트리나 기록 (the five latest and the chat on screen, "모두 보기" with what needs me behind it);
 // - the icons: links named by their label (the Inbox's with its count, so a screen reader says it), with a tooltip;
 // - both groups fold, remembered in this browser;
 // - "답변 필요" and the new-answer dot come from the chat list itself (Chat.waiting / Chat.unseen), with no request per
@@ -139,35 +140,65 @@ describe('a computer', () => {
     }
   })
 
-  test('대화: the five latest, every room with something unread and the room on screen; "더 보기 (N)" opens the rest in place, remembered', async () => {
+  test('대화: strictly the five latest and the room on screen; "더 보기 (N)" says what is unread behind it and opens the rest in place, remembered', async () => {
     const long = '신제품 출시 태스크포스 (마케팅·디자인·영업·콘텐츠전략파트 합동) 2026 상반기'
     const list = [room({ name: long }), ...Array.from({ length: 59 }, (_, i) => room({ name: `팀 ${i + 1}` }))]
+    list[2] = { ...list[2]!, unreadCount: 4 }
     list[7] = { ...list[7]!, unreadCount: 2 }
     list[20] = { ...list[20]!, threadsUnread: 1 }
     list[30] = { ...list[30]!, mentioned: true, unreadCount: 1 }
+    list[40] = { ...list[40]!, muted: true, unreadCount: 9 }
     useRooms.setState({ rooms: list, loaded: true, failed: null })
     const names = (m: Awaited<ReturnType<typeof render>>) => m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-room"]').map((a) => a.getAttribute('href'))
-    // the room on screen (the 51st) stays in the list too
+    // the room on screen (the 51st) is the sixth; unread rooms further down stay behind "더 보기", counted there
     let m = await render(`/rooms/${list[50]!.id}`)
     try {
-      expect(names(m)).toEqual([0, 1, 2, 3, 4, 7, 20, 30, 50].map((i) => `/rooms/${list[i]!.id}`))
-      expect(m.get('rooms-more').textContent).toBe(ko('sidebar.showMore', { n: 51 }))
+      expect(names(m)).toEqual([0, 1, 2, 3, 4, 50].map((i) => `/rooms/${list[i]!.id}`))
+      expect(m.get('rooms-more').querySelector('span')?.textContent).toBe(ko('sidebar.showMore', { n: 54 }))
       expect(m.get('rooms-more').getAttribute('aria-expanded')).toBe('false')
+      // 2 + 1 (a followed reply) + 1, not the muted room's 9; "@" for the mention; a screen reader hears it in words
+      const pill = m.get('rooms-more-unread')
+      expect(pill.querySelector('[aria-hidden]')?.textContent).toBe(`@ ${ko('sidebar.moreUnread', { n: '4' })}`)
+      expect(pill.querySelectorAll('span')[1]?.textContent).toBe(`${ko('rooms.unread', { n: 4 })}, ${ko('rooms.mentionedYou')}`)
+      expect(pill.getAttribute('data-muted')).toBeNull()
       expect(m.html()).toContain(`title="${long}"`)
       await m.click('rooms-more')
       expect(names(m).length).toBe(60)
       expect(m.get('rooms-more').textContent).toBe(ko('common.less'))
+      expect(m.find('rooms-more-unread')).toBeNull()
       expect(localStorage.getItem('mycel.sidebar.roomsAll')).toBe('yes')
     } finally {
       await m.unmount()
     }
-    // a reload keeps it open; "접기" closes it again
+    // a reload keeps it open; "접기" closes it again (no room on screen: five)
     m = await render()
     try {
       expect(names(m).length).toBe(60)
       await m.click('rooms-more')
-      expect(names(m)).toEqual([0, 1, 2, 3, 4, 7, 20, 30].map((i) => `/rooms/${list[i]!.id}`))
+      expect(names(m)).toEqual([0, 1, 2, 3, 4].map((i) => `/rooms/${list[i]!.id}`))
+      expect(m.get('rooms-more').querySelector('span')?.textContent).toBe(ko('sidebar.showMore', { n: 55 }))
       expect(localStorage.getItem('mycel.sidebar.roomsAll')).toBe('no')
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('"더 보기" with only muted rooms unread behind it: their count, grey; nothing unread there: no pill', async () => {
+    const list = Array.from({ length: 8 }, (_, i) => room({ name: `팀 ${i + 1}` }))
+    list[6] = { ...list[6]!, muted: true, unreadCount: 120 }
+    useRooms.setState({ rooms: list, loaded: true, failed: null })
+    let m = await render()
+    try {
+      expect(m.get('rooms-more-unread').getAttribute('data-muted')).toBe('')
+      expect(m.get('rooms-more-unread').querySelector('[aria-hidden]')?.textContent).toBe(ko('sidebar.moreUnread', { n: '99+' }))
+    } finally {
+      await m.unmount()
+    }
+    useRooms.setState({ rooms: list.map((r) => ({ ...r, unreadCount: 0 })), loaded: true, failed: null })
+    m = await render()
+    try {
+      expect(m.find('rooms-more')).not.toBeNull()
+      expect(m.find('rooms-more-unread')).toBeNull()
     } finally {
       await m.unmount()
     }
@@ -213,13 +244,36 @@ describe('a computer', () => {
     }
   })
 
-  test('an older chat that waits for me or has an unseen answer stays in sight beyond the five', async () => {
-    useChats.setState({ chats: [chat(1, { unseen: true }), chat(2, { waiting: true, runState: 'running' }), ...Array.from({ length: 6 }, (_, i) => chat(i + 3))] })
-    const m = await render()
+  test('strictly the five latest AI chats and the chat on screen; "모두 보기" says how many hidden ones need me', async () => {
+    useChats.setState({ chats: [chat(1, { unseen: true }), chat(2), chat(3), ...Array.from({ length: 5 }, (_, i) => chat(i + 4))] })
+    const titles = (m: Awaited<ReturnType<typeof render>>) => m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').map((a) => a.textContent?.replace(ko('chat.needsAnswer'), ''))
+    // an unseen answer behind it: the accent dot, "답 필요 1"
+    let m = await render()
     try {
-      const titles = m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').map((a) => a.textContent?.replace(ko('chat.needsAnswer'), ''))
-      expect(titles).toEqual(['채팅 8', '채팅 7', '채팅 6', '채팅 5', '채팅 4', '채팅 2', '채팅 1'])
+      expect(titles(m)).toEqual(['채팅 8', '채팅 7', '채팅 6', '채팅 5', '채팅 4'])
+      expect(m.get('ai-chats-needs').textContent).toBe(ko('sidebar.needsYou', { n: 1 }))
+      expect(m.get('ai-chats-needs').className).not.toContain('text-warn')
+    } finally {
+      await m.unmount()
+    }
+    // the chat on screen is the sixth; a hidden chat whose AI waits for me (the list's word, or a card in this window)
+    // turns it to the warn colour
+    useChats.setState({ chats: [chat(1, { unseen: true }), chat(2, { waiting: true, runState: 'running' }), chat(3), ...Array.from({ length: 5 }, (_, i) => chat(i + 4))] })
+    useChats.setState({ requests: { q: { chatId: chat(3).id } } as never })
+    m = await render(`/c/${chat(1).id}`)
+    try {
+      expect(titles(m)).toEqual(['채팅 8', '채팅 7', '채팅 6', '채팅 5', '채팅 4', '채팅 1'])
+      expect(m.get('ai-chats-needs').textContent).toBe(ko('sidebar.needsYou', { n: 2 }))
+      expect(m.get('ai-chats-needs').className).toContain('text-warn')
+    } finally {
+      await m.unmount()
+    }
+    // nothing needs me behind it: "모두 보기" alone
+    useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), requests: {} })
+    m = await render()
+    try {
       expect(m.find('ai-chats-all')).not.toBeNull()
+      expect(m.find('ai-chats-needs')).toBeNull()
     } finally {
       await m.unmount()
     }
