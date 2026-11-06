@@ -256,8 +256,12 @@ describe('the review: owners and admins only, grouped by person on the web', () 
     expect(fs.existsSync(path.join(h.team, 'skills', 'quote-maker'))).toBe(false)
   })
 
-  test('a name that is no folder name, or a folder that is there: refused, nothing written', async () => {
+  test('a name that is no folder name, a place inside another skill, or a folder that is there: refused, nothing written', async () => {
     expect((await post('carol', `/api/skills/suggestions/${quote.id}/approve`, { targetFolder: 'skills', name: 'Quote Maker', description: 'x', content: quote.content })).status).toBe(400)
+    // never inside another skill's folder
+    const inSkill = await post('carol', `/api/skills/suggestions/${quote.id}/approve`, { targetFolder: 'skills/general/meeting-tasks', name: 'quote-maker', description: 'x', content: quote.content })
+    expect(inSkill.status).toBe(400)
+    expect(fs.existsSync(path.join(h.team, 'skills', 'general', 'meeting-tasks', 'quote-maker'))).toBe(false)
     fs.mkdirSync(path.join(h.team, 'skills', 'taken'), { recursive: true })
     expect((await post('carol', `/api/skills/suggestions/${quote.id}/approve`, { targetFolder: 'skills', name: 'taken', description: 'x', content: quote.content })).status).toBe(409)
     expect(fs.readdirSync(path.join(h.team, 'skills', 'taken'))).toEqual([])

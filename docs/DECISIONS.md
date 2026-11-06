@@ -10993,3 +10993,69 @@ person too; they already create and disable people, and having to ask the owner 
   Admin › Members list tells an admin which members asked (`deletionRequested`, members only). Texts in all five
   languages said "the team owner deletes": they say "the team owner or an admin" now. The archive still says it is
   readable by the owner only.
+
+## MC — Members contribute their own skills and files (feat/member-skill-share, 2026-11-07)
+
+넣을 곳: trina-ax server/src/skills + server/src/onboarding + web, 이유: onboarding v5 spec Part C ("Members contribute")
+and its review (REVIEW-3: build on 스킬로 제안, use the one suggestion slot); team skills and suggestions are core.
+
+- **When.** Never on the member's first screen. Under a member's first successful run of the landing skill (the one
+  the invite opens, `onboarding/welcome.ts landingSkill`; the earliest `done`, non-scheduled turn of theirs that ran
+  it), the one suggestion slot shows the members-only kind `contribute`, ranked above `ppt` (`schedule` needs a second
+  run and `team-skill` is owners' and admins', so it is never displaced on that answer). "내가 쓰던 스킬이나 파일도 팀에
+  올릴래요? · 올리기"; ✕ closes it for good (`suggestion_dismissals` key `contribute`). Owners and admins never get it
+  (they have 내 스킬 가져오기). A member whose AI does not answer has no `done` run and never sees it: accepted (REVIEW-3).
+- **Skills go through 스킬로 제안, not the owner's share** (REVIEW-3 MUST 1). A suggestion can now carry one skill
+  folder (`source.kind: 'folder'`), filled by the same browser scan as SK (`lib/skillScan.ts`: `.claude`, `.codex`,
+  `.agents`, picked or dropped; a skill with a key or a key file never leaves the browser, it shows as left out with
+  its kind). Not through Claude Code or Codex for members yet: the connector path checks nothing before the text
+  arrives. CLAUDE.md / AGENTS.md rules and MCP templates from members are not sent in this version.
+- **One send is one batch** (`POST /api/skills/suggestions/batch`, members only: owners and admins get 403). The server
+  checks each folder again with the owner's checks (`share-check.ts checkShare`: secrets in any file or a key file's
+  name, scripts the SKILL.md needs, a plugin's skill, size, not a skill, the name made a valid folder name, a path on
+  the member's computer, a team skill of the same name) and makes one suggestion per folder that passes; each refused
+  one comes back with its reason (and `pending` for a folder of that name of theirs still waiting). What is refused is
+  never stored. What passes is kept outside the team files (`skill_suggestion_files`, migration 257), SKILL.md with its
+  header made valid, scripts never. No AI judge (no AI cost): the owner reads it.
+- **Limits.** At most 10 folders per send (`CONTRIBUTE_LIMITS.batch`, the body), and at most 20 suggestions of one
+  member waiting (`CONTRIBUTE_LIMITS.open`, every kind of suggestion counts, the old one-file suggestion too: 409
+  `open_limit`, nothing stored). The sheet reads `myPending` and ticks no more than fit.
+- **Who reviews.** A skill folder from a member's computer is untrusted until an owner or admin read it: only they see
+  it (beside its sender), count it in 검토 and approve or turn it down. A skills manager who is neither (a folder rule on
+  `skills/`) does not see it (404), and the suggester cannot act on it (403). Other suggestions keep their rule (the
+  managers of the target folder).
+- **Inbox.** One line per batch for each active owner and admin (`skill.suggested` with the batch id as its source, in
+  `skill_notices`; no new table), shown as "민준님이 스킬 2개를 팀에 올리자고 했어요 · 확인" (`InboxNotification.contribution`:
+  the sender's name while the account is there, and the count; never a skill's name); the link `/skills?batch=<id>`
+  opens Skills › 검토 at that person. A live notice says the same.
+- **Skills › 검토 groups by person** (three members, three groups). A folder row says its app and file count, and warns
+  of a team skill of the same name and of a path on the member's computer. Its review dialog edits the folder name
+  (lowercase, digits, hyphens), the description and the SKILL.md body, lists the files that go with it, and approves
+  as `skills/<folder name>/` (or a folder below that the reviewer manages) with its files, SKILL.md last, as the
+  approver's own save (folder rules, versions, the skills/ change log; a folder already there is 409, nothing written).
+  The kept copy goes on approve and on reject.
+- **After approval.** The member gets the usual notice (live and Inbox `skill.reviewed`). The saved skill keeps "민준님이
+  제안": `SkillInfo.suggestedBy` in the skills list, and `skillMakerName` names the member (the answer's receipt, the
+  join page), from the approved suggestion whose approver's save made the file's first version (never from the file's
+  text). Approving never moves the invite's or the goal's skill: `recordShared` is not called, so `shared.landing`,
+  `landingSkill` and `focusSkill` stay as they were.
+- **Files.** "팀 폴더에 파일 올리기" in the sheet only when the member can write the team folder (the welcome steps' team
+  group folder, the one the team link puts joiners in; else another group folder of theirs they can write; server
+  `memberTeamFolder`, sent as `contribute.folder`). It opens Files there, where the upload is. On a phone (no folder
+  picking) the line offers only that folder ("내가 쓰던 파일도 팀 폴더에 올릴래요? · 팀 폴더 열기"); without one the page asks
+  with `phone=1` and the server answers the next suggestion instead (the slot is not left empty). A member who cannot
+  write sees no files part.
+- **The hint** for the folder window is one component now (`FolderHint.tsx`), shared by the owner's 내 스킬 step and the
+  member's sheet.
+- **Migration 257** (`257_b_member_skill_contributions.sql`, reader 1, additive): `skill_suggestions.source_detail`
+  ('folder'; `source_kind` keeps 'file' because of its CHECK, as 253 did for Codex shares), `batch_id`, `folder_info`
+  (JSON: app, title, files and sizes, scripts left out, personal path, same name; never content), and
+  `skill_suggestion_files`. 252, 254 and 255 are reserved by other branches and 256 may be taken for session markers,
+  so this is 257.
+- **Tests.** Server `b-member-contribute` (the line: first good run only, ranking, ✕, the folder and the phone; a batch:
+  files kept outside the team files, one Inbox line per batch without names, every refusal of the owner's import and no
+  key stored anywhere, limits 10 and 20, members only; review: who sees and approves, a name or folder refused, the
+  approval writes the folder, tells the member, keeps their name and never moves the invite's or goal's skill; a
+  member's direct writes to `skills/` and another's `users/<id>/` refused); the permission matrix case
+  `contributeSkills` (scope `members`). Web `member-contribute` (the line and its sheet, a key never in what goes up,
+  the caps, refusals, 검토 grouped by person and the folder approval, the Inbox line, "님이 제안").

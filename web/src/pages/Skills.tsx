@@ -234,7 +234,8 @@ function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: {
             )}
           </span>
           {onOpen && s.status === 'pending' && s.canReview && (
-            <Button size="sm" variant="primary" onClick={() => onOpen(s)} data-testid="review-open">
+            // one per waiting row: quiet, so a list of several is not a column of primaries (the dialog has the primary)
+            <Button size="sm" onClick={() => onOpen(s)} data-testid="review-open">
               {t('skills.review')}
             </Button>
           )}
@@ -300,6 +301,15 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
   const locale = useLocale()
   const dir = s.source.kind === 'folder' ? s.folder ?? null : null
   const isDir = s.source.kind === 'folder'
+  // a skill folder goes into a folder of skills, never into another skill's folder (the server refuses that too)
+  const [skillDirs, setSkillDirs] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (!isDir) return
+    let live = true
+    api.call(API.listSkills).then((r) => live && setSkillDirs(r.items.filter((x) => /\/SKILL\.md$/i.test(x.path)).map((x) => x.path.slice(0, x.path.lastIndexOf('/')))), () => live && setSkillDirs([]))
+    return () => { live = false }
+  }, [isDir])
+  const places = isDir ? folders.filter((f) => !(skillDirs ?? []).some((d) => f === d || f.startsWith(d + '/'))) : folders
   const [folder, setFolder] = useState(folders.includes(s.targetFolder) ? s.targetFolder : (folders[0] ?? s.targetFolder))
   const [name, setName] = useState(s.name)
   const [description, setDescription] = useState(s.description)
@@ -364,7 +374,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t('suggest.folder')}>
             <select className={inputCls} value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="review-folder">
-              {(folders.length ? folders : [s.targetFolder]).map((f) => (
+              {(places.length ? places : [s.targetFolder]).map((f) => (
                 <option key={f} value={f}>
                   {f}/
                 </option>

@@ -378,7 +378,7 @@ describe('the Inbox line and the saved skill', () => {
       await m.until(() => m.find('notifications-inbox'), 'the inbox')
       const text = m.get('notifications-inbox').textContent
       expect(text).toContain(ko('notifications.event.skill.contributed', { name: '민준', n: 2 }))
-      expect(text).toContain('민준 님이 스킬 2개를 팀에 올리자고 했어요')
+      expect(text).toContain('민준님이 스킬 2개를 팀에 올리자고 했어요')
       expect(text).toContain(ko('notifications.event.skill.contributedGone', { n: 3 }))
       expect(text).toContain(ko('notifications.event.skill.suggested'))
       const links = [...m.container.ownerDocument!.body.querySelectorAll('[data-testid="notification-skills-link"]')]
@@ -388,14 +388,14 @@ describe('the Inbox line and the saved skill', () => {
     } finally { await m.unmount() }
   })
 
-  test('"민준 님이 제안" on the saved skill in the skills list', () => {
+  test('"민준님이 제안" on the saved skill in the skills list', () => {
     signIn('member')
     // a static render reads the store's first state (as test/unit/available-skills.test.tsx does)
     const before = useLocaleStore.getInitialState().locale
     Object.assign(useLocaleStore.getInitialState(), { locale: 'ko' })
     const html = renderToStaticMarkup(<AvailableSkillsList items={[{ path: 'skills/quote-maker/SKILL.md', name: 'quote-maker', title: '견적 만들기', description: '견적서를 써요', suggestedBy: '민준' }]} />)
     expect(html).toContain(ko('skills.suggestedBy', { name: '민준' }))
-    expect(html).toContain('민준 님이 제안')
+    expect(html).toContain('민준님이 제안')
     Object.assign(useLocaleStore.getInitialState(), { locale: before })
   })
 })

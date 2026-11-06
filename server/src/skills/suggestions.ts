@@ -392,6 +392,13 @@ function approveFolder(ctx: AppContext, p: Principal, r: Row, b: { targetFolder:
   if (!managesSkillFolder(ctx, p, target)) fail('forbidden', st('notManager', locale))
   const name = b.name.trim()
   if (!VALID_NAME(name)) fail('validation', st('folderName', locale), { fields: { 'body.name': 'lowercase letters, digits and hyphens, at most 64' } })
+  // a skill goes into a folder of skills, never inside another skill's folder
+  const segs = target.split('/')
+  for (let i = 2; i <= segs.length; i++) {
+    let inSkill = false
+    try { inSkill = authorize(ctx.files.fx, ctx.files.rules(), p, `${segs.slice(0, i).join('/')}/SKILL.md`, 'read', { mustExist: false }).exists } catch { inSkill = false }
+    if (inSkill) fail('validation', st('folderNotSkills', locale), { fields: { 'body.targetFolder': 'inside a skill folder' } })
+  }
   const files = ctx.db.query('SELECT path, data FROM skill_suggestion_files WHERE suggestion_id = ? ORDER BY path').all(r.id) as { path: string; data: Uint8Array }[]
   const manifest = files.find((f) => f.path === 'SKILL.md')
   const header = manifest ? readHeader(Buffer.from(manifest.data).toString('utf8')) : null
