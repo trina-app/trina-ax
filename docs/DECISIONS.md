@@ -8106,7 +8106,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   - **Keep-lists, and refusal when unsure (review of bf51a728).** Every format keeps only what draws the picture:
     JPEG the frame, scan, Huffman, quantisation and restart segments (each checked against its fixed layout), APP0
     only as JFIF, APP14 only as Adobe, APP2 only as an ICC profile (JFXX, JPGn 0xF0–0xFD, every other APPn and
-    comments go; JFIF and Adobe must fit their layouts too; stray bytes after a kept segment are skipped up to the
+    comments go; Adobe must fit its layout, a JFIF that does not is dropped (it is not needed to draw the picture),
+    and the ICC parts are kept only when together they are exactly the profile its header describes, else all dropped
+    (colours as without a profile, never a profile stretched over EXIF); stray bytes after a kept segment are skipped up to the
     next marker, as libjpeg does, up to 4 KB, and never kept, while after a dropped metadata segment they refuse the
     file, because a wrong length there ends inside the metadata and a skip could take it for markers and keep it, as
     a fuzz showed); PNG and WebP their picture chunks, and an animated WebP's frames only their picture chunks; HEIC its

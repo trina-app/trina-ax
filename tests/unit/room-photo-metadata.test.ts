@@ -178,8 +178,40 @@ describe('crafted JPEG segments', () => {
       const c = cleanImage(withSeg(s), PHOTO) as Uint8Array
       expect(Buffer.from(c).includes(s)).toBe(true)
     }
-    // metadata dressed as JFIF or Adobe does not fit their layouts
-    for (const [m, id] of [[0xe0, 'JFIF\0'], [0xee, 'Adobe']] as const) expect(cleanImage(withSeg(seg(m, id)), PHOTO)).toBeNull()
+    // metadata dressed as JFIF does not fit its layout: that segment is dropped (it is not needed to draw the
+    // picture), the photo goes; dressed as Adobe (whose colour transform draws it): refused
+    const dressed = cleanImage(withSeg(seg(0xe0, 'JFIF\0')), PHOTO)
+    expect(dressed instanceof Uint8Array && !hasGps(dressed)).toBe(true)
+    expect(cleanImage(withSeg(seg(0xee, 'Adobe')), PHOTO)).toBeNull()
+    // a real JFIF with bytes after its fields: dropped, the photo goes
+    const longer = Buffer.concat([u8(0xff, 0xe0, 0, 21), lat('JFIF\0'), u8(1, 2, 0, 0, 72, 0, 72, 0, 0), lat('EXTRA')])
+    const c = cleanImage(withSeg(longer), PHOTO) as Uint8Array
+    expect(c).toBeInstanceOf(Uint8Array)
+    expect(text(c)).not.toContain('EXTRA')
+  })
+
+  test('an ICC profile stays when its parts add up to its own size; one stretched over EXIF is dropped, the photo goes', () => {
+    /** a profile of `size` bytes: its size, then "acsp" at 36 */
+    const profile = (size: number) => { const p = Buffer.alloc(size); p.writeUInt32BE(size, 0); p.write('acsp', 36, 'latin1'); return p }
+    const part = (data: Buffer, index: number, count: number, stretch = 0) => Buffer.concat([u8(0xff, 0xe2), be16b(2 + 12 + 2 + data.length + stretch), lat('ICC_PROFILE\0'), u8(index, count), data])
+    const p = profile(200)
+    // one part, and two parts that together are the profile: kept
+    for (const segs of [[part(p, 1, 1)], [part(p.subarray(0, 120), 1, 2), part(p.subarray(120), 2, 2)]]) {
+      const c = cleanImage(withSeg(Buffer.concat(segs)), PHOTO) as Uint8Array
+      expect(segs.every((x) => Buffer.from(c).includes(x))).toBe(true)
+    }
+    // the reviewer's case: the ICC segment's length runs over the APP1 (EXIF with GPS) behind it
+    const exif = seg(0xe1, 'Exif\0\0')
+    const stretched = withSeg(Buffer.concat([part(p, 1, 1, exif.length), exif]))
+    expect(hasGps(stretched)).toBe(true)
+    const c = cleanImage(stretched, PHOTO) as Uint8Array
+    expect(c).toBeInstanceOf(Uint8Array)
+    expect({ gps: hasGps(c), icc: text(c).includes('ICC_PROFILE'), orientation: exifOrientation(c) }).toEqual({ gps: false, icc: false, orientation: 6 })
+    // parts missing, repeated or not adding up: dropped too
+    for (const segs of [[part(p.subarray(0, 120), 1, 2)], [part(p, 1, 1), part(p, 1, 1)], [part(profile(199).subarray(0, 150), 1, 1)]]) {
+      const d = cleanImage(withSeg(Buffer.concat(segs)), PHOTO) as Uint8Array
+      expect(text(d).includes('ICC_PROFILE')).toBe(false)
+    }
   })
 })
 

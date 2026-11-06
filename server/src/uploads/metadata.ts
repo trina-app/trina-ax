@@ -141,6 +141,23 @@ function cleanPng(b: Uint8Array, o: CleanOptions): Uint8Array | 'animated' | nul
   return seenEnd ? join(out) : null
 }
 
+/** One APP2 ICC_PROFILE segment: its part number and the number of parts (1-based), and its part of the profile. */
+interface IccPart { seg: Uint8Array; index: number; count: number; data: Uint8Array }
+/** Do a JPEG's ICC_PROFILE segments hold exactly one profile: every part from 1 to their count once, and together as
+ * long as the profile's own header says (its first 4 bytes, and "acsp" at 36)? A segment whose length runs over a
+ * following one (an APP1 with EXIF, a comment) makes them longer than the profile: they are all dropped (the colours
+ * are then as if without a profile), never kept with what they swallowed. */
+function iccFits(parts: IccPart[]): boolean {
+  if (!parts.length) return true
+  const n = parts[0]!.count
+  if (n < 1 || parts.length !== n || parts.some((p) => p.count !== n)) return false
+  const sorted = [...parts].sort((a, c) => a.index - c.index)
+  if (sorted.some((p, k) => p.index !== k + 1)) return false
+  const first = sorted[0]!.data
+  if (first.length < 40 || !startsWith(first, 36, 'acsp')) return false
+  return be32(first, 0) === sorted.reduce((sum, p) => sum + p.data.length, 0)
+}
+
 /** at most this many stray bytes are skipped between two JPEG segments (more: the file is not read) */
 export const JPEG_STRAY_MAX = 4096
 /** The next 0xff (a marker) after stray bytes at `from`, or -1 when there is none within JPEG_STRAY_MAX bytes. */
@@ -227,6 +244,7 @@ function cleanJpeg(b: Uint8Array, o: CleanOptions): Uint8Array | null {
   // refuse the file: a metadata segment whose length is wrong ends inside its own data, and what follows there is
   // that metadata, which a skip could take for a marker and keep
   let afterKept = true
+  const icc: IccPart[] = []
   // a marker is two bytes (the end-of-image marker can be the file's last two bytes); a segment adds a 2-byte length
   while (i + 2 <= b.length) {
     if (b[i] !== 0xff) {
@@ -239,15 +257,20 @@ function cleanJpeg(b: Uint8Array, o: CleanOptions): Uint8Array | null {
     }
     const m = b[i + 1]!
     if (m === 0xff) { i++; continue } // fill byte
-    if (m === 0xd9) { out.push(b.subarray(i, i + 2)); return join(out) }
+    if (m === 0xd9) { out.push(b.subarray(i, i + 2)); return join(iccFits(icc) ? out : out.filter((x) => !icc.some((c) => c.seg === x))) }
     if (m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { out.push(b.subarray(i, i + 2)); i += 2; continue }
     if (i + 4 > b.length) return null
     const len = (b[i + 2]! << 8) | b[i + 3]!
     if (len < 2 || i + 2 + len > b.length) return null
     afterKept = jpegPicture(b, i, m, o)
+    // a JFIF segment is not needed to draw the picture: one with more than its fields (and thumbnail) is dropped
+    if (afterKept && m === 0xe0 && !jpegTableFits(b, i, m, len)) afterKept = false
     if (afterKept) {
       if (!jpegTableFits(b, i, m, len)) return null
-      out.push(b.subarray(i, i + 2 + len))
+      const seg = b.subarray(i, i + 2 + len)
+      // the colour profile is checked once all its parts are in (iccFits); until then it is kept
+      if (m === 0xe2) icc.push(len >= 16 ? { seg, index: b[i + 16]!, count: b[i + 17]!, data: b.subarray(i + 18, i + 2 + len) } : { seg, index: 0, count: 0, data: new Uint8Array(0) })
+      out.push(seg)
     }
     i += 2 + len
     if (m === 0xda) {
