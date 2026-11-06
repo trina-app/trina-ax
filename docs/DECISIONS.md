@@ -9868,3 +9868,46 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   invite, `?next`) or a later click on Home. Home shows nothing until the progress is read on such a landing, so it
   does not flash first; a failed read stays on Home.
 
+
+## K — 내 스킬 가져오기: the owner's own skills become the team's, while the deck builds (feat/skill-share-step, 2026-11-06)
+Plan and design: the owner approved them ("다 가줘"), with the three recommended answers: the invite link opens the top
+shared skill (not the deck); every owner on a computer sees the step; no whole-computer permission for the desktop app.
+Then one change of order from the owner ("5분, 10분짜리도 괜찮을 것 같은 게, 그거 시켜두고 스킬 가져오기나 파일 가져오기
+스텝 시키면 되잖아").
+
+- **Order.** 팀 만들기 → AI 연결 (only without AI) → 회사 소개 → 첫 결과, which now only STARTS the intro deck → 내 스킬
+  가져오기 → 팀 파일 가져오기 → the finished deck (its chat, [팀에 공유] under the answer) → the invite. The deck builds on
+  the server (a chat turn: leaving the page does not stop it), so the steps move on at once instead of opening its chat.
+  `WELCOME_STEPS` gains `skills` and `files`, both counted: "1/4 회사 소개 · 2/4 첫 결과 · 3/4 내 스킬 · 4/4 팀 파일"
+  (1/5 with the AI step). On a phone only the step on screen is named under the bars (five names do not fit 390 px; the
+  others stay for screen readers). A row from before reads the two as open, so an owner in the middle resumes on 내 스킬.
+- **The deck behind the steps.** One quiet line under the bars of the later steps, from the deck chat's latest answer
+  (`GET /api/chats/:id/messages`, every 4 s while it builds): "회사 소개서 만드는 중 · 보기", then "회사 소개서가 다 됐어요 ·
+  보기" (and a toast once), or "다 만들지 못했어요"; 보기 opens the chat with the deck beside it. Reaching the end of the
+  steps before it is done shows its live progress (what it does now, [채팅에서 보기], "기다리지 않고 팀원 초대하기"), never
+  an empty wait, and the finished deck opens by itself. A landing straight on the invite (W4) shows the invite with the
+  line, not the waiting screen. The deck is not gone back to once it started (the line opens it). The slide count
+  ("4/9장") comes from the deck's own progress events once they land on dev (feat/deck-visuals); until then the line
+  says what the answer does now.
+- **[팀에 공유] under the deck** goes to the invite, as before (the skills step already happened). The invite carries the
+  skill the owner shared first (`shared.landing`) when there is one, else the deck as before.
+- **팀 파일 가져오기.** The team's documents into the team's own folder (groups/<team>/), or another group's folder when
+  there are more (Admin's folder list knows which folder is whose), with the same who-sees line (TeamReach) and the same
+  upload as the first result (each file on its own, a name already there renamed). One primary (pick; a drop works on a
+  computer), "나중에 하기"; once something went in, the primary is the next step. Done when a file went in, else skipped.
+- **Phones.** Skills live on a computer: the step's phone version has the Claude Code line and "다음". That records
+  `skillsLater`: the step reads as skipped on the phone and open on a computer, so a computer resumes on it and Home's
+  row says "남은 일: 내 스킬 가져오기"; the steps are not finished while it waits (the invite done on the phone does not end
+  them). A phone never resumes on it (no landing loop).
+- **Invite.** The message names the shared skills ("팀 스킬 '주간 업무 보고', '견적서 초안'을 같이 써 보자고 해요"; three or
+  more as "'a' 등 n개"; one: the usual skill message) while the link opens one of them; one line under it says which
+  ("들어오면 '주간 업무 보고'부터 열려요 · 바꾸기"); 바꾸기 (with two or more) picks another shared skill and the open link
+  follows (same address). `PATCH /api/onboarding/welcome {landing}` takes only a shared skill. Nothing shared: as before.
+- **7-day goal.** The card names the landing skill while it has as many runners as the top skill, even with nobody yet
+  (the link opens it and members land on it); a skill with more people wins as before; a landing skill deleted since
+  counts no more.
+- **Desktop app** (Mac App Store build, which answers the page's file inputs itself): a folder input with
+  `data-open-at="claude"` opens the panel on ~/.claude with hidden folders shown, its own line ("고른 폴더에서 스킬과
+  CLAUDE.md만 읽어요. 다른 파일은 열지 않아요.") and button "이 폴더에서 찾기". Picking the folder is the permission;
+  nothing wider is asked for (owner decision 3). Other desktop builds keep Chromium's own folder panel (no hidden
+  folders shown: the browser hint applies there).
