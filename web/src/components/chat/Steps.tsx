@@ -214,6 +214,8 @@ export default function Steps({ steps: all, streaming, receipt }: { steps: Step[
           ))}
         </ul>
       )}
+      {/* a queued job outlives the answer: its place in line stays in view while the list is folded */}
+      {!open && steps.filter((s) => s.devEnvRun?.kind === 'job' && s.devEnvRun.state === 'waiting').map((s) => <QueueLine key={s.id} step={s} />)}
       {!open && shown.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-2">
           {shown.map((im) => (

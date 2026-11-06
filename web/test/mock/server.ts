@@ -771,12 +771,21 @@ export class MockServer {
 
   /** "devqueue": box_shell on srt waits in the team queue (Step.devEnvRun, server/src/devenv/srt/queue.ts): #2 in line,
    * then #1, then it starts; GET /api/dev-env/runs gives the live place and POST .../stop cancels it. "slow": each place
-   * holds 4 s; "devqueuefull": it waits too long and ends with the dev environment full. */
+   * holds 4 s; "devqueuefull": it waits too long and ends with the dev environment full; "devqueuejob": a job that
+   * waits (#1) after the answer ends. */
   async devQueueTurn(chatId: string, user: User, prompt: string, assistant: Message, pub: (ev: ServerEventInput) => void, step: (s: Partial<Step> & Pick<Step, 'id' | 'kind' | 'label'>) => Step) {
     this.devEnv ??= { box: 'stopped' }
     const srt = (this.devEnv.srt ??= { running: [], waiting: [] })
     const id = `dq-${assistant.id.slice(-8)}`
     const by = { id: user.id, name: user.name }
+    if (/devqueuejob/i.test(prompt)) {
+      // a job: the call returns at once, queued #1; it stays in line after the answer
+      srt.waiting = [...srt.waiting, { id, kind: 'job', name: 'render', by, startedAt: now(), runAt: null, position: 1, memoryMiB: null, lastLine: '', chatId, projectId: null }]
+      const j = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npx remotion render', status: 'ok', endedAt: now(), devEnvRun: { id, kind: 'job', state: 'waiting', position: 1 } })
+      assistant.steps = [...assistant.steps.filter((y) => y.id !== j.id), j]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: j } })
+      return
+    }
     srt.waiting = [...srt.waiting.filter((r) => r.id !== id), { id, kind: 'command', name: 'npm run build', by, startedAt: now(), runAt: null, position: 2, memoryMiB: null, lastLine: '', chatId, projectId: null }]
     const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
     const q = step({ id: 'q1', kind: 'tool', tool: 'box_shell', label: 'box_shell npm run build', devEnvRun: { id, kind: 'command', state: 'waiting', position: 2 } })

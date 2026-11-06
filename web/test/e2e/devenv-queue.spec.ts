@@ -59,6 +59,20 @@ test('a command that waited too long: "The dev environment is full. Try again la
   await shot(page, 'full')
 })
 
+test('a queued job keeps its place in line after the answer; Cancel takes it out', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  await ask(page, 'Render the video, devqueuejob')
+  const a = lastAnswer(page)
+  await expect(a).toHaveAttribute('data-status', 'done')
+  // the step list is folded, the waiting line is not
+  const line = a.getByTestId('devenv-queue')
+  await expect(line).toHaveText(/Waiting for the dev environment… #1 in line/)
+  await shot(page, 'job-waiting-after-answer')
+  await line.getByTestId('devenv-queue-cancel').click()
+  await expect(a.getByTestId('devenv-queue')).toHaveCount(0)
+})
+
 test('Korean: the waiting line in the team language', async ({ page }) => {
   await reset(page)
   await signIn(page)
