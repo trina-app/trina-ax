@@ -30,6 +30,12 @@ export function formatDateTime(iso: string | null | undefined, locale: Locale, t
   return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso))
 }
 
+/** A short time within the next weeks, for a badge: "11월 8일 오전 12:59", "Nov 8 at 12:59 AM" (no year). */
+export function formatShortDateTime(iso: string | null | undefined, locale: Locale): string {
+  if (!iso) return ''
+  return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso))
+}
+
 export function formatDate(iso: string | null | undefined, locale: Locale): string {
   if (!iso) return ''
   return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium' }).format(new Date(iso))

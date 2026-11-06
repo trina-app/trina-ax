@@ -10,7 +10,7 @@ import type { AppConfig } from '../../server/src/app-config'
 import { setEnginesEnabled, setSetting } from '../../server/src/admin/settings'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
 import { MEMBER_OWN_KEY, SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
-import { peopleWithoutAi } from '../../server/src/credentials/access'
+import { peopleWithoutAi, withoutAi } from '../../server/src/credentials/access'
 import { hasCredentialSoonFor, resolveCredential } from '../../server/src/credentials/resolve'
 import { ALL_CREDENTIAL_KINDS } from '../../server/src/app-config'
 import { makeEnv } from '../lib/env'
@@ -110,6 +110,67 @@ test('switched off, expired or refused: No AI', () => {
   expect(noAi()).toEqual(new Set(EVERYONE))
   env.db.query("UPDATE engine_credentials SET status = 'ok' WHERE id = ?").run(id)
   expect(noAi()).toEqual(new Set())
+})
+
+describe('noAiUntil: "No AI" that only a wait fixes says until when', () => {
+  const until = () => withoutAi(ctx)!.until
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+
+  test('the team\'s only connection at a weekly limit: everyone in noAi and in noAiUntil with its end', () => {
+    const id = addCred(cc, 'anthropic-oauth', sub('weekly-until'))
+    const end = iso(2 * 86400_000)
+    env.db.query("UPDATE engine_credentials SET limited_until = ?, status_code = 'rate_limited' WHERE id = ?").run(end, id)
+    const r = withoutAi(ctx)!
+    expect(new Set(r.ids)).toEqual(new Set(EVERYONE))
+    // owner and admins may pick Codex too, which has no connection: Claude coming back is still when they have AI again
+    expect(r.until).toEqual(Object.fromEntries(EVERYONE.map((p) => [p, end])))
+    // peopleWithoutAi is the same list
+    expect(noAi()).toEqual(new Set(EVERYONE))
+  })
+
+  test('refused, switched off, expired or out of credit: in noAi, not in noAiUntil (no wait fixes it)', () => {
+    const id = addCred(cc, 'anthropic-oauth', sub('refused'))
+    for (const set of [
+      "status = 'invalid'",
+      "status = 'ok', disabled = 1",
+      `disabled = 0, expires_at = '${iso(-60_000)}'`,
+      `expires_at = NULL, limited_until = '${iso(2 * 86400_000)}', status_code = 'credit_balance_exhausted'`,
+    ]) {
+      env.db.query(`UPDATE engine_credentials SET ${set} WHERE id = ?`).run(id)
+      expect(new Set(withoutAi(ctx)!.ids), set).toEqual(new Set(EVERYONE))
+      expect(until(), set).toEqual({})
+    }
+  })
+
+  test('the earliest end across connections and engines; a limit and the monthly block limit: the later of the two', () => {
+    setMemberChoice({ db: env.db }, { mode: 'everyone', groupIds: [], userIds: [] })
+    const claude = addCred(cc, 'anthropic-oauth', sub('two-engines'))
+    const codex = addCred(cc, 'chatgpt', chatgptSecret('acct-until'))
+    const soonest = iso(3 * 3600_000)
+    const claudeEnd = iso(5 * 86400_000)
+    env.db.query("UPDATE engine_credentials SET limited_until = ?, status_code = 'rate_limited' WHERE id = ?").run(claudeEnd, claude)
+    env.db.query("UPDATE engine_credentials SET limited_until = ?, status_code = 'usage_limit_reached' WHERE id = ?").run(soonest, codex)
+    expect(until()).toEqual(Object.fromEntries(EVERYONE.map((p) => [p, soonest])))
+    // Codex is also over its monthly block limit: it comes back next month, so Claude's end is the earliest
+    env.db.query("UPDATE engine_credentials SET spend_limit_tokens = 10, spend_limit_action = 'block' WHERE id = ?").run(codex)
+    env.db.query('INSERT INTO credential_usage_daily (credential_id, day, requests, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, 100, 0, 0)').run(codex, today())
+    // (near the end of a month the next month starts before Claude's end: then that is the earliest)
+    const next = new Date(); next.setDate(1); next.setHours(0, 0, 0, 0); next.setMonth(next.getMonth() + 1)
+    expect(until().alice).toBe(new Date(Math.min(Date.parse(claudeEnd), Math.max(Date.parse(soonest), next.getTime()))).toISOString())
+  })
+
+  test('a personal connection at its limit: only its owner gets the time', () => {
+    const own = addCred(cc, 'anthropic-oauth', sub('alice-own'), { owner: 'alice' })
+    const end = iso(30 * 3600_000)
+    env.db.query("UPDATE engine_credentials SET limited_until = ?, status_code = 'rate_limited' WHERE id = ?").run(end, own)
+    const r = withoutAi(ctx)!
+    expect(new Set(r.ids)).toEqual(new Set(EVERYONE))
+    expect(r.until).toEqual({ alice: end })
+  })
+
+  test('absent when the server does not answer with AI connections', () => {
+    expect(withoutAi({ db: env.db, config: config('local-login') })).toBeNull()
+  })
 })
 
 describe('the engines that answer a person', () => {
