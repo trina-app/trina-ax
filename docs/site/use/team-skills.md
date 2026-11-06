@@ -62,6 +62,22 @@ Return decisions, an action table and open questions. Cite the source paths.
 
 [Read the full SKILL.md format](../agents/skills-format.md).
 
+## Bring your skills from Claude Code or Codex
+
+Owners and admins can bring the skills they already use to the team, in the setup steps or from a proposal link:
+
+| From | Pick or drop | What is read |
+|---|---|---|
+| Claude Code | `~/.claude` (or a project's `.claude`) | `skills/`, `commands/*.md`, `CLAUDE.md` |
+| Codex | `~/.codex`, and `~/.agents` for current personal skills | `skills/` (never `.system`), `prompts/*.md`, `AGENTS.md`, the remote servers in `config.toml` |
+
+Or, once Claude Code or Codex is connected to the team ([the MCP connector](../agents/mcp-connector.md)), paste one line into it and it sends a proposal.
+
+- Nothing else in those folders is opened. A skill that holds a key or token never leaves your computer; only its name is listed.
+- The server checks every skill again and suggests the ones the whole team can use. Nothing reaches the team before you press **Share with the team**.
+- The rule file becomes one team rule. Remote MCP servers become connection templates without keys: each member connects with their own.
+- A skill with the same name as a team skill is merged in a chat that can only read the two and save the team skill, after you confirm.
+
 ## Who can change skills
 
 **Skill managers** change team skills: the owner, admins, and people or groups an admin turns on with **Manages team skills**. Underneath, that is simply write access to `skills/` or a folder in it.
