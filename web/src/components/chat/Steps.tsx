@@ -10,9 +10,15 @@
 // An answer that ran a team skill on team files (Message.receipt) says so in place of "작업 N단계": "팀 스킬 '할 일 정리'
 // · 팀 파일 2개" (docs/DECISIONS.md "M — One meeting note, everyone's own tasks"), the receipt of a shared skill on shared
 // files; it still opens the step list.
+// A dev environment command or job that waits in the team queue (Step.devEnvRun) shows "Waiting for the dev
+// environment… #2 in line" under its row, with the live place (lib/devEnvQueue.ts) and a Cancel button, until it
+// starts; a command that waited too long says the dev environment is full.
 import clsx from 'clsx'
-import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { useState } from 'react'
+import { api, API, errorText } from '../../lib/api'
+import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
+import { toast } from '../../store/ui'
 import { localizeStep, mediaStepKind, stepPlace } from '@mycel/shared'
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
@@ -34,6 +40,34 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
     parts.push(s < 60 ? t('steps.secs', { s }) : t('steps.minSecs', { m: Math.floor(s / 60), s: s % 60 }))
   }
   return parts.join(' · ')
+}
+
+/** The waiting state of a dev environment run under its step (only the person of the chat sees the chat). */
+function QueueLine({ step }: { step: Step }) {
+  const t = useT()
+  const locale = useLocale()
+  const run = step.devEnvRun!
+  // a command's ticket goes with its call: once the step ended there is nothing to watch
+  const watching = run.state === 'waiting' && (run.kind === 'job' || step.status === 'running')
+  const place = useQueuePlace(watching ? run.id : null)
+  const [busy, setBusy] = useState(false)
+  if (run.state === 'expired') return <p className="ml-6 px-1 text-xs text-danger" data-testid="devenv-queue-full">{t('devEnvQueue.full')}</p>
+  if (run.state === 'cancelled') return <p className="ml-6 px-1 text-xs text-muted" data-testid="devenv-queue-cancelled">{t('devEnvQueue.cancelled')}</p>
+  if (!watching || place === 'gone') return null
+  const n = typeof place === 'number' ? place : run.position
+  const cancel = async () => {
+    setBusy(true)
+    try { await api.call(API.stopMyDevEnvRun, { params: { runId: run.id } }) } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) } finally { setBusy(false); refreshQueue() }
+  }
+  return (
+    <div className="ml-6 flex items-center gap-2 px-1 text-xs text-muted" data-testid="devenv-queue" role="status">
+      <Clock size={12} className="shrink-0 text-faint" aria-hidden />
+      <span className="min-w-0 flex-1">{n ? t('devEnvQueue.waiting', { n }) : t('devEnvQueue.waitingNoPlace')}</span>
+      <button type="button" disabled={busy} onClick={() => void cancel()} className="touch-hit shrink-0 rounded px-1.5 py-0.5 text-xs text-accent-text hover:bg-hover disabled:opacity-50" data-testid="devenv-queue-cancel">
+        {t('devEnvQueue.cancel')}
+      </button>
+    </div>
+  )
 }
 
 function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: Step[] }) {
@@ -75,6 +109,7 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
         {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
         {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
       </button>
+      {step.devEnvRun && <QueueLine step={step} />}
       {latest && (
         <ul className="ml-6 border-l border-line pl-3" data-testid="subtask-latest">
           <StepRow key={latest.id} step={latest} live={live} />
