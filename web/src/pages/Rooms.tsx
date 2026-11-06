@@ -1,7 +1,8 @@
 // The rooms list (/rooms; the 대화 tab on phones): first a pinned row for the AI chat (like KakaoTalk's "나와의
 // 채팅"; called like "@트리나" in the Trina edition), then my rooms by latest activity, each with its last line, when,
-// and my unread count. Rows are separated by hairlines, no cards. "새 1:1 대화" opens the people list (/rooms?new=1). On a
-// phone the app's top bar is the header ("대화" and the new 1:1 icon, components/Layout.tsx): no second title row here.
+// and my unread count. Rows are separated by hairlines on computers and by their own spacing on phones, no cards.
+// "새 1:1 대화" opens the people list (/rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
+// 1:1 icon, components/Layout.tsx): no second title row here.
 import { BellOff, Plus } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -50,7 +51,7 @@ export default function Rooms() {
         />
       </div>
       <div className="mx-auto w-full max-w-2xl">
-        <ul className="divide-y divide-line border-b border-line">
+        <ul className="divide-y divide-line border-b border-line max-md:divide-y-0 max-md:border-b-0">
           <li>
             <Link to="/" className={row} data-testid="rooms-ai">
               <img src="/favicon.svg" alt="" aria-hidden className="size-10 shrink-0 rounded-full" />
