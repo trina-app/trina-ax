@@ -15,9 +15,11 @@ export type PushEventType = z.infer<typeof PushEventType>
  * an admin's request to connect a service as one's own connection (integration_request_notices), a member's request
  * for an AI connection (onboarding_notices) and, for the owners, someone who joined through the team invite link
  * (team_join_notices; shared/src/api/team-links.ts), and during the 7-day team goal a member's first run of a team skill
- * (onboarding_goal_notices; shared/src/api/onboarding-goal.ts), and for the owners a person who asks for their account
- * to be deleted (account_deletion_notices; shared/src/api/account-deletion.ts). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request'])
+ * (onboarding_goal_notices; shared/src/api/onboarding-goal.ts), for the owners a person who asks for their account
+ * to be deleted (account_deletion_notices; shared/src/api/account-deletion.ts), and a connection template an admin
+ * shared with the person or whose address or sign-in changed (integration_template_notices; docs/INTEGRATIONS.md
+ * "Templates"). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -41,6 +43,12 @@ export const InboxNotification = z.object({
    * (member null once the account is deleted; skill: its plain name), and how many people had run it then, of the
    * goal's target; older servers omit it */
   firstRun: z.object({ member: z.string().nullable(), skill: z.string(), runners: z.number().int().positive(), target: z.number().int().positive() }).optional(),
+  /** 'integration.template' and 'integration.template_reconnect' only, while the template is there and still for this
+   * person: its id and name (Settings › MCP opens it with ?template=<id>); older servers omit it */
+  template: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
+   * have not connected, or whose key stopped working; older servers omit it */
+  needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
   /** 'room.dm' and 'room.mention' only, while the person is still in the room and the message is there: the room (link
    * 'room' opens /rooms/<id>) and who wrote it, by name. Never the message's text; older servers omit it */
   room: z.object({ id: z.string(), from: z.string().nullable() }).optional(),

@@ -72,6 +72,8 @@ export class FakeServices {
   rotateRefresh = true
   tokenLife = 3600
   delayRefresh: (() => Promise<void>) | null = null
+  /** a revocation waits for this (a slow service): who revokes must not keep a person waiting */
+  delayRevoke: (() => Promise<void>) | null = null
   now = Date.now()
   /** every access and refresh token handed out (an MCP echo tool repeats them, like a service's request log) */
   issued: string[] = []
@@ -276,6 +278,7 @@ export class FakeServices {
       return Response.json({ error: 'unsupported_grant_type' }, { status: 400 })
     }
     if (p === '/as/revoke' && req.method === 'POST') {
+      if (this.delayRevoke) await this.delayRevoke()
       const f = Object.fromEntries(new URLSearchParams(body))
       this.revoked.push(f.token ?? '')
       this.refresh.delete(f.token ?? ''); this.access.delete(f.token ?? '')

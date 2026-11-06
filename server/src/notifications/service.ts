@@ -10,11 +10,14 @@ import { isManaged } from '../app-config'
 import { authorize } from '../policy/authorize'
 import { atLeast } from '../policy/access'
 import { readScope } from '../chat/read-scope'
-import { getRow as getIntegration, mayUse as mayUseIntegration } from '../integrations/connections/store'
+import { getRow as getIntegration, mayUse as mayUseIntegration, templateCovers } from '../integrations/connections/store'
 import { eventEnabled, getPreferences, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
+
+/** At most this many template notices per 30-second backstop pass (security review 2, #1). */
+const OFFER_BATCH = 500
 
 export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
 /** Source of a "scheduled tasks paused for review" notice: the person and the time of the pause (stable while some of
@@ -30,14 +33,19 @@ const isSkillEvent = (e: NotificationEventType): e is SkillNoticeEvent => e === 
 const isDevEnvEvent = (e: NotificationEventType): e is DevEnvNoticeEvent => e === 'dev_env.job' || e === 'dev_env.box'
 export type RoomNoticeEvent = Extract<NotificationEventType, 'room.dm' | 'room.mention'>
 const isRoomEvent = (e: NotificationEventType): e is RoomNoticeEvent => e === 'room.dm' || e === 'room.mention'
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : 'notification_inbox'
+export type TemplateNoticeEvent = Extract<NotificationEventType, 'integration.template' | 'integration.template_reconnect'>
+const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => e === 'integration.template' || e === 'integration.template_reconnect'
+/** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
+ * notice per change, never one per member's dropped row) */
+const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
- * (migration 223), room notices (a DM message or an @mention, migration 241) and a person's request to have their
- * account deleted (migration 244) have their own tables, because notification_inbox has a fixed event_type CHECK list
- * and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices'] as const
+ * (migration 223), room notices (a DM message or an @mention, migration 241), a person's request to have their
+ * account deleted (migration 244) and connection templates to connect or reconnect (migration 334) have their own
+ * tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts: every notice but the rooms' (a DM message, an @mention). Those still push, and a
@@ -177,6 +185,45 @@ export class Notifications {
     if (!Number.isFinite(Date.parse(createdAt))) throw new HttpError('validation')
     this.record(userId, 'connection.reconnect', sourceId, new Date(createdAt).toISOString())
   }
+  /** Connection templates (docs/INTEGRATIONS.md "Templates"): each active person a template is for, who has not
+   * connected it and was not told about it before, gets one notice that it is there to connect with their own key. That
+   * covers a new template, a change of who it is for, a person added to one of its groups and someone who joins while
+   * it is for everyone: whatever made it reach them, this finds it. Its maker is not told about their own template. The
+   * source is the template's id only, and integration_template_offers keeps a second notice from coming once the first
+   * is past its 30 days. Shown always: the person has something to do before their AI can use the service. */
+  offerTemplates(opts: { templateId?: string; userId?: string; limit?: number } = {}, at = new Date().toISOString()): number {
+    // One set-based query (security review 2, #1): templates × active people, the same test as templateCovers in SQL,
+    // so the cost is a single indexed scan instead of 1–3 queries per template and person. Only the pairs still owed a
+    // notice come back, at most `limit` per call: the 30-second backstop stays light however big the team is, and the
+    // events that change who a template reaches (made, its rule changed, a group joined, someone activated) call this
+    // straight away for just that template or person.
+    const db = this.ctx.db
+    const where: string[] = []
+    const args: (string | number)[] = []
+    if (opts.templateId) { where.push('t.id = ?'); args.push(opts.templateId) }
+    if (opts.userId) { where.push('u.id = ?'); args.push(opts.userId) }
+    args.push(Math.max(1, Math.min(opts.limit ?? OFFER_BATCH, 100_000)))
+    const owed = db.query(`SELECT t.id AS template_id, u.id AS user_id
+      FROM integration_templates t JOIN users u ON u.status = 'active' AND u.deleted_at IS NULL AND (t.created_by IS NULL OR u.id <> t.created_by)
+      WHERE ${where.length ? `${where.join(' AND ')} AND ` : ''}
+        NOT EXISTS (SELECT 1 FROM integration_template_offers o WHERE o.template_id = t.id AND o.user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM integrations i WHERE i.template_id = t.id AND i.owner_user_id = u.id)
+        AND EXISTS (SELECT 1 FROM integration_template_access a WHERE a.template_id = t.id AND (a.subject_type = 'everyone'
+          OR (a.subject_type = 'user' AND a.subject_id = u.id)
+          OR (a.subject_type = 'group' AND EXISTS (SELECT 1 FROM group_members g WHERE g.group_id = a.subject_id AND g.user_id = u.id))))
+      ORDER BY t.created_at, t.id, u.id LIMIT ?`).all(...args) as { template_id: string; user_id: string }[]
+    if (!owed.length) return 0
+    const mark = db.query('INSERT OR IGNORE INTO integration_template_offers(template_id,user_id,created_at) VALUES(?,?,?)')
+    for (const r of owed) {
+      if (mark.run(r.template_id, r.user_id, at).changes) this.record(r.user_id, 'integration.template', r.template_id, at, true)
+    }
+    return owed.length
+  }
+  /** A template's address, sign-in method or header changed, so the member's own connection made from it (and their key)
+   * was dropped: they connect it again. One notice per member and change. Shown always, like the first one. */
+  templateReconnect(userId: string, templateId: string, version: number, at = new Date().toISOString()) {
+    this.record(userId, 'integration.template_reconnect', reconnectSource(templateId, version), at, true)
+  }
   /** Terminal DB rows are the source of truth. Missing hooks, queued cancellation and interrupted recovery converge. */
   reconcile(userId?: string) {
     const db = this.ctx.db
@@ -196,6 +243,15 @@ export class Notifications {
       ${userId ? 'AND s.user_id=?' : ''} AND NOT EXISTS(SELECT 1 FROM notification_inbox n WHERE n.user_id=s.user_id AND n.source_id=s.id AND n.event_type='schedule.failure')
       ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
     for (const row of skips) this.record(row.user_id, 'schedule.failure', row.id, row.created_at)
+    // a run that did not start because it needs the owner's own key for a template (chat/schedules.ts): a failure
+    // notice that names the template (out below)
+    const needs = db.query(`SELECT s.id,s.user_id,s.created_at FROM schedule_template_skips s
+      WHERE s.created_at>=? AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL)
+      ${userId ? 'AND s.user_id=?' : ''} AND NOT EXISTS(SELECT 1 FROM notification_inbox n WHERE n.user_id=s.user_id AND n.source_id=s.id AND n.event_type='schedule.failure')
+      ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
+    for (const row of needs) this.record(row.user_id, 'schedule.failure', row.id, row.created_at, true)
+    db.query('DELETE FROM schedule_template_skips WHERE created_at < ?').run(this.cutoff())
+    if (!userId) { try { this.offerTemplates({ limit: OFFER_BATCH }) } catch { this.ctx.log.warn('template notices deferred') } }
     // scheduled tasks nobody confirmed, paused for their owner's review (chat/schedules.ts): one notice per person and
     // pause, shown in the app always (the task stopped running), pushed per the "scheduled task failed" setting
     const reviews = db.query(`SELECT s.user_id, s.review_since FROM schedules s
@@ -203,7 +259,7 @@ export class Notifications {
       AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL) ${userId ? 'AND s.user_id=?' : ''}
       GROUP BY s.user_id, s.review_since ORDER BY s.review_since LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { user_id: string; review_since: string }[]
     for (const row of reviews) this.record(row.user_id, 'schedule.failure', reviewSource(row.user_id, row.review_since), row.review_since, true)
-    return Math.max(rows.length, skips.length, reviews.length)
+    return Math.max(rows.length, skips.length, reviews.length, needs.length)
   }
   preferences(userId: string) { return getPreferences(this.ctx.db, userId) }
   setPreferences(userId: string, patch: Partial<NotificationPreferences>) {
@@ -313,6 +369,21 @@ export class Notifications {
       const u = n ? this.ctx.db.query('SELECT name FROM users WHERE id=? AND deleted_at IS NULL').get(n.member_id) as { name: string } | null : null
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null,
         ...(n ? { firstRun: { member: u?.name ?? null, skill: goalSkillTitle(this.ctx, row.user_id, n.skill_path), runners: n.runners, target: GOAL_PEOPLE } } : {}) }
+    }
+    // a connection template: its id and name while it is there and still for this person (Settings › MCP opens it);
+    // a reconnect notice's source is the template id and its version (reconnectSource)
+    if (isTemplateEvent(row.event_type)) {
+      const id = row.event_type === 'integration.template_reconnect' ? row.source_id.replace(/\.v\d+$/, '') : row.source_id
+      const t = this.ctx.db.query('SELECT id, name FROM integration_templates WHERE id=?').get(id) as { id: string; name: string } | null
+      const shown = t && templateCovers(this.ctx.db, t.id, row.user_id)
+      return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: shown ? 'integrations' : null, outcome: null,
+        ...(shown ? { template: { id: t!.id, name: t!.name } } : {}) }
+    }
+    // a scheduled run that did not start for want of the owner's own key for a template: which one (by the name it had
+    // then), and Settings › MCP to connect it
+    if (row.event_type === 'schedule.failure') {
+      const skip = this.ctx.db.query('SELECT template_id, template_name FROM schedule_template_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { template_id: string; template_name: string } | null
+      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name } }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
@@ -429,4 +500,15 @@ export function settleIntegrationRequestNotice(ctx: AppContext, userId: string) 
 export function notifyConnectionReconnect(ctx: AppContext, userId: string, sourceId: string, createdAt?: string) {
   try { notificationsOf(ctx).connectionReconnect(userId, sourceId, createdAt) }
   catch { ctx.log.warn('connection notification recording deferred') }
+}
+/** A template was made or its rule changed (templateId), or who it reaches may have changed for one person (userId: a
+ * group joined, an account activated) or for many (neither: a group's members changed). Uncapped for one template or
+ * person; a team-wide call does one batch and leaves the rest to the 30-second backstop. */
+export function notifyTemplateOffers(ctx: AppContext, scope: { templateId?: string; userId?: string } = {}) {
+  try { notificationsOf(ctx).offerTemplates({ ...scope, limit: scope.templateId || scope.userId ? 100_000 : OFFER_BATCH }) }
+  catch { ctx.log.warn('template notices deferred') }
+}
+export function notifyTemplateReconnect(ctx: AppContext, userId: string, templateId: string, version: number) {
+  try { notificationsOf(ctx).templateReconnect(userId, templateId, version) }
+  catch { ctx.log.warn('template reconnect notice deferred') }
 }
