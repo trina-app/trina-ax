@@ -448,6 +448,15 @@ describe('the block in the chat', () => {
     expect(await html(build({ done: 3 }), { streaming: false })).toContain('data-run="stopped"')
   })
 
+  test('stopped with every slide made, or none: no count that reads as finished (never "9장 중 9장")', async () => {
+    const all = await html(build({ phase: 'failed', done: 9 }), { streaming: false })
+    expect(all).toContain('회사 소개서를 마무리하다 멈췄어요')
+    expect(all).not.toContain('9장 중 9장')
+    const none = await html(build({ phase: 'failed', done: 0 }), { streaming: false })
+    expect(none).toMatch(/data-testid="deck-folded"[^>]*>.*회사 소개서를 만들다 멈췄어요</)
+    expect(none).not.toContain('9장 중 0장')
+  })
+
   test('in the five languages', async () => {
     for (const l of ['en', 'id', 'ja', 'es'] as const) {
       useLocaleStore.setState({ locale: l })

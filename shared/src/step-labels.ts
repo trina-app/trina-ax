@@ -49,6 +49,10 @@ export const FILE_STEP_VERB: Record<string, T> = {
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
   connect_service: t('서비스 연결', 'Connect service', 'Hubungkan layanan', "サービスを接続", "Conectar servicio"),
+  // the person's own team chat rooms (server/src/chat/room-tools.ts): "대화방 읽기 · 마케팅", "대화방 찾기 "예산""
+  rooms: t('대화방 찾기', 'Find in conversations', 'Cari di ruang obrolan', "トークルームを探す", "Buscar en salas de chat"),
+  room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat"),
+  room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat"),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */
@@ -137,6 +141,15 @@ const clip = (s: unknown, n = 80) => {
   return v.length > n ? v.slice(0, n - 1) + '…' : v
 }
 
+/** A room as the AI named it, for a step line: a "#" token's title (#[마케팅](room:<id>) -> 마케팅), else as given. */
+const roomWord = (v: unknown) => {
+  const s = String(v ?? '')
+  const m = /^#\[([^\[\]\n]{1,80})\]\(room:[0-9a-f-]{36}\)$/.exec(s.trim())
+  if (m) return m[1]!
+  // a bare id means nothing to the person: the verb alone until the server names the room
+  return /^(room:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim()) ? '' : s.replace(/^#/, '')
+}
+
 /** Short human label of a tool step ('Search "invoice" · finance/'). Never the raw input. */
 export function stepLabel(tool: string, input: unknown, locale: Locale, browserTools: ReadonlySet<string>): string {
   const a = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
@@ -178,6 +191,10 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'promo_video': case 'intro_deck': return `${verb} · ${clip(a.title, 80)}`
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
     case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
+    // a room the AI passed as an id is named by the server once it is found (the step is patched); "#" tokens by title
+    case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }
+    case 'room_read': { const w = roomWord(a.room); return w ? `${verb} · ${clip(w, 60)}` : verb! }
+    case 'room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}` : verb! }
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ' (job)' : a.background ? ' (background)' : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })

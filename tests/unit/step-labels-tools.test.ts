@@ -8,11 +8,12 @@ import { C_TOOL_NAMES } from '../../server/src/tools/index'
 import { FILE_MOVE_TOOL_NAMES } from '../../server/src/tools/file-moves'
 import { SCHEDULE_TOOL_NAMES } from '../../server/src/tools/schedules'
 import { DRIVE_TOOL_NAMES } from '../../server/src/tools/drive'
+import { ROOM_READ_TOOL_NAMES } from '../../server/src/chat/room-tools'
 
 const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es']
 const NONE = new Set<string>()
 // set_title has no step (the new title shows in the sidebar); connected services label their own tools
-const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'promo_video', 'intro_deck', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
+const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, ...ROOM_READ_TOOL_NAMES, 'search', 'generate_video', 'promo_video', 'intro_deck', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
 const INPUT: Record<string, Record<string, unknown>> = {
   hwp_render: { source: 'qa-hwp/report.hwpx', page: 2, format: 'png' },
   schedule_create: { title: 'Weekly digest', prompt: 'x', repeat: 'weekly', time: '09:00', weekday: 1 },
@@ -27,6 +28,9 @@ const INPUT: Record<string, Record<string, unknown>> = {
   skill: { name: '견적서 작성' },
   find_skills: { query: '견적' },
   find_tools: { query: 'upscale video' },
+  rooms: { query: '예산' },
+  room_read: { room: '마케팅' },
+  room_file: { room: '마케팅', file: '보고서.pdf' },
   connect_service: { name: 'Higgsfield', kind: 'mcp', url: 'https://mcp.higgsfield.ai/mcp', auth: 'oauth' },
 }
 
@@ -39,6 +43,20 @@ describe('step labels of the built-in tools', () => {
         expect(stepLabel(tool, INPUT[tool] ?? {}, L, NONE).startsWith(tool), `${tool} ${L}`).toBe(false)
       }
     }
+  })
+
+  test('team chat rooms: the room as named, the words searched, never an id; in every language', () => {
+    expect(stepLabel('room_read', INPUT.room_read, 'ko', NONE)).toBe('대화방 읽기 · 마케팅')
+    expect(stepLabel('rooms', {}, 'ko', NONE)).toBe('대화방 찾기')
+    expect(stepLabel('rooms', INPUT.rooms, 'ko', NONE)).toBe('대화방 찾기 "예산"')
+    expect(stepLabel('rooms', { person: '김민지' }, 'en', NONE)).toBe('Find in conversations · 김민지')
+    expect(stepLabel('room_file', INPUT.room_file, 'ja', NONE)).toBe('トークルームのファイルを読む · 보고서.pdf')
+    // an id the AI passed is not shown (the server names the room once found); a "#" token by its title
+    expect(stepLabel('room_read', { room: '0195f3c2-8a3e-7b1c-9d2e-123456789abc' }, 'en', NONE)).toBe('Read conversation')
+    expect(stepLabel('room_read', { room: '#[주간 회의](room:0195f3c2-8a3e-7b1c-9d2e-123456789abc)' }, 'es', NONE)).toBe('Leer sala de chat · 주간 회의')
+    for (const [L, want] of [['en', 'Read conversation · 마케팅'], ['id', 'Baca ruang obrolan · 마케팅'], ['ja', 'トークルームを読む · 마케팅'], ['es', 'Leer sala de chat · 마케팅']] as const)
+      expect(localizeStep({ kind: 'tool', tool: 'room_read', label: '대화방 읽기 · 마케팅' }, L).label).toBe(want)
+    expect(localizeStep({ kind: 'tool', tool: 'room_file', label: 'Read conversation file · 보고서.pdf' }, 'ko').label).toBe('대화방 파일 읽기 · 보고서.pdf')
   })
 
   test('skills: the skill loaded, the words searched', () => {

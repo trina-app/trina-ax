@@ -5,7 +5,7 @@
   "product": { "label": "Open Trina AX", "url": "https://ax.trina.app" },
   "tabs": [
     { "title": "Getting started", "groups": [
-      { "title": "Getting started", "pages": ["index", "get-started/quickstart"] },
+      { "title": "Getting started", "pages": ["index", "get-started/quickstart", "get-started/team-setup"] },
       { "title": "Core concepts", "pages": ["get-started/key-concepts"] }
     ] },
     { "title": "Use Trina AX", "groups": [

@@ -9986,6 +9986,315 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   invite, `?next`) or a later click on Home. Home shows nothing until the progress is read on such a landing, so it
   does not flash first; a failed read stays on Home.
 
+## SK — 내 스킬 가져오기: the owner's own skills become the team's, while the deck builds (feat/skill-share-step, 2026-11-06)
+
+(Named "SK" so it is not confused with "K — Knowledge graph" below; code comments before W5 call it "K". Parts of it
+were changed by W5 below: the order of the steps, the deck behind them, the invite's message, the merge chat.)
+
+Plan and design: the owner approved them ("다 가줘"), with the three recommended answers: the invite link opens the top
+shared skill (not the deck); every owner on a computer sees the step; no whole-computer permission for the desktop app.
+Then one change of order from the owner ("5분, 10분짜리도 괜찮을 것 같은 게, 그거 시켜두고 스킬 가져오기나 파일 가져오기
+스텝 시키면 되잖아").
+
+- **Order.** 팀 만들기 → AI 연결 (only without AI) → 회사 소개 → 첫 결과, which now only STARTS the intro deck → 내 스킬
+  가져오기 → 팀 파일 가져오기 → the finished deck (its chat, [팀에 공유] under the answer) → the invite. The deck builds on
+  the server (a chat turn: leaving the page does not stop it), so the steps move on at once instead of opening its chat.
+  `WELCOME_STEPS` gains `skills` and `files`, both counted: "1/4 회사 소개 · 2/4 첫 결과 · 3/4 내 스킬 · 4/4 팀 파일"
+  (1/5 with the AI step). On a phone only the step on screen is named under the bars (five names do not fit 390 px; the
+  others stay for screen readers). A row from before reads the two as open, so an owner in the middle resumes on 내 스킬.
+- **The deck behind the steps.** One quiet line under the bars of the later steps, from the deck chat's latest answer
+  (`GET /api/chats/:id/messages`, every 4 s while it builds): "회사 소개서 만드는 중 · 보기", then "회사 소개서가 다 됐어요 ·
+  보기" (and a toast once), or "다 만들지 못했어요"; 보기 opens the chat with the deck beside it. Reaching the end of the
+  steps before it is done shows its live progress (what it does now, [채팅에서 보기], "기다리지 않고 팀원 초대하기"), never
+  an empty wait, and the finished deck opens by itself. A landing straight on the invite (W4) shows the invite with the
+  line, not the waiting screen. The deck is not gone back to once it started (the line opens it). The slide count
+  ("4/9장") comes from the deck's own progress events once they land on dev (feat/deck-visuals); until then the line
+  says what the answer does now.
+- **[팀에 공유] under the deck** goes to the invite, as before (the skills step already happened). The invite carries the
+  skill the owner shared first (`shared.landing`) when there is one, else the deck as before.
+- **팀 파일 가져오기.** The team's documents into the team's own folder (groups/<team>/), or another group's folder when
+  there are more (Admin's folder list knows which folder is whose), with the same who-sees line (TeamReach) and the same
+  upload as the first result (each file on its own, a name already there renamed). One primary (pick; a drop works on a
+  computer), "나중에 하기"; once something went in, the primary is the next step. Done when a file went in, else skipped.
+- **Phones.** Skills live on a computer: the step's phone version has the Claude Code line and "다음". That records
+  `skillsLater`: the step reads as skipped on the phone and open on a computer, so a computer resumes on it and Home's
+  row says "남은 일: 내 스킬 가져오기"; the steps are not finished while it waits (the invite done on the phone does not end
+  them). A phone never resumes on it (no landing loop).
+- **Invite.** The message names the shared skills ("팀 스킬 '주간 업무 보고', '견적서 초안'을 같이 써 보자고 해요"; three or
+  more as "'a' 등 n개"; one: the usual skill message) while the link opens one of them; one line under it says which
+  ("들어오면 '주간 업무 보고'부터 열려요 · 바꾸기"); 바꾸기 (with two or more) picks another shared skill and the open link
+  follows (same address). `PATCH /api/onboarding/welcome {landing}` takes only a shared skill. Nothing shared: as before.
+- **7-day goal.** The card names the landing skill while it has as many runners as the top skill, even with nobody yet
+  (the link opens it and members land on it); a skill with more people wins as before; a landing skill deleted since
+  counts no more.
+- **Desktop app** (Mac App Store build, which answers the page's file inputs itself): a folder input with
+  `data-open-at="claude"` opens the panel on ~/.claude with hidden folders shown, its own line ("고른 폴더에서 스킬과
+  CLAUDE.md만 읽어요. 다른 파일은 열지 않아요.") and button "이 폴더에서 찾기". Picking the folder is the permission;
+  nothing wider is asked for (owner decision 3). Other desktop builds keep Chromium's own folder panel (no hidden
+  folders shown: the browser hint applies there).
+- **Reading the folder (browser).** Chrome and Edge: `showDirectoryPicker` and a walker that opens only known places of
+  `.claude` (`skills/*/`, plugin skills by name only, `commands/*.md`, `CLAUDE.md`), never `projects/`, transcripts,
+  `history.jsonl`, `.credentials.json` or settings; a picked `skills/` or single skill folder works too. Safari and
+  Firefox: `<input webkitdirectory>` filtered to the same places (the hint asks for `.claude/skills`); a folder drop
+  everywhere. Before anything leaves the browser: text files as text, small images as base64, script files as their
+  path only, other files left out; a key-file name or a `findSecrets` hit in any file keeps the whole skill in the
+  browser (only its name and the secret's kind go up: 빠진 것); CLAUDE.md lines with a secret are cut; size and count
+  limits (128 KB a file, 1 MB and 30 files a skill, 200 skills). The check errs towards excluding (a harmless
+  `API_KEY=$X` line excludes a skill): a skill left out is fixed by hand, a key sent cannot be taken back.
+- **The share proposal** (`skill_shares`, migration 249; `shared/src/api/skill-shares.ts`). One per send, of the
+  person who made it (only they read and apply it; members get 403: their way stays 스킬로 제안), expiring after 7
+  days. Candidate files are staged under the server's data folder, outside the team files (0700 / 0600), and deleted
+  on apply, dismiss or expiry; a secret-bearing skill's content is never written anywhere. The server is the authority
+  and checks again: format (the name made a valid skill name, the header rewritten to match), secrets (names that are
+  themselves keys are never stored either), scripts (a SKILL.md that tells the AI to run code is excluded; scripts it
+  does not need are dropped and counted), plugins, size, paths on the person's computer (그 밖에, unticked), a team skill
+  of the same name (merge by default; `add` is refused for it, the person picks merge or "따로 두기" `-2`).
+- **The recommendation** is one chat turn on the person's AI without any tool, like the S draft: its own instructions,
+  the company profile, the team's skill list and each candidate's name, description and first 2 KB as fenced data;
+  JSON per candidate (recommend or not, a reason code, a similar team skill, a short title in the team's language)
+  and the CLAUDE.md lines that fit the whole team as one rule (≤ 4,000 characters, tooling, personal lines and paths
+  dropped, counted). Excluded checks always win over it. Without AI (or a failed or 10-minute judgement) nothing is
+  pre-ticked ("AI 없이 찾았어요") and there is no rule. The judge chat is machine-only: once its answer is read it is
+  purged like the trash purges a chat (the turn rows stay, so usage and budgets count it).
+- **Apply** is the person's own save (`FileService.humanSave`: folder rules, versions, the skill change log), as
+  approving a suggestion: `skills/<name>/SKILL.md` with its files and the AI title as `metadata.title`
+  (`allowed-tools` kept, granting nothing); a merge opens a normal chat that asks the AI to merge the candidate into
+  the team skill and save it, so the existing confirmation card decides (only SKILL.md is merged); the rule becomes
+  `skills/<일하는-방식>.md` (no header: a team rule); Claude Code's remote MCP servers become connection templates
+  (kind mcp, no key; stdio servers cannot be shared). Idempotent per skill; 200 with each row's result when anything
+  went through, else 403 (folder rules) or 409 with the reason. The welcome row records what was added (`shared`).
+- **Claude Code** (`share_skills`, connector only, `mcp:write`): the tool's description tells Claude Code what to
+  scan and never to send a file with a key (list it under `excluded`); owners and admins get a proposal and a live
+  notice ("Claude Code에서 스킬 N개를 공유하자고 했어요 · 확인" → `/skills/share/<id>`, the same list); the welcome step
+  polls for one while it waits. Members are refused with a pointer to 스킬로 제안: suggestions cannot carry a SKILL.md
+  with its files yet. No inbox entry (it would need its own notification table); the live notice and the step's poll
+  carry it.
+- **The hole found in planning**: the connector refused writes to `skills/` but not to a person's own
+  `users/<id>/skills/` (their personal skills, which their AI follows). Every connector write path (write, edit,
+  upload_file, create_upload_link and its PUT) now refuses both, with the same "confirm inside the team app" answer.
+
+## W5 — Onboarding v5: the intro deck is no step, one setup row on every page, Codex next to Claude Code (feat/skill-share-step, 2026-11-06)
+
+The owner approved the flow spec v5 (four flow reviews applied) with "저게 다 끝나면 저 세션이 알림 표시를 보내면 되지 …
+그렇게 해서 회사 소개서 보도록 만들면 되지" and "claude code 뿐만 아니라 codex도 고려해야". Placement: Team AX core
+(onboarding, skills, connector). Part A of the spec (per-chat markers in the chat list, `attention` / `seen`, the end of
+the deck's own `announce()`) is built in another branch; this one is Part B (the owner's steps) and the open review
+items of SK.
+
+- **Steps.** AI 연결 (only while no AI answers) → 회사 소개 → 내 스킬 → 팀 파일 → 팀원 초대 → 준비 끝났어요. "n/4" counts
+  회사 소개, 내 스킬, 팀 파일 and the invite (`WELCOME_COUNTED`); "n/5" with the AI step. The first-result step, the deck
+  status line, the waiting screen at the end, the steps' auto-open of the deck and the [팀에 공유] bar under the deck's
+  answer are gone (`DeckStatus.tsx`, `WelcomeInviteBar.tsx` deleted; `ResultSuggestion` treats the deck chat like any
+  chat). `result` stays in the row schema only to read rows from before.
+- **회사 소개 starts the deck, once per team.** After the website reading (saved as it came, or the review), the step
+  shows what was understood ("이렇게 이해했어요: … · 고치기"), the website as a link, one quiet "소개 자료가 있으면 같이
+  넣기" (files go up at once into the team's brand folder) and the one primary "저장하고 계속" with one line under it:
+  "저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · 최근 채팅의 '우리 회사 소개서'" ("☰ 메뉴의 최근 채팅 › …" below 768 px,
+  where the AI's chat list is in the menu; the minutes are the team's deck tier, `DECK_TIER_MINUTES`). The list is named
+  by the sidebar heading's own message (`sidebar.recents`, lib/welcome.ts `historyName`), never words of our own: the
+  first build said "트리나 기록", feat/phone-nav's name for that list, which this build does not have (the walk of PR
+  #100); when phone-nav renames the list it changes that one message and these lines follow. The page calls `POST
+  /api/onboarding/welcome/first-result` on every "저장하고 계속": the server keeps the chat it makes for the deck in the
+  row's own field (`deckChatId`, never shown) and hands it out again while it holds no message (the tab closed, the send
+  failed); the chat becomes `resultChatId` only once it holds a message (`settleDeck`, on every read and write of the
+  row; PATCH `resultChatId` records only a chat that holds one), and from then on the server answers 409
+  `params.reason: "deck_started"` before doing anything else (saving again only saves). The page attaches the files,
+  sends "/intro-deck 우리 회사 소개서 만들어 줘" as the owner with the client message id `deckMessageId(chatId)` (`deck-<id>`)
+  and waits until the server took it before it records 회사 소개 and goes on; a send that fails stays on 회사 소개 with
+  its reason. Two tabs at once get the same chat and send one message (the second send returns the first one's turn:
+  no generic 409 "turn in progress", no second deck); a third start then gets `deck_started`. 나중에 하기 puts 회사 소개
+  off: no deck. (The review of PR #100: the chat was recorded as the deck before the page sent, so a closed tab or a
+  failed send left 회사 소개 answered, no deck, and an empty "우리 회사 소개서".)
+- **The end screen** shows once (`doneShownAt`, PATCH `doneShown`): "준비 끝났어요"; one line "회사 소개서는 최근 채팅의
+  '우리 회사 소개서'에 있어요" only when a deck started, by the server's fact `deckStarted` (the deck's chat holds the
+  "/intro-deck" message or a deck build exists; never a recorded chat alone: a first result of a row from before is no
+  deck) (no button: its row has its own marker, Part A); the primary
+  "'{skill}' 먼저 써 보기" opens the same form a member lands on (`/skills?run=`), "AI 연결하기" while no AI answers; 홈으로
+  is a quiet link. Finishing later (내 스킬 on a computer after the phone's end screen) goes Home with "시작 설정을
+  마쳤어요".
+- **Finish rule (server, `welcomeFinished`).** 회사 소개 answered (put off; or saved with `resultChatId`, or a row from
+  before whose first result was answered either way) and 내 스킬, 팀 파일 and the invite each done or put off, and not
+  `skillsLater`. The rule that brought back an invite put off before the first result is gone. Old rows: (a) 회사 소개
+  saved, first result never answered, no deck → 회사 소개 is open again (`openHere`/`resumeStep`) and resumes on its saved
+  summary, whose "저장하고 계속" starts the deck; (b) first result done → nothing special, it is just a chat; (c) the
+  counts recount; (d) first result put off → no deck, nothing.
+- **The skill everything points at** (the invite, the end screen, the 7-day goal): the first shared skill, else the
+  general pack's 할 일 정리, never the intro deck. The server decides (`landingSkill`: each while it is there) and sends
+  it with every answer that carries the progress (`WelcomeProgress.landingSkill`, beside `deckStarted`; never stored);
+  the web's `inviteSkill` reads it (its own rule only for an older server), so a shared skill deleted since is not what
+  the invite and "먼저 써 보기" name while the link and the goal say 할 일 정리. `focusSkill`
+  names the landing skill while it exists, unless a skill other than the intro deck has strictly more people; before,
+  the owner's own deck run named the goal. Open invite links that still pointed at the intro deck are repointed once to
+  the landing skill when a new member could read it.
+- **The setup row** (`SetupRow.tsx`, the one element Sidebar.tsx mounts, above Recents), owner only, every page but
+  `/welcome`, while unfinished and not hidden: "설정 이어서 하기 · 2/4" → `/welcome` at its step; while no AI answers,
+  "AI 연결하기" (the usual connect dialog; hidden on Home, where the no-AI card is). ✕ hides it (`dismissedAt`) with an
+  undo toast; Admin › Home's "시작 설정 다시 보기" brings it back. On a computer it replaces Home's row (Home shows the
+  goal card); on a phone Home keeps its quiet row under the box and the drawer's row hides on Home
+  (`setupRowState`). Admin › Home's own checklist hides while the steps are unfinished. The count is the counted steps
+  answered here (done or put off).
+- **The invite** names ONE skill (the 'a', 'b' / 'a 등 n개' message is gone), keeps "들어오면 '{skill}'부터 열려요 ·
+  바꾸기", and says "본인 AI 계정이 필요해요" when a person who joins would sign in to their own AI (`TeamLink.memberAi`
+  `connect_own`, computed for a new member with the link's groups). It may lower joins; it tells them before they hit
+  the wall.
+- **The skill form** (the member's landing and the owner's "먼저 써 보기"): a skill without fields starts its box with the
+  skill's own example (metadata `example`, else the first request its description quotes: `skillExample`), never over
+  what the person typed; while no AI answers the person the run button's place is the one connect / ask line.
+- **O3 exits.** Claude Code's (and Codex's) link and the live notice open `/skills/share/:id`; while the owner's steps are
+  unfinished its primary and 나중에 go back to `/welcome`. The live notice is held only while 내 스킬 is on screen
+  (`holdToasts` in store/ui.ts: live.ts belongs to Part A). Applying a share anywhere marks 내 스킬 done on the server
+  (`recordShared`), and the step shows a share applied since it opened as done. During setup done rows hide "열기", and a
+  merge into an existing team skill waits ("'{x}'에 합치기는 설정 끝나고 확인해요", `applied.status: later`); at setup
+  end one merge chat for all of them and one Inbox notice "합칠 스킬 N개 확인하기" (`skills.merge_waiting`). That chat's
+  turn is not queued then: it starts when the owner opens the chat (below, "The merge starts when it is opened").
+- **The merge chat is a restricted turn** (the review: `startMerge` opened a normal chat with every tool and the candidate
+  SKILL.md as its first message, a prompt-injection risk). Chosen over "the owner sends the first message", which still
+  puts the candidate in front of an AI with every tool. The candidates go into the turn's own instructions as data
+  (tags broken), the first message is a fixed short request, and the only tools are read, write and edit on exactly the
+  target skill paths (write and edit still ask with the skill-write card); no team instructions, skill list, memories,
+  project, attachments, browser, sub-agents or web search, and every later turn of that chat stays restricted.
+- **Share data.** A dismissed or expired share keeps no skill names, titles, descriptions, files, rule or tools in
+  `skill_shares.result`; the migration clears the rows already closed.
+- **Decided while building.**
+  - 나중에 on 회사 소개 of an old row (a) (its profile saved before, no deck) records `result: skipped`: the deck is put
+    off (old row (d)) and the step is answered, instead of coming back forever.
+  - The invite's "들어오면 '{skill}'부터 열려요" shows also when nothing was shared (할 일 정리; one option, so no 바꾸기).
+  - On a phone 회사 소개 reads button, line, 나중에 (the line stays right under the button).
+  - Hiding the setup row (✕) counts as the end of the steps for the merges that waited (no row leads back, so they
+    would wait for good), but only once it held: `DISMISS_HOLD_MS` (60 s; the undo toast lasts seconds) after the ✕,
+    a timer runs the end hooks if the steps are still hidden (`endHeldDismissal`), and a server stopped meanwhile
+    leaves it to the share sweep (`startStaleMerges`: `welcomeUnfinishedFor` holds merges back until the ✕ held). ✕
+    then 실행 취소 starts nothing in the middle of the steps (the review of PR #100). Chosen over "✕ makes no merge chat
+    at all, only the real end does": an owner who hides the row and never finishes would have merges waiting for good,
+    the candidate saying "설정 끝나고" forever. An owner transfer counts as the end too. An apply that itself ends the
+    steps (내 스킬 the last one, after a phone) makes its merge chat at once with its own notice. Outside the steps
+    every merge of one apply goes into one merge chat, whose turn starts at once (the owner is on the share page, its
+    확인하기 one tap away).
+  - The share's `source` column has a CHECK without `codex` and tables are never rebuilt: a Codex connector share keeps
+    `claude_code` there and `codex` in the new `source_detail` column (migration 253); the API shows `codex`.
+  - Old open invite links to the intro deck are pointed at the landing skill once per server, at start
+    (`onboarding.deckLinksRepointedAt`, audited `team_link.update` with `reason: intro_deck_link`), only when a new
+    member with the link's groups can open it.
+  - "저장하고 계속" always asks the server (it does not trust its copy of `resultChatId`, so a chat made but never sent
+    is finished); the second save's 409 is expected (one console line).
+  - The live proposal notice is matched by its action label and "Claude Code" / "Codex" in its text (store/ui.ts
+    `holdToasts`): live.ts, which shows it, belongs to Part A and passes nothing else.
+- **Migration 253** (`253_b_skill_share_merges.sql`, reader 1, additive): `skill_shares.source_detail`,
+  `skill_share_merges` (the waiting or started merges: the checked candidate text, the target, the merge chat: the
+  restricted turn's marker), `skill_merge_notices` (the Inbox table of `skills.merge_waiting`), and the one-time clearing
+  of closed shares' `result`.
+- **Tests.** Server: `b-onboarding-v5-welcome` (finish rule, old rows (a)–(d) and (a) put off, deck once and two at
+  once, landing and the goal, the link repoint, memberAi, the skill example), `b-skill-share-v5` (deferred merges, one
+  chat and one notice at setup end, the restricted merge turn's tools, share data clearing, Codex app and source, tools
+  from a browser share), `remote-mcp-share` (a Codex call, the schema under 5,000 bytes), and the K tests updated. Web:
+  `welcome.test.tsx` (rewritten: lib rules, the deck once, intro files, the deck line, the end screen), `setup-row`,
+  `skills-step` (O3 exits, Codex), `skill-form-w5`, `team-link`, `skill-scan-codex` (folders, prompts, AGENTS.md,
+  config.toml without keys, hostile TOML), `goal-card`, `home-no-ai`, `result-suggestion`; e2e `auth`,
+  `welcome-notes`, `welcome-skills` (v5).
+
+- **Codex next to Claude Code.** Checked on 2026-11-06 in the official docs (developers.openai.com/codex now redirects
+  to learn.chatgpt.com/docs) and openai/codex `main` (@ad1dbba, release rust-v0.167.0):
+  - personal skills: `~/.agents/skills/<name>/SKILL.md`, and the deprecated `$CODEX_HOME/skills` (`~/.codex/skills`),
+    still loaded; `~/.codex/skills/.system` holds Codex's own built-ins (never read); project skills `.agents/skills`
+    (every folder from the working directory up to the repository root) and `<project>/.codex/skills`; SKILL.md front
+    matter `name` and `description` (https://learn.chatgpt.com/docs/build-skills,
+    `codex-rs/ext/skills/src/host_roots.rs`, `codex-rs/skills/src/lib.rs`);
+  - custom prompts `~/.codex/prompts/*.md` (top-level files; `description`, `argument-hint`; `/prompts:<name>`) are
+    deprecated in the docs and their support was removed from the code on 2026-03-28 (openai/codex#16115); files left
+    on disk are still read as commands (https://learn.chatgpt.com/docs/custom-prompts);
+  - rule file: `~/.codex/AGENTS.override.md` if present, else `~/.codex/AGENTS.md`; project AGENTS.md files from the
+    root down, 32 KiB in all by default (https://learn.chatgpt.com/docs/agent-configuration/agents-md);
+  - MCP servers: `[mcp_servers.<name>]` in `~/.codex/config.toml` (a trusted project's `.codex/config.toml` too); stdio
+    `command`, `args`, `env`, `env_vars`, `cwd`; Streamable HTTP `url`, `bearer_token_env_var`, `http_headers`,
+    `env_http_headers`, `http_headers_helper`, `auth`; no feature flag any more (https://learn.chatgpt.com/docs/extend/mcp,
+    https://learn.chatgpt.com/docs/config-file/config-reference);
+  - remote MCP with OAuth works: CIMD or dynamic client registration, `codex mcp add <name> --url <url>` detects OAuth
+    and signs in at once (else `codex mcp login <name>`); tool calls carry JSON arguments; input schemas over 5,000 bytes
+    are compacted by default (https://learn.chatgpt.com/docs/developer-commands, `codex-rs/cli/src/mcp_cmd.rs`).
+  So the browser scan (`lib/skillScan.ts`) takes a picked or dropped `.codex` folder (skills/, prompts/ as commands,
+  AGENTS.override.md / AGENTS.md as the team rule, config.toml's remote servers as templates) and `.agents` (its
+  skills), with the same secret filtering, limits and server checks; config.toml is read by a small allowlisted reader
+  (`lib/codexToml.ts`, no dependency: only `[mcp_servers.*]`, never an env value, a header value or a token variable;
+  https only, no userinfo, query or fragment; 1 MB, 200 servers, nesting 16; it never throws or loops). The paste-a-
+  line path works for Codex too: the same line, and "연결 방법" shows `codex mcp add trina --url <address>` beside
+  Claude Code's command; `share_skills` takes `app: "codex"` and records source `codex`. Shares record `app`
+  (`claude` / `codex`). The server takes remote tools from every source now (it checks them again: https, no key).
+
+- **The merge starts when it is opened** (the review of PR #100: at the steps' end the merge turn started at once and
+  raised a save card per skill; a card waits about ten minutes (`chat/turn.ts confirmSkillWrite` → `waitForPerson`), so
+  an owner who opened "합칠 스킬 N개 확인하기" an hour later found every merge refused, and the instructions tell the AI
+  not to try again). At the steps' end `startWaitingMerges` makes the merge chat and the notice only: its rows get the
+  chat, `started_at` stays NULL, no turn. `Chat.mergeWaiting: true` marks such a chat (`chat/store.ts toChat`), and the
+  chat page (`lib/mergeStart.ts useWaitingMerge`) asks `POST /api/skill-shares/merge-chats/:id/start` the first time it
+  is on screen in a visible window (a hidden tab, a restored session, waits for `visibilitychange`). The server
+  (`share-merge.ts startOpenedMerge`) checks the budget, marks the rows started in one synchronous step and queues the
+  one restricted turn (client message id `ssm-<chat>`); a second open, another window or a double effect starts nothing
+  (`started: false`); a chat the owner already wrote in counts as started (their own message ran restricted the same
+  way); a budget block or a full queue answers with the reason and leaves the rows waiting for the next open; someone
+  else's chat is 404. Chosen over a "합치기 시작" button in the chat: the same on a phone and a computer, no second
+  primary next to the message box, no new words; opening the notice or the chat is the owner asking for it, and the
+  cards come up while they look. No migration: `started_at` NULL with a chat already meant nothing before.
+- **A share closed for good takes back its merges that did not start** (`share-merge.ts dropUnstartedMerges`, from
+  `share.ts close`): the rows still waiting for the steps' end and those of a merge chat still waiting to be opened go
+  with their text; a merge chat left with no row and no message goes too (purged, with its Inbox notice). Merges that
+  started stay (their chat is the person's conversation). Before, a share dismissed after an apply with a failed row
+  kept its waiting merge, and the merge still ran at the steps' end.
+- **Old deck links** (`repointDeckLinks`): the once-per-server mark is set only when there was nothing to repoint or a
+  landing skill to point at; a start while the team had none (the pack not in yet, 할 일 정리 deleted) tries again at the
+  next start instead of leaving the links on the deck for good.
+- **The setup row** stops reading the progress again on every page change once it is hidden (as once finished).
+- **Shared tool addresses** (the review of PR #100): an MCP address is refused when a path segment or any host label
+  but the registrable domain (the last two) looks like a key (`keyInAddress` in shared/secrets: a UUID, a random-looking
+  run, a long mixed value, long hex; host labels read in their written case too, so a letters-only key keeps its mixed
+  case). The server's `cleanTools` (every source: the browser, Claude Code's and Codex's `share_skills`) and the
+  browser's Codex `shareableUrl` use the same test. Before, only the path was checked, and only on the server. A host
+  label of 16+ characters mixing letters and digits is refused too (`mcp-server-2024-prod.x.com`): the safe side.
+- **Codex's config.toml**: the auth header is `Authorization` in either header list (bearer), else the first
+  `env_http_headers` name (its value comes from a variable: the key), then the first `http_headers` name, whatever their
+  order in the file. The file is read up to 1 MB (was 64 KB: servers after it were dropped without a word; 1 MB parses
+  in tens of milliseconds); after a syntax error the reader resumes at the next line, or at the line the error is on when
+  a value ran past its own line, so a broken value's lines are read once (linear on hostile input).
+- **A skill's example** (`skillExample`): the quoted request of a description and the metadata `example` are refused
+  with control or text-direction characters, the same set as `readSkillTitle` and the server's `readSkillExample` (the
+  box then starts empty).
+- **The walk of PR #100** (a first-time owner and an invited member in a browser; no dead end found; these fixed):
+  - *The member lands on the skill's form* for every skill: the `'skill'` starter ("이 방식대로 해 줘" on Home, for a
+    skill a person made that has no fields) is gone from the join; a link to a skill returns its form as `next` (a form
+    without fields starts with `skillExample`), with "지훈님이 만든 팀 스킬이에요" above it. Only a link with files (M)
+    still lands on Home with its starter. The `'skill'` kind stays in the contract and Home reads it for joins made
+    before; nothing sends it any more.
+  - *Readable skill names*: screens that name a skill to others (the invite message and its 바꾸기, the goal card, the
+    join page, the end screen's "먼저 써 보기") use `skillLabel`: the title, else the folder name as words ("quote
+    maker", never "quote-maker"); a share applied without an AI title records that label in `shared.skills`.
+  - *The goal card*: its title names the skill ("7일 안에 3명이 '견적 만들기' 써 보기"); "아직 아무도 안 들어왔어요" only
+    from the third day (FLOW); a member who joined and has not run it reads neutrally ("민지님이 들어왔어요. '견적
+    만들기'는 아직 써 보기 전이에요": the goal's skill may have changed after they joined); Korean particles follow the
+    last sound (은/을 after a final consonant, 는/를 otherwise, digits read aloud, none after a Latin letter or a sign,
+    never "은(는)"). While the steps are unfinished its [팀원 초대] opens the steps' own invite step (router state
+    `{ step: 'invite' }`, GoalCard.tsx `INVITE_STEP_STATE`, read by pages/Welcome.tsx), not a second invite dialog.
+  - *내 스킬 keeps its list*: O3 opens on the owner's newest open proposal (checking or ready, any source), never an
+    applied, dismissed or expired one as the list; once 내 스킬 is done it opens on the newest applied share (what went
+    in), with one quiet "다른 폴더도 가져오기" back to the picker beside 다음 (a computer only: someone with both Claude
+    Code and Codex). Without AI (`ai` none or failed) the candidates are under "찾은 스킬 N개", not "그 밖에 · 나만 쓰는
+    것, 개발용".
+  - *회사 소개 asks once*: a review in the steps (pasted text, the questions, a draft without a one-line intro) has one
+    button "저장하고 계속" that saves and starts the deck, the files link above and the deck line under it; 고치기 and
+    Admin › Team settings keep "저장". The fallback "다른 방법으로 만들어요" has one primary (소개 글 붙여 넣기; the
+    questions without AI) and quiet others; "홈페이지 주소 넣기" unless a website failed to read ("주소 다시 넣기"). A failed
+    reading names its source (the website or the pasted text) and the answer's reason, with 다시 시도 on the same input.
+    The website typed is kept in the progress (`site`) when its reading starts, so leaving mid-reading keeps it.
+  - *The step bar* reads the AI step recorded `skipped` (it means "shown", W2) as open, never "나중에 하기로 했어요".
+  - *A phone owner who put 내 스킬 off for a computer* sees one quiet line on Home, "내 스킬은 컴퓨터에서 이어서 해요"
+    (no button), while that is all that is left (`skillsWaitForComputer`): the step's promise, kept.
+  - *Hiding the setup row*: "시작 설정을 숨겼어요 · 관리자 홈에서 다시 볼 수 있어요" with 실행 취소 (no "설정 줄").
+  - *"AI 연결하기"* in the setup row and on the end screen opens a dialog titled "AI 연결" with the welcome step's three
+    ways (ConnectAiButton `panel`), closed once AI answers; the chat's one-line buttons keep the quick dialog.
+  - *A deck that stopped* says so without a count that reads as finished: "9장 중 3장" while some slides are missing,
+    "회사 소개서를 마무리하다 멈췄어요" when every slide was made, no count when none was.
+  - Not taken: SKIP 3 (setup closed without AI is the owner's "AI 연결부터" rule), 8 (the sidebar footer: feat/phone-nav
+    redesigns the sidebar), 15 (the deck's own sources: AI content). FLOW M4 ("{owner}님이 준비한 것: …") is not in this
+    build and was not added.
+
 ## 대화방 알림 소리 (feat/room-sound, 2026-11-06)
 
 The owner: "내가 봐야 하는 메시지가 있으면 소리 알림도 울려야 할 것 같아". Nothing in the web app made a sound, and an open
@@ -10399,6 +10708,123 @@ a later member sees a room from their join on (`visible_from_seq`), threads incl
   conversation per place, a later member keeps it private), `b-rooms.test.ts` (no read count, reads go to my windows
   only), the permission matrix (`listRoomThread`, `markRoomThreadRead`, `reactRoomMessage`), and the web tests
   `rooms-store`, `room-messages`, `room-thread`, `room-sound`, `push-worker`.
+
+## 내 AI 채팅에서 대화방 읽기 — the AI chat reads my conversations (feat/chat-reads-rooms, 2026-11-06)
+
+The owner: "우리 클로드 세션들은 내 채팅방을 다 볼 수 있지? '~ 채팅방 봐봐' 하면 되겠지?" Until now only @트리나 inside a room
+saw that room. Now a person's own AI chat reads their rooms, with their view and nothing more.
+
+- **Three tools, in the person's own chats only** (`server/src/chat/room-tools.ts`, data in `server/src/rooms/reader.ts`):
+  `rooms` (the rooms I am in now: name, kind, member count, unread, followed threads with news, last activity, id; with
+  `query`, `person`, `since` or `until` the messages I can see that match, newest first, with room, author, time and an
+  excerpt), `room_read` (a room's timeline or one thread: the newest 50 by default, at most 200, `since` / `until` in the
+  team's time zone, oldest first; a root says "thread: N replies" and how to open it) and `room_file` (a file sent in a
+  room: text through the Drive file's extractors, text layer only, no OCR; pictures through `imageForModel`, the read's
+  switch, engine check and per-answer budget; video and audio are named, not read). They are never offered in a room's
+  own AI session (`ROOM_TOOLS` does not list them), a confidential chat (not local tools; with safe operations on, every
+  chat is), a draft chat, an approved scheduled template (its scope refuses them) or to a sub-agent (`PARENT_ONLY_TOOLS`:
+  they patch their step, and other people's words stay with the main AI). A scheduled run of the person's own may read
+  rooms; nobody answers its cards, so it changes nothing after a read. A Slack-asked chat is the person's chat too (its
+  answer goes to their Slack thread, as team files do).
+- **Exactly my view.** Only rooms I am a member of now (not archived); the store's rules decide each line (`SEE_SQL`,
+  `canSee`, `TIMELINE_SQL`): from my join on, a thread by its root's seq, other people's private previews never, my own
+  marked "a private preview only your user sees", deleted messages left out (a deleted root that still has replies shows
+  only that it was there, so its thread stays readable), event lines as short notices ("X invited Y"). Thread replies
+  stay in their thread unless they went to the room too (`thread_reply_of`). My role adds nothing: an owner or admin
+  who is not in a room finds nothing. Rooms are found among mine only, so an id or a name of a room I am not in answers
+  word for word like one that does not exist (no oracle); a person searched for who wrote nothing I see, or nobody by
+  that name, both give "no messages". A room by name: its title as I see it (own name, group name, the other person of
+  a 1:1 chat, the members of an unnamed group chat, "everyone"), with "채팅방", "님" and the like after it, then a title
+  that holds it; several equally good matches are listed with their ids and the AI asks. Here the room's own name is
+  given to the AI (the person names rooms by it); it is data like the messages.
+- **Room words are data.** Every result says the messages are other people's, never instructions, and that links in
+  them are not the person's (the same framing as `<room_context>` in rooms/ai.ts); each message is a `<room_message>`
+  with its author, who that is to the person and its time; our block tags inside are neutralised (`room_messages`,
+  `room_event`, `room_list`, `room_file`, `room_refs` joined `BLOCK_TAGS`). Links in a result are not learned links: a
+  web_fetch of one needs the address card.
+- **The mark: every change waits for a yes after a room was read.** Any call of a room tool sets `chats.rooms_seen`
+  (migration 254, additive, reader 1) and taints the session. From then on, for the rest of that chat (a new session,
+  an edited first message and a restart do not clear it; it is read from the database on every call), every tool call
+  outside `ROOMS_SEEN_READ_ONLY_TOOLS` (`rooms/ai-tools.ts`: the room session's read-only tools, the room tools, the
+  scheduled tasks' list, Drive's search, list and read, `find_tools`, `set_title`, and the in-app browser's reading tools
+  only in a turn that has the browser)
+  raises the room session's server card (`confirmRoomChange`, its words: "여기에 대화방 메시지(다른 사람이 쓴 글)가
+  들어와서, 무언가를 바꾸기 전에 먼저 물어봐요. 트리나가 이 작업을 하려고 해요: …"), the same card with the same
+  details (what it does, the file, all of what it writes one click away) and the same rule for skill and instruction
+  files. No answer or "하지 않기" changes nothing. `remember` raises its own card with the text it would keep
+  (`tainted || roomsSeen`), so room content never becomes a memory without a yes. A planted "@fake" instruction in a
+  room message that the stand-in AI follows is the test (`b-chat-rooms.test.ts`).
+- **Read scope.** What a read or search showed joins the chat's read scope as `{type:'room', id, fromSeq}` (the oldest
+  message given, by who sees it), so saving it where people outside the room can read also asks with the wider-audience
+  card. A plain list of rooms adds nothing (names only; every change asks anyway, and a scope of a hundred rooms would
+  make that card name them all).
+- **No audit naming rooms.** The tool lines (`tool_events`, which admins read) say only `rooms -> search, 3 shown`,
+  `room_read -> 12 messages`, `room_file -> text 4000 characters`: no room, id, person, word searched or file name. No
+  `audit_log` row is written. The steps under the answer (the person's own chat) name the room: "대화방 읽기 · 마케팅"
+  (patched from the id the AI passed to the room's title as the person sees it; a bare id is never shown), "대화방 찾기
+  "예산"", "대화방 파일 읽기 · 보고서.pdf", in the five languages (`FILE_STEP_VERB`; English "Read conversation").
+- **Limits.** A read gives at most 200 messages, each cut at 4,000 characters, the whole at 60,000 with a line that says
+  how to go on (`until=` the oldest shown). A search looks at the newest 20,000 positions of each room (the
+  `(room_id, seq)` index), at most 100 rooms and 100,000 positions in all (the latest activity first), at most 100 results. A list counts only the 100 rooms
+  it shows, and a room named by its name is matched on its title alone (the counts are read for the match only). A file's text at most 40,000
+  characters a call (`offset` reads on), files up to the plan's read limit and 32 MB.
+- **"#" in the AI chat's box.** Typing "#" lists the rooms I am in (group chats, team rooms, the everyone room, 1:1
+  chats as "<name> · 1:1"), filtered as I type (titles, and a 1:1 or group chat by a member's name), arrow keys, Enter
+  or Tab, Esc, a tap; rows 44 px on phones. Picking writes "#마케팅 " as a token: accent text on the soft accent ground,
+  drawn by a layer behind the native text box (whose own text is then transparent), so Korean input, selection and spell
+  check stay the box's own; Backspace or Delete takes it whole and the caret never stops inside it. What is sent is
+  `#[마케팅](room:<id>)` (`shared/src/api/rooms.ts` `roomRefToken`); the draft keeps that form. The server puts a
+  `<room_refs>` block in front of the message with the titles and ids (only where the room tools are offered), so the AI
+  reads exactly that room with `room_read` and never guesses by name; membership is checked when it reads (a token of a
+  room I left reads nothing, said as for an unknown room). `/회의록 #마케팅` runs the skill with that room as its input.
+  A sent message shows its tokens as the same chips; editing a message or a waiting message shows "#마케팅" and keeps the
+  room. Not in a room's own box: a room's name would reach people who are not in it. Plain words ("마케팅 대화방 봐봐")
+  still work through the tools.
+- **Independent review (2026-11-06) fixes.** A sub-task's description (written by the AI, up to 80 characters) went
+  into the `agent` audit line, which admins read: once a chat read rooms only its length is kept. A picked room whose
+  title had brackets, double spaces or more than 80 characters lost its id (the box showed the token's cleaned title,
+  the picker kept the raw one): the picker keeps the token's title. Two rooms of one title (two 김민지 1:1 chats) kept the
+  first pick: one room per title now, the latest pick, and rooms whose token was deleted are forgotten. Approved
+  scheduled templates are no longer offered the tools (their scope refused them at the call). The browser's reading
+  tools skip the card only in a turn that has the browser. A converter's error (it can quote the file) is one line with
+  our tags neutralised. "Several rooms match" gives times in the team's zone; a date's end is the next day's start (a
+  day with a clock change); the person searched for is matched among all accounts in a fixed order. Left: paging back
+  with `until=` skips another message of the very same millisecond; AI-chosen names in other tools' audit lines (a file
+  path, an artifact key) are as they were, and every such change after a room read waited for the person's yes.
+- **Second review (2026-11-06) fixes.**
+  - A `#` token's title is a room's name, which any member of a group chat sets, so it is never the person's words:
+    the address check (`tools/url-gate.ts typedUrls`) reads the person's messages without their tokens (a room named
+    "https://…" made that address one the person typed: no card), a token's title never holds "://"
+    (`roomRefTitle`), and the AI gets the message with "[#room N]" in each token's place, the titles and ids only in
+    the `<room_refs>` data block; earlier messages of the conversation give the id alone. A message that holds a token
+    marks the chat (`rooms_seen`) by itself, before any tool is called.
+  - My own private AI preview in what a read or search showed (private because it used what the room may not read)
+    adds `{type:'user'}` to the chat's read scope, so saving it where others can read still asks.
+  - Every room tool call names its step once, found or not (the verb alone when nothing was found, never the name the
+    AI guessed), so batched calls keep their own steps (patchToolStep is first in, first out per tool).
+  - A search has one budget for all its rooms (`ROOM_SEARCH_BUDGET`, 100,000 positions; at most 100 rooms), the rooms
+    with the latest activity first; what was not searched, or only in part, is said.
+  - In a chat that read rooms, every http(s) address in a tool's audit line keeps only its site and a 12-character
+    fingerprint (`tools/audit-url.ts`; `web_fetch https://example.com/… #3f2a9c1b07de -> 4 chars`); the intro deck's
+    "was this article opened" check accepts that form.
+  - Before a read, the person's team rooms and everyone room are put right as `GET /api/rooms` does
+    (`Rooms.syncFor`): someone taken out of a group a moment ago reads nothing of its room.
+  - The `#` list does not open in a confidential chat (nor while that is not known).
+  - Tests added: archived rooms and a room I was taken out of; the tool set for a room session, a draft, an approved
+    template and a confidential chat; after a read, a sub-agent's write, `save_url`, a schedule and a connection's
+    tool each wait for the card; a scheduled run in such a chat changes nothing and raises no card.
+- **Rollback.** Migration 254 is additive (reader level unchanged). An older build has no room tools and ignores the
+  mark: in a chat that already holds room content it asks only where it asked before (memories after outside content,
+  the wider-audience card). Accepted: going back is rare, and nothing new is read there.
+- **Numbering.** 254, reserved for this branch: 249 and 253 are the skill-share branch's (PR #100), 250 group chats, 251
+  threads, 252 feat/phone-nav (chat seen), 255 feat/room-notify-prefs.
+- **Tests.** `tests/unit/b-chat-rooms.test.ts` (where the tools are, membership and the identical unknown answer, admins,
+  names, a later member, threads, previews, deleted messages and event lines, neutralised tags, limits, since / until,
+  search, the step words, the card after a read and not before, in later turns and after a database reopen, a planted
+  write and memory refused, the audit lines, room files, "#" tokens with a skill and after leaving),
+  `step-labels-tools.test.ts`, the tool lists in `b-chat`, `b-browser` and `i-wiring`, and the web test
+  `room-refs.test.tsx` (the "#" list, its filter, picking, the token sent with the room id, Backspace, chips, the room
+  steps in five languages).
 
 ## K — Knowledge graph: CodeGraph's code map of the team folders, filtered at every question (2026-11-06)
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to

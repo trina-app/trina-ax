@@ -71,6 +71,10 @@ export const TeamLink = z.object({
   /** what people who join land on: the kind, how many files and which (those a person joining with the link's groups
    * could read now; owners and admins read every team folder anyway). null or absent: none */
   starter: z.object({ kind: StarterKind, files: z.number().int().nonnegative(), paths: z.array(z.string()).optional() }).nullable().optional(),
+  /** what AI a person who joins through it has (docs/DECISIONS.md "W5"): `ready` (a team connection, the hosted trial
+   * or a managed engine answers them), `connect_own` (each person signs in to their own AI: the invite message says
+   * "본인 AI 계정이 필요해요"), `ask_owner` (nothing answers them yet). Absent from an older server */
+  memberAi: z.enum(['ready', 'connect_own', 'ask_owner']).optional(),
 })
 export type TeamLink = z.infer<typeof TeamLink>
 

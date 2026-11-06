@@ -34,13 +34,14 @@ import { SLACK } from './slack'
 import { PROMO_VIDEO } from './promo-video'
 import { INTRO_DECK } from './intro-deck'
 import { KNOWLEDGE_GRAPH } from './knowledge-graph'
+import { SKILL_SHARES } from './skill-shares'
 import type { Endpoint } from './endpoint'
 
-export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...KNOWLEDGE_GRAPH } as const
+export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...KNOWLEDGE_GRAPH, ...SKILL_SHARES } as const
 export type Api = typeof API
 export type ApiName = keyof Api
 
-export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, KNOWLEDGE_GRAPH } as const
+export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, KNOWLEDGE_GRAPH, SKILL_SHARES } as const
 
 /** All endpoints with their registry key. */
 export function listEndpoints(): { name: ApiName; ep: Endpoint }[] {
@@ -88,6 +89,7 @@ export * from './account-deletion'
 export * from './slack'
 export * from './promo-video'
 export * from './intro-deck'
+export * from './skill-shares'
 export * from './knowledge-graph'
 export * from './ws'
 export * from './client'

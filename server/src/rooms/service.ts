@@ -669,6 +669,11 @@ export class Rooms {
     this.lastSync = Date.now()
     try { this.sync() } catch (e) { this.ctx.log.error('room sync failed', { err: e }) }
   }
+  /** Before someone's rooms are read for their AI chat (chat/room-tools.ts): their team rooms and the everyone room put
+   * right first when they are out of step (a group left a moment ago is applied before anything is read). */
+  syncFor(userId: string) {
+    if (this.outOfStep(userId)) this.syncNow()
+  }
   /** Are this person's team rooms and everyone room not what their groups and account say? */
   private outOfStep(userId: string): boolean {
     const active = !!this.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(userId)

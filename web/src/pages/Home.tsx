@@ -1,8 +1,9 @@
 // New chat. First-time members see which folders their AI can see and three example questions (filled with
-// their folder names, no engine call). Owners and admins get ONE thing at the top: the welcome steps' "continue" row
-// while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a time"); the
-// owner's setup checklist is on Admin › Home. While no AI answers the person (GET /api/me/ai-access), everyone gets ONE
-// card instead (components/onboarding/ConnectAi.tsx NoAiCard: the owner connects, anyone else hears that the owner
+// their folder names, no engine call). Owners and admins get ONE thing at the top: on a phone the welcome steps'
+// "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
+// time"); on a computer the sidebar's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
+// docs/DECISIONS.md "W5"), so the top is the goal card there. The owner's setup checklist is on Admin › Home. While no
+// AI answers the person (GET /api/me/ai-access), everyone gets ONE card instead (components/onboarding/ConnectAi.tsx NoAiCard: the owner connects, anyone else hears that the owner
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
@@ -39,7 +40,7 @@ import { isLanding, readNotesHint, showResume, type NotesHint } from '../lib/wel
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
-import { useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
+import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
@@ -176,15 +177,17 @@ function NotesLine({ notes }: { notes: NotesHint }) {
 }
 
 /**
- * The one thing at the top of Home for owners and admins while AI answers them: the owner's "시작 설정 이어하기 (n/2)"
- * while the welcome steps are unfinished (started, neither finished nor hidden), else the goal card. The owner's waits
- * for the steps' progress so the goal card never shows for a moment first; a failed read counts as "nothing to
- * continue". Exported for its test.
+ * The one thing at the top of Home for owners and admins while AI answers them: on a phone the owner's quiet "설정
+ * 이어서 하기 · 2/4" while the welcome steps are unfinished (started, neither finished nor hidden), else the goal card;
+ * on a computer always the goal card, since the sidebar's setup row stands for the steps there (docs/DECISIONS.md
+ * "W5"). The owner's waits for the steps' progress so the goal card never shows for a moment first on a phone; a failed
+ * read counts as "nothing to continue". Exported for its test.
  */
 export function HomeTop({ owner }: { owner: boolean }) {
   const loaded = useWelcome((s) => s.loaded)
   const progress = useWelcome((s) => s.progress)
   const aiReady = useAiAccess((s) => s.loaded && s.usable)
+  const computer = !useMediaQuery('(max-width: 767.98px)')
   useEffect(() => {
     if (owner) void useWelcome.getState().load().catch(() => {})
   }, [owner])
@@ -194,9 +197,11 @@ export function HomeTop({ owner }: { owner: boolean }) {
   useEffect(() => {
     if (aiPutOff) void useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }).catch(() => {})
   }, [aiPutOff])
-  if (!owner) return <HomeGoal />
+  if (!owner || computer) return <HomeGoal />
   if (!loaded) return null
-  return showResume(progress) ? <WelcomeResume /> : <HomeGoal />
+  if (showResume(progress, false)) return <WelcomeResume />
+  // 내 스킬 put off for a computer: the phone keeps the step's promise in one quiet line, above the goal
+  return <><SkillsOnComputer /><HomeGoal /></>
 }
 
 const EXAMPLES: MessageKey[] = ['home.example1', 'home.example2', 'home.example3']

@@ -6,7 +6,7 @@
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
-import { BaseWindow, dialog, Notification, session, WebContentsView, type Session } from 'electron'
+import { app as electronApp, BaseWindow, dialog, Notification, session, WebContentsView, type Session } from 'electron'
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
@@ -394,7 +394,8 @@ export class AppWindow {
       const top = frameTree.frame as { id: string; url: string }
       if (top.id !== frameId || !isTrustedAppSender({ url: top.url, isTop: true, isAppView: this.app === app }, this.allowedOrigins())) return
       const { node } = await dbg.sendCommand('DOM.describeNode', { backendNodeId })
-      const r = await dialog.showOpenDialog(this.win, openDialogChoice({ multiple, attributes: node?.attributes }))
+      const L = this.o.locale()
+      const r = await dialog.showOpenDialog(this.win, openDialogChoice({ multiple, attributes: node?.attributes, home: electronApp.getPath('home'), claude: { message: t(L, 'files.claudeMessage'), button: t(L, 'files.claudeButton') } }))
       // cancelled: the input keeps what it had
       if (r.canceled || !r.filePaths.length || this.app !== app) return
       // the page loaded again meanwhile (a recheck moved it to the office address, a reload): backendNodeId now points

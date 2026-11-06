@@ -314,6 +314,71 @@ describe('colours and images, clicked', () => {
     } finally { await m.unmount() }
   })
 
+  test('a reading that fails says what it read (pasted text is not "the homepage"), with the answer\'s reason; 다시 시도 reads the same input again', async () => {
+    const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
+    const drafts = () => calls.filter((c) => c.key === 'POST /api/onboarding/profile/draft').map((c) => c.body)
+    const LIMIT = 'AI 사용 한도에 잠시 도달했어요. 조금 뒤 다시 시도해 주세요.'
+    const TEXT = 'Acme makes quiet desk fans.'
+    // pasted text, no website: its own words, then the same text again without typing it
+    calls = []
+    draftState = { status: 'failed', website: '', draft: null, error: LIMIT, steps: [] }
+    let m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={noop} skipLabel="나중에 하기" /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-site'), 'the website form')
+      await m.click(button('홈페이지가 없어요'))
+      await m.click(await m.until(() => m.find('profile-step-to-paste'), 'the fallback'))
+      await m.type(m.get('profile-step-paste').querySelector('textarea')!, TEXT)
+      await m.click(m.get('profile-step-paste').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      chatActivity.emit(CHAT)
+      const note = await m.until(() => m.find('profile-step-unreadable'), 'the reason')
+      expect(note.textContent).toContain(`붙여 넣은 글로 회사 소개를 만들지 못했어요. ${LIMIT}`)
+      expect(note.textContent).not.toContain('홈페이지')
+      expect(m.get('profile-step-to-site').textContent).toBe('홈페이지 주소 넣기')
+      draftState = { status: 'done', website: '', error: null, steps: [], draft: { website: '', name: '', oneLine: TEXT, products: '', audience: '', tone: [], avoid: '', sources: [] } }
+      await m.click('profile-step-retry')
+      await m.until(() => m.find('profile-step-reading'), 'reading again')
+      chatActivity.emit(CHAT)
+      await m.until(() => m.find('profile-step-review'), 'the review')
+      expect(drafts()).toEqual([{ text: TEXT }, { text: TEXT }])
+    } finally { await m.unmount() }
+    // the website: "홈페이지에서 …", 다시 시도 reads the same address; "주소 다시 넣기" to fix it
+    calls = []
+    draftState = { status: 'failed', website: 'https://acme.example/', draft: null, error: LIMIT, steps: [] }
+    m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={noop} skipLabel="나중에 하기" initialWebsite="https://acme.example/" /></MemoryRouter>)
+    try {
+      await m.until(() => !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      chatActivity.emit(CHAT)
+      const note = await m.until(() => m.find('profile-step-unreadable'), 'the reason')
+      expect(note.textContent).toContain(`홈페이지에서 회사 소개를 읽지 못했어요. ${LIMIT}`)
+      expect(m.get('profile-step-to-site').textContent).toBe('주소 다시 넣기')
+      await m.click('profile-step-retry')
+      await m.until(() => m.find('profile-step-reading'), 'reading again')
+      expect(drafts()).toEqual([{ website: 'https://acme.example/' }, { website: 'https://acme.example/' }])
+    } finally { await m.unmount() }
+  })
+
+  test('"다른 방법으로 만들어요": one primary, pasting what the company does; the questions and the address quiet; "홈페이지 주소 넣기" when no address was read', async () => {
+    calls = []
+    const button = (label: string) => (globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === label)
+    const m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={noop} skipLabel="나중에 하기" /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-site'), 'the website form')
+      await m.click(button('홈페이지가 없어요'))
+      const fallback = await m.until(() => m.find('profile-step-fallback'), 'the fallback')
+      const cls = (b: any) => b.getAttribute('class') ?? ''
+      expect(fallback.querySelectorAll('button').filter((b: any) => cls(b).includes('bg-accent ')).map((b: any) => b.textContent)).toEqual(['소개 글 붙여 넣기'])
+      // nothing else stands out: no outline buttons either
+      expect(fallback.querySelectorAll('button').filter((b: any) => cls(b).includes('border-field-border'))).toEqual([])
+      expect(m.get('profile-step-to-questions').textContent).toBe('세 가지 질문에 답하기')
+      expect(m.get('profile-step-to-site').textContent).toBe('홈페이지 주소 넣기')
+      expect(m.find('profile-step-unreadable')).toBeNull()
+      expect(m.html()).not.toContain('주소 다시 넣기')
+    } finally { await m.unmount() }
+  })
+
   test('autoSave (the welcome steps): a website draft with a one-line intro is saved as it came, no review; without one, from pasted text, a failed save or without autoSave: the review', async () => {
     const done = (oneLine: string, website = 'https://acme.example/') => ({
       status: 'done', website, error: null, steps: [], assets: { images: 2, logo: true, colors: ['#37ee6a', '#0b140d'] },

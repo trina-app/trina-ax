@@ -21,7 +21,7 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
 import {
-  TEAM_LINK_DEFAULT_USES, TEAM_LINK_FRAGMENT_KEY, TeamLinkStarter, skillTitle,
+  GENERAL_DECK_SKILL, TEAM_LINK_DEFAULT_USES, TEAM_LINK_FRAGMENT_KEY, TeamLinkStarter, skillTitle,
   type CreateTeamLinkBody, type JoinStarter, type JoinTeamLinkBody, type JoinTeamLinkResponse, type Locale, type TeamLink, type TeamLinkInfo,
   type TeamLinkProblem, type TeamLinkResponse, type TeamLinkState, type UpdateTeamLinkBody,
 } from '@mycel/shared/api'
@@ -31,11 +31,14 @@ import { newId } from '../db'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { getTeamSettings } from '../admin/settings'
+import { getSetting, getTeamSettings, setSetting } from '../admin/settings'
+import { landingSkill, readWelcome } from '../onboarding/welcome'
 import { readSkill } from '../chat/skills'
 import { skillMakerName } from '../skills/author'
 import { Vault } from '../credentials/vault'
 import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { newMemberAi } from '../credentials/access'
+import { getChatRuntime } from '../chat/runtime'
 import type { Principal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
@@ -171,7 +174,18 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
       const paths = readableFiles(ctx, newMember(existingGroups(ctx.db, parseIds(r.group_ids))), st.files)
       return { kind: st.kind, files: paths.length, paths }
     })(),
+    memberAi: memberAiOf(ctx, parseIds(r.group_ids)),
   }
+}
+
+/** What AI someone joining with these groups has (the invite message's "본인 AI 계정이 필요해요"); a read that fails
+ * reads as ready, so no warning is added on a guess. */
+function memberAiOf(ctx: AppContext, groupIds: string[]): NonNullable<TeamLink['memberAi']> {
+  try {
+    let problems = {}
+    try { problems = getChatRuntime(ctx).engines.get().problems } catch { /* no chat runtime (a test of another part) */ }
+    return newMemberAi(ctx, existingGroups(ctx.db, groupIds), { problems })
+  } catch { return 'ready' }
 }
 
 /** While the per-link limit refuses every join (someone holding the link kept failing), until when; else null. The
@@ -268,6 +282,41 @@ export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
   }).immediate()
   if (!done) fail('not_found')
   return getTeamLink(c, ctx)
+}
+
+/** Set once the open links to the intro deck were looked at (repointDeckLinks). */
+export const DECK_LINKS_KEY = 'onboarding.deckLinksRepointedAt'
+
+/**
+ * Old open invite links that lead to the intro deck (the first result of docs/DECISIONS.md "D2" was what the invite
+ * opened before "W5"): each is pointed once at the skill everything points at now (onboarding/welcome.ts landingSkill),
+ * keeping its address, when someone joining with its groups can open that skill; otherwise it is left as it is. Once
+ * per server (DECK_LINKS_KEY): a link the owner points at the deck again later stays. The once is recorded only when
+ * there was nothing to repoint or there was a landing skill to point at: a start while the team had none (its pack not
+ * in yet, 할 일 정리 deleted) tries again at the next start instead of leaving the links on the deck for good. Audited.
+ * Returns how many changed.
+ */
+export function repointDeckLinks(ctx: AppContext): number {
+  if (getSetting(ctx.db, DECK_LINKS_KEY)) return 0
+  const general = readWelcome(ctx)?.general
+  const deck = [...new Set([GENERAL_DECK_SKILL, general?.introDeckPath].filter((x): x is string => !!x))]
+  const landing = landingSkill(ctx)
+  let n = 0
+  ctx.db.transaction(() => {
+    if (getSetting(ctx.db, DECK_LINKS_KEY)) return
+    const rows = ctx.db.query(`SELECT ${COLS} FROM team_links WHERE revoked_at IS NULL AND skill_path IN (${deck.map(() => '?').join(',')})`).all(...deck) as Row[]
+    for (const r of rows) {
+      const groups = existingGroups(ctx.db, parseIds(r.group_ids))
+      const s = landing ? teamSkill(ctx, newMember(groups), landing) : null
+      if (!s) continue
+      const starter = starterFor(ctx, groups, s.path, parseStarter(r.starter))
+      ctx.db.query('UPDATE team_links SET skill_path = ?, starter = ? WHERE id = ? AND revoked_at IS NULL').run(s.path, starter, r.id)
+      audit(ctx.db, { actor: null, action: 'team_link.update', target: r.id, detail: { skillPath: s.path, from: r.skill_path, reason: 'intro_deck_link' } })
+      n++
+    }
+    if (!rows.length || landing) setSetting(ctx.db, DECK_LINKS_KEY, new Date().toISOString())
+  }).immediate()
+  return n
 }
 
 /** DELETE /api/admin/team-link: the open link, whatever its state, stops working for good; its sealed token is wiped
@@ -375,12 +424,12 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   const me = viewerOf(ctx, id)
   const found = r.skill_path && me ? teamSkill(ctx, me, r.skill_path) : null
   const skill = found ? { path: found.path, name: found.name, title: found.title } : null
-  // who made the skill (its file's first version; none for a starter pack's own text): the line above its form, or the
-  // arrival's line for a skill without a form (docs/DECISIONS.md "S — The lead's way becomes a team skill")
-  const maker = skill ? skillMakerName(ctx.db, skill.path) : null
-  const skillBy = maker?.name ?? null
-  // the link's files (M), else a skill made by someone without a form: a new chat with its title and one question
-  const starter = skill && me ? (joinStarter(ctx, me, r, skill) ?? (maker && !found!.form ? { kind: 'skill' as const, skill, files: [], by: skillBy } : null)) : null
+  // who made the skill (its file's first version; none for a starter pack's own text): the line above its form
+  // (docs/DECISIONS.md "S — The lead's way becomes a team skill")
+  const skillBy = skill ? skillMakerName(ctx.db, skill.path)?.name ?? null : null
+  // the link's files (M) only: otherwise every skill lands on its form, a skill without fields too, whose box starts
+  // with the skill's own example (shared skillExample; docs/DECISIONS.md "W5"), never a chat with "이 방식대로 해 줘"
+  const starter = skill && me ? joinStarter(ctx, me, r, skill) : null
   const signed = a.signIn(c, id, b.client, b.tokenMode)
   return { ...signed, next: skill ? `/skills?run=${encodeURIComponent(skill.path)}` : null, starter, skillBy }
 }
