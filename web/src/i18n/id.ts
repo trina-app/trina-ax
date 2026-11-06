@@ -2963,6 +2963,7 @@ export const id: Record<MessageKey, string> = {
   "skills.issues.inputsTitle": "Skill berikut bisa dipakai, tetapi terbuka tanpa formulirnya.",
   "skills.issues.inputs": "Formulir (inputs di metadata header) tidak dapat dibaca. Tulis \"inputs: |\" lalu daftar JSON di baris berikutnya, menjorok. Setiap kolom perlu name dan label, dan header tidak boleh lebih dari 8 KB.",
   "audit.act.onboarding.pack_install": "Paket skill rekomendasi dipasang",
+  "audit.act.onboarding.default_skills": "Skill bawaan ditambahkan",
   // onboarding stream D: the company profile (components/onboarding/ProfileStep.tsx, CompanyProfileCard.tsx)
   "onboarding.profile.title": "Profil perusahaan",
   "onboarding.profile.siteTitle": "Apa situs web perusahaan Anda?",
