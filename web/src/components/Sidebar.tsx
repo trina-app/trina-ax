@@ -212,7 +212,7 @@ export default function Sidebar() {
             where they are there */}
         {wide && <SidebarRooms onNavigate={close} all />}
         <div ref={aiTop} aria-hidden />
-        <div className={clsx('group/recents flex items-center gap-1', wide ? 'sticky bottom-0 z-10 -mx-2 bg-subtle pr-3 pl-5' : 'pr-1 pl-3', stuck && 'border-t border-line py-1')} data-testid="recents-head" data-stuck={stuck || undefined}>
+        <div className={clsx('group/recents flex items-center gap-1', wide ? 'sticky -bottom-2 z-10 -mx-2 bg-subtle pr-3 pl-5' : 'pr-1 pl-3', stuck && 'border-t border-line py-1')} data-testid="recents-head" data-stuck={stuck || undefined}>
           <h2 className="text-xs font-medium text-faint">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
               {wide ? t('sidebar.aiChats', { name: aiName(t) }) : t('sidebar.recents')}
