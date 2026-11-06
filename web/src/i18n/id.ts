@@ -158,7 +158,11 @@ export const id: Record<MessageKey, string> = {
   "setup.tokenHint": "Baca token penyiapan pribadi pada server dari penginstal atau direktori data yang dikonfigurasi. Jangan sertakan token dalam permintaan bantuan.",
   'setup.teamName': 'Nama tim',
   'setup.teamLocale': 'Bahasa tim',
-  'setup.teamLocaleHint': 'Semua orang melihat bahasa ini sampai memilih bahasanya sendiri. Bisa diubah nanti di Admin > Pengaturan tim.',
+  'setup.teamLocaleHint': 'Bahasa bawaan semua anggota · Bisa diubah nanti',
+  'setup.section.team': 'Tim',
+  'setup.section.owner': 'Akun Anda · Owner',
+  'setup.name': 'Nama Anda',
+  'setup.passwordHint': 'Minimal 8 karakter',
   'setup.create': 'Buat tim dan mulai',
 
   'invite.title': 'Undangan',

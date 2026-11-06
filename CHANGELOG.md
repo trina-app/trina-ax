@@ -11,6 +11,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
   - The deck opens beside the chat by itself: page through it with the arrow keys, a swipe or a click on either side; in a narrow panel the slides stand in one scrolling column. One [받기] button gives a PowerPoint file (editable text boxes, Pretendard embedded, about 4–6 MB with pictures) and a PDF (drawn with typst, the same on every device). Both are built on the server when asked for (well under a second) and kept until the chat is deleted; the PDF is offered only where the server has typst (every Linux server bundle does). No mark of the product is put on the slides.
   - The first result is now this deck instead of the promo video, and [팀에 공유] invites the team to the "회사 소개서" skill itself, so members' runs (each for their own customers) count toward the 7-day goal. The promo video and card news skills stay installed.
   - Every Linux server bundle now also carries Pretendard 1.3.9 Regular, Bold and ExtraBold (static TTF, OFL-1.1, unchanged) in its `fonts/` folder, with the notice.
+- The first-run "팀 만들기" form is in two groups under quiet headings, "팀" (team name, team language) and "내 계정 · 팀장" (내 이름, username, password), so it is clear where the team ends and the owner's account begins. Like joining, it asks for the password once, with a show-password switch, instead of a second "비밀번호 확인" field; the setup API is unchanged. In all five languages.
 
 ## 0.4.0-beta.9 — 2026-11-06
 

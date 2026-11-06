@@ -157,7 +157,11 @@ export const ko = {
   "setup.tokenHint": "설치기 또는 서버의 설정된 데이터 폴더에서 비공개 설정 토큰을 확인하세요. 문의에 토큰을 올리지 마세요.",
   'setup.teamName': '팀 이름',
   'setup.teamLocale': '팀 언어',
-  'setup.teamLocaleHint': '각자 언어를 고르기 전까지 모두 이 언어로 봐요. 나중에 관리자 > 팀 설정에서 바꿀 수 있어요.',
+  'setup.teamLocaleHint': '팀원 모두의 기본 언어예요 · 나중에 바꿀 수 있어요',
+  'setup.section.team': '팀',
+  'setup.section.owner': '내 계정 · 팀장',
+  'setup.name': '내 이름',
+  'setup.passwordHint': '8자 이상',
   'setup.create': '팀 만들고 시작하기',
 
   'invite.title': '초대',

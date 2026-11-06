@@ -158,7 +158,11 @@ export const en: Record<MessageKey, string> = {
   "setup.tokenHint": "Read the private setup token on the server from the installer or the configured data directory. Do not post it in support requests.",
   'setup.teamName': 'Team name',
   'setup.teamLocale': 'Team language',
-  'setup.teamLocaleHint': 'Everyone sees this language until they pick their own. You can change it later in Admin > Team settings.',
+  'setup.teamLocaleHint': "Everyone's default language · You can change it later",
+  'setup.section.team': 'Team',
+  'setup.section.owner': 'Your account · Owner',
+  'setup.name': 'Your name',
+  'setup.passwordHint': 'At least 8 characters',
   'setup.create': 'Create team and start',
 
   'invite.title': 'Invitation',
