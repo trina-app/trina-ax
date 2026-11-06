@@ -9727,4 +9727,15 @@ section of its own, not a follow-up of D (the company profile), though the deck 
   the main button. No new connection logic. Home's owner card is the same panel. "AI 연결하기" above the composer and
   under a failed answer stays one button (one line of room there): it opens on the recommended way, and the dialog's
   "다른 방법" lists every way.
+- **Coming back resumes the steps** ("하다가 중간에 나가면 여기로 들어오지?"). Before, only the redirect right after /setup
+  opened them; later visits showed Home's "시작 설정 이어하기 (n/total)". Now an owner whose steps are started, neither
+  finished nor hidden, and have a step to open (`resumesOnLanding`: not when only a put-off invite is left, where the
+  steps would send Home again) goes to /welcome, which opens at its resume step, when Home is a landing: the tab opened
+  on Home (react-router's first entry) or a sign-in without `?next` sent it there (`LANDING_STATE`; on a phone the
+  sign-in lands on the 대화 list, which does the same). Once per tab session: the steps on screen (after /setup, this
+  redirect, the Home row) mark it in sessionStorage per account, and in the page when the browser refuses storage, so
+  "나중에 하기" goes Home and stays; a new tab or a new sign-in session brings them back until they are finished or the
+  row is hidden. Never for admins or members (the steps are the owner's), never a link to somewhere else (a chat, an
+  invite, `?next`) or a later click on Home. Home shows nothing until the progress is read on such a landing, so it
+  does not flash first; a failed read stays on Home.
 

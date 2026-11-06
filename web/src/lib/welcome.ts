@@ -69,6 +69,40 @@ export function skillNameOf(path: string | null | undefined): string {
 /** The Home entry shows while the steps were started and are neither finished nor hidden. */
 export const showResume = (p: WelcomeProgress | null) => !!p && !p.finishedAt && !p.dismissedAt
 
+/**
+ * Coming back resumes the steps (docs/DECISIONS.md "W4"): an owner who left them unfinished lands on them instead of
+ * Home, once per tab session. Only a landing counts (the tab opened on Home, or a sign-in sent it there:
+ * `LANDING_STATE`), never a link to somewhere else or a later click on Home. The steps on screen in this tab (after
+ * /setup, this redirect, the Home row) mark the session, so "나중에 하기" goes Home and stays there. The mark is kept per
+ * account in sessionStorage, and in this page too when the browser refuses storage.
+ */
+export const LANDING_STATE = { landing: true } as const
+const SEEN_KEY = 'mycel.welcome.seen'
+const seenHere = new Set<string>()
+export function markStepsSeen(userId: string) {
+  seenHere.add(userId)
+  try { sessionStorage.setItem(`${SEEN_KEY}:${userId}`, '1') } catch { /* this page's copy holds it */ }
+}
+export function stepsSeen(userId: string): boolean {
+  if (seenHere.has(userId)) return true
+  try { return sessionStorage.getItem(`${SEEN_KEY}:${userId}`) === '1' } catch { return false }
+}
+/** For tests: a new tab session. */
+export const forgetStepsSeen = () => {
+  seenHere.clear()
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i)
+      if (k?.startsWith(SEEN_KEY)) sessionStorage.removeItem(k)
+    }
+  } catch { /* none kept */ }
+}
+/** A landing takes the owner to the steps while they were started, are neither finished nor hidden, and have a step to
+ * open (resumeStep: with only a put-off invite left there is none, and the steps would send Home again). */
+export const resumesOnLanding = (p: WelcomeProgress | null) => showResume(p) && resumeStep(p) !== null
+/** Whether a location is a landing: the first entry of the tab (react-router's "default" key) or a sign-in's. */
+export const isLanding = (l: { key: string; state: unknown }) => l.key === 'default' || (l.state as { landing?: unknown } | null)?.landing === true
+
 /** The invite bar on the first-result chat: until the invite is done or put off. */
 export const showInviteBar = (p: WelcomeProgress | null, chatId: string) => !!p && p.resultChatId === chatId && p.steps.invite === null
 

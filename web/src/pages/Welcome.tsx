@@ -28,7 +28,7 @@ import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
 import { rememberChat } from '../lib/teamAttach'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { countedSteps, inviteSkill, nextStep, prevStep, resumeStep, skillNameOf, teamReach, wantsTeam } from '../lib/welcome'
+import { countedSteps, inviteSkill, markStepsSeen, nextStep, prevStep, resumeStep, skillNameOf, teamReach, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
@@ -58,6 +58,9 @@ function WelcomeSteps() {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
+  const me = useMeStrict()
+  // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (lib/welcome.ts)
+  useEffect(() => { markStepsSeen(me.user.id) }, [me.user.id])
   const progress = useWelcome((s) => s.progress)
   // no AI that answers the owner: the AI step comes first (every later step needs AI)
   const ai = useAiAccess()

@@ -13,6 +13,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
   - Every Linux server bundle now also carries Pretendard 1.3.9 Regular, Bold and ExtraBold (static TTF, OFL-1.1, unchanged) in its `fonts/` folder, with the notice.
 - The first-run "팀 만들기" form is in two groups under quiet headings, "팀" (team name, team language) and "내 계정 · 팀장" (내 이름, username, password), so it is clear where the team ends and the owner's account begins. Like joining, it asks for the password once, with a show-password switch, instead of a second "비밀번호 확인" field; the setup API is unchanged. In all five languages.
 - The welcome step "AI 연결" (and the owner's no-AI card on Home) shows the ways at once instead of one button with "다른 방법" folded: "Claude 구독 연결" (추천), "ChatGPT 구독 연결" and "API 키로 연결" (Claude or OpenAI key), each opening the existing connect dialog on that way, and one line to the AI engines page for OpenRouter and other providers. In all five languages.
+- Coming back resumes the welcome steps: an owner who left them unfinished lands on them (where they stopped) when opening the app on Home or signing in, once per browser tab; "나중에 하기" goes Home and stays there for that tab. Never for admins or members, never when the steps are finished or hidden, and a link to somewhere else (a chat, an invite) opens as before.
 
 ## 0.4.0-beta.9 — 2026-11-06
 

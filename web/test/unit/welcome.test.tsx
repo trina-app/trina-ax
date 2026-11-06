@@ -34,7 +34,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, inviteSkill, nextStep, prevStep, readNotesHint, resultSkill, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, forgetStepsSeen, inviteSkill, nextStep, prevStep, readNotesHint, resultSkill, resumeStep, resumesOnLanding, showInviteBar, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { chatActivity } from '../../src/store/live'
@@ -216,6 +216,7 @@ afterEach(() => {
   // guard) must not see it
   useChats.setState({ threads: {} })
   sessionStorage.clear()
+  forgetStepsSeen()
 })
 afterAll(() => {
   globalThis.fetch = realFetch
@@ -247,6 +248,18 @@ async function choose(m: Mounted, files: File[]) {
 const note = (name: string, text = '# Acme 회사 소개\n- 조용한 책상 선풍기\n') => new File([text], name, { type: 'text/markdown' })
 
 describe('where the steps go', () => {
+  test('a landing resumes only started, unfinished, not hidden steps with a step to open (W4)', () => {
+    expect(resumesOnLanding(null)).toBe(false)
+    expect(resumesOnLanding(fresh())).toBe(true)
+    expect(resumesOnLanding({ ...fresh(), dismissedAt: '2026-11-04T01:00:00.000Z' })).toBe(false)
+    expect(resumesOnLanding({ ...fresh(), finishedAt: '2026-11-04T01:00:00.000Z' })).toBe(false)
+    // everything put off still resumes (the put-off profile comes back)
+    expect(resumesOnLanding({ ...fresh(), steps: { profile: 'skipped', result: 'skipped', invite: 'skipped' } })).toBe(true)
+    // only the invite left and open: the invite
+    expect(resumesOnLanding({ ...fresh(), steps: { profile: 'done', result: 'done', invite: null } })).toBe(true)
+    // only a put-off invite left: nothing to open (the steps would send Home again)
+    expect(resumesOnLanding({ ...fresh(), steps: { profile: 'done', result: 'done', invite: 'skipped' } })).toBe(false)
+  })
   test('resume: the first open step, then a put-off one; after a step, only open steps ahead of it', () => {
     expect(resumeStep(null)).toBe('profile')
     expect(stepTotal()).toBe(2)
@@ -779,6 +792,8 @@ describe('/welcome', () => {
       await m.until(() => at(m) === '/', 'Home')
       expect(progress!.steps.ai).toBe('skipped')
       expect(progress!.steps.profile).toBeNull()
+      // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (W4)
+      expect(stepsSeen('olga')).toBe(true)
     } finally { await m.unmount() }
   })
 

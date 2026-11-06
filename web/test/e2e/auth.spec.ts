@@ -68,6 +68,58 @@ test.describe('first-run setup in an English browser', () => {
   })
 })
 
+// coming back resumes the welcome steps (docs/DECISIONS.md "W4"): a landing on Home, once per tab session, never a link
+// elsewhere, never for anyone but the owner
+test('the owner who left the steps lands on them when signing in again (a phone too); 나중에 하기 stays Home; a link elsewhere is kept', async ({ page, browser }) => {
+  await reset(page, { setup: true })
+  await page.goto('/')
+  await page.getByLabel('설치 토큰').fill('setup-token-0123456789')
+  await page.getByTestId('setup-team').fill('Acme')
+  await page.getByTestId('setup-name').fill('Kim Owner')
+  await page.getByTestId('setup-username').fill('kim')
+  await page.getByTestId('setup-password').fill('a long password 1')
+  await page.getByTestId('setup-submit').click()
+  await expect(page).toHaveURL(/\/welcome$/)
+  // the first visit starts the progress on the server
+  await expect(page.getByTestId('welcome-progress')).toContainText('1/2 회사 소개')
+  // the same tab: Home stays Home (the steps were on screen here)
+  await page.goto('/')
+  await expect(page.getByTestId('welcome-resume')).toBeVisible()
+  await page.reload()
+  await expect(page.getByTestId('welcome-resume')).toBeVisible()
+  const signInAs = async (p: typeof page, path = '/') => {
+    await p.goto(path)
+    await p.getByTestId('login-username').fill('kim')
+    await p.getByTestId('login-password').fill('a long password 1')
+    await p.getByTestId('login-submit').click()
+  }
+  // a new session on a computer: signing in lands on the steps where they stopped
+  const desk = await browser.newContext({ locale: 'ko-KR' })
+  const p2 = await desk.newPage()
+  await signInAs(p2)
+  await expect(p2).toHaveURL(/\/welcome$/)
+  await expect(p2.getByTestId('welcome-progress')).toContainText('1/2 회사 소개')
+  // opening Home again in that tab: Home, with its row
+  await p2.goto('/')
+  await expect(p2.getByTestId('welcome-resume')).toBeVisible()
+  await expect(p2).not.toHaveURL(/\/welcome/)
+  await desk.close()
+  // a phone's sign-in lands on the steps too (not the 대화 list)
+  const phone = await browser.newContext({ locale: 'ko-KR', viewport: { width: 390, height: 844 } })
+  const p3 = await phone.newPage()
+  await signInAs(p3)
+  await expect(p3).toHaveURL(/\/welcome$/)
+  await phone.close()
+  // a link to somewhere else is kept: signed out on /files, signing in goes there
+  const link = await browser.newContext({ locale: 'ko-KR' })
+  const p4 = await link.newPage()
+  await signInAs(p4, '/files')
+  await expect(p4).toHaveURL(/\/files/)
+  await p4.waitForTimeout(500)
+  await expect(p4).not.toHaveURL(/\/welcome/)
+  await link.close()
+})
+
 test.describe('first-run setup in a browser in Jakarta', () => {
   test.use({ locale: 'en-US', timezoneId: 'Asia/Jakarta' })
   test('the team\'s time zone starts as the browser\'s', async ({ page }) => {
