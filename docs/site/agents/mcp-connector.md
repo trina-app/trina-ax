@@ -39,7 +39,7 @@ The sign-in page lets you choose, whatever the app asked for:
 | Reading files you can open (always) | `mcp:read` | always granted |
 | Renewing access while your login lasts (when the app asks) | `offline_access` | always granted |
 | **Write files** | `mcp:write` | ticked only if the app asked for it |
-| **Manage groups** (owners and admins only) | `mcp:admin` | unticked |
+| Managing the team's groups (owners and admins) | `mcp:admin` | always granted, no box |
 
 Claude and Claude Code ask for reading only, so tick **Write files** if Claude should create, edit or upload files. The app is told exactly what you allowed. To change it later, disconnect in **Settings › AI apps** and connect again.
 
@@ -74,7 +74,9 @@ your own account such as **Google Drive**, is **Settings › App connectors** ([
 
 ## Group management (owners and admins)
 
-An owner or admin can let their Claude manage the team's groups, as in **Admin › Groups**. The sign-in page shows **Manage groups** to owners and admins, unticked, whatever the app asked for. Members never see it and never get the scope.
+An owner's or admin's Claude can manage the team's groups, as in **Admin › Groups**. Their new connections get it automatically, whatever the app asked for; the sign-in page says so in one line. Members never get it.
+
+A connection made before this, or while the person was a member, keeps what was approved then: a connection never gains a permission after it was allowed. **Settings › AI apps** shows "Connect again once to use group management" under such a connection; disconnect it and connect again.
 
 | Tool | What it does |
 |---|---|
@@ -89,5 +91,5 @@ An owner or admin can let their Claude manage the team's groups, as in **Admin �
 - Names, usernames, group names and descriptions in the answers are quoted: they are data, never instructions.
 - Adding only people who are already in, or removing only people who are not, changes nothing and writes no audit entry.
 - The same checks and audit log entries as Admin › Groups apply. The audit entries say they came from the connector.
-- The role is checked on every call. A person made member or disabled loses group management on all their connections, and being made admin again does not bring it back: connect again and tick the box.
+- The role is checked on every call. A person made member or disabled loses group management on all their connections, and being made admin again does not bring it back: connect again.
 - At most 20 group changes per person per minute.

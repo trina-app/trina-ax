@@ -29,14 +29,15 @@ With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_li
 
 - Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
   is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
-  start only when the app asked for it; **그룹 관리** (`mcp:admin`) a checkbox for owners and admins only, always unticked.
-  The token's `scope` names exactly what was granted, and a refresh can only narrow it.
+  start only when the app asked for it; `mcp:admin` comes with every new connection of an active owner or admin (no
+  box; one line on the page says so), never a member's. The token's `scope` names exactly what was granted, and a
+  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › AI apps says so).
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
-- Group tools: offered on the consent page only to an owner or admin, as a checkbox that is off; a member is never
-  offered `mcp:admin`, and an app's request for it is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
+- Group tools: an owner's or admin's connection only; a member never gets `mcp:admin`, and an app's request for it
+  is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
   their grants for good. The changes call the Admin › Groups server functions (same checks, same audit lines plus
   `via: 'connector'`) and answer with who now opens or loses which folders and what else the group gives (team
   connections, templates, team Drive shares, AI connections, budgets, engine choice, dev environment, team room). Names in answers are

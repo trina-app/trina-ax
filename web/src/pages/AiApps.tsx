@@ -65,6 +65,9 @@ export default function AiApps() {
               <p className="break-words text-sm font-medium">{item.clientName}</p>
               <p className="mt-0.5 text-xs text-muted">{t('aiApps.connectedOn', { date: formatDateTime(item.createdAt, locale) })} · {item.scopes.map(label).join(' · ')}</p>
               <p className="mt-0.5 text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}{item.currentSession ? ` · ${t('connectors.currentSession')}` : ''}</p>
+              {/* an owner's or admin's connection made before group management came, or while they were a member: it
+                  never gains it (a refresh only narrows), so a new connection gets it */}
+              {isAdmin && !item.scopes.includes('mcp:admin') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</p>}
             </div>
             <Button variant="danger" size="sm" disabled={busy !== null} busy={busy === item.id} onClick={() => void disconnect(item.id)}>{t('connectors.disconnect')}</Button>
           </li>)}</ul>

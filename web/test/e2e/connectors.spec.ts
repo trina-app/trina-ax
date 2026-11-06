@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { OWNER, reset, signIn } from './helpers'
 const id = 'a'.repeat(43)
 // what a member sees for an app that asked for read (the 401 header's scope) and refresh: write is theirs to tick
-const consent = { id, clientName: 'Synthetic Claude', redirectOrigin: 'https://claude.ai', scopes: ['mcp:read', 'offline_access'], optional: ['mcp:write'], resource: 'https://team.example/mcp', expiresAt: '2099-01-01T00:00:00.000Z' }
+const consent = { id, clientName: 'Synthetic Claude', redirectOrigin: 'https://claude.ai', scopes: ['mcp:read', 'offline_access'], optional: ['mcp:write'], admin: false, resource: 'https://team.example/mcp', expiresAt: '2099-01-01T00:00:00.000Z' }
 
 test('login preserves the pending connector request path and query', async ({ page }) => {
   await reset(page)
@@ -40,7 +40,7 @@ test('connector consent requires a decision and sends only the chosen decision b
   expect(decisions).toEqual([{ allow: true, write: false }])
 })
 
-test('the person chooses write and group management whatever the app asked; group management starts unticked', async ({ page }) => {
+test('write is a box whatever the app asked; an owner or admin is told the connection also manages groups, with no box', async ({ page }) => {
   await reset(page)
   const decisions: unknown[] = []
   let shown: Record<string, unknown> = {}
@@ -50,27 +50,25 @@ test('the person chooses write and group management whatever the app asked; grou
   })
   await page.context().route('https://claude.ai/**', route => route.fulfill({ contentType: 'text/html', body: '<p>Synthetic callback only</p>' }))
   await signIn(page)
-  // an owner, for an app that asked for read only: both boxes, both unticked; ticked, both are sent
-  shown = { scopes: ['mcp:read'], optional: ['mcp:write', 'mcp:admin'] }
+  // an owner, for an app that asked for read only: the write box, unticked, and one line about group management
+  shown = { scopes: ['mcp:read'], admin: true }
   await page.goto('/connectors/authorize?id=' + id)
   const pane = page.getByTestId('connector-consent')
   await expect(pane.getByTestId('connector-write')).toContainText('파일 쓰기')
-  await expect(pane.getByTestId('connector-admin')).toContainText('그룹 관리 (팀장·관리자만)')
+  await expect(pane.getByTestId('connector-admin')).toHaveText('팀장·관리자라서 이 연결로 팀 그룹도 관리할 수 있어요.')
+  await expect(pane.locator('input[type=checkbox]')).toHaveCount(1)
   await expect(pane.getByTestId('connector-granted').locator('li')).toHaveCount(1)
   await expect(pane.getByTestId('connector-write-check')).not.toBeChecked()
-  await expect(pane.getByTestId('connector-admin-check')).not.toBeChecked()
   await pane.getByTestId('connector-write-check').check()
-  await pane.getByTestId('connector-admin-check').check()
   await pane.getByTestId('connector-allow').click()
   await expect(page).toHaveURL('https://claude.ai/api/mcp/auth_callback?code=synthetic-code')
-  // an app that asked for write and group management: write starts ticked, group management still does not
-  shown = { scopes: ['mcp:read', 'mcp:write', 'mcp:admin'], optional: ['mcp:write', 'mcp:admin'] }
+  // an app that asked for write: the box starts ticked; the body never carries group management
+  shown = { scopes: ['mcp:read', 'mcp:write'], admin: true }
   await page.goto('/connectors/authorize?id=' + id)
   await expect(pane.getByTestId('connector-write-check')).toBeChecked()
-  await expect(pane.getByTestId('connector-admin-check')).not.toBeChecked()
   await pane.getByTestId('connector-allow').click()
   await expect(page).toHaveURL('https://claude.ai/api/mcp/auth_callback?code=synthetic-code')
-  expect(decisions).toEqual([{ allow: true, write: true, admin: true }, { allow: true, write: true, admin: false }])
+  expect(decisions).toEqual([{ allow: true, write: true }, { allow: true, write: true }])
 })
 
 test('connector denial and malformed requests cannot silently authorize', async ({ page }) => {

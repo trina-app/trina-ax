@@ -9885,13 +9885,24 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   (`WWW-Authenticate ... scope="mcp:read"`, `transport.ts`), and a live claude.ai connection to a Trina server listed
   only the five read tools. A consent page that grants only what the app asked would therefore never give claude.ai or
   Claude Code `mcp:write`, let alone `mcp:admin`. So the consent page shows reading files as always granted, plus
-  offline renewal when asked, and two checkboxes (`OPTIONAL_SCOPES`, `RemoteConsent.optional`): **파일 쓰기**
-  (`mcp:write`) for everyone, ticked at the start only when the app asked for `mcp:write`; and **그룹 관리 (팀장·관리자만)**
-  (`mcp:admin`) only for an active owner or admin, always unticked at the start, with a plain line on what it allows.
-  In the five locales. The decision body has optional `write` and `admin`. The grant is `mcp:read` + `mcp:write` when
-  `write` + `mcp:admin` when `admin` and the person is an owner or admin now + `offline_access` when the app asked for
-  it. A body without `write` (the page before this change, or an API caller) gets `mcp:write` only when the app asked
-  for it, as before; `admin` is never assumed.
+  offline renewal when asked, and one checkbox (`OPTIONAL_SCOPES`, `RemoteConsent.optional`): **파일 쓰기**
+  (`mcp:write`) for everyone, ticked at the start only when the app asked for `mcp:write`. In the five locales. The
+  decision body has optional `write`; a body without it (the page before this change, or an API caller) gets
+  `mcp:write` only when the app asked for it, as before.
+- **Owners and admins get group management automatically (the owner's decision, 2026-11-06).** A first version had a
+  second checkbox, 그룹 관리 (팀장·관리자만), off at the start. The product owner decided against it: an owner or admin who
+  connects Claude should be able to manage groups with it, with no extra step. So the grant also gets `mcp:admin` when
+  the person is an active owner or admin at the moment of the decision (`isTeamAdmin` in `decide`), whatever the app
+  asked for. The page shows one plain line where the box was (`RemoteConsent.admin`: "팀장·관리자라서 이 연결로 팀 그룹도
+  관리할 수 있어요."), in the five locales. The decision body's `admin` is still accepted (an open older page sends it)
+  but ignored: nothing the page sends grants or withholds it. A member never gets it.
+- **Why an earlier connection must connect again.** A grant holds what the person approved when they allowed it. A
+  connection made before this change, or while the person was a member, was approved without group management, and
+  a refresh can only narrow a grant, never widen it (RFC 6749 6: a refresh may not add scopes the person did not
+  approve). Adding `mcp:admin` to it silently would give an AI app a power the person never saw on the consent page.
+  So such a connection keeps what it has, and Settings › AI apps shows an owner or admin, under each of their
+  connections without `mcp:admin`, "그룹 관리를 쓰려면 한 번 다시 연결해 주세요." (five locales). Disconnecting and connecting
+  again takes one consent.
 - **This changes how `mcp:write` is granted.** Before, a connection could write only when the app asked for
   `mcp:write`; in practice no MCP client did, so nobody's Claude could write. Now anyone can tick 파일 쓰기 and the
   connection gets `mcp:write` even though the app asked only for `mcp:read`. What the write tools may do is unchanged:
@@ -9902,15 +9913,16 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   scope keeps it, a narrower one sticks, anything outside it is `invalid_scope`. So an existing grant never gains
   `mcp:write` or `mcp:admin`. The 401 header stays `scope="mcp:read"`: nothing is asked for by default, and
   `scopes()` without a scope is still `mcp:read`.
-- **Members and `mcp:admin`.** A member is never offered it (`optional` has no `mcp:admin`, and an asked `mcp:admin` is
-  left out of `scopes`), and `admin: true` from a member grants nothing. Dropped, not refused: the request comes
-  before sign-in, so the same app asks the same scopes for everyone, and refusing (`invalid_scope`) would stop every
-  member from connecting it.
+- **Members and `mcp:admin`.** A member never gets it (`RemoteConsent.admin` is false, an asked `mcp:admin` is left out
+  of `scopes`, and `admin: true` in the body grants nothing). Dropped, not refused: the request comes before sign-in,
+  so the same app asks the same scopes for everyone, and refusing (`invalid_scope`) would stop every member from
+  connecting it.
 - **Role re-check.** `tools/list` and every group tool call read the person's role and status now (`isTeamAdmin`,
   `principal()`), not at consent. A grant whose person is not an active owner or admin does not list the tools, and a
   call is refused ("Only an owner or admin can manage groups") and takes `mcp:admin` off that grant. Admin › Members
   takes it off every grant of a person made member or disabled (`dropAdminScope` in `updateUser`, next to their
-  invites and reset links), so being made admin again does not bring it back; they connect again and tick it. Audit
+  invites and reset links), so being made admin again does not bring it back; they connect again (and Settings › AI
+  apps says so). Audit
   `remote_mcp.scope_dropped`, its actor being the admin who made the change (null when a tool call found it). A
   disabled person's sessions end, so their grants stop working anyway.
 - **Same rules as the web.** The tools call the functions the admin routes call: `createGroupAs`, and the new
@@ -9964,9 +9976,10 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   narrows); `groups_list` pages of 20 groups (`offset`, the answer's `next`) with 20 members and 10 rules each (one
   group asked for: 500 members), and a `note` when the page or a list is cut; access words 30 people with 6 folders
   each, then counts.
-- **Tests.** `tests/unit/remote-mcp-groups.test.ts` (never a default, offered to owners and admins only and off unless
-  ticked, also when the app asked only for read, annotations; a member never offered or granted it even when asked,
-  may tick write, refused even with the scope in the row, refresh cannot add it; existing grants keep their nine tools;
+- **Tests.** `tests/unit/remote-mcp-groups.test.ts` (an owner or admin gets it without asking or a box, also when the
+  app asked only for read; the body's `admin: false` and `admin: true` are ignored; the role at the decision counts;
+  annotations; a member never gets it even when asked and with `admin: true`, may tick write, refused even with the
+  scope in the row, refresh cannot add it; an admin's existing grant without it keeps its nine tools;
   an admin demoted in Admin › Members or in the database loses it on the next call and for good, disabled ends the
   connection, the drop's actor; both lists; create, update and delete with the web's audit fields plus `via`, the
   folder, rule and access words; an update that changes nobody writes nothing; unknown groups and people, an id that is
@@ -9975,11 +9988,13 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   Drive share, budgets, engine choice and the room in `also` and in each change's words, and a delete clears the
   share's group rule; `groups_list` pages and cut notes),
   `tests/unit/remote-mcp-oauth.test.ts` (write and admin granted when not asked, the token's `scope`, refresh
-  keeps, narrows and never widens, unticked grants read only, `offline_access` only when asked, a body without the
-  boxes, the audit's `asked`), `tests/unit/remote-mcp-http.test.ts` (through the app, an app asking `mcp:read` like the
-  401 header: `optional` in the consent answer, `write` and `admin` in a strict body, the `initialize` instructions,
-  `tools/list` with write and group tools, `tools/call` over `/mcp`), `web/test/e2e/connectors.spec.ts` (the boxes, their starting states and the body
-  sent).
+  keeps, narrows and never widens, write unticked, `offline_access` only when asked, a body without the box, the
+  audit's `asked`), `tests/unit/remote-mcp-http.test.ts` (through the app, an app asking `mcp:read` like the 401
+  header: `optional` and `admin` in the consent answer, `write` in a strict body and `admin` ignored, the
+  `initialize` instructions, `tools/list` with write and group tools, `tools/call` over `/mcp`),
+  `web/test/e2e/connectors.spec.ts` (the write box and its starting state, the group line for an owner, the body sent),
+  `web/test/e2e/ai-apps.spec.ts` (the reconnect line under an owner's connection without `mcp:admin`, not for one with
+  it or for a member).
 - **Docs.** `docs/site/agents/mcp-connector.md`, `docs/INTEGRATIONS.md` ("App connectors") and this entry.
 
 ## K — Knowledge graph: CodeGraph's code map of the team folders, filtered at every question (2026-11-06)

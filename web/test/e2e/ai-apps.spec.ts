@@ -86,6 +86,25 @@ test('the dialog says Connected when the app appears, and the list then shows it
   expect(state.calls).toBe(after)
 })
 
+test('an owner\'s connection without group management says to connect again once; one with it, or a member\'s, does not', async ({ page }) => {
+  await reset(page)
+  const state = await connector(page)
+  state.items = [app, { ...app, id: 'synthetic-grant-2', clientName: 'Synthetic Claude Code', scopes: ['mcp:read', 'mcp:admin', 'offline_access'] }]
+  await signIn(page)
+  await page.goto('/settings/ai-apps')
+  const rows = page.getByTestId('connected-apps').getByTestId('connector-item')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0).getByTestId('connector-reconnect-groups')).toHaveText('그룹 관리를 쓰려면 한 번 다시 연결해 주세요.')
+  await expect(rows.nth(1).getByTestId('connector-reconnect-groups')).toHaveCount(0)
+  await expect(rows.nth(1)).toContainText('팀 그룹 관리')
+  // a member: never
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  await page.goto('/settings/ai-apps')
+  await expect(page.getByTestId('connected-apps').getByTestId('connector-item')).toHaveCount(2)
+  await expect(page.getByTestId('connector-reconnect-groups')).toHaveCount(0)
+})
+
 test('connector off: a member sees one line and no Connect; an owner gets the setup with Copy and the guide', async ({ page }) => {
   await reset(page)
   await connector(page, false)
