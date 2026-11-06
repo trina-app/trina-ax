@@ -13,6 +13,8 @@ import { leftoversIn, specificsOf } from '../../server/src/onboarding/specifics'
 import { checkSkill, isRecurring, parseSkill } from '../../server/src/chat/skills'
 import { outsideContentTool } from '../../server/src/chat/team-content-tools'
 import { earlierPackTexts, SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
+import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import { getSetting, setSetting } from '../../server/src/admin/settings'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -121,7 +123,7 @@ describe('reading a draft (no server)', () => {
   })
 
   test('tools: only those whose results are the team\'s own count as inside; any other is outside (fails closed)', () => {
-    for (const t of ['read', 'mcp__team__read', 'grep', 'list', 'write', 'edit_files', 'make_file', 'edit_hwp', 'hwp_render', 'share_file', 'artifact', 'search', 'skill', 'find_skills', 'remember', 'ask_user', 'move_files', 'schedule_create', 'agent', 'engine', 'attachment'])
+    for (const t of ['read', 'mcp__team__read', 'grep', 'list', 'write', 'edit_files', 'make_file', 'edit_hwp', 'hwp_render', 'share_file', 'artifact', 'promo_video', 'search', 'skill', 'find_skills', 'remember', 'ask_user', 'move_files', 'schedule_create', 'agent', 'engine', 'attachment'])
       expect({ t, outside: outsideContentTool(t) }).toEqual({ t, outside: false })
     for (const t of ['drive_read', 'drive_search', 'drive_list', 'mcp__team__drive_read', 'web_fetch', 'save_url', 'WebSearch', 'web_search', 'navigate', 'browser_batch', 'generate_video', 'box_shell', 'api_request', 'team_notion__search', 'my_aipm__list', 'mcp__other__read', 'codex:command_execution', 'some_plugin_tool'])
       expect({ t, outside: outsideContentTool(t) }).toEqual({ t, outside: true })
@@ -279,6 +281,58 @@ describe('draft turns and the save', () => {
     expect(drafts()).toBe(before)
   })
 
+  // docs/DECISIONS.md "W3": since PR #80 nothing opened the card; it is back as the one suggestion under an answer
+  test('the one suggestion offers it: an owner\'s or admin\'s answer with team files and no team skill, never where the draft is refused', async () => {
+    const last = (chatId: string) => (h.ctx.db.query("SELECT id, turn_id FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY created_at DESC, rowid DESC LIMIT 1").get(chatId) as { id: string; turn_id: string })
+    const offer = async (user: string, chatId: string) => (await h.api(user).call(API.getResultSuggestion, { query: { chatId, messageId: last(chatId).id } })).suggestion
+    const TEAM = { kind: 'team-skill', key: 'team-skill' } as const
+    const src = await source()
+    expect(await offer('carol', src)).toEqual(TEAM)
+    // a member's answer with team files: nothing (members suggest a skill the usual way)
+    const mine = await h.api('alice').call(API.createChat, { body: { projectId: null } })
+    await send('alice', mine.id, fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: '용어집 요약' }))
+    expect(await offer('alice', mine.id)).toBeNull()
+    // no team file in the conversation: nothing
+    const plain = await h.api('carol').call(API.createChat, { body: { projectId: null } })
+    await send('carol', plain.id, fake({ say: '안녕하세요' }))
+    expect(await offer('carol', plain.id)).toBeNull()
+    // where the draft would be refused: a group file, web content, a confidential chat
+    const fin = await h.api('carol').call(API.createChat, { body: { projectId: null } })
+    await send('carol', fin.id, fake({ tool: 'read', args: { file_path: 'groups/finance/budget.md' } }, { say: '예산 요약' }))
+    expect(await offer('carol', fin.id)).toBeNull()
+    const web = await source()
+    const wa = h.ctx.db.query("SELECT id, steps FROM messages WHERE chat_id = ? AND role = 'assistant'").get(web) as { id: string; steps: string }
+    h.ctx.db.query('UPDATE messages SET steps = ? WHERE id = ?').run(JSON.stringify([...JSON.parse(wa.steps), { id: 'w1', kind: 'web_search', label: 'search', status: 'ok' }]), wa.id)
+    expect(await offer('carol', web)).toBeNull()
+    const conf = await source()
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(conf)
+    expect(await offer('carol', conf)).toBeNull()
+    // a team skill ran in the conversation: its way is a team skill already
+    const ran = await source()
+    h.ctx.db.query("INSERT INTO turn_skill_runs (turn_id, skill_path, skill_name, source) VALUES (?, 'skills/general/doc-brief/SKILL.md', 'doc-brief', 'command')").run(last(ran).turn_id)
+    expect(await offer('carol', ran)).toBeNull()
+    // the welcome steps' first result (it shares the pack's own skill)
+    const first = await source()
+    const raw = getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...(raw ?? { startedAt: new Date().toISOString(), steps: {} }), resultChatId: first })
+    try { expect(await offer('carol', first)).toBeNull() } finally { setSetting(h.ctx.db, WELCOME_SETTING, raw ?? {}) }
+    // a skill shared from this answer already
+    const done = await source()
+    h.ctx.db.query("INSERT INTO chats (id, user_id, title) VALUES ('skd-shared', 'carol', 'x')").run()
+    h.ctx.db.query("INSERT INTO onboarding_skill_drafts (chat_id, user_id, source_chat_id, source_message_id, material, created_at, saved_path) VALUES ('skd-shared', 'carol', ?, ?, '{}', ?, 'skills/general/x/SKILL.md')").run(done, last(done).id, new Date().toISOString())
+    expect(await offer('carol', done)).toBeNull()
+    // the draft chat itself is no source
+    const { draftChatId } = await h.api('carol').call(API.startSkillDraft, { body: { chatId: src } })
+    await settled('carol', draftChatId, src)
+    expect(await offer('carol', draftChatId)).toBeNull()
+    // closed: never again for this person; another admin still gets it
+    expect((await h.req('carol', '/api/onboarding/suggestion/dismiss', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'team-skill' }) })).status).toBe(204)
+    expect(await offer('carol', await source())).toBeNull()
+    const theirs = await h.api('dana').call(API.createChat, { body: { projectId: null } })
+    await send('dana', theirs.id, fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: '용어집 요약' }))
+    expect(await offer('dana', theirs.id)).toEqual(TEAM)
+  })
+
   let draft = ''
   let src = ''
   test('a chat of the caller with the fixed request; the snapshot of the answer; one rewrite, then no card', async () => {
@@ -318,6 +372,25 @@ describe('draft turns and the save', () => {
     expect(b).not.toBe(a)
     expect((await state('carol', b)).status).toBe('running')
     await settled('carol', b, src3)
+  })
+
+  test('a draft chat is not in the chat list, its search or the chat list events; the card still reads it', async () => {
+    const sock = await h.ws('carol')
+    await sock.next('hello')
+    try {
+      const src4 = await source()
+      const { draftChatId } = await h.api('carol').call(API.startSkillDraft, { body: { chatId: src4 } })
+      await sock.next('message.done', (f) => f.data.chatId === draftChatId, 30_000)
+      expect(sock.frames.some((f) => f.type === 'chat.updated' && f.data.chatId === draftChatId)).toBe(false)
+      expect(sock.frames.some((f) => f.type === 'chat.updated' && f.data.chatId === src4)).toBe(true)
+      for (const q of [undefined, '팀 스킬 초안', '팀 스킬로 정리']) {
+        const ids = (await h.api('carol').call(API.listChats, { query: q ? { q } : {} })).items.map((c) => c.id)
+        expect(ids, q).not.toContain(draftChatId)
+        expect(ids, q).not.toContain(draft)
+        if (!q) expect(ids).toContain(src4)
+      }
+      expect(await settled('carol', draftChatId, src4)).toMatchObject({ status: 'failed' })
+    } finally { sock.close() }
   })
 
   test('its own instructions with the answer as data; no tool besides the refused file tools; no attachments', async () => {

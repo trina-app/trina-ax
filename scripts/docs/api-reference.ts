@@ -36,6 +36,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   WELCOME: 'Onboarding: welcome steps',
   ONBOARDING_GOAL: 'Onboarding: the 7-day team goal',
   DEMO: 'Demo mode (development demo server only)',
+  PROMO_VIDEO: 'Promo video (the welcome steps\' first result) and its MP4',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

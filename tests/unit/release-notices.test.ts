@@ -299,6 +299,31 @@ test('a staged font (Noto Sans CJK in the Linux bundle) gets the project notice 
   } finally { f.close() }
 })
 
+test('Pretendard in a server bundle (web/dist copied to web/): its notice and the OFL go in; without the web app nothing is asked', async () => {
+  const { writeReleaseNotices, BUNDLED_FONTS } = await api(); const f = fixture()
+  try {
+    const pre = BUNDLED_FONTS.find(b => b.id === 'pretendard')!
+    expect(pre).toMatchObject({ license: 'OFL-1.1', source: 'https://github.com/orioncactus/pretendard', withWeb: true })
+    // the layout scripts/build-bundle.ts writes: <version>/web/vendor/fonts/
+    fs.mkdirSync(path.join(f.artifact, 'web/vendor/fonts'), { recursive: true })
+    fs.writeFileSync(path.join(f.artifact, 'web/vendor/fonts/PretendardVariable.woff2'), 'synthetic woff2')
+    expect(() => writeReleaseNotices(f.options)).toThrow('release_notice_font_notice_missing')
+    f.put(`${pre.dir}/NOTICE.txt`, 'Pretendard Variable 1.3.9, OFL-1.1. Source: https://github.com/orioncactus/pretendard\n')
+    f.put(`${pre.dir}/OFL-1.1.txt`, 'SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007\n')
+    const m = writeReleaseNotices(f.options)
+    expect(m.bundledFonts.map(b => [b.id, b.files])).toEqual([['pretendard', ['web/vendor/fonts/PretendardVariable.woff2']]])
+    expect(fs.existsSync(path.join(f.artifact, 'licenses/pretendard/NOTICE.txt'))).toBe(true)
+    expect(fs.existsSync(path.join(f.artifact, 'licenses/pretendard/OFL-1.1.txt'))).toBe(true)
+  } finally { f.close() }
+  // the Linux bundle's required list asks for its notice only when the web app is in it
+  const { linuxBundleFiles } = await import('../../scripts/build-bundle')
+  const files = (web?: boolean) => linuxBundleFiles({ arch: 'arm64', codexVersion: '1.0.0', whisper: false, systemd: [], ...(web === undefined ? {} : { web }) })
+  expect(files()).toContain('licenses/pretendard/NOTICE.txt')
+  expect(files(true)).toContain('licenses/pretendard/OFL-1.1.txt')
+  expect(files(false).some(x => x.startsWith('licenses/pretendard/'))).toBe(false)
+  expect(files(false)).toContain('licenses/noto-sans-cjk/NOTICE.txt')
+})
+
 test('this repository: the Noto Sans CJK notice names the pinned files and carries the OFL as the project publishes it', async () => {
   const { BUNDLED_FONTS } = await api()
   const { LINUX_FONTS } = await import('../../scripts/linux/downloads')

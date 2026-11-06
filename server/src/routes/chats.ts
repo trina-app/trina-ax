@@ -14,6 +14,7 @@ import { getChatRuntime, installChatRuntime, type ChatRuntime } from '../chat/ru
 import { CHAT_COLS, PROJECT_COLS, decodeCursor, encodeCursor, type ChatRow, type MessageRow } from '../chat/store'
 import { frequentQuestions } from '../chat/frequent-questions'
 import { hideTitle } from '../chat/title'
+import { notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
@@ -145,7 +146,9 @@ export const chatsRoutes: RouteModule = {
     // ---------------- chats ----------------
     kit.handle(API.listChats, ({ query, auth }) => {
       const limit = query.limit ?? 50
-      const where: string[] = ['user_id = ?']
+      // the server's own draft chats (the company profile, a team skill) are not the person's conversations: never listed
+      // or found by a search (chat/internal-chats.ts)
+      const where: string[] = ['user_id = ?', notInternalChat(ctx.db)]
       const args: (string | number)[] = [auth.user.id]
       where.push(query.trash ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL')
       if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }
