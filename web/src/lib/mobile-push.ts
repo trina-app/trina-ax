@@ -4,6 +4,8 @@ import { confirmPushDevice, mobileApp, requestPushPermission, requestPushToken }
 import { PUSH_CAPABILITY, type PushPermission } from '../../../mobile/src/protocol'
 
 let session: string | null = null, epoch = 0, tried: string | null = null, registered: string | null = null, listening = false
+// a check running for this session, and the retries after one that got no definite answer
+let trying: string | null = null, retries = 0, retryTimer: ReturnType<typeof setTimeout> | null = null
 // one registration at a time (the OS prompt sends the app to the background and back, and coming back checks again)
 let inFlight: { turn: number; promise: Promise<string> } | null = null
 
@@ -58,34 +60,46 @@ export function setMobilePushSession(next: string | null): void {
   if (typeof window !== 'undefined' && !listening) {
     listening = true
     window.addEventListener('mycel:mobile-ready', () => tryRegister())
-    window.addEventListener('mycel:mobile-foreground', () => { if (session && tried === session) void refreshPhonePush().catch(() => {}) })
+    // back from the phone's Settings (or anywhere): check again, or try again a check that got no answer
+    window.addEventListener('mycel:mobile-foreground', () => { if (session && tried === session) void refreshPhonePush().catch(() => {}); else tryRegister() })
   }
   if (next === session) return
-  session = next; tried = null; registered = null; epoch++
+  session = next; tried = null; trying = null; registered = null; retries = 0; epoch++
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null }
   usePhonePush.setState({ permission: null, ask: false })
   tryRegister()
 }
+/** The session's first check. It counts as done only with a definite answer: a call that timed out or failed (a busy
+ * phone or server) is tried again on the next bridge-ready or foreground event, and a few times by itself. */
+export const RETRY_MS = 5000
 function tryRegister() {
   const key = session
-  if (!key || tried === key || !mobilePushApp()) return
-  tried = key
-  void refreshPhonePush().catch(() => { /* push stays off; the settings page shows why */ })
+  if (!key || tried === key || trying === key || !mobilePushApp()) return
+  trying = key
+  void refreshPhonePush().then(definite => { if (definite && session === key) tried = key }, () => { /* tried again below */ }).finally(() => {
+    if (trying === key) trying = null
+    if (session !== key || tried === key || retries >= 3) return
+    retries++
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = setTimeout(() => { retryTimer = null; tryRegister() }, RETRY_MS * retries)
+  })
 }
 
-/** Reads the server's push settings and the OS answer, then registers, asks or stays quiet (see setMobilePushSession). */
-export async function refreshPhonePush(): Promise<void> {
+/** Reads the server's push settings and the OS answer, then registers, asks or stays quiet (see setMobilePushSession).
+ * True when it got a definite answer; false or an error when it should be tried again. */
+export async function refreshPhonePush(): Promise<boolean> {
   const turn = epoch, key = session
-  if (!key || !mobilePushApp()) return
+  if (!key || !mobilePushApp()) return false
   const settings = await api.call(API.getPushSettings)
-  if (turn !== epoch) return
-  if (!settings.native?.available) { usePhonePush.setState({ permission: null, ask: false }); return }
+  if (turn !== epoch) return false
+  if (!settings.native?.available) { usePhonePush.setState({ permission: null, ask: false }); return true }
   let os: PushPermission | null
   try { os = await requestPushPermission() } catch (error) {
-    // push_unavailable: this build or phone has no push at all; nothing to ask
-    if ((error as Error)?.message === 'push_unavailable' && turn === epoch) usePhonePush.setState({ permission: null, ask: false })
+    // push_unavailable: this build or phone has no push at all; nothing to ask (a definite answer)
+    if ((error as Error)?.message === 'push_unavailable') { if (turn === epoch) usePhonePush.setState({ permission: null, ask: false }); return turn === epoch }
     throw error
   }
-  if (turn !== epoch) return
+  if (turn !== epoch) return false
   // An app that cannot tell (store builds 1 and 2) whose session already has a phone registered: the OS said yes, as
   // the page registered it before this change at every sign-in. Remembered, so later sign-ins register quietly too.
   // A "no" this phone gave since then still stands: registering would show the OS prompt again where Android allows it.
@@ -94,6 +108,7 @@ export async function refreshPhonePush(): Promise<void> {
   const permission = effective(os ?? (hasDevice ? 'granted' : null))
   usePhonePush.setState({ permission, ask: !settings.optedOut && permission !== 'granted' && permission !== 'denied' && !laterHides(read(LATER), Date.now()) })
   if (permission === 'granted' && !settings.optedOut && registered !== key) await registerMobilePush(turn)
+  return turn === epoch
 }
 
 /** Settings › Notifications in the phone app: one status line and one action. After a "no" from the OS: the way to the

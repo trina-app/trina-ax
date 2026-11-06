@@ -387,3 +387,21 @@ test('notifications turned off in the OS: a registered device does not make it "
     expect(phonePushView({ permission: 'denied', on: true, canOpenSettings: true })).toEqual({ status: 'push.deniedPhone', action: 'open-settings' })
   } finally { server.restore() }
 })
+
+test('a first check that got no answer (a busy phone) is tried again; the question then shows', async () => {
+  const server = pushServer()
+  try {
+    win.mycelMobile = { ...config, capabilities: today }
+    handler = m => { if (m.type === 'push-permission') reply(m, { ok: false, error: 'mobile_operation_failed' }); else reply(m) }
+    setMobilePushSession('user:busy-phone')
+    await settle(() => messages.some(m => m.type === 'push-permission'))
+    await settle()
+    expect(usePhonePush.getState().ask).toBe(false)
+    handler = withPermission('undetermined')
+    win.dispatchEvent(new Event('mycel:mobile-foreground')) // or the next bridge-ready, or the retry timer
+    await settle(() => usePhonePush.getState().ask)
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'undetermined', ask: true })
+    expect(messages.filter(m => m.type === 'push-permission')).toHaveLength(2)
+  } finally { server.restore() }
+})
+
