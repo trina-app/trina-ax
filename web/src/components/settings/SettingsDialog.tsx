@@ -18,7 +18,7 @@ import { Link, Navigate, NavLink, useNavigate, useParams } from 'react-router-do
 import { api, API } from '../../lib/api'
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
-import { sectionMatches, settingsTabs } from '../../pages/settingsTabs'
+import { SETTINGS_GROUPS, sectionMatches, settingsTabs } from '../../pages/settingsTabs'
 import { useMeStrict } from '../../store/session'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
 import { Avatar } from '../Avatar'
@@ -28,10 +28,10 @@ import { PhonePushLine } from './PushNotifications'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections few people need on a phone: behind "더 보기" in the phone's list */
-const ADVANCED = new Set(['integrations', 'connectors', 'credentials'])
-/** sections whose page starts with its own title row that stays (MCP's title beside its tabs, AI connections' card):
+const ADVANCED = new Set(['integrations', 'connectors', 'ai-apps', 'providers'])
+/** sections whose page starts with its own title row that stays (MCP's title beside its tabs, AI providers' card):
  * the phone's bar keeps "설정" there instead of saying the name twice */
-const OWN_TITLE = new Set(['integrations', 'credentials'])
+const OWN_TITLE = new Set(['integrations', 'providers'])
 
 let openedFrom: HTMLElement | null = null
 /** What gets the keyboard back when the dialog closes, said by whatever opens it when that is not what has focus by
@@ -85,10 +85,12 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()
   const shown = tabs.filter((x) => sectionMatches(x, q, t))
-  const groups = [1, 2, 3].map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
-  const waiting = (tab === 'credentials' && own === null) || (tab === 'dev-env-sites' && sites === null)
+  const groups = SETTINGS_GROUPS.map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
+  const waiting = (tab === 'providers' && own === null) || (tab === 'dev-env-sites' && sites === null)
   // Google Drive was a section of its own: it is in App connectors now, with its dialog open
   if (tab === 'drive') return <Navigate to="/settings/connectors?drive=1" replace />
+  // AI connections are now AI providers (the same accounts, by provider)
+  if (tab === 'credentials') return <Navigate to="/settings/providers" replace />
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: /settings instead (the
   // list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
@@ -154,32 +156,30 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                 <span className="sr-only">{t('settings.profile')}</span>
               </Link>
               {groups.map((g, i) => (
-                <Fragment key={g[0]!.group}>
-                  <Rule className={i === 0 ? 'md:hidden' : undefined} />
-                  <div className="space-y-0.5">
-                    {g.map((x) => (
-                      <Fragment key={x.id}>
-                        <NavLink
-                          to={`/settings/${x.id}`}
-                          replace
-                          className={({ isActive }) =>
-                            clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ((ADVANCED.has(x.id) && !more) || x.id === 'profile') && 'max-md:hidden')
-                          }
-                        >
-                          <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
-                        </NavLink>
-                        {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
-                        {x.id === 'notifications' && <PhonePushLine />}
-                      </Fragment>
-                    ))}
-                    {/* phones: the rarer sections of this group open here, in place */}
-                    {!more && g.some((x) => ADVANCED.has(x.id)) && (
-                      <button type="button" onClick={() => setMore(true)} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm text-muted hover:bg-hover md:hidden" data-testid="settings-more">
-                        <ChevronDown size={16} className="shrink-0" aria-hidden /> {t('common.more')}
-                      </button>
-                    )}
-                  </div>
-                </Fragment>
+                <div key={g[0]!.group} role="group" aria-labelledby={`settings-group-${g[0]!.group}`} className={clsx('space-y-0.5', i > 0 && 'mt-3')} data-testid={`settings-group-${g[0]!.group}`}>
+                  <p id={`settings-group-${g[0]!.group}`} className="px-3 pb-1 text-xs text-faint">{t(`settings.group.${g[0]!.group}`)}</p>
+                  {g.map((x) => (
+                    <Fragment key={x.id}>
+                      <NavLink
+                        to={`/settings/${x.id}`}
+                        replace
+                        className={({ isActive }) =>
+                          clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ((ADVANCED.has(x.id) && !more) || x.id === 'profile') && 'max-md:hidden')
+                        }
+                      >
+                        <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
+                      </NavLink>
+                      {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
+                      {x.id === 'notifications' && <PhonePushLine />}
+                    </Fragment>
+                  ))}
+                  {/* phones: the rarer sections of this group open here, in place */}
+                  {!more && g.some((x) => ADVANCED.has(x.id)) && (
+                    <button type="button" onClick={() => setMore(true)} className="flex h-11 w-full items-center gap-2.5 rounded-lg px-3 text-sm text-muted hover:bg-hover md:hidden" data-testid="settings-more">
+                      <ChevronDown size={16} className="shrink-0" aria-hidden /> {t('common.more')}
+                    </button>
+                  )}
+                </div>
               ))}
               {/* phones: signing out lives here (the drawer has no account menu there) */}
               <div className="md:hidden">
@@ -201,6 +201,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                 <Spinner />
               ) : (
                 <Suspense fallback={<Spinner />}>
+                  {/* every section here is just for you (Admin pages say "For the whole team", admin/common.tsx) */}
+                  <p className="mb-2 text-xs text-faint" data-testid="page-scope">{t('scope.you')}</p>
                   <SettingsPane tab={page ?? current} />
                 </Suspense>
               )}

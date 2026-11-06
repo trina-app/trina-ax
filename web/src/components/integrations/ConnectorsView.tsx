@@ -19,8 +19,10 @@ export interface AddMenuItem {
 /** `onAdd`: this person may add connections (without it, no adding and no Discover, and no tabs). `panels`: the ids
  * that tie the tabs to the TabPanel below them (`useId()`). `moreAdd`: other ways to add (Admin: ask a member to
  * connect), in a small menu next to Add connection. */
-export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, moreAdd, panels }: {
+export function ConnectorsHeader({ title, scope, tab, onTab, query, onQuery, onAdd, moreAdd, panels }: {
   title: string
+  /** next to the title: Admin's "For the whole team" */
+  scope?: ReactNode
   panels: string
   tab: ConnectorTab
   onTab: (t: ConnectorTab) => void
@@ -33,6 +35,7 @@ export function ConnectorsHeader({ title, tab, onTab, query, onQuery, onAdd, mor
   return (
     <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="connectors-header">
       <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+      {scope}
       {onAdd && (
         <div className="contents" data-connector-tabs>
           <Tabs

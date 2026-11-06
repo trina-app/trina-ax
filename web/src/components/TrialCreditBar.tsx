@@ -1,6 +1,6 @@
 // The hosting service's trial AI credit (GET /api/admin/trial-credit; docs/DECISIONS.md "B — Hosted trial AI credit" and
 // "Z — trial credit on the API engine"), read-only: what was used of it, until when, and that an AI the team connects is
-// used first. Admin › AI connections; the start goal card can show the same.
+// used first. Admin › AI providers; the start goal card can show the same.
 import clsx from 'clsx'
 import type { TrialCredit } from '@mycel/shared/api'
 import { useLocale, useT } from '../i18n'

@@ -179,7 +179,7 @@ test('usage limits go at once: a held Enter deletes one, focus goes to the next 
   const errors = watchConsole(page)
   await signIn(page)
   for (const period of ['day', 'month', 'day', 'month']) await post(page, '/api/admin/budgets', { subjectType: 'team', subjectId: null, period, limitUsd: 0, limitTokens: 1000, action: 'warn' })
-  await page.goto('/admin/engines?tab=team')
+  await page.goto('/admin/settings#ai')
   const limits = page.locator('section').filter({ has: page.getByTestId('budget-new') }).locator('li')
   await expect(limits).toHaveCount(4)
   const team = t['budgets.team']

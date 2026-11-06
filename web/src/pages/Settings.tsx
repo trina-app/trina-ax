@@ -59,7 +59,7 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'apps' && <Apps />}
-      {tab === 'credentials' && <MyCredentials />}
+      {tab === 'providers' && <MyCredentials />}
       {tab === 'about' && <About />}
       {tab === 'account-delete' && <AccountDeletion key={`${me.user.id}:${me.session.id}`} />}
     </>

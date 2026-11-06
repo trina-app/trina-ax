@@ -6,8 +6,8 @@ Use fictional data when reporting a problem. Never paste credentials, setup/invi
 
 | Symptom | Check | Next action |
 |---|---|---|
-| Files open, AI does not answer | Admin → AI engines: executable missing, login missing, unsupported version, or network/sandbox error? | These are distinct failures. Fix the reported prerequisite; do not disable isolation. `bun run demo` intentionally disables AI |
-| Managed AI connection unavailable | Owner → Admin → AI connections; permitted kind, enabled state, assignment and consent | Reconnect privately over HTTPS. A new team letting one company connection serve everyone does not authorize provider use |
+| Files open, AI does not answer | Admin → AI providers: executable missing, login missing, unsupported version, or network/sandbox error? | These are distinct failures. Fix the reported prerequisite; do not disable isolation. `bun run demo` intentionally disables AI |
+| Managed AI connection unavailable | Owner → Admin → AI providers; permitted kind, enabled state, assignment and consent | Reconnect privately over HTTPS. A new team letting one company connection serve everyone does not authorize provider use |
 | Development AI unavailable | Local supported CLI installed and logged in as the server OS user? | Use a separate dev environment; managed-connection setup is not the local-login flow |
 | Linux says systemd is required | Is PID 1 systemd? Does cgroup v2 exist? | Use a supported VM/host. A plain Docker container does not satisfy this installer |
 | Address already in use | The demo or installer prints the occupied port | Stop only your own identified process or choose a free port. Never kill all Bun/Node processes |
