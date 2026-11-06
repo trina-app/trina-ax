@@ -33,6 +33,7 @@ import { forgetSkillDrafts, SkillShareCard } from '../../src/components/onboardi
 import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
+import { DECK_POLL } from '../../src/components/onboarding/DeckStatus'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
 import { countedSteps, doneCount, forgetStepsSeen, inviteSkill, isLanding, nextStep, prevStep, readNotesHint, resultSkill, resumeLeft, resumeStep, resumesOnLanding, showInviteBar, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
@@ -1309,6 +1310,130 @@ describe('after the first result', () => {
       expect(m.get('skill-share-failed').textContent).toBe('팀원이 모두 볼 수는 없는 파일을 쓴 답이라 팀 스킬로 만들 수 없어요: 급여.xlsx')
       expect(m.find('skill-share-retry')).toBeNull()
     } finally { await m.unmount() }
+  })
+
+  test('the end of the steps while the deck builds: its live progress, then the deck opens by itself; "기다리지 않고" goes to the invite', async () => {
+    DECK_POLL.ms = 40
+    try {
+      signIn('owner')
+      progress = ran({ steps: { profile: 'done', result: 'done', skills: 'done', files: null, invite: null } })
+      deckAnswer = 'streaming'
+      let m = await app()
+      try {
+        await m.until(() => stepOf(m) === 'files', '팀 파일')
+        await m.until(() => m.find('welcome-deck-status')?.getAttribute('data-state') === 'building', 'the deck line')
+        await m.click(laterButton())
+        await m.until(() => stepOf(m) === 'deck', 'the deck\'s live progress')
+        expect(progress!.steps.files).toBe('skipped')
+        expect(m.get('welcome-deck-now').textContent).toContain('회사 소개서 만들기')
+        // no line above it (the screen itself is the deck's), no way back
+        expect(m.find('welcome-deck-status')).toBeNull()
+        expect(m.find('welcome-back')).toBeNull()
+        deckAnswer = 'done'
+        await m.until(() => at(m) === `/c/${CHAT}`, 'the deck\'s chat')
+        expect(useChats.getState().autoOpen?.chatId).toBe(CHAT)
+      } finally { await m.unmount() }
+      // "기다리지 않고 팀원 초대하기": the invite without waiting
+      useWelcome.getState().reset()
+      progress = ran({ steps: { profile: 'done', result: 'done', skills: 'done', files: null, invite: null } })
+      deckAnswer = 'streaming'
+      withGroup()
+      m = await app()
+      try {
+        await m.until(() => stepOf(m) === 'files', '팀 파일')
+        await m.click(laterButton())
+        await m.until(() => stepOf(m) === 'deck', 'the deck\'s live progress')
+        await m.click('welcome-deck-invite')
+        await m.until(() => stepOf(m) === 'invite' && m.find('invite-step'), 'the invite')
+        // the line above the invite still says how the deck goes
+        expect(m.find('welcome-deck-status')?.getAttribute('data-state')).toBe('building')
+      } finally { await m.unmount() }
+      // the deck done before the end of the steps: the deck opens straight away
+      useWelcome.getState().reset()
+      progress = ran({ steps: { profile: 'done', result: 'done', skills: 'done', files: null, invite: null } })
+      deckAnswer = 'done'
+      m = await app()
+      try {
+        await m.until(() => m.find('welcome-deck-status')?.getAttribute('data-state') === 'done', 'the deck is ready')
+        expect(m.get('welcome-deck-status').textContent).toContain('회사 소개서가 다 됐어요')
+        await m.click(laterButton())
+        await m.until(() => at(m) === `/c/${CHAT}`, 'the deck\'s chat')
+      } finally { await m.unmount() }
+    } finally { DECK_POLL.ms = 4000 }
+  })
+
+  test('a landing on the invite while the deck builds: the invite (the line says how the deck goes), no waiting screen', async () => {
+    signIn('owner')
+    progress = ran()
+    deckAnswer = 'streaming'
+    withGroup()
+    const m = await app()
+    try {
+      await m.until(() => stepOf(m) === 'invite' && m.find('invite-step'), 'the invite')
+      await m.until(() => m.find('welcome-deck-status'), 'the deck line')
+      expect(m.find('welcome-deck-wait')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('팀 파일 가져오기: files into the team\'s folder with its who-sees line; the next step once in, 나중에 puts it off', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: 'done', skills: 'skipped', files: null, invite: null } })
+    deckAnswer = 'done'
+    const saved = routes['GET /api/admin/groups']!
+    routes['GET /api/admin/groups'] = () => json(200, { items: [{ id: TEAM.id, name: 'Acme', description: null, memberIds: ['olga'] }, { id: '01900000-0000-7000-8000-0000000000e2', name: '영업', description: null, memberIds: [] }] })
+    routes['GET /api/admin/folders'] = () => json(200, { items: [{ id: '01900000-0000-7000-8000-0000000000f2', path: 'groups/영업', exists: true, rules: [], createdAt: '2026-11-04T00:00:00.000Z', groupId: '01900000-0000-7000-8000-0000000000e2', keep: 'group' }] })
+    const m = await app()
+    try {
+      await m.until(() => m.find('welcome-team-files-pick'), '팀 파일')
+      expect(m.html()).toContain('팀이 같이 쓰는 파일도 넣어 둘까요?')
+      // one primary (pick), the who line of the team's folder, nothing to go on with yet but 나중에
+      expect(m.get('welcome-files-who').textContent).toContain('Acme')
+      expect(m.find('welcome-team-files-next')).toBeNull()
+      // another group's folder can be picked
+      await m.until(() => m.find('welcome-team-files-place'), 'the folder choice')
+      const input = m.get('welcome-team-files-input') as FakeElement
+      Object.defineProperty(input, 'files', { configurable: true, value: [note('2025 보고서.md'), note('견적 양식.md')] })
+      await act(async () => { input.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
+      await m.until(() => m.find('welcome-team-files-next'), 'the files went in')
+      expect(called('POST /api/files/upload').map((c) => `${c.body.folder}/${c.body.name}`)).toEqual(['groups/Acme/2025 보고서.md', 'groups/Acme/견적 양식.md'])
+      expect(called('POST /api/files/upload').every((c) => c.body.onExists === 'rename')).toBe(true)
+      expect(m.get('welcome-team-files-next').textContent).toBe('다음: 팀원 초대')
+      await m.click('welcome-team-files-next')
+      // the deck was done: it opens (its [팀에 공유] goes to the invite)
+      await m.until(() => at(m) === `/c/${CHAT}`, 'the deck\'s chat')
+      expect(progress!.steps.files).toBe('done')
+    } finally {
+      await m.unmount()
+      routes['GET /api/admin/groups'] = saved
+      routes['GET /api/admin/folders'] = () => json(200, { items: [] })
+    }
+  })
+
+  test('the invite names the skills shared from 내 스킬 and opens the first; 바꾸기 picks another', async () => {
+    signIn('owner')
+    const weekly = 'skills/weekly-report/SKILL.md', quote = 'skills/quote-draft/SKILL.md'
+    TITLES[weekly] = '주간 업무 보고'
+    TITLES[quote] = '견적서 초안'
+    progress = ran({ shared: { at: '2026-11-04T00:05:00.000Z', skills: [{ path: weekly, title: '주간 업무 보고' }, { path: quote, title: '견적서 초안' }], landing: weekly } })
+    deckAnswer = 'done'
+    withGroup()
+    const m = await app()
+    try {
+      await m.until(() => m.find('team-link-message'), 'the message')
+      // the link opens the first shared skill, not the deck
+      expect(called('POST /api/admin/team-link').map((c) => c.body.skillPath)).toEqual([weekly])
+      expect(m.get('team-link-message').textContent).toContain("팀 스킬 '주간 업무 보고', '견적서 초안'을 같이 써 보자고 해요")
+      expect(m.get('team-link-landing').textContent).toContain("들어오면 '주간 업무 보고'부터 열려요")
+      const select = m.get('team-link-landing-change') as any
+      await act(async () => { select.value = quote; select.dispatchEvent(new FakeEvent('change', { bubbles: true })) })
+      await m.until(() => progress!.shared!.landing === quote, 'the landing changed')
+      expect(called('PATCH /api/onboarding/welcome').map((c) => c.body).filter((b) => b.landing)).toEqual([{ landing: quote }])
+      expect(inviteSkill(progress!)).toBe(quote)
+    } finally {
+      await m.unmount()
+      delete TITLES[weekly]
+      delete TITLES[quote]
+    }
   })
 
   test('Home: "시작 설정 이어하기 (n/4)" for the owner until finished or hidden', async () => {

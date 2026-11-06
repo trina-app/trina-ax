@@ -14,7 +14,7 @@ import { useChats } from '../../store/chats'
 import { Button } from '../ui'
 
 /** How often the status reads the deck chat while it builds. */
-export const DECK_POLL_MS = 4000
+export const DECK_POLL = { ms: 4000 }
 
 export type DeckRun =
   /** not read yet */
@@ -37,7 +37,7 @@ export function deckRunOf(messages: Pick<Message, 'role' | 'status' | 'steps'>[]
   return { state: 'failed' }
 }
 
-/** The deck chat's state, read now and every DECK_POLL_MS while it builds; `onFinish` once when it turns done or
+/** The deck chat's state, read now and every DECK_POLL.ms while it builds; `onFinish` once when it turns done or
  * failed while this is mounted. */
 export function useDeckRun(chatId: string | null, onFinish?: (run: DeckRun) => void): DeckRun {
   const [run, setRun] = useState<DeckRun>({ state: 'unknown' })
@@ -60,7 +60,7 @@ export function useDeckRun(chatId: string | null, onFinish?: (run: DeckRun) => v
       } catch {
         // a failed read keeps what it showed; the next one tries again
       }
-      if (live) timer = setTimeout(() => void read(), DECK_POLL_MS)
+      if (live) timer = setTimeout(() => void read(), DECK_POLL.ms)
     }
     void read()
     return () => { live = false; clearTimeout(timer) }
