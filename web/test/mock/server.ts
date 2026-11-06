@@ -45,7 +45,7 @@ import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/sr
 import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
-import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
+import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
 import { normalizeWebsite, SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
@@ -215,6 +215,8 @@ export class MockServer {
   integrationFlows = new Map<string, { flow: IntegrationFlow; integrationId: string; userId: string; polls: number }>()
   /** an admin's requests to members to connect a service as their own (like server/src/integrations/connections/requests.ts) */
   integrationRequests: (IntegrationRequest & { integrationId: string | null })[] = []
+  /** an admin's templates each member connects with their own key (like server/src/integrations/connections/templates.ts) */
+  integrationTemplates: (Omit<IntegrationTemplate, 'connected'> & { version: number })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
   /** the 7-day team goal Home shows owners and admins (onboarding G): none unless /__test/team-goal sets one */
@@ -320,6 +322,7 @@ export class MockServer {
     this.integrationSecrets.clear()
     this.integrationFlows.clear()
     this.integrationRequests = []
+    this.integrationTemplates = []
     this.settings = defaultSettings()
     this.teamIcon = null
     this.speechKey = { set: false, hint: null, updatedAt: null }
@@ -844,6 +847,24 @@ export class MockServer {
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       prompt += ` answered:${JSON.stringify(answer)}`
+    }
+    if (/connecttemplate/i.test(prompt)) {
+      // like server/src/chat/connect-service.ts: the connect card for an admin's template this person has not connected
+      // (the person's own key, the template's address); it stays until the turn's time for it runs out
+      const t = this.integrationTemplates.find((x) => this.templateCovers(x, user) && !this.integrations.some((y) => y.templateId === x.id && y.ownerId === user.id))
+      if (t) {
+        const requestId = 'ct1'
+        const request: TurnRequest = {
+          kind: 'connect_service', requestId, target: 'service', name: t.name, scope: 'personal',
+          service: { kind: t.kind, url: t.url, host: new URL(t.url).host, auth: t.auth, authHeader: t.authHeader }, template: { id: t.id, version: t.version },
+          why: `You asked for your ${t.name} pages.`, expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }
+        this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+        pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+        await Promise.race([new Promise((r) => this.pendingAsk.set(turnId, r)), sleep(60_000)])
+        this.openAsks.delete(turnId)
+        pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      }
     }
     if (/sendcard/i.test(prompt)) {
       // like server/src/integrations/connections/tools.ts gate: everything a connected service is sent, where it goes first
@@ -2297,6 +2318,68 @@ export class MockServer {
       Object.assign(r, { state: 'withdrawn', endedAt: now() })
       return this.requestView(r)
     },
+    // like server/src/integrations/connections/templates.ts: no key in a template; only members it is for see or connect it
+    listIntegrationTemplates: (c) => ({
+      items: this.integrationTemplates.filter((t) => this.templateCovers(t, c.user)).map((t) => {
+        const mine = this.integrations.find((x) => x.templateId === t.id && x.ownerId === c.user.id)
+        const { access: _a, createdAt: _c, updatedAt: _u, ...rest } = t
+        return { ...rest, url: new URL(t.url).origin + new URL(t.url).pathname, connection: mine ? this.integrationView(mine, c.user) : null }
+      }),
+    }),
+    connectIntegrationTemplate: (c) => {
+      const t = this.integrationTemplates.find((x) => x.id === c.params.id && this.templateCovers(x, c.user)) ?? fail('not_found', 404, '이 템플릿은 나에게 공유되지 않았어요.')
+      // the template as the member saw it: changed since, 409 (templates.ts connect)
+      if (c.body.version !== t.version) fail('conflict', 409, '이 템플릿이 바뀌었어요. 다시 확인하고 연결해 주세요.')
+      if (t.auth !== 'oauth' && !c.body.secret) fail('validation', 400, '키가 아직 없어요. 키를 넣어 주세요.', { 'body.secret': 'required' })
+      const mine = this.integrations.find((x) => x.templateId === t.id && x.ownerId === c.user.id)
+      if (mine) {
+        if (c.body.secret) { this.integrationSecrets.set(mine.id, c.body.secret); this.checkIntegration(mine) }
+        if (c.body.writePolicy) mine.writePolicy = c.body.writePolicy
+        return this.integrationView(mine, c.user)
+      }
+      return this.addIntegration(c.user, { kind: t.kind, name: t.name, url: t.url, auth: t.auth, authHeader: t.authHeader, notes: t.notes, writePolicy: c.body.writePolicy ?? 'ask', ...(c.body.secret ? { secret: c.body.secret } : {}) }, 'personal', t.id)
+    },
+    listTeamIntegrationTemplates: () => ({ items: [...this.integrationTemplates].sort((a, b) => a.name.localeCompare(b.name)).map((t) => this.templateView(t)) }),
+    createIntegrationTemplate: (c) => {
+      if (privateHost(new URL(c.body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
+      const t = {
+        id: uuidv7(), kind: c.body.kind, name: c.body.name, url: c.body.url, auth: c.body.auth, authHeader: c.body.auth === 'header' ? c.body.authHeader ?? null : null,
+        notes: c.body.notes ?? null, access: c.body.access ?? { everyone: true, groups: [], users: [] }, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), updatedAt: now(), version: 1,
+      }
+      this.integrationTemplates.push(t)
+      return { status: 201, body: this.templateView(t) }
+    },
+    updateIntegrationTemplate: (c) => {
+      const t = this.integrationTemplates.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const auth = c.body.auth ?? t.auth
+      const authHeader = auth === 'header' ? (c.body.authHeader !== undefined ? c.body.authHeader : t.authHeader) : null
+      const moved = (c.body.url !== undefined && c.body.url !== t.url) || auth !== t.auth || authHeader !== t.authHeader
+      Object.assign(t, { ...(c.body.name !== undefined ? { name: c.body.name } : {}), ...(c.body.url !== undefined ? { url: c.body.url } : {}), auth, authHeader, ...(c.body.notes !== undefined ? { notes: c.body.notes } : {}), ...(c.body.access ? { access: c.body.access } : {}), updatedAt: now(), version: t.version + 1 })
+      // a new address or sign-in method drops every member's key; a member it no longer covers loses theirs
+      for (const x of this.integrations.filter((y) => y.templateId === t.id)) {
+        if (moved || !this.templateCovers(t, this.users.find((u) => u.id === x.ownerId)!)) { this.integrations = this.integrations.filter((y) => y.id !== x.id); this.integrationSecrets.delete(x.id) }
+        else Object.assign(x, { name: t.name, notes: t.notes })
+      }
+      return this.templateView(t)
+    },
+    // like templates.ts members: who it is for, connected (when) / not connected / key stopped working; never a key
+    listIntegrationTemplateMembers: (c) => {
+      const t = this.integrationTemplates.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      return {
+        items: this.users.filter((u) => u.status === 'active' && this.templateCovers(t, u)).sort((a, b) => a.name.localeCompare(b.name)).map((u) => {
+          const x = this.integrations.find((y) => y.templateId === t.id && y.ownerId === u.id)
+          if (!x || !this.integrationSecrets.has(x.id)) return { user: { id: u.id, name: u.name }, state: 'not_connected' as const, since: null }
+          return { user: { id: u.id, name: u.name }, state: x.status === 'needs_auth' ? 'stopped' as const : x.status === 'error' ? 'error' as const : 'connected' as const, since: x.createdAt }
+        }),
+      }
+    },
+    deleteIntegrationTemplate: (c) => {
+      if (!this.integrationTemplates.some((x) => x.id === c.params.id)) fail('not_found', 404)
+      this.integrationTemplates = this.integrationTemplates.filter((x) => x.id !== c.params.id)
+      for (const x of this.integrations.filter((y) => y.templateId === c.params.id)) this.integrationSecrets.delete(x.id)
+      this.integrations = this.integrations.filter((y) => y.templateId !== c.params.id)
+      return undefined
+    },
 
     // Admin > Plugins (web/test/mock/plugins.ts)
     listPlugins: (c) => this.plugins.list(c.user.locale ?? 'ko', this.settings.defaultLocale),
@@ -2508,7 +2591,18 @@ export class MockServer {
     return { configured, source: configured ? 'app' as const : 'none' as const, canSetUp: true, blocked: null,
       redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0 }
   }
+  templateCovers(t: { access: IntegrationAccess }, u: User): boolean {
+    return t.access.everyone || t.access.users.includes(u.id) || t.access.groups.some((g) => u.groupIds.includes(g))
+  }
+  templateView(t: Omit<IntegrationTemplate, 'connected'> & { version: number }): IntegrationTemplate {
+    const { version: _v, ...rest } = t
+    return { ...rest, connected: this.integrations.filter((x) => x.templateId === t.id && this.integrationSecrets.has(x.id)).length }
+  }
   integrationAllows(x: MockIntegration, u: User): boolean {
+    if (x.scope === 'personal' && x.templateId) {
+      const t = this.integrationTemplates.find((y) => y.id === x.templateId)
+      return x.ownerId === u.id && !!t && this.templateCovers(t, u)
+    }
     if (x.scope === 'personal') return x.ownerId === u.id
     const a = x.access ?? NO_ACCESS
     return a.everyone || a.users.includes(u.id) || a.groups.some((g) => u.groupIds.includes(g))
@@ -2520,12 +2614,12 @@ export class MockServer {
     if (x.scope === 'team' && u.role === 'member') fail('forbidden', 403)
     return x
   }
-  addIntegration(u: User, body: IntegrationInput, scope: 'personal' | 'team'): Integration {
+  addIntegration(u: User, body: IntegrationInput, scope: 'personal' | 'team', templateId: string | null = null): Integration {
     if (privateHost(new URL(body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
     // like the server: "run without asking" is for team connections only
     if (scope === 'personal' && body.writePolicy === 'allow') fail('validation', 400, '"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', { 'body.writePolicy': 'team connections only' })
     const siblings = this.integrations.filter((y) => (scope === 'team' ? y.scope === 'team' : y.ownerId === u.id))
-    if (siblings.length >= (scope === 'team' ? 50 : 20)) fail('conflict', 409, '연결을 더 만들 수 없어요.')
+    if (!templateId && siblings.filter((y) => !y.templateId).length >= (scope === 'team' ? 50 : 20)) fail('conflict', 409, '연결을 더 만들 수 없어요.')
     const base = body.slug ?? (body.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'conn')
     let slug = base
     for (let n = 2; siblings.some((y) => y.slug === slug); n++) slug = base.slice(0, 12 - String(n).length) + n
@@ -2533,7 +2627,7 @@ export class MockServer {
       id: uuidv7(), scope, kind: body.kind, name: body.name, slug, url: body.url, auth: body.auth, authHeader: body.auth === 'header' ? body.authHeader ?? null : null,
       account: null, notes: body.kind === 'http' ? body.notes ?? null : null, writePolicy: body.writePolicy, status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null,
       access: scope === 'team' ? body.access ?? NO_ACCESS : null, createdBy: { id: u.id, name: u.name }, createdAt: now(), updatedAt: now(), lastUsedAt: null,
-      ownerId: scope === 'personal' ? u.id : null, checks: 0, disabledTools: [],
+      ownerId: scope === 'personal' ? u.id : null, checks: 0, disabledTools: [], templateId,
     }
     if (body.secret && (body.auth === 'bearer' || body.auth === 'header')) this.integrationSecrets.set(x.id, body.secret)
     this.integrations.push(x)
@@ -2542,6 +2636,8 @@ export class MockServer {
   }
   patchIntegration(u: User, id: string, b: IntegrationPatch): Integration {
     const x = this.manageableIntegration(u, id)
+    // made from an admin's template: only the member's key and the write rule are theirs (templates.ts)
+    if (x.templateId) for (const k of ['name', 'url', 'auth', 'authHeader', 'notes', 'access'] as const) if (b[k] !== undefined) fail('validation', 400, '팀이 정한 항목이라 바꿀 수 없어요.', { [`body.${k}`]: 'set by the template' })
     if (b.writePolicy === 'allow' && x.scope !== 'team') fail('validation', 400, '"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', { 'body.writePolicy': 'team connections only' })
     if (b.access && x.scope !== 'team') fail('validation', 400, '사용할 사람은 팀 연결에만 정해요.', { 'body.access': 'team connections only' })
     const auth = b.auth ?? x.auth

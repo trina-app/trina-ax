@@ -6,6 +6,10 @@
 // learns only the outcome. The connection is made through the same path as in Settings (service.ts create): the same
 // checks, limits, sealing and audit. Not offered in confidential chats (not a local tool) or to sub-agents
 // (PARENT_ONLY_TOOLS); a scheduled run has nobody to finish a card and gets "skipped".
+// An admin's template (docs/INTEGRATIONS.md "Templates") gets the same card for the person's own key: named by the AI
+// (`template`), or found because the address the AI filled in is a template's that is for this person. Connecting it
+// goes through the template's own path (templates.ts connect): its address, sign-in method and header fixed, only
+// while the template is the version the card showed, and it becomes the person's own connection.
 import { z } from 'zod'
 import { addressHasSecret, ConnectServiceInput, hasSecret, uuidv7 } from '@mycel/shared'
 import { IntegrationInput, type Integration, type IntegrationAccess, type IntegrationPatch, type Locale, type TurnConnectBody, type TurnConnectResult, type TurnRequest } from '@mycel/shared/api'
@@ -17,12 +21,25 @@ import { getTeamSettings } from '../admin/settings'
 import { unsealOrFail } from '../credentials/service'
 import { credentialsOf } from '../credentials/store'
 import { cleanNotes, hiddenText, integrationsOf, MAX_PERSONAL, MAX_TEAM, normUrl, obviouslyPrivate, oneLine } from '../integrations/connections/service'
-import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, view, type Row, type Viewer } from '../integrations/connections/store'
+import { activeUser, disabledTools, getRow, isAdmin, mayUse, savedTools, selectRows, templateCovers, view, type Row, type Viewer } from '../integrations/connections/store'
+import type { Database } from 'bun:sqlite'
 import { say } from '../integrations/connections/text'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
+import { getTemplate, templatesOf } from '../integrations/connections/templates'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
+
+/** The connections connect_service checks a new one against, as this person may use them now, and how many count
+ * toward the limit of `scope`. A member's connection made from an admin's template counts for neither: service.ts
+ * create does not count it toward the limit, and one the template no longer covers is not "already theirs". */
+export function connectRows(db: Database, userId: string, scope: 'personal' | 'team'): { rows: Row[]; count: number } {
+  const rows = scope === 'personal'
+    ? [...(db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ?`).all(userId) as Row[]).filter((r) => !r.template_id || templateCovers(db, r.template_id, userId)),
+      ...(db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]).filter((r) => mayUse(db, r, userId))]
+    : db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]
+  return { rows, count: rows.filter((r) => r.scope === scope && !r.template_id).length }
+}
 
 export const CONNECT_TOOL = 'connect_service'
 /** tool names the result lists at most (the AI gets them all as tools from the next message), and each one's length */
@@ -76,6 +93,19 @@ const toolNames = (exec: TurnExec, row: Row) => {
   return savedTools(exec.rt.db, row).filter((t) => !off.has(t.name)).map((t) => toolName(t.name)).filter(Boolean).slice(0, TOOLS_LISTED)
 }
 
+/** The card for an admin's template that is for this person: the template's own name, address and sign-in. */
+function templateCard(t: NonNullable<ReturnType<typeof getTemplate>>, why: string | undefined, expiresAt: string): Extract<TurnRequest, { kind: 'connect_service' }> {
+  return {
+    kind: 'connect_service', requestId: uuidv7(), target: 'service', name: t.name, scope: 'personal',
+    service: { kind: t.kind, url: t.url, host: new URL(t.url).host, auth: t.auth, authHeader: t.auth_header },
+    template: { id: t.id, version: t.version }, ...(why ? { why } : {}), expiresAt,
+  }
+}
+/** this person's own connection made from the template, if they connected it */
+const fromTemplate = (db: Database, templateId: string, userId: string) => db.query(`${selectRows(db)} WHERE template_id = ? AND owner_user_id = ?`).get(templateId, userId) as Row | null
+/** a template for this person, connected and working: nothing to connect */
+const templateDone = (r: Row | null) => !!r && !!r.secret_enc && r.status === 'connected'
+
 /** The tool: early answers without a card, else the card and the wait for the person. */
 export async function connectService(exec: TurnExec, args: unknown): Promise<ToolOut> {
   const { rt, spec } = exec
@@ -105,7 +135,14 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   const expiresAt = () => new Date(Date.now() + rt.askUserTimeoutMs()).toISOString()
   let card: Extract<TurnRequest, { kind: 'connect_service' }>
 
-  if (target === 'google_drive') {
+  if (a.data.template) {
+    // an admin's template: only one that is for this person (anyone else's is the same as none)
+    const t = getTemplate(db, a.data.template)
+    if (!t || !templateCovers(db, t.id, viewer.id)) return early('No card: there is no such template for this person. Use the id listed under "Connected services", or fill in the service (kind, url, auth).', 'no template')
+    const mine = fromTemplate(db, t.id, viewer.id)
+    if (templateDone(mine)) return early(`"${t.name}" is already connected with this person's own key. Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'template connected', false)
+    card = templateCard(t, why, expiresAt())
+  } else if (target === 'google_drive') {
     let d: ReturnType<ReturnType<typeof googleDriveOf>['status']>
     try { d = googleDriveOf(rt.ctx).status(spec.userId) } catch { return early('Google Drive cannot be connected for this account now.', 'drive unavailable') }
     if (!d.configured) return early('Google Drive is not set up on this team server: an admin or the server\'s operator has to set it up first (docs/INTEGRATIONS.md). Tell the person; no card was shown.', 'drive not configured')
@@ -126,28 +163,37 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     }
     const address = normUrl(input.data.url)
     if (obviouslyPrivate(address)) return early('That address names this computer or a private or office network, which connections may not use. Use the service\'s public https address from its documentation.', 'private address')
-    if (scope === 'team' && !isAdmin(viewer.role)) return early('Only an admin can add a team connection, and this person is not one. Offer a personal connection instead (scope personal), or tell them an admin can add it for the team.', 'team needs an admin')
-    if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
-      return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : 'Tell the person to ask an admin.'}`, 'personal connections off')
-    }
-    const rows = scope === 'personal'
-      ? [...db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ?`).all(viewer.id) as Row[], ...(db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]).filter((r) => mayUse(db, r, viewer.id))]
-      : db.query(`${selectRows(db)} WHERE scope = 'team'`).all() as Row[]
-    const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
-    if (rows.filter((r) => r.scope === scope).length >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? 'Settings' : 'Admin'} > MCP first.`, 'limit')
-    const dup = rows.find((r) => sameAddress(r.url, address))
-    if (dup) {
-      const fix = dup.status === 'connected'
-        ? 'Its tools are yours in this chat; if you do not have them now, from the person\'s next message.'
-        : `It needs attention: ${dup.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix its key or sign-in in Settings'} > MCP.`
-      return early(`${dup.scope === 'team' ? 'A team connection' : 'A connection of this person'} to this address already exists: "${dup.name}", ${stateOf(dup)}. ${fix} No card was shown.`, 'already exists', dup.status !== 'connected')
-    }
-    // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
-    // connection is saved with exactly what it showed (cleaned as the store cleans them, so nothing changes on the way)
-    const notes = input.data.kind === 'http' ? cleanNotes(input.data.notes) : null
-    card = {
-      kind: 'connect_service', requestId: uuidv7(), target: 'service', name: oneLine(input.data.name), scope,
-      service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}), expiresAt: expiresAt(),
+    // an admin's template for this person at this address: their own key goes there through the template, not as a
+    // second connection of their own
+    const tpl = (db.query('SELECT id FROM integration_templates ORDER BY name, id').all() as { id: string }[])
+      .map((r) => getTemplate(db, r.id)!).find((t) => t && sameAddress(t.url, address) && templateCovers(db, t.id, viewer.id))
+    if (tpl) {
+      const mine = fromTemplate(db, tpl.id, viewer.id)
+      if (templateDone(mine)) return early(`"${tpl.name}" (an admin's template) is already connected with this person's own key. Its tools are yours in this chat; if you do not have them now, from the person's next message.`, 'template connected', false)
+      // not a new connection of their own: no team / personal-connections / limit / same-address checks for it
+      card = templateCard(tpl, why, expiresAt())
+    } else {
+      if (scope === 'team' && !isAdmin(viewer.role)) return early('Only an admin can add a team connection, and this person is not one. Offer a personal connection instead (scope personal), or tell them an admin can add it for the team.', 'team needs an admin')
+      if (scope === 'personal' && !getTeamSettings(db).personalIntegrations) {
+        return early(`This team does not allow personal connections now (an admin turned them off). ${isAdmin(viewer.role) ? 'This person is an admin and can add it for the team instead (scope team).' : 'Tell the person to ask an admin.'}`, 'personal connections off')
+      }
+      const { rows, count } = connectRows(db, viewer.id, scope)
+      const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
+      if (count >= max) return early(`There are already ${max} ${scope} connections, the most there can be. One can be removed in ${scope === 'personal' ? 'Settings' : 'Admin'} > MCP first.`, 'limit')
+      const dup = rows.find((r) => sameAddress(r.url, address))
+      if (dup) {
+        const fix = dup.status === 'connected'
+          ? 'Its tools are yours in this chat; if you do not have them now, from the person\'s next message.'
+          : `It needs attention: ${dup.scope === 'team' ? 'an admin can fix it in Admin' : 'the person can fix its key or sign-in in Settings'} > MCP.`
+        return early(`${dup.scope === 'team' ? 'A team connection' : 'A connection of this person'} to this address already exists: "${dup.name}", ${stateOf(dup)}. ${fix} No card was shown.`, 'already exists', dup.status !== 'connected')
+      }
+      // an HTTP API's usage notes go into api_request's description in later chats: the card shows them, and the
+      // connection is saved with exactly what it showed (cleaned as the store cleans them, so nothing changes on the way)
+      const notes = input.data.kind === 'http' ? cleanNotes(input.data.notes) : null
+      card = {
+        kind: 'connect_service', requestId: uuidv7(), target: 'service', name: oneLine(input.data.name), scope,
+        service: { kind: input.data.kind, url: address, host: new URL(address).host, auth: input.data.auth, authHeader }, ...(why ? { why } : {}), ...(notes ? { notes } : {}), expiresAt: expiresAt(),
+      }
     }
   }
 
@@ -223,11 +269,13 @@ const asShown = (row: Row, card: Card) => {
  * connection, or null before it made one.
  */
 function current(ctx: AppContext, card: Card, kept: ConnectCard, L: Locale): Row | null {
-  if (card.scope === 'personal' && !getTeamSettings(ctx.db).personalIntegrations) return fail('forbidden', say('personalOff', L))
+  // a template's connection does not depend on members being allowed their own connections (store.ts usable)
+  if (card.scope === 'personal' && !card.template && !getTeamSettings(ctx.db).personalIntegrations) return fail('forbidden', say('personalOff', L))
   if (kept.changed) return fail('conflict', tr('connectChanged', L))
   if (!kept.integrationId) return null
   const row = getRow(ctx.db, kept.integrationId)
-  if (!row || !asShown(row, card)) {
+  // a template card's connection is still the one made from that template
+  if (!row || !asShown(row, card) || (card.template && row.template_id !== card.template.id)) {
     kept.integrationId = null
     kept.changed = true
     return fail('conflict', tr('connectChanged', L))
@@ -263,6 +311,16 @@ async function connect(ctx: AppContext, exec: TurnExec, viewer: Viewer, body: Ex
   const svc = integrationsOf(ctx)
   // and again as it is now, after opening the key: nothing waits between this and the store's write
   const mine = current(ctx, card, kept, L)
+  if (card.template) {
+    // an admin's template: through its own path (templates.ts connect), which checks it is still for this person and
+    // still the version the card showed (409 otherwise), keeps its address, sign-in method and header, and makes or
+    // updates this person's own connection from it. A sign-in service is made first and signed in to next.
+    const v = await templatesOf(ctx).connect(viewer, card.template.id, { version: card.template.version, writePolicy: 'ask', ...(secret !== undefined ? { secret } : {}) }, L)
+    kept.integrationId = v.id
+    kept.version = getRow(ctx.db, v.id)?.version ?? null
+    // a key that is already there was replaced; a check after a new key happens in update, a sign-in after it
+    return stateOfView(v, card.requestId, exec, s.auth === 'oauth')
+  }
   const access = card.scope === 'team' ? accessFor(body.access ?? 'me', viewer.id) : undefined
   let v: Integration
   if (mine) {

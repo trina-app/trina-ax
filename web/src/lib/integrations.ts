@@ -2,7 +2,7 @@
 // data, its checks (the same limits as shared/src/api/integrations.ts, so most mistakes show before anything is sent),
 // the request bodies it becomes, and the checks on what the server sends back (the sign-in address).
 // Keys are write-only: the form only ever holds a key the person is typing now; a stored one is `hasSecret`.
-import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type WritePolicy } from '@mycel/shared/api'
+import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type WritePolicy } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 /** how the connection proves who it is: sign in at the service (MCP only), a key, or nothing */
@@ -59,6 +59,23 @@ export function formFrom(i: Integration): IntegrationForm {
     notes: i.notes ?? '',
     writePolicy: i.writePolicy,
     access: i.scope === 'team' ? i.access ?? NOBODY : null,
+  }
+}
+
+/** the form for editing an admin's template (never a key: each member adds their own) */
+export function formFromTemplate(t: IntegrationTemplate): IntegrationForm {
+  return {
+    kind: t.kind,
+    name: t.name,
+    url: t.url,
+    method: t.auth === 'oauth' ? 'oauth' : 'key',
+    header: t.auth === 'header' ? 'custom' : 'bearer',
+    headerName: t.authHeader ?? '',
+    secret: '',
+    keyAction: 'keep',
+    notes: t.notes ?? '',
+    writePolicy: 'ask',
+    access: t.access,
   }
 }
 
@@ -221,7 +238,7 @@ export const canSignIn = (i: Integration) => i.kind === 'mcp' && i.auth === 'oau
 /** Personal connections first, then team ones; each by name. */
 export function splitByScope(items: Integration[]): { mine: Integration[]; team: Integration[] } {
   const byName = (a: Integration, b: Integration) => a.name.localeCompare(b.name)
-  return { mine: items.filter((x) => x.scope === 'personal').sort(byName), team: items.filter((x) => x.scope === 'team').sort(byName) }
+  return { mine: items.filter((x) => x.scope === 'personal' && !x.templateId).sort(byName), team: items.filter((x) => x.scope === 'team').sort(byName) }
 }
 
 const FIELD_OF: Record<string, FormField> = { name: 'name', slug: 'name', url: 'url', auth: 'method', authHeader: 'headerName', secret: 'secret', clearSecret: 'secret', notes: 'notes', writePolicy: 'writePolicy', access: 'access' }
