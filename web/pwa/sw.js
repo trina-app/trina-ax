@@ -84,6 +84,33 @@ function pushReceipt(id, remember = false) {
   })
 }
 
+// A room notice while the app is open in a window here: that page makes the room sound itself (web/src/lib/roomSound.ts,
+// one sound a device), so the notice is shown silently when a page says it takes care of it (also when this device's
+// sound is off). No page, or no answer within PAGE_ASK_MS (a page from before this, a frozen tab): the system's sound.
+const PAGE_ASK_MS = 400
+async function pageSounds() {
+  if (typeof MessageChannel === 'undefined') return false
+  const windows = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+    .filter(client => typeof client.postMessage === 'function' && new URL(client.url).origin === self.location.origin)
+  if (!windows.length) return false
+  const ports = []
+  const asked = new Promise(resolve => {
+    let left = windows.length
+    const timer = setTimeout(() => resolve(false), PAGE_ASK_MS)
+    const answer = yes => { if (yes || --left === 0) { clearTimeout(timer); resolve(yes) } }
+    for (const client of windows) {
+      try {
+        const channel = new MessageChannel()
+        ports.push(channel.port1)
+        channel.port1.onmessage = event => answer(event.data?.type === 'room-sound.answer' && event.data.handled === true)
+        client.postMessage({ type: 'room-sound.ask' }, [channel.port2])
+      } catch { answer(false) }
+    }
+  })
+  // answered or out of time: no port stays open
+  try { return await asked } finally { for (const port of ports) port.close() }
+}
+
 self.addEventListener('message', event => {
   if (event.data?.type !== 'push.invalidate' || !event.source?.url || new URL(event.source.url).origin !== self.location.origin) return
   pushEpoch++
@@ -113,7 +140,9 @@ self.addEventListener('push', event => {
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return
       // a room notice opens its room: the id comes from the signed-in fetch of the notice, never from the payload
       const roomId = item.link === 'room' && opaqueId(item.room?.id) ? item.room.id : undefined
-      await self.registration.showNotification(title, { body, tag, renotify: false, data: roomId ? { notificationId: payload.notificationId, roomId } : { notificationId: payload.notificationId } })
+      const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
+      if (generation !== pushEpoch) return
+      await self.registration.showNotification(title, { body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId } : { notificationId: payload.notificationId } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
