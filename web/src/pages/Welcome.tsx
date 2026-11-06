@@ -742,7 +742,8 @@ function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onSkip }: 
             {nextLabel}
           </Button>
         ) : <span />}
-        <Later onClick={onSkip} disabled={busy || stepBusy} />
+        {/* once files went in, the next step is the one way on (not "later": nothing is put off) */}
+        {done === 0 && <Later onClick={onSkip} disabled={busy || stepBusy} />}
       </div>
       {done > 0 && <p className="sr-only" aria-live="polite">{t('welcome.teamFiles.added', { n: done, folder: place?.name ?? me.team.name })}</p>}
     </div>
