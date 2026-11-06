@@ -5,7 +5,7 @@
 // counts 1/3 and leads on to 회사 소개.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, type InitialEntry } from 'react-router-dom'
 import type { WelcomeProgress, WelcomeUpdate } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Home from '../../src/pages/Home'
@@ -13,6 +13,7 @@ import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useSession } from '../../src/store/session'
 import { useWelcome } from '../../src/store/welcome'
+import { forgetStepsSeen, LANDING_STATE, markStepsSeen, stepsSeen } from '../../src/lib/welcome'
 import { installDom, mount, removeDom } from './dom-host'
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -66,6 +67,7 @@ afterEach(() => {
   useChats.getState().reset()
   useAiAccess.getState().reset()
   useWelcome.getState().reset()
+  forgetStepsSeen()
 })
 afterAll(() => {
   globalThis.fetch = realFetch
@@ -81,6 +83,8 @@ describe('Home without AI', () => {
   test('the owner after "나중에 하기": the connect card alone, no "시작 설정 이어하기 (0/3)", no suggestions, no line above the box; AI answers: the row is back at 1/3', async () => {
     signIn('owner')
     progress = putOff()
+    // the steps were on screen in this tab (put off there): Home stays Home
+    markStepsSeen('olga')
     const m = await home()
     try {
       await m.until(() => m.find('welcome-ai-claude'), 'the card')
@@ -108,6 +112,7 @@ describe('Home without AI', () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     progress = { ...putOff(), steps: { profile: 'done', result: null, invite: null } }
+    markStepsSeen('olga')
     const m = await home()
     try {
       await m.until(() => m.find('welcome-resume'), 'the row')
@@ -136,3 +141,127 @@ describe('Home without AI', () => {
     }
   })
 })
+
+describe('coming back resumes the welcome steps (docs/DECISIONS.md "W4")', () => {
+  function Where() { const l = useLocation(); return <p data-testid="where">{l.pathname}</p> }
+  /** Home at the last entry: one entry is the tab's first page (a landing); after others, a page reached in the app */
+  const open = (entries: InitialEntry[] = ['/']) => mount(
+    <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+      <Routes><Route path="/" element={<Home />} /><Route path="*" element={<Where />} /></Routes>
+    </MemoryRouter>,
+  )
+  const where = (m: Awaited<ReturnType<typeof open>>) => m.find('where')?.textContent ?? (m.find('composer-input') ? '/' : null)
+  /** 회사 소개 done, 첫 결과 open, AI answers */
+  const unfinished = (): WelcomeProgress => ({ ...putOff(), steps: { ai: 'done', profile: 'done', result: null, invite: null } })
+  const settled = async (m: Awaited<ReturnType<typeof open>>) => {
+    await m.until(() => useWelcome.getState().loaded, 'the progress')
+    await m.settle(40)
+  }
+
+  test('the owner opening the app on Home with unfinished steps lands on them (nothing of Home first), once per tab session', async () => {
+    signIn('owner')
+    access = { usable: true, action: 'connect_team', requested: false }
+    progress = unfinished()
+    let m = await open()
+    try {
+      // Home's box never shows first: the page waits for the progress, then goes
+      expect(m.find('composer-input')).toBeNull()
+      await m.until(() => where(m) === '/welcome', 'the steps')
+      expect(stepsSeen('olga')).toBe(true)
+    } finally { await m.unmount() }
+    // the same tab again (a reload, "나중에 하기" back to Home): Home, with its row
+    useWelcome.getState().reset()
+    m = await open()
+    try {
+      await m.until(() => m.find('welcome-resume'), 'Home\'s row')
+      expect(where(m)).toBe('/')
+    } finally { await m.unmount() }
+    // a new tab session: the steps again
+    forgetStepsSeen()
+    useWelcome.getState().reset()
+    m = await open()
+    try {
+      await m.until(() => where(m) === '/welcome', 'the steps again')
+    } finally { await m.unmount() }
+  })
+
+  test('a sign-in landing counts (no ?next: LANDING_STATE), a click on Home from elsewhere in the app does not', async () => {
+    signIn('owner')
+    access = { usable: true, action: 'connect_team', requested: false }
+    progress = unfinished()
+    let m = await open(['/login', { pathname: '/', state: LANDING_STATE }])
+    try {
+      await m.until(() => where(m) === '/welcome', 'the steps')
+    } finally { await m.unmount() }
+    forgetStepsSeen()
+    useWelcome.getState().reset()
+    // a chat opened first (a deep link), then Home: not a landing
+    m = await open(['/c/0190', '/'])
+    try {
+      await m.until(() => m.find('welcome-resume'), 'Home\'s row')
+      expect(where(m)).toBe('/')
+      expect(stepsSeen('olga')).toBe(false)
+    } finally { await m.unmount() }
+  })
+
+  test('never for a member or an admin (the steps are the owner\'s), and their Home does not wait for them', async () => {
+    progress = unfinished()
+    for (const role of ['member', 'admin'] as const) {
+      signIn(role)
+      access = { usable: true, action: 'connect_own', requested: false }
+      const m = await open()
+      try {
+        expect(m.find('home-resuming')).toBeNull()
+        await m.settle(40)
+        expect(where(m)).toBe('/')
+      } finally { await m.unmount() }
+      useWelcome.getState().reset()
+      calls = []
+    }
+  })
+
+  test('never when the steps are hidden, finished, never started, or only a put-off invite is left', async () => {
+    signIn('owner')
+    access = { usable: true, action: 'connect_team', requested: false }
+    const done = { ai: 'done', profile: 'done', result: 'done' } as const
+    for (const p of [
+      { ...unfinished(), dismissedAt: '2026-11-05T01:00:00.000Z' },
+      { ...putOff(), steps: { ...done, invite: 'done' }, finishedAt: '2026-11-05T01:00:00.000Z' },
+      null,
+      { ...putOff(), steps: { ...done, invite: 'skipped' } },
+    ] as (WelcomeProgress | null)[]) {
+      progress = p
+      const m = await open()
+      try {
+        await settled(m)
+        expect(where(m)).toBe('/')
+        expect(m.find('home-resuming')).toBeNull()
+      } finally { await m.unmount() }
+      useWelcome.getState().reset()
+    }
+    expect(stepsSeen('olga')).toBe(false)
+  })
+
+  test('without sessionStorage (refused by the browser) it is still once: the page keeps the mark', async () => {
+    const g = globalThis as any
+    const was = Object.getOwnPropertyDescriptor(g, 'sessionStorage')
+    Object.defineProperty(g, 'sessionStorage', { configurable: true, get() { throw new Error('SecurityError') } })
+    try {
+      signIn('owner')
+      access = { usable: true, action: 'connect_team', requested: false }
+      progress = unfinished()
+      let m = await open()
+      try { await m.until(() => where(m) === '/welcome', 'the steps') } finally { await m.unmount() }
+      useWelcome.getState().reset()
+      m = await open()
+      try {
+        await m.until(() => m.find('welcome-resume'), 'Home\'s row')
+        expect(where(m)).toBe('/')
+      } finally { await m.unmount() }
+    } finally {
+      if (was) Object.defineProperty(g, 'sessionStorage', was)
+      else delete g.sessionStorage
+    }
+  })
+})
+

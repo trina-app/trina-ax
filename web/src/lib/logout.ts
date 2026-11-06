@@ -3,6 +3,7 @@
 import { useNavigate } from 'react-router-dom'
 import { api, API } from './api'
 import { clearLocalData } from './localData'
+import { forgetStepsSeen } from './welcome'
 import { useSession } from '../store/session'
 
 export function useLogout() {
@@ -11,6 +12,7 @@ export function useLogout() {
   return async () => {
     await api.call(API.logout).catch(() => {})
     clearLocalData()
+    forgetStepsSeen()
     signedOut()
     navigate('/login')
   }

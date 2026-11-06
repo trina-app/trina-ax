@@ -34,7 +34,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, inviteSkill, nextStep, prevStep, readNotesHint, resultSkill, resumeStep, showInviteBar, showResume, skillNameOf, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, forgetStepsSeen, inviteSkill, isLanding, nextStep, prevStep, readNotesHint, resultSkill, resumeStep, resumesOnLanding, showInviteBar, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { chatActivity } from '../../src/store/live'
@@ -216,6 +216,7 @@ afterEach(() => {
   // guard) must not see it
   useChats.setState({ threads: {} })
   sessionStorage.clear()
+  forgetStepsSeen()
 })
 afterAll(() => {
   globalThis.fetch = realFetch
@@ -247,6 +248,18 @@ async function choose(m: Mounted, files: File[]) {
 const note = (name: string, text = '# Acme 회사 소개\n- 조용한 책상 선풍기\n') => new File([text], name, { type: 'text/markdown' })
 
 describe('where the steps go', () => {
+  test('a landing resumes only started, unfinished, not hidden steps with a step to open (W4)', () => {
+    expect(resumesOnLanding(null)).toBe(false)
+    expect(resumesOnLanding(fresh())).toBe(true)
+    expect(resumesOnLanding({ ...fresh(), dismissedAt: '2026-11-04T01:00:00.000Z' })).toBe(false)
+    expect(resumesOnLanding({ ...fresh(), finishedAt: '2026-11-04T01:00:00.000Z' })).toBe(false)
+    // everything put off still resumes (the put-off profile comes back)
+    expect(resumesOnLanding({ ...fresh(), steps: { profile: 'skipped', result: 'skipped', invite: 'skipped' } })).toBe(true)
+    // only the invite left and open: the invite
+    expect(resumesOnLanding({ ...fresh(), steps: { profile: 'done', result: 'done', invite: null } })).toBe(true)
+    // only a put-off invite left: nothing to open (the steps would send Home again)
+    expect(resumesOnLanding({ ...fresh(), steps: { profile: 'done', result: 'done', invite: 'skipped' } })).toBe(false)
+  })
   test('resume: the first open step, then a put-off one; after a step, only open steps ahead of it', () => {
     expect(resumeStep(null)).toBe('profile')
     expect(stepTotal()).toBe(2)
@@ -398,13 +411,26 @@ describe('/welcome', () => {
     const m = await mount(<MemoryRouter initialEntries={['/setup']}><Gate /></MemoryRouter>)
     try {
       const doc = globalThis.document as unknown as { body: { querySelector: (s: string) => any; querySelectorAll: (s: string) => any[] } }
+      // two groups under quiet headings: the team, then the owner's own account ("내 이름"), one password field with
+      // the join page's show switch
+      expect(m.get('setup-section-team').querySelector('legend')!.textContent).toBe('팀')
+      expect(m.get('setup-section-owner').querySelector('legend')!.textContent).toBe('내 계정 · 팀장')
+      expect(m.get('setup-section-team').querySelector('[data-testid="setup-team"]')).not.toBeNull()
+      expect(m.get('setup-section-owner').textContent).toContain('내 이름')
+      expect(doc.body.querySelectorAll('input[autocomplete="new-password"]')).toHaveLength(1)
+      expect(m.html()).not.toContain('비밀번호 확인')
+      expect(m.get('setup-password').getAttribute('type')).toBe('password')
+      await m.click('setup-password-show')
+      expect(m.get('setup-password').getAttribute('type')).toBe('text')
+      expect(m.get('setup-password-show').getAttribute('aria-pressed')).toBe('true')
       await m.type('setup-team', 'Acme')
-      await m.type(doc.body.querySelector('input[autocomplete="name"]'), '올가')
-      await m.type(doc.body.querySelector('input[autocomplete="username"]'), 'olga')
-      for (const pw of doc.body.querySelectorAll('input[autocomplete="new-password"]')) await m.type(pw, 'a long password 1')
-      await m.click(doc.body.querySelector('button[type="submit"]'))
+      await m.type('setup-name', '올가')
+      await m.type('setup-username', 'olga')
+      await m.type('setup-password', 'a long password 1')
+      await m.click('setup-submit')
       await m.until(() => at(m) === '/welcome', 'the welcome steps')
       expect(called('POST /api/setup')).toHaveLength(1)
+      expect(called('POST /api/setup')[0]!.body.owner).toEqual({ username: 'olga', name: '올가', password: 'a long password 1' })
       expect(setupSite()).toBe('https://acme.example/')
     } finally {
       await m.unmount()
@@ -728,7 +754,7 @@ describe('/welcome', () => {
     } finally { await m.unmount() }
   })
 
-  test('no AI that answers the owner (self-hosted, no trial key): the AI step comes first (1/3), Claude 구독 연결 opens the browser sign-in, the other ways are folded; 나중에 leaves the steps', async () => {
+  test('no AI that answers the owner (self-hosted, no trial key): the AI step comes first (1/3) with the three ways at once, Claude 구독 연결 (추천) opens the browser sign-in; 나중에 leaves the steps', async () => {
     signIn('owner')
     ai = { usable: false, action: 'connect_team', requested: false }
     progress = fresh()
@@ -743,8 +769,14 @@ describe('/welcome', () => {
       expect(items.map((li: any) => li.getAttribute('data-progress-step'))).toEqual(['ai', 'profile', 'result'])
       expect(items[0]!.getAttribute('aria-current')).toBe('step')
       expect(items[0]!.textContent).toContain(translate('ko', 'welcome.progress.item', { n: 1, total: 3, label: translate('ko', 'welcome.progress.ai') }))
-      // the other ways folded; nothing of the steps after it
-      expect(m.get('welcome-ai-other').hasAttribute('open')).toBe(false)
+      // the three ways at once, Claude first and recommended, no fold; other AI on the engines page; nothing of the
+      // steps after it
+      expect(m.get('welcome-ai-ways').querySelectorAll('button').map((b: any) => b.getAttribute('data-testid'))).toEqual(['welcome-ai-claude', 'welcome-ai-chatgpt', 'welcome-ai-keys'])
+      expect(m.get('welcome-ai-claude').textContent).toBe(translate('ko', 'welcome.ai.claude') + translate('ko', 'welcome.ai.recommended'))
+      expect(m.get('welcome-ai-chatgpt').textContent).toBe('ChatGPT 구독 연결')
+      expect(m.get('welcome-ai-keys').textContent).toBe('API 키로 연결')
+      expect(m.get('welcome-ai-engines').getAttribute('href')).toBe('/admin/engines')
+      expect(m.find('welcome-ai-other')).toBeNull()
       expect(m.find('welcome-files-pick')).toBeNull()
       expect(m.find('profile-step-site')).toBeNull()
       expect(m.find('welcome-back')).toBeNull()
@@ -760,6 +792,8 @@ describe('/welcome', () => {
       await m.until(() => at(m) === '/', 'Home')
       expect(progress!.steps.ai).toBe('skipped')
       expect(progress!.steps.profile).toBeNull()
+      // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (W4)
+      expect(stepsSeen('olga')).toBe(true)
     } finally { await m.unmount() }
   })
 
@@ -1279,5 +1313,18 @@ describe('the company profile step without AI (stream D, also in Admin › Team 
       expect(m.html()).not.toContain(`>${translate('ko', 'onboarding.profile.paste')}<`)
       expect(m.html()).toContain(translate('ko', 'onboarding.profile.answer'))
     } finally { await m.unmount() }
+  })
+})
+
+describe('a landing on Home (the steps take an unfinished owner back only from a real landing)', () => {
+  test('the first entry of a tab on Home is a landing; one carrying a question or a project is not', () => {
+    expect(isLanding({ key: 'default', state: null, search: '' })).toBe(true)
+    expect(isLanding({ key: 'default', state: null })).toBe(true)
+    expect(isLanding({ key: 'default', state: null, search: '?prompt=%EC%95%88%EB%85%95' })).toBe(false)
+    expect(isLanding({ key: 'default', state: null, search: '?project=abc' })).toBe(false)
+  })
+  test('a sign-in lands; an ordinary move inside the app does not', () => {
+    expect(isLanding({ key: 'k1', state: { landing: true }, search: '' })).toBe(true)
+    expect(isLanding({ key: 'k2', state: null, search: '' })).toBe(false)
   })
 })
