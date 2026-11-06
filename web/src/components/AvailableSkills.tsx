@@ -13,7 +13,7 @@
 // "인사 서류 스킬 3개 넣기".
 import { FileText, MessageSquarePlus, MoreHorizontal, PackagePlus, Play, ScrollText, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { HR_PACK_SKILLS, skillSummary, skillTitle, WELCOME_PACK_SKILLS, type SkillInfo, type SkillPackId } from '@mycel/shared/api'
+import { HR_PACK_SKILLS, skillLabel, skillSummary, WELCOME_PACK_SKILLS, type SkillInfo, type SkillPackId } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { navigateTo } from '../lib/nav'
 import { parentPath } from '../lib/paths'
@@ -196,9 +196,11 @@ function SkillSection({ title, items, folders, onRun }: { title: string; items: 
 
 function SkillRow({ skill: s, folder, onRun }: { skill: Skill; folder: boolean; onRun: (s: Skill) => void }) {
   const t = useT()
-  // the name people read (its title, else its name); the description without a lead that repeats the title
-  const title = skillTitle(s)
-  const line = [s.personal || !folder ? '' : `${skillHome(s.path)}/`, skillSummary(s)].filter(Boolean).join(' · ')
+  // the name people read (its title, else its folder name as words: "quote maker", as the invite named it); the
+  // description without a lead that repeats the title
+  const title = skillLabel(s)
+  // a skill a member suggested keeps their name (docs/DECISIONS.md "MC")
+  const line = [s.personal || !folder ? '' : `${skillHome(s.path)}/`, s.suggestedBy ? t('skills.suggestedBy', { name: s.suggestedBy }) : '', skillSummary(s)].filter(Boolean).join(' · ')
   // a skill with a form opens it; any other starts a chat with "/<name> " in the message box, as before
   const use = () => (s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
@@ -260,11 +262,11 @@ function SkillMenu({ skill: s, onUse }: { skill: Skill; onUse: () => void }) {
   const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover'
   return (
     <div ref={box} className="relative shrink-0" onKeyDown={onKeyDown}>
-      <IconButton label={t('skills.moreNamed', { name: skillTitle(s) })} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="skill-more">
+      <IconButton label={t('skills.moreNamed', { name: skillLabel(s) })} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="skill-more">
         <MoreHorizontal size={16} aria-hidden />
       </IconButton>
       {open && (
-        <div role="menu" aria-label={t('skills.moreNamed', { name: skillTitle(s) })} className="absolute top-full right-0 z-30 mt-1 w-44 rounded-lg border border-line bg-surface p-1 shadow-lg">
+        <div role="menu" aria-label={t('skills.moreNamed', { name: skillLabel(s) })} className="absolute top-full right-0 z-30 mt-1 w-44 rounded-lg border border-line bg-surface p-1 shadow-lg">
           <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onUse() }}>
             <MessageSquarePlus size={14} aria-hidden /> {t('skills.use')}
           </button>

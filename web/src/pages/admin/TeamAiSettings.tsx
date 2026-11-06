@@ -207,8 +207,7 @@ function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: Engin
 }
 
 /** Members' own AI accounts: whether members may add their own Claude or Codex account, whether a subscription may be
- * shared with the team (it warns first), and the accounts members connected. The switches are the owner's; admins see
- * them and the list. */
+ * shared with the team (it warns first), and the accounts members connected. The switches are the owner's and the admins'. */
 function MemberAccounts({ tc }: { tc: TeamCredentials }) {
   const t = useT()
   const d = tc.state.data

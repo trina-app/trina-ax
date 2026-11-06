@@ -67,8 +67,8 @@ describe('endpoint registry', () => {
       if (ep.status === 202) expect(['sendMessage', 'regenerate', 'editMessage', 'transcribe', 'startUpdate', 'startBackup', 'startRestore', 'startExport', 'startCredentialLogin', 'startMyCredentialLogin', 'renderPromoVideo', 'rebuildKnowledgeGraph']).toContain(name)
     }
   })
-  test('owner-reauth endpoints carry a password field', () => {
-    for (const { name, ep } of all.filter((x) => x.ep.auth === 'owner-reauth')) {
+  test('owner-reauth and admin-reauth endpoints carry a password field', () => {
+    for (const { name, ep } of all.filter((x) => x.ep.auth === 'owner-reauth' || x.ep.auth === 'admin-reauth')) {
       expect(isSchema(ep.body), name).toBe(true)
       expect(Object.keys((ep.body as z.ZodObject<any>).shape)).toContain('password')
     }

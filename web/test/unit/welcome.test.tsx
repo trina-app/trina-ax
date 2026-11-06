@@ -27,7 +27,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { INVITE_STEP_STATE } from '../../src/components/onboarding/GoalCard'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, forgetStepsSeen, historyName, inviteSkill, isLanding, nextStep, openHere, prevStep, profileAnswered, readNotesHint, resumeStep, resumesOnLanding, setupRowState, setupRowWords, showResume, skillNameOf, stepsLeft, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { chatActivity } from '../../src/store/live'
@@ -331,15 +331,15 @@ describe('where the steps go', () => {
     expect(stepTotal(old)).toBe(4)
   })
 
-  test('resume: the first open step, then a put-off one; the count is what is answered', () => {
+  test('resume: the first open step, then a put-off one; the count is what is done (put off is not)', () => {
     const p = { ...fresh(), steps: { profile: 'skipped', result: null, skills: 'done', files: null, invite: null } } as WelcomeProgress
     expect(resumeStep(p)).toBe('files')
-    expect(doneCount(p)).toBe(2)
+    expect(doneCount(p)).toBe(1)
     // everything has an answer (a row the server has not finished, say): "later" is now, the put-off profile first
     const all = { ...fresh(), steps: { profile: 'skipped', result: null, skills: 'done', files: 'done', invite: 'skipped' } } as WelcomeProgress
     expect(resumeStep(all)).toBe('profile')
     expect(nextStep(all, 'invite')).toBeNull()
-    expect(doneCount(all)).toBe(4)
+    expect(doneCount(all)).toBe(2)
     expect(showResume(all)).toBe(true)
     expect(showResume({ ...all, dismissedAt: 'x' })).toBe(false)
     expect(showResume({ ...all, finishedAt: 'x' })).toBe(false)
@@ -361,8 +361,35 @@ describe('where the steps go', () => {
     expect(nextStep(mid, 'skills', false)).toBe('files')
     expect(resumeStep(mid, true, false)).toBe('files')
     expect(resumeStep(mid, true, true)).toBe('skills')
-    expect(doneCount(mid, true, true)).toBe(1)
-    expect(doneCount(mid, true, false)).toBe(2)
+    expect(doneCount(mid)).toBe(1)
+    // what is left: on a computer 내 스킬 too; on the phone only what it can do
+    expect(stepsLeft(mid, true, true)).toEqual(['skills', 'files', 'invite'])
+    expect(stepsLeft(mid, true, false)).toEqual(['files', 'invite'])
+  })
+
+  // the recheck of onboarding v5: a phone's Home read "설정 이어서 하기 · 4/4" with 팀 파일 put off and 내 스킬 waiting
+  // for a computer (put off counted as answered): it names what is left, and the count is the steps done
+  test('the setup row\'s words: one step left here is named ("남은 일: 팀 파일"); else "설정 이어서 하기" and the steps done', () => {
+    const ko = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('ko', k, p)
+    const phone = { ...fresh(), resultChatId: CHAT, skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', invite: 'done' } } as WelcomeProgress
+    expect(showResume(phone, false)).toBe(true)
+    expect(doneCount(phone)).toBe(2)
+    expect(stepsLeft(phone, true, false)).toEqual(['files'])
+    expect(setupRowWords(ko, phone, true, false)).toEqual({ text: '남은 일: 팀 파일', count: null })
+    // a computer has 내 스킬 left too: the steps done, "2/4", never "4/4"
+    expect(stepsLeft(phone, true, true)).toEqual(['skills', 'files'])
+    expect(setupRowWords(ko, phone, true, true)).toEqual({ text: '설정 이어서 하기', count: '2/4' })
+    // only put-off steps left, no phone in it: the one left is named whether open or put off
+    const off = { ...fresh(), resultChatId: CHAT, steps: { profile: 'done', result: null, skills: 'done', files: 'done', invite: 'skipped' } } as WelcomeProgress
+    expect(setupRowWords(ko, off)).toEqual({ text: '남은 일: 팀원 초대', count: null })
+    expect(setupRowWords(ko, { ...off, steps: { ...off.steps, profile: 'skipped' } })).toEqual({ text: '설정 이어서 하기', count: '2/4' })
+    // nothing done yet: "0/4"; 회사 소개 saved without a deck (an old row) is not done either
+    expect(setupRowWords(ko, fresh())).toEqual({ text: '설정 이어서 하기', count: '0/4' })
+    expect(doneCount({ ...fresh(), steps: { ...fresh().steps, profile: 'done' } })).toBe(0)
+    // the AI step counts with the others while it is on the bar
+    expect(setupRowWords(ko, { ...off, steps: { ...off.steps, ai: 'skipped' } }, false)).toEqual({ text: '설정 이어서 하기', count: '3/5' })
+    // every language has the words
+    expect(setupRowWords((k, p) => translate('en', k, p), phone, true, false).text).toBe('Still to do: Team files')
   })
 
   test('the AI step: first while no AI answers the owner and 회사 소개 is open; never in front of the later steps; counted then', () => {

@@ -212,15 +212,21 @@ export type FirstResultStarted = z.infer<typeof FirstResultStarted>
  *   (docs/DECISIONS.md "S", "W3");
  * - `ppt`: a long report-like answer (the weekly report, or over PPT_SUGGEST_CHARS of prose): [PPT로 만들기];
  * - `deck-video`: under the first intro deck, "이 소개서로 10초 홍보 영상도 만들어 둘까요? 끝나면 알려 드려요" [만들어 두기]
- *   (docs/DECISIONS.md "D2"): the hook is in the contract, never sent while DECK_VIDEO_SUGGESTION is off.
+ *   (docs/DECISIONS.md "D2"): the hook is in the contract, never sent while DECK_VIDEO_SUGGESTION is off;
+ * - `contribute` (members only, docs/DECISIONS.md "MC"): under a member's first successful run of the team's landing
+ *   skill, before `ppt`: "내가 쓰던 스킬이나 파일도 팀에 올릴래요?" [올리기] opens the member's skill folder pick (a
+ *   computer) and, when they can write it, a link to the team folder (`folder`; a phone gets only that, and nothing
+ *   when it is null: the web app asks with `phone=1`, and the server then answers what comes next).
  * A suggestion the person closed never comes back for them (`key`, stored per person on the server).
  */
-export const SuggestionKey = z.string().max(500).regex(/^(ppt|team-skill|deck-video|schedule:skills\/[^\r\n]+)$/)
+export const SuggestionKey = z.string().max(500).regex(/^(ppt|team-skill|deck-video|contribute|schedule:skills\/[^\r\n]+)$/)
 export const ResultSuggestion = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('schedule'), key: SuggestionKey, skill: z.object({ path: z.string(), name: z.string() }) }),
   z.object({ kind: z.literal('team-skill'), key: z.literal('team-skill') }),
   z.object({ kind: z.literal('ppt'), key: z.literal('ppt') }),
   z.object({ kind: z.literal('deck-video'), key: z.literal('deck-video') }),
+  /** `folder`: the team folder the member can write (groups/<team>/), else null (no files part) */
+  z.object({ kind: z.literal('contribute'), key: z.literal('contribute'), folder: z.string().nullable() }),
 ])
 export type ResultSuggestion = z.infer<typeof ResultSuggestion>
 /** The promo video made from the first intro deck in the background (docs/DECISIONS.md "D2"): off until that run is
@@ -244,8 +250,8 @@ export const WELCOME = {
   startFirstResult: endpoint({ method: 'POST', path: '/api/onboarding/welcome/first-result', auth: 'owner', owner: 'B', body: StartFirstResult, response: FirstResultStarted, status: 201,
     summary: 'Start the welcome steps\' first result, the company\'s intro deck (owner): the website\'s images into the brand folder, a company intro file (named in the team\'s language) when no file was given, and a new chat of the owner for it.' }),
   getResultSuggestion: endpoint({ method: 'GET', path: '/api/onboarding/suggestion', auth: 'user', owner: 'B',
-    query: z.object({ chatId: z.string().min(1).max(64), messageId: z.string().min(1).max(64) }), response: z.object({ suggestion: ResultSuggestion.nullable() }),
-    summary: 'The one suggestion under an answer of the caller\'s own chat (schedule a skill run for the 2nd time, make a team skill of an owner\'s or admin\'s work with team files, or a report as a PPT), or null; none the caller closed.' }),
+    query: z.object({ chatId: z.string().min(1).max(64), messageId: z.string().min(1).max(64), phone: z.enum(['0', '1']).optional() }), response: z.object({ suggestion: ResultSuggestion.nullable() }),
+    summary: 'The one suggestion under an answer of the caller\'s own chat (schedule a skill run for the 2nd time, make a team skill of an owner\'s or admin\'s work with team files, a member\'s own skills and files after their first run of the landing skill, or a report as a PPT), or null; none the caller closed. phone=1: a member who can write no team folder gets no contribute line there.' }),
   dismissSuggestion: endpoint({ method: 'POST', path: '/api/onboarding/suggestion/dismiss', auth: 'user', owner: 'B', body: z.object({ key: SuggestionKey }).strict(), response: empty, status: 204,
     summary: 'Close a suggestion under answers for good (for the caller only).' }),
 } as const

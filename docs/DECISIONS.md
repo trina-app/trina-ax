@@ -1219,7 +1219,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **D9 Codex는 진짜 토큰을 받지 않는다**: 턴의 `CODEX_HOME/auth.json`은 가짜(접근 토큰·API 키 자리 = 이 턴의 프록시 토큰, refresh 자리 = `teamax-no-refresh`, account_id = `teamax-<sha256(연결 id)[:12]>`, 서명 없는 id_token에 진짜 플랜 종류만). 공급자 `teamax`(이름은 PRODUCT.displayName, "OpenAI"가 아님)가 `http://127.0.0.1:<proxy>/codex/<chatgpt|openai>`로 보내고, 프록시가 진짜 Authorization·ChatGPT-Account-ID(또는 키)를 넣는다. Codex 턴의 CONNECT 터널은 없앴다(`connect.ts`의 `codexTurns`는 F1·옛 구성에서만). `chatgpt_base_url`·갱신 주소도 프록시로: `/codex/backend/wham/config/bundle`은 `{}`, 그 밖 배경 호출은 404(Codex 0.163이 ChatGPT 턴마다 부르는 `accounts/check`·`settings/user`는 경고 없이), `/codex/oauth/token`은 400 invalid_grant + 감사.
 - **D10 갱신은 서버가**: 연결별 single-flight, 회전된 refresh token을 같은 트랜잭션에서 먼저 저장한 뒤 새 접근 토큰을 쓴다. `invalid_grant`·`refresh_token_*`·401이면 `needs_reconnect`. 일시 실패는 그 요청만 502. 하루 한 번 8일 넘게 안 쓴 연결을 갱신.
 - **D12 봉인**: 브라우저(`web/src/lib/seal.ts`)가 서버 공개키(`<secrets>/credential-sealing.jwk`, P-256)로 ECDH + HKDF-SHA256(info `mycel-seal-v1|<kid>`) + AES-256-GCM으로 봉인. 평문 `{secret, nonce, purpose}`: purpose가 엔드포인트와 다르면 거부, 같은 nonce는 10분 안에 두 번 받지 않음. 계약에 봉인 안 된 비밀값 필드가 없다. `crypto.subtle`이 없는 화면(LAN의 http)은 "https에서만"이라고 말한다.
-- **D13 권한**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
+- **D13 권한 (대체됨: 맨 아래 「관리자도 팀 AI 연결을 한다」)**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
 - **D14 상태는 연결별**: 401 → 그 연결만 `invalid`(ChatGPT는 갱신 1번·재전송 1번 뒤), 긴 429 → 그 연결만 `limited_until`(DB, 재시작해도 유지). 프록시 전역 `limitedUntil`은 없앴다.
 - **D15 넘기기**: 묶인 연결이 한도·거절·월 한도에 걸리면 같은 계열 다음 연결로 새 시도(최대 2번, Claude는 새 세션, 단계·알림·감사 `engine.credential_switch`). 없으면 `rate_limited`일 때만 `limitFallback`(Claude→Codex, Codex 연결이 있을 때만), 그다음 오류.
 - **D16 비용**: `credentials/prices.ts`(2026-10-22 정가). API 키만 계산, 구독은 0(토큰은 셈). 모르는 모델은 계열 최대값 + 서버 시작 뒤 모델마다 한 번 감사.
@@ -10294,6 +10294,25 @@ items of SK.
   - Not taken: SKIP 3 (setup closed without AI is the owner's "AI 연결부터" rule), 8 (the sidebar footer: feat/phone-nav
     redesigns the sidebar), 15 (the deck's own sources: AI content). FLOW M4 ("{owner}님이 준비한 것: …") is not in this
     build and was not added.
+- **Recheck nits** (a second walk of the steps, fix/onboarding-recheck-nits, 2026-11-07):
+  - *The setup row's count* (changes "The setup row" above: "the counted steps answered here (done or put off)"): put
+    off counted as answered, so a phone's Home read "설정 이어서 하기 · 4/4" with 팀 파일 put off and 내 스킬 waiting for a
+    computer. Now the count is the steps done (`doneCount`; put off is not done), and with one step left here the row
+    names it instead, no count: "남은 일: 팀 파일" (`stepsLeft`: not done, open or put off; on a phone not 내 스킬 while
+    it waits for a computer, which has its own line). One rule (`setupRowWords`) for the sidebar / ☰ drawer row and a
+    phone Home's row, so they agree. Chosen over "남은 일 N개" for several steps: "n/4" stays the approved form.
+  - *회사 소개's "홈페이지 다시 읽기"* shows only when the profile has a website (none after "홈페이지가 없어요" and a
+    pasted text, nor for a saved profile without one).
+  - *내 스킬 after "다른 폴더도 가져오기"*: what went in lists every skill shared in the steps (the progress's
+    `shared.skills`, earlier ones first, each once), then this share's rows; earlier merges, rules and tools are not
+    repeated (the merges have their notice at the end of the steps).
+  - *Readable skill names on the member's way in* (extends "Readable skill names" above): the form's title ("quote maker
+    실행"), the team skills row, its run and menu buttons, the chat chip of what the form sends and the answer's receipt
+    use `skillLabel`. Not changed: the "/" menu (a command: `/quote-maker`), search results, Home's popular skills, the
+    owner's own link skill picker.
+  - *The product's name* in 내 스킬's texts (the phone's line, Claude Code's prompt and connect line, the scripts reason):
+    `{product}` (PRODUCT.displayName) in every language, with particles that do not depend on the name (에, 부터,
+    에서는); before, "트리나" / "Trina" under a header that said the product's name.
 
 ## 대화방 알림 소리 (feat/room-sound, 2026-11-06)
 
@@ -11325,3 +11344,231 @@ person too; they already create and disable people, and having to ask the owner 
   Admin › Members list tells an admin which members asked (`deletionRequested`, members only). Texts in all five
   languages said "the team owner deletes": they say "the team owner or an admin" now. The archive still says it is
   readable by the owner only.
+
+## MC — Members contribute their own skills and files (feat/member-skill-share, 2026-11-07)
+
+넣을 곳: trina-ax server/src/skills + server/src/onboarding + web, 이유: onboarding v5 spec Part C ("Members contribute")
+and its review (REVIEW-3: build on 스킬로 제안, use the one suggestion slot); team skills and suggestions are core.
+
+- **When.** Never on the member's first screen. Under a member's first successful run of the landing skill (the one
+  the invite opens, `onboarding/welcome.ts landingSkill`; the earliest `done`, non-scheduled turn of theirs that ran
+  it), the one suggestion slot shows the members-only kind `contribute`, ranked above `ppt` (`schedule` needs a second
+  run and `team-skill` is owners' and admins', so it is never displaced on that answer). "내가 쓰던 스킬이나 파일도 팀에
+  올릴래요? · 올리기"; ✕ closes it for good (`suggestion_dismissals` key `contribute`). Owners and admins never get it
+  (they have 내 스킬 가져오기). A member whose AI does not answer has no `done` run and never sees it: accepted (REVIEW-3).
+- **Skills go through 스킬로 제안, not the owner's share** (REVIEW-3 MUST 1). A suggestion can now carry one skill
+  folder (`source.kind: 'folder'`), filled by the same browser scan as SK (`lib/skillScan.ts`: `.claude`, `.codex`,
+  `.agents`, picked or dropped; a skill with a key or a key file never leaves the browser, it shows as left out with
+  its kind). Not through Claude Code or Codex for members yet: the connector path checks nothing before the text
+  arrives. CLAUDE.md / AGENTS.md rules and MCP templates from members are not sent in this version.
+- **One send is one batch** (`POST /api/skills/suggestions/batch`, members only: owners and admins get 403). The server
+  checks each folder again with the owner's checks (`share-check.ts checkShare`: secrets in any file or a key file's
+  name, scripts the SKILL.md needs, a plugin's skill, size, not a skill, the name made a valid folder name, a path on
+  the member's computer, a team skill of the same name) and makes one suggestion per folder that passes; each refused
+  one comes back with its reason (and `pending` for a folder of that name of theirs still waiting). What is refused is
+  never stored. What passes is kept outside the team files (`skill_suggestion_files`, migration 257), SKILL.md with its
+  header made valid, scripts never. No AI judge (no AI cost): the owner reads it.
+- **Limits.** At most 10 folders per send (`CONTRIBUTE_LIMITS.batch`, the body), and at most 20 suggestions of one
+  member waiting (`CONTRIBUTE_LIMITS.open`, every kind of suggestion counts, the old one-file suggestion too: 409
+  `open_limit`, nothing stored). The sheet reads `myPending` and ticks no more than fit.
+- **Who reviews.** A skill folder from a member's computer is untrusted until an owner or admin read it: only they see
+  it (beside its sender), count it in 검토 and approve or turn it down. A skills manager who is neither (a folder rule on
+  `skills/`) does not see it (404), and the suggester cannot act on it (403). Other suggestions keep their rule (the
+  managers of the target folder).
+- **Inbox.** One line per batch for each active owner and admin (`skill.suggested` with the batch id as its source, in
+  `skill_notices`; no new table), shown as "민준님이 스킬 2개를 팀에 올리자고 했어요 · 확인" (`InboxNotification.contribution`:
+  the sender's name while the account is there, and the count; never a skill's name); the link `/skills?batch=<id>`
+  opens Skills › 검토 at that person. A live notice says the same.
+- **Skills › 검토 groups by person** (three members, three groups). A folder row says its app and file count, and warns
+  of a team skill of the same name and of a path on the member's computer. Its review dialog edits the folder name
+  (lowercase, digits, hyphens), the description and the SKILL.md body, lists the files that go with it, and approves
+  as `skills/<folder name>/` (or a folder below that the reviewer manages) with its files, SKILL.md last, as the
+  approver's own save (folder rules, versions, the skills/ change log; a folder already there is 409, nothing written).
+  The kept copy goes on approve and on reject.
+- **After approval.** The member gets the usual notice (live and Inbox `skill.reviewed`). The saved skill keeps "민준님이
+  제안": `SkillInfo.suggestedBy` in the skills list, and `skillMakerName` names the member (the answer's receipt, the
+  join page), from the approved suggestion whose approver's save made the file's first version (never from the file's
+  text). Approving never moves the invite's or the goal's skill: `recordShared` is not called, so `shared.landing`,
+  `landingSkill` and `focusSkill` stay as they were.
+- **Files.** "팀 폴더에 파일 올리기" in the sheet only when the member can write the team folder (the welcome steps' team
+  group folder, the one the team link puts joiners in; else another group folder of theirs they can write; server
+  `memberTeamFolder`, sent as `contribute.folder`). It opens Files there, where the upload is. On a phone (no folder
+  picking) the line offers only that folder ("내가 쓰던 파일도 팀 폴더에 올릴래요? · 팀 폴더 열기"); without one the page asks
+  with `phone=1` and the server answers the next suggestion instead (the slot is not left empty). A member who cannot
+  write sees no files part.
+- **The hint** for the folder window is one component now (`FolderHint.tsx`), shared by the owner's 내 스킬 step and the
+  member's sheet.
+- **Migration 257** (`257_b_member_skill_contributions.sql`, reader 1, additive): `skill_suggestions.source_detail`
+  ('folder'; `source_kind` keeps 'file' because of its CHECK, as 253 did for Codex shares), `batch_id`, `folder_info`
+  (JSON: app, title, files and sizes, scripts left out, personal path, same name; never content), and
+  `skill_suggestion_files`. 252, 254 and 255 are reserved by other branches and 256 may be taken for session markers,
+  so this is 257.
+- **From the review of this branch.**
+  - The reviewer reads every file that goes with a skill folder, not only SKILL.md: `GET /api/skills/suggestions/:id`
+    gives an owner or admin of a waiting folder suggestion each text file's content (`folder.files[].text`; never in
+    the list, never to the sender), and the dialog shows each under its name.
+  - Every text file of a member's folder is checked for running code (`needsScripts`, which the owner's import runs on
+    SKILL.md only) and pages and SVGs for active content (a script tag, an event handler, `javascript:`); such a skill
+    is refused as `scripts`. A member's folder is read by someone else first, so the check is wider than for the owner.
+  - A file under another file's name (`SKILL.md/x.md` beside SKILL.md) is left out by the shared checks (for the
+    owner's import too): writing it made a folder where SKILL.md had to go. An approval that fails half way moves what
+    it wrote to the trash and removes the folders it made, so a retry finds nothing "already there"; a failed write
+    says it could not be saved (not "a file of that name exists"), and a folder name the team folder does not take is a
+    name error.
+  - The approve body takes a folder name of up to 64 characters (a skill's name limit); other suggestions keep 60
+    characters, 300 for the description and 16,000 for the content, checked on the server.
+  - The sheet ticks by place in the list, not by name (a folder can hold `skills/review` and `commands/review.md`), and
+    nothing can be ticked before the member's waiting count is in.
+  - "님이 제안" stays only on the file the approval saved: the approver's save within five minutes of the approval
+    (a skill the same admin deleted and wrote again later is theirs). Suggestions approved before this branch (an
+    answer or a file) now name their suggester too, on the answer's receipt and the join page: the person whose way it
+    is, as "S" meant. The skills list's lookups are kept a minute while no new suggestion is approved.
+- **Tests.** Server `b-member-contribute` (the line: first good run only, ranking, ✕, the folder and the phone; a batch:
+  files kept outside the team files, one Inbox line per batch without names, every refusal of the owner's import and no
+  key stored anywhere, limits 10 and 20, members only; review: who sees and approves, a name or folder refused, the
+  approval writes the folder, tells the member, keeps their name and never moves the invite's or goal's skill; a
+  member's direct writes to `skills/` and another's `users/<id>/` refused); the permission matrix case
+  `contributeSkills` (scope `members`). Web `member-contribute` (the line and its sheet, a key never in what goes up,
+  the caps, refusals, 검토 grouped by person and the folder approval, the Inbox line, "님이 제안").
+
+## Admins connect the team's AI too (2026-11-06, product owner)
+
+**Decision.** The owner and admins have the same powers over the team's AI connections and the team API engine
+settings (Admin › Providers). Before, only the owner could add, replace, rename, order, assign, limit, switch off or
+remove a team connection, start a ChatGPT or Claude sign-in, change the two team switches ("members' own connections",
+"shared subscriptions") or edit the API engine; admins could only list and re-check. Members' own connections
+(`/api/me/credentials`) are unchanged: they are theirs alone.
+
+**Why.** An admin is who keeps the team running day to day, and a refused or expired connection is an admin's job to
+fix. "Tell the owner" was a dead end when the owner is not around, and the product owner asked for it.
+
+- **Re-auth: `admin-reauth`.** A new auth level next to `owner-reauth`, in the auth layer only (`shared/src/api/endpoint.ts`,
+  `server/src/http/route.ts`): the caller must be an admin or the owner, and the body carries `password`, checked
+  against the caller's **own** password (same rate limit as every re-entry). `createCredential`,
+  `replaceCredentialSecret` and `startCredentialLogin` use it (so does "Move it to the team", which is an add). The
+  rest (`updateCredential`, `deleteCredential`, the sign-in's get / cancel / code, `updateCredentialSettings`,
+  `getApiEngine`, `putApiEngine`) are plain `admin`. A demo server refuses `admin-reauth` like `owner-reauth`.
+  Nothing of member deletion (`deleteUser`, `owner-reauth`) was touched.
+- **Either may change what the other added.** There is no per-row "who may" check: a connection is the team's. Audit
+  lines keep the actor as before (`created_by` and `audit_log.actor_id` are the admin).
+- **The owner hears of an admin's change.** When an admin adds, replaces, removes or switches off a team connection
+  (including through a Claude or ChatGPT sign-in), or saves the API engine settings, each active owner gets one short
+  in-app notice (`credential_admin_change`, link Admin › Providers): who, what, and the connection's name or the model.
+  Never a token or key. It uses the channel the connection notices already use (`CredCtx.notify`, the live `notice`
+  event); no new channel. The owner's own changes send nothing. Renames, ordering, assigning and limits send nothing
+  (too noisy, and not a change of what answers).
+- **A sign-in belongs to who started it.** `credentialLogins` already keyed a sign-in, its address, its state events and
+  the code step by the starter's user id (404 for anyone else, the owner included), so an admin's Claude sign-in
+  works end to end with no change to it, the launcher or native code. Only one sign-in runs at a time on a server.
+- **Owner-specific assumptions found, and what changed.**
+  - *Who is told of a refused, expiring, limited or disconnected connection:* already the owner and admins
+    (`admins()` in `credentials/store.ts`). Unchanged.
+  - *"AI access requests"* (`requestAiAccess`, a member without AI): went to owners only. Now to the owner(s) and the
+    admins (`onboarding.ai_request` rows per person; the same name-and-link notice; settled together when the member
+    can use AI). An admin or owner cannot ask (403).
+  - *The button for "no AI"* (`aiAccessFor`): an admin got `connect_own` / `ask_owner`. Now `connect_team`, like the
+    owner: the Home card, the banner above the composer and the chat error offer the connect dialog. The chat error's
+    separate "tell the owner" words for admins are gone (`aiConnect.error.admin.*`).
+  - *Admin › Providers:* the buttons, the connection menu, the reconnect button, the two switches and the API engine
+    form were hidden unless `isOwner`; now `isAdmin` (owner or admin).
+  - *Left owner-only, on purpose:* the owner's setup checklist on Admin Home and the welcome steps (they walk through
+    backups and System, which stay the owner's, and belong to the owner's onboarding progress); member deletion,
+    updates, restores, the team name, transfer of ownership.
+  - *Members' own connections:* admin endpoints could already switch off or delete a member's personal connection for
+    the owner. Admins get the same (one rule: the team's policy), they still never see a secret.
+- **Hosted / managed installs.** No owner-only rule there turned out to be about billing or a provider-managed
+  connection. What a hosted server restricts stays as it is, and it never depended on the role: the hosting
+  service's trial AI credit is not a connection row (nobody edits it here), the allowed kinds come from
+  `engine.credentialKinds`, and the API engine address must be public https (`apiEngineAnyUrl`). All of these apply to
+  admins exactly as to the owner.
+- **Rejected:** a lighter re-auth for admins, or none (a connection is the team's money and access; the password
+  again stays); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
+  to other admins too (the owner is the one who answers for the team, and admins see the change in Activity log).
+
+### Review round 1 of "Admins connect the team's AI too" (2026-11-06)
+
+An independent review found one hole and several gaps. What changed, and why:
+
+- **The team API engine's key cannot be sent to a new address** (the hole: an admin could save a new address without a
+  key, which kept the stored key, and "check again" then sent it there; every API-engine turn after that went there
+  too). Now: a changed address (scheme, host or port) never keeps the stored key: the caller sends a key for it, or
+  `null` (400 otherwise; for the owner too). `putApiEngine` is `admin-reauth` (the caller's own password). An admin
+  (not the owner) cannot set a private, loopback or link-local address on a self-hosted or office install (403): the
+  address rules are web_fetch's own (`isPublicAddress` / `isLocalAddress` / `checkHostName` through
+  `assertPublicHttps`, now with `allowHttp`), not new ones. A private address already set stays as it is when only
+  the model changes. The owner's notice names the host and the model.
+- **The notice reaches an owner who is away.** Next to the live notice (the channel of the connection notices) it is
+  an inbox row (`credential.change`, table `credential_change_notices`, migration 116, additive, reader level 1;
+  who, action, the connection's name or the engine's host and model, never a key), in all five languages. It is sent
+  whenever the actor is **not an owner** (so a person demoted a moment ago is still reported). Also told, after
+  consideration: giving a connection to other people (`reassigned`), a zero limit (`zero_limit`), turning shared
+  subscriptions on (`shared_on`: a provider-terms risk the owner answers for). Not told, with a reason: turning
+  shared subscriptions off or the members' own connections on or off (no new risk; Activity log), renames, order and
+  normal limits (noise).
+- **A sign-in belongs to its starter and to the right door.** A team sign-in can be reached only through
+  `/api/admin/credential-logins`, a personal one only through `/api/me/...` (404 through the other). At store time a
+  team sign-in (Claude and ChatGPT) checks that its starter is still an active owner or admin
+  (`policy_changed` otherwise). Making someone a member ends their running team sign-ins; disabling them ends all
+  (`credentials/login.ts cancelLoginsOf`, called from `updateUser`). The owner or any admin can stop any **team**
+  sign-in (only one runs at a time, and a forgotten one blocked everybody for up to 16 minutes); the Activity log
+  says who (`credential.login_cancel`). Reading the address and sending the code stay the starter's alone.
+- **A member's own connection through the admin endpoints.** The owner keeps what the owner had. An admin may only
+  switch off or remove a **member's** (not the owner's, not another admin's), never rename, reorder, limit or
+  replace its key, and the member is told (live and in the inbox). Reversing it (switching it on again) is the
+  member's. This replaces the earlier "admins get the owner's powers here" line.
+- **Copy.** Texts for members who are told to ask now say owner or admin (all five languages).
+
+### Review round 2 of "Admins connect the team's AI too" (2026-11-07)
+
+- **The API engine's key is stored with its address, and read only for it.** The round-1 rule ("a changed address needs
+  a key") was decided from a read made before the admin's DNS wait and written after it, so an owner's new key saved
+  during that wait ended up paired with the admin's address. Now the key file holds the key and the origin it was
+  made for (`engine/api-agent.ts`); `readApiEngine`, which every reader that sends the key goes through, returns
+  `key: null` for any other origin. An older bare key is bound to the address that was set when it is first rewritten.
+  The handler also decides the rule from a fresh read with no wait before the write. Regression test: the review's
+  race, adapted (`a-credentials-api`).
+- **Redirects and re-pointed names.** API-engine calls never follow a redirect (`redirect: 'error'`, every install).
+  An address an admin set (`setBy: 'admin'` in `engine-api.json`; an address the owner set and an admin left alone stays
+  the owner's) must be a public address at every call, not only when it was saved, with the same classification as
+  before (`assertPublicHttps`, `allowHttp`). No cache: one DNS lookup per call is cheap beside the model call.
+- **A busy sign-in can be stopped from the dialog.** Only one sign-in runs per server. The 409 for an owner or an admin
+  starting one carries `LoginBusyParams` (the running sign-in's id, whether it is the team's or a member's own, and the
+  starter's name); a member starting their own gets none of it. The Add account dialog shows it with **Stop it**, and
+  the owner or an admin may stop any sign-in, a member's own included (that member is told, live and in the inbox,
+  `personal_login_stopped`). Reading the address and sending the code stay the starter's alone.
+- **A save counts as a change only when something differs.** Assignments are compared as sets and the limit by value, so
+  the edit dialog (which always sends its whole form) no longer tells the owner, nor writes a false "changed" line in
+  the Activity log, when only the name changed.
+- **The inbox row's `action` has no CHECK list** (migration 116, not released): a later build may add actions, and a
+  reader that does not know one shows a generic line. 116 is still free in the A range on dev after this merge.
+- **Sign-in rights, finished.** Deleting a member also ends their running sign-ins; a personal sign-in of a disabled or
+  deleted account stores nothing; a Claude sign-in looks at its starter's role again inside the write itself (after
+  the provider check, which takes seconds).
+- **Texts.** "The team owner moved your connection" now names who did (an admin may).
+- **Matrix tests.** The admin-reauth cases are sent with a wrong password and check the reason: the owner and an admin
+  must be refused at the password (or by its rate limit), a member for the role, so a refusal for the wrong reason does
+  not pass.
+
+### Review round 3 of "Admins connect the team's AI too" (2026-11-07)
+
+- **The key is bound to the whole address, path included.** On a gateway that serves many tenants under one host (for
+  example `/v1/{account}/{gateway}/…`) an origin is not an address. The key file now holds `{"key","url"}` with the
+  normalised address (scheme, host, port, path, query; no trailing slash, no fragment), and `readApiEngine` returns the key
+  only for exactly that address. The "a changed address needs a key of its own, or null" rule uses the same comparison, for
+  the owner too (a path change without a key is a 400). Key files of this change's earlier commits (origin-bound) and the
+  older bare ones are bound to the address that was set the first time they are rewritten. The key file is written before
+  the settings, so a failed key write never leaves an older key readable for a new address.
+- **An address an admin set stays "the admin's" whoever saves next.** `setBy` is kept while the address is unchanged (an
+  owner changing only the model does not make it trusted); only an owner who sets a new address makes it theirs.
+- **An admin sets https addresses only**, at save and before each call (and the per-call public check stays). The check and
+  the connection resolve a name separately, and Bun's fetch has its own DNS cache, so a name can be re-pointed in between;
+  with https the TLS name check still stops a request to an internal host. http (a local Ollama, a LAN address) stays the
+  owner's.
+- **The role is read again after every wait.** The API-engine save re-reads who asks (role, status) after the DNS
+  lookups and before the write; creating or replacing a team connection from the admin routes does the same inside
+  the write, after the provider check (`ensure`). A sign-in already did.
+- **Stopping a sign-in follows the document.** The owner may stop anyone's sign-in; an admin a team sign-in or a member's
+  own; an admin's own only the owner; the owner's own nobody else. A stop that does not happen because the sign-in is
+  saving its token (409) is neither recorded nor told.
+- **No notice for a save that changes nothing** (the same address, model, name, and no new key).
+

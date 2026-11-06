@@ -104,10 +104,14 @@ export class RemoteTools {
       const input = FILE_TOOLS[name as FileToolName].input.safeParse(args ?? {})
       if (!input.success) return result('Invalid tool input.', true)
       if (WRITE.has(name)) {
-        const target = authorize(this.ctx.files.fx, this.ctx.files.rules(), user, (input.data as { file_path: string }).file_path, 'write', { createDirs: true })
+        const filePath = (input.data as { file_path: string }).file_path
         // A null turn ID normally means a human file API. An external model has no server confirmation card: no team
-        // skill or rule (skills/), and no personal skill of the person (users/<id>/skills/) either
-        if (skillWriteTarget(target.rel) || skillWriteTarget((input.data as { file_path: string }).file_path)) return result('Skill changes require confirmation inside the team app.', true)
+        // skill or rule (skills/), and no personal skill of the person (users/<id>/skills/) either. The path as written
+        // is checked first: on a case-sensitive disk (Linux) "Users/<id>/Skills" is an unknown folder that authorize
+        // refuses with a vaguer answer, so the same request would read differently by OS
+        if (skillWriteTarget(filePath)) return result('Skill changes require confirmation inside the team app.', true)
+        const target = authorize(this.ctx.files.fx, this.ctx.files.rules(), user, filePath, 'write', { createDirs: true })
+        if (skillWriteTarget(target.rel)) return result('Skill changes require confirmation inside the team app.', true)
         const sources = JSON.parse(fresh.sources) as ReadSource[]
         if (widening(this.ctx.db, null, target.segs, sources)) return result('Saving here would expose previously read material to more people. Use a folder with the same or narrower access.', true)
       }

@@ -91,6 +91,17 @@ Or, once Claude Code or Codex is connected to the team ([the MCP connector](../a
 - Members can **suggest** a personal skill to the team. A skill manager of the target folder reviews it.
 - Every change to `skills/` is recorded, and the owner and admins get a notice with a link to the version history.
 
+## Members bring their own skills
+
+After a member's first good result with the skill their invite opened, one line under the answer asks whether they want to bring the skills or files they use to the team too. **Bring them** opens one sheet on a computer:
+
+- The member picks or drops their `.claude`, `.codex` or `.agents` folder, read the same way as above. A skill that holds a key never leaves their computer.
+- Nothing is ticked first. They tick up to 10 skills and send them as suggestions; up to 20 of their suggestions can wait at a time. Rule files and MCP servers are not sent.
+- The server checks every skill again (keys, scripts, size, names, paths on their computer) and keeps it outside the team files. No AI judges it.
+- When they can write the team folder, the sheet also links to it for files. On a phone the line offers only that folder, and nothing when they cannot write one.
+
+The owner and admins get one Inbox line per send ("Mina wants to bring 2 skills to the team"), which opens **Review**, grouped by person. Only the owner and admins see and approve such a skill: it is saved as `skills/<folder name>/` with its files, the member hears it, and the skill shows "Suggested by Mina" in the list. Approving never changes the skill the invite opens or the 7-day goal names. The line can be closed for good with ✕.
+
 ## Starter skills
 
 The repository has six starter skills with fictional inputs: weekly report, sales follow-up, brand brief, expense review, new-hire guide and meeting summary. [See the examples](../../../examples/README.md).

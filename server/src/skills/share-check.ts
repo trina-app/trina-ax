@@ -305,6 +305,13 @@ function checkSkillIn(s: ShareSkillIn, name: string): Outcome {
     }
   }
   if (s.files.length > SKILL_SHARE_LIMITS.skillFiles || total > SKILL_SHARE_LIMITS.skillBytes) return no('too_big')
+  // a file whose folder part is another kept file's path ("SKILL.md/x.md" beside SKILL.md) could not be written beside
+  // it: left out, so writing the skill never makes a folder where a file has to go (the review of members contribute)
+  const taken = new Set([fold(MANIFEST), ...files.map((f) => fold(f.rel))])
+  for (let i = files.length - 1; i >= 0; i--) {
+    const segs = files[i]!.rel.split('/')
+    for (let n = 1; n < segs.length; n++) if (taken.has(fold(segs.slice(0, n).join('/')))) { files.splice(i, 1); break }
+  }
   // the entry point: SKILL.md at the top of the folder (any letter case), or a command's own file
   let manifest: string | null
   let rest: typeof files
