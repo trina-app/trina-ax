@@ -10033,3 +10033,36 @@ Details: `docs/GOOGLE-DRIVE.md` "Hosted teams"; control plane side: trina-cloud 
 - **`source: "service"`** in `GET /api/admin/google-drive` (new enum value, additive) with one line in five languages,
   brand-neutral ("the hosting service").
 - Version impact: **minor** (a new, opt-in way to sign in; nothing changes without the variable).
+
+## DS — Every skill pack is a default (2026-11-06)
+
+넣을 곳: trina-ax `server/src/onboarding` (default-skills.ts, skill-packs.ts) and `resources/skill-packs/work`, 이유: the
+owner asked for every skill in the repository to be in every team without anyone installing it.
+
+- **What a team has by itself.** The packs in `DEFAULT_SKILL_PACKS` (shared/src/api/onboarding-packs.ts): general
+  (5), marketing (7) and the new work pack (6), 18 skills, under `skills/<pack>/<name>/SKILL.md` in the team's
+  language (Korean or English; id, ja and es get English, as the packs already did). The marketing pack's four
+  `shared/` folders are not made by the default: they stay with the pack's own install (the welcome steps' marketing
+  choice, the Team skills page), so a team that is not a marketing team gets no empty marketing folders.
+- **The work pack** is the six README example skills (`examples/skills/`), rewritten for the team's own files: no
+  fictional `shared/demo/` inputs, a title and a short form each, and the same limits (read only what the person
+  names, draft only, a person decides, sends and pays). Each one has a job of its own next to the other packs:
+  meeting-summary (decided / open / next, for people who were not there) beside meeting-tasks (tasks by person);
+  weekly-team-report "Weekly roundup / 주간 종합" (several teams on one page for the CEO, `recurring: weekly`) beside
+  marketing's weekly-report (one team's report); brand-brief "Creative brief / 제작 요청서" (a hand-off to a designer
+  or agency) beside campaign-plan. The examples stay as they are: they are the fictional quick-try with their data.
+- **Once per skill, recorded** (settings `onboarding.defaultSkills`, `<pack>/<name>` → status). Written as the first
+  active owner through placeSkill, the pack install's own step: folder rules decide, the file event is marked
+  `pack_install` (the owner is not the maker), the skills/ change audit follows, one `onboarding.default_skills` audit
+  row per run that added something. Recorded without writing when the file is there (`present`, or `kept` when someone
+  edited it: never replaced), when another team skill has the name (`blocked`: no second "/<name>"), or when nothing
+  is at the path but file_events have it (`removed`: deleted or moved on purpose, kept at least 365 days). Only a
+  write the folder rules refused stays unrecorded and is tried again. A later delete is never undone (the record).
+- **When.** At the server's start (5 s after, never under `bun test`) and every 10 minutes, and in the welcome steps
+  right after the general pack (setupWelcomeTeam), so a new team has the 18 skills from its first steps. Nothing runs
+  before setup (no owner). With everything recorded a run reads one settings row.
+- **Existing teams** get, on the first start of this version: the skills they never had; nothing for skills they have
+  (edited or not), deleted or have under another path.
+- Rejected: seeding in `bootstrapOwner` (setup) — every test harness sets up through it, and the welcome steps run
+  right after setup anyway; a migration — the skills are files written through the file layer as a person, not rows;
+  re-adding a deleted pack skill on update — a delete on purpose must stay.

@@ -23,6 +23,7 @@ import { exitAddressCheckOff, startEgressLearning } from './tools/egress'
 import { isHosted } from './system/deployment'
 import { dropHostedSpeechKey } from './credentials/speech-key'
 import { dropHostedChatKey } from './credentials/hosted-chat'
+import { startDefaultSkills } from './onboarding/default-skills'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -158,6 +159,8 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
     if (exitAddressCheckOff()) log.info('exit address check is off (MYCEL_EXIT_ADDRESS_CHECK): unless a relay reports it, every web address the AI opens needs a person')
     else startEgressLearning(ctx)
   }
+  // every team has the default skill packs' skills, each added once (onboarding/default-skills.ts). Never under `bun test`.
+  if (process.env.NODE_ENV !== 'test') startDefaultSkills(ctx)
   if (cfg.setupToken) {
     // office mode: the installer prints the link (`teamax setup-link`); the log stays free of the token
     if (cfg.mode === 'dev' && !cfg.office) log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)
