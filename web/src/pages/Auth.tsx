@@ -83,15 +83,18 @@ export function LanguageSwitcher() {
   )
 }
 
+/** The sign-in style screens. From 640px the form is a card in the middle of the screen; on a phone it has no frame
+ * (the card's edge sat 16px from the screen's and only boxed the fields in once more) and it starts near the top, so
+ * the button is in view and the keyboard does not push the page around. */
 function AuthFrame({ title, children, sub, switcher = true }: { title: string; children: ReactNode; sub?: ReactNode; switcher?: boolean }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10">
+    <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10 max-sm:justify-start max-sm:pt-[max(2.5rem,8vh)]">
       <main className="w-full max-w-sm">
-        <p className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+        <p className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight max-sm:mb-8">
           <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg dark:ring-1 dark:ring-line" />
           {PRODUCT.displayName}
         </p>
-        <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)]">
+        <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)] max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:shadow-none">
           <h1 className={clsx('text-lg font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
           {sub && <div className="mb-4 text-sm text-muted">{sub}</div>}
           {children}
@@ -312,17 +315,19 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { s
       <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={errorOf('username') ?? (usernameProblem(form.username) ? t('auth.usernameHint') : null)}>
         <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
       </Field>
-      <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
-        <input className={inputCls} name="password" type={show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="invite-password" />
-      </Field>
-      <div className="flex items-center justify-between gap-2">
-        <span role="status" className="text-xs text-warn" data-testid="caps-lock">
-          {capsOn ? t('auth.capsLock') : ''}
-        </span>
-        <IconButton label={show ? t('auth.hidePassword') : t('auth.showPassword')} aria-pressed={show} onClick={() => setShow(!show)} data-testid="invite-password-show">
+      {/* "Show password" sits on the field's label line (not a row of its own), outside the label so it is not part of
+          the field's name; Caps Lock is said under the field, and takes no room while it is off */}
+      <div className="relative">
+        <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
+          <input className={inputCls} name="password" type={show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="invite-password" />
+        </Field>
+        <IconButton label={show ? t('auth.hidePassword') : t('auth.showPassword')} aria-pressed={show} onClick={() => setShow(!show)} className="absolute -top-1.5 -right-1.5 max-sm:-top-2 max-sm:-right-2" data-testid="invite-password-show">
           {show ? <EyeOff size={15} /> : <Eye size={15} />}
           <span className="ml-1 text-xs">{show ? t('auth.hidePassword') : t('auth.showPassword')}</span>
         </IconButton>
+        <span role="status" className="mt-1 block text-xs text-warn empty:mt-0" data-testid="caps-lock">
+          {capsOn ? t('auth.capsLock') : ''}
+        </span>
       </div>
       {error && (
         <p role="alert" className="text-sm text-danger">
