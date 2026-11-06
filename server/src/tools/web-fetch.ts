@@ -7,7 +7,8 @@
 //   original name as Host and TLS SNI — no second lookup, so DNS rebinding cannot switch the target
 // - our own HTTP/1.1 GET over node:net / node:tls: Bun's fetch and node:http follow HTTP(S)_PROXY from the
 //   environment and cannot be pinned to an address (measured), raw sockets can
-// - redirects followed by hand, at most 5, each hop checked again; 5 MB / 15 s limits; no cookies or credentials
+// - redirects followed by hand, at most 5, each hop checked again (and shown to the caller first: `onRedirect`, the
+//   echo check of tools/connection-urls.ts redirectGuard); 5 MB / 15 s limits; no cookies or credentials
 // - the text goes back wrapped as external data
 import dns from 'node:dns/promises'
 import net from 'node:net'
@@ -239,10 +240,14 @@ export interface PinnedRequestInit {
   headers?: [string, string][]
   body?: Buffer | null
   deadline: number
+  /** also fails ("the site stopped sending") when no bytes arrive for this long, from the start and after each read: a
+   * big answer that keeps coming may take until the deadline, one that stops does not (an MCP tools/list, mcp.ts) */
+  idleMs?: number
   maxBytes: number
   insecureTlsForTests?: boolean
-  /** called with the body so far (de-chunked) after each read once the head is in: true = the answer is complete, e.g.
-   * an event stream that stays open after the reply (external-service connections, integrations/connections/mcp.ts) */
+  /** called with the body so far (de-chunked) after each read that brings a blank line (mayEndEvent), once the head is
+   * in: true = the answer is complete, e.g. an event stream that stays open after the reply (external-service
+   * connections, integrations/connections/mcp.ts) */
   until?: (body: Buffer, head: { status: number; headers: Record<string, string> }) => boolean
   /** stops the request (the socket is closed) */
   signal?: AbortSignal
@@ -250,6 +255,12 @@ export interface PinnedRequestInit {
 
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 const BREAKS = /[\r\n\0]/
+
+/** These raw bytes (the last read and the few before it) may finish an event of an event stream: a blank line is two
+ * line ends (LF, CR or CRLF) in a row. Every line of chunked framing ends in CRLF, so a plain "a line break came" is true
+ * for nearly every read of a chunked answer. The framing never hides a blank line: with a chunk's end between the two
+ * line ends the first is followed by the framing's CR, and the second comes right after the LF of a size line. */
+export const mayEndEvent = (raw: Buffer) => raw.includes('\n\n') || raw.includes('\n\r') || raw.includes('\r\r')
 
 /** One HTTP/1.1 request over a socket pinned to the resolved address (no proxy from the environment, no second DNS
  * lookup), `Connection: close`. The answer ends when the socket closes or, sooner, when its Content-Length or last chunk
@@ -275,8 +286,14 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
     const sock: net.Socket = t.url.protocol === 'https:'
       ? tls.connect({ host: t.ip, port: t.port, servername: net.isIP(t.host) ? undefined : t.host, ALPNProtocols: ['http/1.1'], rejectUnauthorized: !o.insecureTlsForTests })
       : net.connect({ host: t.ip, port: t.port })
-    const timer = setTimeout(() => { sock.destroy(); reject(new ToolError('the site did not answer in time')) }, remaining)
-    const stop = () => { clearTimeout(timer); sock.destroy(); reject(new ToolError('stopped')) }
+    let idle: ReturnType<typeof setTimeout> | undefined
+    const clear = () => { clearTimeout(timer); clearTimeout(idle) }
+    const late = (why: string) => () => { clear(); sock.destroy(); reject(new ToolError(why)) }
+    const timer = setTimeout(late('the site did not answer in time'), remaining)
+    const quiet = late('the site stopped sending')
+    const waitIdle = () => { if (o.idleMs) { clearTimeout(idle); idle = setTimeout(quiet, o.idleMs) } }
+    waitIdle()
+    const stop = () => { clear(); sock.destroy(); reject(new ToolError('stopped')) }
     if (o.signal?.aborted) return stop()
     o.signal?.addEventListener('abort', stop, { once: true })
     sock.once('close', () => o.signal?.removeEventListener('abort', stop))
@@ -286,23 +303,28 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
     let head_: ReturnType<typeof framingOf> = null
     let tail = Buffer.alloc(0)
     let ended = false
-    const done = () => { clearTimeout(timer); try { resolve(parseResponse(Buffer.concat(chunks), truncated, noBody)) } catch (e) { reject(e) } }
+    const done = () => { clear(); try { resolve(parseResponse(Buffer.concat(chunks), truncated, noBody)) } catch (e) { reject(e) } }
     sock.once(t.url.protocol === 'https:' ? 'secureConnect' : 'connect', () => sock.write(req))
     sock.on('data', (d: Buffer) => {
       if (ended) return
+      waitIdle()
       size += d.length
       // headers + body; the cap applies to the raw stream (compressed bodies are capped again after decoding)
       if (size > o.maxBytes + 64 * 1024) { truncated = true; ended = true; chunks.push(d.subarray(0, Math.max(0, d.length - (size - o.maxBytes - 64 * 1024)))); sock.destroy(); return done() }
       chunks.push(d)
-      tail = Buffer.concat([tail, d]).subarray(-4)
+      const recent = Buffer.concat([tail, d])
+      tail = recent.subarray(-4)
       // the answer may be complete before the socket closes (see pinnedRequest)
-      if (!head_) head_ = framingOf(Buffer.concat(chunks))
+      // the head is looked for in the first 256 KB only (a bigger "head" is no HTTP answer: parseResponse says so)
+      if (!head_ && size <= 256 * 1024) head_ = framingOf(Buffer.concat(chunks))
       const f = head_?.framing ?? 'close'
       let complete = !!head_ && (noBody || head_.status === 204 || head_.status === 304) ? true
         : f === 'close' ? false
         : f === 'chunked' ? tail.toString('latin1') === '\r\n\r\n' && chunkedComplete(Buffer.concat(chunks), head_!.body)
         : size - head_!.body >= f.length
-      if (!complete && head_ && o.until) {
+      // `until` looks at the whole body so far: only after a read that brings a blank line (an event stream's reply ends
+      // with one), so a large answer (an MCP image of several MB, a big tools/list) is not re-read with every network piece
+      if (!complete && head_ && o.until && mayEndEvent(recent)) {
         const all = Buffer.concat(chunks)
         const h = parseResponse(all.subarray(0, head_.body), false, true)
         const raw = all.subarray(head_.body)
@@ -315,7 +337,7 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
     sock.on('end', done)
     sock.on('close', () => { if (!truncated) done() })
     sock.on('error', (e: NodeJS.ErrnoException) => {
-      clearTimeout(timer)
+      clear()
       reject(new ToolError(/CERT|SSL|TLS|self.signed|altname/i.test(String(e.code) + e.message) ? `TLS certificate problem: ${e.message}` : `could not connect (${e.code ?? e.message})`))
     })
   })
@@ -438,17 +460,40 @@ const closeTagRe = new Map<string, RegExp>()
 const closeTag = (name: string) => { let r = closeTagRe.get(name); if (!r) { r = new RegExp(`</${name}\\s*>`, 'gi'); closeTagRe.set(name, r) } return r }
 const isNameChar = (c: number) => (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c === 45 || c === 58
 
+/** Prose mode: the page's frame around its content (the site menu, the footer, side boxes, buttons). Not a form: some
+ * site builders (ASP.NET Web Forms) put the whole page in one. */
+const FRAME_TAGS = new Set(['nav', 'footer', 'aside', 'button', 'dialog'])
+const FRAME_ROLE = /\brole\s{0,5}=\s{0,5}["']?(?:navigation|banner|contentinfo|search|menubar|menu)\b/i
+const CLASS_ID = /\b(?:class|id)\s{0,5}=\s{0,5}(?:"([^"]{0,500})"|'([^']{0,500})'|([^\s>"']{1,200}))/gi
+/** class or id words of a site's menus and frames (the "_gnb" of "site_gnb" too) */
+const FRAME_WORD = /(?:^|[\s_-])(?:gnb|lnb|snb|breadcrumbs?|skip-?(?:nav|navigation|to-content|links?)|cookie-?(?:banner|consent|notice|bar)|sitemap)(?:$|[\s_-])/i
+const frameAttrs = (attrs: string): boolean => {
+  if (attrs.length > 4000) return false
+  if (FRAME_ROLE.test(attrs)) return true
+  for (const m of attrs.matchAll(CLASS_ID)) if (FRAME_WORD.test(m[1] ?? m[2] ?? m[3] ?? '')) return true
+  return false
+}
+
 /**
  * Readable text from HTML: drops scripts / styles / hidden elements, keeps headings, list items and links.
  * One forward pass (every position is looked at a bounded number of times): pages come from anyone, and a
- * backtracking regex over a 5 MB page would stall the whole server (one process).
+ * backtracking regex over a 5 MB page would stall the whole server (one process). Carriage returns are line breaks
+ * (a page written with CRLF gave hundreds of blank lines).
+ * `prose`: only the page's own content, for a company intro (onboarding/brand-assets.ts introText): the site's frame is
+ * left out (nav, footer, aside, buttons, a header outside main or article, menus by role, class or id), and
+ * the markup's own line breaks and a <br> are spaces (a heading broken for the screen is one line).
  */
-export function htmlToText(html: string, base: URL): { title?: string; text: string } {
+export function htmlToText(html: string, base: URL, o: { prose?: boolean } = {}): { title?: string; text: string } {
   const out: string[] = []
   let title: string | undefined
   let hidden: { name: string; depth: number } | null = null
   let anchor: { at: number; href: string } | null = null
+  /** prose: inside main or article (a header there is the content's own) */
+  let content = 0
+  const prose = !!o.prose
   const emit = (s: string) => { if (!hidden) out.push(s) }
+  /** the page's text between tags (prose: its own line breaks and runs of spaces are one space) */
+  const text = (s: string) => emit(prose ? decodeEntities(s).replace(/\s+/g, ' ') : decodeEntities(s))
   /** structure (newlines, list marks) inside a link label is just a space */
   const mark = (s: string) => emit(anchor ? ' ' : s)
   const closeAnchor = () => {
@@ -464,8 +509,8 @@ export function htmlToText(html: string, base: URL): { title?: string; text: str
   let i = 0
   while (i < n) {
     const lt = html.indexOf('<', i)
-    if (lt < 0) { emit(decodeEntities(html.slice(i))); break }
-    if (lt > i) emit(decodeEntities(html.slice(i, lt)))
+    if (lt < 0) { text(html.slice(i)); break }
+    if (lt > i) text(html.slice(i, lt))
     i = lt
     const c1 = html.charCodeAt(i + 1)
     if (html.startsWith('<!--', i)) { const e = html.indexOf('-->', i + 4); if (e < 0) break; i = e + 3; emit(' '); continue }
@@ -491,6 +536,7 @@ export function htmlToText(html: string, base: URL): { title?: string; text: str
     i = gt + 1
     if (closing) {
       if (hidden) { if (name === hidden.name && --hidden.depth === 0) hidden = null; continue }
+      if (prose && (name === 'main' || name === 'article') && content > 0) content--
       if (name === 'a') closeAnchor()
       else if (name === 'title') { /* title text was taken at the start tag */ }
       else if (BLOCK_END.has(name)) mark('\n\n')
@@ -509,6 +555,10 @@ export function htmlToText(html: string, base: URL): { title?: string; text: str
     }
     if (hidden) { if (name === hidden.name && !selfClosing && !VOID.has(name)) hidden.depth++; continue }
     if (!VOID.has(name) && !selfClosing && HIDDEN_ATTR.test(attrs)) { hidden = { name, depth: 1 }; continue }
+    if (prose && !VOID.has(name) && !selfClosing) {
+      if (FRAME_TAGS.has(name) || (name === 'header' && content === 0) || frameAttrs(attrs)) { hidden = { name, depth: 1 }; continue }
+      if (name === 'main' || name === 'article') content++
+    }
     if (name === 'a') {
       closeAnchor()
       const h = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs)
@@ -517,11 +567,11 @@ export function htmlToText(html: string, base: URL): { title?: string; text: str
     }
     if (/^h[1-6]$/.test(name)) mark('\n\n' + '#'.repeat(Number(name[1])) + ' ')
     else if (name === 'li') mark('\n- ')
-    else if (name === 'br' || name === 'hr') mark('\n')
+    else if (name === 'br' || name === 'hr') mark(prose && name === 'br' ? ' ' : '\n')
     else if (name === 'td' || name === 'th') mark(' | ')
   }
   closeAnchor()
-  const s = out.join('').replace(/[ \t\f\v\u00a0]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  const s = out.join('').replace(/\r\n?/g, '\n').replace(/[ \t\f\v\u00a0]+/g, ' ').replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
   return { title: title || undefined, text: s }
 }
 
@@ -533,7 +583,8 @@ function decodeText(b: Buffer, charset: string): string {
   try { return new TextDecoder(charset).decode(b) } catch { return new TextDecoder('utf-8').decode(b) }
 }
 
-export interface WebFetchResult { url: string; title?: string; text: string; truncated: boolean }
+/** `html`: the page's markup, only when the call asked for it (keepHtml) and the page was HTML */
+export interface WebFetchResult { url: string; title?: string; text: string; truncated: boolean; html?: string }
 
 export interface FetchOptions extends ResolveOptions {
   maxChars?: number
@@ -544,9 +595,19 @@ export interface FetchOptions extends ResolveOptions {
   pdftotext?: string | null
 }
 
+/** One web_fetch call: the test hooks plus what the tool decides per call. */
+export interface WebFetchCall extends FetchOptions {
+  /** called with each redirect's next address before it is looked up or requested (throw to stop); time spent here,
+   * a card waiting for the person, does not count against the time limit */
+  onRedirect?: (next: string) => Promise<void> | void
+  /** keep the page's markup in the result (a company profile draft looks at it for the brand's pictures and colours,
+   * onboarding/brand-assets.ts); the AI still gets only the text */
+  keepHtml?: boolean
+}
+
 /** Fetch a page as text. Throws ToolError with a message for the model. */
-export async function webFetch(rawUrl: string, o: FetchOptions = {}): Promise<WebFetchResult> {
-  const deadline = Date.now() + (o.timeoutMs ?? FETCH_TIMEOUT_MS)
+export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<WebFetchResult> {
+  let deadline = Date.now() + (o.timeoutMs ?? FETCH_TIMEOUT_MS)
   let current = rawUrl
   for (let hop = 0; ; hop++) {
     const t = await resolveTarget(current, { ...o, deadline })
@@ -554,6 +615,11 @@ export async function webFetch(rawUrl: string, o: FetchOptions = {}): Promise<We
     if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
       if (hop >= FETCH_MAX_REDIRECTS) throw new ToolError(`too many redirects (more than ${FETCH_MAX_REDIRECTS})`)
       try { current = new URL(r.headers.location, t.url).href } catch { throw new ToolError('the site redirected to an invalid URL') }
+      if (o.onRedirect) {
+        const t0 = Date.now()
+        await o.onRedirect(current)
+        deadline += Date.now() - t0
+      }
       continue
     }
     if (r.status >= 400) throw new ToolError(`the site answered HTTP ${r.status}`)
@@ -563,6 +629,7 @@ export async function webFetch(rawUrl: string, o: FetchOptions = {}): Promise<We
     const maxChars = o.maxChars ?? DEFAULT_MAX_CHARS
     let title: string | undefined
     let text: string
+    let html: string | undefined
     if (/pdf/.test(ct) || (!ct && data.subarray(0, 5).toString('latin1') === '%PDF-')) {
       const bin = o.pdftotext === undefined ? which('pdftotext') : o.pdftotext
       if (!bin) throw new ToolError('this is a PDF and pdftotext is not installed on the server')
@@ -571,13 +638,13 @@ export async function webFetch(rawUrl: string, o: FetchOptions = {}): Promise<We
       text = p.stdout.toString('utf8')
     } else if (!ct || /^(text\/|application\/(xhtml\+xml|xml|json|ld\+json|rss\+xml|atom\+xml|javascript))/.test(ct)) {
       const s = decodeText(data, charsetOf(ct, data))
-      if (/html/.test(ct) || (!ct && /<html|<!doctype html/i.test(s.slice(0, 2000)))) ({ title, text } = htmlToText(s, t.url))
+      if (/html/.test(ct) || (!ct && /<html|<!doctype html/i.test(s.slice(0, 2000)))) { ({ title, text } = htmlToText(s, t.url)); if (o.keepHtml) html = s }
       else text = s
     } else {
       throw new ToolError(`unsupported content type ${ct.split(';')[0]} (web_fetch reads web pages, text, JSON and PDF)`)
     }
     const truncated = cut || r.truncated || text.length > maxChars
-    return { url: t.url.href, title, text: text.slice(0, maxChars), truncated }
+    return { url: t.url.href, title, text: text.slice(0, maxChars), truncated, ...(html !== undefined ? { html } : {}) }
   }
 }
 

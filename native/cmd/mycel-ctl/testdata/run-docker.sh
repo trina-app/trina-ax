@@ -13,5 +13,6 @@ FROM oven/bun:1.3.12-debian
 RUN apt-get update && apt-get install -y --no-install-recommends nftables procps zstd && rm -rf /var/lib/apt/lists/* \
  && useradd --system -U -s /usr/sbin/nologin axserver && useradd --system -U -s /usr/sbin/nologin axagent
 DOCKER
-docker run --rm -i --privileged --cgroupns=private -e MYCEL_CTL_ROOT_TESTS=1 -w /src/cmd/mycel-ctl \
-  -v "$PWD:/src:ro" mycel-ctl-test /src/bin/ctl-test/mycel-ctl.test -test.v -test.count=1 "$@"
+# the whole repository (read-only): some tests read the unit templates in scripts/linux/systemd/
+docker run --rm -i --privileged --cgroupns=private -e MYCEL_CTL_ROOT_TESTS=1 -w /src/native/cmd/mycel-ctl \
+  -v "$(cd .. && pwd):/src:ro" mycel-ctl-test /src/native/bin/ctl-test/mycel-ctl.test -test.v -test.count=1 "$@"

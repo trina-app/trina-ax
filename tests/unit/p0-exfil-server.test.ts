@@ -7,7 +7,8 @@
 //  - scheduled tasks: schedule_create raises a card with the whole instruction and its addresses; a run's message is
 //    not the person's own words (auto_sent), so only addresses the card showed open without asking, also after the
 //    person writes more in the run's chat
-//  - the link budget: search results and links of fetched pages open without a card 8 times per answer, 30 per chat
+//  - the link budget: search results and links of fetched pages open without a card 30 times per answer, 150 per
+//    chat, 8 in a run nobody watches
 import dnsP from 'node:dns/promises'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -18,7 +19,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
-import { gateUrl, LINK_BUDGET, linkBudgetFrom, opaqueParts, rememberUrls, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
+import { DEFAULT_LINK_BUDGET, gateUrl, LINK_BUDGET, linkBudgetFrom, opaqueParts, rememberUrls, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
 import { scheduleCard, TEXT as SCHEDULE_TEXT } from '../../server/src/tools/schedules'
 import { fixPromptWords } from '../../web/src/lib/artifacts'
 import { migrate, MIGRATIONS_DIR, openDb, readMigrations } from '../../server/src/db'
@@ -377,62 +378,84 @@ describe('the link budget (F5, review M5)', () => {
     return chat
   }
 
+  // the numbers as they ship (docs/DECISIONS.md "Web links: a bigger budget"): 30 per answer, 150 per chat, 8 per run
+  // where nobody can be asked
+  const T = DEFAULT_LINK_BUDGET.turn, C = DEFAULT_LINK_BUDGET.chat, U = DEFAULT_LINK_BUDGET.unattended
+
   test('defaults and the operator setting', () => {
-    expect(LINK_BUDGET).toEqual({ turn: 8, chat: 30 })
-    expect(linkBudgetFrom('4, 12')).toEqual({ turn: 4, chat: 12 })
-    expect(linkBudgetFrom('nonsense')).toEqual({ turn: 8, chat: 30 })
+    expect(LINK_BUDGET).toEqual({ turn: 30, chat: 150, unattended: 8 })
+    // the old two numbers still work; an unattended run gets the smaller of 8 and the per-answer number
+    expect(linkBudgetFrom('4, 12')).toEqual({ turn: 4, chat: 12, unattended: 4 })
+    expect(linkBudgetFrom('8,30')).toEqual({ turn: 8, chat: 30, unattended: 8 })
+    expect(linkBudgetFrom('60,300')).toEqual({ turn: 60, chat: 300, unattended: 8 })
+    expect(linkBudgetFrom('30, 150, 0')).toEqual({ turn: 30, chat: 150, unattended: 0 })
+    expect(linkBudgetFrom('nonsense')).toEqual({ turn: 30, chat: 150, unattended: 8 })
   })
 
-  test('8 learned links per answer open without a card, the 9th asks; the same link again is free; typed and allowed ones are outside it', async () => {
+  test(`${T} learned links per answer open without a card, the next asks; the same link again is free; typed and allowed ones are outside it`, async () => {
     const found = Array.from({ length: 6 }, (_, i) => `https://news.example/a${i}`)
     const chat = await chatWithSearch(found, 'compare with https://typed.example/doc')
-    rememberUrls(h.ctx.db, chat, Array.from({ length: 10 }, (_, i) => `https://linked.example/p${i}`))
+    rememberUrls(h.ctx.db, chat, Array.from({ length: T + 10 }, (_, i) => `https://linked.example/p${i}`))
     rememberUrls(h.ctx.db, chat, ['https://allowed.example/x'], 'allowed')
     const turn = 'turn-a'
     const asked: Asked[] = []
     const no = person(false, asked)
-    for (const u of [...found, 'https://linked.example/p0', 'https://linked.example/p1']) expect(await gateUrl(h.ctx.db, chat, u, no, { turnId: turn })).toBe('seen')
+    const linked = Array.from({ length: T - found.length }, (_, i) => `https://linked.example/p${i}`)
+    for (const u of [...found, ...linked]) expect(await gateUrl(h.ctx.db, chat, u, no, { turnId: turn })).toBe('seen')
     expect(asked).toHaveLength(0)
-    const e = await gateUrl(h.ctx.db, chat, 'https://linked.example/p2', no, { turnId: turn }).catch((x) => x)
+    const over = `https://linked.example/p${linked.length}`
+    const e = await gateUrl(h.ctx.db, chat, over, no, { turnId: turn }).catch((x) => x)
     expect(String(e.message)).toContain('did not allow')
     expect(asked).toHaveLength(1)
-    expect(asked[0]!.question).toContain('8 per answer, 30 per conversation')
-    expect(asked[0]!.question).toContain('https://linked.example/p2')
+    expect(asked[0]!.question).toContain(`${T} per answer, ${C} per conversation`)
+    expect(asked[0]!.question).toContain(over)
     // already counted: free; typed and allowed: free
     expect(await gateUrl(h.ctx.db, chat, found[0]!, no, { turnId: turn })).toBe('seen')
     expect(await gateUrl(h.ctx.db, chat, 'https://typed.example/doc', no, { turnId: turn })).toBe('seen')
     expect(await gateUrl(h.ctx.db, chat, 'https://allowed.example/x', no, { turnId: turn })).toBe('seen')
     // the person allows it: remembered as allowed, no budget needed later
-    expect(await gateUrl(h.ctx.db, chat, 'https://linked.example/p2', person(true), { turnId: turn })).toBe('confirmed')
-    expect(await gateUrl(h.ctx.db, chat, 'https://linked.example/p2', no, { turnId: turn })).toBe('seen')
+    expect(await gateUrl(h.ctx.db, chat, over, person(true), { turnId: turn })).toBe('confirmed')
+    expect(await gateUrl(h.ctx.db, chat, over, no, { turnId: turn })).toBe('seen')
     // nobody to ask (a scheduled run): refused, saying why
-    expect(gateUrl(h.ctx.db, chat, 'https://linked.example/p3', null, { turnId: turn })).rejects.toThrow(/as many of those without asking/)
-    // the next answer has its own 8
-    expect(await gateUrl(h.ctx.db, chat, 'https://linked.example/p3', no, { turnId: 'turn-b' })).toBe('seen')
+    const next = `https://linked.example/p${linked.length + 1}`
+    expect(gateUrl(h.ctx.db, chat, next, null, { turnId: turn })).rejects.toThrow(/as many of those without asking/)
+    // the next answer has its own
+    expect(await gateUrl(h.ctx.db, chat, next, no, { turnId: 'turn-b' })).toBe('seen')
     // this turn's own search results count the same way
     const fresh = await chatWith()
-    const now = Array.from({ length: 9 }, (_, i) => `https://now.example/r${i}`)
+    const now = Array.from({ length: T + 1 }, (_, i) => `https://now.example/r${i}`)
     const p = person(false, [], now)
-    for (const u of now.slice(0, 8)) expect(await gateUrl(h.ctx.db, fresh, u, p, { turnId: 't1' })).toBe('seen')
-    expect(gateUrl(h.ctx.db, fresh, now[8]!, p, { turnId: 't1' })).rejects.toThrow(/did not allow/)
+    for (const u of now.slice(0, T)) expect(await gateUrl(h.ctx.db, fresh, u, p, { turnId: 't1' })).toBe('seen')
+    expect(gateUrl(h.ctx.db, fresh, now[T]!, p, { turnId: 't1' })).rejects.toThrow(/did not allow/)
   })
 
-  test('30 per chat across answers', async () => {
-    const links = Array.from({ length: 40 }, (_, i) => `https://linked.example/c${i}`)
+  test(`${C} per chat across answers`, async () => {
+    const links = Array.from({ length: C + 10 }, (_, i) => `https://linked.example/c${i}`)
     const chat = await chatWith()
     rememberUrls(h.ctx.db, chat, links)
     const no = person(false)
-    for (let i = 0; i < 30; i++) expect(await gateUrl(h.ctx.db, chat, links[i]!, no, { turnId: `t${Math.floor(i / 8)}` })).toBe('seen')
-    expect(gateUrl(h.ctx.db, chat, links[30]!, no, { turnId: 'fresh-turn' })).rejects.toThrow(/did not allow/)
+    for (let i = 0; i < C; i++) expect(await gateUrl(h.ctx.db, chat, links[i]!, no, { turnId: `t${Math.floor(i / T)}` })).toBe('seen')
+    expect(gateUrl(h.ctx.db, chat, links[C]!, no, { turnId: 'fresh-turn' })).rejects.toThrow(/did not allow/)
+  })
+
+  test(`a run nobody watches (a scheduled run) keeps ${U} per run`, async () => {
+    const links = Array.from({ length: U + 2 }, (_, i) => `https://linked.example/u${i}`)
+    const chat = await chatWith()
+    rememberUrls(h.ctx.db, chat, links)
+    const asked: Asked[] = []
+    const run: TurnPerson = { ...person(true, asked), unattended: true }
+    for (let i = 0; i < U; i++) expect(await gateUrl(h.ctx.db, chat, links[i]!, run, { turnId: 'run-1' })).toBe('seen')
+    expect(gateUrl(h.ctx.db, chat, links[U]!, run, { turnId: 'run-1' })).rejects.toThrow(new RegExp(`as many of those without asking as allowed where nobody can confirm them \\(${U} per scheduled run`))
+    expect(asked).toHaveLength(0)
   })
 
   test('parallel calls of one answer cannot all take the last places', async () => {
-    const links = Array.from({ length: 12 }, (_, i) => `https://linked.example/par${i}`)
+    const links = Array.from({ length: T + 4 }, (_, i) => `https://linked.example/par${i}`)
     const chat = await chatWith()
     rememberUrls(h.ctx.db, chat, links)
     const asked: Asked[] = []
     const r = await Promise.allSettled(links.map((u) => gateUrl(h.ctx.db, chat, u, person(false, asked), { turnId: 'par' })))
-    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(8)
+    expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(T)
     expect(asked).toHaveLength(4)
   })
 

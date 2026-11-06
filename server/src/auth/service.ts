@@ -13,8 +13,9 @@ import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import type { AuthInfo, RealtimeHub, RequestInfo, SessionService } from '../services'
 import { getTeamSettings } from '../admin/settings'
-import { voiceInputOn } from '../credentials/speech-key'
+import { voiceInputOn, voiceInputOutside } from '../credentials/speech-key'
 import { audit } from '../admin/audit'
+import { profileOf } from './profiles'
 import { hashToken, newToken, verifyPassword } from './passwords'
 import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
@@ -22,7 +23,9 @@ import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } f
 import { canChooseEngine } from '../admin/engine-choice'
 import { teamIconVersion } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
+import { windowsAppSourceOf } from '../system/windows-app'
 import { safeOpsEnabled } from '../safe-ops/runner'
+import { devEnvFlag } from '../devenv/setting'
 import { cancelPushSession } from '../notifications/push-events'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
@@ -231,19 +234,23 @@ export class AuthService implements SessionService {
     const choose = canChooseEngine(this.ctx, { id: u.id, role: u.role })
     const prefs = parsePrefs(u.prefs)
     if (!choose) { delete prefs.engine; delete prefs.model }
+    const windowsApp = windowsAppSourceOf(this.ctx.config)
     return {
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
         mustChangePassword: !!u.must_change_password, prefs,
         canChooseEngine: choose,
+        ...profileOf(this.db, u.id),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db), chatTrashRetentionDays: settings.chatTrashRetentionDays },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
-        ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}) },
+        ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
+        ...(devEnvFlag() ? { devEnv: true as const } : {}),
+        ...(windowsApp ? { windowsApp } : {}) },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }
   }

@@ -20,6 +20,9 @@ import { socketPathMessage, underSandboxDeniedTmp } from './system/sockets'
 import { guardOfficeClaudeJson } from './engine/claude-json-guard'
 import { setupServerCgroups } from './system/cgroups'
 import { exitAddressCheckOff, startEgressLearning } from './tools/egress'
+import { isHosted } from './system/deployment'
+import { dropHostedSpeechKey } from './credentials/speech-key'
+import { dropHostedChatKey } from './credentials/hosted-chat'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -75,6 +78,10 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
   const db = openDb(path.join(cfg.dataDir, 'app.db'))
   syncFollowingLocales(db) // people without their own language see the current team default (a restored DB may differ)
+  // the hosting service's speech key belongs to its hosted servers only (a hosted team's backup restored here keeps none)
+  if (!isHosted(cfg) && dropHostedSpeechKey(db)) log.info('removed the hosting service\'s speech-to-text key: this server is not hosted')
+  // the same for its trial AI credit
+  if (!isHosted(cfg) && dropHostedChatKey(db)) log.info('removed the hosting service\'s trial AI key: this server is not hosted')
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
   guardOfficeClaudeJson(ctx, 'start') // office: no MCP servers in the Mac user's ~/.claude.json (an engine may write it)

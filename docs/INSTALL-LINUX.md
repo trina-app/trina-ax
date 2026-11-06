@@ -29,7 +29,7 @@
 
 **서버의 공인 주소:** 서버는 시작할 때와 30분마다 릴리스 피드(`https://updates.trina.app/ip`)에 IPv4·IPv6로 한 번씩 물어 자기 공인 주소를 알아 둡니다. AI가 여는 웹 주소가 그 주소(서버 앞의 공유기·NAT로 되돌아오는 길)면 거절합니다. 그 주소를 모르는 동안(인터넷이 없거나 피드로 나가는 연결이 막힌 서버)에는 AI가 여는 모든 웹 주소를 사람에게 묻고, 예약 작업은 웹 주소를 열지 못합니다. 피드에 묻지 않게 하려면 `/etc/default/mycel`에 `MYCEL_EXIT_ADDRESS_CHECK=off`를 넣으세요(그러면 계속 묻습니다).
 
-**HWP/HWPX 미리보기:** 선택해서 설치하는 '한글 문서 미리보기' 플러그인입니다. 관리 > 플러그인의 공식 목록에서 설치하면 서버가 고정된 빌드를 릴리스 피드(업데이트를 받는 주소)에서 https로 받으므로, 서버에서 그 주소로 나가는 연결이 열려 있어야 합니다. 기본 릴리스 키트에는 rhwp 실행 파일을 포함하지 않습니다. Debian 12는 제품 지원 대상이지만 HWP 미리보기는 사용할 수 없고, 관리 화면에 '이 서버에서는 쓸 수 없어요'로 보입니다(glibc 2.36; 고정 렌더러는 2.39 필요). 원본 다운로드와 기존 글자 읽기는 유지됩니다. OS 최소 지원 버전은 바꾸지 않습니다. 실행 조건과 한계는 [HWP 런타임 안내](../resources/hwp/README.md)를 참고하세요.
+**HWP/HWPX 미리보기:** 선택해서 설치하는 '한글 문서 미리보기' 플러그인입니다. 관리 > 플러그인의 공식 목록에서 설치하면 서버가 고정된 빌드를 릴리스 피드(업데이트를 받는 주소)에서 https로 받으므로, 서버에서 그 주소로 나가는 연결이 열려 있어야 합니다. 기본 릴리스 키트에는 rhwp 실행 파일을 포함하지 않습니다. Debian 12는 제품 지원 대상이지만 HWP 미리보기는 사용할 수 없고, 관리 화면에 '이 서버에서는 쓸 수 없어요'로 보입니다(glibc 2.36; 고정 렌더러는 2.39 필요). AI의 한글 문서 만들기·채우기도 이 플러그인과 함께 켜지므로 Debian 12에서는 쓸 수 없습니다. 원본 다운로드와 기존 글자 읽기는 유지됩니다. OS 최소 지원 버전은 바꾸지 않습니다. 실행 조건과 한계는 [HWP 런타임 안내](../resources/hwp/README.md)를 참고하세요.
 
 **PDF의 한글·일본어·중국어:** AI가 만드는 PDF는 키트에 든 Noto Sans CJK 글꼴(`app/<버전>/fonts/`, OFL-1.1, 고지는 `licenses/noto-sans-cjk/`)로 그립니다. 리눅스 서버에는 이 글자들을 그릴 글꼴이 없어서, 0.2.15까지는 PDF의 한글이 빈 네모로 나왔습니다. 서버에 글꼴 꾸러미를 따로 설치할 필요는 없고, 이미 설치한 서버도 평소 업데이트로 글꼴을 받습니다(root 단계·apt 없음). 그 전에 만든 PDF는 다시 만들어야 합니다. 글꼴 때문에 키트가 약 32 MB(풀면 40 MB) 커졌습니다.
 
@@ -93,7 +93,9 @@ cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --eng
   onnxruntime·sharp 리눅스 파일은 패키지에 들어 있다. 이 옵션 없이 `bun install`이 `node: command not found`
   (`electron-winstaller` exited with 127)로 멈추면, bun이 `node` 대신 쓰는 `/tmp/bun-node-*/node`가 지워진 bun을 가리키는
   것이다(이전 빌드의 bun을 지운 경우, 2026-10-30 QA). `--ignore-scripts`로 다시 하거나 그 폴더를 지운다.
-- 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다.
+- 직접 만든 키트는 서명이 없으므로 `--allow-unsigned`가 필요하고, 진단이 그렇다고 알린다. 이 설정은 repair·update에도 남으므로
+  서명된 릴리스로 옮긴 뒤에는 `sudo mycel-ctl allow-unsigned off`(설치기는 `--require-signed`)로 되돌린다. 켜져 있는 동안
+  `sudo mycel-ctl status`와 관리자 › 진단이 경고한다.
 - Linux 서버는 글자 인식(OCR)을 하지 않는다. AI가 사진·스캔 PDF 페이지를 읽으면 이미지를 직접 보고(관리자 > 팀 설정 "이미지·PDF 페이지·영상 장면을 AI에게 보내기", 기본 켜짐), 스캔 문서와 사진은 글자로 검색되지 않는다. Claude Code의 검색과 같다.
 - AI는 영상·오디오 파일을 배포판의 ffmpeg·ffprobe(`ffmpeg` 패키지 5.1 이상, 다른 패키지와 함께 apt로 설치, 키트에 넣지 않음)로 읽는다. 장면과, 팀 설정 › 음성 입력에서 허용하면 받아쓰기. 디코더가 사람들이 올린 파일을 읽으므로 Debian·Ubuntu 보안 업데이트를 켜 둔다(예: `unattended-upgrades` 패키지; ffmpeg 보안 수정이 이 길로 온다). ffmpeg가 없으면 AI가 이 서버에서는 영상을 읽을 수 없다고 말한다.
 
@@ -142,7 +144,7 @@ ssh -L 47820:127.0.0.1:47820 <서버>                     # 내 PC에서
 첫 주: **권한 → AI 연결 → 팀원 초대 → 첫 스킬 → 첫 백업**.
 
 1. 관리자 → 그룹·폴더 권한에서 접근 범위를 정하고 두 계정으로 확인합니다.
-2. 아래 6장에서 허용된 AI 연결을 등록합니다. 새 팀 구독 공유는 기본 켜짐이며 기존 선택은 유지됩니다. 개인 연결이 우선이고 연결별 동의가 필요합니다. 설정은 제공사 약관상 허가가 아닙니다.
+2. 아래 6장에서 허용된 AI 연결을 등록합니다. 새 팀은 회사 연결 하나를 팀 전체가 쓰는 설정이 기본 켜짐이며 기존 선택은 유지됩니다. 개인 연결이 우선이고 연결별 동의가 필요합니다. 설정은 제공사 약관상 허가가 아닙니다.
 3. 7장의 HTTPS 주소를 준비한 뒤 관리자 → 멤버에서 초대 링크를 만들어 소수 팀원에게 전달합니다.
 4. 파일 화면에서 팀장이 `skills/회의-정리/SKILL.md`를 만들고 아래 예시를 저장합니다. 새 채팅에서 `/`로 골라 가상 회의록의 출처·결과를 비교합니다.
 5. 10장의 백업·보관본과 복구 연습을 완료합니다.
@@ -159,13 +161,13 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 
 ## 6. AI 연결
 
-- owner가 브라우저에서 **관리자 › AI 연결**로 연결한다: Claude(구독의 `claude setup-token` 붙여 넣기 또는 Anthropic API
-  키), Codex(ChatGPT 기기 로그인 또는 OpenAI API 키). 진짜 토큰·키는 서버의 열쇠로 봉인되고 AI 엔진에는 가지 않는다(모델
+- owner가 브라우저에서 **관리자 › AI 제공자**로 연결한다: Claude(구독은 "Claude 구독 연결" 버튼으로 브라우저에서 승인하고 코드를 붙여 넣기,
+  또는 `claude setup-token` 토큰 붙여 넣기; 또는 Anthropic API 키), Codex(ChatGPT 기기 로그인 또는 OpenAI API 키). 진짜 토큰·키는 서버의 열쇠로 봉인되고 AI 엔진에는 가지 않는다(모델
   프록시가 요청마다 바꿔 끼움). 자체 설치는 네 종류를 다 쓸 수 있고(구독을 팀이 함께 쓸 때의 약관 안내가 화면에 뜸),
   `server.json`의 `engine.credentialKinds`로 좁힐 수 있다. 호스팅도 기본으로 네 종류를 지원하지만 실제 허용 범위는 운영 설정과 제공사 약관을 따릅니다.
 - CLI 대체(브라우저 연결이 안 될 때만): `sudo /var/lib/mycel/root/set-claude-token < 토큰파일`(표준 입력만),
   Codex는 `sudo mycel-ctl codex-login`. 다음 시작 때 AI 연결로 옮겨진다.
-- 팀 API 엔진(OpenAI 호환, 실험 단계)은 관리자 › AI 엔진 › API 엔진. 자체 설치는 사내 주소(예: 로컬 Ollama)도 된다.
+- 팀 API 엔진(OpenAI 호환, 실험 단계)은 관리자 › AI 제공자 › API 엔진. 자체 설치는 사내 주소(예: 로컬 Ollama)도 된다.
 
 ## 7. 팀원 연결
 
@@ -184,10 +186,48 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 
 - **앱만 바뀌는 릴리스**: 서버가 스스로 적용한다(`server.json`의 `update.auto: true`, 설치기가 자체 설치에 켬). 팀 시간대의
   업데이트 창(관리자 › 설정 › 업데이트 시간, 기본 03:00–05:00) 안에서, 답변이 하나도 돌지 않을 때만. 새 버전이 켜지지 않으면
-  bootstrap이 이전 버전으로 되돌리고, 그 버전은 7일 동안 자동으로 다시 시도하지 않는다. 피드의 단계적 배포(`rollout`)를 따른다.
+  bootstrap이 이전 버전으로 되돌리고, 그 버전은 7일 동안 자동으로 다시 시도하지 않는다. 피드의 단계적 배포(`rollout`, 아래)를 따른다.
 - **root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀌는 릴리스**: 관리자 › 시스템 › 업데이트에 "관리자 권한 필요"가 보이고 진단이 경고한다.
-  `mycel-update.timer`(매일 04:30 ± 90분)가 처리하거나 직접 `sudo mycel-ctl update`.
-- 끄기: 설치 때 `--no-auto-update`(타이머 끔), `server.json`의 `update.auto`를 `false`(앱 자동 업데이트 끔).
+  `mycel-update.timer`가 15분마다 확인하고, 팀 시간대의 업데이트 시간(관리자 › 설정 › 업데이트 시간, 비었으면 03:00–05:00)
+  안에서 진행 중인 답변이 없을 때만 설치한다. 답변이 돌고 있으면 끊지 않고 조용해질 때까지 기다린다(한 번에 최대 1시간,
+  업데이트 시간이 끝나면 다음 날). 사흘 동안 그런 때가 없으면 다음 업데이트 시간에 최대 10분 기다린 뒤 설치한다. 업데이트
+  시간 밖의 확인은 네트워크 없이 바로 끝난다. 바로 하려면 `sudo mycel-ctl update`. 피드의 `rootSince`(그 릴리스와 같은 root
+  부분을 가진 가장 오래된 릴리스)보다 root 부분(`root/VERSION`)이 오래된 서버는 root 업데이트로 받고(root 릴리스를 건너뛴
+  서버), 그보다 새롭거나 같은 서버는 앱 업데이트로 스스로 받는다.
+  - 설치가 실패하거나 bootstrap이 되돌린 버전은 타이머가 한동안 다시 시도하지 않는다(`root/update-failed.json`). root
+    부분을 넣은 뒤 앱이 실패하면 처음엔 20시간(다음 날 업데이트 시간에 다시), 같은 버전이 연달아 실패하면 44시간, 92시간,
+    최대 7일. root 부분을 넣기 전에 실패하면(내려받기가 끊김, 해시가 다름, 디스크가 참) 1시간부터 두 배씩 최대 20시간이고,
+    조용한 때를 기다린 사흘은 이어서 센다. 그사이 확인마다 내려받고 다시 시작하지 않는다. 그 버전은 서버의 앱 업데이트도
+    건드리지 않고 타이머가 다시 시도한다. `sudo mycel-ctl status`에(앱이 0.2.19 이상이면 관리자 › 진단에도) 언제 다시
+    시도하는지 보인다. `sudo mycel-ctl update`(root 부분이 이미 들어가 있으면 관리자 › 시스템 › 업데이트에서 바로 하는 업데이트도)는
+    기다리지 않고 바로 다시 시도하고, 더 새 릴리스가 나오거나 업데이트가 되면 기다림이 끝난다.
+  - 되돌려진 앱이 업데이트 시간을 알려 주지 못하는 옛 버전(0.2.18 이하)이면, root 부분 버전(`root/VERSION`)의 앱
+    폴더에 있는 `admin.js`가 팀의 업데이트 시간과 시간대를 읽는다(읽기만). 그것도 안 되면 root가 마지막으로 받아 둔 시간,
+    그다음은 `/etc/default/<id>`의 `MYCEL_TEAM_TZ`(없으면 서버 시계)로 03:00–05:00이다.
+- **Dev environment helper (`root/mycel-boxd`)**: the kit has this program. The installer and `mycel-ctl update` put it in
+  `/var/lib/mycel/root/`, root-owned, like `mycel-sandbox`. It runs only from there, never from a version folder. The file
+  alone changes nothing: the dev environment stays off without `MYCEL_DEV_ENV=1` and the `mycel-boxd.service` unit
+  (`scripts/dev-env/TRIAL.md`). A hosted server gets the file and no unit. `install-trial.sh` runs there only if the
+  team's plan includes the dev environment (`root/dev-env.json`, root-owned), and boxd then caps each box at that file's
+  values. On a server with the unit, `mycel-ctl update` restarts the unit only when the program changed, before the team server restarts. The
+  restart stops the boxes that run; each starts again at its next use. A service that an administrator stopped stays
+  stopped. A failed restart does not stop the update, and neither does a boxd that does not answer or says that boxes are
+  not available: the result has a note. The update to the first release with this file runs the older `mycel-ctl`, which
+  does not know the restart: run the new `scripts/dev-env/install-trial.sh` once after that update. It sees that the
+  service runs a program other than the file and restarts it.
+- **더 오래된 릴리스로 내려가지 않음**: `mycel-update.timer`와 `--version` 없는 `sudo mycel-ctl update`는 피드의 버전이 지금 돌고 있는 앱보다 새로울 때만 설치한다(서버의 앱 업데이트와 같은 버전 순서. 0.2.18-pre.1 같은 사전 릴리스가 돌면 0.2.17 피드는 건너뛰고 그렇게 적는다). 일부러 되돌리려면 버전을 준다: `sudo mycel-ctl update --version <버전>`(더 새 root 부분은 그대로 둔다).
+- **단계적 배포**: 새 stable 릴리스는 모든 서버에 같은 밤 가지 않는다. 피드가 게시된 뒤 첫날 약 10%, 둘째 날 약 50%, 셋째
+  날부터 모든 서버가 자동 업데이트로 받는다. 나쁜 릴리스가 닿는 팀이 적어진다. 서버마다 설치 id(`MYCEL_INSTALL_ID`, 없으면
+  앱이 만든 id)와 릴리스마다 새로 정하는 값으로 차례가 정해지고, 각 서버가 피드의 서명된 `publishedAt`부터 스스로 센다. 서버의
+  앱 업데이트, `mycel-update.timer`, 사무실 맥이 같은 규칙을 쓴다. 차례가 오면 그다음 업데이트 시간에 설치한다. 설치 id를 읽을
+  수 없는 서버는 마지막 차례(100%)다. 앞 릴리스의 단계가 끝나기 전에 낸 릴리스는 그 단계를 이어서, 몇 시간 간격으로 여러 번 내도 첫 릴리스 뒤 이틀 안에 모든 서버에 닿는다. beta 채널, 급한 릴리스(`urgent`), 관리자가 직접 하는 업데이트(관리자 › 시스템 ›
+  업데이트, `sudo mycel-ctl update`)는 기다리지 않는다. 차례를 기다리는 동안 `sudo mycel-ctl status`가 "this server's turn comes
+  at …"을 보여 주고, 앱의 업데이트 상태(`GET /api/admin/update`)에 `turnAt`이 있다. 이 규칙을 모르는 0.4.0-beta.2 이하 서버는
+  예전처럼 바로 받는다.
+- 끄기·켜기: `sudo mycel-ctl auto-update off|on`(타이머와 `server.json`의 `update.auto`를 함께 바꾸고 답변이 없을 때 서버를
+  다시 시작한다. 설치 때는 `--no-auto-update`/`--auto-update`). repair·update는 이 플래그가 없으면 지금 타이머 상태를 그대로
+  둔다. 꺼져 있으면 `sudo mycel-ctl status`와 관리자 › 진단이 경고한다.
+- **관리자 홈의 안내**: 새 버전이 나오면 소유자의 관리자 › 홈에 "새 버전 … 오늘 밤 03:00–05:00에 자동으로 설치돼요"처럼 언제 설치되는지 나온다(팀 시간대의 업데이트 시간). 자동 업데이트가 꺼져 있으면 같은 줄에 "지금 설치" 버튼이 있고, root 권한이 필요한 릴리스는 업데이트 타이머가 설치한다고만 나온다. 업데이트가 관리자에게 남기는 할 일(예: HWP 플러그인 켜기)도 관리자 › 홈에 버튼과 함께 나오고, "필요 없어요"로 끌 수 있다.
 - **보관하는 버전**: 업데이트마다 버전 폴더 하나(`app/versions/<버전>`, 압축을 푼 크기 약 540 MB)가 생긴다. 서버가 켜진 지
   10분 뒤(bootstrap이 새 버전을 확인한 뒤)와 그 뒤 매시간, 되돌리기에 쓰는 것만 남기고 지운다. 서버 계정이 하므로 root 단계가 없다.
   - 남김: 지금 버전(`app/current`), 이전 버전(`app/state.json`의 `previous`. 관리자 › 시스템 › 업데이트 "되돌리기"와, 지금
@@ -206,7 +246,32 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
     5초 걸렸다. 디스크가 느린 서버에서는 수십 초 걸릴 수 있고, 그동안 서버는 평소처럼 답한다.
   - 설치기로 더 오래된 키트를 넣은 경우(`older`, 지금 버전은 그대로) 그 버전은 하루 동안만 남는다. 그 안에 `admin.js switch <버전>`으로 바꾼다.
 - 릴리스는 버전 태그로 나간다(`docs/RELEASE-CI.md`): 피드의 `server/<채널>.json` + `.sig`, 버전마다 업데이트 묶음과 kit.
-  `needsRoot`(root 부분이 바뀌었는지)는 배포 스크립트가 두 채널의 현재 버전과 비교해 정한다.
+  배포 스크립트가 root 부분을 두 채널의 현재 버전과 비교해 `rootSince`를 정한다. `needsRoot`는 `rootSince`를 모르는 0.2.18
+  이하 서버를 위해 `rootSince`가 0.2.18보다 새로우면 켜 둔다(그런 서버의 앱이 root 부분 없이 새 앱을 받지 않도록).
+
+### 8a. Windows 앱 (Windows app)
+
+Windows 데스크톱 앱은 자기 팀 서버의 `/downloads/latest.yml`만 보고 업데이트한다(4시간마다, 앱을 닫을 때 설치). 리눅스 서버는
+켜진 지 15분 뒤(업데이트 뒤에도 다시 켜짐)와 그 뒤 6시간마다 지금 돌고 있는 릴리스의 Windows 설치 파일과 `latest.yml`을
+`data/downloads`에 넣는다. 설정 › 앱에도 그 파일이 보이고, 관리자 › 시스템 › 진단의 "Windows 앱" 줄에 마지막 결과가 보인다.
+자동 업데이트를 끈 서버(`--no-auto-update`, `update.auto: false`)는 켜질 때만(곧 직접 업데이트한 뒤에만) 피드를 본다.
+
+- 출처: 서버 피드와 같은 곳의 `office/<채널>.json`(서명됨). 서명, 두 파일의 크기·SHA-256, `latest.yml`이 그 설치 파일을 가리키는지
+  확인한다. 서버보다 새 버전의 앱은 서버가 그 릴리스를 받은 뒤에 넣는다.
+- Windows 설치 파일은 하나만 둔다(약 110 MB, 예전 것은 지움). 받고 나서 남는 공간이 팀 폴더의 쓰기 여유분(512 MB와 디스크의 2% 중
+  큰 쪽)보다 적어지면 받지 않는다. 손으로 넣은 더 새 버전은 그대로 둔다.
+- 이미 깔린 Windows 앱은 따로 할 일이 없다. 다음 확인 때 새 버전을 받는다.
+- 지금 하기: `trina_admin desktop-refresh`(10장의 `trina_admin`, 결과는 JSON, root로는 안 됨). 받은 파일이 맞지 않던 버전은 하루
+  뒤에 다시 시도하고, `--force`는 바로 다시 한다.
+- 인터넷이 없는 서버: 다른 컴퓨터에서 서버 채널의 `https://updates.trina.app/office/stable.json`(beta 채널은 `beta.json`)과
+  거기 적힌 Windows 설치 파일, `latest.yml`(`office/<버전>/`)을 받아 서버 계정이 읽을 수 있는 한 폴더에 두고
+  `trina_admin desktop-refresh --from /전체/경로`(상대 경로는 안 됨: `trina_admin`은 `/`에서 돈다). 똑같이 확인한다. 그 릴리스가
+  서버보다 새로우면 넣지 않으니(`ahead`) 서버를 먼저 업데이트한다. 결과가 `offered`·`current`·`newer`(직접 올린 더 새 설치 파일)가
+  아니면 0이 아닌 값으로 끝난다.
+- 채널이 이미 더 새 릴리스로 넘어갔으면 서버는 자기 릴리스의 서명된 매니페스트(`office/<버전>/<채널>.json`, 0.2.19부터 릴리스마다
+  피드에 남김)를 대신 쓴다.
+- 사무실 모드(맥)는 자기 업데이트 에이전트가 같은 일을 한다. 호스팅 서비스의 팀 서버는 켜질 때마다(서비스의 업데이트가 다시 켬)
+  한 번만 자기 피드에서 받고, 결과는 진단에 보인다.
 
 ## 9. 요금제 파일(선택)과 자원 한도
 

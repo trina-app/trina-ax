@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
@@ -331,6 +332,12 @@ func cmdRenderUnits(e *env, args []string) (int, error) {
 	names, changed, err := renderUnits(in, *templates, *out)
 	if err != nil {
 		return 1, err
+	}
+	if changed && filepath.Clean(*out) == systemdUnitDir && in.Systemd && fileExists(systemdRunDir) {
+		// the installed units: systemd reads them again now (the installer renders elsewhere and installs them itself)
+		if o, err := exec.Command(e.systemctl, "daemon-reload").CombinedOutput(); err != nil {
+			return 1, fmt.Errorf("daemon-reload: %v %s", err, o)
+		}
 	}
 	printJSON(e.stdout, map[string]any{"units": names, "changed": changed})
 	return 0, nil

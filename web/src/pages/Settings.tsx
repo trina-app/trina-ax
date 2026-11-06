@@ -1,21 +1,24 @@
-// Personal settings: profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
-// app only: BrowserSettings.tsx), what the AI remembers, scheduled tasks, apps (the guide to add the app to the home
+// The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
+// app only: BrowserSettings.tsx), what the AI remembers, apps (the guide to add the app to the home
 // screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
 // Store build: only the App Store line),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
-// connections are made by the owner in Admin > AI connections), and the external services the AI may use with the
-// member's own accounts (Integrations.tsx).
+// connections are made by the owner in Admin > AI connections), and the MCP connections the AI may use with the
+// member's own accounts (Integrations.tsx). Profile ends with "계정 삭제 요청", its own page under the profile
+// (/settings/account/delete, components/settings/AccountDeletion.tsx).
 import clsx from 'clsx'
-import { Brain, CalendarClock, Download, Laptop, Monitor, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { Link, Navigate, NavLink, useParams } from 'react-router-dom'
-import type { EngineId, Memory, Schedule, ScheduleReviewCard, Session, Theme } from '@mycel/shared/api'
-import { api, API, errorText, isApiError } from '../lib/api'
+import { Brain, ChevronDown, Download, Laptop, LogOut, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import type { EngineId, Me, Memory, Session, Theme } from '@mycel/shared/api'
+import { PROFILE_TITLE_MAX, RELEASE_CHANNEL } from '@mycel/shared'
+import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
+import { deviceLabel } from '../lib/userAgent'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
 import { installGuideShown, platform, type Platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
-import { memoryChanged, schedulesChanged } from '../store/live'
+import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
 import { useEngines } from '../store/engines'
 import { ENGINE_LABEL } from '../components/chat/EngineMenu'
@@ -23,89 +26,126 @@ import { toast } from '../store/ui'
 import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
-import { settingsTabs } from './settingsTabs'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
-import { Badge, Button, EmptyState, ErrorNote, Field, PageHeader, Skeleton, confirmDialog, inputCls } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
-import { DriveConnection } from '../components/settings/DriveConnection'
-import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
+import { Avatar } from '../components/Avatar'
+import { squarePhoto, type Photo } from '../lib/avatar'
 import { Notifications } from '../components/settings/Notifications'
+import { DevEnvSites } from '../components/settings/DevEnvSites'
+import { AccountDeletion } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
-import { ScheduleItem } from '../components/settings/ScheduleItem'
-import AskCard from '../components/chat/AskCard'
+import { MemoryForm } from '../components/settings/MemoryForm'
 import ConnectorConnections from './ConnectorConnections'
+import AiApps from './AiApps'
+import MyUsage from '../components/settings/MyUsage'
 import Integrations from './Integrations'
 
-export default function Settings() {
-  const t = useT()
+/** One section of the Settings dialog (components/settings/SettingsDialog.tsx, which owns the list, the address and
+ * which sections there are): `tab` is one of settingsTabs(), or 'account-delete' (the page under the profile). */
+export default function SettingsPane({ tab }: { tab: string }) {
   const me = useMeStrict()
-  const { tab = 'profile' } = useParams()
-  const [own, setOwn] = useState<boolean | null>(null)
-  useEffect(() => {
-    api.call(API.myCredentials).then((r) => setOwn(r.allowed || r.items.length > 0), () => setOwn(false))
-  }, [])
-  // the desktop app's site setting: only inside a desktop app that offers it (the value lives there)
   const browser = browserSettingsBridge()
-  const tabs = settingsTabs(Boolean(browser), Boolean(own))
-  // an old or mistyped link (/settings/devices), or /settings/browser outside the desktop app, would show an empty
-  // page: open the profile instead
-  if (tab === 'credentials' && own === null) return null
-  if (!tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <PageHeader title={t('settings.title')} />
-      <div className="flex flex-col gap-6 p-4 sm:p-6 md:flex-row">
-        {/* phones: the tab strip runs to the screen edges, so a tab cut off at the right reads as "scroll for more" */}
-        <nav aria-label={t('settings.title')} className="scroll-thin -mx-4 flex gap-1 overflow-x-auto px-4 sm:-mx-6 sm:px-6 md:mx-0 md:w-48 md:flex-col md:px-0">
-          {tabs.map((x) => (
-            <NavLink key={x.id} to={`/settings/${x.id}`} className={({ isActive }) => clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm whitespace-nowrap hover:bg-hover', (isActive || (x.id === 'profile' && tab === 'profile')) && 'bg-hover font-medium')}>
-              <x.icon size={15} aria-hidden /> {t(x.label)}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="min-w-0 flex-1 max-w-2xl">
-          {tab === 'profile' && <Profile />}
-          {tab === 'security' && <Security />}
-          {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
-          {tab === 'memory' && <Memories />}
-          {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'schedules' && <Schedules key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
-          {tab === 'apps' && <Apps />}
-          {tab === 'credentials' && <MyCredentials />}
-          {tab === 'about' && <About />}
-        </div>
-      </div>
-    </div>
+    <>
+      {tab === 'profile' && <Profile />}
+      {tab === 'security' && <Security />}
+      {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
+      {tab === 'memory' && <Memories />}
+      {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'apps' && <Apps />}
+      {tab === 'providers' && <MyCredentials />}
+      {tab === 'about' && <About />}
+      {tab === 'account-delete' && <AccountDeletion key={`${me.user.id}:${me.session.id}`} />}
+    </>
   )
 }
 
-function Section({ title, children, desc }: { title: string; children: React.ReactNode; desc?: string }) {
+/** `page`: the title is the section's own name, which a phone's bar already shows (SettingsDialog.tsx): there it is
+ * kept for screen readers only. */
+function Section({ title, children, desc, page }: { title: string; children: React.ReactNode; desc?: string; page?: boolean }) {
   return (
     <section className="mb-8">
-      <h2 className="mb-1 text-base font-semibold">{title}</h2>
+      <h2 className={clsx('mb-1 text-base font-semibold', page && 'max-md:sr-only')}>{title}</h2>
       {desc && <p className="mb-3 text-sm text-muted">{desc}</p>}
-      <div className={desc ? '' : 'mt-3'}>{children}</div>
+      <div className={clsx(!desc && 'mt-3', !desc && page && 'max-md:mt-0')}>{children}</div>
     </section>
+  )
+}
+
+/** One setting, like Claude's Settings: what it is on the left, its control on the right, a hairline between rows (on a
+ * phone the control goes under its name). `framed`: a field with its own frame (the profile form's), which needs no
+ * hairline under it on a phone. `quietHint`: on a phone the hint is for screen readers only (an error still shows). */
+function Row({ label, hint, htmlFor, hintId, hintError, framed, quietHint, children }: { label: string; hint?: string; htmlFor?: string; hintId?: string; hintError?: boolean; framed?: boolean; quietHint?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={clsx('flex flex-col gap-2 border-b border-line py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6', framed && 'max-md:border-b-0')}>
+      <div className="min-w-0">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="text-sm text-ink">
+            {label}
+          </label>
+        ) : (
+          <p className="text-sm text-ink">{label}</p>
+        )}
+        {hint && (
+          <p id={hintId} className={clsx('mt-0.5 text-xs', hintError ? 'text-danger' : 'text-muted', quietHint && !hintError && 'max-md:sr-only')} role={hintError ? 'alert' : undefined}>
+            {hint}
+          </p>
+        )}
+      </div>
+      <div className="min-w-0 sm:w-72 sm:max-w-[60%] sm:shrink-0">{children}</div>
+    </div>
   )
 }
 
 function Profile() {
   const t = useT()
+  const ids = useId()
   const locale = useLocale()
   const me = useMeStrict()
   const signedIn = useSession((s) => s.signedIn)
   const setLocale = useSession((s) => s.setLocale)
   const setTheme = useSession((s) => s.setTheme)
   const [name, setName] = useState(me.user.name)
+  const [title, setTitle] = useState(me.user.title ?? '')
   const [email, setEmail] = useState(me.user.email ?? '')
+  // the photo: untouched (null), a new one waiting for Save, or taken away (also waiting for Save)
+  const [photo, setPhoto] = useState<Photo | 'remove' | null>(null)
+  const [photoNote, setPhotoNote] = useState<string | null>(null)
+  const pick = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
-  const save = async () => {
+  const previewUrl = photo && photo !== 'remove' ? photo.url : null
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
+  // Everything here is saved with the one Save button (the other tabs' settings save at once): it shows once something
+  // changed
+  // the one-line status is no longer asked for here (kept on the account, shown nowhere)
+  const profileChanged = name.trim() !== me.user.name || title.trim() !== (me.user.title ?? '')
+  const changed = profileChanged || (email.trim() || null) !== (me.user.email ?? null) || photo !== null
+  const hasPhoto = photo === 'remove' ? false : !!(photo || me.user.avatarVersion)
+  const choose = async (file: File | undefined) => {
+    if (!file) return
+    setPhotoNote(null)
+    const p = await squarePhoto(file)
+    if (!p) return setPhotoNote(t('profile.photoProblem'))
+    setPhoto(p)
+  }
+  const save = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (!changed || !name.trim() || busy) return
     setBusy(true)
     try {
-      signedIn(await api.call(API.updateMe, { body: { name: name.trim(), email: email.trim() || null } }))
+      if (profileChanged) await api.call(API.updateMyProfile, { body: { name: name.trim(), title: title.trim() } })
+      if (photo === 'remove') await api.call(API.deleteMyAvatar)
+      else if (photo) await api.call(API.putMyAvatar, { query: { type: photo.type }, body: photo.blob })
+      // the email is the one field of the older call
+      if ((email.trim() || null) !== (me.user.email ?? null)) signedIn(await api.call(API.updateMe, { body: { email: email.trim() || null } }))
+      else signedIn(await api.call(API.me))
+      setPhoto(null)
       toast({ level: 'success', text: t('common.saved') })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
@@ -114,25 +154,74 @@ function Profile() {
     }
   }
   const theme = me.user.prefs.theme ?? 'system'
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <>
-      <Section title={t('settings.profile')}>
-        <div className="space-y-3">
-          <Field label={t('auth.name')}>
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
-          </Field>
-          <Field label={t('settings.email')} hint={t('settings.emailHint')}>
-            <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </Field>
-          <Field label={t('auth.username')}>
-            <input className={inputCls} value={me.user.username} disabled />
-          </Field>
-          <p className="text-xs text-faint">
-            {t('settings.role')}: <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
-          </p>
-          <Button variant="primary" busy={busy} disabled={!name.trim()} onClick={save}>
-            {t('common.save')}
-          </Button>
+      <Section title={t('settings.profile')} page>
+        {/* noValidate: the server checks the email and its answer shows in the app's own style, not a browser popup */}
+        <form onSubmit={save} noValidate data-testid="profile-form">
+          <Row label={t('profile.photo')} hint={photoNote ?? t('profile.photoHint')} hintId={`${ids}-photo-hint`} hintError={!!photoNote} framed quietHint>
+            <div className="flex items-center gap-3">
+              {previewUrl ? (
+                <img src={previewUrl} alt="" width={56} height={56} className="size-14 shrink-0 rounded-full object-cover" data-testid="profile-photo-preview" />
+              ) : (
+                <Avatar user={{ id: me.user.id, name, avatarVersion: photo === 'remove' ? undefined : me.user.avatarVersion }} size={56} />
+              )}
+              <div className="flex min-w-0 flex-wrap gap-x-2 gap-y-1">
+                <Button type="button" size="sm" onClick={() => pick.current?.click()} aria-describedby={`${ids}-photo-hint`} data-testid="profile-photo-pick">
+                  {hasPhoto ? t('profile.photoChange') : t('profile.photoChoose')}
+                </Button>
+                {hasPhoto && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => { setPhotoNote(null); setPhoto(me.user.avatarVersion && photo !== 'remove' ? 'remove' : null) }} data-testid="profile-photo-remove">
+                    {t('profile.photoRemove')}
+                  </Button>
+                )}
+              </div>
+              <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
+            </div>
+          </Row>
+          <Row label={t('auth.name')} htmlFor={`${ids}-name`} framed>
+            <input id={`${ids}-name`} className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+          </Row>
+          <Row label={t('profile.title')} htmlFor={`${ids}-title`} framed>
+            <input id={`${ids}-title`} className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={t('profile.titleHint')} />
+          </Row>
+          <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
+            <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
+          </Row>
+          <p className="pt-3 text-xs text-muted">{t('profile.visible')}</p>
+          {changed && (
+            <div className="flex justify-end pt-3 max-sm:[&>button]:w-full">
+              <Button type="submit" variant="primary" busy={busy} disabled={!name.trim()} data-testid="profile-save">
+                {t('common.save')}
+              </Button>
+            </div>
+          )}
+        </form>
+        <div className="mt-2">
+          <Row label={t('auth.username')}>
+            <span className="block truncate text-sm text-muted sm:text-right" data-testid="profile-username">
+              {me.user.username}
+            </span>
+          </Row>
+          <Row label={t('settings.role')}>
+            {/* phones: the role in words, not a badge */}
+            {phone ? (
+              <span className="block text-sm text-muted sm:text-right">
+                {t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+              </span>
+            ) : (
+              <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted sm:justify-end">
+                <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+              </span>
+            )}
+          </Row>
+          {/* the team owner deletes accounts: this asks them (App Store review 5.1.1(v)) */}
+          <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
+            <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline sm:text-right" data-testid="account-deletion-link">
+              {t('accountDeletion.title')}
+            </Link>
+          </Row>
         </div>
       </Section>
       <Section title={t('settings.language')} desc={t('settings.languageHint')}>
@@ -244,6 +333,13 @@ function Security() {
   const ICON = { web: Monitor, desktop: Laptop, mobile: Smartphone } as const
   // tab 5: a reset by an admin (or the owner's recovery on the server Mac) stays visible here, so the person learns of it
   const reset = useMeStrict().passwordReset
+  // phones: the devices come first in view; changing the password (rarer) is one row that opens its form in place
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const formId = useId()
+  // phones: this device and the three last used, the rest one tap away
+  const [allDevices, setAllDevices] = useState(false)
+  const shownSessions = phone && !allDevices && sessions ? [...sessions.filter((x) => x.current), ...sessions.filter((x) => !x.current)].slice(0, 4) : sessions
   return (
     <>
       {reset && (
@@ -252,37 +348,68 @@ function Security() {
           <span>{reset.by ? t('settings.lastReset', { name: reset.by.name, date: formatDateTime(reset.at, locale) }) : t('settings.lastResetRecovery', { date: formatDateTime(reset.at, locale) })}</span>
         </p>
       )}
-      <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
-        <ChangePasswordForm onDone={() => toast({ level: 'success', text: t('settings.passwordChanged') })} />
-      </Section>
+      {phone ? (
+        <section className="mb-6 border-b border-line pb-2">
+          <h2>
+            <button type="button" aria-expanded={passwordOpen} aria-controls={formId} onClick={() => setPasswordOpen((v) => !v)} className="-mx-2 flex h-11 w-[calc(100%+1rem)] items-center gap-2 rounded-lg px-2 text-left text-base font-semibold hover:bg-hover" data-testid="password-open">
+              <span className="min-w-0 flex-1 truncate">{t('auth.changePassword')}</span>
+              <ChevronDown size={18} className={clsx('shrink-0 text-muted transition', passwordOpen && 'rotate-180')} aria-hidden />
+            </button>
+          </h2>
+          {passwordOpen && (
+            <div id={formId} className="pt-1 pb-4">
+              <p className="mb-3 text-sm text-muted">{t('settings.passwordNote')}</p>
+              <ChangePasswordForm onDone={() => { setPasswordOpen(false); toast({ level: 'success', text: t('settings.passwordChanged') }) }} />
+            </div>
+          )}
+        </section>
+      ) : (
+        <Section title={t('auth.changePassword')} desc={t('settings.passwordNote')}>
+          <ChangePasswordForm onDone={() => toast({ level: 'success', text: t('settings.passwordChanged') })} />
+        </Section>
+      )}
       <Section title={t('settings.devices')} desc={t('settings.devicesHint')}>
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!sessions && !error && <Skeleton lines={3} />}
-        <ul className="divide-y divide-line rounded-xl border border-line">
-          {sessions?.map((s) => {
+        {/* phones: plain rows under the section (no frame around them) */}
+        <ul className="divide-y divide-line md:rounded-xl md:border md:border-line">
+          {shownSessions?.map((s) => {
             const Icon = ICON[s.client]
+            const signOut = async () => {
+              try {
+                await api.call(API.revokeMySession, { params: { id: s.id } })
+                void load()
+              } catch (e) {
+                toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+              }
+            }
             return (
-              <li key={s.id} className="flex items-center gap-3 px-4 py-3 text-sm">
+              <li key={s.id} className="flex items-center gap-3 py-3 text-sm md:px-4">
                 <Icon size={18} className="shrink-0 text-muted" aria-hidden />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate">{s.userAgent ?? t(`client.${s.client}`)}</span>
+                  {/* a short name ("Chrome on macOS"); the raw user agent in the tooltip */}
+                  <span className="block truncate" title={s.userAgent ?? undefined} data-testid="device-name">{deviceLabel(s.client, s.userAgent, t)}</span>
                   <span className="block text-xs text-faint">{t('settings.lastSeen', { date: formatDateTime(s.lastSeenAt, locale) })}</span>
                 </span>
                 {s.current ? (
                   <Badge tone="accent">{t('settings.thisDevice')}</Badge>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="ghost"
+                ) : phone ? (
+                  // phones: the icon, so the same word is not said on every row; its name says which device. A tap is
+                  // easily made by mistake there: 44px to hit, and a question before the device is signed out
+                  <IconButton
+                    label={`${t('settings.signOutDevice')} · ${deviceLabel(s.client, s.userAgent, t)}`}
+                    onKeyDown={noKeyRepeat}
                     onClick={async () => {
-                      try {
-                        await api.call(API.revokeMySession, { params: { id: s.id } })
-                        void load()
-                      } catch (e) {
-                        toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-                      }
+                      const device = deviceLabel(s.client, s.userAgent, t)
+                      if (await confirmDialog({ title: t('settings.signOutDeviceConfirm', { device }), body: t('settings.signOutDeviceConfirmBody'), confirm: t('settings.signOutDevice'), danger: true })) void signOut()
                     }}
+                    className="touch-hit"
+                    data-testid="device-sign-out"
                   >
+                    <LogOut size={17} />
+                  </IconButton>
+                ) : (
+                  <Button size="sm" variant="ghost" onKeyDown={noKeyRepeat} onClick={() => void signOut()} data-testid="device-sign-out">
                     {t('settings.signOutDevice')}
                   </Button>
                 )}
@@ -290,133 +417,25 @@ function Security() {
             )
           })}
         </ul>
+        {sessions && shownSessions && sessions.length > shownSessions.length && (
+          <Button size="sm" variant="ghost" className="mt-1 -ml-2.5" onClick={() => setAllDevices(true)} data-testid="devices-more">
+            {t('settings.devicesMore', { n: sessions.length - shownSessions.length })}
+          </Button>
+        )}
       </Section>
     </>
   )
 }
 
-function Schedules() {
-  const t = useT()
-  const locale = useLocale()
-  const [items, setItems] = useState<Schedule[] | null>(null)
-  const [tz, setTz] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const life = useRef(0), revision = useRef(0)
-  const load = async () => {
-    const generation = life.current, rev = ++revision.current
-    try {
-      const r = await api.call(API.listSchedules)
-      if (generation !== life.current || rev !== revision.current) return
-      setItems(r.items)
-      setTz(r.timeZone)
-      setError(null)
-    } catch (e) {
-      if (generation === life.current && rev === revision.current) setError(errorText(e, locale, t('error.network')))
-    }
-  }
-  useEffect(() => {
-    life.current++
-    void load()
-    return () => { life.current++ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
-  const when = (s: Schedule) => t(`schedules.repeat.${s.repeat}` as MessageKey, { time: s.time, date: s.date ?? '', day: String(s.day ?? ''), weekday: weekday(s.weekday ?? 0) })
-  const toggle = async (s: Schedule) => {
-    const generation = life.current
-    try {
-      const u = await api.call(API.updateSchedule, { params: { id: s.id }, body: { enabled: !s.enabled } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
-  // "다시 확인": a task nobody confirmed shows its schedule card here; resuming is answering it
-  const [review, setReview] = useState<{ id: string; card: ScheduleReviewCard } | null>(null)
-  const openReview = async (s: Schedule) => {
-    if (review?.id === s.id) { setReview(null); return }
-    const generation = life.current
-    try {
-      const card = await api.call(API.getScheduleReview, { params: { id: s.id } })
-      if (generation === life.current) setReview({ id: s.id, card })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-      if (generation === life.current) void load()
-    }
-  }
-  const answerReview = async (s: Schedule, requestId: string, answer: string | string[] | null) => {
-    const value = Array.isArray(answer) ? answer[0] ?? null : answer
-    // "Skip" leaves it paused, like "Keep it paused"
-    if (!value || value === 'keep') { setReview(null); return }
-    const generation = life.current
-    try {
-      const u = await api.call(API.confirmScheduleReview, { params: { id: s.id }, body: { requestId, answer: value } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.map((x) => (x.id === s.id ? u : x)) ?? null)
-      setReview(null)
-      schedulesChanged.emit()
-      if (u.enabled) toast({ level: 'success', text: t('schedules.reviewDone') })
-    } catch (e) {
-      // the task or its connections changed since the card was shown: show the card as it is now
-      if (isApiError(e, 'conflict') && e.body.params?.reason === 'schedule_card_changed') {
-        toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-        try {
-          const card = await api.call(API.getScheduleReview, { params: { id: s.id } })
-          if (generation === life.current) setReview({ id: s.id, card })
-        } catch { if (generation === life.current) { setReview(null); void load() } }
-        return
-      }
-      throw e
-    }
-  }
-  const remove = async (s: Schedule) => {
-    const generation = life.current
-    if (!(await confirmDialog({ title: t('schedules.deleteTitle'), body: t('schedules.deleteBody', { title: s.title }), confirm: t('schedules.delete'), danger: true }))) return
-    if (generation !== life.current) return
-    try {
-      await api.call(API.deleteSchedule, { params: { id: s.id } })
-      if (generation !== life.current) return
-      revision.current++
-      setItems((cur) => cur?.filter((x) => x.id !== s.id) ?? null)
-      if (s.needsReview) schedulesChanged.emit()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
-  return (
-    <Section title={t('settings.schedules')} desc={t('schedules.desc')}>
-      <ScheduleTemplates onCreated={schedule => { revision.current++; setItems(current => [schedule, ...(current ?? []).filter(item => item.id !== schedule.id)]) }} />
-      {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
-      {!items && !error && <Skeleton lines={3} />}
-      {items && !items.length && <EmptyState icon={<CalendarClock size={26} />} title={t('schedules.empty')} />}
-      {items && items.length > 0 && (
-        <>
-          <ul className="divide-y divide-line rounded-xl border border-line" data-testid="schedule-list">
-            {items.map((s) => (
-              <ScheduleItem key={s.id} s={s} tz={tz} when={when(s)} onToggle={() => void toggle(s)} onRemove={() => void remove(s)} onReview={() => void openReview(s)}
-                review={review?.id === s.id ? (
-                  <div className="mt-2" data-testid="schedule-review-card">
-                    <AskCard key={review.card.request.requestId} req={review.card} onAnswer={(requestId, body) => answerReview(s, requestId, body.kind === 'ask_user' ? body.answer : null)} />
-                  </div>
-                ) : undefined} />
-            ))}
-          </ul>
-          {tz && <p className="mt-2 text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
-        </>
-      )}
-    </Section>
-  )
-}
-
+/** What the AI remembers: newest first; add one, correct one in place (MemoryForm), forget one or all. */
 function Memories() {
   const t = useT()
   const locale = useLocale()
   const [items, setItems] = useState<Memory[] | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // the one form open: 'new', or the id of the memory being corrected
+  const [editing, setEditing] = useState<string | null>(null)
   const load = async (more = false) => {
     try {
       const r = await api.call(API.listMemories, { query: { limit: 100, cursor: more ? cursor ?? undefined : undefined } })
@@ -450,18 +469,51 @@ function Memories() {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
+  // the server's words go under the field (MemoryForm shows what is thrown)
+  const saving = async (run: () => Promise<Memory>, done: (m: Memory) => void, said: string) => {
+    let m: Memory
+    try {
+      m = await run()
+    } catch (e) {
+      throw new Error(errorText(e, locale, t('error.network')))
+    }
+    done(m)
+    setEditing(null)
+    toast({ level: 'success', text: said })
+  }
+  const add = (text: string) => saving(() => api.call(API.createMemory, { body: { text } }), (m) => setItems((cur) => [m, ...(cur ?? []).filter((x) => x.id !== m.id)]), t('memory.added'))
+  const update = (id: string, text: string) => saving(() => api.call(API.updateMemory, { params: { id }, body: { text } }), (m) => setItems((cur) => cur?.map((x) => (x.id === m.id ? m : x)) ?? null), t('memory.updated'))
+  const addButton = (
+    <Button size="sm" onClick={() => setEditing('new')} disabled={editing === 'new'} data-testid="memory-add">
+      <Plus size={14} aria-hidden /> {t('memory.add')}
+    </Button>
+  )
   return (
-    <Section title={t('settings.memory')} desc={t('memory.desc')}>
+    <Section title={t('settings.memory')} desc={t('memory.desc')} page>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!items && !error && <Skeleton lines={3} />}
-      {items && !items.length && <EmptyState icon={<Brain size={26} />} title={t('memory.empty')} />}
-      {items && items.length > 0 && (
+      {items && (items.length > 0 || editing === 'new') && <div className="mb-3 flex justify-end">{addButton}</div>}
+      {items && !items.length && editing !== 'new' && (
+        <EmptyState icon={<Brain size={26} />} title={t('memory.empty')}>
+          <div className="mt-3">{addButton}</div>
+        </EmptyState>
+      )}
+      {items && (items.length > 0 || editing === 'new') && (
         <>
           <ul className="divide-y divide-line rounded-xl border border-line" data-testid="memory-list">
-            {items.map((m) => (
-              <li key={m.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+            {editing === 'new' && (
+              <li className="px-4 py-3 text-sm" data-testid="memory-new">
+                <MemoryForm submitLabel={t('memory.add')} onSubmit={add} onCancel={() => setEditing(null)} testId="memory-form" />
+              </li>
+            )}
+            {items.map((m) => editing === m.id ? (
+              <li key={m.id} className="px-4 py-3 text-sm" data-testid="memory-item" data-editing="true">
+                <MemoryForm initial={m.text} submitLabel={t('common.save')} onSubmit={(text) => update(m.id, text)} onCancel={() => setEditing(null)} testId="memory-form" />
+              </li>
+            ) : (
+              <li key={m.id} className="group flex items-start gap-2 px-4 py-3 text-sm" data-testid="memory-item">
                 <span className="min-w-0 flex-1">
-                  <span className="block whitespace-pre-wrap">{m.text}</span>
+                  <span className="block break-words whitespace-pre-wrap" data-testid="memory-text">{m.text}</span>
                   <span className="mt-0.5 block text-xs text-faint">
                     {formatDateTime(m.createdAt, locale)}
                     {m.sourceChatId && (
@@ -474,9 +526,12 @@ function Memories() {
                     )}
                   </span>
                 </span>
-                <button type="button" aria-label={t('memory.forget')} title={t('memory.forget')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => remove(m)}>
+                <IconButton label={t('memory.editLabel')} onClick={() => setEditing(m.id)} data-testid="memory-edit">
+                  <Pencil size={15} />
+                </IconButton>
+                <IconButton label={t('memory.forget')} danger onClick={() => void remove(m)} onKeyDown={noKeyRepeat} data-testid="memory-forget">
                   <Trash2 size={15} />
-                </button>
+                </IconButton>
               </li>
             ))}
           </ul>
@@ -486,9 +541,11 @@ function Memories() {
                 {t('common.loadMore')}
               </Button>
             )}
-            <Button size="sm" variant="danger" onClick={clear}>
-              {t('memory.clear')}
-            </Button>
+            {items.length > 0 && (
+              <Button size="sm" variant="danger" onClick={clear}>
+                {t('memory.clear')}
+              </Button>
+            )}
           </div>
         </>
       )}
@@ -502,9 +559,10 @@ function About() {
   const info = useServerSource()
   const { version } = info
   return (
-    <Section title={t('settings.about')}>
+    <Section title={t('settings.about')} page>
       {version && <p className="text-sm" data-testid="about-version">{t('about.version', { version })}</p>}
       <p className="mt-2 text-sm text-muted">{t('about.license')}</p>
+      <p className="mt-2 text-sm text-muted" data-testid="about-hwp">{t('about.hwp')}</p>
       <SourceCodeLinks info={info} className="mt-3 inline-block text-sm text-accent-text underline" />
     </Section>
   )
@@ -536,16 +594,27 @@ function Apps() {
         </Section>
       )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
-        <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p} />
+        <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p}
+          server={downloadsSourceOf(me.server)} />
       </Section>
     </>
   )
 }
 
+/** Where the team server's installers come from, for the owner's empty state: an office Mac (`teamax desktop add`), a
+ * Linux server that takes the Windows app from the release feed by itself (GET /api/me server.windowsApp 'feed') or
+ * one without a feed ('folder': desktop-refresh --from), a hosted tenant that takes it from the feed ('hosted-feed':
+ * nothing to run, Diagnostics says why when it is missing) or one that does not ('hosted'). */
+export type DownloadsSource = 'office' | 'feed' | 'folder' | 'hosted' | 'hosted-feed'
+export const downloadsSourceOf = (server: Pick<Me['server'], 'deployment' | 'windowsApp'>): DownloadsSource =>
+  server.deployment === 'hosted' ? (server.windowsApp === 'feed' ? 'hosted-feed' : 'hosted') : server.windowsApp ?? 'office'
+const OWNER_HINT: Record<DownloadsSource, MessageKey | null> = { office: 'apps.noDownloadsOwner', feed: 'apps.noDownloadsOwnerFeed', folder: 'apps.noDownloadsOwnerLinux', hosted: null, 'hosted-feed': 'apps.noDownloadsOwnerHosted' }
+const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } catch { return RELEASE_CHANNEL.feed } })()
+
 /** The installers under Settings > Apps > Desktop app (exported for tests). Inside a Mac App Store build only the App
  * Store line: no installer, no install steps, and not the empty state either (it asks for an installer and tells the
  * owner how to add the .dmg). */
-export function DesktopDownloads({ downloads, store, owner, here }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform }) {
+export function DesktopDownloads({ downloads, store, owner, here, server = 'office' }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform; server?: DownloadsSource }) {
   const t = useT()
   const locale = useLocale()
   if (store) return <p className="text-sm text-muted">{t('apps.macStore')}</p>
@@ -554,8 +623,8 @@ export function DesktopDownloads({ downloads, store, owner, here }: { downloads:
       {downloads === null && <Skeleton lines={2} />}
       {downloads === 'none' && (
         <>
-          <p className="text-sm text-muted">{t(owner ? 'apps.noDownloadsYet' : 'apps.noDownloads')}</p>
-          {owner && <p className="mt-2 text-xs text-muted">{t('apps.noDownloadsOwner')}</p>}
+          <p className="text-sm text-muted">{t(!owner ? 'apps.noDownloads' : server === 'feed' || server === 'hosted-feed' ? 'apps.noDownloadsFeed' : 'apps.noDownloadsYet')}</p>
+          {owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>}
         </>
       )}
       {Array.isArray(downloads) && (

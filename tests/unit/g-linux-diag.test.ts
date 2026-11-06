@@ -1,7 +1,7 @@
 // Diagnostics on a Linux install (L16): nftables status file, the launcher (systemd) and its sandbox report over the
 // launcher protocol, kernel isolation, cron/at, the disk by its levels; the Linux and Team AX Cloud wording never
 // talks about a Mac, and the Mac wording stays byte for byte what it was.
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
@@ -12,6 +12,8 @@ import { createContext, type AppContext } from '../../server/src/context'
 import { openDb } from '../../server/src/db'
 import { silentLogger } from '../../server/src/log'
 import { resolveLayout } from '../../server/src/system/layout'
+import { Plan, setPlanForTests } from '../../server/src/system/limits'
+import { configureStorageGuard } from '../../server/src/system/storage'
 import { M } from '../../server/src/system/messages'
 import { engineStatusMessages, hostMessages } from '../../server/src/system/messages-linux'
 import { OpsService } from '../../server/src/system/ops'
@@ -107,6 +109,77 @@ describe('diagnostics of an installed Linux server', () => {
   })
   afterAll(async () => { server.close(); await ctx.close(); fs.rmSync(root, { recursive: true, force: true }) })
 
+  test('automatic updates and unsigned versions are shown; the needs-root line knows whether the timer is on (update audit P3)', async () => {
+    const units = path.join(root, 'units')
+    fs.mkdirSync(path.join(units, 'timers.target.wants'), { recursive: true })
+    fs.writeFileSync(path.join(units, 'mycel-update.timer'), '[Timer]\n')
+    fs.mkdirSync(path.join(base, 'app', 'versions'), { recursive: true })
+    const link = path.join(units, 'timers.target.wants', 'mycel-update.timer')
+    const updOps = () => new OpsService(ctx, { layout: resolveLayout(ctx.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel', MYCEL_UNIT_DIR: units }, 'linux'), platform: 'linux', engines: async () => [], launcherStatus: async () => status, procSysDir: procSys, atDir: path.join(root, 'etc') })
+    const checks = async () => (await updOps().diagnostics('en')).checks
+    const inst = (o: object) => fs.writeFileSync(path.join(base, 'root', 'install.json'), JSON.stringify({ format: 1, id: 'mycel', systemd: true, autoUpdate: true, allowUnsigned: false, ...o }, null, 2))
+    ctx.config.deployment = undefined
+    ctx.config.update = { ...ctx.config.update, auto: true }
+    inst({})
+    fs.symlinkSync(path.join(units, 'mycel-update.timer'), link)
+    let c = await checks()
+    expect(c.find((x) => x.id === 'auto_update')).toMatchObject({ status: 'ok', label: 'Automatic updates' })
+    expect(c.find((x) => x.id === 'auto_update')!.detail).toContain('03:00-05:00')
+    expect(c.find((x) => x.id === 'unsigned_updates')).toBeUndefined()
+    // off three ways: install.json, the timer, the app's own updates
+    for (const off of [() => inst({ autoUpdate: false }), () => fs.rmSync(link), () => { ctx.config.update = { ...ctx.config.update, auto: false } }]) {
+      inst({}); if (!fs.existsSync(link)) fs.symlinkSync(path.join(units, 'mycel-update.timer'), link); ctx.config.update = { ...ctx.config.update, auto: true }
+      off()
+      const a = (await checks()).find((x) => x.id === 'auto_update')!
+      expect(a).toMatchObject({ status: 'warn' })
+      expect(a.detail).toContain('sudo mycel-ctl auto-update on')
+    }
+    // a release that needs root: "the update timer installs it" only while the timer is on
+    fs.writeFileSync(path.join(ctx.config.dataDir, 'update-check.json'), JSON.stringify({ at: new Date().toISOString(), error: null, feed: { version: '99.0.0', minFrom: null, urgent: false, needsRoot: true, notes: '', publishedAt: new Date().toISOString(), bundles: [] } }))
+    expect((await checks()).find((x) => x.id === 'update_root')!.detail).toContain('Automatic updates are off on this server')
+    inst({}); if (!fs.existsSync(link)) fs.symlinkSync(path.join(units, 'mycel-update.timer'), link); ctx.config.update = { ...ctx.config.update, auto: true }
+    expect((await checks()).find((x) => x.id === 'update_root')!.detail).toContain('The update timer installs it in the team\'s update window')
+    // a release the update timer holds after it was rolled back here (root/update-failed.json, 0.2.19 review S1): said
+    // instead, with the time in the team's zone
+    const failed = path.join(base, 'root', 'update-failed.json')
+    const hold = (until: number, result = 'rolled_back') => fs.writeFileSync(failed, JSON.stringify({ version: '99.0.0', result, detail: 'exited 3 times', at: new Date().toISOString(), failures: 1, until: new Date(until).toISOString() }))
+    hold(Date.now() + 20 * 3600_000)
+    c = await checks()
+    expect(c.find((x) => x.id === 'update_root')).toBeUndefined()
+    const held = c.find((x) => x.id === 'update_held')!
+    expect(held).toMatchObject({ status: 'warn' })
+    expect(held.detail).toMatch(/^The new version 99\.0\.0 did not start properly on this server and was rolled back\. The update timer tries it again in the update window after \d{4}-\d\d-\d\d \d\d:\d\d \(.+\); to try it now, run `sudo mycel-ctl update` there\.$/)
+    hold(Date.now() + 3600_000, 'error')
+    expect((await checks()).find((x) => x.id === 'update_held')!.detail).toContain('Installing the new version 99.0.0 failed on this server.')
+    // over, or more than a week ahead (the clock went back): the plain line again
+    for (const until of [Date.now() - 60_000, Date.now() + 8 * 86_400_000]) {
+      hold(until)
+      c = await checks()
+      expect(c.find((x) => x.id === 'update_held')).toBeUndefined()
+      expect(c.find((x) => x.id === 'update_root')!.detail).toContain('The update timer installs it')
+    }
+    fs.rmSync(failed)
+    // a window that never opens, or is too short for the 15-minute checks
+    for (const w of ['00:00-00:00', '03:00-03:20']) {
+      ctx.db.query("INSERT INTO settings (key, value) VALUES ('updateWindow', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(w))
+      const a = (await checks()).find((x) => x.id === 'auto_update')!
+      expect(a).toMatchObject({ status: 'warn' })
+      expect(a.detail).toContain('shorter than 30 minutes')
+    }
+    ctx.db.query("DELETE FROM settings WHERE key = 'updateWindow'").run()
+    // unsigned versions accepted
+    inst({ allowUnsigned: true })
+    c = await checks()
+    expect(c.find((x) => x.id === 'unsigned_updates')).toMatchObject({ status: 'warn', label: 'Unsigned versions' })
+    expect(c.find((x) => x.id === 'unsigned_updates')!.detail).toContain('sudo mycel-ctl allow-unsigned off')
+    // the hosted service updates its tenants: neither line
+    c = (await (() => { ctx.config.deployment = 'hosted'; return updOps() })().diagnostics('en')).checks
+    expect(c.find((x) => x.id === 'auto_update')).toBeUndefined()
+    ctx.config.deployment = undefined
+    fs.rmSync(path.join(ctx.config.dataDir, 'update-check.json'), { force: true })
+    fs.rmSync(path.join(base, 'root', 'install.json'), { force: true })
+    fs.rmSync(path.join(base, 'app'), { recursive: true, force: true })
+  })
   test('firewall: missing, stale, not loaded, ok', async () => {
     expect((await check({}, 'pf_anchor'))).toMatchObject({ status: 'fail', label: 'AI engine firewall (nftables)' })
     expect((await check({}, 'pf_anchor'))!.detail).toContain('sudo mycel-ctl firewall apply')
@@ -223,6 +296,43 @@ describe('diagnostics of an installed Linux server', () => {
     expect(hd.checks.find((c) => c.id === 'sockets')).toBeUndefined()
     expect(hd.checks.find((c) => c.id === 'update')!.detail).toContain('the hosting provider installs updates')
     for (const c of hd.checks) expect(`${c.detail ?? ''}`).not.toMatch(/sudo |systemctl|journalctl/)
+  })
+  test('a plan limit is a warning, a full real disk a failure: the control plane rolls an update back on a failure', async () => {
+    const GiB = 1024 ** 3
+    const plan = (diskGiB: number) => Plan.parse({ format: 1, plan: 'free', maxConcurrency: 1, memoryMiB: 2048, cpuCores: 1, diskGiB, maxActiveMembers: 3 })
+    let used = 0
+    const statfs = spyOn(fs, 'statfsSync').mockImplementation((() => {
+      const b = 80 * GiB / 4096, free = (80 * GiB - used) / 4096
+      return { type: 0, bsize: 4096, blocks: b, bfree: free, bavail: free, files: 0, ffree: 0 }
+    }) as unknown as typeof fs.statfsSync)
+    const o = ops()
+    const status = async () => {
+      const c = (await o.diagnostics('en')).checks
+      return { team: c.find((x) => x.id === 'disk.team')!.status, plan: c.find((x) => x.id === 'disk.plan')?.status, backups: c.find((x) => x.id === 'backups')!.status }
+    }
+    const lastError = path.join(base, 'data', 'backups', 'last-error.json')
+    try {
+      setPlanForTests(plan(5))
+      used = 11 * GiB // over the hard cap: writes are refused
+      expect(await status()).toMatchObject({ team: 'warn', plan: undefined })
+      used = 4.9 * GiB // at 98% of the plan, no grace state yet
+      expect((await status()).team).toBe('warn')
+      used = 79.8 * GiB // the real disk is near full
+      expect((await status()).team).toBe('fail')
+      setPlanForTests(plan(100)) // a disk grow failed
+      used = 11 * GiB
+      expect(await status()).toMatchObject({ team: 'ok', plan: 'warn' })
+      fs.mkdirSync(path.dirname(lastError), { recursive: true })
+      fs.writeFileSync(lastError, JSON.stringify({ at: new Date().toISOString(), message: 'no room', reason: 'plan_space' }))
+      expect((await status()).backups).toBe('warn')
+      fs.writeFileSync(lastError, JSON.stringify({ at: new Date().toISOString(), message: 'no room', reason: 'disk_space' }))
+      expect((await status()).backups).toBe('fail')
+    } finally {
+      fs.rmSync(lastError, { force: true })
+      statfs.mockRestore()
+      setPlanForTests(undefined)
+      configureStorageGuard(null)
+    }
   })
   test('the public exit address (QA 0.2.12 N5): unknown, turned off, known by family or by the relay; never the address itself', async () => {
     const env = 'MYCEL_EXIT_ADDRESS_CHECK'

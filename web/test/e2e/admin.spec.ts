@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
@@ -9,6 +9,9 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   const errors = watchConsole(page)
   await signIn(page)
   await page.getByRole('link', { name: '관리자' }).click()
+  // Admin opens on Home; members are first in the menu after it
+  await expect(page.getByTestId('admin-home')).toBeVisible()
+  await page.getByRole('navigation', { name: '관리자' }).getByRole('link', { name: DICTS.ko['admin.members'], exact: true }).click()
   await expect(page.getByTestId('members-table')).toContainText('Bob')
 
   // add a member: the temporary password field comes pre-filled with an easy one (word + digits), ↻ makes another,
@@ -69,8 +72,10 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   expect(copied).toMatch(/^주소: https:\/\/team\.example\.com\n아이디: carol\n임시 비밀번호: maple2026\n.+까지 로그인해서 새 비밀번호로 바꿔 주세요\.$/)
   await page.getByRole('dialog').getByRole('button', { name: '완료' }).click()
   await expect(page.getByTestId('members-table')).toContainText('비밀번호 변경 필요')
-  // reset is a labelled button in the row, not an icon only
+  // reset password is a labelled item in the row's "…" (not an icon only)
+  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Carol' }).getByTestId('member-more').click()
   await expect(page.getByTestId('reset-password-carol')).toHaveText(/비밀번호 재설정/)
+  await page.keyboard.press('Escape')
 
   // invite link with QR
   await page.getByTestId('invite-new').click()
@@ -90,21 +95,29 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
 
   // folder rules: preview before saving
   await page.getByRole('link', { name: '폴더 권한' }).click()
-  await expect(page.getByTestId('folder-list')).toContainText('finance')
-  await page.getByTestId('folder-list').getByRole('button', { name: '수정' }).click()
-  await page.getByTestId('rule-add').click()
-  await page.getByRole('dialog').getByLabel('대상').last().selectOption('everyone')
-  await page.getByTestId('rules-preview').click()
-  const preview = page.getByTestId('rules-preview-result')
-  await expect(preview).toContainText('Bob')
-  await expect(preview).toContainText('권한을 잃는 사람')
-  await page.getByTestId('rules-save').click()
-  await expect(page.getByTestId('folder-list')).toContainText('모두: 읽기')
+  const folderTree = page.getByTestId('folder-tree')
+  await expect(folderTree.locator('[data-path="finance"]')).toBeVisible()
+  // the new group's own folder is in the tree too (groups/영업팀): choose the finance folder and change its rules
+  await expect(folderTree.locator('[data-path="groups/영업팀"]')).toBeVisible()
+  await folderTree.locator('[data-path="finance"]').click()
+  await page.getByTestId('folder-detail-edit').click()
+  // the edit panel: everyone reads; the server works out who gains (Bob is not in 재무팀) before anything is saved
+  const panel = page.getByTestId('edit-panel')
+  await panel.getByTestId('edit-basic-read').click()
+  const result = panel.getByTestId('edit-result')
+  await expect(result).toHaveAttribute('data-ready', 'true')
+  await result.getByTestId('edit-show-people').click()
+  await expect(result.getByTestId('edit-more')).toContainText('Bob')
+  await expect(panel.getByTestId('edit-save')).toContainText('권한 늘어남')
+  await panel.getByTestId('edit-save').click()
+  await expect(panel).toHaveCount(0)
+  await expect(page.getByTestId('folder-detail').getByTestId('folder-rules')).toContainText('모두: 읽기')
+  await expect(folderTree.locator('[data-path="finance"]').getByTestId('tree-who')).toContainText('모두 · 읽기')
 
   // engines: what is missing, in plain words
-  await page.getByRole('link', { name: 'AI 엔진' }).click()
+  await page.getByTestId('admin-menu').getByRole('link', { name: '제공자', exact: true }).click()
   await expect(page.getByTestId('engine-card').first()).toContainText('연결됨')
-  await expect(page.getByTestId('engine-detail')).toContainText('codex login --device-auth')
+  await expect(page.locator('[data-engine="codex"]').getByTestId('engine-detail')).toContainText('codex login --device-auth')
 
   await page.getByRole('link', { name: '사용량' }).click()
   await expect(page.getByTestId('usage-table')).toContainText('Olga')
@@ -131,6 +144,8 @@ test('members: a one-time password reset link to copy (no email); the owner has 
   await expect(page.getByTestId('members-table')).toContainText('Bob')
   // the owner's own row has no reset buttons (the owner resets only on the server Mac)
   await expect(page.getByTestId('reset-link-olga')).toHaveCount(0)
+  // the reset link is in the row's "…" menu
+  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' }).getByTestId('member-more').click()
   await page.getByTestId('reset-link-bob').click()
   await expect(page.getByRole('dialog')).toContainText('24시간')
   await page.getByTestId('dialog-confirm').click()
@@ -236,8 +251,8 @@ test('system: storage use with what uses it; Team AX Cloud shows the plan and le
   await expect(page.getByRole('button', { name: '연결 방식 바꾸기' })).toHaveCount(0)
   await expect(page.getByTestId('update-managed')).toBeVisible()
   await expect(page.getByTestId('connected-list')).toHaveCount(0)
-  // the plan's maximum for answers at the same time
-  await page.goto('/admin/engines')
+  // the plan's maximum for answers at the same time (Team settings › AI defaults)
+  await page.goto('/admin/settings#ai')
   await expect(page.getByTestId('engines-concurrency')).toHaveAttribute('max', '3')
   expect(realErrors(errors)).toEqual([])
 })
@@ -256,6 +271,95 @@ test('settings: the team time zone', async ({ page }) => {
 })
 
 // "Send images, PDF pages and video frames to the AI" (server/src/files/vision.ts): on by default; the admin's switch saves only it
+// an office Mac: the mock server is not one, so what makes it one is answered here
+const officeStatus = (o: Record<string, unknown> = {}) => ({
+  current: '0.2.20', channel: 'stable', paused: false, time: '22:30', window: '22:30-00:30', windowSource: 'legacy', timeZone: 'Asia/Jakarta', nextWindowAt: '2026-11-02T15:30:00.000Z',
+  lastCheckAt: '2026-11-02T09:00:00.000Z', last: null, available: null, lastUpdate: null, running: null, requested: false, agentInstalled: true, desktop: null, ...o,
+})
+async function onOfficeMac(page: Page, status: () => object) {
+  await page.route('**/api/me', async (route) => {
+    const res = await route.fetch()
+    const me = await res.json()
+    await route.fulfill({ response: res, json: { ...me, server: { ...me.server, features: { ...me.server.features, officeUpdate: true } } } })
+  })
+  await page.route('**/api/admin/office-update', (route) => route.fulfill({ json: status() }))
+}
+const legacyHint = (page: Page) => page.getByText(translate('ko', 'teamSettings.updateWindowLegacy', { window: '22:30-00:30', zone: 'Asia/Jakarta' }), { exact: true })
+const plainHint = (page: Page) => page.getByText(DICTS.ko['teamSettings.row.updateWindowDesc'], { exact: true })
+
+test('settings: an office Mac says which update window runs while the field is empty, and never writes it in', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  let status = officeStatus()
+  await onOfficeMac(page, () => status)
+  await page.goto('/admin/settings')
+  const t = DICTS.ko
+  const field = page.getByLabel(t['teamSettings.updateWindow'], { exact: true })
+  const patches: unknown[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings') patches.push(r.postDataJSON())
+  })
+  const save = async () => {
+    const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings')
+    await page.getByRole('button', { name: t['common.save'], exact: true }).click()
+    expect((await saved).ok()).toBe(true)
+  }
+  await expect(legacyHint(page)).toBeVisible()
+  await expect(field).toHaveAttribute('placeholder', '22:30-00:30')
+  await expect(field).toHaveValue('')
+  await expect(plainHint(page)).toHaveCount(0)
+  // typed, not saved yet: that time still runs
+  await field.fill('02:00-05:00')
+  await expect(legacyHint(page)).toBeVisible()
+  // saved: the team's own window, and nothing left to tell
+  status = officeStatus({ window: '02:00-05:00', time: '02:00', windowSource: 'team' })
+  await save()
+  await expect(plainHint(page)).toBeVisible()
+  await expect(legacyHint(page)).toHaveCount(0)
+  await expect(field).toHaveAttribute('placeholder', '02:00-05:00')
+  await expect(field).toHaveValue('02:00-05:00')
+  // the page opened on a saved window, emptied: the old time counts again, which only the server can say
+  await page.reload()
+  await expect(plainHint(page)).toBeVisible()
+  status = officeStatus()
+  await field.fill('')
+  await save()
+  await expect(legacyHint(page)).toBeVisible()
+  await expect(field).toHaveAttribute('placeholder', '22:30-00:30')
+  await expect(field).toHaveValue('')
+  // only what was typed was ever saved
+  expect(patches).toEqual([{ updateWindow: '02:00-05:00' }, { updateWindow: null }])
+  // the team moves to another zone: the hint names the new one
+  status = officeStatus({ timeZone: 'Asia/Tokyo' })
+  await page.getByTestId('team-time-zone').selectOption('Asia/Tokyo')
+  await save()
+  await expect(page.getByText(translate('ko', 'teamSettings.updateWindowLegacy', { window: '22:30-00:30', zone: 'Asia/Tokyo' }), { exact: true })).toBeVisible()
+})
+
+test('settings: any other server keeps the update window field as it was', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  // not an office Mac: this status, were it read, would change the field
+  await page.route('**/api/admin/office-update', (route) => route.fulfill({ json: officeStatus() }))
+  await page.goto('/admin/settings')
+  await expect(plainHint(page)).toBeVisible()
+  await expect(legacyHint(page)).toHaveCount(0)
+  await expect(page.getByLabel(DICTS.ko['teamSettings.updateWindow'], { exact: true })).toHaveAttribute('placeholder', '02:00-05:00')
+})
+
+test('system: a time zone this browser does not know leaves the update card standing', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  await onOfficeMac(page, () => officeStatus({ timeZone: 'Mars/Base', window: '03:00-05:00', windowSource: 'team', lastUpdate: { from: '0.2.19', to: '0.2.20', at: '2026-11-02T09:00:00.000Z', result: 'updated', error: null } }))
+  await page.goto('/admin/system')
+  const card = page.getByTestId('office-update')
+  await expect(card).toContainText('03:00-05:00(Mars/Base)')
+  await expect(card).toContainText(/마지막 확인 .+\(.+\/.+\)|마지막 확인 .+\(UTC\)/)
+  await expect(card).toContainText(/0\.2\.19 → 0\.2\.20 · .+\(/)
+  expect(errors.join('\n')).not.toContain('RangeError')
+})
+
 test('settings: the team turns sending images and PDF pages to the AI off', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
@@ -411,7 +515,8 @@ for (const locale of ['ko', 'en', 'id'] as const) {
         await revoke.click()
         expect((await deleted).status()).toBe(204)
         await expect(row).toHaveCount(0)
-        await expect(page.getByText(t['members.noInvites'], { exact: true })).toBeVisible()
+        // no link left: the quiet Invite links section goes away (no empty card)
+        await expect(page.getByTestId('invite-links')).toHaveCount(0)
         // No stale cancel button remains to send another DELETE; the document was never reloaded.
         await expect(revoke).toHaveCount(0)
         expect(deletes).toBe(rejectFirst ? 2 : 1)
@@ -440,11 +545,13 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await page.goto('/admin/members')
     const t = DICTS[locale]
     const member = page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' })
-    await member.getByRole('button', { name: t['members.disable'], exact: true }).click()
+    await member.getByTestId('member-more').click()
+    await page.getByTestId('disable-member-bob').click()
     await page.getByTestId('dialog-confirm').click()
     await expect(member).toContainText(t['members.disabled'])
     for (const cancel of [true, false]) {
-      await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
+      await member.getByTestId('member-more').click()
+      await page.getByTestId('delete-member-bob').click()
       const dialog = page.getByRole('dialog')
       await expect(dialog).toContainText(translate(locale, 'members.removeBody', { days: 3 }))
       await expect(dialog).not.toContainText('{days')
@@ -483,7 +590,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const created = await page.request.post('/api/chats', { headers: { [CSRF_HEADER]: '1' }, data: { title: 'Retention chat' } })
     expect(created.ok()).toBeTruthy()
     await page.goto('/admin/settings')
-    await page.getByLabel(t['teamSettings.chatTrashDays'], { exact: true }).fill('5')
+    await page.getByLabel(t['teamSettings.row.chatTrash'], { exact: true }).fill('5')
     await page.getByRole('button', { name: t['common.save'], exact: true }).click()
     await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
     // no page.goto from here: the dialogs must use the new value without a reload
@@ -491,10 +598,12 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     page.on('load', () => loads++)
     await page.getByRole('link', { name: t['admin.members'], exact: true }).click()
     const member = page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' })
-    await member.getByRole('button', { name: t['members.disable'], exact: true }).click()
+    await member.getByTestId('member-more').click()
+    await page.getByTestId('disable-member-bob').click()
     await page.getByTestId('dialog-confirm').click()
     await expect(member).toContainText(t['members.disabled'])
-    await member.getByRole('button', { name: t['common.delete'], exact: true }).click()
+    await member.getByTestId('member-more').click()
+    await page.getByTestId('delete-member-bob').click()
     await expect(page.getByRole('dialog')).toContainText(translate(locale, 'members.removeBody', { days: 5 }))
     await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
     const item = page.getByRole('listitem').filter({ hasText: 'Retention chat' })
@@ -520,7 +629,7 @@ for (const locale of ['ko', 'en', 'id'] as const) {
       if (r.method() === 'PATCH' && new URL(r.url()).pathname === '/api/admin/settings') patches.push(r.postDataJSON())
     })
     await expect(window).toHaveValue('')
-    await expect(page.getByText(t['teamSettings.updateWindowHint'], { exact: true })).toBeVisible()
+    await expect(page.getByText(t['teamSettings.row.updateWindowDesc'], { exact: true })).toBeVisible()
     for (const invalid of ['25:00-26:00', '25:00-01:00', '00:00-25:00', '23:60-01:00', '00:00-23:60']) {
       await window.fill(invalid)
       await expect(error).toBeVisible()
@@ -553,7 +662,8 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
   await signIn(page)
   await page.goto('/admin/members')
   const member = page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' })
-  await member.getByRole('button', { name: 'Disable', exact: true }).click()
+  await member.getByTestId('member-more').click()
+  await page.getByTestId('disable-member-bob').click()
   await page.getByTestId('dialog-confirm').click()
   await expect(member).toContainText(DICTS.en['members.disabled'])
   let deletes = 0, listReads = 0
@@ -562,7 +672,8 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
     if (request.method() === 'DELETE' && path === '/api/admin/users/bob') deletes++
     if (request.method() === 'GET' && path === '/api/admin/users') listReads++
   })
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByTestId('member-more').click()
+  await page.getByTestId('delete-member-bob').click()
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(member).toBeVisible()
@@ -571,7 +682,8 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
 
   await page.route('**/api/admin/users/bob', route => route.fulfill({ status: 403,
     json: { error: { code: 'forbidden', message: 'Deletion refused' } } }))
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByTestId('member-more').click()
+  await page.getByTestId('delete-member-bob').click()
   await page.getByTestId('dialog-confirm').click()
   await expect(page.getByRole('alert').filter({ hasText: 'Deletion refused' })).toBeVisible()
   await expect(member).toBeVisible()
@@ -579,7 +691,8 @@ test('members: cancelled and rejected deletions retain the row; a successful ret
   expect(listReads).toBe(0)
 
   await page.unroute('**/api/admin/users/bob')
-  await member.getByRole('button', { name: 'Delete', exact: true }).click()
+  await member.getByTestId('member-more').click()
+  await page.getByTestId('delete-member-bob').click()
   const deleted = page.waitForResponse(r => r.request().method() === 'DELETE' && new URL(r.url()).pathname === '/api/admin/users/bob')
   await page.getByTestId('dialog-confirm').click()
   expect((await deleted).status()).toBe(204)
@@ -639,4 +752,29 @@ test('settings: tool rounds per answer', async ({ page }) => {
   await page.reload()
   await expect(page.getByTestId('team-answer-step-limit').getByRole('spinbutton')).toHaveValue('120')
   expect(realErrors(errors)).toEqual([])
+})
+
+// these menus scroll sideways on a phone, so their container clips anything drawn outside a link: the ring stays inside
+test('the focus ring of the admin and settings menus is not cut off by the scrolling menu', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const inside = async (name: string) => {
+    const link = page.getByRole('link', { name, exact: true })
+    await link.focus()
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect(link).toBeFocused()
+    await expect(link).toHaveCSS('outline-style', 'solid')
+    await expect(link).toHaveCSS('outline-offset', '-2px')
+  }
+  for (const size of [{ width: 1360, height: 860 }, { width: 390, height: 780 }]) {
+    await page.setViewportSize(size)
+    await page.goto('/admin/folders')
+    await inside('폴더 권한')
+    await page.screenshot({ path: process.env.RING_SHOTS ? `${process.env.RING_SHOTS}/admin-${size.width}.png` : undefined })
+    // Settings is a dialog: its list is beside the section on a wide screen, on its own on a phone (/settings)
+    // (on a phone the profile is the photo row on top of the list, so a plain row stands in for it)
+    await page.goto(size.width < 768 ? '/settings' : '/settings/profile')
+    await inside(size.width < 768 ? '보안·기기' : '프로필')
+  }
 })

@@ -9,12 +9,14 @@
 //   configure [--label L] [--app-port N] [--lan-port N] [--helper-port N|0] [--run-dir D] [--claude-bin P]
 //             [--codex-bin P] [--ca-constraints 0|1] [--public-host H|''] [--tunnel-token-file F]
 //             [--public-allow-from CIDR,…] [--public-countries KR,…] [--proxy-port N]
-//             [--claude-token-file F] [--claude-auth local-login|subscription]
+//             [--claude-token-file F] [--claude-auth local-login|subscription] [--remove-claude-mcp]
 //                       write config/office.env (merged with what is there); --tunnel-token-file checks the
 //                       Cloudflare Tunnel connector token and copies it to config/tunnel-token (600);
 //                       --claude-token-file checks the owner's `claude setup-token` token, copies it to
 //                       config/claude-oauth-token (600) and switches Claude to subscription mode (the model proxy with
-//                       per-turn tokens; engines never see this Mac's login). --claude-auth local-login switches back.
+//                       per-turn tokens; engines never see this Mac's login). --claude-auth local-login switches back;
+//                       when this Mac account's ~/.claude.json has MCP settings (which local-login removes) only with
+//                       --remove-claude-mcp
 //   install [--no-open] write the LaunchAgent, (re)start it, wait until it answers, print the addresses and the
 //                       first-run setup link (and open it on this Mac)
 //   start | stop | restart | status | logs [n] | info | card | setup-link
@@ -40,8 +42,14 @@
 //                                  No restart needed.
 //   update [status|check|now|pause|resume|channel stable|beta|time HH:MM|run]
 //                                  automatic updates (./update-cli.ts, docs/OFFICE.md "자동 업데이트"): the third
-//                                  LaunchAgent (<label>.update) checks the release feed every night
+//                                  LaunchAgent (<label>.update) checks the release feed in the team's update window
 //   uninstall-agent                stop and remove the LaunchAgents (office-uninstall.sh)
+//   claude-mcp check [--summary] | backups | restore FILE [--yes] | save
+//                                  the MCP settings local-login removes from this Mac account's ~/.claude.json
+//                                  (./claude-mcp.ts): what would go (office-install.sh runs it; exit 3 = something),
+//                                  the copies kept in config/claude-mcp-backups, putting one back (lists every server
+//                                  first; writes with --yes), and save: a copy now (office-install.sh, before the
+//                                  server first starts)
 // Every command takes --home <dir> (default: the folder above app/).
 import fs from 'node:fs'
 import os from 'node:os'
@@ -61,6 +69,7 @@ import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } f
 import { TOKEN_RE } from '../proxy/subscription'
 import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
 import { updateView } from './update'
+import { claudeMcpCommand, headline, scanClaudeMcp } from './claude-mcp'
 import { PRODUCT } from '@mycel/shared'
 
 const CHECK_MS = 30_000
@@ -281,6 +290,7 @@ export function configure(home: string, args: string[], env: Record<string, stri
     ['--public-host', 'TEAMAX_PUBLIC_HOST'], ['--public-allow-from', 'TEAMAX_PUBLIC_ALLOW_FROM'], ['--public-countries', 'TEAMAX_PUBLIC_COUNTRIES'],
     ['--proxy-port', 'TEAMAX_PROXY_PORT'], ['--claude-auth', 'TEAMAX_CLAUDE_AUTH'],
   ]
+  const wasAuth = (cur.TEAMAX_CLAUDE_AUTH ?? '').trim() || 'local-login'
   for (const [f, k] of flags) { const v = arg(args, f); if (v !== undefined) cur[k] = v }
   // the owner's setup-token: checked before anything is written, then subscription mode (unless --claude-auth says)
   const claudeTokenFile = arg(args, '--claude-token-file')
@@ -289,6 +299,13 @@ export function configure(home: string, args: string[], env: Record<string, stri
   // a new LAN port moves the helper page along with it unless it was chosen explicitly
   if (arg(args, '--lan-port') !== undefined && arg(args, '--helper-port') === undefined) delete cur.TEAMAX_HELPER_PORT
   const s = settingsFrom(home, cur)
+  // back to this Mac's login from the setup-token mode: the server starts removing the MCP settings of ~/.claude.json
+  // (engine/claude-json-guard.ts), so not without the owner's yes when there are any (office test O3)
+  if (wasAuth === 'subscription' && s.claudeAuth === 'local-login' && !args.includes('--remove-claude-mcp')) {
+    const scan = scanClaudeMcp(path.resolve(arg(args, '--as-home') ?? home), env.HOME || os.homedir())
+    if (scan.findings.length || scan.backupsLink || scan.unchecked.length)
+      throw new Error(`${headline(scan)} (teamax claude-mcp check lists them). With this Mac's own Claude login the server removes them at every start and after every AI turn, keeping a copy in config/claude-mcp-backups. Add --remove-claude-mcp to switch anyway, or stay in the setup-token mode`)
+  }
   // --as-home: the folder the settings are meant for (office-install.sh --check-only writes them into a scratch one)
   const sock = path.join(runDirFor({ ...s, home: path.resolve(arg(args, '--as-home') ?? home) }), 'private', 'server.sock')
   if (Buffer.byteLength(sock) > 103) throw new Error(`the engine socket path ${sock} is longer than macOS allows (103 bytes): install into a shorter folder or pass --run-dir <short folder>`)
@@ -786,6 +803,7 @@ export async function main(argv: string[]): Promise<number> {
   if (!home) { console.error('office: pass --home <install folder>'); return 2 }
   if (cmd === 'run') return await run(path.resolve(home))
   if (cmd === 'configure') { const s = configure(home, args); console.log(settingsText(s).trim()); return 0 }
+  if (cmd === 'claude-mcp') return claudeMcpCommand(path.resolve(home), args)
   const s = loadSettings(home)
   const p = officePaths(home)
   const agent = launchAgent(s.label, p.plist(s.label))
@@ -869,7 +887,7 @@ export async function main(argv: string[]): Promise<number> {
       for (const o of origins) lines(`  desks     ${o}  ${(await answers(`${o}/api/health`)) ? 'answers' : 'no answer'}`)
       for (const o of helperOrigins(s, origins).slice(0, 1)) lines(`  CA page   ${o}  ${(await answers(o)) ? 'answers' : 'no answer'}`)
       const uv = updateView(home)
-      lines(`  updates   ${uv.current} · ${uv.channel} · ${!uv.agentInstalled ? 'no update agent (office-install.sh from a 0.2.0+ zip)' : uv.paused ? 'paused (teamax update resume)' : `every night ${uv.time}`}${uv.last ? ` · last: ${uv.last.kind}` : ''}`)
+      lines(`  updates   ${uv.current} · ${uv.channel} · ${!uv.agentInstalled ? 'no update agent (office-install.sh from a 0.2.0+ zip)' : uv.paused ? 'paused (teamax update resume)' : `window ${uv.window} ${uv.timeZone}`}${uv.last ? ` · last: ${uv.last.kind}` : ''}`)
       lines(`  log       ${p.officeLog}`)
       return 0
     }
@@ -934,7 +952,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|uninstall-agent')
+      console.error('usage: teamax install|start|stop|restart|status|logs [n]|info|card|setup-link|reset-link [--username U]|backup|archive [--out] FILE|restore-archive [--in] FILE [--replace]|public-address set HOST TOKEN-FILE|off|status|desktop list|add FILE [--version x.y.z] [--keep]|remove FILE|update [status|check|now|pause|resume|channel stable|beta|time HH:MM]|check-ports|claude-mcp check|backups|restore FILE|uninstall-agent')
       return 2
   }
 }

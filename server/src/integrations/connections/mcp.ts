@@ -3,17 +3,41 @@
 // initialize -> notifications/initialized -> tools/list (cursor pages) -> tools/call. The server's words that are cut
 // here (an error message, tool descriptions) have the connection's secrets hidden first (hide.ts).
 import crypto from 'node:crypto'
+import { INTEGRATION_TOOLS_MAX } from '@mycel/shared/api'
 import { hideDeep } from './hide'
-import { NetError, serviceRequest, type NetOptions } from './net'
+import { NetError, serviceRequest, type NetOptions, type NetRequest } from './net'
 
 export const MCP_PROTOCOL = '2025-06-18'
+/** the most a tools/call answer may be: an image or audio block comes inline as base64 (a generated image of a few MB
+ * is common). initialize keeps the 1 MiB of net.ts, tools/list has its own cap below; the AI still gets at most
+ * MAX_RESULT_CHARS of text (tools.ts), the bytes go to the chat's media store. */
+export const MCP_CALL_MAX_BYTES = 25 * 1024 * 1024
+/** the most one tools/list page may be. A big service sends its whole catalog in one page (Higgsfield: 186 tools,
+ * about 1.07 MB in 2026-11), over net.ts's 1 MiB; what is kept is capped below (MAX_TOOLS, MAX_SCHEMAS_CHARS). */
+export const MCP_LIST_MAX_BYTES = 8 * 1024 * 1024
+/** the most one check reads of tools/list, all pages together, and how many pages it asks for: a server that pages
+ * on forever (or sends pages of tools that cannot be kept) costs at most this, not 100 pages of 8 MiB. Reading stops
+ * sooner once the list kept is full (MAX_TOOLS, MAX_SCHEMAS_CHARS). */
+export const MCP_LIST_TOTAL_BYTES = 16 * 1024 * 1024
+export const MCP_LIST_MAX_PAGES = 20
+/** a check reads tools/list for as long as it keeps coming: a page fails when no bytes arrive for MCP_LIST_IDLE_MS,
+ * and the check when its pages are not all in MCP_LIST_TIMEOUT_MS after it began, instead of the 30 s each of other
+ * requests (net.ts). A big list can come slowly: Higgsfield sent its 1.07 MB at 17-38 KB/s in 2026-11, 30-65 s, and
+ * the 30 s cut it every time. 90 s stays under what the person's "Check again" request may wait (the relay's 100 s for
+ * an answer to start, the server's 120 s idle limit, main.ts). Tool calls keep the 30 s; a turn never reads the list
+ * (it uses the saved one, store.ts savedTools). */
+export const MCP_LIST_IDLE_MS = 30_000
+export const MCP_LIST_TIMEOUT_MS = 90_000
 const KNOWN_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'])
-/** tools kept per connection, pages read, input schema size */
-export const MAX_TOOLS = 100
-const MAX_PAGES = 20
+/** tools kept per connection: every tool a service lists, up to this hard ceiling (docs/DECISIONS.md "Connection
+ * tools: deferred, found and called"). A turn offers what fits its budget as tools and the rest through find_tools /
+ * call_tool (tools.ts), so a big catalog no longer goes to the engine whole with every turn. */
+export const MAX_TOOLS = INTEGRATION_TOOLS_MAX
+/** one tool's input schema */
 const MAX_SCHEMA_CHARS = 32_000
-/** all kept input schemas of one connection together (they all go to the engine with every turn) */
-const MAX_SCHEMAS_CHARS = 256_000
+/** all kept input schemas and descriptions of one connection together (what tools_json holds; Higgsfield's is about
+ * 1.07 million characters) */
+export const MAX_SCHEMAS_CHARS = 4_000_000
 const MAX_DESCRIPTION = 1000
 
 export class McpError extends Error {
@@ -48,6 +72,7 @@ function findReply(messages: unknown[], id: string): Record<string, any> | null 
 const parse = (s: string): unknown => { try { return JSON.parse(s) } catch { return null } }
 type Hide = (text: string) => string
 const keep: Hide = (s) => s
+interface Req { signal?: AbortSignal; maxBytes?: number; read?: { bytes: number }; long?: NetRequest['long'] }
 
 export class McpClient {
   sessionId: string | null = null
@@ -55,20 +80,26 @@ export class McpClient {
   private ready: Promise<void> | null = null
   usedAt = Date.now()
 
-  /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated them) */
-  constructor(readonly url: string, private auth: () => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep) {}
+  /** `hider` makes the function that hides the connection's secrets, when an answer is in (a refresh may have rotated
+   * them); `auth` is told when a check's request must end (a token still valid is then not refreshed ahead of time) */
+  constructor(readonly url: string, private auth: (deadline?: number) => Promise<[string, string][]>, private net: NetOptions, private hider: () => Hide = () => keep) {}
 
-  private async post(message: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, any> | null> {
+  /** `read`: the answer's bytes are added to it (also when it is cut); `long`: net.ts NetRequest.long */
+  private async post(message: Record<string, unknown>, o: Req = {}): Promise<Record<string, any> | null> {
+    const { signal, maxBytes, read, long } = o
+    // past a check's deadline nothing starts, not even a token refresh
+    if (long && Date.now() >= long.deadline) throw new NetError(long.reason)
     const id = typeof message.id === 'string' ? message.id : null
-    const headers: [string, string][] = [['Content-Type', 'application/json'], ['Accept', 'application/json, text/event-stream'], ...(await this.auth())]
+    const headers: [string, string][] = [['Content-Type', 'application/json'], ['Accept', 'application/json, text/event-stream'], ...(await this.auth(long?.deadline))]
     if (this.version) headers.push(['MCP-Protocol-Version', this.version])
     if (this.sessionId) headers.push(['Mcp-Session-Id', this.sessionId])
     const res = await serviceRequest(this.url, {
-      method: 'POST', headers, body: Buffer.from(JSON.stringify(message)), signal,
+      method: 'POST', headers, body: Buffer.from(JSON.stringify(message)), signal, ...(maxBytes ? { maxBytes } : {}), ...(long ? { long } : {}),
       // an event stream may stay open after our reply: stop reading once it is in
       until: id ? (body, head) => /text\/event-stream/i.test(head.headers['content-type'] ?? '') && !!findReply(sseEvents(body.toString('utf8')).map(parse), id) : undefined,
     }, this.net)
     this.usedAt = Date.now()
+    if (read) read.bytes += res.body.length
     if (res.status === 401) throw new McpError('unauthorized', 401, res.headers['www-authenticate'] ?? '')
     if (res.status === 403) throw new McpError('forbidden', 403)
     if (res.status === 404 && this.sessionId) throw new McpError('session_gone', 404)
@@ -89,54 +120,81 @@ export class McpClient {
     return reply.result && typeof reply.result === 'object' ? reply.result : {}
   }
 
-  private request(method: string, params: Record<string, unknown>, signal?: AbortSignal) {
-    return this.post({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }, signal)
+  private request(method: string, params: Record<string, unknown>, o: Req = {}) {
+    return this.post({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }, o)
   }
 
-  /** initialize + notifications/initialized, once per session */
+  /** initialize + notifications/initialized, once per session (shared by a check and the calls: its own 30 s each,
+   * never a check's deadline; listTools stops waiting for it at its deadline) */
   start(signal?: AbortSignal): Promise<void> {
     this.ready ??= (async () => {
-      const r = await this.request('initialize', { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: 'team-integrations', version: '1.0' } }, signal)
+      const r = await this.request('initialize', { protocolVersion: MCP_PROTOCOL, capabilities: {}, clientInfo: { name: 'team-integrations', version: '1.0' } }, { signal })
       const v = typeof r?.protocolVersion === 'string' ? r.protocolVersion : ''
       if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new McpError('not_mcp')
       this.version = KNOWN_VERSIONS.has(v) ? v : MCP_PROTOCOL
-      await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, signal)
+      await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' }, { signal })
     })().catch((e) => { this.ready = null; this.sessionId = null; this.version = null; throw e })
     return this.ready
   }
 
-  /** every page of tools/list; tools without a usable input schema are left out; at most MAX_TOOLS */
-  async listTools(signal?: AbortSignal): Promise<{ tools: RemoteTool[]; more: boolean }> {
-    await this.start(signal)
+  /** the pages of tools/list; tools without a usable input schema are left out; at most MAX_TOOLS (and
+   * MAX_SCHEMAS_CHARS) kept. Reading stops once the list kept is full, after MCP_LIST_MAX_PAGES pages, or at
+   * MCP_LIST_TOTAL_BYTES (a later page that does not fit in what is left is not read whole, and the pages before it are
+   * kept). `total`: how many usable tools the pages read listed (counted on past the ceiling within a page, so people
+   * and the AI can be told "1,000 of 1,200"); `more`: some were not kept, or pages were left unread; `unread`: pages
+   * were left unread, so the service offers more than `total` ("1,000 of more than 1,000"). `deadline` (epoch ms): when
+   * the check must be done (MCP_LIST_TIMEOUT_MS; one for a whole check, service.ts check), also while it waits for the
+   * session to start. */
+  async listTools(signal?: AbortSignal, deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)): Promise<{ tools: RemoteTool[]; more: boolean; total: number; unread: boolean }> {
+    await byDeadline(this.start(signal), deadline)
+    const long = { deadline, idleMs: this.net.listIdleMs ?? MCP_LIST_IDLE_MS, reason: 'list_timeout' as const }
     const tools: RemoteTool[] = []
     const seen = new Set<string>()
+    const read = { bytes: 0 }
     let cursor: string | undefined
-    let more = false
+    let full = false
     let size = 0
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const r = await this.request('tools/list', cursor ? { cursor } : {}, signal)
+    for (let page = 0; page < MCP_LIST_MAX_PAGES; page++) {
+      const room = MCP_LIST_TOTAL_BYTES - read.bytes
+      if (room <= 0) break
+      const cap = Math.min(MCP_LIST_MAX_BYTES, room)
+      let r: Record<string, any> | null
+      try { r = await this.request('tools/list', cursor ? { cursor } : {}, { signal, maxBytes: cap, read, long }) } catch (e) {
+        // cut by what is left of the check's bytes, not by the page limit: the pages read are kept
+        if (page > 0 && cap < MCP_LIST_MAX_BYTES && e instanceof NetError && e.reason === 'too_large') break
+        throw e
+      }
       const list = Array.isArray(r?.tools) ? r!.tools : null
       if (!list) throw new McpError('not_mcp')
       const hide = this.hider()
       for (const t of list) {
         const tool = toolOf(t, hide)
         if (!tool || seen.has(tool.name)) continue
-        const cost = JSON.stringify(tool.inputSchema).length + tool.description.length
-        if (tools.length >= MAX_TOOLS || size + cost > MAX_SCHEMAS_CHARS) { more = true; break }
-        size += cost
         seen.add(tool.name)
+        if (full) continue
+        const cost = JSON.stringify(tool.inputSchema).length + tool.description.length
+        if (tools.length >= MAX_TOOLS || size + cost > MAX_SCHEMAS_CHARS) { full = true; continue }
+        size += cost
         tools.push(tool)
       }
       cursor = typeof r?.nextCursor === 'string' && r.nextCursor ? r.nextCursor : undefined
-      if (!cursor || more) break
+      // the list kept is full: the pages after this one would only be counted
+      if (!cursor || full || tools.length >= MAX_TOOLS) break
     }
-    return { tools, more: more || !!cursor }
+    return { tools, more: full || !!cursor, total: seen.size, unread: !!cursor }
   }
 
   async callTool(name: string, args: unknown, signal?: AbortSignal): Promise<Record<string, any>> {
     await this.start(signal)
-    return (await this.request('tools/call', { name, arguments: args && typeof args === 'object' ? args : {} }, signal)) ?? {}
+    return (await this.request('tools/call', { name, arguments: args && typeof args === 'object' ? args : {} }, { signal, maxBytes: MCP_CALL_MAX_BYTES })) ?? {}
   }
+}
+
+/** `p`, or list_timeout at `deadline` (a check stops waiting for a session another request started) */
+function byDeadline<T>(p: Promise<T>, deadline: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new NetError('list_timeout')), Math.max(0, deadline - Date.now())) })
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
 }
 
 const clean = (s: unknown, max: number, hide: Hide) => (typeof s === 'string' ? hide(s).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').trim().slice(0, max) : '')

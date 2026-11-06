@@ -12,4 +12,4 @@ export function markBusy(kind: 'upload' | 'draft' | 'recording'): () => void {
   }
 }
 
-export const isBusy = () => [...counters.values()].some((n) => n > 0)
+export const isBusy = (kind?: 'upload' | 'draft' | 'recording') => (kind ? (counters.get(kind) ?? 0) > 0 : [...counters.values()].some((n) => n > 0))

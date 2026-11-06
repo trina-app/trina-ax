@@ -47,6 +47,17 @@ describe.skipIf(!sbAvailable)('engine.sb: no link at the Claude config names', (
     expect(box.run('c_me', {}, 'rename', path.join(H, '.claude.json.tmp.4242.0fcd31173c31'), path.join(H, '.claude.json'))).toBe(0)
     expect(fs.lstatSync(path.join(H, '.claude.json')).isFile()).toBe(true)
   })
+
+  test('nor a lock: no immutable flag and no ACL on those names (they kept the MCP cleanup from rewriting or moving a file)', () => {
+    fs.writeFileSync(path.join(H, '.claude.json'), '{}')
+    fs.writeFileSync(path.join(H, '.claude', 'backups', '.claude.json.backup.1792575626838'), '{}')
+    for (const n of ['.claude.json', '.claude/backups', '.claude/backups/.claude.json.backup.1792575626838']) {
+      for (const op of ['chflags', 'acl']) expect([n, op, box.run('c_me', {}, op, path.join(H, n))]).toEqual([n, op, 1]) // was 0
+    }
+    // the same calls on a file of the chat folder work: the probe and the profile, not the file, said no
+    fs.writeFileSync(path.join(box.agent, 'c_me', 'own.json'), '{}')
+    for (const op of ['chflags', 'acl']) expect(box.run('c_me', {}, op, path.join(box.agent, 'c_me', 'own.json'))).toBe(0)
+  })
 })
 
 describe('the MCP cleanup replaces a link and cleans the backups', () => {

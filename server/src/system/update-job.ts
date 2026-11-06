@@ -6,8 +6,8 @@ import { TeamSettings, type Locale } from '@mycel/shared/api'
 import type { UpdateHistoryEntry } from '@mycel/shared/install'
 import type { BackupManager } from './backup'
 import { enPlural, stepText, tr } from './messages'
-import { zonedParts } from './time-zone'
-import { UpdateError, compareVersions, inRollout, type ReleaseFeed, type UpdateManager } from './update'
+import { zonedDay, zonedParts, zonedToUtc } from './time-zone'
+import { UpdateError, compareVersions, inRollout, releaseNeedsRoot, type ReleaseFeed, type UpdateManager } from './update'
 import type { z } from 'zod'
 
 export const UPDATE_WAIT_MS = 10 * 60_000
@@ -48,7 +48,7 @@ export async function runUpdate(d: RunUpdateDeps, target: string, o: { staged: b
     progress(0.3, stepText(d.locale, 'download'))
     const feed = await d.updates.checkFeed()
     if (!feed || feed.version !== target) throw new UpdateError(`version ${target} is not available`)
-    if (feed.needsRoot) throw new UpdateError(`version ${target} also changes root-owned parts: run \`sudo mycel-ctl update\``)
+    if (d.updates.needsRoot(feed)) throw new UpdateError(`version ${target} also changes root-owned parts: run \`sudo mycel-ctl update\``)
     await d.updates.download(feed, (f) => progress(0.3 + 0.5 * f, stepText(d.locale, 'download')))
   }
   // 4) switch and restart; the bootstrap health-checks and rolls back on failure
@@ -62,6 +62,13 @@ export async function runUpdate(d: RunUpdateDeps, target: string, o: { staged: b
 // ---------------- automatic updates (Linux self-host, update.auto) ----------------
 type History = z.infer<typeof UpdateHistoryEntry>[]
 
+/** What the root update timer keeps (admin.js update-window, native/cmd/mycel-ctl/schedule.go): the team's window (the
+ * default when empty; an invalid stored one is "00:00-00:00", which never opens) and its zone, and the install id its
+ * staged roll-out uses (system/rollout.ts; left out when the install has none yet: the timer then takes the last wave). */
+export function updateWindowAnswer(s: { updateWindow: string | null }, timeZone: string, installId?: string | null): { window: string; timeZone: string; custom: boolean; installId?: string } {
+  return { window: s.updateWindow ?? DEFAULT_UPDATE_WINDOW, timeZone, custom: s.updateWindow !== null, ...(installId ? { installId } : {}) }
+}
+
 /** "HH:mm-HH:mm" in the team's zone; a window may pass midnight ("23:00-01:00"). */
 export function inWindow(window: string | null, now: Date, tz: string): boolean {
   if (!TeamSettings.shape.updateWindow.safeParse(window).success) return false
@@ -73,21 +80,54 @@ export function inWindow(window: string | null, now: Date, tz: string): boolean 
   return from <= to ? at >= from && at < to : at >= from || at < to
 }
 
+/** When the window next opens, for Admin Home ("tonight 03:00-05:00"): now when inside it, else the next start. `day` is
+ * the start's calendar day in the team's zone against today's. null: the window never opens (invalid, or equal ends). */
+export function nextWindow(window: string | null, now: Date, tz: string): { at: Date; day: 'now' | 'today' | 'tomorrow' } | null {
+  if (!TeamSettings.shape.updateWindow.safeParse(window).success) return null
+  const m = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/.exec(window ?? DEFAULT_UPDATE_WINDOW)
+  if (!m || (+m[1]! === +m[3]! && +m[2]! === +m[4]!)) return null
+  if (inWindow(window, now, tz)) return { at: now, day: 'now' }
+  const p = zonedParts(now, tz)
+  const today = zonedDay(now, tz)
+  for (let k = 0; k <= 2; k++) {
+    const d = new Date(Date.UTC(p.y, p.m - 1, p.d + k))
+    const at = zonedToUtc(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), +m[1]!, +m[2]!, tz)
+    if (at.getTime() > now.getTime()) return { at, day: zonedDay(at, tz) === today ? 'today' : 'tomorrow' }
+  }
+  return null
+}
+
 export type AutoDecision = { go: true; version: string } | { go: false; why: 'no_feed' | 'up_to_date' | 'needs_root' | 'rollout' | 'held' | 'outside_window' | 'busy' }
 
 /** Should this install take the feed's release by itself now? (pure: the ops service gathers the facts) */
 export function autoUpdateDecision(o: {
   feed: ReleaseFeed | null; current: string; installId: string; now: Date; tz: string; window: string | null; running: number
   history: History; lastAttempt?: { version: string; at: string } | null
+  /** the install's update channel (server.json update.channel): the beta channel skips the roll-out's ramp. Required:
+   * a caller that left it out would hold beta servers to the stable ramp */
+  channel: 'stable' | 'beta'
+  /** root/VERSION of this install (releaseNeedsRoot); null = unknown */
+  rootVersion?: string | null
+  /** the version root's update failed here (root/update-failed.json, native/cmd/mycel-ctl schedule.go), held or not:
+   * the root update timer tries it again after its own back-off, so this updater leaves it (0.2.19 review S1) */
+  rootHold?: string | null
+  /** decide as if the window were open and no answer ran (Admin Home asks what holds a release back, not when) */
+  ignoreWindow?: boolean
 }): AutoDecision {
   const f = o.feed
   if (!f) return { go: false, why: 'no_feed' }
   if (compareVersions(f.version, o.current) <= 0) return { go: false, why: 'up_to_date' }
-  if (f.needsRoot) return { go: false, why: 'needs_root' }
-  if (!inRollout(f, o.installId)) return { go: false, why: 'rollout' }
+  if (releaseNeedsRoot(f, o.rootVersion ?? null)) return { go: false, why: 'needs_root' }
+  // the staged roll-out (system/rollout.ts): this install's turn may come a day or two after the release
+  if (!inRollout(f, o.installId, { now: o.now, channel: o.channel })) return { go: false, why: 'rollout' }
+  if (o.rootHold && o.rootHold === f.version) return { go: false, why: 'held' }
   const recent = (at: string) => o.now.getTime() - Date.parse(at) < AUTO_HOLD_MS
-  if (o.history.some((h) => h.to === f.version && h.result !== 'ok' && recent(h.at))) return { go: false, why: 'held' }
+  // the bootstrap records a roll-back as from <failed> to <previous> (native/cmd/mycel-bootstrap), a refused version as
+  // to <it>
+  const failed = (h: History[number]) => h.result !== 'ok' && (h.to === f.version || (h.result === 'rolled_back' && h.from === f.version))
+  if (o.history.some((h) => failed(h) && recent(h.at))) return { go: false, why: 'held' }
   if (o.lastAttempt && o.lastAttempt.version === f.version && recent(o.lastAttempt.at)) return { go: false, why: 'held' }
+  if (o.ignoreWindow) return { go: true, version: f.version }
   if (!inWindow(o.window, o.now, o.tz)) return { go: false, why: 'outside_window' }
   if (o.running > 0) return { go: false, why: 'busy' }
   return { go: true, version: f.version }

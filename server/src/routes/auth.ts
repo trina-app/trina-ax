@@ -1,8 +1,11 @@
 // Route module "auth" — owner: component A (docs/WORKPLAN.md).
-// Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links)
-// Contract: shared/src/api/auth.ts
+// Implements: AUTH (setup, login, logout, password, me, sessions, invite info/accept, password reset links) and
+// ACCOUNT_DELETION (a person's request to have their account deleted: routes/account-deletion.ts)
+// Contract: shared/src/api/auth.ts, shared/src/api/account-deletion.ts
 import { API } from '@mycel/shared/api'
 import { LOCALE_CHANGED } from '../admin/settings'
+import { audit } from '../admin/audit'
+import { profileChangedFor } from '../auth/profiles'
 import { fail } from '../http/errors'
 import { acceptInvite, changePassword, completeReset, inviteInfo, login, resetInfo, setup, setupStatus } from '../auth/accounts'
 import { authOf, installAuth } from '../auth/service'
@@ -10,6 +13,8 @@ import { startSweeper } from '../auth/sweeper'
 import { getUser, setUserLocale } from '../auth/users'
 import type { RouteModule } from './module'
 import { canChooseEngine, filterEnginePrefs } from '../admin/engine-choice'
+import { myUsage } from '../admin/my-usage'
+import { registerAccountDeletionRoutes } from './account-deletion'
 
 export const authRoutes: RouteModule = {
   name: 'auth',
@@ -62,16 +67,23 @@ export const authRoutes: RouteModule = {
         for (const [k, v] of Object.entries(next)) if (v === undefined || v === null) delete next[k]
         sets.push('prefs = ?'); args.push(JSON.stringify(next))
       }
+      const renamed = body.name !== undefined && body.name !== u!.name
       ctx.db.transaction(() => {
         if (sets.length) ctx.db.query(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...args, auth.user.id)
         // null = follow the team default again
         if (body.locale !== undefined) setUserLocale(ctx.db, auth.user.id, body.locale)
       })()
+      if (renamed) {
+        audit(ctx.db, { actor: auth.user.id, action: 'profile.update', target: auth.user.id, detail: { fields: ['name'], name: { from: u!.name, to: body.name } } })
+        ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
+      }
       // the person's other windows and devices switch too
       if (body.locale !== undefined) ctx.services.realtime.publish(auth.user.id, LOCALE_CHANGED)
       return a().me(auth.user.id, auth.session.id)
     })
 
+    // only the caller's own turns: the person comes from the session, never from the request
+    kit.handle(API.myUsage, ({ auth, query }) => myUsage(ctx.db, auth.user.id, query.period))
     kit.handle(API.mySessions, ({ auth }) => ({
       items: a().listSessions(auth.user.id).map((s) => ({
         id: s.id, client: s.client, userAgent: s.user_agent, createdAt: s.created_at, lastSeenAt: s.last_seen_at, expiresAt: s.expires_at,
@@ -90,5 +102,6 @@ export const authRoutes: RouteModule = {
     kit.handle(API.acceptInvite, ({ c, params, body }) => acceptInvite(c, ctx, params.token, body))
     kit.handle(API.passwordResetInfo, ({ c, params }) => resetInfo(c, ctx, params.token))
     kit.handle(API.completePasswordReset, ({ c, params, body }) => completeReset(c, ctx, params.token, body))
+    registerAccountDeletionRoutes(kit, ctx)
   },
 }

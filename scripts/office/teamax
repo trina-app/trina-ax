@@ -13,6 +13,8 @@
 #                                                 the desktop apps members download under Settings → Apps
 #   ~/TeamAX/teamax update [status|check|now|pause|resume|channel stable|beta|time HH:MM]
 #                                                 automatic updates (docs/OFFICE.md "자동 업데이트")
+#   ~/TeamAX/teamax claude-mcp check | backups | restore <copy> [--yes]
+#                                                 MCP settings removed from this Mac user's ~/.claude.json (docs/OFFICE.md 8)
 set -euo pipefail
 d=$(cd "$(dirname "$0")" && pwd)
 if [ -d "$d/app/server" ]; then H=$d; else H=$(dirname "$d"); fi

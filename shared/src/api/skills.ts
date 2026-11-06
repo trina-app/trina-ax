@@ -10,6 +10,7 @@ import { Uuid7 } from '../ids'
 import { IsoTime, RelPath, page, PageQuery } from './common'
 import { endpoint } from './endpoint'
 import { UserRef } from './entities'
+import { SkillInput } from './skill-inputs'
 
 export const SkillInfo = z.object({
   /** Entry point: legacy skills/주간-보고서.md or standard skills/weekly-report/SKILL.md. */
@@ -20,15 +21,48 @@ export const SkillInfo = z.object({
   description: z.string(),
   /** true for a personal skill of the caller (users/<caller>/skills/...): only the caller can see or use it */
   personal: z.boolean().optional(),
+  /** the short form the skill runs from (its header's metadata `inputs`, ./skill-inputs.ts); absent: a plain skill */
+  inputs: z.array(SkillInput).optional(),
+  /** the name people read ("광고 문구"): a SKILL.md's metadata `title`, one line of at most SKILL_TITLE_MAX characters.
+   * Absent: people read `name`. Commands still run by name ("/ad-copy"): show it through skillTitle(). */
+  title: z.string().optional(),
 })
 export type SkillInfo = z.infer<typeof SkillInfo>
+/** The longest metadata `title` a skill may have (characters); a longer one is ignored and the name shows. */
+export const SKILL_TITLE_MAX = 60
+/** A SKILL.md's metadata `title` as people read it, or null when it is not one: empty, more than one line, longer
+ * than SKILL_TITLE_MAX, or holding control or text-direction characters (it reaches the join page and the copied
+ * invite message). The skill still loads; its name shows instead. */
+export function readSkillTitle(raw: string | undefined): string | null {
+  const v = raw?.trim()
+  return v && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(v) && [...v].length <= SKILL_TITLE_MAX ? v : null
+}
+/** What a person reads as a skill's name: its title, else its name. Every screen, message and notice that names a
+ * skill to a person uses this; a command the person types or sends stays "/<name>". */
+export const skillTitle = (s: { name: string; title?: string | null }): string => s.title?.trim() || s.name
+/** A skill's description without a lead that only repeats its title: the marketing pack writes "광고 문구 — 알릴 제품과
+ * …" so the AI and older screens read the plain name; next to the title the rest is enough. The rest starts as a
+ * sentence: "Ad copy — takes what to promote …" reads "Takes what to promote …". */
+export function skillSummary(s: { name: string; title?: string | null; description: string }): string {
+  const title = s.title?.trim()
+  if (!title) return s.description
+  const m = /^\s*(.+?)\s+[—–-]\s+/.exec(s.description)
+  if (!m || m[1]!.trim().normalize('NFC').toLowerCase() !== title.normalize('NFC').toLowerCase()) return s.description
+  const rest = s.description.slice(m[0].length)
+  return /^[a-z]/.test(rest) ? rest[0]!.toUpperCase() + rest.slice(1) : rest
+}
 export const PopularSkills = z.object({
   items: z.array(SkillInfo.extend({ uses: z.number().int().positive(), users: z.number().int().positive() })).max(10),
   days: z.literal(30),
 })
 export type PopularSkills = z.infer<typeof PopularSkills>
 /** Why a skill entry does not load (R2-SKILL-03). The screens translate the code. */
-export const SkillProblem = z.enum(['too_large', 'header', 'location', 'name', 'name_folder', 'description', 'compatibility'])
+export const SkillProblem = z.enum(['too_large', 'header', 'location', 'name', 'name_folder', 'description', 'compatibility',
+  // a whole folder, for the people who manage it: more entries than the server reads (1,000 per skills folder), or more
+  // team rule files than the AI follows (10)
+  'too_many', 'too_many_rules',
+  // the skill loads, but its metadata `inputs` is not a valid form (./skill-inputs.ts): it runs without its form
+  'inputs'])
 export type SkillProblem = z.infer<typeof SkillProblem>
 export const SkillIssue = z.object({ path: z.string(), problem: SkillProblem })
 export type SkillIssue = z.infer<typeof SkillIssue>
@@ -107,6 +141,19 @@ export const SkillsOverview = z.object({
   pendingReview: z.number().int().nonnegative(),
   /** the caller's own suggestions still waiting */
   myPending: z.number().int().nonnegative(),
+  /** what the AI's instructions hold of the caller's skills (server/src/chat/skill-list.ts): every name while they
+   * fit in the list's budget, descriptions while they fit; the rest the AI finds with find_skills. Team rules: how many
+   * skills/*.md rule files there are and how many the AI follows (the first 10). Absent from older servers. */
+  aiList: z.object({
+    skills: z.number().int().nonnegative(),
+    described: z.number().int().nonnegative(),
+    nameOnly: z.number().int().nonnegative(),
+    unlisted: z.number().int().nonnegative(),
+    /** the list did not fit: some descriptions (or names) are left out of it */
+    cut: z.boolean(),
+    rules: z.number().int().nonnegative(),
+    rulesFollowed: z.number().int().nonnegative(),
+  }).optional(),
 })
 export type SkillsOverview = z.infer<typeof SkillsOverview>
 

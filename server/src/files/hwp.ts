@@ -5,15 +5,17 @@
 // a .hwpx zip is checked first (zip-guard.ts), a .hwp body stream inflates to at most STREAM_MAX and all of them
 // together to at most INFLATE_TOTAL_MAX. Distribution (배포용) and password-protected .hwp keep
 // their body encrypted: only the preview text (PrvText, the first page or so) comes out, with a note.
+//
+// 본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. (Hancom's attribution for the HWP 5.0 document)
 import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { checkZip, isZip, tooComplex } from './zip-guard'
 
-const TEXT_MAX = 8 * 1024 * 1024
-const STREAM_MAX = 64 * 1024 * 1024
-const INFLATE_TOTAL_MAX = 200 * 1024 * 1024
-const SECTIONS_MAX = 500
+export const TEXT_MAX = 8 * 1024 * 1024
+export const STREAM_MAX = 64 * 1024 * 1024
+export const INFLATE_TOTAL_MAX = 200 * 1024 * 1024
+export const SECTIONS_MAX = 500
 
 interface Entry { path: string; content: Uint8Array }
 
@@ -40,9 +42,14 @@ const unescapeXml = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e
  * text around a caption doesn't run into it (same order as the .hwp records).
  */
 export function hwpxText(bytes: Uint8Array): string {
-  const sections = entries(bytes).filter((e) => /^Contents\/section\d+\.xml$/i.test(e.path)).sort((a, b) => sectionNo(a.path) - sectionNo(b.path))
+  const all = entries(bytes)
+  const sections = all.filter((e) => /^Contents\/section\d+\.xml$/i.test(e.path)).sort((a, b) => sectionNo(a.path) - sectionNo(b.path))
   if (!sections.length) throw new ToolError('could not read this Hangul document (no sections found in the .hwpx)')
+  const header = all.find((e) => /^Contents\/header\.xml$/i.test(e.path))
+  const outline = header ? hwpxOutline(new TextDecoder('utf-8').decode(header.content)) : new Map<string, number>()
   const out: string[] = []
+  /** line index -> heading level (1-7) of the paragraphs whose paragraph shape is an outline level (개요) */
+  const heads = new Map<number, number>()
   let size = 0
   for (const s of sections.slice(0, SECTIONS_MAX)) {
     const xml = new TextDecoder('utf-8').decode(s.content)
@@ -55,22 +62,63 @@ export function hwpxText(bytes: Uint8Array): string {
       last = m.index! + tag.length
       if (name === 'p') {
         if (close) open.pop()
-        else if (!selfClose) { open.push(out.length); out.push('') }
+        else if (!selfClose) {
+          const level = outline.get(attrOf(tag, 'paraPrIDRef') ?? '')
+          if (level !== undefined) heads.set(out.length, level)
+          open.push(out.length); out.push('')
+        }
       } else if (name === 't') inText = !close && !selfClose
       else if (inText && open.length) out[open.at(-1)!] += name === 'tab' ? '\t' : '\n'
     }
     size = out.reduce((n, l) => n + l.length, 0)
     if (size > TEXT_MAX) break
   }
-  return tidy(out.join('\n'))
+  return tidy(withHeadings(out, heads))
 }
+
+const attrOf = (tag: string, name: string) => new RegExp(`\\s${name}="([^"]*)"`).exec(tag)?.[1]
+
+/** Paragraph shapes of a .hwpx header that are outline levels: id -> heading level 1-7 (<hh:heading type="OUTLINE"
+ * level="0"> is 개요 1). Linear: each shape is cut at its end tag before it is searched. */
+export function hwpxOutline(xml: string): Map<string, number> {
+  const out = new Map<string, number>()
+  const open = /<(?:\w+:)?paraPr\b[^>]*>/g
+  for (let m = open.exec(xml); m; m = open.exec(xml)) {
+    const id = attrOf(m[0], 'id')
+    const end = xml.indexOf('paraPr>', m.index + m[0].length)
+    const body = xml.slice(m.index + m[0].length, end < 0 ? xml.length : end)
+    const h = /<(?:\w+:)?heading\b[^>]*>/.exec(body)
+    if (id !== undefined && h && attrOf(h[0], 'type') === 'OUTLINE') {
+      const level = Number(attrOf(h[0], 'level') ?? 0)
+      if (Number.isInteger(level) && level >= 0 && level <= 9) out.set(id, Math.min(level + 1, 6))
+    }
+    if (end < 0) break
+    open.lastIndex = end
+  }
+  return out
+}
+
+/** Markdown heading marks for the heading paragraphs (line index -> level); a body line that starts like one gets a
+ * space in front (also through tidy's trim), so only headings start a line with `#` (files/locations.ts). That holds
+ * for each line of a paragraph: text after a hard line break can start with `#` too. */
+function withHeadings(lines: string[], heads: Map<number, number>): string {
+  return lines.map((l, i) => {
+    const level = heads.get(i)
+    const text = l.replace(/\s+/g, ' ').trim()
+    if (level !== undefined && text) return `${'#'.repeat(level)} ${text}`
+    return l.split('\n').map((part) => (/^\s*#{1,6}(?:\s|$)/.test(part) ? QUOTED + part.trimStart() : part)).join('\n')
+  }).join('\n')
+}
+/** a body line's mark until tidy() has run (its trim would take a leading space of the first line) */
+const QUOTED = '\u0002'
+
 
 // ---------------- .hwp (HWP 5.x) ----------------
 const TAG_PARA_HEADER = 66
 const TAG_PARA_TEXT = 67
 // control characters inside PARA_TEXT (HWP 5.0 spec 4.3.10.1.1): "char" controls take one WCHAR, inline and extended
 // controls take eight (the code, six WCHARs of data, the code again)
-const ONE_WCHAR = new Set([0, 10, 13, 24, 25, 26, 27, 28, 29, 30, 31])
+export const ONE_WCHAR = new Set([0, 10, 13, 24, 25, 26, 27, 28, 29, 30, 31])
 
 function paraText(rec: Uint8Array): string {
   const v = new DataView(rec.buffer, rec.byteOffset, rec.byteLength)
@@ -93,10 +141,39 @@ function inflate(data: Uint8Array, left: number): Uint8Array {
   }
 }
 
-/** The text records of one BodyText/SectionN stream, a paragraph per line. */
-export function sectionText(stream: Uint8Array): string {
+const TAG_PARA_SHAPE = 25
+
+/** The paragraph shapes of a DocInfo stream that are outline levels (개요): shape id (their order) -> level 1-7.
+ * PARA_SHAPE attribute 1, bits 23-24: the paragraph head kind (1: outline), bits 25-27: its level (0-6). */
+export function hwpOutline(docInfo: Uint8Array): Map<number, number> {
+  const v = new DataView(docInfo.buffer, docInfo.byteOffset, docInfo.byteLength)
+  const out = new Map<number, number>()
+  let id = 0
+  for (let i = 0; i + 4 <= docInfo.length;) {
+    const h = v.getUint32(i, true)
+    i += 4
+    const tag = h & 0x3ff
+    let len = h >>> 20
+    if (len === 0xfff) { if (i + 4 > docInfo.length) break; len = v.getUint32(i, true); i += 4 }
+    if (i + len > docInfo.length) break
+    if (tag === TAG_PARA_SHAPE) {
+      if (len >= 4) {
+        const a = v.getUint32(i, true)
+        if (((a >>> 23) & 3) === 1) out.set(id, Math.min(((a >>> 25) & 7) + 1, 6))
+      }
+      id++
+    }
+    i += len
+  }
+  return out
+}
+
+/** The text records of one BodyText/SectionN stream, a paragraph per line (heading paragraphs, by their paragraph
+ * shape in `outline`, as Markdown headings). */
+export function sectionText(stream: Uint8Array, outline: Map<number, number> = new Map()): string {
   const v = new DataView(stream.buffer, stream.byteOffset, stream.byteLength)
   const paras: string[] = []
+  const heads = new Map<number, number>()
   let cur: string | null = null
   let size = 0
   for (let i = 0; i + 4 <= stream.length;) {
@@ -106,13 +183,18 @@ export function sectionText(stream: Uint8Array): string {
     let len = h >>> 20
     if (len === 0xfff) { if (i + 4 > stream.length) break; len = v.getUint32(i, true); i += 4 }
     if (i + len > stream.length) break
-    if (tag === TAG_PARA_HEADER) { if (cur !== null) paras.push(cur); cur = '' }
+    if (tag === TAG_PARA_HEADER) {
+      if (cur !== null) paras.push(cur)
+      cur = ''
+      const level = len >= 10 ? outline.get(v.getUint16(i + 8, true)) : undefined
+      if (level !== undefined) heads.set(paras.length, level)
+    }
     else if (tag === TAG_PARA_TEXT) { const t = paraText(stream.subarray(i, i + len)); cur = (cur ?? '') + t; size += t.length }
     i += len
     if (size > TEXT_MAX) break
   }
   if (cur !== null) paras.push(cur)
-  return paras.join('\n')
+  return withHeadings(paras, heads)
 }
 
 export function hwpText(bytes: Uint8Array): string {
@@ -135,12 +217,22 @@ export function hwpText(bytes: Uint8Array): string {
   const sections = all.filter((e) => /^BodyText\/Section\d+$/.test(e.path)).sort((a, b) => sectionNo(a.path) - sectionNo(b.path))
   if (!sections.length) return tidy(preview())
   let left = INFLATE_TOTAL_MAX
+  // the paragraph shapes that are outline levels (headings); a DocInfo that cannot be read only loses the headings
+  let outline = new Map<number, number>()
+  const docInfo = all.find((e) => e.path === 'DocInfo')?.content
+  if (docInfo) {
+    try {
+      const d = compressed ? inflate(docInfo, left) : docInfo
+      left -= d.byteLength
+      outline = hwpOutline(d)
+    } catch (e) { if (String((e as Error).message).startsWith('too large or too complex')) throw e }
+  }
   const texts: string[] = []
   let size = 0
   for (const s of sections.slice(0, SECTIONS_MAX)) {
     const body = compressed ? inflate(s.content, left) : s.content
     left -= body.byteLength
-    const t = sectionText(body)
+    const t = sectionText(body, outline)
     texts.push(t)
     size += t.length
     if (size > TEXT_MAX) break
@@ -150,5 +242,5 @@ export function hwpText(bytes: Uint8Array): string {
 
 /** No trailing spaces, at most one empty line in a row, capped. */
 function tidy(s: string): string {
-  return s.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, TEXT_MAX)
+  return s.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, TEXT_MAX).replace(/^\u0002/gm, ' ')
 }

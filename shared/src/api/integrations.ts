@@ -29,6 +29,15 @@ export const IntegrationAccess = z.object({
 })
 export type IntegrationAccess = z.infer<typeof IntegrationAccess>
 
+/** the most tools the team server keeps of one MCP connection (every tool its service lists, up to this; a turn offers
+ * the ones that do not fit an answer through find_tools / call_tool) */
+export const INTEGRATION_TOOLS_MAX = 1000
+/** what a server before the deferred tools kept of one MCP connection at most (100 tools, and 256,000 characters of
+ * schemas: Higgsfield's list stopped at 46). A list of more can only have been cut by today's ceiling (1,000 tools or
+ * 4,000,000 characters: at 33,000 characters a tool at most, that is past 120 tools), so only a list of at most this
+ * many is "saved before; check again". */
+export const INTEGRATION_TOOLS_OLD_MAX = 100
+
 /** one tool an MCP server offers (from tools/list, saved when the connection is checked) */
 export const IntegrationTool = z.object({
   name: z.string(),
@@ -36,6 +45,9 @@ export const IntegrationTool = z.object({
   description: z.string(),
   /** the server marked it read-only (MCP readOnlyHint): the AI may run it without asking */
   readOnly: z.boolean(),
+  /** offered to the AI; whoever manages the connection turns single tools off (setIntegrationTool). A tool the service
+   * adds later is on. Older servers omit it (every tool on). */
+  enabled: z.boolean().optional(),
 })
 export type IntegrationTool = z.infer<typeof IntegrationTool>
 
@@ -67,6 +79,13 @@ export const Integration = z.object({
   /** why the last check failed, in words a person can act on (never a secret or a raw server body) */
   lastError: z.string().nullable(),
   tools: z.array(IntegrationTool),
+  /** how many tools the service offers when that is more than `tools` holds: over INTEGRATION_TOOLS_MAX, or a list
+   * an older server saved (it kept 100 at most; checking the connection again saves them all); absent when `tools` is
+   * all of them */
+  toolsTotal: z.number().int().nonnegative().optional(),
+  /** true: the service offers more than `toolsTotal` (the server stopped reading its list with pages left: the list it
+   * keeps was full, or it read 20 pages or 16 MiB), how many more is not known: "1,000 of more than 1,000 tools" */
+  toolsTotalMore: z.literal(true).optional(),
   toolsUpdatedAt: IsoTime.nullable(),
   /** team connections only (null for personal ones, and for people who may use but not manage it) */
   access: IntegrationAccess.nullable(),
@@ -76,6 +95,9 @@ export const Integration = z.object({
   lastUsedAt: IsoTime.nullable(),
   /** the caller may change or delete it (the owner of a personal one, an admin for a team one) */
   canManage: z.boolean(),
+  /** a member's own connection made from an admin's template (its address, sign-in method and header are the
+   * template's; the member changes only their key or sign-in and the write rule). Older servers omit it. */
+  templateId: z.string().nullable().optional(),
 })
 export type Integration = z.infer<typeof Integration>
 
@@ -127,6 +149,159 @@ export const IntegrationList = z.object({
 })
 export type IntegrationList = z.infer<typeof IntegrationList>
 
+// ---------------- an admin asks a member to connect a service as their own ----------------
+// The admin fills in the service (as for a team connection, without a key or who may use it); the member adds their own
+// key or signs in, and it becomes the member's personal connection. The admin never sees the key: a request holds none,
+// and the member's connection is theirs alone (docs/INTEGRATIONS.md "Asking a member to connect").
+
+/** how long a request waits for its member */
+export const INTEGRATION_REQUEST_DAYS = 7
+/** waiting: the member has not answered yet; connected: the member saved their key or finished signing in (what they do
+ * with their connection afterwards is theirs alone); declined by the member; withdrawn by an admin; expired unanswered */
+export const IntegrationRequestState = z.enum(['waiting', 'connected', 'declined', 'withdrawn', 'expired'])
+export type IntegrationRequestState = z.infer<typeof IntegrationRequestState>
+
+const Person = z.object({ id: z.string(), name: z.string() })
+export const IntegrationRequest = z.object({
+  id: z.string(),
+  kind: IntegrationKind,
+  name: z.string(),
+  url: z.string(),
+  /** never 'none': the point of a request is the member's own key or sign-in */
+  auth: IntegrationAuth,
+  authHeader: z.string().nullable(),
+  /** how to use this API, for the AI (http connections); the member's connection gets it */
+  notes: z.string().nullable(),
+  /** the member asked to connect it */
+  user: Person,
+  /** the admin who asked (null: that account is gone) */
+  requestedBy: Person.nullable(),
+  state: IntegrationRequestState,
+  createdAt: IsoTime,
+  expiresAt: IsoTime,
+  /** when it was connected, declined or withdrawn */
+  endedAt: IsoTime.nullable(),
+  /** the address that opens it in the app (Settings › External services) for its member; the admin may copy and send it.
+   * It is not a key: anyone else who opens it, admins included, finds nothing. */
+  link: z.string(),
+})
+export type IntegrationRequest = z.infer<typeof IntegrationRequest>
+
+/** What an admin asks a member to connect: the same service fields as a team connection, with no key, no write rule
+ * (the member's own, as for any personal connection) and no access rule (a personal connection is its owner's only). */
+export const IntegrationRequestInput = z.object({
+  userId: z.string().min(1).max(200),
+  kind: IntegrationKind,
+  name: Name,
+  url: ServiceUrl,
+  auth: z.enum(['bearer', 'header', 'oauth']),
+  authHeader: HeaderName.nullable().optional(),
+  notes: Notes.nullable().optional(),
+  // strict: a key (or anything else) sent with a request is refused, not quietly dropped
+}).strict().refine((v) => v.auth !== 'oauth' || v.kind === 'mcp', { message: 'sign-in (oauth) is for MCP servers', path: ['auth'] })
+  .refine((v) => v.auth !== 'header' || !!v.authHeader, { message: 'give the header name', path: ['authHeader'] })
+export type IntegrationRequestInput = z.infer<typeof IntegrationRequestInput>
+
+/** The member's answer: their key (auth bearer / header; write-only), or nothing for a sign-in (the app signs in next),
+ * and what the AI may change there (ask or refuse: "allow" stays the team's choice). */
+export const IntegrationRequestAnswer = z.object({
+  secret: z.string().min(1).max(8000).optional(),
+  writePolicy: WritePolicy.optional(),
+}).strict()
+export type IntegrationRequestAnswer = z.infer<typeof IntegrationRequestAnswer>
+
+const RequestList = z.object({ items: z.array(IntegrationRequest) })
+
+// ---------------- templates: an admin registers a service once, each member connects it as their own ----------------
+// The admin fills in the service (as for a team connection, with who it is for, but without a key); each member it is
+// for connects it with their own key or sign-in, and it becomes that member's own connection, used only in their
+// chats with their key. The admin never sees a key; they see who it is for has connected it and when, and whose key
+// stopped working (docs/INTEGRATIONS.md "Templates"). A new address, sign-in method or header on the template drops
+// every member's key.
+
+/** the most templates a team keeps */
+export const INTEGRATION_TEMPLATES_MAX = 50
+
+export const IntegrationTemplate = z.object({
+  id: z.string(),
+  kind: IntegrationKind,
+  name: z.string(),
+  url: z.string(),
+  /** never 'none': the point of a template is each member's own key or sign-in */
+  auth: z.enum(['bearer', 'header', 'oauth']),
+  authHeader: z.string().nullable(),
+  /** a note for the members, and how to use an API (the AI reads it in their chats) */
+  notes: z.string().nullable(),
+  /** who it is for (admins are not implied) */
+  access: IntegrationAccess,
+  /** members who connected it with a key or sign-in now */
+  connected: z.number().int().nonnegative(),
+  createdBy: Person.nullable(),
+  createdAt: IsoTime,
+  updatedAt: IsoTime,
+})
+export type IntegrationTemplate = z.infer<typeof IntegrationTemplate>
+
+export const IntegrationTemplateInput = z.object({
+  kind: IntegrationKind,
+  name: Name,
+  url: ServiceUrl,
+  auth: z.enum(['bearer', 'header', 'oauth']),
+  authHeader: HeaderName.nullable().optional(),
+  notes: Notes.nullable().optional(),
+  // who sees it to connect with their own key; left out = the whole team (a template carries no key)
+  access: IntegrationAccess.optional(),
+  // strict: a key sent with a template is refused, not quietly dropped
+}).strict().refine((v) => v.auth !== 'oauth' || v.kind === 'mcp', { message: 'sign-in (oauth) is for MCP servers', path: ['auth'] })
+  .refine((v) => v.auth !== 'header' || !!v.authHeader, { message: 'give the header name', path: ['authHeader'] })
+export type IntegrationTemplateInput = z.infer<typeof IntegrationTemplateInput>
+
+/** A new address, sign-in method or header drops every member's connection made from it (they connect again). */
+export const IntegrationTemplatePatch = z.object({
+  name: Name.optional(),
+  url: ServiceUrl.optional(),
+  auth: z.enum(['bearer', 'header', 'oauth']).optional(),
+  authHeader: HeaderName.nullable().optional(),
+  notes: Notes.nullable().optional(),
+  access: IntegrationAccess.optional(),
+}).strict()
+export type IntegrationTemplatePatch = z.infer<typeof IntegrationTemplatePatch>
+
+/** A template shared with me, and my connection made from it (null: not connected yet). */
+export const MyIntegrationTemplate = z.object({
+  id: z.string(),
+  /** sent back when connecting: a template that changed since (its address above all) is refused with 409 */
+  version: z.number().int().positive(),
+  kind: IntegrationKind,
+  name: z.string(),
+  /** the address without its query (where my key or sign-in will go) */
+  url: z.string(),
+  auth: z.enum(['bearer', 'header', 'oauth']),
+  authHeader: z.string().nullable(),
+  notes: z.string().nullable(),
+  createdBy: Person.nullable(),
+  connection: Integration.nullable(),
+})
+export type MyIntegrationTemplate = z.infer<typeof MyIntegrationTemplate>
+
+/** One person a template is for, as an admin sees them (Admin › MCP, a template's "N connected"): their name, and
+ * whether they connected it with their own key or sign-in. Never a key, an address, a tool or anything the service
+ * returned. stopped: their last check or call was refused for its key or sign-in (the connection's status
+ * needs_auth); error: the service could not be reached or answered with an error. */
+export const IntegrationTemplateMember = z.object({
+  user: Person,
+  state: z.enum(['connected', 'not_connected', 'stopped', 'error']),
+  /** when they connected it (connected, stopped, error); null when not connected */
+  since: IsoTime.nullable(),
+})
+export type IntegrationTemplateMember = z.infer<typeof IntegrationTemplateMember>
+
+/** Connecting a template: my key (auth bearer / header; write-only), or nothing for a sign-in (the app signs in next),
+ * what the AI may change there (ask or refuse), and the template's version as I saw it: 409 when it changed since, so
+ * a key goes only where I agreed to send it. */
+export const IntegrationTemplateAnswer = IntegrationRequestAnswer.extend({ version: z.number().int().positive() }).strict()
+export type IntegrationTemplateAnswer = z.infer<typeof IntegrationTemplateAnswer>
+
 export const INTEGRATIONS = {
   listIntegrations: endpoint({ method: 'GET', path: '/api/integrations', auth: 'user', owner: 'C', response: IntegrationList, summary: 'My personal connections and the team connections I may use. Never a key or token.' }),
   createIntegration: endpoint({ method: 'POST', path: '/api/integrations', auth: 'user', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A personal connection (403 when the team turned personal connections off). Checked right away; status says how it went.' }),
@@ -134,7 +309,22 @@ export const INTEGRATIONS = {
   deleteIntegration: endpoint({ method: 'DELETE', path: '/api/integrations/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Delete a connection (OAuth: revocation is tried, the local tokens go first).' }),
   refreshIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/refresh', auth: 'user', owner: 'C', body: z.object({}), response: Integration, summary: 'Check the connection now; MCP: save its current tool list.' }),
   authorizeIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/authorize', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: IsoTime }), summary: 'Start signing in at an MCP server (OAuth with PKCE) in a browser window.' }),
+  setIntegrationTool: endpoint({ method: 'POST', path: '/api/integrations/:id/tools', auth: 'user', owner: 'C', body: z.object({ name: z.string().min(1).max(200), enabled: z.boolean() }).strict(), response: Integration, summary: 'Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on.' }),
   integrationFlow: endpoint({ method: 'GET', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: IntegrationFlow, summary: 'Poll a sign-in started by this same session.' }),
   listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration) }), summary: 'Every team connection, with who may use it.' }),
   createTeamIntegration: endpoint({ method: 'POST', path: '/api/admin/integrations', auth: 'admin', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A team connection; access says who may use it (default: nobody until set).' }),
+  listIntegrationRequests: endpoint({ method: 'GET', path: '/api/integration-requests', auth: 'user', owner: 'C', response: RequestList, summary: 'Requests from admins to connect a service as my own connection, still waiting for me.' }),
+  getIntegrationRequest: endpoint({ method: 'GET', path: '/api/integration-requests/:id', auth: 'user', owner: 'C', response: IntegrationRequest, summary: 'One request to me, in any state (404 for anyone else, admins included).' }),
+  completeIntegrationRequest: endpoint({ method: 'POST', path: '/api/integration-requests/:id/complete', auth: 'user', owner: 'C', body: IntegrationRequestAnswer, response: Integration, summary: 'Connect it as my own connection, with my key, or made for signing in next (MCP OAuth: the request is connected when the sign-in finishes). Only the member it asks.' }),
+  declineIntegrationRequest: endpoint({ method: 'POST', path: '/api/integration-requests/:id/decline', auth: 'user', owner: 'C', body: z.object({}), response: IntegrationRequest, summary: 'Decline a waiting request to me.' }),
+  listTeamIntegrationRequests: endpoint({ method: 'GET', path: '/api/admin/integration-requests', auth: 'admin', owner: 'C', response: RequestList, summary: 'Requests admins sent to members, with their state. Never a key.' }),
+  createIntegrationRequest: endpoint({ method: 'POST', path: '/api/admin/integration-requests', auth: 'admin', owner: 'C', status: 201, body: IntegrationRequestInput, response: IntegrationRequest, summary: 'Ask a member to connect a service as their own connection (a notice and a link for them; waits 7 days).' }),
+  listIntegrationTemplates: endpoint({ method: 'GET', path: '/api/integration-templates', auth: 'user', owner: 'C', response: z.object({ items: z.array(MyIntegrationTemplate) }), summary: 'Templates an admin shared with me, each with my connection made from it (or null). Never a key.' }),
+  connectIntegrationTemplate: endpoint({ method: 'POST', path: '/api/integration-templates/:id/connect', auth: 'user', owner: 'C', body: IntegrationTemplateAnswer, response: Integration, summary: 'Connect a template shared with me as my own connection, with my key, or made for signing in next (MCP OAuth). Again with a key: replaces my key. 404 when it is not shared with me; 409 when it changed since the version I send.' }),
+  listTeamIntegrationTemplates: endpoint({ method: 'GET', path: '/api/admin/integration-templates', auth: 'admin', owner: 'C', response: z.object({ items: z.array(IntegrationTemplate) }), summary: 'Every template, with who it is for and how many members connected it. Never a key.' }),
+  createIntegrationTemplate: endpoint({ method: 'POST', path: '/api/admin/integration-templates', auth: 'admin', owner: 'C', status: 201, body: IntegrationTemplateInput, response: IntegrationTemplate, summary: 'Register a service once for the team; each member it is for connects it with their own key or sign-in.' }),
+  updateIntegrationTemplate: endpoint({ method: 'PATCH', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', body: IntegrationTemplatePatch, response: IntegrationTemplate, summary: 'Change a template. A new address, sign-in method or header deletes every member\'s connection made from it (and its key); they connect again. The address may not have a query (a key there would reach every member).' }),
+  listIntegrationTemplateMembers: endpoint({ method: 'GET', path: '/api/admin/integration-templates/:id/members', auth: 'admin', owner: 'C', response: z.object({ items: z.array(IntegrationTemplateMember) }), summary: 'Who a template is for, each with whether they connected it and when, or whether their key stopped working. Names and states only: never a key, an address or service data.' }),
+  deleteIntegrationTemplate: endpoint({ method: 'DELETE', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a template and every member\'s connection made from it (OAuth: revocation is tried, the local tokens go first).' }),
+  withdrawIntegrationRequest: endpoint({ method: 'POST', path: '/api/admin/integration-requests/:id/withdraw', auth: 'admin', owner: 'C', body: z.object({}), response: IntegrationRequest, summary: 'Withdraw a waiting request.' }),
 } as const

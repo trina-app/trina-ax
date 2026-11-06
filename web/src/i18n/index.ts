@@ -3,6 +3,8 @@
 import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
+import { PLURAL_PATTERN, fillPlurals, pluralNames } from '@mycel/shared/plural'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
 import { en } from './en'
 import { ja } from './ja'
@@ -17,45 +19,39 @@ export const LOCALES: { id: Locale; label: string }[] = LOCALE_ORDER.map((l) => 
 
 export type Params = Record<string, string | number>
 
-/** "{n, plural, one {# step} other {# steps}}": the form Intl.PluralRules picks for the number, # = the number. */
-const PLURAL = /\{(\w+), plural,((?:\s*(?:zero|one|two|few|many|other)\s*\{[^{}]*\})+)\s*\}/g
-const FORM = /(zero|one|two|few|many|other)\s*\{([^{}]*)\}/g
-const pluralRules = new Map<string, Intl.PluralRules>()
-function pluralForm(locale: string, n: number): string {
-  let r = pluralRules.get(locale)
-  if (!r) {
-    try {
-      r = new Intl.PluralRules(locale)
-    } catch {
-      r = new Intl.PluralRules('en')
-    }
-    pluralRules.set(locale, r)
-  }
-  return r.select(n)
-}
-
-/** The placeholders of a text, plural ones included (the same in every language). */
+/** The placeholders of a text, plural ones included ("{n, plural, one {# step} other {# steps}}"; the same in every
+ * language). */
 export function placeholdersOf(template: string): string[] {
-  const names = new Set<string>()
-  for (const m of template.matchAll(PLURAL)) names.add(m[1]!)
-  for (const m of template.replace(PLURAL, '').matchAll(/\{(\w+)\}/g)) names.add(m[1]!)
+  const names = new Set<string>(pluralNames(template))
+  for (const m of template.replace(PLURAL_PATTERN, '').matchAll(/\{(\w+)\}/g)) names.add(m[1]!)
   return [...names].sort()
 }
 
 /** Filled in every text without the caller passing them: the product's name lives in shared/src/product.ts only. */
 export const PRODUCT_PARAMS: Params = { product: PRODUCT.displayName, productFile: PRODUCT.artifactBase }
 
+/** Korean "(으)로" after a filled-in value, when its last sound can be told: 로 after a vowel or ㄹ, 으로 after another
+ * final consonant. A number ends as it is read: 1 2 4 5 7 8 9 (일 이 사 오 칠 팔 구) take 로, 0 3 6 (영·십 삼 육) take
+ * 으로, so "v{version}(으)로" reads "v1로", "v3으로". Latin letters and signs keep "(으)로". */
+export function koRo(value: string): string {
+  const last = [...value.trim()].pop() ?? ''
+  const c = last.codePointAt(0) ?? 0
+  if (c >= 0xac00 && c <= 0xd7a3) return [0, 8].includes((c - 0xac00) % 28) ? '로' : '으로'
+  if (/[0-9]/.test(last)) return '036'.includes(last) ? '으로' : '로'
+  return '(으)로'
+}
+
 export function format(template: string, callerParams?: Params, locale: string = DEFAULT_LOCALE): string {
   const params: Params = { ...PRODUCT_PARAMS, ...callerParams }
-  const withPlurals = template.replace(PLURAL, (all, k: string, forms: string) => {
-    const v = params[k]
-    const n = typeof v === 'number' ? v : Number(v)
-    if (v === undefined || !Number.isFinite(n)) return all
-    const byForm = new Map([...forms.matchAll(FORM)].map((m) => [m[1]!, m[2]!]))
-    const text = byForm.get(pluralForm(locale, n)) ?? byForm.get('other') ?? ''
-    return text.replace(/#/g, String(v))
+  // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts); the
+  // text's own honorific (님, さん) left out when the name has one already, with or without a space before it:
+  // "{name}님" and "{name} 님" with 대표님 read "대표님", never "대표님님" (shared/src/honorific.ts); after a value,
+  // "(으)로" as it is read (koRo)
+  return dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(/\{(\w+)\}(\(으\)로)?/g, (all, k: string, ro?: string) => {
+    if (params[k] === undefined) return all
+    const v = String(params[k])
+    return ro ? v + (locale === 'ko' ? koRo(v) : ro) : v
   })
-  return withPlurals.replace(/\{(\w+)\}/g, (all, k: string) => (params[k] !== undefined ? String(params[k]) : all))
 }
 
 export function translate(locale: Locale, key: MessageKey, params?: Params): string {

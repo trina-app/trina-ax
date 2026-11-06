@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request } from '@playwright/test'
+import { expect, test, type Locator, type Page, type Request } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 import { reset, signIn } from './helpers'
 import { DICTS, translate } from '../../src/i18n'
@@ -250,9 +250,13 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     const savedDates = new Map<string, string>()
     for (const days of [30, 10]) {
       await page.goto('/admin/settings')
-      await page.getByLabel(t['teamSettings.trashDays'], { exact: true }).fill(String(days))
-      await page.getByRole('button', { name: t['common.save'], exact: true }).click()
-      await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
+      const trashDays = page.getByLabel(t['teamSettings.row.trash'], { exact: true })
+      // Save shows only when something changed (the save bar): 30 days may already be the value
+      if ((await trashDays.inputValue()) !== String(days)) {
+        await trashDays.fill(String(days))
+        await page.getByRole('button', { name: t['common.save'], exact: true }).click()
+        await expect(page.getByText(t['common.saved'], { exact: true })).toBeVisible()
+      }
       await page.goto('/files?path=marketing')
       const names = [`retention-${days}-single.txt`, `retention-${days}-bulk-a.txt`, `retention-${days}-bulk-b.txt`]
       await page.getByTestId('files-input').setInputFiles(names.map((name) => ({ name, mimeType: 'text/plain', buffer: Buffer.from('retention test') })))
@@ -400,7 +404,7 @@ test('version history with restore; start a chat with a file', async ({ page }) 
   await expect(list).toContainText('Bob')
   await list.locator('[data-version="1"]').getByRole('button', { name: '되돌리기' }).click()
   await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('v1으로 되돌렸어요.')).toBeVisible()
+  await expect(page.getByText('v1로 되돌렸어요.')).toBeVisible()
 
   // a file goes into a new chat as an attached team file (a folder is still named in the prompt)
   await rowMenu(page, 'notes.txt', 'AI에게 이 파일 물어보기')
@@ -420,7 +424,7 @@ test('version history: every earlier version can be restored, the newest too; on
   for (const v of ['1', '2']) await expect(list.locator(`[data-version="${v}"]`).getByRole('button', { name: '되돌리기' })).toBeVisible()
   await list.locator('[data-version="2"]').getByRole('button', { name: '되돌리기' }).click()
   await page.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('v2으로 되돌렸어요.')).toBeVisible()
+  await expect(page.getByText('v2로 되돌렸어요.')).toBeVisible()
 
   // finance is read-only for this person: the history shows, versions download, nothing restores
   await page.goto('/files?path=finance/2026')
@@ -464,9 +468,9 @@ test('nested dialogs: Esc closes only the top one (new-folder prompt over the mo
   await expect(close).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(cancel).toBeFocused()
-  // An attempted focus behind the top dialog must stay in the prompt.
-  await picker.getByRole('button', { name: '새 폴더' }).focus()
-  await expect(page.getByLabel('폴더 이름')).toBeFocused()
+  // The dialog behind the top one is out of reach: inert and hidden from assistive technology.
+  await expect(page.locator('[role="dialog"][inert][aria-hidden="true"]')).toHaveCount(1)
+  await expect(cancel).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByLabel('폴더 이름')).toHaveCount(0)
   await expect(picker).toBeVisible()
@@ -514,6 +518,14 @@ test('fix a text file in the preview panel; a save after someone else\'s becomes
 // ---------------- several items at once (checkboxes and the selection bar) ----------------
 const check = (page: Page, name: string) => row(page, name).getByTestId('file-check')
 const bar = (page: Page) => page.getByTestId('bulk-bar')
+
+/** A long press with a finger on a file row (Files.tsx, phones): it selects the row. */
+async function longPress(page: Page, target: Locator) {
+  const name = target.locator('button').first()
+  await name.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 10, clientY: 10 })
+  await page.waitForTimeout(800)
+  await name.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 10, clientY: 10 })
+}
 const moves = async (page: Page) => ((await (await page.request.post('/__test/log')).json()) as string[]).filter((l) => l === 'POST /api/files/move').length
 
 test('select several rows: Shift+click a range, the header selects all, Esc and another folder clear it', async ({ page }) => {
@@ -803,11 +815,16 @@ test('a file from disk through the browser\'s own drag input: refused folder row
 
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
-  test('phone: checkboxes and the selection bar fit the screen', async ({ page }) => {
+  test('phone: a long press selects, and the selection bar fits the screen', async ({ page }) => {
     await reset(page)
     await signIn(page)
     await page.goto('/files?path=marketing')
-    await page.getByTestId('select-all').tap()
+    // no checkboxes to see until something is selected: a long press on a row selects it
+    await longPress(page, row(page, 'notes.txt'))
+    await expect(bar(page)).toContainText('1개 선택됨')
+    // then the boxes are back: tap the rest
+    const unchecked = page.locator('[data-testid="file-check"]:not(:checked):not(:disabled)')
+    while (await unchecked.count()) await unchecked.first().tap()
     await expect(bar(page)).toContainText('5개 선택됨')
     for (const id of ['bulk-move', 'bulk-share', 'bulk-delete', 'bulk-clear']) await expect(page.getByTestId(id)).toBeInViewport({ ratio: 1 })
     const table = page.getByTestId('file-table')
@@ -815,5 +832,36 @@ test.describe('phone', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
     await check(page, 'notes.txt').tap()
     await expect(bar(page)).toContainText('4개 선택됨')
+  })
+  test('phone: the file panel keeps open in Files and download behind ⋯, a menu like the app\'s others (arrows, Esc)', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.goto('/files?path=marketing')
+    await row(page, 'plan.md').getByRole('button').first().tap()
+    const panel = page.getByTestId('file-panel')
+    await expect(panel.getByRole('heading', { name: 'Plan', exact: true })).toBeVisible()
+    await expect(panel.getByRole('button', { name: '내려받기', exact: true })).toBeHidden()
+    const more = panel.getByTestId('file-panel-more')
+    // from the keyboard: Enter opens it on its first item, the arrows move (and wrap), Esc closes it and gives the
+    // keyboard back to ⋯ while the panel stays
+    await more.focus()
+    await page.keyboard.press('Enter')
+    const items = panel.getByRole('menu').getByRole('menuitem')
+    await expect(items).toHaveText(['파일 화면에서 열기', '내려받기'])
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.last()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(items.first()).toBeFocused()
+    await page.keyboard.press('ArrowUp')
+    await expect(items.last()).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(panel.getByRole('menu')).toHaveCount(0)
+    await expect(more).toBeFocused()
+    await expect(panel).toBeVisible()
+    // a tap: the menu as a sheet from the bottom; "파일 화면에서 열기" goes to the file's folder
+    await more.tap()
+    await panel.getByRole('menuitem', { name: '파일 화면에서 열기' }).tap()
+    await expect(page).toHaveURL(/select=plan\.md/)
   })
 })

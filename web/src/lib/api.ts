@@ -4,6 +4,7 @@
 import { API, ApiClient, ApiError, ERROR_MESSAGES, LOCALE_HEADER, type ErrorCode, type Locale } from '@mycel/shared/api'
 import { currentLocale } from '../i18n'
 import { downloadToApp, mobileApp, reportMobileError, sendFileToApp } from './mobile'
+import { xhrFetch } from './xhr'
 
 const WINDOW_KEY = 'mycel.windowId'
 
@@ -23,29 +24,36 @@ export function loadWindowId(): string {
     const v = sessionStorage.getItem(WINDOW_KEY)
     if (v && /^[A-Za-z0-9_-]{8,64}$/.test(v)) return v
   } catch { /* storage blocked: a fresh id per load */ }
-  return renewWindowId()
+  // not renewWindowId(): this runs while windowIdValue below is still being initialised (a fresh tab has no stored id,
+  // and assigning it then threw "Cannot access 'windowIdValue' before initialization")
+  return storeNewWindowId()
+}
+
+function storeNewWindowId(): string {
+  const id = randomId()
+  try { sessionStorage.setItem(WINDOW_KEY, id) } catch { /* ignore */ }
+  return id
 }
 
 export function renewWindowId(): string {
-  const id = randomId()
-  try { sessionStorage.setItem(WINDOW_KEY, id) } catch { /* ignore */ }
-  windowIdValue = id
-  return id
+  windowIdValue = storeNewWindowId()
+  return windowIdValue
 }
 
 let windowIdValue = typeof window === 'undefined' ? randomId() : loadWindowId()
 export const windowId = () => windowIdValue
 
-/** fetch that always carries the current window id (ApiClient reads it once, so wrap) and the language on screen
+/** A request that always carries the current window id (ApiClient reads it once, so wrap) and the language on screen
  * (the server uses it only without a session, so messages before sign-in match the page). */
-const fetchWithWindow = ((input: RequestInfo | URL, init?: RequestInit) => {
+const inWindow = (init?: RequestInit): RequestInit => {
   const headers = new Headers(init?.headers)
   headers.set('x-mycel-window', windowIdValue)
   headers.set(LOCALE_HEADER, currentLocale())
-  return fetch(input, { ...init, headers, credentials: 'same-origin' })
-}) as typeof fetch
+  return { ...init, headers, credentials: 'same-origin' }
+}
+const fetchWithWindow = ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, inWindow(init))) as typeof fetch
 
-export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow })
+export const api = new ApiClient({ baseUrl: '', fetch: fetchWithWindow, fetchWithProgress: (input, init, onSent) => xhrFetch(input, inWindow(init), onSent) })
 export { API, ApiError }
 
 /** Network-level failure (offline, relay dropped, DNS): worth retrying, unlike an ApiError. */
@@ -93,8 +101,10 @@ export function thumbnailUrl(attachmentId: string): string {
  * Fetch a team file's bytes for an in-app preview, never more than `max`: a Content-Length above it is refused at
  * once, and a response without one (chunked, or a relay that drops the header) is read up to `max` and then cut off.
  */
-export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal?: AbortSignal, o: { truncate?: boolean } = {}): Promise<Blob> {
-  const res = await api.call(API.download, { query: { path, disposition: 'attachment', preview: 'true' }, signal })
+export async function fetchFileBlob(path: string, max = 60 * 1024 * 1024, signal?: AbortSignal, o: { truncate?: boolean; embedIn?: string } = {}): Promise<Blob> {
+  // embedIn: the HTML file whose preview puts this file into its page (lib/frame-files.ts; the server refuses a file
+  // that some readers of that page cannot read)
+  const res = await api.call(API.download, { query: { path, disposition: 'attachment', preview: 'true', ...(o.embedIn !== undefined ? { embedIn: o.embedIn } : {}) }, signal })
   return readBounded(res, max, o)
 }
 

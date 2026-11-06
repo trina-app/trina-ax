@@ -28,10 +28,14 @@ skip() { echo "SKIP $1: $2"; SKIPN=$((SKIPN + 1)); }
 check() { local name="$1"; shift; local out; if out="$("$@" 2>&1)"; then pass "$name"; else fail "$name" "$(echo "$out" | tail -n 3 | tr '\n' ' ')"; fi; }
 vm() { [[ $MODE == vm ]]; }
 
+# the platform: on EC2 the guest channel is mycel-link (ax-link), not the qemu guest agent
+PLATFORM=proxmox
+if [[ "$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)" == "Amazon EC2" ]] || [[ "$(systemd-detect-virt 2>/dev/null)" == amazon ]]; then PLATFORM=ec2; fi
+ec2() { [[ $PLATFORM == ec2 ]]; }
 KIT_STATE="$(sed -n 's/.*"kit":"\([a-z]*\)".*/\1/p' /etc/ax-template.json 2>/dev/null)"
 ENROLLED=0
 grep -q '"state":"ok"' /run/ax/enroll-status.json 2>/dev/null && ENROLLED=1
-echo "vm-smoke: mode=$MODE kit=${KIT_STATE:-unknown} enrolled=$ENROLLED template=$(sed -n 's/.*"templateVersion":"\([^"]*\)".*/\1/p' /etc/ax-template.json 2>/dev/null)"
+echo "vm-smoke: mode=$MODE platform=$PLATFORM kit=${KIT_STATE:-unknown} enrolled=$ENROLLED template=$(sed -n 's/.*"templateVersion":"\([^"]*\)".*/\1/p' /etc/ax-template.json 2>/dev/null)"
 
 # ---- accounts (fixed uids, < 1000 so checkDedicated accepts the engine account, main.go:65-77)
 acct() {
@@ -41,8 +45,8 @@ acct() {
   [[ "$(cut -d: -f7 <<<"$e")" == /usr/sbin/nologin ]] || { echo "$name shell $(cut -d: -f7 <<<"$e")"; return 1; }
   [[ "$(passwd -S "$name" | awk '{print $2}')" == L ]] || { echo "$name password not locked"; return 1; }
 }
-check "account axserver uid 990" acct axserver 990
-check "account axagent uid 991" acct axagent 991
+check "account axserver uid 980" acct axserver 980
+check "account axagent uid 981" acct axagent 981
 check "root locked" bash -c '[[ "$(passwd -S root | awk "{print \$2}")" == L ]]'
 
 # ---- kernel features the per-turn sandbox needs (unprivileged user)
@@ -95,8 +99,8 @@ else
     ${AX_SMOKE_LAUNCHER_ARGS:-} > "$T/launcher.log" 2>&1 &
   for _ in $(seq 1 50); do grep -q ready "$T/launcher.log" 2>/dev/null && break; sleep 0.1; done
   LPID="$(pgrep -u axagent -f -- "--listen $T/sock/launcher.sock" | head -n1)"
-  if grep -q ready "$T/launcher.log" && [[ -n "$LPID" ]] && [[ "$(stat -c %u "/proc/$LPID")" == 991 ]]; then
-    pass "mycel-launcher --dedicated-account runs as uid 991 (< 1000)"
+  if grep -q ready "$T/launcher.log" && [[ -n "$LPID" ]] && [[ "$(stat -c %u "/proc/$LPID")" == 981 ]]; then
+    pass "mycel-launcher --dedicated-account runs as uid 981 (< 1000)"
     # tcp-peer: an axagent process connects to a root listener; the launcher must name that process
     if perl -MIO::Socket::INET -MIO::Socket::UNIX -e1 2>/dev/null; then
       perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>"127.0.0.1",LocalPort=>0,Listen=>5,ReuseAddr=>1) or die;
@@ -118,7 +122,7 @@ else
       skip "tcp-peer probe" "perl IO::Socket not available"
     fi
   else
-    fail "mycel-launcher --dedicated-account" "not ready as uid 991: $(tail -n 3 "$T/launcher.log" | tr '\n' ' ')"
+    fail "mycel-launcher --dedicated-account" "not ready as uid 981: $(tail -n 3 "$T/launcher.log" | tr '\n' ' ')"
     skip "tcp-peer probe" "launcher did not start"
   fi
   [[ -n "$LPID" ]] && kill "$LPID" 2>/dev/null
@@ -163,8 +167,13 @@ check "no sshd (binary, units, listener)" no_sshd
 
 # ---- guest agent, chrony, zram, fstrim
 check "qemu-guest-agent installed" test -x /usr/sbin/qemu-ga
+if vm && ec2; then
+  skip "qemu-guest-agent active" "EC2 (no virtio port; the channel is mycel-link)"
+  if [[ -f /etc/ax/link.json ]]; then check "mycel-link active" systemctl is-active --quiet mycel-link
+  else skip "mycel-link active" "no /etc/ax/link.json (instance started without hostd user-data)"; fi
+fi
 if vm; then
-  check "qemu-guest-agent active" systemctl is-active --quiet qemu-guest-agent
+  ec2 || check "qemu-guest-agent active" systemctl is-active --quiet qemu-guest-agent
   check "chrony active" systemctl is-active --quiet chrony
   check "zram swap active" bash -c 'grep -q "^/dev/zram" /proc/swaps'
   check "fstrim.timer enabled" bash -c '[[ "$(systemctl is-enabled fstrim.timer)" == enabled ]]'
@@ -174,16 +183,26 @@ else
   check "zram-generator config (ram / 2, zstd)" bash -c 'grep -q "^zram-size = ram / 2" /etc/systemd/zram-generator.conf && grep -q "^compression-algorithm = zstd" /etc/systemd/zram-generator.conf'
   check "fstrim.timer enabled" bash -c '[[ -L /etc/systemd/system/timers.target.wants/fstrim.timer ]] || [[ "$(systemctl is-enabled fstrim.timer 2>/dev/null)" == enabled ]]'
 fi
-check "chrony uses only 10.200.0.1" bash -c '[[ "$(grep -E "^[[:space:]]*(server|pool|peer|sourcedir|confdir)[[:space:]]" /etc/chrony/chrony.conf)" == "server 10.200.0.1 iburst" ]]'
+# only the platform time sources: the Proxmox host and Amazon Time Sync (link-local)
+check "chrony uses only 10.200.0.1 and 169.254.169.123" bash -c '[[ "$(grep -E "^[[:space:]]*(server|pool|peer|sourcedir|confdir)[[:space:]]" /etc/chrony/chrony.conf | tr "\n" "|")" == "server 10.200.0.1 iburst|server 169.254.169.123 iburst|" ]]'
+if vm && ec2; then
+  # selected (^*) or combined (^+); right after boot chrony needs a few polls, so try for about 30 s
+  check "chrony syncs with Amazon Time Sync" bash -c 'for _ in $(seq 1 15); do chronyc -n sources 2>/dev/null | grep -q "^\^[*+][[:space:]]*169\.254\.169\.123" && exit 0; sleep 2; done; exit 1'
+fi
 check "time zone Etc/UTC" bash -c '[[ "$(readlink /etc/localtime)" == /usr/share/zoneinfo/Etc/UTC ]]'
 
 # ---- cloud-init lock, first boot pieces, data disk
-check "cloud-init datasource lock (NoCloud, None)" grep -q '^datasource_list: \[ NoCloud, None \]' /etc/cloud/cloud.cfg.d/99-ax.cfg
+check "cloud-init datasource lock (NoCloud, Ec2, Oracle, None)" grep -q '^datasource_list: \[ NoCloud, Ec2, Oracle, None \]' /etc/cloud/cloud.cfg.d/99-ax.cfg
 check "mycel-enroll binary" test -x /usr/local/sbin/mycel-enroll
 check "mycel-enroll.service unit" grep -q '^ExecStart=/usr/local/sbin/mycel-enroll' /etc/systemd/system/mycel-enroll.service
 check "var-lib-mycel.mount unit (label axdata)" grep -q '^What=/dev/disk/by-label/axdata' /etc/systemd/system/var-lib-mycel.mount
 check "mycel units require the data disk" grep -q '^RequiresMountsFor=/var/lib/mycel' /etc/systemd/system/mycel-server.service.d/10-ax-data.conf
 check "data-disk resize udev rule" grep -q 'ID_FS_LABEL}=="axdata"' /etc/udev/rules.d/90-axdata-resize.rules
+check "data-disk grow at mount (axdata-grow.service)" bash -c '[[ -L /etc/systemd/system/var-lib-mycel.mount.wants/axdata-grow.service ]]'
+if [[ -x /usr/local/sbin/mycel-link ]]; then pass "mycel-link binary"
+elif ec2; then fail "mycel-link binary" "missing on EC2 (build-ami.sh --link-bin)"
+else skip "mycel-link binary" "not in this image (Proxmox only)"; fi
+check "mycel-link.service unit (waits for link.json)" bash -c 'grep -q "^ConditionPathExists=/etc/ax/link.json" /etc/systemd/system/mycel-link.service && [[ -L /etc/systemd/system/multi-user.target.wants/mycel-link.service ]]'
 check "unattended-upgrades: Debian-Security only" grep -q '^#clear Unattended-Upgrade::Origins-Pattern;' /etc/apt/apt.conf.d/52unattended-upgrades-ax
 if [[ $ENROLLED == 1 ]]; then
   if vm; then check "data disk mounted at $BASE" findmnt -n -S LABEL=axdata "$BASE"; else skip "data disk mounted" "container"; fi
@@ -194,7 +213,7 @@ else
   if [[ "$KIT_STATE" == present ]]; then check "kit seed present" test -f "$SEED/root/VERSION"
   else skip "kit seed present" "template built with --allow-missing-kit (not for production)"; fi
 fi
-check "mycel units not enabled in the template" bash -c '[[ '"$ENROLLED"' == 1 ]] || ! ls /etc/systemd/system/*.wants/mycel-* >/dev/null 2>&1'
+check "mycel units not enabled in the template" bash -c '[[ '"$ENROLLED"' == 1 ]] || ! ls /etc/systemd/system/*.wants/mycel-* 2>/dev/null | grep -v "/mycel-link\.service$" | grep -q .'
 
 echo "vm-smoke: $PASSN passed, $FAILN failed, $SKIPN skipped"
 [[ $FAILN -eq 0 ]]

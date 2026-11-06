@@ -20,6 +20,7 @@ import type { AuthInfo, SessionService } from '../../server/src/services'
 import { configureChat, getChatRuntime, type ChatRuntimeOptions } from '../../server/src/chat/runtime'
 import { LocalEngines, StaticEngines, type EngineConfs } from '../../server/src/chat/engines'
 import { makeFixture, seed } from './fixtures'
+import { registerCTools } from '../../server/src/tools'
 import { WORK } from './env'
 
 export const FAKE_ENGINE_TS = path.join(import.meta.dir, 'b-fake-engine.ts')
@@ -51,6 +52,11 @@ const people: Record<string, { id: string; name: string; role: 'owner' | 'admin'
   dana: { id: 'dana', name: 'Dana Choi', role: 'owner', locale: 'ko' },
   erin: { id: 'erin', name: 'Erin Yoo', role: 'member', locale: 'id' },
 }
+/** Someone who got an account during a test (a team link's join, say): from now on the test sessions sign them in by
+ * `key` (x-test-user) as the account with this id. */
+export function addTestPerson(key: string, p: { id: string; name: string; role: 'owner' | 'admin' | 'member'; locale: 'ko' | 'en' | 'id' }) {
+  people[key] = p
+}
 const sessionIds = new Map<string, string>()
 /** test session service: x-test-user (cookie-like, needs Origin on WebSockets) or Bearer test-<user> */
 export const testSessions: SessionService = {
@@ -67,7 +73,27 @@ export const testSessions: SessionService = {
   },
   async verifyPassword() { return false },
 }
-const sessionModule: RouteModule = { name: 'test-sessions', owner: 'A', init(ctx) { ctx.services.sessions = testSessions }, register() {} }
+/** Each test session is also a stored session row, as a real sign-in makes one: routes that read the caller's own
+ * session (GET /api/me, and PATCH /api/me answering with it; Drive's flows bound to a session) see it exist. Without
+ * it those answered 401 after their change was saved, which no real server does. */
+const sessionModule: RouteModule = {
+  name: 'test-sessions', owner: 'A',
+  init(ctx) {
+    ctx.services.sessions = {
+      async resolve(req, info) {
+        const a = await testSessions.resolve(req, info)
+        if (a) {
+          const now = new Date().toISOString()
+          ctx.db.query('INSERT OR IGNORE INTO sessions (id, user_id, token_hash, client, user_agent, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)')
+            .run(a.session.id, a.user.id, `test-session-${a.session.id}`, a.session.client, now, now, new Date(Date.now() + 365 * 86400_000).toISOString())
+        }
+        return a
+      },
+      verifyPassword: testSessions.verifyPassword,
+    }
+  },
+  register() {},
+}
 
 export interface Harness {
   ctx: AppContext
@@ -135,7 +161,7 @@ export interface HarnessOptions extends ChatRuntimeOptions {
    * values); [] = none */
   credentials?: { kind: import('@mycel/shared/api').CredentialKind; secret: string; label?: string; priority?: number }[]
   /** where the model proxy sends requests (default: a refused local port, never the internet) */
-  upstreams?: Partial<import('../../server/src/app-config').ModelUpstreams>
+  upstreams?: Partial<import('../../server/src/app-config').ModelUpstreams> & { openrouter?: string }
   /** the locked Codex catalog the proxy's Codex path accepts (default the fake engine's fake-1 / fake-2) */
   codexModels?: string[]
   /** a launcher already running elsewhere (the Linux T1 job: the engine account's launcher in bwrap mode) instead of
@@ -146,6 +172,8 @@ export interface HarnessOptions extends ChatRuntimeOptions {
   /** the fake engine executables (default: a script running tests/lib/b-fake-engine.ts with this bun). A Linux turn
    * sandbox shows only the engine's own folder, so T1 uses compiled copies named claude and codex. */
   engineBins?: { claude: string; codex: string }
+  /** web_fetch / save_url network options (tests: a local server for public names) */
+  fetch?: import('../../server/src/tools/web-fetch').FetchOptions
 }
 
 /** the harness's default AI connections (fake keys; nothing reaches a real provider) */
@@ -160,7 +188,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   const fx = makeFixture(base)
   const dataDir = fx.data
   const dead = 'http://127.0.0.1:9'
-  const upstreams = { anthropic: o.realCore?.engine.modelUpstream ?? dead, openai: dead, chatgpt: dead, openaiAuth: dead, ...o.upstreams }
+  const upstreams = { anthropic: o.realCore?.engine.modelUpstream ?? dead, openai: dead, chatgpt: dead, openaiAuth: dead, openrouter: dead + '/api/v1', ...o.upstreams }
   const cfg: AppConfig = {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
     teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error',
@@ -207,7 +235,11 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
   if (o.engineConfig) Object.assign(ctx.engineConfig, o.engineConfig)
   configureChat(ctx, { ...o, engines: o.realEngines || o.realCore ? new LocalEngines(ctx) : new StaticEngines(fakeEngines(bin, dataDir, codexBin)) })
   // test sessions last: init() runs in order, so they replace the real session service (component A)
-  const app = await buildApp(ctx, [...ROUTE_MODULES, sessionModule])
+  // web_fetch with the test's network options: registered just before the files module, which would register it without
+  // (the first registration wins; the tools need the chat runtime, installed earlier)
+  const modules = [...ROUTE_MODULES]
+  if (o.fetch) modules.splice(modules.findIndex((m) => m.name === 'files'), 0, { name: 'test-fetch', owner: 'C', init(c) { registerCTools(c, { fetch: o.fetch }) }, register() {} })
+  const app = await buildApp(ctx, [...modules, sessionModule])
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', websocket, maxRequestBodySize: 60 * 1024 * 1024, fetch: (req, s) => app.fetch(req, { ip: '127.0.0.1', via: 'test', server: s }) })
   const url = `http://127.0.0.1:${server.port}`
   const headers = (user: string | null, w?: string, client?: ClientKind) => {

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import type { CellObject } from 'xlsx'
 import { useLocale, useT } from '../../i18n'
 import { guardLinks } from '../../lib/safeLinks'
-import { SHEET_PREVIEW_ROWS, firstVisibleSheet, sheetMeta, type SheetMeta } from '../../lib/sheetPreview'
+import { SHEET_PREVIEW_ROWS, rangeCellIds, sheetMeta, startSheetIndex, type SheetMeta } from '../../lib/sheetPreview'
 
 /** Links in a drawn document: http(s) only, opened after asking, in a new window (lib/safeLinks.ts). */
 function useSafeLinks(ref: RefObject<HTMLElement | null>, deps: unknown[]) {
@@ -73,7 +73,9 @@ export function DocxView({ blob }: { blob: Blob }) {
   )
 }
 
-export function PptxView({ blob, width }: { blob: Blob; width: number }) {
+/** `startSlide` (an answer's source, a link with &slide=N): the slide's number in the show order, hidden slides
+ * counted (the renderer's list has every slide, in that order). */
+export function PptxView({ blob, width, startSlide }: { blob: Blob; width: number; startSlide?: number }) {
   const t = useT()
   const w = Math.max(320, width - 32)
   const { ref, error, busy } = useRender(async (el) => {
@@ -90,8 +92,12 @@ export function PptxView({ blob, width }: { blob: Blob; width: number }) {
       renderMode: 'list',
       listOptions: { windowed: true, initialSlides: 4, batchSize: 4 },
     })
+    if (startSlide && startSlide >= 1 && startSlide <= viewer.slideCount) {
+      el.dataset.startSlide = String(startSlide)
+      await viewer.goToSlide(startSlide - 1, { block: 'start' })
+    }
     return () => viewer.destroy()
-  }, [blob, w])
+  }, [blob, w, startSlide])
   return (
     <>
       <Status busy={busy} error={error} what={t('preview.kind.pptx')} />
@@ -100,7 +106,9 @@ export function PptxView({ blob, width }: { blob: Blob; width: number }) {
   )
 }
 
-export function SheetView({ blob }: { blob: Blob }) {
+/** `startSheet` / `range` (an answer's source, a link with &sheet=…&range=…): that tab opens, its range is marked and
+ * scrolled into view. */
+export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?: string; range?: string }) {
   const t = useT()
   const locale = useLocale()
   const [sheets, setSheets] = useState<(SheetMeta & { html: string })[] | null>(null)
@@ -128,13 +136,23 @@ export function SheetView({ blob }: { blob: Blob }) {
       const out = sheetMeta(wb, XLSX.utils.decode_range).map((m) => ({ ...m, html: XLSX.utils.sheet_to_html(wb.Sheets[m.name]!, { header: '', footer: '' }) }))
       if (live) {
         setSheets(out)
-        setActive(firstVisibleSheet(out))
+        setActive(startSheetIndex(out, startSheet))
       }
     })().catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
     return () => {
       live = false
     }
-  }, [blob])
+  }, [blob, startSheet])
+  // the source's rows: marked and scrolled to while its sheet is the open tab
+  const targetOpen = !!sheets && startSheet !== undefined && sheets[active]?.name === startSheet
+  useEffect(() => {
+    const el = tableRef.current
+    if (!el || !targetOpen) return
+    const cells = rangeCellIds(range).map((id) => el.querySelector<HTMLElement>(`#${id}`)).filter((c): c is HTMLElement => !!c)
+    for (const c of cells) c.dataset.sourceCell = ''
+    cells[0]?.scrollIntoView({ block: 'center', inline: 'nearest' })
+    return () => { for (const c of cells) delete c.dataset.sourceCell }
+  }, [targetOpen, range, active, sheets])
   if (error) return <p className="p-6 text-sm text-danger">{t('preview.cantOpen', { what: t('preview.kind.sheet'), error })}</p>
   if (!sheets) return <p className="p-6 text-sm text-faint">{t('common.loading')}</p>
   const current = sheets[active]
@@ -147,16 +165,17 @@ export function SheetView({ blob }: { blob: Blob }) {
       )}
       <div
         ref={tableRef}
-        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold"
+        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-t=n]]:text-right [&_td[data-t=n]]:tabular-nums [&_td[data-source-cell]]:bg-accent-soft"
+        data-sheet={current?.name}
         dangerouslySetInnerHTML={{ __html: current?.html ?? '' }}
       />
       {sheets.length > 1 && (
         <div role="tablist" className="flex shrink-0 gap-1 overflow-x-auto border-t border-line bg-subtle px-2 py-1">
           {sheets.map((s, i) => (
-            <button key={i} role="tab" type="button" aria-selected={i === active} onClick={() => setActive(i)} title={s.hidden ? t('preview.sheetHiddenTitle') : undefined} className={clsx('inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs whitespace-nowrap', i === active ? 'bg-surface font-semibold shadow-sm' : 'text-muted hover:bg-hover', s.hidden && 'italic')}>
+            <button key={i} role="tab" type="button" aria-selected={i === active} onClick={() => setActive(i)} title={s.hidden ? t('preview.sheetHiddenTitle') : undefined} className={clsx('inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs whitespace-nowrap focus-visible:-outline-offset-2', i === active ? 'bg-surface font-semibold shadow-sm' : 'text-muted hover:bg-hover', s.hidden && 'italic')}>
               {s.name}
               {s.hidden && (
-                <span className="rounded border border-line px-1 text-[10px] font-normal not-italic text-faint" data-testid="sheet-hidden-badge">
+                <span className="rounded border border-line px-1 text-nano font-normal not-italic text-faint" data-testid="sheet-hidden-badge">
                   {t('preview.sheetHidden')}
                 </span>
               )}

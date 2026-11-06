@@ -4,7 +4,11 @@
 //   bun scripts/release/publish.ts --channel beta|stable [--build] [--version X]
 //       [--office dist/office/<officeBundle>-X-mac.zip]
 //       [--windows desktop/release/<artifactBase>-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
-//       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--if-newer] [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
+//       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--rollout staged|all] [--if-newer]
+//       [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
+//
+// --rollout: staged (default) gives a stable release's manifest the staged roll-out (about 10% of the offices the first
+// day, 50% the second, all from the third, server/src/system/rollout.ts); all, or the beta channel, has none.
 //
 // --build first builds both (bun run build:office with --version X; the Windows app with version X): otherwise the
 // files are taken as given (default: dist/office/<officeBundle>-<version>-mac.zip and, when it exists,
@@ -14,8 +18,11 @@
 //   2. refuses to go back: the channel's current manifest (if any) must be older (the same version only re-uploads
 //      identical files; --if-newer: a newer channel is left as it is, no error), and a file already published under
 //      <dir>/<version>/ is never replaced by a different one (compared by content, not size)
-//   3. uploads <dir>/<version>/<files> to the R2 bucket, then signs (~/.config/<keyDir>/release-key.pem) and
-//      uploads <dir>/<channel>.json last, so the manifest never names a file that is not there
+//   3. uploads <dir>/<version>/<files> to the R2 bucket, then signs (~/.config/<keyDir>/release-key.pem) and uploads
+//      the same signed manifest as <dir>/<version>/<channel>.json (kept for good: a server that runs this version
+//      after the channel moved on still offers this version's Windows app, server/src/system/windows-app.ts; a re-run
+//      keeps the first one when it names the same files) and <dir>/<channel>.json last, so the manifest never names a
+//      file that is not there
 //   4. reads the manifest back through the feed and verifies it like an office does
 // --out DIR writes the feed into a folder instead (tests: a feed on this Mac, whose address --feed names, served to an
 // install switched to it with `teamax update feed`); --dry-run checks and signs, uploads nothing.
@@ -24,12 +31,15 @@
 // TEAMAX_RELEASE_KEY / CLOUDFLARE_API_TOKEN from its secrets; nothing here asks anything.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { compareVersions } from '../../server/src/system/update'
 import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, OFFICE_RELEASE_KEYS, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
 import { checkLatestYml } from '../../server/src/office/update'
+import { inheritRollout, newRollout, rampText } from '../../server/src/system/rollout'
+import type { Bucket } from './cloudflare'
 import { readReleaseKey } from './keygen'
-import { remoteHash } from './sign'
+import { compareRemote, feedReader, type RetryOptions } from './sign'
 import { PRODUCT } from '../../shared/src/product'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 
@@ -78,9 +88,145 @@ export function officeZipVersion(zip: string): string {
 
 export interface Artifact { key: string; file: string; type: string; meta: ReleaseFile }
 
+/** The manifest of a release: a stable one gets the staged roll-out unless `rollout` is 'all' (the tag message's
+ * `Rollout: all`, docs/RELEASE-CI.md), a beta one none (server/src/system/rollout.ts newRollout). */
+export function officeRelease(o: { channel: Channel; version: string; minFrom: string; notes: string; office: ReleaseFile; windows: OfficeRelease['windows']; rollout: 'staged' | 'all'; now?: Date; salt?: string }): OfficeRelease {
+  const rollout = newRollout(o.channel, o.rollout, o.salt)
+  return {
+    format: 1, product: OFFICE_PRODUCT, channel: o.channel, version: o.version, minFrom: o.minFrom, publishedAt: (o.now ?? new Date()).toISOString(), notes: o.notes,
+    office: [{ ...o.office, arch: 'universal' }], windows: o.windows, ...(rollout ? { rollout } : {}),
+  }
+}
+
+/** <dir>/<version>/<channel>.json: this version's signed manifest on that channel, never replaced */
+export const versionManifestKey = (version: string, channel: Channel) => `${DIR}/${version}/${channel}.json`
+
+/** What to do with <dir>/<version>/<channel>.json: upload it when it is not there; keep an earlier one (a re-run) when it
+ * verifies, is this version on this channel and names the same files; anything else stops the publish. */
+export function versionManifestAction(existing: string | null, release: OfficeRelease, ctx: { keys: readonly string[]; feed: string }): 'upload' | 'keep' {
+  if (existing === null) return 'upload'
+  const key = versionManifestKey(release.version, release.channel)
+  let prev: OfficeRelease
+  try { prev = verifyRelease(existing, { keys: ctx.keys, channel: release.channel, feed: ctx.feed }) } catch (e) { throw new Error(`${key} is on the feed but does not verify (${(e as Error).message}): look at it by hand`) }
+  const files = (r: OfficeRelease) => [...r.office, ...(r.windows ? [r.windows.installer, r.windows.latestYml] : [])].map((f) => `${f.file} ${f.sha256} ${f.size}`).sort().join('\n')
+  const office = (r: OfficeRelease) => r.office.map((f) => `${f.file} ${f.sha256} ${f.size}`).sort().join('\n')
+  if (prev.version !== release.version) throw new Error(`${key} is the manifest of ${prev.version}: look at it by hand`)
+  if (files(prev) === files(release) && (prev.windows?.version ?? null) === (release.windows?.version ?? null)) return 'keep'
+  // a re-run that adds the Windows installer to a release published without it: the same office files, more files
+  if (!prev.windows && release.windows && office(prev) === office(release)) return 'upload'
+  throw new Error(`${key} is already published with other files: publish a new version instead`)
+}
+
 export function describe(feed: string, version: string, file: string, type: string): Artifact {
   const name = path.basename(file)
   return { key: `${DIR}/${version}/${name}`, file, type, meta: { file: name, url: fileUrl(feed, version, name), sha256: sha256(file), size: fs.statSync(file).size } }
+}
+
+/** The files of `arts` the feed already holds with these exact bytes (not uploaded again). A file it holds with other
+ * bytes stops the publish, never replaced: by content, because a rebuilt zip of the same version has the same size but
+ * other bytes, and the manifest names the hash. */
+export async function alreadyPublished(arts: Artifact[], read: Pick<ReturnType<typeof feedReader>, 'hash'>, o: RetryOptions = {}): Promise<Set<Artifact>> {
+  const there = new Set<Artifact>()
+  for (const a of arts) {
+    const seen = await compareRemote(a.meta.url, () => read.hash(a.key), a.meta, o)
+    if (seen === 'different') throw new Error(`${a.meta.url} is already published with other content: publish a new version instead`)
+    if (seen === 'same') there.add(a)
+  }
+  return there
+}
+
+export interface OfficeFeedRun {
+  feed: string
+  release: OfficeRelease
+  /** the signed manifest of `release` */
+  signed: string
+  arts: Artifact[]
+  ifNewer: boolean
+  dryRun: boolean
+  keys: readonly string[]
+  /** where the files go, and what a 404 from the feed is checked against; only a dry run may go without */
+  bucket: Bucket | null
+  fetch?: typeof fetch
+  retry?: RetryOptions
+  log?: (line: string) => void
+  /** signs a manifest again (the release key): a re-run that adds the Windows installer to a release published without
+   * it keeps that first manifest's publishedAt and roll-out, so the staged roll-out does not start again */
+  resign?: (r: OfficeRelease) => string
+}
+
+const utf8 = (b: Uint8Array) => Buffer.from(b).toString('utf8')
+
+/** `r` with the roll-out clock of `first` (its publishedAt and rollout, or none) */
+export function keepRolloutOf(r: OfficeRelease, first: OfficeRelease): OfficeRelease {
+  const { rollout: _, ...rest } = r
+  return { ...rest, publishedAt: first.publishedAt, ...(first.rollout ? { rollout: first.rollout } : {}) }
+}
+
+/** Steps 2-4 at the top: everything that reads or writes the feed. Nothing goes up on a read that failed or a lone 404. */
+export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'head-stays' | 'dry-run'> {
+  const { feed, release, signed, arts, keys, bucket } = o
+  const { channel, version } = release
+  const log = o.log ?? ((s: string) => console.log(s))
+  if (!o.dryRun && !bucket) throw new Error('uploading needs the bucket: a 404 from the feed alone must not replace a published file')
+  const read = feedReader(feed, { ...o.retry, fetch: o.fetch, holds: bucket?.holds })
+  const headKey = `${DIR}/${channel}.json`
+
+  // the channel never goes back, and a published file is never replaced by another one
+  const cur = await read.bytes(headKey)
+  // --if-newer on a channel that is ahead: its head stays, but this version's manifest on that channel still goes up
+  // (a server of that channel that runs this version offers its Windows app from it)
+  let headStays = false
+  let prevHead: OfficeRelease | null = null
+  if (cur) {
+    const prev = verifyRelease(utf8(cur), { keys, channel, feed })
+    prevHead = prev
+    if (compareVersions(version, prev.version) < 0) {
+      if (!o.ifNewer) throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
+      log(`${channel} is at ${prev.version}, newer than ${version}: its head is left as it is`)
+      headStays = true
+    } else log(`${channel} is at ${prev.version} now`)
+  }
+  const there = await alreadyPublished(arts, read, o.retry)
+  // this version's manifest on this channel (kept for good; a re-run keeps the first one)
+  const vkey = versionManifestKey(version, channel)
+  const have = await read.bytes(vkey)
+  const vaction = versionManifestAction(have ? utf8(have) : null, release, { keys, feed })
+  if (vaction === 'keep') log(`= ${vkey} (already there, same files)`)
+  // the manifest that goes up: a re-run keeps the first one's roll-out clock (server/src/system/rollout.ts)
+  const first = have ? verifyRelease(utf8(have), { keys, channel, feed }) : null
+  let manifest = signed
+  if (first && vaction === 'upload' && o.resign) manifest = o.resign(keepRolloutOf(release, first))
+  // a first publish while the channel's previous release still ramps: its salt and start (inheritRollout), so a burst
+  // of releases completes within 48 hours of the first one
+  const inherited = !first && prevHead && prevHead.version !== version ? inheritRollout(release.rollout, prevHead, release.publishedAt) : release.rollout
+  if (inherited !== release.rollout && inherited && o.resign) {
+    manifest = o.resign({ ...release, rollout: inherited })
+    log(`rollout: ${prevHead!.version}'s ramp still runs: the same salt, from ${inherited.since}`)
+  }
+  if (first && !first.rollout !== !release.rollout) log(`warning: ${vkey} was first published ${first.rollout ? 'with' : 'without'} the staged roll-out; this run keeps that (--rollout applies to a release published for the first time)`)
+  if (o.dryRun || !bucket) { log('dry run: nothing uploaded'); return 'dry-run' }
+
+  for (const a of arts) {
+    if (there.has(a)) { log(`= ${a.key} (already there)`); continue }
+    log(`↑ ${a.key}`)
+    await bucket.put(a.key, a.file, a.type)
+    const size = await read.size(a.key)
+    if (size !== a.meta.size) throw new Error(`${a.meta.url} does not answer with the uploaded file (${size} bytes, not ${a.meta.size})`)
+  }
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'publish-office-'))
+  const tmp = path.join(tmpDir, `${channel}.json`)
+  // a re-run (the version's manifest kept) puts that manifest at the head again, as first published: its publishedAt,
+  // which the staged roll-out is measured from, and its salt stay (server/src/system/rollout.ts)
+  fs.writeFileSync(tmp, vaction === 'keep' && have ? have : manifest)
+  try {
+    if (vaction === 'upload') { log(`↑ ${vkey}`); await bucket.put(vkey, tmp, 'application/json') }
+    if (headStays) return 'head-stays'
+    await bucket.put(headKey, tmp, 'application/json')
+  } finally { fs.rmSync(tmpDir, { recursive: true, force: true }) }
+  const got = verifyRelease(utf8(await read.back(headKey)), { keys, channel, feed })
+  if (got.version !== version) throw new Error(`the feed answers ${got.version}, not ${version}`)
+  log(`published: ${manifestUrl(feed, channel)} → ${version}`)
+  return 'published'
 }
 
 async function main() {
@@ -121,60 +267,29 @@ async function main() {
     windows = { version: y.version, installer: ie.meta, latestYml: ye.meta }
   }
 
-  const release: OfficeRelease = {
-    format: 1, product: OFFICE_PRODUCT, channel, version, minFrom, publishedAt: new Date().toISOString(), notes,
-    office: [{ ...arts[0]!.meta, arch: 'universal' }], windows,
-  }
-  const signed = signRelease(release, readReleaseKey())
+  const rolloutMode = arg('--rollout') ?? 'staged'
+  if (rolloutMode !== 'staged' && rolloutMode !== 'all') throw new Error('--rollout staged|all')
+  const release = officeRelease({ channel, version, minFrom, notes, office: arts[0]!.meta, windows, rollout: rolloutMode })
+  console.log(release.rollout ? `rollout: staged, ${rampText(release.rollout.ramp!)} (from publishedAt)` : 'rollout: none, every office at once')
+  const pem = readReleaseKey()
+  const signed = signRelease(release, pem)
   verifyRelease(signed, { keys: OFFICE_RELEASE_KEYS, channel, feed }) // signed with the key this build trusts
   console.log(`release ${version} (${channel}, from ${minFrom}): ${arts.map((a) => `${a.meta.file} ${(a.meta.size / 1048576).toFixed(1)} MB`).join(', ')}`)
 
   if (out) {
     for (const a of arts) { fs.mkdirSync(path.join(out, path.dirname(a.key)), { recursive: true }); fs.copyFileSync(a.file, path.join(out, a.key)) }
+    // a local feed (tests, QA): rebuilt files overwrite the old ones, so the version's manifest is written again too
+    fs.writeFileSync(path.join(out, versionManifestKey(version, channel)), signed)
     fs.mkdirSync(path.join(out, DIR), { recursive: true })
     fs.writeFileSync(path.join(out, DIR, `${channel}.json`), signed)
     console.log(`written into ${out} (feed paths ${DIR}/…)`)
     return
   }
 
-  // the channel never goes back, and a published file is never replaced by another one
-  const cur = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) }).catch(() => null)
-  if (cur?.ok) {
-    const prev = verifyRelease(await cur.text(), { keys: OFFICE_RELEASE_KEYS, channel, feed })
-    if (compareVersions(version, prev.version) < 0) {
-      if (process.argv.includes('--if-newer')) { console.log(`${channel} is at ${prev.version}, newer than ${version}: left as it is`); return }
-      throw new Error(`${channel} is at ${prev.version}; ${version} is older (the offices never go back)`)
-    }
-    console.log(`${channel} is at ${prev.version} now`)
-  } else if (cur && cur.status !== 404) throw new Error(`${manifestUrl(feed, channel)}: HTTP ${cur.status}`)
-  for (const a of arts) {
-    // by content: a rebuilt zip of the same version has the same size but other bytes, and the manifest names the hash
-    const have = await remoteHash(`${a.meta.url}?t=${Date.now()}`)
-    if (have) {
-      if (have.sha256 !== a.meta.sha256 || have.size !== a.meta.size) throw new Error(`${a.meta.url} is already published with other content: publish a new version instead`)
-      ;(a as Artifact & { skip?: boolean }).skip = true
-    }
-  }
-  if (dry) { console.log('dry run: nothing uploaded'); return }
-
-  const { Cloudflare } = await import('./cloudflare')
-  const cf = new Cloudflare()
-  const { account } = await cf.accountAndZone()
-  for (const a of arts) {
-    if ((a as Artifact & { skip?: boolean }).skip) { console.log(`= ${a.key} (already there)`); continue }
-    console.log(`↑ ${a.key}`)
-    await cf.putObject(account, a.key, a.file, a.type)
-    const h = await fetch(a.meta.url, { method: 'HEAD', signal: AbortSignal.timeout(30_000) })
-    if (!h.ok || Number(h.headers.get('content-length')) !== a.meta.size) throw new Error(`${a.meta.url} does not answer with the uploaded file (HTTP ${h.status})`)
-  }
-  const tmp = path.join(REPO, 'dist', `.${channel}.json.tmp-${process.pid}`)
-  fs.mkdirSync(path.dirname(tmp), { recursive: true })
-  fs.writeFileSync(tmp, signed)
-  try { await cf.putObject(account, `${DIR}/${channel}.json`, tmp, 'application/json') } finally { fs.rmSync(tmp, { force: true }) }
-  const back = await fetch(`${manifestUrl(feed, channel)}?t=${Date.now()}`, { signal: AbortSignal.timeout(20_000) })
-  const got = verifyRelease(await back.text(), { keys: OFFICE_RELEASE_KEYS, channel, feed })
-  if (got.version !== version) throw new Error(`the feed answers ${got.version}, not ${version}`)
-  console.log(`published: ${manifestUrl(feed, channel)} → ${version}`)
+  const { openBucket } = await import('./cloudflare')
+  // a dry run uploads nothing, so it may go without a token; it then asks nobody about a 404 (feedReader)
+  const bucket = dry ? await openBucket().catch((e) => { console.log(`no bucket to ask (${(e as Error).message})`); return null }) : await openBucket()
+  await publishToFeed({ feed, release, signed, arts, ifNewer: process.argv.includes('--if-newer'), dryRun: dry, keys: OFFICE_RELEASE_KEYS, bucket, resign: (r) => signRelease(r, pem) })
 }
 
 if (import.meta.main) {

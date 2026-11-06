@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_LOCALE } from '@mycel/shared/api'
 import { localizeStep, PRODUCT } from '@mycel/shared'
-import { browserLocale, DICTS, format, LOCALES, pickLocale, placeholdersOf, translate } from '../../src/i18n'
+import { browserLocale, DICTS, format, koRo, LOCALES, pickLocale, placeholdersOf, translate } from '../../src/i18n'
 import { ko } from '../../src/i18n/ko'
 
 const placeholders = (s: string) => placeholdersOf(s)
@@ -117,6 +117,33 @@ describe('translations', () => {
     // "1 steps" style texts: a count right before an English plural noun must use the plural form
     for (const [k, v] of Object.entries(DICTS.en)) expect({ k, bare: /\{n\} \w+s\b/.test(v) }).toEqual({ k, bare: false })
   })
+  // App review 2026-11-01: "1 uses · 1 people" on the Skills page. Any count, not only {n}, and "people" too.
+  test('every count before a plural noun has its singular form (English, Spanish)', () => {
+    expect(translate('en', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1 use · 1 person')
+    expect(translate('en', 'skills.popularCount', { uses: 5, users: 2 })).toBe('5 uses · 2 people')
+    expect(translate('es', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1 uso · 1 persona')
+    expect(translate('es', 'skills.popularCount', { uses: 4, users: 3 })).toBe('4 usos · 3 personas')
+    expect(translate('ja', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1回使用 · 1人')
+    expect(translate('ko', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1회 · 1명')
+    expect(translate('id', 'skills.popularCount', { uses: 1, users: 1 })).toBe('1 kali · 1 orang')
+    expect(translate('en', 'home.frequentCount', { count: 1 })).toBe('1 time')
+    expect(translate('es', 'home.frequentCount', { count: 1 })).toBe('1 vez')
+    expect(translate('en', 'files.shareBody', { n: 1 })).toBe('1 more person will see this file.')
+    expect(translate('es', 'files.shareBody', { n: 1 })).toBe('1 persona más podrá ver este archivo.')
+    expect(translate('en', 'files.narrowBody', { n: 1 })).toContain('means 1 other person can no longer see it')
+    expect(translate('es', 'files.narrowBody', { n: 2 })).toContain('2 personas dejarán de poder verlo')
+    expect(translate('en', 'projects.shareBody', { n: 1 })).toMatch(/^1 more person will see this folder\./)
+    expect(translate('en', 'notifications.unread', { count: 1 })).toBe('1 unread notification')
+    expect(translate('es', 'notifications.unread', { count: 1 })).toBe('1 notificación sin leer')
+    expect(translate('en', 'connected.last', { time: 'today', files: '1', size: '2 KB' })).toBe('Last today · 1 file · 2 KB')
+    expect(translate('es', 'picker.selected', { n: '1' })).toBe('Seleccionados: 1')
+    expect(translate('en', 'credentials.month', { tokens: '1,204' })).toBe('Tokens this month: 1,204')
+    // a bare {count} right before a plural noun: none left (limits that are never 1 and numbers written with
+    // separators, which no plural rule reads, are listed)
+    const bare = /\{\w+\} (?:more |other |unread )?(?:people|times|uses|files|items|rows|lines|notifications|questions|tokens|members|chats|skills|personas|veces|usos|archivos|elementos|filas|líneas|notificaciones|preguntas|seleccionados|caracteres)(?![\p{L}])/u
+    const notCounts = new Set(['preview.sheetRowsCut', 'ask.skillLines', 'composer.answerTooLong', 'memory.hint', 'memory.tooLong'])
+    for (const loc of ['en', 'es'] as const) for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, bare: !notCounts.has(k) && bare.test(v) }).toEqual({ loc, k, bare: false })
+  })
   test('steps of older answers follow the language on screen', () => {
     expect(localizeStep({ kind: 'tool', tool: 'read', label: 'Read · shared/fruit.md' }, 'ko').label).toBe('파일 읽기 · shared/fruit.md')
     expect(localizeStep({ kind: 'tool', tool: 'remember', label: '기억함: I prefer short answers.' }, 'en').label).toBe('Remembered: I prefer short answers.')
@@ -139,10 +166,60 @@ describe('translations', () => {
       expect({ f, korean: HANGUL.test(text), lang: /<html lang="(?!en")/.test(text) }).toEqual({ f, korean: false, lang: false })
     }
   })
+  test('Korean "(으)로" after a value follows how it is read: v1로, v3으로, 마케팅으로, 서울로; Latin keeps (으)로', () => {
+    expect(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(koRo)).toEqual(['으로', '로', '로', '으로', '로', '로', '으로', '로', '로', '로'])
+    expect(translate('ko', 'files.restoreTitle', { version: 1 })).toBe('v1로 되돌릴까요?')
+    expect(translate('ko', 'files.restored', { version: 3 })).toBe('v3으로 되돌렸어요.')
+    expect(translate('ko', 'files.restored', { version: 10 })).toBe('v10으로 되돌렸어요.')
+    expect(translate('ko', 'files.moved', { path: 'shared/마케팅' })).toBe('shared/마케팅으로 옮겼어요.')
+    expect(translate('ko', 'files.moved', { path: 'shared/서울' })).toBe('shared/서울로 옮겼어요.')
+    expect(translate('ko', 'files.moved', { path: 'shared/자료' })).toBe('shared/자료로 옮겼어요.')
+    expect(translate('ko', 'files.moved', { path: 'marketing/archive' })).toBe('marketing/archive(으)로 옮겼어요.')
+    // other languages have no such marker; a value left unfilled stays as written
+    expect(translate('en', 'files.restored', { version: 1 })).toBe('Restored v1.')
+    expect(format('{x}(으)로', {}, 'ko')).toBe('{x}(으)로')
+  })
+  test('a name that already ends with an honorific does not get a second one: 대표님, never 대표님님', () => {
+    expect(translate('ko', 'home.greeting', { name: '대표님' })).toBe('대표님, 무엇을 도와드릴까요?')
+    expect(translate('ko', 'home.greeting', { name: '김민지 씨' })).toBe('김민지 씨, 무엇을 도와드릴까요?')
+    expect(translate('ko', 'home.greeting', { name: 'Mia' })).toBe('Mia님, 무엇을 도와드릴까요?')
+    expect(translate('ko', 'home.greeting', { name: '김님희' })).toBe('김님희님, 무엇을 도와드릴까요?')
+    expect(translate('ja', 'home.greeting', { name: '田中様' })).toBe('田中様、どのようなお手伝いができますか？')
+    expect(translate('ja', 'home.greeting', { name: '山田さん' })).toBe('山田さん、どのようなお手伝いができますか？')
+    expect(translate('ja', 'home.greeting', { name: '佐藤先生' })).toBe('佐藤先生、どのようなお手伝いができますか？')
+    expect(translate('ja', 'home.greeting', { name: 'Mia' })).toBe('Miaさん、どのようなお手伝いができますか？')
+    // a name in the middle of a sentence, and a value that is not filled in stays as written
+    expect(translate('ko', 'goal.waitingMany', { name: '팀장님', n: 2, skill: "'광고 문구'는" })).toBe("팀장님 외 2명이 들어왔지만 '광고 문구'는 아직이에요.")
+    expect(format('{name}님', {}, 'ko')).toBe('{name}님')
+    // with a space before the honorific ("{name} 님"), as in about 18 Korean and 9 Japanese texts
+    expect(translate('ko', 'rooms.replyTo', { name: '대표님' })).toBe('대표님에게 답장')
+    expect(translate('ko', 'notifications.event.room.dmNamed', { name: '대표님' })).toBe('대표님이 메시지를 보냈어요.')
+    expect(translate('ko', 'rooms.replyTo', { name: '김님희' })).toBe('김님희 님에게 답장')
+    expect(translate('ko', 'notifications.event.room.dmNamed', { name: '김님희' })).toBe('김님희 님이 메시지를 보냈어요.')
+    expect(translate('ko', 'rooms.replyTo', { name: '이민준' })).toBe('이민준 님에게 답장')
+    // the particle after it follows the name's last sound: 씨 ends in a vowel
+    expect(translate('ko', 'notifications.event.room.dmNamed', { name: '김민지 씨' })).toBe('김민지 씨가 메시지를 보냈어요.')
+    expect(translate('ko', 'demo.start', { name: '김민지 씨' })).toBe('김민지 씨로 시작하기')
+    expect(translate('ko', 'demo.start', { name: '대표님' })).toBe('대표님으로 시작하기')
+    expect(translate('ja', 'accessView.who.person', { name: '田中様' })).toBe('田中様')
+    expect(translate('ja', 'accessView.membersLinkFor', { name: '山田さん' })).toBe('山田さんが見られるフォルダー')
+    expect(translate('ja', 'accessView.membersLinkFor', { name: '山田' })).toBe('山田 さんが見られるフォルダー')
+    // English, Spanish and Indonesian add no honorific of their own: the name stays as it is
+    expect(translate('en', 'home.greeting', { name: '대표님' })).toBe('How can I help you, 대표님?')
+    expect(translate('id', 'home.greeting', { name: 'Bapak Budi' })).toBe('Halo Bapak Budi, ada yang bisa aku bantu?')
+    expect(translate('es', 'home.greeting', { name: 'Sra. García' })).toBe('¿En qué puedo ayudarle, Sra. García?')
+  })
   test('no Korean screen text outside the Korean dictionary (comments aside)', () => {
     const src = path.resolve(import.meta.dir, '../../src')
     // the one place that must recognise a Korean file name: conflict copies made by a Korean team ("충돌 사본")
-    const allowed: Record<string, RegExp> = { 'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/ }
+    // and the Korean object and topic particles after a skill's name (을 / 를, 은 / 는: grammar, not text;
+    // lib/teamGoal.ts objectParticle, topicParticle) and "(으)로" after a filled-in value (i18n/index.ts koRo); the
+    // honorifics a name may already end with are in shared/src/honorific.ts
+    const allowed: Record<string, RegExp> = {
+      'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/,
+      'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/,
+      'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로][^\uAC00-\uD7A3]*)+$/,
+    }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {
       const lines = stripComments(fs.readFileSync(path.join(src, f), 'utf8')).split('\n')

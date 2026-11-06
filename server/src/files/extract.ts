@@ -1,6 +1,7 @@
 // Text for read/grep. Office formats: pandoc (docx/pptx/odt; the office worker adds the docx headers, footers and
 // comments and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
-// worker (office-worker.ts, a bun child process), pdftotext (pdf).
+// worker (office-worker.ts, a bun child process), pdftotext (pdf). The same worker makes make_file's .hwpx
+// (officeWorkerWrite, files/hwpx-write.ts).
 // Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
 // Scanned PDFs: mycel-ocr (native/ocr, Apple Vision) on macOS only, for the search index (grep text cache, semantic search)
 // and the read fallback when a team turned image viewing off. Linux has no OCR. An AI read of an image or a scanned page
@@ -13,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { cp949Text } from '@mycel/shared/text-encoding'
 import { ToolError } from '../policy/errors'
-import { runIsolated } from '../tools/isolate'
+import { runIsolated, waitsBehindPeople } from '../tools/isolate'
 import { inProcessParseMax } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
@@ -28,7 +29,21 @@ export interface Tools {
   /** a read for the AI (drive_read): never OCR. A PDF gives its text layer only (pdftotext, else PDFKit through
    * `mycel-ocr --layer` on a Mac without poppler); an image is no text at all (the caller shows it as an image). */
   textLayerOnly?: boolean
+  /** the text cache (files/search.ts OfficeCache): a part that a converter was stopped on (ConverterStopped: the
+   * headers, footers and comments of a .docx, the notes and charts of a .pptx) fails the whole text, so the file is
+   * tried again later, instead of a labelled line that says the part was not read; so does a pandoc run with the
+   * slide and heading marks (no second run without them, whose text would lack the labels) */
+  stoppedPartFails?: boolean
 }
+
+/**
+ * A converter that was stopped from outside: its wall clock ran out, or it was killed (SIGKILL: the converter cgroup's
+ * memory.max, which all converters share, or the system short of memory). On a busy server that can pass, so the text
+ * cache keeps no text for the file and tries it again later (files/search.ts OfficeCache). Its message is the one the
+ * person or the AI sees, as before. What the file itself causes stays a plain ToolError: the memory and output limits
+ * of one run, the CPU-time limit (SIGXCPU: the same CPU time at any priority), a crash (SIGSEGV, SIGABRT).
+ */
+export class ConverterStopped extends ToolError {}
 
 /** Images the macOS OCR tool reads (only for a read when image viewing is off: grep's text cache keeps to documents, an
  * image folder would mean minutes). */
@@ -48,10 +63,12 @@ function ocr(bin: string, bytes: Uint8Array, pdf: boolean, signal?: AbortSignal)
   return pipeThrough([bin, '--max-pages', String(OCR_PAGES_MAX)], bytes, pdf ? 240_000 : 30_000, signal)
 }
 
-async function pipeThrough(cmd: string[], input: Uint8Array, timeoutMs = 20000, signal?: AbortSignal): Promise<string> {
-  const r = await runIsolated({ cmd: cmd[0]!, args: cmd.slice(1), stdin: input, timeoutMs, signal, maxStdout: 32 * 1024 * 1024, env: { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } })
+async function pipeThrough(cmd: string[], input: Uint8Array, timeoutMs = 20000, signal?: AbortSignal, readPaths?: string[]): Promise<string> {
+  const r = await runIsolated({ cmd: cmd[0]!, args: cmd.slice(1), stdin: input, timeoutMs, signal, maxStdout: 32 * 1024 * 1024, env: { LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }, ...(readPaths ? { readPaths } : {}) })
   const name = cmd[0]!.split('/').pop()
-  if (r.killed === 'timeout') throw new ToolError(`could not convert the file to text (${name}: took too long)`)
+  if (r.killed === 'timeout') throw new ConverterStopped(`could not convert the file to text (${name}: took too long)`)
+  // SIGKILL (runIsolated gives 128 + the signal): the converter cgroup's memory.max, the system short of memory
+  if (r.code === 128 + 9) throw new ConverterStopped(`could not convert the file to text (${name}: ${r.stderr.trim().slice(0, 200) || 'exit ' + r.code})`)
   if (r.code !== 0) throw new ToolError(`could not convert the file to text (${name}: ${r.stderr.trim().slice(0, 200) || 'exit ' + r.code})`)
   return r.stdout.toString('utf8')
 }
@@ -62,10 +79,12 @@ export const IN_PROCESS_EXT = WORKER_EXT
 export const TOO_BIG_IN_PROCESS = 'too large to read as text (over 32 MB); download it to look at it'
 
 /** the office worker's limits: wall clock, resident memory (where no converter cgroup applies; the cgroup's memory.max
- * applies on production Linux as well), workers at the same time (the rest wait) */
+ * applies on production Linux as well), workers at the same time (the rest wait), and how many of them background work
+ * may take (officeWorkerSlot) */
 export const OFFICE_WORKER_TIMEOUT_MS = 60_000
 export const OFFICE_WORKER_RSS_MIB = 2048
-const OFFICE_WORKERS_MAX = 2
+export const OFFICE_WORKERS_MAX = 2
+export const OFFICE_WORKERS_BACKGROUND_MAX = 1
 
 /** The worker script: built next to main.js in the bundles; in a repository checkout built once per process from the
  * TypeScript source into a private temp folder. The isolation lets the worker read that folder (bun reads the
@@ -85,24 +104,78 @@ export function officeWorkerScript(): Promise<string> {
   })().catch((e) => { workerScript = null; throw e }))
 }
 
+/**
+ * Background work waits behind people's work (officeWorkerSlot, OfficeCache.slot), but not for ever: while it waits it
+ * holds a text cache slot, the file's bytes and its search lease, and no time limit runs. The next free place goes to it
+ * once BACKGROUND_PASSED_MAX of people's jobs have started past it, or BACKGROUND_WAIT_MS after it began to wait
+ * (docs/DECISIONS.md "Background work gets its turn").
+ */
+export const BACKGROUND_PASSED_MAX = 8
+export const BACKGROUND_WAIT_MS = 30_000
+export class BackgroundTurn {
+  private passed = 0
+  private since: number | null = null
+  constructor(private now: () => number = () => Date.now()) {}
+  /** background work waits; its clock and its count run from the first time */
+  wait() { if (this.since === null) { this.since = this.now(); this.passed = 0 } }
+  /** a person's job started */
+  pass() { this.passed++ }
+  /** start counting again, for the background work that waits now (if any) */
+  restart(waiting: boolean) { this.passed = 0; this.since = waiting ? this.now() : null }
+  /** it has waited long enough: the next free place is its own */
+  due() { return this.since !== null && (this.passed >= BACKGROUND_PASSED_MAX || this.now() - this.since >= BACKGROUND_WAIT_MS) }
+}
+
 let running = 0
-const waiting: (() => void)[] = []
-/** At most OFFICE_WORKERS_MAX workers; a finished one hands its slot straight to the next waiting caller. */
-async function slot<T>(f: () => Promise<T>): Promise<T> {
-  if (running >= OFFICE_WORKERS_MAX) await new Promise<void>((r) => waiting.push(r))
-  else running++
+let runningLow = 0
+/** background jobs that wait, also those just woken that have not looked at their place yet (waitingLow holds neither) */
+let lowWaiting = 0
+const waitingHigh: (() => void)[] = []
+const waitingLow: (() => void)[] = []
+const turn = new BackgroundTurn()
+/**
+ * At most OFFICE_WORKERS_MAX workers, and at most OFFICE_WORKERS_BACKGROUND_MAX of them for background work
+ * (tools/isolate.ts waitsBehindPeople: the text cache's re-extraction), so background work alone never makes a person's
+ * read wait for a converter that itself may wait long for the CPU (up to BACKGROUND_WALL_FACTOR times its time limit).
+ * People's work goes first among those that wait, until background work's turn (BackgroundTurn); the count starts over
+ * when a background worker ends, so the next background job waits its own turn. The limit of one run starts when it has
+ * its slot, so waiting costs it none.
+ */
+export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
+  let low = waitsBehindPeople()
+  while (running >= OFFICE_WORKERS_MAX || (low && (runningLow >= OFFICE_WORKERS_BACKGROUND_MAX || (waitingHigh.length && !turn.due())))) {
+    if (low) {
+      turn.wait()
+      // woken for a worker it may not take after all (two ended at once): it goes to the first person in line
+      if (running < OFFICE_WORKERS_MAX) waitingHigh.shift()?.()
+    }
+    const waited = low
+    if (waited) lowWaiting++
+    await new Promise<void>((r) => (low ? waitingLow : waitingHigh).push(r))
+    if (waited) lowWaiting--
+    low = waitsBehindPeople()
+    // a person joined it and no other background job waits: the turn was this job's alone
+    if (waited && !low && !lowWaiting) turn.restart(false)
+  }
+  running++
+  if (low) runningLow++
+  else turn.pass()
   try { return await f() } finally {
-    const next = waiting.shift()
-    if (next) next()
-    else running--
+    running--
+    if (low) { runningLow--; turn.restart(lowWaiting > 0) }
+    const lowMay = runningLow < OFFICE_WORKERS_BACKGROUND_MAX
+    const next = (lowMay && turn.due() ? waitingLow.shift() : undefined) ?? waitingHigh.shift() ?? (lowMay ? waitingLow.shift() : undefined)
+    next?.()
   }
 }
+/** A person joined background work (files/search.ts): whatever waits as background work looks at its place again. */
+export function officeWorkersRecheck() { for (const wake of waitingLow.splice(0)) wake() }
 
 /** A spreadsheet or Hangul file's text (or the extra parts of a .docx / .pptx: mode `docx-extra` / `pptx-extra`) from
  * the office worker, isolated like the other converters. */
 export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
   const script = await officeWorkerScript()
-  return slot(async () => {
+  return officeWorkerSlot(async () => {
     signal?.throwIfAborted()
     const r = await runIsolated({
       cmd: process.execPath, args: ['--smol', '--no-env-file', script, e], stdin: bytes, readPaths: [path.dirname(script)],
@@ -110,14 +183,42 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
       env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
-    if (r.killed === 'timeout') throw tooComplex(`reading it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`)
+    if (r.killed === 'timeout') throw new ConverterStopped(tooComplex(`reading it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`).message)
     if (r.killed === 'memory') throw tooComplex(`reading it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
     if (r.killed === 'output') throw tooComplex(`more than ${OFFICE_TEXT_MAX / 1024 / 1024} MB of text`)
     if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 500))
-    // killed by the converter cgroup (memory.max) or a CPU rlimit: a signal, no exit code
-    if (r.code === null || r.code >= 128) throw tooComplex('the reader ran out of memory or time')
+    // stopped by runIsolated for another reason (its work folder replaced)
+    if (r.code === null) throw tooComplex('the reader ran out of memory or time')
+    // killed by the converter cgroup (memory.max) or a CPU rlimit: a signal (128 + the signal); only a SIGKILL may pass
+    // on a less busy server (pipeThrough)
+    if (r.code >= 128) { const why = tooComplex('the reader ran out of memory or time'); throw r.code === 128 + 9 ? new ConverterStopped(why.message) : why }
     if (r.code !== 0) throw new ToolError(`could not convert the file to text (office reader: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code})`)
     return r.stdout.toString('utf8')
+  })
+}
+
+/** what a file the office worker makes may weigh (make_file's .hwpx) */
+export const OFFICE_WRITE_MAX = 64 * 1024 * 1024
+
+/** The bytes of a file the office worker makes (mode `hwpx-write`: make_file's Hangul document, files/hwpx-write.ts),
+ * isolated and limited like its reads. A refusal of the request is a ToolError with the worker's own message. */
+export async function officeWorkerWrite(mode: string, request: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
+  const script = await officeWorkerScript()
+  return officeWorkerSlot(async () => {
+    signal?.throwIfAborted()
+    const r = await runIsolated({
+      cmd: process.execPath, args: ['--smol', '--no-env-file', script, mode], stdin: request, readPaths: [path.dirname(script)],
+      timeoutMs: OFFICE_WORKER_TIMEOUT_MS, maxStdout: OFFICE_WRITE_MAX, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
+      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
+    })
+    if (r.killed === 'aborted') signal?.throwIfAborted()
+    const failed = (why: string) => new ToolError(`the document could not be made (${why}); nothing was saved`)
+    if (r.killed === 'timeout') throw failed(`it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`)
+    if (r.killed === 'memory') throw failed(`it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
+    if (r.killed === 'output') throw failed(`the file would be larger than ${OFFICE_WRITE_MAX / 1024 / 1024} MB`)
+    if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 1500))
+    if (r.code !== 0) throw failed(r.code === null || r.code >= 128 ? 'the writer ran out of memory or time' : `office writer: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code}`)
+    return r.stdout
   })
 }
 
@@ -132,11 +233,14 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
     case 'docx': case 'pptx': case 'odt': {
       if (!tools.pandoc) throw new ToolError('pandoc is not installed on the server')
       // a body line that starts like a section label (`=== `) gets a space in front, so only the real labels of the
-      // extra text below are at the start of a line
-      const body = pipeThrough([tools.pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none'], bytes, 20_000, signal).then(quoteLines)
+      // extra text below are at the start of a line; then the slide and heading marks (pandocMarks) become labels
+      const body = pandocBody(tools.pandoc, e, bytes, signal, tools.stoppedPartFails)
       if (e === 'odt') return body
-      const [text, extra] = await Promise.all([body, extraText(e, bytes, signal)])
-      return extra ? `${text.trimEnd()}\n\n${extra}\n` : text
+      // both are waited for, so no converter of this file still runs when the text (or its failure) is given
+      const [text, extra] = await Promise.allSettled([body, extraText(e, bytes, signal, tools.stoppedPartFails)])
+      if (text.status === 'rejected') throw text.reason
+      if (extra.status === 'rejected') throw extra.reason
+      return extra.value ? `${text.value.trimEnd()}\n\n${extra.value}\n` : text.value
     }
     case 'xlsx': case 'xls': case 'ods': case 'hwp': case 'hwpx':
       return officeWorkerText(e, bytes, signal)
@@ -162,18 +266,91 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
   }
 }
 
+/**
+ * A pandoc Lua filter that marks where each slide starts (PowerPoint: pandoc's slide headers have the id slide-N, N its
+ * place in the show order, hidden slides included, like PowerPoint's own numbers) and which paragraphs are headings
+ * (Word, OpenDocument). The marks are lines that start with U+0001, which no Office XML text can hold; markLines turns
+ * them into `=== Slide N ===` and Markdown headings, so files/locations.ts can tell the slide or section of any line.
+ */
+const MARKS_LUA = `function Pandoc(doc)
+  local kind = pandoc.utils.stringify(doc.meta['mycel-marks'] or '')
+  local out = pandoc.List()
+  for _, b in ipairs(doc.blocks) do
+    if b.t == 'Header' and kind == 'slides' then
+      local n = b.identifier:match('^slide%-(%d+)$')
+      if n then out:insert(pandoc.RawBlock('plain', '\\1S' .. n)) end
+      out:insert(b)
+    elseif b.t == 'Header' and kind == 'headings' then
+      local inl = pandoc.List({ pandoc.Str('\\1H' .. tostring(math.min(b.level, 6)) .. '\\1') })
+      inl:extend(b.content)
+      out:insert(pandoc.Plain(inl))
+    else
+      out:insert(b)
+    end
+  end
+  doc.blocks = out
+  return doc
+end
+`
+let marksDir: string | null = null
+/** The filter file, written once per process into a private folder the converter may read (tools/isolate.ts). */
+function marksFilter(): string {
+  if (marksDir && fs.existsSync(path.join(marksDir, 'marks.lua'))) return path.join(marksDir, 'marks.lua')
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pandoc-marks-')))
+  fs.writeFileSync(path.join(dir, 'marks.lua'), MARKS_LUA, { mode: 0o400 })
+  if (!marksDir) process.once('exit', () => { try { if (marksDir) fs.rmSync(marksDir, { recursive: true, force: true }) } catch {} })
+  marksDir = dir
+  return path.join(dir, 'marks.lua')
+}
+
+/** The marks of MARKS_LUA as labels: `=== Slide N ===` before a slide's text, `## heading` for a heading. A body line
+ * that already starts like a Markdown heading gets a space in front (like quoteLines for `=== `), so only real
+ * headings start a line with `#`. */
+export function markLines(text: string, kind: 'slides' | 'headings'): string {
+  return text.split('\n').map((line) => {
+    if (line.charCodeAt(0) === 1) {
+      const slide = /^\u0001S(\d{1,6})$/.exec(line)
+      if (slide && kind === 'slides') return `${SECTION_MARK}Slide ${Number(slide[1])} ===`
+      const h = /^\u0001H([1-6])\u0001(.*)$/.exec(line)
+      if (h && kind === 'headings') return `${'#'.repeat(Number(h[1]))} ${h[2]!.trim()}`
+      return line.replace(/\u0001/g, '')
+    }
+    return kind === 'headings' && /^#{1,6}(?:\s|$)/.test(line) ? ' ' + line : line
+  }).join('\n')
+}
+
+/** pandoc's plain text of a .docx / .pptx / .odt with slide and heading labels; without them when the filter fails
+ * (an old pandoc), as before. `stoppedFails` (Tools.stoppedPartFails): a filtered run that was stopped fails. */
+async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uint8Array, signal?: AbortSignal, stoppedFails = false): Promise<string> {
+  const kind = e === 'pptx' ? 'slides' : 'headings'
+  const plain = [pandoc, '--sandbox', '-f', e, '-t', 'plain', '--wrap=none']
+  let filter: string | null = null
+  try { filter = marksFilter() } catch { filter = null }
+  if (filter) {
+    try {
+      return markLines(quoteLines(await pipeThrough([...plain, '-L', filter, '-M', `mycel-marks=${kind}`], bytes, 20_000, signal, [path.dirname(filter)])), kind)
+    } catch (err) {
+      signal?.throwIfAborted()
+      if (!(err instanceof ToolError) || (stoppedFails && err instanceof ConverterStopped)) throw err
+      // the same pandoc without the filter: a damaged file fails again with its own message
+    }
+  }
+  return quoteLines(await pipeThrough(plain, bytes, 20_000, signal))
+}
+
 const EXTRA_WHAT = { docx: 'headers, footers and comments', pptx: 'speaker notes and chart data' } as const
 
 /**
  * The parts of a .docx / .pptx that pandoc drops, from the office worker. When they cannot be read, a labelled line
  * says so (the AI must not guess them); pandoc's body text is still given. Under the same size limit as the other
- * worker formats.
+ * worker formats. `stoppedFails` (Tools.stoppedPartFails): a worker that a limit stopped fails the whole text instead.
  */
-async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSignal, stoppedFails = false): Promise<string> {
   const notRead = (why: string) => `${SECTION_MARK}The ${EXTRA_WHAT[e]} of this file were not read (${why}) ===`
   if (bytes.byteLength > inProcessParseMax()) return notRead('the file is over 32 MB')
   try { return (await officeWorkerText(`${e}-extra`, bytes, signal)).trim() } catch (err) {
     signal?.throwIfAborted()
+    if (stoppedFails && err instanceof ConverterStopped) throw err
     return notRead(err instanceof ToolError ? err.message.slice(0, 300) : 'the reader failed')
   }
 }

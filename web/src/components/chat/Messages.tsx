@@ -1,30 +1,60 @@
 // One message of the visible branch. User messages: bubble, attachments (image thumbnails), edit, "‹ 2/3 ›",
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped / paused at the per-answer limit with "continue"), the note that a long
-// conversation reached the AI only in part, copy, regenerate, branch switch.
+// conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, regenerate, branch switch.
+// Like Claude: an answer is plain text in the column, with no picture beside it; its actions stay under the newest
+// answer and show on older ones when the pointer or focus is on them. A phone has no hover: there a message's actions
+// (copy, edit, retry) show once the message is tapped, the newest answer's always; until then they are hidden from
+// sight only (screen readers and a keyboard still reach them), and the branch switch ("‹ 1 / 2 ›") always shows.
+// A file sent with a message is a small card above the bubble: its name, its type and its size.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, FileAudio, FileText, FileX, FolderOpen, History, Loader2, Pencil, Play, RotateCcw, Shapes, Sparkles, Square } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, type Attachment, type EngineId } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillTitle, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
+import { answerHtml } from '../../lib/richCopy'
+import { formAnswers } from '../../lib/skillForm'
+import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { formatSize } from '../../lib/format'
 import { openArtifact, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
 import { useChats, useQueuePosition } from '../../store/chats'
+import { useAiAccess } from '../../store/aiAccess'
+import { useMe } from '../../store/session'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
 import { Markdown } from '../Markdown'
+import AiAccessButton from './AiAccessButton'
+import { isNoAiReason, noAiErrorKey } from '../../lib/aiAccess'
 import { Button, CopyButton, IconButton, inputCls } from '../ui'
 import AskCard from './AskCard'
+import ConnectCard from './ConnectCard'
+import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
 import FileSummary from './FileSummary'
+import SourcesList from './SourcesList'
 import Steps from './Steps'
+import { SkillChip } from './SkillChip'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 
 export { ENGINE_LABEL }
+
+/** a message's actions on a screen with a mouse: shown while the pointer or focus is on the message */
+const ON_HOVER = 'transition [@media(hover:hover)]:opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
+/** a message's actions on a phone (a touch screen under 768px) until the message is tapped: out of sight and out of the
+ * way of the finger (not an invisible button that takes the tap), but still read by a screen reader and shown once a
+ * keyboard's focus is in them */
+export const UNTIL_TAP = 'max-md:pointer-coarse:not-focus-within:sr-only'
+
+/** "notes.txt" -> "TXT": the file's type on its card (none for a name without one) */
+const typeOf = (name: string) => {
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 ? name.slice(dot + 1) : ''
+  return ext && ext.length <= 5 ? ext.toUpperCase() : ''
+}
 
 export function BranchNav({ m, onSelect, disabled }: { m: ViewMessage; onSelect: (id: string) => void; disabled?: boolean }) {
   const t = useT()
@@ -54,39 +84,30 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   if (team && a.unavailable)
     return (
       <span className={clsx('inline-flex max-w-[80%] items-center gap-2 rounded-xl border border-dashed border-line px-3 py-2 text-sm text-faint', align === 'end' && 'self-end')} data-testid="attachment-unavailable">
-        <FileX size={16} className="shrink-0" aria-hidden /> {t('attach.unavailable')}
+        {t('attach.unavailable')}
       </span>
     )
   if (a.kind === 'image' && !thumbFailed)
     return (
-      <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('overflow-hidden rounded-xl border border-line', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
-        <img
-          src={thumbnailUrl(a.id)}
-          alt={a.name}
-          loading="lazy"
-          onError={() => setThumbFailed(true)}
-          className="max-h-48 max-w-[260px] object-cover"
-          style={a.width && a.height ? { aspectRatio: `${a.width} / ${a.height}` } : undefined}
-        />
+      // the same box as a file card, so a tiny or a large image keeps the row even; the image fills it (cropped)
+      <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line bg-subtle sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
+        <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onError={() => setThumbFailed(true)} className="block h-full w-full object-cover" />
       </button>
     )
-  const icon = team ? (
-    <FolderOpen size={16} className="shrink-0 text-accent-text" aria-label={t('composer.teamFile', { path: a.path })} />
-  ) : a.kind === 'audio' ? (
-    <FileAudio size={16} className="shrink-0 text-accent-text" aria-hidden />
-  ) : (
-    <FileText size={16} className="shrink-0 text-muted" aria-hidden />
-  )
+  const ext = typeOf(a.name)
   const body = (
     <>
-      {icon}
-      <span className="truncate font-medium">{a.name}</span>
-      <span className="shrink-0 text-xs text-faint">{formatSize(a.size, locale)}</span>
-      {team && a.changed && <span className="shrink-0 text-xs text-warn">{t('attach.changed')}</span>}
-      {team && a.moved && !a.changed && <span className="shrink-0 text-xs text-faint">{t('attach.moved')}</span>}
+      <span className="line-clamp-2 font-medium [overflow-wrap:anywhere]">{a.name}</span>
+      {team && <span className="sr-only">{t('composer.teamFile', { path: a.path })}</span>}
+      <span className="mt-auto flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pt-2 text-micro text-faint">
+        {ext && <span className="rounded border border-line px-1 leading-4 font-medium text-muted">{ext}</span>}
+        {formatSize(a.size, locale)}
+        {team && a.changed && <span className="text-warn">{t('attach.changed')}</span>}
+        {team && a.moved && !a.changed && <span>{t('attach.moved')}</span>}
+      </span>
     </>
   )
-  const cls = clsx('inline-flex max-w-[80%] items-center gap-2 rounded-xl border px-3 py-2 text-sm', team ? 'border-accent/30 bg-accent-soft' : 'border-line bg-surface')
+  const cls = clsx('flex min-h-24 w-36 max-w-full flex-col rounded-xl border p-3 text-sm sm:w-44', team ? 'border-accent/30 bg-accent-soft' : 'border-line bg-surface')
   // a team file can be dragged from the message into the message box again
   const drag = team
     ? {
@@ -106,34 +127,138 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   )
 }
 
+/** A question as the person reads it: one that runs a skill shows the skill by its title as a chip ("할 일 정리") and
+ * then the rest of the question, in place of "/meeting-tasks …" (the command is what was sent and what runs; copy and
+ * edit keep it). A command no skill of the person's has stays as it was typed. */
+export function UserText({ content, clamp }: { content: string; clamp: boolean }) {
+  const cmd = splitCommand(content)
+  const items = useSkillList(!!cmd)
+  const skill = cmd && items ? skillByName(items, cmd.name) : null
+  if (!cmd || !skill) return <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}>{content}</div>
+  return (
+    <div data-testid="user-text-skill">
+      <SkillChip title={skillTitle(skill)} name={skill.name} />
+      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}>{cmd.rest}</div>}
+    </div>
+  )
+}
+
+/** A form run (a skill's form sent its answers: "/card-news" and "어디에 올릴까요: 인스타그램"), or null: the skill's
+ * chip and the answers. The person picked them, they did not write them, so they are not shown as a message they
+ * typed (docs/DECISIONS.md "W3"). */
+function useFormRun(content: string) {
+  const cmd = splitCommand(content)
+  const items = useSkillList(!!cmd)
+  const skill = cmd && items ? skillByName(items, cmd.name) : null
+  const answers = cmd && skill ? formAnswers(cmd.rest, skill.inputs) : null
+  return skill && answers ? { skill, answers } : null
+}
+
+/** Answers this long or longer (as one line), or with a value of several lines, fold under "전체 보기". */
+export const FORM_RUN_FOLD_CHARS = 140
+
+/** The skill as a chip, the answers as one quiet line under it ("인스타그램 · 신제품 출시"; each answer's label is its
+ * tooltip and is read out), right-aligned like the person's messages, with no bubble. Short answers show in full; long
+ * ones (or a value of several lines) show two lines and "전체 보기", which lists every answer under its label as it was
+ * sent ("접기" folds them again). */
+export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<typeof useFormRun>>; sending?: boolean }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const line = run.answers.map((a) => a.value.replace(/\s+/g, ' ')).join(' · ')
+  const long = line.length >= FORM_RUN_FOLD_CHARS || run.answers.some((a) => a.value.includes('\n'))
+  return (
+    <div className={clsx('flex max-w-[85%] min-w-0 flex-col items-end gap-1 sm:max-w-[80%]', sending && 'opacity-70')} data-testid="user-form-run">
+      <SkillChip title={skillTitle(run.skill)} name={run.skill.name} />
+      {open ? (
+        <dl className="space-y-1 text-right text-[13px] leading-5 [overflow-wrap:anywhere]" data-testid="user-form-answers" data-open="true">
+          {run.answers.map((a, i) => (
+            <div key={i}>
+              <dt className="text-faint">{a.label}</dt>
+              <dd className="whitespace-pre-wrap text-muted">{a.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className={clsx('text-right text-[13px] leading-5 text-muted [overflow-wrap:anywhere]', long && 'line-clamp-2')} data-testid="user-form-answers">
+          {run.answers.map((a, i) => (
+            <span key={i} title={a.label}>
+              {i > 0 && <span aria-hidden> · </span>}
+              <span className="sr-only">{a.label}: </span>
+              {a.value.replace(/\s+/g, ' ')}
+            </span>
+          ))}
+        </p>
+      )}
+      {long && (
+        <button type="button" onClick={() => setOpen((v) => !v)} className="text-xs font-medium text-muted hover:text-ink" aria-expanded={open} data-testid="user-form-answers-toggle">
+          {open ? t('chat.showLess') : t('chat.showAll')}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(m.content)
+  /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
+  const secret = useSecretHold(draft)
+  const editRef = useRef<HTMLTextAreaElement>(null)
+  const sendEdit = () => {
+    setEditing(false)
+    onEdit(m, draft)
+  }
   const resend = useChats((s) => s.resend)
   const discard = useChats((s) => s.discardLocal)
   const long = m.content.length > 1200 || m.content.split('\n').length > 18
   const [open, setOpen] = useState(!long)
+  const run = useFormRun(m.content)
+  // phones: the actions show once the message is tapped
+  const [tapped, setTapped] = useState(false)
+  const branched = m.branch.count > 1
   return (
-    <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id}>
-      {m.attachments.map((a) => (
-        <AttachmentView key={a.id} a={a} />
-      ))}
+    <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)}>
+      {m.attachments.length > 0 && (
+        <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
+          {m.attachments.map((a) => (
+            <AttachmentView key={a.id} a={a} />
+          ))}
+        </div>
+      )}
       {editing ? (
         <form
           className="w-full max-w-[85%] rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
           onSubmit={(e) => {
             e.preventDefault()
-            if (!draft.trim()) return
-            setEditing(false)
-            onEdit(m, draft)
+            if (!draft.trim() || !secret.pass()) return
+            sendEdit()
           }}
         >
           {/* the form draws the field's edge and focus; `!`: inputCls's own focus ring is emitted after ring-0 and would win */}
-          <textarea aria-label={t('chat.editMessage')} className={clsx(inputCls, 'h-auto min-h-24 resize-y border-0 py-2 focus:ring-0!')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+          <textarea ref={editRef} aria-label={t('chat.editMessage')} className={clsx(inputCls, 'h-auto min-h-24 resize-y border-0 py-2 focus:ring-0!')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus data-testid="edit-input" />
           <p className="px-1 pb-1 text-xs text-faint">{t('chat.editNote')}</p>
+          {secret.held && (
+            <SecretWarning
+              onSendAnyway={() => {
+                secret.release()
+                sendEdit()
+              }}
+              onEdit={() => {
+                secret.release()
+                editRef.current?.focus()
+              }}
+            />
+          )}
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                secret.release()
+                setEditing(false)
+              }}
+            >
               {t('common.cancel')}
             </Button>
             <Button size="sm" variant="primary" type="submit" disabled={!draft.trim()} data-testid="edit-send">
@@ -141,10 +266,12 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
             </Button>
           </div>
         </form>
+      ) : run ? (
+        <FormRun run={run} sending={!!m.local} />
       ) : (
         m.content && (
-          <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-[15px] leading-7 sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
-            <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', !open && 'line-clamp-[12]')}>{m.content}</div>
+          <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-reading leading-7 max-md:leading-reading sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
+            <UserText content={m.content} clamp={!open} />
             {long && (
               <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted hover:text-ink">
                 {open ? t('chat.showLess') : t('chat.showAll')}
@@ -171,25 +298,30 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
         </span>
       )}
       {!m.local && !editing && (
-        <div className="flex items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
+        // phones: the branch switch stays in sight; without one the row takes no room until the tap
+        <div className={clsx('flex items-center gap-1', ON_HOVER, !tapped && !branched && UNTIL_TAP)} data-testid="message-actions">
           <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-          <CopyButton text={m.content} />
-          <IconButton
-            label={t('chat.edit')}
-            onClick={() => {
-              setDraft(m.content)
-              setEditing(true)
-            }}
-          >
-            <Pencil size={13} />
-          </IconButton>
+          <span className={clsx('flex items-center gap-1 md:contents', !tapped && UNTIL_TAP)} data-testid="message-actions-tap">
+            <CopyButton text={m.content} />
+            <IconButton
+              label={t('chat.edit')}
+              onClick={() => {
+                setDraft(m.content)
+                setEditing(true)
+              }}
+              data-testid="edit-message"
+            >
+              <Pencil size={13} />
+            </IconButton>
+          </span>
         </div>
       )}
     </div>
   )
 }
 
-function ArtifactCards({ chatId, messageId }: { chatId: string; messageId: string }) {
+/** `className`: the spacing around the cards (default: a gap above, after the answer's text) */
+function ArtifactCards({ chatId, messageId, className = 'mt-3' }: { chatId: string; messageId: string; className?: string }) {
   const t = useT()
   const groups = useChatArtifacts(chatId)
   const live = useChats((s) => s.liveArtifacts[chatId])
@@ -210,7 +342,7 @@ function ArtifactCards({ chatId, messageId }: { chatId: string; messageId: strin
   }, [groups, live, messageId])
   if (!cards.length) return null
   return (
-    <div className="mt-3 flex flex-col gap-2">
+    <div className={clsx('flex flex-col gap-2', className)} data-testid="artifact-cards">
       {cards.map((a) => {
         const open = panel?.kind === 'artifact' && panel.artifactKey === a.key && panel.chatId === chatId
         return (
@@ -226,7 +358,9 @@ function ArtifactCards({ chatId, messageId }: { chatId: string; messageId: strin
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">{a.title || a.key}</span>
               <span className="block text-xs text-muted">
-                {t(TYPE_LABEL[a.type])}
+                {/* a promo video (docs/DECISIONS.md "V") is a video to people and an intro deck ("D2") a deck, whatever
+                    page shows it */}
+                {a.key === PROMO_ARTIFACT_KEY ? t('promo.kind') : a.key === DECK_ARTIFACT_KEY ? t('deck.kind') : t(TYPE_LABEL[a.type])}
                 {a.version ? ` · v${a.version}` : ''} · {a.writing ? t('artifact.writing') : t('artifact.clickToOpen')}
               </span>
             </span>
@@ -234,6 +368,69 @@ function ArtifactCards({ chatId, messageId }: { chatId: string; messageId: strin
         )
       })}
     </div>
+  )
+}
+
+/** Where the answer's artifact cards go: at the point of the text where the AI made the first one (Step.textAt), so
+ * "caption → preview → options" reads in that order; null (after the text, as before) for steps from before that field
+ * or when the cut would fall inside a code block. The cut never splits a block: a point inside a paragraph, list or
+ * quote moves back to the blank line before that block (or stays when the block ends right there); with no blank line
+ * before it, the cards go after the text. */
+export function artifactSplit(content: string, steps: readonly Step[]): number | null {
+  const at = steps.filter((s) => s.kind === 'artifact' && !s.parentId && s.textAt !== undefined).reduce<number | null>((min, s) => (min === null ? s.textAt! : Math.min(min, s.textAt!)), null)
+  if (at === null) return null
+  const raw = Math.min(at, content.length)
+  if (raw >= content.length) return null
+  // made before any text: the cards first
+  if (raw === 0) return 0
+  const before = content.slice(0, raw)
+  // already between blocks: a blank line right before the point, or the block ends at it (a blank line follows)
+  let cut: number | null = /\n[ \t]*\n[ \t]*$/.test(before) || /^[ \t]*\n[ \t]*\n/.test(content.slice(raw)) ? raw : null
+  if (cut === null) {
+    const blank = [...before.matchAll(/\n[ \t]*\n/g)].pop()
+    cut = blank ? blank.index! + blank[0].length : null
+  }
+  if (cut === null) return null
+  // a heading stays with the block under it ("### 1안" above its quote): go back before a heading right above the cut
+  for (;;) {
+    const head = /(^|\n[ \t]*\n)(#{1,6} [^\n]*\n[ \t]*\n)$/.exec(content.slice(0, cut))
+    if (!head) break
+    cut -= head[2]!.length
+  }
+  if (cut === 0) return 0
+  // an odd number of ``` fences before the cut: it is inside a code block
+  if ((content.slice(0, cut).match(/```/g)?.length ?? 0) % 2 === 1) return null
+  return cut
+}
+
+/** The text before and after the cards (null: none there). While the answer streams, the part still being written is
+ * the last one with text: after the cards, or before them while nothing follows yet. */
+export function answerParts(content: string, cut: number, streaming: boolean) {
+  const before = content.slice(0, cut), after = content.slice(cut)
+  const tail = !!after.trim()
+  return {
+    before: before.trim() ? { text: before, streaming: streaming && !tail } : null,
+    after: tail ? { text: after, streaming } : null,
+  }
+}
+
+/** The answer's text and its artifact cards, the cards where the AI made them. Top-level quotes copy on their own. */
+function AnswerBody({ m, chatId, streaming }: { m: ViewMessage; chatId: string; streaming: boolean }) {
+  const cut = artifactSplit(m.content, m.steps)
+  if (cut === null)
+    return (
+      <>
+        {m.content && <Markdown text={m.content} streaming={streaming} copyQuotes />}
+        <ArtifactCards chatId={chatId} messageId={m.id} />
+      </>
+    )
+  const p = answerParts(m.content, cut, streaming)
+  return (
+    <>
+      {p.before && <Markdown text={p.before.text} streaming={p.before.streaming} copyQuotes />}
+      <ArtifactCards chatId={chatId} messageId={m.id} className={clsx(p.before && 'mt-3', p.after && 'mb-3')} />
+      {p.after && <Markdown text={p.after.text} streaming={p.after.streaming} copyQuotes />}
+    </>
   )
 }
 
@@ -267,21 +464,28 @@ export function AssistantMessage({
   const streaming = m.status === 'streaming'
   const queuePos = useQueuePosition(streaming ? m.id : undefined)
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
-  const thinking = streaming && !m.content
+  // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them
+  const waitingForYou = streaming && requests.length > 0
+  const thinking = streaming && !m.content && !waitingForYou
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
+  // "no AI": the owner hears what they can do, next to the button (lib/aiAccess.ts noAiErrorKey), only while no AI
+  // answers them (another engine's connection, or one added since, keeps the server's per-engine words)
+  const role = useMe()?.user.role
+  const noAi = useAiAccess((s) => s.loaded && !s.usable)
   const errText = m.error
-    ? reason ? t(`chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
+    ? reason ? t(noAiErrorKey(reason, role, noAi) ?? `chat.error.${reason}`) + (typeof m.error.params?.status === 'number' ? ` (HTTP ${m.error.params.status})` : '')
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
+  // phones: an older answer's actions show once it is tapped
+  const [tapped, setTapped] = useState(false)
+  const untilTap = !isLast && !tapped
+  const branched = m.branch.count > 1
 
   return (
-    <div className="group flex gap-3" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming}>
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text" aria-hidden>
-        <Sparkles size={15} />
-      </div>
-      <div className="min-w-0 flex-1 text-[15px]">
+    <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming} onClick={() => setTapped(true)}>
+      <div className="min-w-0 text-reading">
         {switchedFrom && m.engine && (
           <div className="mb-3 flex items-center gap-2 text-xs text-faint">
             <span className="h-px flex-1 bg-line" />
@@ -294,7 +498,7 @@ export function AssistantMessage({
             {t('chat.queued', { n: queuePos })} <span className="text-faint">{t('chat.queueHint')}</span>
           </p>
         )}
-        <Steps steps={m.steps} streaming={streaming} />
+        <Steps steps={m.steps} streaming={streaming} receipt={m.receipt} />
         {thinking && (queuePos === undefined || queuePos === 0) && (
           <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
             <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />
@@ -303,12 +507,15 @@ export function AssistantMessage({
             {!m.steps.length && <span className="ml-2 text-sm text-faint">{t('chat.thinking')}</span>}
           </div>
         )}
-        {m.content && <Markdown text={m.content} streaming={streaming} />}
-        <ArtifactCards chatId={chatId} messageId={m.id} />
-        {requests.map((r) => (
-          <AskCard key={r.request.requestId} req={r} />
-        ))}
+        <AnswerBody m={m} chatId={chatId} streaming={streaming} />
+        {waitingForYou && (
+          <p className="mb-2 text-sm text-muted" role="status" data-testid="waiting-for-you">
+            {t('chatux.waitingForYou')}
+          </p>
+        )}
+        {requests.map((r) => (r.request.kind === 'connect_service' ? <ConnectCard key={r.request.requestId} request={r.request} /> : <AskCard key={r.request.requestId} req={r} />))}
         {m.files && <FileSummary files={m.files} onAskOwnFolder={onAskOwnFolder} disabled={busy} />}
+        {!streaming && m.sourceCount ? <SourcesList chatId={chatId} messageId={m.id} count={m.sourceCount} /> : null}
         {m.status === 'error' && (
           <div role="alert" className="mt-3 flex flex-wrap items-start gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm text-danger" data-testid="answer-error">
             <AlertTriangle size={16} className="mt-2 shrink-0" aria-hidden />
@@ -317,6 +524,7 @@ export function AssistantMessage({
             <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
             {isLast && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
+                {isNoAiReason(reason) && <AiAccessButton />}
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                   <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                 </Button>
@@ -354,18 +562,25 @@ export function AssistantMessage({
           </p>
         )}
         {!streaming && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100" data-testid="answer-actions">
-            {m.content && <CopyButton text={m.content} label={t('chat.copyAnswer')} />}
-            <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} data-testid="regenerate">
-              <RotateCcw size={13} />
-            </IconButton>
-            {m.content && m.status === 'done' && (
-              <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} data-testid="suggest-skill">
-                <BookmarkPlus size={13} />
-              </IconButton>
-            )}
+          // phones: an older answer's actions and model name wait for a tap, its branch switch stays in sight; without
+          // one the row takes no room until then
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && UNTIL_TAP)} data-testid="answer-actions">
+            <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
+              {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
+              {/* the newest failed answer has "Try again" in its error box: one control for one action */}
+              {!(m.status === 'error' && isLast) && (
+                <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
+                  <RotateCcw size={13} />
+                </IconButton>
+              )}
+              {m.content && m.status === 'done' && (
+                <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
+                  <BookmarkPlus size={13} />
+                </IconButton>
+              )}
+            </span>
             <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
-            {m.model && <span className="ml-1 text-[11px] text-faint">{m.model}</span>}
+            {m.model && <span className={clsx('ml-1 text-micro text-faint', untilTap && UNTIL_TAP)}>{m.model}</span>}
           </div>
         )}
         {suggesting && (

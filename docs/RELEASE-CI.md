@@ -11,10 +11,35 @@
 - 스크립트: `scripts/release/release-ci.ts`(태그, 키 확인, 리눅스 서명, SHA256SUMS), `publish.ts`(사무실 피드), `publish-server.ts`(리눅스 서버 피드), `worker.js`(업데이트 주소)
 - 제품마다 다른 값(업데이트 주소, 서명 키, Cloudflare 이름)은 배포 채널 `shared/src/release-channel.ts`에서 읽는다(`docs/EDITION-RELEASE.md`). 워크플로와 스크립트에는 제품 이름이나 주소가 없다.
 
+## 버전 번호 / Version numbers
+
+버전은 [Semantic Versioning 2.0.0](https://semver.org/)을 따른다: `MAJOR.MINOR.PATCH`. 사람이든 AI 에이전트든 버전을 올리거나 태그를 달기 전에 아래 표로 자리를 고른다.
+
+**공개 API**(SemVer 규칙 1). 아래가 바뀌면 설치된 팀이 영향을 받는다.
+- HTTP API(`/api/…`, `shared/src/api`). 데스크톱 앱·휴대폰 앱·MCP 커넥터가 서버에 기대는 것도 포함한다. 옛 앱은 새 서버와 계속 동작해야 한다.
+- 명령: 리눅스 `mycel-ctl`, 사무실 맥 `teamax`
+- 플러그인, 스킬(`SKILL.md`), 연결(MCP) 형식
+- 사람이 정한 설정: 팀 설정, `server.json`, `MYCEL_*` 환경 변수
+- 디스크와 데이터베이스의 데이터(`server/migrations`), 팀 폴더 구조
+- 업데이트 피드 형식(`release.json`, manifest)
+
+| 무엇이 바뀌었나 | 올리는 자리 | 예 |
+|---|---|---|
+| 하위 호환 버그 수정만. 잘못 동작하던 것이 의도대로 동작한다. 새 기능도, 눈에 보이는 모양·동작 변화도 없다 | PATCH | 0.2.21 → 0.2.22 |
+| 하위 호환 새 기능, 또는 눈에 보이는 UI/UX 변화. 무엇을 deprecated로 표시할 때도 | MINOR(PATCH는 0) | 0.2.22 → 0.3.0 |
+| 설치된 팀이 무언가 하지 않으면 되던 것이 안 된다. 설정·API 삭제, 옛 앱이 못 읽는 형식, 손으로 해야 하는 업데이트 | MAJOR(MINOR·PATCH는 0) | 1.4.2 → 2.0.0 |
+
+- **배포 번호**는 지난 태그 뒤 병합된 변경 중 가장 높은 자리로 정한다. PATCH 여럿과 MINOR 하나면 MINOR다.
+- **PR마다 버전 영향을 적는다**: `patch`, `minor`, `major` 중 하나와 이유 한 줄(PR 양식). 문서·시험만 바꾸면 `none`.
+- **0.x 동안**: SemVer 규칙 4에 따라 0.y.z는 초기 개발이라, 깨지는 변경도 MINOR로 낼 수 있다. 그때는 릴리스 노트의 관리자 확인 사항에 무엇이 깨지고 무엇을 해야 하는지 분명히 쓴다. 1.0.0부터는 반드시 MAJOR다. 1.0.0으로 갈 시점은 대표가 정한다. SemVer FAQ: "If your software is being used in production, it should probably already be 1.0.0."
+- **베타**: `X.Y.Z-beta.N`, `X.Y.Z-rc.N`(beta 채널). 같은 `X.Y.Z`에서 pre-release는 정식보다 낮다: `1.0.0-beta.2 < 1.0.0-beta.11 < 1.0.0-rc.1 < 1.0.0`. 숫자 부분은 숫자로 비교한다. 숫자 앞에 0을 붙이지 않는다(`0.3.0`이지 `0.03.0`이 아니다).
+- **낸 버전은 바꾸지 않는다**(SemVer 규칙 3). 고치면 새 번호다. 태그를 옮기거나 다시 달지 않는다(6장). 깨지는 변경이 MINOR로 나갔다면 호환을 되돌린 새 MINOR를 내고, 노트에 문제 버전과 그 사실을 쓴다(SemVer FAQ).
+- 형식(`v` + `server/package.json`의 version, `1.2.3` 또는 `1.2.3-beta.1`)은 `release-ci.ts`의 `RELEASE_VERSION_RE`가 확인한다. 어느 자리를 올릴지는 확인하지 않는다. 그건 사람과 에이전트가 이 표로 정한다.
+
 ## 1. 배포하는 법
 
 ```sh
-# 1) 버전을 올린다: server/package.json과 desktop/package.json의 version (예: 0.3.0-beta.1)
+# 1) 버전을 올린다: server/package.json과 desktop/package.json의 version. 자리는 위 "버전 번호"로 고른다 (예: 0.3.0-beta.1)
 git commit -am "0.3.0-beta.1"
 git push origin main
 
@@ -25,6 +50,7 @@ git push origin v0.3.0-beta.1
 
 - 태그는 `v` + `server/package.json`의 version과 정확히 같아야 한다. 다르면 아무것도 하지 않고 실패한다.
 - 태그에 `-`가 있으면 beta 채널(`v0.3.0-beta.1`, `v0.3.0-rc.1`), 없으면 stable 채널(`v0.3.0`)이다.
+- stable 릴리스는 사흘에 걸쳐 나간다(아래 "단계적 배포"). 모든 서버에 한 번에 내려면 태그 메시지에 `Rollout: all` 한 줄을 넣는다.
 - 주석 없는 태그(`git tag v0.3.0`)도 된다. 그때 피드의 노트는 비고, GitHub Release는 노트를 자동으로 만든다.
 - 진행은 GitHub의 Actions 탭 → Release에서 본다. 한 번에 하나만 돈다(다음 태그는 앞의 것이 끝날 때까지 기다린다).
 
@@ -32,7 +58,7 @@ git push origin v0.3.0-beta.1
 
 | 순서 | job | 하는 일 | 비밀값 |
 |---|---|---|---|
-| 1 | prepare | 태그 = 버전 확인, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트 | 키 확인 단계만 |
+| 1 | prepare | 태그 = 버전 확인, 채널 결정, 필수 서명 키와 선택적인 Cloudflare 토큰이 있는지, **서명 키의 공개키가 `RELEASE_CHANNEL.keys`에 있는지**(다른 제품 키면 여기서 바로 실패), 태그 메시지 → 릴리스 노트, 단계적 배포(`Rollout:` 줄, `release-ci.ts rollout`) | 키 확인 단계만 |
 | 2 | test | `ci.yml` 전체: typecheck, native, 단위, fuzz, 웹, 중계, 리눅스 T1(amd64·arm64), 리눅스 묶음 L19 + verify-bundle, 설치 T2 | 없음 |
 | 2 | build-linux | 리눅스 kit amd64(ubuntu-24.04)·arm64(ubuntu-24.04-arm): whisper, native, 웹, `build-bundle.ts --os linux --strict`(서명 없이) | 없음 |
 | 2 | build-office | 사무실 zip(macos-15, 두 맥 프로세서 universal, `bun run build:office`) | 없음 |
@@ -40,7 +66,7 @@ git push origin v0.3.0-beta.1
 | 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
 | 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
 
-2의 네 job은 동시에 돈다. publish는 시험과 빌드가 모두 통과해야 시작한다.
+2의 네 job은 동시에 돈다. publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
 - **맥 데스크톱 앱(dmg)은 넣지 않는다.** Apple 서명·공증이 아직 없다. 맥 데스크는 지금처럼 "새 버전이 있어요" 안내만 받는다.
 - 시험·빌드·배포는 모두 태그가 가리키는 같은 커밋으로 한다. publish와 github-release는 시작할 때 태그가 아직 그 커밋인지 다시 보고, 태그가 옮겨졌으면 멈춘다.
@@ -63,16 +89,67 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 
 - 사무실 맥: 매일 밤 `<feed>/<officeDir>/<channel>.json`을 본다(`docs/OFFICE.md` 6장).
 - 리눅스 서버: `<feed>/server/<channel>.json`과 `.sig`를 본다.
-  - 앱만 바뀐 릴리스는 서버가 업데이트 창(기본 03:00–05:00) 안에서 스스로 적용한다.
-  - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스(`needsRoot`)는 `mycel-update.timer`(매일 04:30 ± 90분)가 적용한다.
-  - `needsRoot`는 `publish-server.ts`가 정한다. 새 묶음의 `root/` 파일과 `native/mycel-safeops`·`bin/pandoc`(`build-bundle.ts` `LINUX_ROOT_COPIES`)을 두 채널 머리 버전의 `manifest-linux-<arch>.json`과 비교하고, 비교할 수 없으면 "바뀜"으로 둔다.
+  - 앱만 바뀐 릴리스는 서버가 업데이트 창(기본 03:00–05:00) 안에서 스스로 적용한다. stable은 그 서버의 차례가 온 뒤다(아래 "단계적 배포"; root 타이머·사무실 맥도 같다).
+  - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스는 `mycel-update.timer`(15분마다 확인, 팀의 업데이트 시간 안에서)가 적용한다.
+  - `publish-server.ts`가 새 묶음의 `root/` 파일과 `native/mycel-safeops`·`bin/pandoc`(`build-bundle.ts` `LINUX_ROOT_COPIES`)을 두 채널 머리 버전의 `manifest-linux-<arch>.json`과 비교하고(비교할 수 없으면 "바뀜"), 그 결과로 `rootSince`(같은 root 부분을 가진 가장 오래된 릴리스)를 정한다. 0.2.19 이상 서버는 `root/VERSION`과 `rootSince`만 비교한다.
+  - **`needsRoot`는 0.2.18 이하 서버용이다.** 0.2.14–0.2.18 서버는 `rootSince`를 모르고 `needsRoot`만 본다. 그래서 `--needs-root auto`는 `rootSince`가 0.2.18보다 새로우면 root 부분이 안 바뀌어도 `needsRoot`를 켠다(`NEEDS_ROOT_ONLY_UNTIL`, 0.2.19 리뷰 S3). 꺼 두면 0.2.18 서버의 앱이 0.2.20 같은 앱만 바뀐 릴리스를 스스로 받아 0.2.18 root 부분 위에서 돌고, 그 뒤 모든 릴리스를 거절한다(옛 타이머는 `needsRoot`만 보므로 root 부분도 설치하지 않는다). 0.2.19부터 root 부분이 바뀌었으니 앞으로의 릴리스는 사실상 모두 `needsRoot: true`다. 0.2.18 이하 서버의 앱은 그런 릴리스를 받지 않고, root 타이머가 root 부분과 앱을 같이 설치한다. 0.2.19 이상 서버는 `rootSince`로 판단하므로 앱만 바뀐 릴리스를 그대로 스스로 받는다(앱이 0.2.18 이하로 되돌려진 서버는 root 타이머가 받는다).
+  - 배포 전 확인: `publish-server.ts --dry-run`(또는 로그)의 `needsRoot true for servers on 0.2.18 or older` 줄과 `rootSince`. `--needs-root no`는 이 규칙도 끈다(경고를 남긴다). 0.2.18 이하 서버가 하나도 남지 않았을 때만 쓴다.
+
+### 단계적 배포 (staged roll-out)
+
+새 stable 릴리스가 같은 밤 모든 서버에 가지 않게 한다. 나쁜 릴리스가 닿는 팀이 적다. 사람이 할 일은 없다.
+
+- 피드의 `rollout`: `{ percent: 100, salt, ramp: [{ afterHours: 0, percent: 10 }, { afterHours: 24, percent: 50 }, { afterHours: 48, percent: 100 }] }`.
+  `publish-server.ts`(`release.json`)와 `publish.ts`(사무실 stable 목록)가 stable 릴리스에 쓰고, `salt`는 릴리스마다 새로 고른다(16바이트 무작위, hex).
+- 각 설치가 스스로 판단한다(`server/src/system/rollout.ts`, Go는 `native/cmd/mycel-ctl/rollout.go`, 두 쪽이 `testdata/rollout.json`을 같이 시험한다):
+  차례 = sha256(salt + 설치 id)의 앞 2바이트(big-endian) % 100. 차례 < 지금 percent면 자동 업데이트가 받는다. percent는 ramp가 시작된
+  때(`since`, 없으면 피드의 서명된 `publishedAt`)부터 지난 시간의 단계다(지난 단계 중 `afterHours`가 가장 큰 것). 다시 게시할 필요가 없다.
+  - **연달아 낸 릴리스**: 앞 stable 릴리스의 ramp가 아직 끝나지 않았을 때(시작 뒤 48시간 안) 낸 릴리스는 그 릴리스의 salt·ramp·시작을
+    이어받는다(`rollout.since`, `inheritRollout`, 두 배포 스크립트가 채널 머리를 읽어 정한다). 그래서 몇 시간 간격으로 여러 번 내도 첫
+    릴리스 뒤 48시간 안에 모든 서버에 닿는다. 매번 10%부터 다시 시작하면 20시간 간격의 배포에서 서버의 절반쯤이 며칠씩 늦고 일부는
+    두 주 동안 받지 못한다(시험의 모의 실험). 서버는 `since`가 `publishedAt`보다 늦거나 지금보다 늦으면 `publishedAt`을 쓴다.
+  - **너그럽게 읽는다**: 읽을 수 없는 `rollout`(객체가 아님, `null`, percent가 0–100의 수가 아님, salt가 100자 이하 문자열이 아님)은
+    단계적 배포가 없는 것으로, 읽을 수 없는 `ramp`·`since`는 빠진 것으로 읽는다. 형식이 나중에 바뀌어도 피드 전체를 거부해 "지금 업데이트"까지
+    막히는 일이 없다. TS와 Go가 같게 읽는지 `testdata/rollout.json`의 `reads`로 시험한다.
+  - 설치 id: 앱은 `MYCEL_INSTALL_ID`, 없으면 설정 표의 `system.installId`. root 타이머는 `/etc/default/<id>`의 `MYCEL_INSTALL_ID`, 없으면
+    `admin.js update-window`의 `installId`. 읽을 수 없으면 마지막 차례(99, 100% 단계)다. 영원히 빠지는 서버는 없다.
+  - 기다리지 않는 것: beta 채널의 설치(stable 릴리스가 beta 머리도 되므로 같은 바이트를 보지만 `ramp`를 무시), 피드의 `urgent: true`,
+    관리자가 직접 하는 업데이트(관리자 › 시스템 › 업데이트, `sudo mycel-ctl update`, 사무실 "지금 업데이트"·`teamax update now`).
+  - 보이는 곳: 관리자 › 홈("새 버전 … · 이 서버 차례인 내일 새벽 03:00–05:00에 자동으로 설치돼요", 지금 설치 버튼), `sudo mycel-ctl status`
+    ("this server's turn comes at …", `--detail --json`의 `updates.rollout`), 앱의 `GET /api/admin/update` `hold: 'rollout'`과 `turnAt`,
+    사무실 `teamax update status`.
+  - root 타이머는 창 안에서 조용한 때를 기다리는 동안(최대 1시간) 피드에 새 릴리스가 올라와도 그 회차에는 설치하지 않는다. 처음
+    판단한 버전만 설치하고, 새 릴리스는 다음 확인이 차례를 보고 판단한다.
+- **옛 설치(0.4.0-beta.2 이하)**: `rollout`을 zod `z.object`(엄격하지 않음)로 읽어 `ramp`를 버리고 `percent`(100)만 본다. Go `mycel-ctl`도
+  모르는 필드를 무시한다. 그래서 예전처럼 바로 받는다(시험: `tests/unit/g-rollout.test.ts` "older servers", `TestOldTimerReadsARampedFeed`).
+  서명은 바이트 그대로 검증하고, `minReaderRequired`·reader 수준과는 관계없다.
+- **모두에게 한 번에** (나쁜 릴리스를 고치는 릴리스, 보안 수정): 태그 메시지에 한 줄 `Rollout: all`. prepare가 그 줄을 노트에서 빼고
+  (`release-ci.ts rollout`) 두 피드에 `--rollout all`을 넘긴다. 그러면 `rollout`이 아예 없다. 손으로 다시 돌릴 때는 Run workflow의
+  `rollout` 입력(`tag`=태그 메시지대로, `staged`, `all`). 표시는 그 말만 있는 한 줄이어야 한다. `rollout:`(전각 콜론 `：`도)이 들어간 다른
+  줄(목록·인용·제목·굵게·코드·HTML·문장 안, 뒤에 다른 말)이나 `all`·`staged`가 아닌 값이 있으면 prepare가 멈춘다(오타나 꾸밈이 배포 속도를
+  정하지 않게). 코드 블록(```, ~~~) 안의 줄은 표시로 보지 않고 노트에 그대로 둔다.
+  - 나쁜 릴리스를 고친 릴리스는 `Rollout: all`로 내거나 `urgent`로 낸다. salt를 릴리스마다 새로 고르므로(같은 팀이 매번 먼저 받지 않게),
+    ramp가 끝난 뒤 낸 고친 릴리스는 나쁜 릴리스를 먼저 받은 서버에 마지막 차례로 갈 수 있다. ramp가 도는 중에 낸 릴리스는 같은 salt를
+    이어받으므로 나쁜 릴리스를 받은 서버가 먼저 받는다.
+- 결정은 처음 올린 `release.json`에 남는다. 다시 돌리면(같은 버전, 다른 채널) 그 `release.json`을 그대로 쓴다(요청한 `--rollout`과 다르면
+  어느 쪽이든 경고를 남긴다). 사무실 목록도 다시 돌리면 처음 올린 `<dir>/<version>/<channel>.json`을 머리에 다시 둔다(`publishedAt`과 salt가 그대로). 처음에
+  윈도우 설치 파일 없이 올린 버전에 다시 돌려 그 파일을 더해도 처음의 `publishedAt`과 `rollout`으로 다시 서명한다.
+- 로컬에서: `publish-server.ts --rollout staged|all`, `publish.ts --rollout staged|all`(기본 staged, beta 채널은 늘 없음).
 
 ## 3. 지키는 것
 
 - **되돌아가기 금지**: 채널 머리보다 오래된 버전은 올리지 않는다.
 - **같은 이름, 다른 내용 금지**: 이미 올라간 파일은 내용(sha256)을 비교한다. 다르면 멈춘다. 같은 버전을 다시 올릴 때는 같은 파일만 건너뛴다.
+  - 피드 읽기는 모두 한 길로 간다(`sign.ts` `feedReader`). 네트워크 오류, 5xx, 408, 429, Content-Length와 다른 길이의 응답은 결론이 아니다. 매번 새 `?t=`로 5번까지 읽고, 그래도 안 되면 아무것도 올리지 않고 멈춘다. 업로드도 5번까지 보낸다(`cloudflare.ts` `putObject`). 거부 응답과 로컬 파일 오류는 바로 멈춘다.
+  - **404는 버킷에 묻는다.** 피드의 404 한 번으로는 파일을 올리지도, 되돌아가기 검사를 건너뛰지도 않는다. 버킷의 List Objects(`cloudflare.ts` `hasObject`)도 없다고 할 때만 없다. 버킷에 있으면 다시 읽고, 5번 뒤에도 피드가 404면 멈춘다. 목록을 못 읽으면(권한, 없는 버킷) 역시 멈춘다.
+  - 확인과 업로드 사이는 원자적이지 않다. R2의 조건부 쓰기는 S3 API에만 있다. 같은 키에 동시에 쓰는 일은 워크플로의 `concurrency`가 막는다.
+  - 다른 내용으로 읽혀도 5초 간격으로 세 번까지 읽은 뒤에 판단한다(`compareRemote`). 처음에 있던 파일이 다시 읽을 때 없다고 나와도 "없음"이 아니다.
+  - 아무것도 올리지 않는 `publish.ts --dry-run`은 토큰 없이도 돈다. 그때는 404를 몇 초 간격으로 세 번 보고 없다고 판단한다.
+- **같은 빌드는 같은 바이트**(리눅스에서 서명할 때): `sign-linux`를 다시 돌려도 업데이트 묶음과 kit의 바이트가 같다. 모든 항목의 시각이 `manifest.json`의 `createdAt`이고(`bundle.ts` `packTimeMs`), 순서는 이름순, 소유자는 0이고, Ed25519 서명은 결정적이고, 압축 스트림은 소스가 끝나는 시점과 무관하다(`streams.ts` `through`). 그래서 중간에 끊긴 publish를 다시 돌리면 이어서 올라간다.
+  - 빌드를 다시 하면 `createdAt`부터 달라지므로 다른 파일이고, 위 규칙대로 거부된다.
+  - 보장은 같은 OS, 같은 Bun에서다. kit의 gzip 헤더에는 OS 바이트가 있어 맥에서 다시 서명한 kit은 리눅스 것과 다르고, 위 규칙대로 거부된다.
 - **머리는 마지막**: 버전 파일 → 파일 목록 → `release.json` → 채널 머리 순서로 올린다. 중간에 끊겨도 설치는 옛 머리를 계속 본다. 머리와 `.sig` 사이에서 끊긴 상태는 다음 실행이 알아보고 다시 올린다.
-- **다시 읽어 검증**: 올린 뒤 업데이트 주소로 머리를 읽는다. 설치된 서버의 `UpdateManager.checkFeed`와 같은 코드로 확인하고, 묶음과 kit도 내려받아 sha256을 비교한다. 사무실 피드도 같은 방식이다(`publish.ts`).
+- **다시 읽어 검증**: 올린 뒤 업데이트 주소로 머리를 읽는다. 설치된 서버의 `UpdateManager.checkFeed`와 같은 코드로 확인하고, 묶음과 kit도 내려받아 sha256을 비교한다. 사무실 피드(`publish.ts`)는 더 가볍다. 올린 파일마다 HEAD로 길이만 보고, 머리는 다시 읽어 서명과 버전을 확인한다. 파일을 내려받아 sha256을 비교하지는 않는다.
 - **리눅스 묶음은 서명 전에 검증**: 모든 파일이 manifest와 맞고, `mycel-ctl`이 그 아키텍처 것이고, kit 안의 manifest가 업데이트 묶음과 같은 서명본이고, kit의 `product.env`가 이 제품의 업데이트 주소를 가리켜야 한다.
 - **stable은 beta도 올린다**: stable 배포는 beta 채널이 더 새 버전이 아니면 beta 머리도 이 버전으로 옮긴다(beta를 받는 설치도 정식판을 받는다).
 - **비밀값**
@@ -111,7 +188,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 4. **Worker를 다시 배포한다.** 새 `worker.js`만 `server/`를 내준다. 그 전에는 `publish-server.ts`가 업로드 전에 멈춘다("does not serve server/ yet").
    ```sh
    bun scripts/release/hosting.ts setup     # 개발 맥, 기존 토큰(~/.config/treesoop/secrets.env)
-   bun scripts/release/hosting.ts status    # 끝에 "Updates: office/, server/"
+   bun scripts/release/hosting.ts status    # 끝에 "Updates: office/, server/". "bucket objects can be listed: yes"도 본다(이게 안 되면 publish가 멈춘다)
    ```
 5. (권장) **태그 보호**: 쓰기 권한이 있는 사람은 누구나 `v*` 태그로 배포를 시작할 수 있다. GitHub 요금제가 rulesets를 지원하면 `v*` 태그 만들기·옮기기·지우기를 관리자만 하게 한다.
 6. **environment `release`**: release.yml의 prepare와 publish job은 `environment: release`를 쓴다(2026-10-28). 공개 레포는 요금제와 관계없이 environment 보호 규칙을 쓸 수 있다. Settings → Environments → `release`에서 (1) 배포 허용 대상을 `v*` 태그로 제한하고 (2) 필요하면 승인자를 정한 뒤, 두 비밀값을 레포 비밀값에서 이 environment로 옮긴다. environment가 없으면 GitHub이 보호 없이 새로 만든다(레포 비밀값은 그대로 쓰인다).
@@ -131,15 +208,23 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 |---|---|---|
 | prepare: 태그 ≠ 버전 | 아무것도 안 함 | 태그를 지운다(`git push --delete origin vX && git tag -d vX`). 버전을 고친 커밋에 다시 단다. |
 | prepare: 비밀값 없음, 키 불일치 | 아무것도 안 함 | 비밀값을 고친 뒤 그 run에서 "Re-run all jobs" |
-| test·build | 아무것도 안 올라감 | 고친 커밋에 **새 버전**으로 태그(예: `0.3.1`, `0.3.0-beta.2`). 태그를 옮기지 않는다. |
-| publish 중간 | 버전 파일 일부만 올라갔을 수 있다. 머리는 그대로라 설치는 영향 없음 | 그 run에서 **"Re-run failed jobs"**. 같은 run의 빌드 결과(7일 보관)를 다시 쓰므로 이미 올라간 파일과 같아 이어서 올라간다. |
+| test·build-linux (사무실·윈도우 빌드는 아래 "Desktop builds missing") | 아무것도 안 올라감 | 고친 커밋에 **새 버전**으로 태그(예: `0.3.1`, `0.3.0-beta.2`). 태그를 옮기지 않는다. |
+| publish 중간 | 버전 파일 일부만 올라갔을 수 있다. 머리는 그대로라 설치는 영향 없음 | 그 run에서 **"Re-run failed jobs"**. 같은 run의 빌드 결과(7일 보관)를 다시 서명해도 바이트가 같으므로 이어서 올라간다. 올라간 파일을 지우지 않는다. |
+| publish: `release.json`이 `.sig` 없이 있다고 멈춤 | 둘 사이에서 끊겼다. 피드의 파일에 서명해 줄 수는 없어 사람이 본다 | 내용을 확인한 뒤 버킷에서 그 `release.json`만 지우고 "Re-run failed jobs" |
+| publish: `.sig`가 `release.json` 없이 있다고 멈춤 | `.sig`만 남았다. 새 `release.json`과 맞지 않는다 | 버킷에서 그 `.sig`만 지우고 "Re-run failed jobs" |
+| publish: `.sig`가 `release.json`을 검증하지 못한다고 멈춤 | 끊겨서 생기는 상태가 아니다. 둘 중 하나가 바뀌었다 | 지우지 않는다. 누가 왜 바꿨는지 먼저 본다. 고친 뒤 새 버전으로 낸다 |
+| publish: `HTTP 5xx`, 네트워크 오류로 멈춤 | 5번 해도 실패했다. 올리기 전 확인이나 업로드에서 멈췄으면 머리는 그대로다. 올린 뒤 재확인에서 멈췄으면 그 파일이나 머리까지 이미 올라갔을 수 있다(로그의 `↑` 줄로 구분한다) | 잠시 뒤 "Re-run failed jobs". 이미 올라간 파일은 같은 바이트라 건너뛴다 |
+| publish: `HTTP 404, but the file is there`로 멈춤 | 피드는 404인데 버킷에는 있다. 아무것도 덮어쓰지 않았다 | Worker 배포를 본다(`hosting.ts status`) |
+| publish: `list <key>: HTTP …`로 멈춤 | 버킷 목록을 못 읽어 404를 확인할 수 없다. 아무것도 올리지 않았다 | 토큰 권한을 본다(`hosting.ts status`) |
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
-| 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다 | 고친 새 버전을 낸다. 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
+| 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
 
 - 같은 태그를 다시 돌리려면 Actions → Release → Run workflow에서 tag를 넣는다. "Use workflow from"도 같은 태그로 고른다(그 태그의 release.yml·ci.yml로 돈다).
 - 로컬에서 같은 일을 하려면 `publish.ts`(사무실)와 `publish-server.ts --dir <서명된 묶음 폴더>`(리눅스)를 쓴다. 리눅스 묶음은 리눅스(같은 아키텍처)에서만 빌드된다.
 - GitHub Release 파일 확인: 받은 폴더에서 `bun scripts/release/release-ci.ts verify-sums SHA256SUMS`(이 빌드의 공개키로 `.sig`를 확인한 뒤 옆의 파일 sha256을 본다).
+
+**Desktop builds missing.** The Linux server release does not wait for the desktop builds. When `build-office` or `build-windows` fails or gets no hosted runner (macOS on 2026-11-02, 03 and 04), `publish` still signs and publishes the Linux builds to the server feed. It does not change the office feed (the offices keep the previous release) and logs a `::warning::`. `SHA256SUMS` lists only the files that are in the release, and the GitHub Release body starts with a line that names the missing downloads. To add them, use "Re-run failed jobs" in the same run (artifacts stay 7 days): `publish` runs again, uploads the same server files again (they are skipped), publishes the office feed and adds the files to the GitHub Release. Remove the "not in this release yet" line from the release body by hand. A person who cancels the run still stops `publish`.
 
 ## 7. 키를 바꿀 때
 
@@ -188,4 +273,4 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 
 ## User-facing release notes
 
-Write the annotated tag message from [the EN/KO release template](../.github/RELEASE_TEMPLATE.md). The workflow carries it into Linux bundles, signed feeds and the GitHub release body. Review default changes, artifact names, README/FAQ/llms parity before tagging. Backfilling published release bodies is a separate authorized maintainer action; this docs branch does not publish them.
+Write the annotated tag message from [the EN/KO release template](../.github/RELEASE_TEMPLATE.md). The workflow carries it into Linux bundles, signed feeds and the GitHub release body. A line `Rollout: all` in it publishes a stable release to every server at once instead of the staged roll-out (section 2); the workflow takes that line out of the notes. Review default changes, artifact names, README/FAQ/llms parity before tagging. Backfilling published release bodies is a separate authorized maintainer action; this docs branch does not publish them.

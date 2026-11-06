@@ -18,6 +18,8 @@ import { LocalJobService } from '../system/job-runner'
 import { enPlural, M, stepText, tr } from '../system/messages'
 import { OpsService, type OpsOptions } from '../system/ops'
 import { runUpdate } from '../system/update-job'
+import { teamDefaultLocale } from '../admin/settings'
+import { dismissAfterUpdate, pendingAfterUpdate } from '../system/after-update'
 import type { RouteModule } from './module'
 import { feature, isHosted } from '../system/deployment'
 import { noticesFor, planStatus } from '../system/managed'
@@ -28,7 +30,11 @@ const opsByCtx = new WeakMap<AppContext, OpsService>()
 export const getOps = (ctx: AppContext) => opsByCtx.get(ctx) ?? null
 
 /** Test hook: options for the next OpsService (layout, fake engines, restart). */
-export const systemTestHooks: { opsOptions: OpsOptions | null; restart: (() => void) | null } = { opsOptions: null, restart: null }
+export const systemTestHooks: { opsOptions: OpsOptions | null; restart: (() => void) | null; updateWaitMs?: number } = { opsOptions: null, restart: null }
+
+/** Admin > System asks the release feed again when the last check is older than this, and waits at most this long. */
+const UPDATE_CHECK_MAX_AGE_MS = 3600_000
+const UPDATE_CHECK_WAIT_MS = 5000
 
 /** Planned restart: main.ts shuts down gracefully on SIGTERM; root/bootstrap starts app/current again. */
 function scheduleRestart(ctx: AppContext, why: string) {
@@ -107,12 +113,27 @@ export const systemRoutes: RouteModule = {
     kit.handle(API.plan, ({ c }) => planStatus(ctx.db, c.get('locale')))
     kit.handle(API.managedNotices, ({ c, auth }) => ({ items: noticesFor(auth.user.role, c.get('locale')) }))
 
-    kit.handle(API.updateStatus, () => {
+    // one feed fetch at a time, however many times the page is opened
+    let feedCheck: Promise<unknown> | null = null
+    kit.handle(API.updateStatus, async () => {
       const u = ops().updates
       const last = u.status().lastCheckedAt
-      if (u.installed && u.feedUsable && (!last || Date.now() - Date.parse(last) > 24 * 3600_000)) void u.checkFeed()
-      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate') }
+      // older than an hour: look at the feed again and wait a few seconds for it, so the answer is the feed's; on a
+      // timeout or an error the recorded answer stands (a slow fetch carries on in the background)
+      if (u.installed && u.feedUsable && (!last || Date.now() - Date.parse(last) > UPDATE_CHECK_MAX_AGE_MS)) {
+        feedCheck ??= u.checkFeed().catch(() => null).finally(() => { feedCheck = null })
+        let timer: ReturnType<typeof setTimeout> | undefined
+        await Promise.race([feedCheck, new Promise((r) => { timer = setTimeout(r, systemTestHooks.updateWaitMs ?? UPDATE_CHECK_WAIT_MS) })])
+        clearTimeout(timer)
+      }
+      // turnAt: when the staged roll-out reaches this server (system/rollout.ts), while hold is 'rollout'
+      const turnAt = ops().rolloutTurnAt()
+      return { ...u.status(), auto: ops().autoUpdates, managed: !feature(ctx.config, 'selfUpdate'), ...ops().updateWindowStatus(), hold: ops().updateHold(), ...(turnAt !== undefined ? { turnAt } : {}) }
     })
+
+    // what a release left for an admin to do (system/after-update.ts)
+    kit.handle(API.afterUpdateActions, () => ({ items: pendingAfterUpdate(ctx, { history: ops().updates.history(), locale: teamDefaultLocale(ctx.db) }) }))
+    kit.handle(API.dismissAfterUpdate, ({ params }) => { if (!dismissAfterUpdate(ctx, params.id)) fail('not_found') })
 
     kit.handle(API.startUpdate, ({ c, body, auth }) => {
       const locale = c.get('locale')
@@ -149,7 +170,7 @@ export const systemRoutes: RouteModule = {
             return { backupId: m.id, size: m.db.size + (m.team?.archiveSize ?? 0), createdAt: m.createdAt }
           } catch (e) {
             // the owner can do something about a full disk; anything else is told as a failed backup, not "server error"
-            if (e instanceof BackupError) throw new JobFailure('unavailable', e.reason === 'disk_space' ? M.backupNoSpace : M.backupFailed(e.message))
+            if (e instanceof BackupError) throw new JobFailure('unavailable', e.reason !== 'other' ? M.backupNoSpace : M.backupFailed(e.message))
             throw e
           } finally { release() }
         },

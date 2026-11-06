@@ -24,8 +24,12 @@
 #                         deployment "hosted", no automatic updates (the control plane runs mycel-ctl update)
 #   --plan FILE           plan.json for this tenant (mycel-ctl apply-plan; spec 3.8.5)
 #   --codex-models FILE   with --engine codex: models_cache.json of that Codex version, locked into model_catalog.json
-#   --allow-unsigned      accept kits without a release signature (development and test builds)
-#   --no-auto-update      self-install: do not enable the daily root-level update timer
+#   --allow-unsigned      accept kits without a release signature (development and test builds). Kept for repair /
+#                         update; --require-signed (or `sudo mycel-ctl allow-unsigned off`) turns it back off.
+#   --no-auto-update      self-install: no automatic updates (the root update timer, which updates inside the team's
+#                         update window when no answer runs, and the server's own app-only updates). Kept for repair /
+#                         update; --auto-update (or `sudo mycel-ctl auto-update on`) turns them back on. Without either
+#                         flag, repair and update keep the timer as it is now (on or off by hand).
 #   --public-host HOST    the team's public address https://HOST (server.json tunnel.host), for example a Cloudflare
 #                         Tunnel that delivers it to 127.0.0.1:<port> (the tunnel itself is set up apart from this
 #                         installer). "none" removes it. Kept for repair / update; earlier allowFrom / countries stay.
@@ -38,6 +42,10 @@
 #                         must be https://<public host>/api/integrations/google-drive/callback. Not kept: repair and
 #                         update leave the installed file as it is.
 #   --skip-apt            do not install distribution packages (they must already be there)
+#   --image-mode          install only, for a template build (scripts/image/customize.sh: virt-customize, no running
+#                         systemd): install the files and the units, but enable and start nothing, write no setup code,
+#                         load no engine firewall, wait for no health. Live-kernel checks only warn (the booted VM runs
+#                         them again). Implies --hosted.
 #   --no-systemd          no systemd here (a test container): write everything but the units and print how to run
 #                         `mycel-ctl supervise` instead (not supported for real use)
 #   uninstall: --purge also deletes the data, the team folder and the accounts; --keep-logins keeps agent/codex-auth
@@ -67,6 +75,7 @@ esac
 
 ID=mycel SRV_USER="" AGT_USER="" PORT=47820 PROXY_PORT=47821 TLS_PORT=0
 FROM="" HOSTED=0 PLAN="" CODEX_MODELS="" ALLOW_UNSIGNED=0 AUTO_UPDATE=1 SKIP_APT=0 SYSTEMD=1 PURGE=0 KEEP_LOGINS=0
+IMAGE_MODE=0
 PUBLIC_HOST="" APP_CONNECTORS="" DRIVE_CLIENT=""   # "" = not given: keep what server.json has
 ENGINES=()
 SET=()   # options given on the command line (repair/update keep the rest from install.json)
@@ -89,13 +98,16 @@ while [ $# -gt 0 ]; do
     --plan) val "$@"; PLAN=$2; shift 2 ;;
     --codex-models) val "$@"; CODEX_MODELS=$2; shift 2 ;;
     --allow-unsigned) ALLOW_UNSIGNED=1; SET+=(unsigned); shift ;;
+    --require-signed) ALLOW_UNSIGNED=0; SET+=(signed); shift ;;
     --no-auto-update) AUTO_UPDATE=0; SET+=(noauto); shift ;;
+    --auto-update) AUTO_UPDATE=1; SET+=(auto); shift ;;
     --public-host) val "$@"; PUBLIC_HOST=$2; SET+=(pubhost); shift 2 ;;
     --app-connectors) APP_CONNECTORS=1; SET+=(appconn); shift ;;
     --no-app-connectors) APP_CONNECTORS=0; SET+=(appconn); shift ;;
     --google-drive-client) val "$@"; DRIVE_CLIENT=$2; shift 2 ;;
     --skip-apt) SKIP_APT=1; shift ;;
     --no-systemd) SYSTEMD=0; SET+=(nosystemd); shift ;;
+    --image-mode) IMAGE_MODE=1; HOSTED=1; SET+=(hosted); shift ;;
     --purge) PURGE=1; shift ;;
     --keep-logins) KEEP_LOGINS=1; shift ;;
     -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
@@ -103,6 +115,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 given() { local s; for s in ${SET[@]+"${SET[@]}"}; do [ "$s" = "$1" ] && return 0; done; return 1; }
+! { given auto && given noauto; } || die "--auto-update and --no-auto-update exclude each other"
+! { given signed && given unsigned; } || die "--require-signed and --allow-unsigned exclude each other"
+! { given auto && given hosted; } || die "--auto-update is for self-installs; the hosted service updates its tenants"
+[ "$IMAGE_MODE" = 0 ] || [ "$CMD" = install ] || die "--image-mode is for install only (a template build)"
 
 [ "$(uname -s)" = Linux ] || die "Linux only (macOS: scripts/install-macos.sh)"
 [ "$CMD" = check ] || [ "$(id -u)" = 0 ] || die "run as root (sudo), or \`$0 check --from <kit>\` to only check"
@@ -120,8 +136,8 @@ if [ "$CMD" = repair ] || [ "$CMD" = update ] || [ "$CMD" = uninstall ]; then
     given proxy || PROXY_PORT=$(j proxyPort)
     given tls || TLS_PORT=$(j tlsPort)
     given hosted || { [ "$(j hosted)" = true ] && HOSTED=1; }
-    given unsigned || { [ "$(j allowUnsigned)" = true ] && ALLOW_UNSIGNED=1; }
-    given noauto || { [ "$(j autoUpdate)" = false ] && AUTO_UPDATE=0; }
+    given unsigned || given signed || { [ "$(j allowUnsigned)" = true ] && ALLOW_UNSIGNED=1; }
+    given noauto || given auto || { [ "$(j autoUpdate)" = false ] && AUTO_UPDATE=0; }
     given nosystemd || { [ "$(j systemd)" = false ] && SYSTEMD=0; }
     given pubhost || { h=$(j publicHost); [ "$h" = null ] || PUBLIC_HOST=$h; }
     given appconn || case "$(j appConnectors)" in true) APP_CONNECTORS=1 ;; false) APP_CONNECTORS=0 ;; esac
@@ -162,10 +178,25 @@ case "$ID" in system|user|machine|capsule) SLICE="" ;; *) SLICE="${ID//-/_}.slic
 UNITS=("$ID-firewall.service" "$ID-firewall.timer" "$ID-launcher.service" "$ID-server.service" "$ID-update.service" "$ID-update.timer" ${SLICE:+"$SLICE"})
 UNIT_DIR=/etc/systemd/system
 have_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
+# repair / update without --auto-update / --no-auto-update: the update timer as it is now is the setting (turned on or
+# off by hand, `systemctl enable|disable`); a repair used to turn a timer an administrator had turned on off again
+if { [ "$CMD" = repair ] || [ "$CMD" = update ]; } && [ "$HOSTED" = 0 ] && [ "$SYSTEMD" = 1 ] && ! given auto && ! given noauto \
+   && have_systemd && [ -f "$UNIT_DIR/$ID-update.timer" ]; then
+  case "$(systemctl is-enabled "$ID-update.timer" 2>/dev/null || true)" in
+    enabled) [ "$AUTO_UPDATE" = 1 ] || say "$ID-update.timer is on (turned on after the install): automatic updates stay on"; AUTO_UPDATE=1 ;;
+    disabled) [ "$AUTO_UPDATE" = 0 ] || say "$ID-update.timer is off (turned off after the install): automatic updates stay off"; AUTO_UPDATE=0 ;;
+  esac
+fi
+# the two settings that are easy to forget: kept from install.json (or the timer) unless given now
+if { [ "$CMD" = repair ] || [ "$CMD" = update ]; } && [ "$HOSTED" = 0 ]; then
+  [ "$AUTO_UPDATE" = 1 ] || given noauto || warn "automatic updates stay off on this server: new versions come only with \`sudo mycel-ctl update\`; --auto-update (or \`sudo mycel-ctl auto-update on\`) turns them on"
+  [ "$ALLOW_UNSIGNED" = 0 ] || given unsigned || warn "this install still accepts unsigned kits and versions (an earlier --allow-unsigned): --require-signed (or \`sudo mycel-ctl allow-unsigned off\`) accepts signed releases only"
+fi
 stop_units() {
   have_systemd || return 0
   local u
-  for u in "$ID-update.timer" "$ID-firewall.timer" "$ID-server.service" "$ID-launcher.service"; do
+  # the update job too: a scheduled one may wait up to an hour for a quiet moment (mycel-ctl update --scheduled)
+  for u in "$ID-update.timer" "$ID-update.service" "$ID-firewall.timer" "$ID-server.service" "$ID-launcher.service"; do
     systemctl stop "$u" >/dev/null 2>&1 || true
   done
 }
@@ -262,7 +293,8 @@ fi
 ITMP="$BASE/.install-tmp"
 RKIT="$BASE/.install-kit"
 if [ "$CMD" = repair ] && [ -z "$FROM" ]; then
-  [ "$ALLOW_UNSIGNED" = 0 ] || die "repair of an unsigned (--allow-unsigned) install needs --from <kit>: the installed copy is not signed, so root cannot trust it"
+  # the installed copy is used only when it verifies as a signed release (below, without --allow-unsigned), also on an
+  # install that accepts unsigned versions: a signed version there is as trustworthy as anywhere
   CURV=$(readlink "$BASE/app/current" 2>/dev/null | sed -n 's#^versions/\([0-9A-Za-z][0-9A-Za-z.+_-]*\)$#\1#p')
   [ -n "$CURV" ] || die "repair: app/current names no version; give --from <kit>"
   [ -x "$BASE/root/mycel-ctl" ] && [ "$(stat -c %U "$BASE/root/mycel-ctl")" = root ] || die "repair: root/mycel-ctl missing; give --from <kit>"
@@ -273,7 +305,7 @@ if [ "$CMD" = repair ] && [ -z "$FROM" ]; then
   # a root-only copy first: the server account can change app/versions, never this copy (verified, then installed)
   cp -a --no-preserve=ownership "$BASE/app/versions/$CURV" "$RKIT/app/$CURV"
   chown -R root:root "$RKIT"
-  "$BASE/root/mycel-ctl" verify-bundle "$RKIT/app/$CURV" >/dev/null || die "repair: the installed version $CURV does not verify against the release key; give --from <kit>"
+  "$BASE/root/mycel-ctl" verify-bundle "$RKIT/app/$CURV" >/dev/null || die "repair: the installed version $CURV is not a signed release that verifies against the release key (an unsigned build cannot be checked: root cannot trust it); give --from <kit>"
   printf '%s\n' "$CURV" > "$RKIT/VERSION"
   FROM="$RKIT"
 fi
@@ -300,6 +332,8 @@ for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account se
   [ -f "$KROOT/$f" ] || die "$KROOT/$f missing (not a Linux kit? bun scripts/build-bundle.ts --os linux)"
 done
 for f in bin/bun bin/pandoc server/src/main.js server/src/admin.js server/src/account.js server/src/office-worker.js native/mycel-gate native/mycel-bridge native/mycel-safeops; do [ -f "$BUNDLE/$f" ] || die "$BUNDLE/$f missing"; done
+# root/mycel-boxd is not in the list above: a repair without --from uses the installed version, and a version from before
+# the kit had mycel-boxd has no such file (every kit from now on has it: build-bundle.ts LINUX_ROOT_NATIVE)
 if [ "$ALLOW_UNSIGNED" = 0 ] && [ ! -f "$BUNDLE/manifest.sig" ]; then die "the kit is not signed (use --allow-unsigned for development builds)"; fi
 
 # ---- 1) system checks (also `check`) ----
@@ -312,8 +346,10 @@ case "$OSID:$OSVER" in debian:12|debian:13|ubuntu:24.04) OS_OK=1 ;; esac
 MACH=$(uname -m)
 case "$MACH" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; *) die "unsupported processor $MACH (x86_64 or aarch64)" ;; esac
 if [ "$ARCH" = amd64 ] && ! grep -qw sse4_2 /proc/cpuinfo; then die "this x86_64 processor has no SSE4.2 (bun and Claude Code need it; in a VM use CPU type x86-64-v2 or host)"; fi
-if [ "$SYSTEMD" = 1 ] && ! have_systemd; then die "no systemd here; use --no-systemd (test containers only)"; fi
-[ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null)" = cgroup2fs ] || die "cgroup v2 (unified) is required; /sys/fs/cgroup is $(stat -fc %T /sys/fs/cgroup 2>/dev/null || echo missing)"
+# image mode: a check of the live kernel only warns (the build runs in a chroot or appliance; the booted VM checks again)
+imgwarn() { if [ "$IMAGE_MODE" = 1 ]; then warn "image mode: $*"; else die "$*"; fi; }
+if [ "$SYSTEMD" = 1 ] && [ "$IMAGE_MODE" = 0 ] && ! have_systemd; then die "no systemd here; use --no-systemd (test containers only)"; fi
+[ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null)" = cgroup2fs ] || imgwarn "cgroup v2 (unified) is required; /sys/fs/cgroup is $(stat -fc %T /sys/fs/cgroup 2>/dev/null || echo missing)"
 
 # ---- 2) the kit's programs are ELF for this processor; the kit verifies (manifest + release signature) ----
 # (read from the ELF header itself: file(1) may not be installed yet) machine 0x3e = x86-64, 0xb7 = aarch64
@@ -326,7 +362,9 @@ elf_arch() {
   [ "$cls" = 02 ] || { echo elf32; return; }
   case "$mach" in 3e00) echo amd64 ;; b700) echo arm64 ;; *) echo "elf-$mach" ;; esac
 }
-for f in "$BUNDLE/bin/bun" "$BUNDLE/native/mycel-gate" "$BUNDLE/native/mycel-bridge" "$KROOT/mycel-bootstrap" "$KROOT/mycel-launcher" "$KROOT/mycel-sandbox" "$KROOT/mycel-ctl"; do
+KIT_ELFS=("$BUNDLE/bin/bun" "$BUNDLE/native/mycel-gate" "$BUNDLE/native/mycel-bridge" "$KROOT/mycel-bootstrap" "$KROOT/mycel-launcher" "$KROOT/mycel-sandbox" "$KROOT/mycel-ctl")
+[ ! -f "$KROOT/mycel-boxd" ] || KIT_ELFS+=("$KROOT/mycel-boxd")
+for f in "${KIT_ELFS[@]}"; do
   a=$(elf_arch "$f")
   [ "$a" = "$ARCH" ] || die "${f#"$FROM"/} is $a, this server is $ARCH: use the $ARCH kit"
 done
@@ -504,13 +542,13 @@ if [ "$RESTRICT_USERNS" = 1 ] && { [ -f "/etc/apparmor.d/$ID-bwrap" ] || ! usern
 elif [ "$RESTRICT_USERNS" = 1 ]; then
   say "AppArmor: bwrap may already create user namespaces here (another profile allows it); no profile added"
 fi
-userns_ok || die "bwrap cannot create a user namespace as an unprivileged account (kernel.unprivileged_userns_clone=0, user.max_user_namespaces=0, a container without nesting, or an AppArmor profile in the way)"
+userns_ok || imgwarn "bwrap cannot create a user namespace as an unprivileged account (kernel.unprivileged_userns_clone=0, user.max_user_namespaces=0, a container without nesting, or an AppArmor profile in the way)"
 # nftables works here (a container needs CAP_NET_ADMIN in its own network namespace)
-{ nft add table inet mycel_probe && nft delete table inet mycel_probe; } >/dev/null 2>&1 || die "nft cannot add a table (needs nf_tables and CAP_NET_ADMIN in this network namespace)"
+{ nft add table inet mycel_probe && nft delete table inet mycel_probe; } >/dev/null 2>&1 || imgwarn "nft cannot add a table (needs nf_tables and CAP_NET_ADMIN in this network namespace)"
 if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then
   printf '%s\n' "$PF" > /dev/null
 else
-  [ "$HOSTED" = 1 ] && die "preflight failed for a hosted tenant: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-800)"
+  [ "$HOSTED" = 1 ] && imgwarn "preflight failed for a hosted tenant: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-800)"
   warn "preflight: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-600)"
 fi
 
@@ -519,7 +557,7 @@ SYSCTL_F="/etc/sysctl.d/60-$ID.conf"
 printf '# %s (%s): processes of one account may not attach to each other (linux-runtime spec 3.1.1)\nkernel.yama.ptrace_scope = 1\n' "$PRODUCT_NAME" "$ID" > "$SYSCTL_F.tmp"
 install -o root -g root -m 644 "$SYSCTL_F.tmp" "$SYSCTL_F"; rm -f "$SYSCTL_F.tmp"
 if ! sysctl -q -p "$SYSCTL_F" >/dev/null 2>&1 || [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then
-  if [ "$HOSTED" = 1 ] && [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then die "kernel.yama.ptrace_scope is below 1 and cannot be set here (a container: the host must set it, spec 6.3)"; fi
+  if [ "$HOSTED" = 1 ] && [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -lt 1 ]; then imgwarn "kernel.yama.ptrace_scope is below 1 and cannot be set here (a container: the host must set it, spec 6.3)"; fi
   [ "$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo 0)" -ge 1 ] || warn "could not set kernel.yama.ptrace_scope = 1 (a container? the host must set it); diagnostics report it"
 fi
 
@@ -554,6 +592,15 @@ AGT_GID=$(id -g "$AGT_USER")
 say "accounts: $SRV_USER=$SRV_UID $AGT_USER=$AGT_UID"
 
 # ---- stop the units and every process of both accounts before touching their folders ----
+# an update that holds root/.update.lock (mycel-ctl update) is replacing root files: wait for it instead of racing it
+# (as long as the update job may take: TimeoutStartSec=2h)
+# (the lock stays with this installer until it exits; stop_units then stops an update job that is still only waiting)
+if [ -d "$BASE/root" ] && [ ! -L "$BASE/root" ] && command -v flock >/dev/null 2>&1; then
+  [ ! -L "$BASE/root/.update.lock" ] || die "$BASE/root/.update.lock is a link"
+  [ -e "$BASE/root/.update.lock" ] || install -o root -g root -m 600 /dev/null "$BASE/root/.update.lock"
+  exec 9<"$BASE/root/.update.lock"   # flock(2) needs no write access
+  flock -n 9 || { say "waiting for an update that is running (mycel-ctl update)"; flock -w 7200 9 || die "an update (mycel-ctl update) is still running after 2 hours; run the installer again when it is done"; }
+fi
 stop_units
 kill_accounts
 
@@ -607,12 +654,73 @@ if [[ "$ROOT_V" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$ ]] && [ "$(kitbun "$ADMIN_
   ROOT_KEEP=1
   warn "the root programs (bootstrap, launcher, sandbox helper, mycel-ctl) stay at $ROOT_V, newer than this kit ($VERSION); to go back, uninstall (the data is kept) and install $VERSION"
 fi
+# BEGIN boxd restart
+# native/cmd/mycel-ctl/update_test.go runs the text between BEGIN and END.
+BOXD_SOCK=/run/mycel-boxd/boxd.sock
+boxd_sum() { if [ -f "$BASE/root/mycel-boxd" ]; then sha256sum "$BASE/root/mycel-boxd" | cut -d' ' -f1; fi; }
+# Says why boxes do not work, or nothing. The unit is Type=simple, so `systemctl restart` is done when the process starts,
+# and the socket file of the old process stays until boxd ends its checks: ask boxd. boxd takes this request from root.
+boxd_problem() {
+  python3 -I - "$BOXD_SOCK" <<'BOXD_ASK'
+import json, socket, sys, time
+end = time.time() + 30
+while True:
+    try:
+        s = socket.socket(socket.AF_UNIX)
+        s.settimeout(5)
+        s.connect(sys.argv[1])
+        s.sendall(b'{"op":"status"}\n')
+        st = json.loads(s.makefile().readline())
+        if st.get("ev") == "status" and not st.get("available"):
+            print("boxes are not available:", st.get("reason"))
+        break
+    except (OSError, ValueError):
+        if time.time() > end:
+            print("no answer on", sys.argv[1])
+            break
+        time.sleep(0.5)
+BOXD_ASK
+}
+# The same rule as restartBoxd in native/cmd/mycel-ctl/update.go: a start of boxd stops the boxes that run, so only a
+# changed program comes here, and only a service that runs this file restarts. A service that an administrator stopped
+# stays stopped; a failed one restarts. Without this step the old process runs on from a deleted file. The team server
+# is stopped here (stop_units) and starts after this step. The server works without boxes, so a failure is a warning.
+boxd_restart() {  # the boxd_sum from before the install
+  local unit="$UNIT_DIR/mycel-boxd.service" out why
+  [ "$SYSTEMD" = 1 ] && have_systemd && [ -f "$unit" ] || return 0
+  [ "$1" != "$(boxd_sum)" ] || return 0
+  case $'\n'"$(cat "$unit")" in
+    *$'\n'"ExecStart=$BASE/root/mycel-boxd "*) ;;
+    *) warn "mycel-boxd.service does not run $BASE/root/mycel-boxd, so it keeps the old program: run scripts/dev-env/install-trial.sh again"; return 0 ;;
+  esac
+  if [ "$(systemctl is-active mycel-boxd.service 2>/dev/null || true)" = inactive ]; then
+    say "mycel-boxd.service is stopped, so it stays stopped: its next start runs the new mycel-boxd"
+    return 0
+  fi
+  if ! out=$(systemctl restart mycel-boxd.service 2>&1); then
+    warn "restart of mycel-boxd.service failed, so boxes may not work: $out (journalctl -u mycel-boxd, then \`sudo systemctl restart mycel-boxd\`)"
+    return 0
+  fi
+  why=$(boxd_problem 2>&1 || true)
+  if [ -n "$why" ]; then
+    warn "mycel-boxd.service restarted, but boxes may not work: $why (journalctl -u mycel-boxd)"
+    return 0
+  fi
+  say "mycel-boxd changed: mycel-boxd.service restarted; boxes that ran have stopped and start again at their next use"
+}
+# END boxd restart
 rootfile() {  # mode name
   if [ "$ROOT_KEEP" = 1 ] && [ -f "$BASE/root/$2" ] && [ ! -L "$BASE/root/$2" ]; then return 0; fi
   nolink "$BASE/root/$2"
   install -o root -g root -m "$1" "$KROOT/$2" "$BASE/root/$2" || die "installing root/$2 failed"
 }
 for f in mycel-bootstrap mycel-launcher mycel-sandbox mycel-ctl mycel-account set-claude-token; do rootfile 755 "$f"; done
+# the dev environment's root helper. It runs only from here, never from a version folder (the server account owns those),
+# and only when scripts/dev-env/install-trial.sh added its service: this file alone changes nothing. A kit without it (a
+# repair from an older installed version) leaves the file in place.
+BOXD_BEFORE=$(boxd_sum)
+[ ! -f "$KROOT/mycel-boxd" ] || rootfile 755 mycel-boxd
+boxd_restart "$BOXD_BEFORE"
 rootfile 644 safe-fs.sh
 # the unit templates go with the root programs (mycel-ctl render-units and update read them from root/systemd/)
 mk root root 755 "$BASE/root/systemd"
@@ -709,8 +817,12 @@ for name in claude codex; do
     rm -f "$stage"
     got=$(engine_version "$dir/$name")
     if [ -n "$pin" ] && [ "$got" != "$pin" ]; then
-      if [ "$HOSTED" = 1 ]; then die "engine $name: version ${got:-unknown}, the kit pins $pin (hosted tenants run only the pinned version)"; fi
-      warn "engine $name: version ${got:-unknown}, the kit pins $pin (the lockdown tests ran with $pin)"
+      # image mode: the version check runs the engine in bwrap, and the build has no user namespaces. A download (or
+      # cache copy) already matched the pinned SHA-256, so an empty answer only warns; a wrong version still stops.
+      if [ "$IMAGE_MODE" = 1 ] && [ -z "$got" ] && [ -z "$src" ]; then
+        warn "image mode: engine $name: --version cannot run here (no user namespaces); the file matched the pinned SHA-256 of $pin"
+      elif [ "$HOSTED" = 1 ]; then die "engine $name: version ${got:-unknown}, the kit pins $pin (hosted tenants run only the pinned version)"
+      else warn "engine $name: version ${got:-unknown}, the kit pins $pin (the lockdown tests ran with $pin)"; fi
     fi
     nolink "$BASE/app/engines/$name"
     rm -f "$BASE/app/engines/$name/current"
@@ -855,7 +967,8 @@ if [ -n "$DRIVE_CLIENT" ]; then
 fi
 
 # ---- 11) one-time setup code while the team has no account (setup/code for root, data/setup-token for the server) ----
-if [ ! -f "$BASE/setup/code" ] && { [ ! -f "$BASE/data/app.db" ] || [ -e "$BASE/data/setup-token" ]; }; then
+# (image mode: none; every tenant gets its own from mycel-enroll at first boot)
+if [ "$IMAGE_MODE" = 0 ] && [ ! -f "$BASE/setup/code" ] && { [ ! -f "$BASE/data/app.db" ] || [ -e "$BASE/data/setup-token" ]; }; then
   CODE=$(head -c 18 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
   (umask 077 && printf '%s\n' "$CODE" > "$ITMP/code")
   put "$ITMP/code" "$SRV_USER" root 640 "$BASE/setup/code"
@@ -895,8 +1008,13 @@ if { [ -n "$PUBLIC_HOST" ] || [ -n "$APP_CONNECTORS" ]; } && [ -f "/etc/default/
 fi
 
 # ---- 12) the engine firewall: loaded before any engine can run, or no install ----
-FW_OUT=$("$BASE/root/mycel-ctl" firewall apply --base "$BASE" 2>&1) || die "loading the engine firewall failed: $(printf '%s' "$FW_OUT" | tail -n 3 | tr '\n' ' ')"
-say "engine firewall: nft table inet $ID ($AGT_USER may reach only 127.0.0.1:$PROXY_PORT)"
+# (image mode: no engine runs in the build; $ID-firewall.service loads it at boot, before the launcher)
+if [ "$IMAGE_MODE" = 1 ]; then
+  say "image mode: engine firewall not loaded ($ID-firewall.service loads it at boot)"
+else
+  FW_OUT=$("$BASE/root/mycel-ctl" firewall apply --base "$BASE" 2>&1) || die "loading the engine firewall failed: $(printf '%s' "$FW_OUT" | tail -n 3 | tr '\n' ' ')"
+  say "engine firewall: nft table inet $ID ($AGT_USER may reach only 127.0.0.1:$PROXY_PORT)"
+fi
 
 # ---- 13) systemd units: rendered by mycel-ctl from root/systemd/*.in and root/install.json (one renderer for the
 # installer, `mycel-ctl update` and `supervise`, so they never disagree on the launcher's sandbox flags) ----
@@ -911,10 +1029,11 @@ for u in "${UNITS[@]}"; do
 done
 if [ "$SYSTEMD" = 1 ]; then
   if command -v systemd-analyze >/dev/null 2>&1; then
-    VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ${SLICE:+"./$SLICE"} 2>&1) || die "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
+    VERIFY=$(cd "$ITMP/units" && systemd-analyze verify ./*.service ./*.timer ${SLICE:+"./$SLICE"} 2>&1) || imgwarn "systemd-analyze verify: $(printf '%s' "$VERIFY" | tail -n 5 | tr '\n' ' ')"
   fi
   for f in "$ITMP/units"/*; do install -o root -g root -m 644 "$f" "$UNIT_DIR/$(basename "$f")"; done
-  systemctl daemon-reload
+  # (image mode: no running systemd; the booted VM reads the units)
+  if have_systemd; then systemctl daemon-reload; fi
   # both units are stopped (above): stopping their empty slice makes systemd create it again with the limits it has now
   # (daemon-reload alone does not change a running slice; the limits exist only while 1A is on, mycel-ctl safe-ops)
   [ -z "$SLICE" ] || systemctl stop "$SLICE" >/dev/null 2>&1 || true
@@ -941,6 +1060,12 @@ if [ "$HOSTED" = 1 ] || ! grep -qs '^[[:space:]]*SystemMaxUse=' /etc/systemd/jou
   fi
 fi
 
+if [ "$IMAGE_MODE" = 1 ]; then
+  rm -f "$BASE/setup/code" "$BASE/data/setup-token"
+  say "installed $ID $VERSION in image mode: units installed, none enabled or started, no setup code"
+  [ ${#WARNINGS[@]} -eq 0 ] || { say "with ${#WARNINGS[@]} warning(s):"; printf '  %s\n' "${WARNINGS[@]}"; }
+  exit 0
+fi
 if [ "$SYSTEMD" = 0 ]; then
   say "installed $ID $VERSION without systemd (test containers only). Start everything with:"
   say "  $BASE/root/mycel-ctl supervise --base $BASE"

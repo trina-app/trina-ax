@@ -6,7 +6,8 @@ import fs from 'node:fs'
 import nodeNet from 'node:net'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { htmlToText, isPublicAddress, resolveTarget, webFetch, wrapExternal, type FetchOptions } from '../../server/src/tools/web-fetch'
+import { htmlToText, isPublicAddress, mayEndEvent, pinnedRequest, resolveTarget, webFetch, wrapExternal, type FetchOptions, type Target } from '../../server/src/tools/web-fetch'
+import { sseEvents } from '../../server/src/integrations/connections/mcp'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { makePdf } from '../lib/pdf'
 import { WORK } from '../lib/env'
@@ -17,6 +18,133 @@ setDefaultTimeout(30_000)
 
 const PUBLIC = '93.184.215.14'
 const pub = async () => [{ address: PUBLIC, family: 4 }]
+
+// A big answer of an MCP server comes in many network pieces, usually with chunked framing, whose every line ends in
+// CRLF. `until` costs a whole read of the body so far, so it runs only when a read may have ended an event; the cost of
+// looking grew with the square of the pieces (8 MB in 1.4 KB pieces, a read of 90 s: 13 s of CPU, 0.8 s without it).
+describe('pinnedRequest: `until` looks at an answer only after a blank line', () => {
+  const chunk = (s: string | Buffer) => Buffer.concat([Buffer.from(Buffer.byteLength(s).toString(16) + '\r\n'), Buffer.from(s), Buffer.from('\r\n')])
+  /** a local server that answers with these pieces, a moment apart; it leaves the socket open afterwards */
+  async function answering(parts: (string | Buffer)[]) {
+    const open = new Set<nodeNet.Socket>()
+    const server = nodeNet.createServer((s) => {
+      open.add(s)
+      s.on('error', () => {})
+      s.once('data', async () => { for (const p of parts) { if (s.destroyed) return; s.write(p); await Bun.sleep(1) } })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const port = (server.address() as nodeNet.AddressInfo).port
+    const target: Target = { url: new URL(`http://127.0.0.1:${port}/mcp`), host: '127.0.0.1', ip: '127.0.0.1', family: 4, port }
+    return { target, close: () => { for (const s of open) s.destroy(); server.close() } }
+  }
+  const head = (type: string, framing: string) => `HTTP/1.1 200 OK\r\nContent-Type: ${type}\r\n${framing}\r\n\r\n`
+  const request = (target: Target, until: (body: Buffer) => boolean) =>
+    pinnedRequest(target, { method: 'POST', body: Buffer.from('{}'), deadline: Date.now() + 10_000, maxBytes: 1024 * 1024, until })
+
+  test('a chunked answer without blank lines: not looked at for each piece, and it arrives whole', async () => {
+    const body = 'x'.repeat(100)
+    const srv = await answering([head('application/json', 'Transfer-Encoding: chunked'), ...Array.from({ length: 120 }, () => chunk(body)), '0\r\n\r\n'])
+    let looks = 0
+    try {
+      const r = await request(srv.target, () => { looks++; return false })
+      expect(r.body.toString()).toBe(body.repeat(120))
+      // the head's own blank line: in the read that brings it, and in the few bytes the next read is seen with
+      expect(looks).toBeLessThanOrEqual(2)
+    } finally { srv.close() }
+  })
+
+  test('an event stream in many chunks that stays open: done at its blank line, not looked at for each piece', async () => {
+    const reply = `event: message\ndata: {"id":"r1","tools":"${'t'.repeat(3000)}"}\n\n`
+    const pieces = reply.match(/[^]{1,25}/g)!
+    const srv = await answering([head('text/event-stream', 'Transfer-Encoding: chunked'), ...pieces.map(chunk)])
+    let looks = 0
+    try {
+      const t0 = Date.now()
+      const r = await request(srv.target, (b) => { looks++; return sseEvents(b.toString('utf8')).length > 0 })
+      expect(Date.now() - t0).toBeLessThan(5000)
+      expect(r.body.toString()).toBe(reply)
+      expect(pieces.length).toBeGreaterThan(100)
+      expect(looks).toBeLessThanOrEqual(3)
+    } finally { srv.close() }
+  })
+
+  test('a blank line cut by a chunk boundary, each side in its own read: the stream that stays open still ends', async () => {
+    for (const [a, b] of [['data: {"id":"r1"}\n', '\n'], ['data: {"id":"r1"}\r\n', '\r\n'], ['data: {"id":"r1"}\r\n\r', '\n']] as const) {
+      const srv = await answering([head('text/event-stream', 'Transfer-Encoding: chunked'), chunk(a), chunk(b)])
+      try {
+        const t0 = Date.now()
+        const r = await request(srv.target, (body) => sseEvents(body.toString('utf8')).length > 0)
+        expect(Date.now() - t0).toBeLessThan(5000)
+        expect(r.body.toString()).toStartWith('data: {"id":"r1"}')
+      } finally { srv.close() }
+    }
+  })
+
+  test('the same event stream, not chunked and with CRLF line ends, stays open too', async () => {
+    const reply = `data: {"id":"r1"}\r\n\r\n`
+    const srv = await answering([head('text/event-stream', 'Cache-Control: no-store'), ...reply])
+    // the event is over with the CR of its blank line (sseEvents); the LF after it may not be read
+    try { expect((await request(srv.target, (b) => sseEvents(b.toString('utf8')).length > 0)).body.toString().trimEnd()).toBe(reply.trimEnd()) } finally { srv.close() }
+  })
+
+  /** the raw stream of a body cut into chunks at `cuts`; `plain[n]`: the body bytes in the first n raw bytes */
+  function framed(body: string, cuts: number[] | null) {
+    if (!cuts) return { raw: Buffer.from(body, 'latin1'), plain: Array.from({ length: body.length + 1 }, (_, i) => i) }
+    const raw: Buffer[] = []
+    const plain = [0]
+    const frame = (s: string) => { raw.push(Buffer.from(s)); for (const _ of s) plain.push(plain.at(-1)!) }
+    let from = 0
+    for (const end of [...cuts, body.length]) {
+      frame((end - from).toString(16) + '\r\n')
+      raw.push(Buffer.from(body.slice(from, end), 'latin1'))
+      for (let i = from; i < end; i++) plain.push(i + 1)
+      frame('\r\n')
+      from = end
+    }
+    return { raw: Buffer.concat(raw), plain }
+  }
+  /** pinnedRequest's look at the last read and the few bytes before it, over `raw` cut into reads at the offsets `ends`:
+   * false when a read finished an event of the body and the look would have passed over it */
+  function neverMissed(body: string, raw: Buffer, plain: number[], ends: number[]) {
+    let tail = Buffer.alloc(0)
+    let events = 0
+    let start = 0
+    for (const end of ends) {
+      const recent = Buffer.concat([tail, raw.subarray(start, end)])
+      tail = recent.subarray(-4)
+      start = end
+      const now = sseEvents(body.slice(0, plain[end]!)).length
+      if (now > events && !mayEndEvent(recent)) return false
+      events = now
+    }
+    return events === 2
+  }
+
+  test('no way of cutting an event stream into chunks and reads hides a blank line', () => {
+    let tried = 0
+    for (const end of ['\n\n', '\r\n\r\n', '\r\r', '\n\r\n', '\r\n\n', '\r\n\r', '\n\r']) {
+      const body = `data: 1${end}data: {"a":1}\ndata: 2${end}`
+      for (let c1 = 0; c1 <= body.length; c1++) {
+        for (const cuts of [null, [c1], ...(c1 > 1 ? [[c1 - 1, c1]] : [])]) {
+          if (cuts && cuts.some((c) => c <= 0 || c >= body.length)) continue
+          const { raw, plain } = framed(body, cuts)
+          // every byte its own read, and two reads cut anywhere
+          expect(neverMissed(body, raw, plain, Array.from({ length: raw.length }, (_, i) => i + 1))).toBe(true)
+          for (let r = 1; r < raw.length; r++) {
+            tried++
+            expect(neverMissed(body, raw, plain, [r, raw.length])).toBe(true)
+          }
+        }
+      }
+    }
+    expect(tried).toBeGreaterThan(10_000)
+  })
+
+  test('chunked framing alone and a JSON text are no blank line', () => {
+    expect(mayEndEvent(Buffer.from(`{"tools":[1,2]}\r\n400\r\n{"more":"a\\n\\nb"}\r\n3f\r\n`))).toBe(false)
+    expect(mayEndEvent(Buffer.from('data: 1\n\n'))).toBe(true)
+  })
+})
 
 describe('address allow-list', () => {
   const blocked = ['127.0.0.1', '127.255.255.254', '10.0.0.1', '172.16.5.4', '172.31.255.255', '192.168.0.1', '169.254.169.254', '100.64.0.1', '100.100.100.200',

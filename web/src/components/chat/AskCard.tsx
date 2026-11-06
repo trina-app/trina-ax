@@ -1,18 +1,21 @@
-// ask_user: the AI asks back mid-answer (options and/or free text), and browser_site: the in-app browser wants an
-// office-network address. Answered with POST /api/turns/:id/answer; closed by turn.request.closed (answered in
+// ask_user: the AI asks back mid-answer (options and/or free text), browser_site: the in-app browser wants an
+// office-network address, and dev_env_site: a dev-environment command needs a site that is not allowed. Answered with POST /api/turns/:id/answer; closed by turn.request.closed (answered in
 // another window, timed out, turn ended). Ordinary form controls (radios / checkboxes / buttons) for keyboards
 // and screen readers. The AI's own questions can also be answered from the message box (lib/askAnswer.ts): what is
 // ticked here goes along with that answer when the question takes several. The same card outside a turn (a scheduled
-// task's card shown again in Settings, "다시 확인") passes its own `onAnswer`.
+// task's card shown again in Settings, "다시 확인") passes its own `onAnswer`. The server's yes/no cards are two buttons
+// ([하지 않기] [하게 하기]) with what they let happen as plain lines; radios and [답하기] are for real choices.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { errorText } from '../../lib/api'
 import { forgetPicks, rememberPicks } from '../../lib/askAnswer'
+import { issueText } from '../../lib/skillIssues'
 import { useLocale, useT } from '../../i18n'
 import { useChats, type OpenRequest } from '../../store/chats'
 import type { ConfirmDetail, SkillWritePreview } from '@mycel/shared/api'
 import { Button, inputCls } from '../ui'
+import { SecretWarning, useSecretHold } from './SecretWarning'
 
 type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 
@@ -26,6 +29,9 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const name = useId()
+  /** the own answer looks like a key: it waits for "Send anyway" (SecretWarning) */
+  const secret = useSecretHold(text)
+  const textRef = useRef<HTMLTextAreaElement>(null)
   const r = req.request
   useEffect(() => rememberPicks(r.requestId, picked), [r.requestId, picked])
   useEffect(() => () => forgetPicks(r.requestId), [r.requestId])
@@ -43,11 +49,11 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
 
   if (r.kind === 'browser_site')
     return (
-      <div className="my-3 overflow-hidden rounded-2xl border border-warn/40" role="group" aria-label={t('ask.siteTitle')} data-testid="site-card">
-        <div className="flex items-center gap-2 bg-warn-soft px-4 py-2.5 text-sm font-semibold text-warn">
-          <Globe size={16} aria-hidden /> {t('ask.siteTitle')}
-        </div>
-        <div className="space-y-2 px-4 py-3 text-sm">
+      <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-label={t('ask.siteTitle')} data-testid="site-card">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
+          <Globe size={14} aria-hidden /> {t('ask.siteTitle')}
+        </p>
+        <div className="mt-1 space-y-2 text-sm">
           <p>{t('ask.siteBody', { host: r.host })}</p>
           <p className="truncate text-xs text-faint" title={r.url}>
             {r.url}
@@ -69,6 +75,35 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
       </div>
     )
 
+  // a dev-environment command needs a site that is not allowed: only the person who owns the turn gets this card
+  if (r.kind === 'dev_env_site')
+    return (
+      <div className="my-3 overflow-hidden rounded-2xl border border-warn/40" role="group" aria-label={t('devEnvSite.title', { host: r.host })} data-testid="dev-env-site-card">
+        <div className="flex items-center gap-2 bg-warn-soft px-4 py-2.5 text-sm font-semibold text-warn">
+          <Globe size={16} aria-hidden /> <span className="min-w-0 break-all">{t('devEnvSite.title', { host: r.host })}</span>
+        </div>
+        <div className="space-y-2 px-4 py-3 text-sm">
+          {r.command && <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-subtle px-2 py-1 font-mono text-xs text-muted" data-testid="dev-env-site-command">{r.command}</pre>}
+          <p className="text-xs text-muted">{t('devEnvSite.body')}</p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'once' })} data-testid="dev-env-site-once">
+              {t('devEnvSite.allowOnce')}
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'always' })} data-testid="dev-env-site-always">
+              {t('devEnvSite.allowAlways')}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'deny' })} data-testid="dev-env-site-deny">
+              {t('devEnvSite.deny')}
+            </Button>
+          </div>
+          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+        </div>
+      </div>
+    )
+
+  // a connect_service card is ConnectCard (Messages.tsx): its key never goes through /answer
+  if (r.kind === 'connect_service') return null
+
   const options = r.options ?? []
   const allowText = r.allowText ?? options.length === 0
   const value: string | string[] | null = r.multiple ? [...picked, ...(text.trim() ? [text.trim()] : [])] : (picked[0] ?? (text.trim() || null))
@@ -76,6 +111,37 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const toggle = (v: string) => setPicked((p) => (r.multiple ? (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]) : [v]))
 
   const fromServer = r.origin === 'server'
+  // the server's yes/no (a change in a room, saving where more people see it, a team skill, an address, a send): two
+  // buttons, "no" neutral and "yes" primary, like Claude Code's permission prompt. The first option is the yes. A
+  // question with more choices keeps its radios and [답하기].
+  if (fromServer && !allowText && !r.multiple && options.length === 2) {
+    const [yes, no] = options as [(typeof options)[number], (typeof options)[number]]
+    const pick = (v: string) => {
+      setPicked([v])
+      void run({ kind: 'ask_user', answer: v })
+    }
+    return (
+      <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-labelledby={`${name}-q`} data-testid="ask-card" data-origin="server" data-kind="confirm">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
+          <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
+        </p>
+        <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
+          {r.question}
+        </p>
+        {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
+        {r.details?.length ? <Details items={r.details} plain /> : null}
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
+          <Button size="sm" variant="ghost" disabled={busy} busy={busy && picked[0] === no.value} onClick={() => pick(no.value)} data-testid="ask-no">
+            {no.label}
+          </Button>
+          <Button size="sm" variant="primary" disabled={busy} busy={busy && picked[0] === yes.value} onClick={() => pick(yes.value)} data-testid="ask-yes">
+            {yes.label}
+          </Button>
+        </div>
+      </div>
+    )
+  }
   return (
     <form
       className={clsx('my-3 overflow-hidden rounded-2xl border', fromServer ? 'border-warn/40' : 'border-line')}
@@ -83,7 +149,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
       data-origin={fromServer ? 'server' : 'ai'}
       onSubmit={(e) => {
         e.preventDefault()
-        if (ready) void run({ kind: 'ask_user', answer: value })
+        if (ready && secret.pass()) void run({ kind: 'ask_user', answer: value })
       }}
     >
       {fromServer ? (
@@ -113,6 +179,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
           )}
           {allowText && (
             <textarea
+              ref={textRef}
               aria-label={t('ask.ownAnswer')}
               aria-describedby={`${name}-secrets`}
               className={clsx(inputCls, 'h-auto min-h-16 resize-y py-2')}
@@ -122,6 +189,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
                 setText(e.target.value)
                 if (!r.multiple && e.target.value) setPicked([])
               }}
+              data-testid="ask-text"
             />
           )}
           {/* tab 5 "확인 카드": the free-text answer goes to the AI; this line is always there under it */}
@@ -130,6 +198,20 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
               {t('ask.noSecrets')}
             </p>
           )}
+          {secret.held && (
+            <div className="pt-1">
+              <SecretWarning
+                onSendAnyway={() => {
+                  secret.release()
+                  void run({ kind: 'ask_user', answer: value })
+                }}
+                onEdit={() => {
+                  secret.release()
+                  textRef.current?.focus()
+                }}
+              />
+            </div>
+          )}
         </fieldset>
       </div>
       <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5">
@@ -137,7 +219,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'ask_user', answer: null })}>
           {t('ask.skip')}
         </Button>
-        <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy}>
+        <Button size="sm" variant="primary" type="submit" disabled={!ready} busy={busy} data-testid="ask-send">
           {t('ask.send')}
         </Button>
       </div>
@@ -164,7 +246,7 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
         )}
       </div>
       {isDiff ? (
-        <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-[12px] leading-5" data-testid="skill-preview-diff">
+        <pre className="scroll-thin max-h-64 overflow-auto px-0 py-1 font-mono text-code-sm leading-5" data-testid="skill-preview-diff">
           {lines.map((l, i) => (
             <div
               key={i}
@@ -177,28 +259,64 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
       ) : (
         <p className="px-3 py-2 text-xs text-muted">{p.diff}</p>
       )}
-      {p.truncated && <p className="border-t border-line px-3 py-1 text-[11px] text-faint">{t('ask.skillTruncated')}</p>}
+      {p.truncated && <p className="border-t border-line px-3 py-1 text-micro text-faint">{t('ask.skillTruncated')}</p>}
+      {p.problem && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-problem">{issueText(t, { path: p.path, problem: p.problem })}</p>}
     </div>
   )
 }
 
 /** What a server check is about to let out, every character of it (a connected service's write with where it goes, a
- * scheduled task's instruction and its addresses): scrollable, with its size; long random-looking parts highlighted. */
-function Details({ items }: { items: ConfirmDetail[] }) {
+ * scheduled task's instruction and its addresses): scrollable, with its size; long random-looking parts highlighted.
+ * `plain` (a yes/no card): no boxes, the fields as name–value lines and the text under its label with a rule beside it. */
+function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) {
   const t = useT()
+  if (plain)
+    return (
+      <div className="mt-2.5 space-y-2.5" data-testid="ask-details">
+        {items.map((d, i) => (
+          <div key={i} className="space-y-1.5 text-sm" data-testid="ask-detail">
+            {d.fields?.length ? (
+              <div role="group" aria-label={d.label} data-testid="ask-detail-fields">
+                <dl className="space-y-1">
+                  {d.fields.map((f, j) => (
+                    <div key={j} className="flex gap-3">
+                      <dt className="w-14 shrink-0 text-faint">{f.name}</dt>
+                      <dd className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ) : null}
+            {d.text && (
+              <div>
+                <p className="flex items-baseline gap-2 text-xs text-faint">
+                  <span className="min-w-0 flex-1">{d.label}</span>
+                  <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>
+                </p>
+                <div className="mt-1 border-l-2 border-line">
+                  <DetailText d={d} plain />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    )
   return (
     <div className="mb-2 space-y-2" data-testid="ask-details">
       {items.map((d, i) => (
         <div key={i} className="overflow-hidden rounded-lg border border-line" data-testid="ask-detail">
           <div className="flex flex-wrap items-center gap-2 border-b border-line bg-subtle px-3 py-1.5 text-xs">
             <span className="min-w-0 flex-1 font-medium">{d.label}</span>
-            <span className="text-faint" data-testid="ask-detail-size">
-              {t('ask.detailSize', { n: d.text.length })}
-            </span>
+            {d.text && (
+              <span className="text-faint" data-testid="ask-detail-size">
+                {t('ask.detailSize', { n: d.text.length })}
+              </span>
+            )}
           </div>
           {d.fields?.length ? (
             <div
-              className="scroll-thin max-h-40 space-y-0.5 overflow-auto border-b border-line px-3 py-1.5 font-mono text-xs"
+              className={clsx('scroll-thin max-h-40 space-y-0.5 overflow-auto px-3 py-1.5 font-mono text-xs', d.text && 'border-b border-line')}
               role="group"
               aria-label={d.label}
               tabIndex={0}
@@ -212,17 +330,43 @@ function Details({ items }: { items: ConfirmDetail[] }) {
               ))}
             </div>
           ) : null}
-          <pre
-            className="scroll-thin max-h-64 overflow-auto px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]"
-            tabIndex={0}
-            aria-label={d.label}
-            data-testid="ask-detail-text"
-          >
-            <Marked text={d.text} marks={d.marks} />
-          </pre>
+          {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
+          {d.text && <DetailText d={d} />}
         </div>
       ))}
     </div>
+  )
+}
+
+/** A detail's text: all of it, or with `collapsedAt` its start and the rest one click away (a room change card's
+ * preview of what a call writes; the size above always counts all of it). */
+function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const long = d.collapsedAt !== undefined && d.text.length > d.collapsedAt
+  const text = long && !open ? `${d.text.slice(0, d.collapsedAt).trimEnd()}…` : d.text
+  return (
+    <>
+      <pre
+        className={clsx('scroll-thin max-h-64 overflow-auto font-mono text-code-sm leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]', plain ? 'py-0.5 pl-3' : 'px-3 py-2')}
+        tabIndex={0}
+        aria-label={d.label}
+        data-testid="ask-detail-text"
+      >
+        <Marked text={text} marks={d.marks} />
+      </pre>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className={clsx('block text-left text-xs font-medium text-muted hover:text-ink', plain ? 'mt-1 ml-3 rounded px-0 py-1 underline-offset-2 hover:underline' : 'w-full border-t border-line px-3 py-1.5 hover:bg-hover')}
+          data-testid="ask-detail-more"
+        >
+          {open ? t('ask.detailLess') : t('ask.detailAll')}
+        </button>
+      )}
+    </>
   )
 }
 

@@ -5,18 +5,22 @@ import { BrowserRelay } from '../lib/browserRelay'
 import { browserSettingsBridge } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
 import { navigateTo } from '../lib/nav'
+import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
 import { t } from '../i18n'
 import { useChats } from './chats'
+import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { useJobs } from './jobs'
+import { usePeople } from './people'
+import { useRooms } from './rooms'
 import { useSession } from './session'
 import { toast, useUi } from './ui'
 
 /** files.changed (only paths this person can read): the file screen refreshes the folder it shows. */
 export const filesChanged = new Emitter<FileChange[]>()
-export const memoryChanged = new Emitter<{ change: 'created' | 'deleted' | 'cleared'; memory: Memory | null }>()
+export const memoryChanged = new Emitter<{ change: 'created' | 'updated' | 'deleted' | 'cleared'; memory: Memory | null }>()
 /** an admin changed folder rules, groups or roles in a way that changes what this person sees (tab 5 "권한 회수") */
 export const accessChanged = new Emitter<void>()
 /** a team skill changed, was suggested or reviewed: the team skills screen and the sidebar count reload */
@@ -25,10 +29,13 @@ export const skillsChanged = new Emitter<void>()
 export const notificationsChanged = new Emitter<void>()
 /** this window changed a scheduled task (resumed one from its card): the "paused for review" banner recounts */
 export const schedulesChanged = new Emitter<void>()
-/** a ChatGPT sign-in this person started (Admin / Settings > AI connections): its address, code and result */
+/** a ChatGPT sign-in this person started (Admin / Settings > AI providers): its address, code and result */
 export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
+/** an answer of this chat took a step or ended (message.step / message.done), also for a chat no screen has open: the
+ * company profile step asks for its draft's pages right away instead of at its next poll */
+export const chatActivity = new Emitter<string>()
 
 let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
@@ -38,12 +45,17 @@ export function dispatch(ev: ServerEvent) {
   if (ev.type === 'message.done' && typeof document !== 'undefined' && document.hidden) {
     useUi.getState().setUnseenDone(useUi.getState().unseenDone + 1)
   }
+  if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
   switch (ev.type) {
+    case 'queue.position':
+      // a question to the AI in a room waits in the same queue (store/rooms.ts keeps the room's own)
+      useRooms.getState().handleEvent(ev)
+      useChats.getState().handleEvent(ev)
+      return
     case 'message.created':
     case 'message.delta':
     case 'message.step':
     case 'message.done':
-    case 'queue.position':
     case 'chat.updated':
     case 'turn.request':
     case 'turn.request.closed':
@@ -52,6 +64,16 @@ export function dispatch(ev: ServerEvent) {
       return
     case 'files.changed':
       filesChanged.emit(ev.data.changes)
+      return
+    case 'room.message':
+    case 'room.message.updated':
+    case 'room.read':
+    case 'room.updated':
+    case 'room.ai':
+    case 'room.ai.run':
+    case 'room.ai.step':
+      // the team chat rooms (store/rooms.ts): only the room's members get these
+      useRooms.getState().handleEvent(ev)
       return
     case 'files.conflict': {
       // a save met a newer version (mine or someone else's): both people hear about the conflict copy
@@ -80,6 +102,8 @@ export function dispatch(ev: ServerEvent) {
         // the admin changed who may pick the engine or which engines are on: show / hide the picker without a reload
         void useSession.getState().refreshMe()
         void useEngines.getState().load(true)
+        // an AI connection was added or lost: the "no AI" banner follows
+        void useAiAccess.getState().load(true)
         return
       }
       if (ev.data.code === 'browser_policy_changed') {
@@ -92,6 +116,13 @@ export function dispatch(ev: ServerEvent) {
       if (ev.data.code === 'team_icon_changed') {
         // an admin set or removed the team logo: the tab icon follows (GET /api/me carries its version)
         void useSession.getState().refreshMe()
+        return
+      }
+      if (ev.data.code === 'profile_changed' || ev.data.code === 'my_profile_changed') {
+        // someone changed their name, title, status or photo (routes/people.ts): the people list (when a screen has read
+        // it) follows, and my own account when it was me (another window or device), quietly: the notice carries no text
+        if (ev.data.code === 'my_profile_changed') void useSession.getState().refreshMe()
+        if (usePeople.getState().loaded) void usePeople.getState().load(true)
         return
       }
       if (ev.data.code === 'speech_changed') {
@@ -156,7 +187,7 @@ export function startLive() {
       if (firstServerVersion === null) firstServerVersion = serverVersion
       else if (serverVersion !== firstServerVersion) {
         useUi.getState().setUpdateReady(true)
-        toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => location.reload() } })
+        toast({ level: 'info', text: t('update.ready'), sticky: true, action: { label: t('update.reload'), run: () => { keepUnsentAsDrafts(); location.reload() } } })
       }
     },
   })

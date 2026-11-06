@@ -7,7 +7,9 @@
 // Env overrides (win over the file): MYCEL_MODE, MYCEL_HOST, MYCEL_PORT, MYCEL_TEAM_ROOT, MYCEL_DATA_DIR,
 // MYCEL_LOG_DIR, MYCEL_LOG_LEVEL, MYCEL_PUBLIC_ORIGINS (comma separated), MYCEL_SETUP_TOKEN,
 // MYCEL_RELAY_URL (ws(s)://<relay>/connect, '' = off), MYCEL_RELAY_TEAM (team name at the relay), MYCEL_RELAY_OFFICIAL
-// (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts).
+// (1 = the official relay may be offered), MYCEL_DEPLOYMENT (self | hosted, server/src/system/deployment.ts),
+// MYCEL_DEMO (a demo file, `bun run demo:company`: development servers only, refused anywhere else; readDemoFile),
+// MYCEL_PUSH_GATEWAY (the native app push gateway, https://<host> or http://127.0.0.1:<port>; unset or '' = off).
 // Office mode (one Mac in a small office, docs/OFFICE.md) is dev mode's engine setup (local-login, engine.sb,
 // lockdown) with `office: true`: no DEV banner, and its supervisor (server/src/office/cli.ts) writes the file (TLS
 // listener on the office network, allowedHosts, publicOrigins).
@@ -18,6 +20,7 @@ import { z } from 'zod'
 import { AuthMode, PRODUCT, SourceCodeConfig } from '@mycel/shared'
 import { CredentialKind } from '@mycel/shared/api'
 import { CLOUD_DEFAULT_CREDENTIAL_KINDS } from '@mycel/shared/cloud-protocol'
+import { DemoFile } from '@mycel/shared/api'
 
 export const REPO_ROOT = path.resolve(import.meta.dir, '..', '..')
 export const DEV_DIR = path.join(REPO_ROOT, '.dev')
@@ -60,6 +63,30 @@ const credentialUrl = (u: string) => {
   } catch { return false }
 }
 const UpstreamUrl = z.string().url().refine(credentialUrl, 'model upstreams must be https:// (http:// only for 127.0.0.1 / localhost)')
+/** A model id of an Anthropic-compatible gateway: the argv-safe shape of chat/engines.ts MODEL_RE (it goes to
+ * `--model` and the engine's environment, never read as an option), and never `claude-*`: that is Anthropic's own
+ * name, which a gateway forwards to Anthropic at Anthropic's price (the gateway's own id, e.g. anthropic/claude-…, is fine). */
+const GatewayModel = z.string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/[\]-]{0,99}$/, 'gateway model ids: letters, digits and . _ - : / [ ] (at most 100)')
+  .refine((m) => !/^claude-/i.test(m), 'a claude-* id would be billed by Anthropic through the gateway; use the gateway\'s own id for that model')
+/** USD per million tokens; cache reads and writes cost the input price unless given */
+const GatewayPrice = z.object({ input: z.number().nonnegative(), output: z.number().nonnegative(), cacheRead: z.number().nonnegative().optional(), cacheWrite: z.number().nonnegative().optional() })
+export type GatewayPrice = z.infer<typeof GatewayPrice>
+/** engine.anthropicGateway (docs/DECISIONS.md "Anthropic-compatible gateway"): Claude Code's requests go to an
+ * Anthropic Messages-compatible address (OpenRouter, DeepSeek, Kimi, GLM ...) instead of Anthropic, on these models only */
+export const AnthropicGatewayConf = z.object({
+  /** without /v1: the proxy adds /v1/messages, as Claude Code's ANTHROPIC_BASE_URL does */
+  baseUrl: z.string().url()
+    .refine(credentialUrl, 'anthropicGateway.baseUrl must be https:// (http:// only for 127.0.0.1 / localhost)')
+    .refine((u) => { try { const x = new URL(u); return !x.search && !x.hash && !/\/v1\/*$/.test(x.pathname) } catch { return false } }, 'anthropicGateway.baseUrl: no /v1 at the end (the proxy adds /v1/messages), no query'),
+  /** shown in Admin > AI connections (default: the address's host) */
+  label: z.string().trim().min(1).max(40).optional(),
+  /** default: what a turn nobody chose a model for runs on; opus / sonnet / haiku: what Claude Code's aliases and its
+   * small fast model become (missing ones are the default) */
+  models: z.object({ default: GatewayModel, opus: GatewayModel.optional(), sonnet: GatewayModel.optional(), haiku: GatewayModel.optional() }),
+  prices: z.record(GatewayModel, GatewayPrice).optional(),
+})
+export type AnthropicGatewayConf = z.infer<typeof AnthropicGatewayConf>
 /** same port under its production name (installer --proxy-port; pf and the engine sandbox allow the engine account only this) */
 export const PROD_PROXY_PORT = DEFAULT_PROXY_PORT
 
@@ -114,8 +141,12 @@ export const AppConfigFile = z.object({
      * cannot be added, and existing connections of it are skipped (shown as "off on this server", never deleted).
      * The hosted cloud's enrollment writes all four (CLOUD_DEFAULT_CREDENTIAL_KINDS); the control plane may narrow it. */
     credentialKinds: z.array(CredentialKind).min(1).optional(),
-    /** where the model proxy sends each family (tests: fake upstreams). Same rule as modelUpstream. */
-    modelUpstreams: z.object({ anthropic: UpstreamUrl.optional(), openai: UpstreamUrl.optional(), chatgpt: UpstreamUrl.optional(), openaiAuth: UpstreamUrl.optional() }).optional(),
+    /** where the model proxy sends each family (tests: fake upstreams). Same rule as modelUpstream. `openrouter`: where
+     * the hosting service's trial credit answers go (OPENROUTER_API; tests only, credentials/hosted-chat.ts) */
+    modelUpstreams: z.object({ anthropic: UpstreamUrl.optional(), openai: UpstreamUrl.optional(), chatgpt: UpstreamUrl.optional(), openaiAuth: UpstreamUrl.optional(), openrouter: UpstreamUrl.optional() }).optional(),
+    /** Claude Code on another company's models (AnthropicGatewayConf); managed mode only, never with
+     * modelUpstreams.anthropic / modelUpstream. Claude subscription connections are off while it is set. */
+    anthropicGateway: AnthropicGatewayConf.optional(),
     /** the model proxy's port on 127.0.0.1 (the installer's --proxy-port), the engine account's only network path:
      * Claude requests and Codex tunnels. pf and the launcher's sandbox allow the engine account only this port, so
      * another value here only makes the engine fail closed. */
@@ -150,6 +181,9 @@ export const AppConfigFile = z.object({
   }).default({ channel: 'stable', feedUrl: null, auto: false }),
   /** Operator-owned corresponding-source metadata. Does not publish or export source. */
   sourceCode: SourceCodeConfig.optional(),
+  /** native app push (server/src/notifications/push-native.ts): the push gateway, https://<host>. Absent or null = off:
+   * phone tokens go nowhere until the operator chooses a gateway (a hosted service writes it here). */
+  push: z.object({ gatewayUrl: z.string().max(300).nullable().optional() }).strict().optional(),
   /** check every JSON response against the contract (default: on in dev) */
   validateResponses: z.boolean().optional(),
   /** how this server is installed (linux-runtime D24, server/src/system/deployment.ts): "self" (a customer's own server,
@@ -189,16 +223,23 @@ export interface AppConfig {
     modelUpstream?: string
     /** absent = all four kinds */
     credentialKinds?: CredentialKind[]
-    modelUpstreams?: Partial<ModelUpstreams>
+    modelUpstreams?: Partial<ModelUpstreams> & { openrouter?: string }
+    /** see AppConfigFile engine.anthropicGateway */
+    anthropicGateway?: AnthropicGatewayConf
   }
   relay: { url: string | null; teamName: string | null; officialAvailable?: boolean }
   update: { channel: 'stable' | 'beta'; feedUrl: string | null; auto?: boolean }
+  /** the native app push gateway; absent or null = no native push (the default) */
+  push?: { gatewayUrl?: string | null }
   sourceCode?: SourceCodeConfig
   validateResponses: boolean
   /** see AppConfigFile.deployment; absent = "self" (server/src/system/deployment.ts deploymentOf) */
   deployment?: 'self' | 'hosted'
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
+  /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
+   * server (readDemoFile); absent everywhere else, and then the demo endpoints answer 404. */
+  demo?: DemoFile
 }
 
 export class ConfigError extends Error { name = 'ConfigError' }
@@ -246,6 +287,12 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   const deployment = dep?.data ?? f.deployment
   // the hosted service is never office mode (one Mac in an office): a file that says both is a mistake, not a choice
   if (deployment === 'hosted' && f.office) throw new ConfigError(`config file ${file}: deployment "hosted" cannot be office mode`)
+  // two answers to "where do Claude requests go" is a mistake; a local-login engine never uses the proxy
+  if (f.engine.anthropicGateway && (f.engine.modelUpstreams?.anthropic || f.engine.modelUpstream)) throw new ConfigError(`config file ${file}: engine.anthropicGateway and engine.modelUpstreams.anthropic (or modelUpstream) cannot both be set`)
+  if (f.engine.anthropicGateway && normalizeAuthMode(f.engine.authMode) !== 'managed') throw new ConfigError(`config file ${file}: engine.anthropicGateway needs engine.authMode "managed"`)
+  const demo = readDemoFile(env[P + 'DEMO'], { mode, deployment, office: !!f.office }, cwd)
+  const pushGateway = env[P + 'PUSH_GATEWAY'] !== undefined ? (env[P + 'PUSH_GATEWAY'] || null) : (f.push?.gatewayUrl ?? null)
+  if (pushGateway !== null && !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(pushGateway) && !/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/.test(pushGateway)) throw new ConfigError(`push gateway must be https://<host> or http://127.0.0.1:<port> (${P}PUSH_GATEWAY or push.gatewayUrl)`)
 
   return {
     mode,
@@ -274,6 +321,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       ...(f.engine.modelUpstream ? { modelUpstream: f.engine.modelUpstream } : {}),
       ...(f.engine.credentialKinds ? { credentialKinds: [...new Set(f.engine.credentialKinds)] } : {}),
       ...(f.engine.modelUpstreams ? { modelUpstreams: f.engine.modelUpstreams } : {}),
+      ...(f.engine.anthropicGateway ? { anthropicGateway: f.engine.anthropicGateway } : {}),
     },
     relay: {
       url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,
@@ -281,33 +329,80 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       officialAvailable: env[P + 'RELAY_OFFICIAL'] !== undefined ? env[P + 'RELAY_OFFICIAL'] === '1' : f.relay.officialAvailable,
     },
     update: f.update,
+    push: { gatewayUrl: pushGateway },
     ...(f.sourceCode ? { sourceCode: f.sourceCode } : {}),
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
+    ...(demo ? { demo } : {}),
   }
+}
+
+/**
+ * MYCEL_DEMO=<file>: the demo company's people (docs/DECISIONS.md "Demo company: a new hire at 트리나"). The product has
+ * no "sign in as someone else"; the demo's switch between its fictional people exists only on a development server
+ * started for the demo. So the flag stops the server everywhere else (production mode, the hosted service, office mode),
+ * as does a file that is missing or not a demo file. Unset or empty: no demo (null).
+ */
+export function readDemoFile(value: string | undefined, where: { mode: 'dev' | 'prod'; deployment?: 'self' | 'hosted'; office: boolean }, cwd = process.cwd()): DemoFile | null {
+  if (value === undefined || value === '') return null
+  const P = PRODUCT.envPrefix
+  if (where.mode !== 'dev' || where.deployment === 'hosted' || where.office) {
+    throw new ConfigError(`${P}DEMO is for a development demo server only (\`bun run demo:company\`): remove it from this server's environment. It is never allowed in production mode, on the hosted service or in office mode.`)
+  }
+  const file = path.resolve(cwd, value)
+  let raw: unknown
+  try { raw = JSON.parse(fs.readFileSync(file, 'utf8')) } catch (e) { throw new ConfigError(`${P}DEMO: cannot read the demo file ${file}: ${(e as Error).message}`) }
+  const parsed = DemoFile.safeParse(raw)
+  if (!parsed.success) throw new ConfigError(`${P}DEMO: ${file} is not a demo file: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`)
+  return parsed.data
 }
 
 /** The AI connection kinds this server allows: engine.credentialKinds, else the deployment's default — all four on a
  * self-installed server or office Mac and on the hosted service (shared/src/cloud-protocol
  * CLOUD_DEFAULT_CREDENTIAL_KINDS, the list mycel-enroll writes; owner's decision 2026-10-22). Subscription kinds always
- * need the D23 notice; the control plane can narrow the list fleet-wide with set-server-config. */
-export function allowedCredentialKinds(config: Pick<AppConfig, 'engine'> & { deployment?: AppConfig['deployment'] }): Set<CredentialKind> {
-  if (config.engine.credentialKinds?.length) return new Set(config.engine.credentialKinds)
-  return new Set(config.deployment === 'hosted' ? CLOUD_DEFAULT_CREDENTIAL_KINDS : ALL_CREDENTIAL_KINDS)
+ * need the D23 notice; the control plane can narrow the list fleet-wide with set-server-config.
+ * With engine.anthropicGateway: never anthropic-oauth (a Claude subscription token is not sent to a third party), and
+ * `gateway` names the gateway an anthropic-api-key connection must have been made for (credentials/store.ts unusable). */
+export function allowedCredentialKinds(config: Pick<AppConfig, 'engine'> & { deployment?: AppConfig['deployment'] }): Set<CredentialKind> & { gateway: string | null } {
+  const kinds = new Set(config.engine.credentialKinds?.length ? config.engine.credentialKinds : config.deployment === 'hosted' ? CLOUD_DEFAULT_CREDENTIAL_KINDS : ALL_CREDENTIAL_KINDS)
+  const g = config.engine.anthropicGateway
+  if (g) kinds.delete('anthropic-oauth')
+  return Object.assign(kinds, { gateway: g ? gatewayHost(g) : null })
 }
+/** The AI connections a server allows: the kinds, and which gateway (its host; null = Anthropic itself) an Anthropic
+ * API key connection is for. A plain set of kinds (tests) means no gateway. */
+export type AllowedKinds = ReadonlySet<CredentialKind> & { readonly gateway?: string | null }
 
-/** Where the model proxy sends each family: engine.modelUpstreams, modelUpstream (= anthropic), the real services. */
+/** engine.anthropicGateway, or null (Claude requests go to Anthropic) */
+export const anthropicGateway = (config: Pick<AppConfig, 'engine'>): AnthropicGatewayConf | null => config.engine.anthropicGateway ?? null
+/** the gateway's host (with a port when it has one): what an AI connection made for it remembers */
+export const gatewayHost = (g: Pick<AnthropicGatewayConf, 'baseUrl'>) => new URL(g.baseUrl).host
+export const gatewayLabel = (g: Pick<AnthropicGatewayConf, 'baseUrl' | 'label'>) => g.label ?? gatewayHost(g)
+/** OpenRouter (its key is checked on GET /api/v1/key, it reports what a request cost) */
+export const isOpenRouter = (g: Pick<AnthropicGatewayConf, 'baseUrl'>) => gatewayHost(g) === 'openrouter.ai'
+/** the model ids the proxy forwards to the gateway: the default first, no repeats */
+export const gatewayModelIds = (g: Pick<AnthropicGatewayConf, 'models'>): string[] =>
+  [...new Set([g.models.default, g.models.opus, g.models.sonnet, g.models.haiku].filter((m): m is string => !!m))]
+
+/** Where the model proxy sends each family: engine.anthropicGateway or engine.modelUpstreams (never both),
+ * modelUpstream (= anthropic), the real services. */
 export function modelUpstreams(config: Pick<AppConfig, 'engine'>): ModelUpstreams {
   const o = config.engine.modelUpstreams ?? {}
   const trim = (u: string) => u.replace(/\/+$/, '')
   return {
-    anthropic: trim(o.anthropic ?? config.engine.modelUpstream ?? DEFAULT_UPSTREAMS.anthropic),
+    anthropic: trim(config.engine.anthropicGateway?.baseUrl ?? o.anthropic ?? config.engine.modelUpstream ?? DEFAULT_UPSTREAMS.anthropic),
     openai: trim(o.openai ?? DEFAULT_UPSTREAMS.openai),
     chatgpt: trim(o.chatgpt ?? DEFAULT_UPSTREAMS.chatgpt),
     openaiAuth: trim(o.openaiAuth ?? DEFAULT_UPSTREAMS.openaiAuth),
   }
 }
+
+/** OpenRouter's OpenAI-compatible API: the hosting service's trial credit answers there (credentials/hosted-chat.ts) */
+export const OPENROUTER_API = 'https://openrouter.ai/api/v1'
+/** where trial answers go: OpenRouter, or engine.modelUpstreams.openrouter (tests) */
+export const openRouterUpstream = (config: Pick<AppConfig, 'engine'>): string =>
+  (config.engine.modelUpstreams?.openrouter ?? OPENROUTER_API).replace(/\/+$/, '')
 
 /** managed mode (the team's AI connections behind the model proxy) */
 export const isManaged = (config: Pick<AppConfig, 'engine'>) => config.engine.authMode === 'managed'

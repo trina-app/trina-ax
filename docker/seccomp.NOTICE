@@ -1,0 +1,4 @@
+seccomp.json is Docker's default seccomp profile (moby/moby v27.5.1, profiles/seccomp/default.json,
+Apache License 2.0, https://github.com/moby/moby) with one rule added at the end: allow clone, unshare,
+setns, mount, umount2 and pivot_root without CAP_SYS_ADMIN, so bubblewrap can create the engine sandbox
+as the unprivileged engine account. To update it, take the new default.json and add the same rule.

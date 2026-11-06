@@ -1,5 +1,5 @@
 // What the composer's engine / model picker may offer this person (GET /api/engines). The engine and model are the
-// admin's choice (Admin > AI engines): owner and admins always pick; other people only when the admin allows them.
+// admin's choice (Admin > AI providers): owner and admins always pick; other people only when the admin allows them.
 // Everyone else never sees a picker and never sends an engine or model (the server would refuse it).
 import { create } from 'zustand'
 import type { EngineId } from '@mycel/shared/api'

@@ -2,9 +2,13 @@
 // CT-1). mycel-ctl (root) runs them as the server account and adds what only root sees (kit and root versions,
 // /api/health, cgroup / PSI / disk, the update lock):
 //
-//   cloud-status                         the app's part of TenantStatus (no names, mail, IPs, chats or tokens)
+//   cloud-status [--onboarding]          the app's part of TenantStatus (no names, mail, IPs, chats or tokens);
+//                                        --onboarding adds the team's first days (onboarding/tenant-status.ts)
 //   reset-link [--username U]            a one-time password reset link at publicOrigins[0]: { url, expiresAt }
 //   credentials-escrow-out --recipient R the AI connections' key, age-armored to R: { keyAge, keyVersion } | { absent }
+//   hosted-speech-key < { key | null }   the hosting service's speech-to-text key, kept encrypted: { ok, set }
+//   hosted-chat-key < { key, capUsd, endsAt, enabled } | { key: null }
+//                                        the hosting service's trial AI credit, key kept encrypted: { ok, set, usedUsd }
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
@@ -17,11 +21,19 @@ import type { BackupMeta } from './backup'
 import { lastUploadedLocalId } from './cloud-admin'
 import { seatsUsed } from './limits'
 import { ageArmorTo } from './streams'
+import { HostedChatKeyInput, HostedSpeechKeyInput } from '@mycel/shared/cloud-protocol'
+import { isHosted } from './deployment'
+import { makeCredCtx } from '../credentials/store'
+import { writeHostedSpeechKey } from '../credentials/speech-key'
+import { writeHostedChatKey } from '../credentials/hosted-chat'
+import { audit } from '../admin/audit'
+import type { Logger } from '../log'
+import { tenantOnboarding } from '../onboarding/tenant-status'
 
 export class CloudTenantError extends Error { name = 'CloudTenantError' }
 
 /** the fields of TenantStatus the app answers; mycel-ctl fills the rest (at, kitVersion, rootVersion, app, resources, update) */
-export type AppTenantStatus = Pick<TenantStatus, 'setupNeeded' | 'activeMembers' | 'queue' | 'relay' | 'lastLocalBackup' | 'lastUploadedLocalId' | 'overall' | 'checks' | 'ai' | 'credentialsKey'>
+export type AppTenantStatus = Pick<TenantStatus, 'setupNeeded' | 'activeMembers' | 'queue' | 'relay' | 'lastLocalBackup' | 'lastUploadedLocalId' | 'overall' | 'checks' | 'ai' | 'credentialsKey' | 'onboarding'>
 
 const LOCAL_ID = /^[0-9]{8}T[0-9]{6}Z-(daily|manual|pre-update|final)(-[0-9]+)?$/
 const CHECK_ID = /^[a-z0-9_.-]{1,64}$/
@@ -29,7 +41,9 @@ const CODE = /^[a-z0-9_]{1,40}$/
 /** status/status.json is written every 30 s; older than this, its queue and checks are not reported */
 const STATUS_FRESH_MS = 3 * 60_000
 
-export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: string; statusDir: string; secretsDir: string; backups: BackupMeta[]; now?: number }): AppTenantStatus {
+/** `onboarding`: the reader asked for TenantStatus.onboarding (opt-in: ax-hostd's schema is strict, and a team that
+ * is not asked is not counted). */
+export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: string; statusDir: string; secretsDir: string; backups: BackupMeta[]; now?: number; onboarding?: boolean }): AppTenantStatus {
   const now = o.now ?? Date.now()
   let st: StatusFile | null = null
   try {
@@ -46,6 +60,9 @@ export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: strin
   const key = vault.check()
   const last = o.backups.filter((b) => LOCAL_ID.test(b.id)).at(-1) ?? null
   const uploaded = lastUploadedLocalId(o.dataDir)
+  // only when asked; counts only; left out while there is no account (and never fatal to the rest of the status)
+  let onboarding: TenantStatus['onboarding']
+  if (o.onboarding) try { onboarding = tenantOnboarding(o.db, o.config.teamRoot, now) } catch { onboarding = undefined }
   return {
     setupNeeded: users === 0,
     activeMembers: seatsUsed(o.db),
@@ -57,6 +74,7 @@ export function cloudStatus(o: { db: Database; config: AppConfig; dataDir: strin
     checks: (st?.checks ?? []).filter((c) => CHECK_ID.test(c.id)).slice(0, 100),
     ai: { claude: ai('anthropic'), codex: ai('openai') },
     credentialsKey: { present: key.state === 'ok', version: key.state === 'ok' ? vault.version : null },
+    ...(onboarding ? { onboarding } : {}),
   }
 }
 
@@ -82,3 +100,38 @@ export async function credentialsEscrowOut(secretsDir: string, recipient: string
   return { keyAge: await ageArmorTo(line + '\n', [recipient]), keyVersion: v }
 }
 
+/**
+ * hosted-speech-key: the OpenRouter key the hosting service made for this team (hosted voice input and video sound,
+ * 10 free hours a month; credentials/speech-key.ts), or null to take it away. Hosted servers only. The key comes on
+ * stdin (never in argv), is stored encrypted with the credentials vault, and is in no output, error or audit row: the
+ * audit says "set" or "removed". The server reads it at its next speech request (no restart).
+ */
+export function setHostedSpeechKey(o: { db: Database; secretsDir: string; config: AppConfig; log: Pick<Logger, 'info' | 'warn' | 'error'> }, input: unknown): { ok: true; set: boolean } {
+  if (!isHosted(o.config)) throw new CloudTenantError('hosted-speech-key is for hosted servers only (server.json deployment "hosted")')
+  const p = HostedSpeechKeyInput.safeParse(input)
+  if (!p.success) throw new CloudTenantError('stdin must be { key: an OpenRouter key | null }')
+  const cc = makeCredCtx({ db: o.db, secretsDir: o.secretsDir, config: o.config, log: o.log })
+  const set = writeHostedSpeechKey(cc, p.data.key)
+  audit(o.db, { actor: null, action: 'speech.hosted_key', target: null, detail: { key: set ? 'set' : 'removed' } })
+  return { ok: true, set }
+}
+
+/**
+ * hosted-chat-key: the trial AI credit the hosting service gives this team (credentials/hosted-chat.ts): an OpenRouter
+ * key for the API engine (never Claude Code, docs/DECISIONS.md "Z") with its dollar cap, end time and switch, or
+ * { key: null } to take it away. Hosted servers only. The
+ * key comes on stdin (never in argv), is stored encrypted with the credentials vault and is in no output, error or audit
+ * row: the audit says "set" or "removed" with the cap, end and switch. The answer carries what the team spent of the
+ * credit so far (the server's own count, across key rotations), so the hosting service can size a new cap. The next
+ * turn reads it (no restart).
+ */
+export function setHostedChatKey(o: { db: Database; secretsDir: string; config: AppConfig; log: Pick<Logger, 'info' | 'warn' | 'error'> }, input: unknown): { ok: true; set: boolean; usedUsd: number } {
+  if (!isHosted(o.config)) throw new CloudTenantError('hosted-chat-key is for hosted servers only (server.json deployment "hosted")')
+  const p = HostedChatKeyInput.safeParse(input)
+  if (!p.success) throw new CloudTenantError('stdin must be { key: an OpenRouter key, capUsd, endsAt, enabled } or { key: null }')
+  const cc = makeCredCtx({ db: o.db, secretsDir: o.secretsDir, config: o.config, log: o.log })
+  const grant = p.data.key === null ? null : p.data as Extract<HostedChatKeyInput, { capUsd: number }>
+  const r = writeHostedChatKey(cc, grant)
+  audit(o.db, { actor: null, action: 'ai.hosted_trial_key', target: null, detail: grant ? { key: 'set', capUsd: grant.capUsd, endsAt: grant.endsAt, enabled: grant.enabled } : { key: 'removed' } })
+  return { ok: true, ...r }
+}

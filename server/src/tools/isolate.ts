@@ -11,8 +11,11 @@
 //   pandoc --sandbox, typst --root) and isolation() reports it, so diagnostics can show it.
 // - Always: minimal environment (PATH, LANG, HOME/TMPDIR = work folder), cwd = work folder, a time limit (SIGKILL),
 //   and an output size limit.
+// - Background work (the text cache's re-extraction, inBackground below): the converter runs at lower CPU and disk
+//   priority than interactive work (backgroundPrefix), with a longer wall-clock limit.
 // Production (role accounts): the launcher runs converters as _axagent with the same profile (component G / the
 // launcher protocol); this module is the in-process fallback and the profile source.
+import { AsyncLocalStorage } from 'node:async_hooks'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -52,6 +55,8 @@ export interface IsolatedRun {
   /** called with stderr text as it arrives (progress parsing) */
   onStderr?: (s: string) => void
   signal?: AbortSignal
+  /** run below interactive work (backgroundPrefix, BACKGROUND_WALL_FACTOR); default: inside inBackground */
+  background?: boolean
 }
 
 export interface IsolatedResult {
@@ -158,6 +163,54 @@ function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; moder
   return a
 }
 
+/** Converters started inside background work: the text cache's re-extraction (files/search.ts OfficeCache.update with
+ * `background`: what a search left to the background queue, upgradeOld, the semantic re-index). `low` is asked when
+ * each converter starts, so one that starts after a person's grep joined the job runs at normal priority. `behind` is
+ * asked where converters wait for their turn (files/extract.ts officeWorkerSlot): the last try of a stopped file runs
+ * at normal priority, yet nobody asked for it, so it still waits behind people's work. */
+const backgroundWork = new AsyncLocalStorage<{ low: () => boolean; behind: () => boolean }>()
+export function inBackground<T>(low: () => boolean, f: () => Promise<T>, behind = low): Promise<T> { return backgroundWork.run({ low, behind }, f) }
+/** true inside inBackground while its `low()` holds */
+export function backgroundRun(): boolean { return backgroundWork.getStore()?.low() ?? false }
+/** true inside inBackground while its `behind()` holds */
+export function waitsBehindPeople(): boolean { return backgroundWork.getStore()?.behind() ?? false }
+
+/** a background converter may wait for the CPU behind interactive work, so its wall-clock limit is this many times the
+ * run's timeoutMs; its CPU-time limit (RLIMIT_CPU in the converter cgroup) stays that of timeoutMs */
+export const BACKGROUND_WALL_FACTOR = 3
+
+const SYSTEM_BIN = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
+const systemTool = (name: string) => SYSTEM_BIN.map((d) => path.join(d, name)).find((p) => { try { fs.accessSync(p, fs.constants.X_OK); return true } catch { return false } }) ?? null
+const prefixes = new Map<string, string[]>()
+/**
+ * The argv prefix that runs a converter below interactive work; each tool execs the next in place (the pid stays the
+ * converter's) and its setting is inherited by the converter and its children, through sandbox-exec, the converter
+ * cgroup helper and bwrap. [] where the tools are missing (only system folders are looked in).
+ * - Linux: `nice -n 10` and `ionice -c 2 -n 7` (the lowest best-effort disk priority, never idle-only; `-t`: run anyway
+ *   where it cannot be set). In the converter cgroup (production, system/cgroups.ts) the kernel weighs the converters
+ *   by their nice value against each other: the AI's grep, uploads and previews go first; the cgroup's share against
+ *   the server process is as before. Without a cpu cgroup the session autogroup (CONFIG_SCHED_AUTOGROUP; bwrap starts a
+ *   new session) can make the nice value count only inside the converter's own session.
+ * - macOS: `taskpolicy -c utility`, a QoS clamp: lower CPU priority and throttled disk I/O, still the fast cores when
+ *   the Mac is idle. nice has no effect on macOS (measured on an M-series Mac with 15 busy processes on 10 cores: a
+ *   nice 10 process got 0.99 of a normal one's CPU, `-c utility` 0.19, `-b` 0.01; idle, `-c utility` took 1.1 times
+ *   as long, `-b` 6.6 times).
+ */
+export function backgroundPrefix(platform: NodeJS.Platform = process.platform): string[] {
+  const known = prefixes.get(platform)
+  if (known) return known
+  let p: string[] = []
+  if (platform === 'linux') {
+    const nice = systemTool('nice'), ionice = systemTool('ionice')
+    p = [...(nice ? [nice, '-n', '10'] : []), ...(ionice ? [ionice, '-t', '-c', '2', '-n', '7'] : [])]
+  } else if (platform === 'darwin') {
+    const taskpolicy = systemTool('taskpolicy')
+    if (taskpolicy) p = [taskpolicy, '-c', 'utility']
+  }
+  prefixes.set(platform, p)
+  return p
+}
+
 /** Run a converter isolated. Never throws for a non-zero exit; check `code`. */
 export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   const ownDir = !o.workDir
@@ -171,21 +224,24 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   const cmd = real(o.cmd)
   const env: Record<string, string> = { PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', HOME: workDir, TMPDIR: workDir, ...o.env }
   const kind = isolation()
+  const timeoutMs = o.timeoutMs ?? 60_000
+  const background = o.background ?? backgroundRun()
+  const low = background ? backgroundPrefix() : []
   let argv: string[]
   if (kind === 'sandbox-exec') {
-    argv = ['/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts }), cmd, ...o.args]
+    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts }), cmd, ...o.args]
   } else if (kind === 'bwrap') {
     const bwrap = which('bwrap')!
     // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
-    argv = [...cgexecPrefix(o.timeoutMs ?? 60_000, o.cpuThreads), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
+    argv = [...low, ...cgexecPrefix(timeoutMs, o.cpuThreads), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
       ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
   } else {
-    argv = [cmd, ...o.args]
+    argv = [...low, cmd, ...o.args]
   }
   const p = Bun.spawn(argv, { cwd: workDir, env, stdin: o.stdin ? 'pipe' : 'ignore', stdout: 'pipe', stderr: 'pipe' })
   let killed: IsolatedResult['killed'] = null
   const kill = (why: NonNullable<IsolatedResult['killed']>) => { if (!killed) { killed = why; try { p.kill('SIGKILL') } catch {} } }
-  const timer = setTimeout(() => kill('timeout'), o.timeoutMs ?? 60_000)
+  const timer = setTimeout(() => kill('timeout'), background ? timeoutMs * BACKGROUND_WALL_FACTOR : timeoutMs)
   const watch = o.maxRssMiB || o.maxWorkBytes ? setInterval(() => {
     if (o.maxRssMiB) void treeRssKiB(p.pid).then((kib) => { if (kib > o.maxRssMiB! * 1024) kill('memory') })
     if (o.maxWorkBytes && dirBytes(workDir) > o.maxWorkBytes) kill('disk')

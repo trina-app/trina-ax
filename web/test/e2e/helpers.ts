@@ -11,6 +11,9 @@ export async function reset(page: Page, o: { setup?: boolean; teamLocale?: 'ko' 
 export function watchConsole(page: Page) {
   const errors: string[] = []
   page.on('console', (m) => {
+    // the demo's GET /api/demo is a 404 on every server that is not a demo (the sign-in page asks each server once,
+    // web/src/components/demo/Demo.tsx): the browser logs it, and it is no error of the page
+    if (m.type() === 'error' && /status of 404/.test(m.text()) && /\/api\/demo$/.test(m.location().url)) return
     if (m.type() === 'error') errors.push(m.text())
   })
   page.on('pageerror', (e) => errors.push(String(e)))
@@ -22,7 +25,12 @@ export async function signIn(page: Page, who = OWNER) {
   await page.getByTestId('login-username').fill(who.username)
   await page.getByTestId('login-password').fill(who.password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByTestId('composer-input')).toBeVisible()
+  // a phone lands on the 대화 list (App.tsx AfterSignIn); the tests start from Home either way
+  await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page'))).toBeVisible()
+  if (await page.getByTestId('rooms-page').isVisible()) {
+    await page.goto('/')
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+  }
 }
 
 /** Errors other than the expected 401 of GET /api/me before signing in. */

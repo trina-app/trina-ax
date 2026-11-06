@@ -35,13 +35,15 @@ describe('speech provider setting', () => {
     expect(s.speechModel).toBe('openai/whisper-large-v3-turbo')
     expect((await owner.call('GET', '/api/me')).team.voiceInput).toBe(false)
     expect((await member.client.call('GET', '/api/me')).team.voiceInput).toBe(false)
-    expect(await owner.call('GET', '/api/admin/speech-key')).toEqual({ set: false, hint: null, updatedAt: null })
+    expect(await owner.call('GET', '/api/admin/speech-key')).toEqual({ set: false, hint: null, updatedAt: null, hosted: null })
   })
   test("an admin picks 'local': audited as settings.update, everyone is told, voice input on", async () => {
     h.hub.events.length = 0
     const s = await admin.client.call('PATCH', '/api/admin/settings', { speechProvider: 'local' })
     expect(s.speechProvider).toBe('local')
     expect((await member.client.call('GET', '/api/me')).team.voiceInput).toBe(true)
+    // on this server nothing goes out: a confidential chat's composer keeps the mic
+    expect((await member.client.call('GET', '/api/me')).team.voiceInputOutside).toBeUndefined()
     expect(h.hub.events.some((e) => (e.data as any)?.data?.code === 'speech_changed')).toBe(true)
     const audit = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'settings.update' ORDER BY rowid DESC LIMIT 1").get() as { detail: string }
     expect(JSON.parse(audit.detail)).toEqual({ speechProvider: 'local' })
@@ -54,6 +56,7 @@ describe('speech provider setting', () => {
   test("'openrouter' without a key: voice input stays off", async () => {
     await owner.call('PATCH', '/api/admin/settings', { speechProvider: 'openrouter' })
     expect((await member.client.call('GET', '/api/me')).team.voiceInput).toBe(false)
+    expect((await member.client.call('GET', '/api/me')).team.voiceInputOutside).toBeUndefined()
   })
 })
 
@@ -73,6 +76,8 @@ describe('the OpenRouter key', () => {
     expect(r.hint).toBe('WXYZ')
     expect(JSON.stringify(r)).not.toContain(KEY)
     expect((await member.client.call('GET', '/api/me')).team.voiceInput).toBe(true)
+    // voice input now goes to OpenRouter: a confidential chat's composer says it is not used there
+    expect((await member.client.call('GET', '/api/me')).team.voiceInputOutside).toBe(true)
     expect(h.hub.events.some((e) => (e.data as any)?.data?.code === 'speech_changed')).toBe(true)
     const raw = (h.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(SPEECH_KEY_SETTING) as { value: string }).value
     expect(raw).not.toContain(KEY)
@@ -94,7 +99,7 @@ describe('the OpenRouter key', () => {
   })
   test('remove (null, password again): voice input off again', async () => {
     const r = await owner.call('PUT', '/api/admin/speech-key', { sealed: null, password: OWNER_PW })
-    expect(r).toEqual({ set: false, hint: null, updatedAt: null })
+    expect(r).toEqual({ set: false, hint: null, updatedAt: null, hosted: null })
     expect(readSpeechKey(credentialsOf(h.ctx))).toBeNull()
     expect((await member.client.call('GET', '/api/me')).team.voiceInput).toBe(false)
   })

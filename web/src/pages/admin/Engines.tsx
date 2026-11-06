@@ -1,31 +1,34 @@
-// AI engines: per engine install / login / lockdown status (what is missing, in plain words), re-check, enable;
-// team defaults (engine, model, turns at the same time); who else may pick the engine ("팀원이 엔진 고르기 허용", off:
-// owner and admins only) and the optional Claude-limit fallback to Codex (off; warns that data then also goes to
-// OpenAI; unavailable while Codex is off); usage limits. The accounts the engines use (Claude subscription tokens,
-// API keys, ChatGPT sign-ins) are on Admin > AI connections (Credentials.tsx); company keys moved there.
-import { AlertTriangle, CheckCircle2, CircleAlert, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import type { Budget, EngineId, EnginesResponse, EngineStatus, Group, MemberEngineChoice, User } from '@mycel/shared/api'
+// Admin › Providers (/admin/providers, in the Connections group; it was "AI engines" plus a separate "AI connections"
+// page, and /admin/engines and /admin/credentials lead here): one quiet row per engine (Claude Code, Codex, API, …): its
+// state as a chip, one dim line (how it signs in · its models · when it was checked), what is missing in one line,
+// check again and the on/off switch. Under it, the provider's accounts in the order they are used, with Add account (the
+// owner; the AI connection dialogs of Credentials.tsx, for this provider's kinds only). The row opens in place for the
+// rest: the longer explanation, the version and every model, and the owner's API engine form (address, model, key;
+// ?engine=api opens that row). The team's AI settings (defaults, who picks the engine, members' own accounts, usage
+// limits) are in Team settings (TeamAiSettings.tsx); the old ?tab=team address opens them there (AdminLayout.tsx).
+import clsx from 'clsx'
+import { ChevronRight, RefreshCw } from 'lucide-react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
+import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
-import { Badge, Button, Field, IconButton, Modal, Switch, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useLoad } from './common'
+import { Badge, Button, Field, IconButton, Switch, inputCls } from '../../components/ui'
+import { AdminPageHeader, Loadable, OneLine, useAction, useLoad } from './common'
+import { ENGINE_FAMILY, ProviderAccounts, useTeamCredentials } from './Credentials'
+import { TrialCreditBar } from '../../components/TrialCreditBar'
 import { useEngines } from '../../store/engines'
 
 export default function Engines() {
   const t = useT()
   const me = useMeStrict()
   const act = useAction()
+  const [params] = useSearchParams()
   const state = useLoad(() => api.call(API.engines))
+  const tc = useTeamCredentials()
   const [checking, setChecking] = useState<EngineId | null>(null)
-  const [defaults, setDefaults] = useState<{ defaultEngine: EngineId; defaultModel: string | null; concurrency: number } | null>(null)
-
-  useEffect(() => {
-    if (state.data) setDefaults({ defaultEngine: state.data.defaultEngine, defaultModel: state.data.defaultModel, concurrency: state.data.concurrency })
-  }, [state.data])
 
   const check = async (id: EngineId) => {
     setChecking(id)
@@ -37,345 +40,126 @@ export default function Engines() {
     const r = await act(() => api.call(API.updateEngines, { body: { enabled: { [id]: enabled } } }))
     if (r) state.setData(r)
   }
-  const saveDefaults = async () => {
-    if (!defaults) return
-    const r = await act(() => api.call(API.updateEngines, { body: defaults }), t('common.saved'))
-    if (r) state.setData(r)
-  }
 
   return (
-    <Loadable state={state}>
-      {(d) => (
-        <>
-          <div className="mb-6 grid gap-4 md:grid-cols-2">
-            {d.engines.map((e) => (
-              <EngineCard key={e.id} e={e} checking={checking === e.id} onCheck={() => check(e.id)} onToggle={(v) => toggle(e.id, v)} />
-            ))}
-          </div>
-          {isOwner(me) && (
-            <ApiEngineForm
-              onSaved={() => {
-                void check('api')
-                void useEngines.getState().load(true) // the composer's list
-              }}
-            />
-          )}
-          {defaults && (
-            <Card title={t('engines.defaults')} desc={t('engines.defaultsDesc')}>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Field label={t('engines.defaultEngine')}>
-                  <select className={inputCls} value={defaults.defaultEngine} onChange={(e) => setDefaults({ ...defaults, defaultEngine: e.target.value as EngineId, defaultModel: null })}>
-                    {d.engines.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label={t('engines.defaultModel')}>
-                  <select className={inputCls} value={defaults.defaultModel ?? ''} onChange={(e) => setDefaults({ ...defaults, defaultModel: e.target.value || null })}>
-                    <option value="">{t('composer.defaultModel')}</option>
-                    {d.engines
-                      .find((e) => e.id === defaults.defaultEngine)
-                      ?.models.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                  </select>
-                </Field>
-                <Field label={t('engines.concurrency')} hint={t('engines.concurrencyHint')}>
-                  {/* the plan's maximum on the hosted cloud (concurrencyMax; older servers: 16) */}
-                  <input className={inputCls} type="number" min={1} max={state.data?.concurrencyMax ?? 16} data-testid="engines-concurrency" value={defaults.concurrency} onChange={(e) => setDefaults({ ...defaults, concurrency: Math.max(1, Math.min(state.data?.concurrencyMax ?? 16, Number(e.target.value) || 1)) })} />
-                  {state.data?.concurrencyMax !== undefined && state.data.concurrencyMax < 16 && <span className="mt-1 block text-xs text-faint">{t('engines.concurrencyPlan', { max: state.data.concurrencyMax })}</span>}
-                </Field>
-              </div>
-              <Button variant="primary" className="mt-3" onClick={saveDefaults}>
-                {t('common.save')}
-              </Button>
-            </Card>
-          )}
-          <MemberChoice data={d} onSaved={(r) => state.setData(r)} />
-          <Budgets />
-        </>
-      )}
-    </Loadable>
-  )
-}
-
-function EngineCard({ e, checking, onCheck, onToggle }: { e: EngineStatus; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void }) {
-  const t = useT()
-  const locale = useLocale()
-  const ok = e.status === 'ok'
-  return (
-    <section className="rounded-2xl border border-line bg-surface p-4" data-testid="engine-card" aria-labelledby={`eng-${e.id}`}>
-      <div className="flex items-start gap-2">
-        {ok ? <CheckCircle2 size={18} className="mt-0.5 text-ok" aria-hidden /> : <CircleAlert size={18} className="mt-0.5 text-warn" aria-hidden />}
-        <div className="min-w-0 flex-1">
-          <h2 id={`eng-${e.id}`} className="font-semibold">
-            {e.label}
-            {e.beta && <span className="ml-2 align-middle"><Badge tone="warn">{t('engines.beta')}</Badge></span>}
-            {e.id === 'api' && <span className="ml-2 align-middle" data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
-          </h2>
-          <p className="text-xs text-muted">
-            <Badge tone={ok ? 'ok' : 'warn'}>{t(`engines.status.${e.status}`)}</Badge> {e.version && <span className="ml-1">v{e.version}</span>} · {e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })}
-          </p>
-        </div>
-        <IconButton label={t('engines.check')} onClick={onCheck} disabled={checking}>
-          <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
-        </IconButton>
-      </div>
-      {e.authMode === 'local-login' && <p className="mt-2 text-xs text-muted">{t('engines.localHelp')}</p>}
-      {e.beta && <p className="mt-2 text-xs text-muted" data-testid="engine-beta">{t('engines.betaHint')}</p>}
-      {e.id === 'api' && <p className="mt-2 text-xs text-muted">{t('engines.experimentalHint')}</p>}
-      {e.detail && (
-        <p className="mt-3 rounded-lg bg-subtle px-3 py-2 text-sm" data-testid="engine-detail">
-          {e.detail}
-          {e.authMode === 'managed' && e.status === 'not_logged_in' && (
-            <Link to="/admin/credentials" className="ml-2 font-medium text-accent-text underline" data-testid="engine-go-credentials">{t('engines.goCredentials')}</Link>
-          )}
-        </p>
-      )}
-      {e.models.length > 0 && <p className="mt-2 text-xs text-faint">{t('engines.models', { list: e.models.map((m) => m.label).join(', ') })}</p>}
-      <div className="mt-3 flex items-center justify-between gap-2">
-        <Switch checked={e.enabled} onChange={onToggle} label={t('engines.enabled')} />
-        {e.checkedAt && <span className="text-xs text-faint">{t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })}</span>}
-      </div>
-    </section>
-  )
-}
-
-function Budgets() {
-  const t = useT()
-  const locale = useLocale()
-  const act = useAction()
-  const budgets = useLoad(async () => (await api.call(API.listBudgets)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const [editing, setEditing] = useState<Budget | 'new' | null>(null)
-  const who = (b: Budget) => (b.subjectType === 'team' ? t('budgets.team') : b.subjectType === 'group' ? groups.data?.find((g) => g.id === b.subjectId)?.name ?? '?' : users.data?.find((u) => u.id === b.subjectId)?.name ?? '?')
-  return (
-    <Card
-      title={t('budgets.title')}
-      desc={t('budgets.desc')}
-      actions={
-        <Button size="sm" onClick={() => setEditing('new')}>
-          <Plus size={14} aria-hidden /> {t('budgets.new')}
-        </Button>
-      }
-    >
-      <Loadable state={budgets}>
-        {(list) =>
-          !list.length ? (
-            <p className="text-sm text-faint">{t('budgets.none')}</p>
-          ) : (
-            <ul className="divide-y divide-line text-sm">
-              {list.map((b) => (
-                <li key={b.id} className="flex flex-wrap items-center gap-2 py-2">
-                  <span className="min-w-0 flex-1">
-                    <span className="font-medium">{who(b)}</span> · {t(b.period === 'day' ? 'budgets.perDay' : 'budgets.perMonth')}
-                    <span className="block text-xs text-faint">
-                      {b.limitTokens !== null && t('budgets.tokensUsed', { used: formatNumber(b.usedTokens, locale), limit: formatNumber(b.limitTokens, locale) })}
-                      {b.limitUsd > 0 && ` · ${formatUsd(b.usedUsd, locale)} / ${formatUsd(b.limitUsd, locale)}`}
-                    </span>
-                  </span>
-                  <Badge tone={b.action === 'block' ? 'danger' : 'warn'}>{t(b.action === 'block' ? 'budgets.block' : 'budgets.warn')}</Badge>
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(b)}>
-                    {t('common.edit')}
-                  </Button>
-                  <IconButton
-                    label={t('common.delete')}
-                    onClick={async () => {
-                      if ((await act(() => api.call(API.deleteBudget, { params: { id: b.id } }))) !== undefined) void budgets.reload()
-                    }}
-                  >
-                    <Trash2 size={15} />
-                  </IconButton>
-                </li>
+    <>
+      <AdminPageHeader title={t('admin.providers')} desc={t('providers.desc')} testId="engines-header" className="!mb-2" />
+      <Loadable state={state}>
+        {(d) => (
+          <>
+            {tc.trial.data?.credit && <TrialCreditBar credit={tc.trial.data.credit} timeZone={me.server.timeZone} className="mb-4" />}
+            <ul className="divide-y divide-line" data-testid="engine-list">
+              {d.engines.map((e) => (
+                <EngineRow
+                  key={e.id}
+                  e={e}
+                  accounts={ENGINE_FAMILY[e.id] && <ProviderAccounts tc={tc} fam={ENGINE_FAMILY[e.id]!} />}
+                  owner={isOwner(me)}
+                  initiallyOpen={params.get('engine') === e.id}
+                  checking={checking === e.id}
+                  onCheck={() => void check(e.id)}
+                  onToggle={(v) => void toggle(e.id, v)}
+                  onApiSaved={() => {
+                    void check('api')
+                    void useEngines.getState().load(true) // the composer's list
+                  }}
+                />
               ))}
             </ul>
-          )
-        }
-      </Loadable>
-      {editing && (
-        <BudgetForm
-          budget={editing === 'new' ? null : editing}
-          users={users.data ?? []}
-          groups={groups.data ?? []}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null)
-            void budgets.reload()
-          }}
-        />
-      )}
-    </Card>
-  )
-}
-
-function BudgetForm({ budget, users, groups, onClose, onSaved }: { budget: Budget | null; users: User[]; groups: Group[]; onClose: () => void; onSaved: () => void }) {
-  const t = useT()
-  const act = useAction()
-  const [f, setF] = useState({
-    subjectType: budget?.subjectType ?? ('team' as Budget['subjectType']),
-    subjectId: budget?.subjectId ?? null,
-    period: budget?.period ?? ('day' as Budget['period']),
-    limitTokens: budget?.limitTokens ?? 1_000_000,
-    limitUsd: budget?.limitUsd ?? 0,
-    action: budget?.action ?? ('warn' as Budget['action']),
-  })
-  const [busy, setBusy] = useState(false)
-  const valid = f.subjectType === 'team' || !!f.subjectId
-  const save = async () => {
-    setBusy(true)
-    const body = { ...f, subjectId: f.subjectType === 'team' ? null : f.subjectId }
-    const r = await act(() => (budget ? api.call(API.updateBudget, { params: { id: budget.id }, body }) : api.call(API.createBudget, { body })))
-    setBusy(false)
-    if (r) onSaved()
-  }
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={budget ? t('budgets.edit') : t('budgets.new')}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button variant="primary" busy={busy} disabled={!valid} onClick={save}>
-            {t('common.save')}
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={t('budgets.for')}>
-          <select className={inputCls} value={f.subjectType} onChange={(e) => setF({ ...f, subjectType: e.target.value as Budget['subjectType'], subjectId: null })}>
-            <option value="team">{t('budgets.team')}</option>
-            <option value="group">{t('rules.group')}</option>
-            <option value="user">{t('rules.person')}</option>
-          </select>
-        </Field>
-        {f.subjectType !== 'team' && (
-          <Field label={t('rules.target')}>
-            <select className={inputCls} value={f.subjectId ?? ''} onChange={(e) => setF({ ...f, subjectId: e.target.value || null })}>
-              <option value="">—</option>
-              {(f.subjectType === 'group' ? groups : users).map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
-          </Field>
+            {tc.state.data && <p className="mt-3 text-xs text-faint">{t('credentials.order')} {t('credentials.costNote', { date: tc.state.data.pricesAsOf })}</p>}
+          </>
         )}
-        <Field label={t('budgets.period')}>
-          <select className={inputCls} value={f.period} onChange={(e) => setF({ ...f, period: e.target.value as Budget['period'] })}>
-            <option value="day">{t('budgets.perDay')}</option>
-            <option value="month">{t('budgets.perMonth')}</option>
-          </select>
-        </Field>
-        <Field label={t('budgets.tokens')}>
-          <input className={inputCls} type="number" min={0} value={f.limitTokens ?? 0} onChange={(e) => setF({ ...f, limitTokens: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
-        </Field>
-        <Field label={t('budgets.usd')} hint={t('budgets.usdHint')}>
-          <input className={inputCls} type="number" min={0} step="0.01" value={f.limitUsd} onChange={(e) => setF({ ...f, limitUsd: Math.max(0, Number(e.target.value) || 0) })} />
-        </Field>
-        <Field label={t('budgets.action')}>
-          <select className={inputCls} value={f.action} onChange={(e) => setF({ ...f, action: e.target.value as Budget['action'] })}>
-            <option value="warn">{t('budgets.warn')}</option>
-            <option value="block">{t('budgets.block')}</option>
-          </select>
-        </Field>
-      </div>
-    </Modal>
+      </Loadable>
+      {tc.dialogs}
+    </>
   )
 }
 
-type EnginesData = EnginesResponse
-
-/** "팀원이 엔진 고르기 허용" and "Claude 한도에 닿으면 Codex로 넘기기". */
-function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: EnginesData) => void }) {
+/** One engine: name and state on the first line, one dim line under it, what is missing in one line (it opens with
+ * "More"); check again and the switch on the right. The name opens the rest in place. */
+function EngineRow({ e, accounts, owner, initiallyOpen, checking, onCheck, onToggle, onApiSaved }: { e: EngineStatus; accounts?: ReactNode; owner: boolean; initiallyOpen: boolean; checking: boolean; onCheck: () => void; onToggle: (v: boolean) => void; onApiSaved: () => void }) {
   const t = useT()
-  const act = useAction()
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const [choice, setChoice] = useState<MemberEngineChoice>(data.memberChoice)
-  const [fallback, setFallback] = useState(data.limitFallback)
-  const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    setChoice(data.memberChoice)
-    setFallback(data.limitFallback)
-  }, [data.memberChoice, data.limitFallback])
-  const toggleIn = (list: string[], id: string, on: boolean) => (on ? [...new Set([...list, id])] : list.filter((x) => x !== id))
-  // owner and admins always pick: only members are listed
-  const members = (users.data ?? []).filter((u) => u.role === 'member' && u.status === 'active')
-  const save = async () => {
-    setBusy(true)
-    const r = await act(() => api.call(API.updateEngines, { body: { memberChoice: choice, limitFallback: fallback && data.limitFallbackAvailable } }), t('common.saved'))
-    setBusy(false)
-    if (r) onSaved(r)
-  }
+  const locale = useLocale()
+  const [open, setOpen] = useState(initiallyOpen)
+  const details = useId()
+  const ok = e.status === 'ok'
+  const mode = e.authMode === 'api-key' && !e.provider ? t('engines.api.key') : t(`engines.mode.${e.authMode}`, { provider: e.provider ?? '' })
+  const checked = e.checkedAt && t('engines.checkedAt', { date: formatDateTime(e.checkedAt, locale) })
+  const models = e.models.map((m) => m.label).join(', ')
+  // the dim line under the name: how it signs in · its models · when it was checked
+  const meta = [mode, models, checked].filter(Boolean).join(' · ')
+  // what to know about this engine; the row shows it when opened
+  const hint = [e.authMode === 'local-login' && t('engines.localHelp'), e.beta && t('engines.betaHint'), e.id === 'api' && t('engines.experimentalHint')].filter(Boolean).join(' ')
+  // the API engine is not "installed": it has an address, a model and a key, or not yet. Its form is in the opened row,
+  // so the row says "Not set up" and offers to open it (the server's text points "below", where nothing is yet)
+  const apiNotSet = e.id === 'api' && e.status === 'not_installed'
   return (
-    <Card title={t('engines.choice')} desc={t('engines.choiceDesc')}>
-      <div className="space-y-4" data-testid="engine-choice">
-        <fieldset>
-          <legend className="mb-2 text-sm font-medium">{t('engines.choice.allow')}</legend>
-          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('engines.choice.allow')}>
-            {(['off', 'everyone', 'selected'] as const).map((mode) => (
+    <li className="py-3" data-testid="engine-card" data-engine={e.id}>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <h3 className="text-sm font-semibold">
               <button
-                key={mode}
                 type="button"
-                role="radio"
-                aria-checked={choice.mode === mode}
-                onClick={() => setChoice({ ...choice, mode })}
-                className={`rounded-lg border px-3 py-2 text-sm ${choice.mode === mode ? 'border-accent bg-accent-soft font-medium' : 'border-line hover:bg-hover'}`}
-                data-testid={`engine-choice-${mode}`}
+                aria-expanded={open}
+                aria-controls={open ? details : undefined}
+                onClick={() => setOpen(!open)}
+                className="-ml-1 inline-flex items-center gap-1.5 rounded-md px-1 text-left hover:bg-hover"
+                data-testid="engine-open"
               >
-                {t(`engines.choice.${mode}`)}
+                <ChevronRight size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-90')} aria-hidden />
+                <span className="break-words">{e.label}</span>
               </button>
-            ))}
+            </h3>
+            <Badge tone={ok ? 'ok' : 'warn'}>{apiNotSet ? t('adminux.engines.apiNotSet') : t(`engines.status.${e.status}`)}</Badge>
+            {e.beta && <Badge tone="warn">{t('engines.beta')}</Badge>}
+            {e.id === 'api' && <span data-testid="engine-experimental"><Badge tone="warn">{t('engines.experimental')}</Badge></span>}
           </div>
-          {choice.mode === 'selected' && (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted">{t('engines.choice.groups')}</p>
-                {(groups.data ?? []).length === 0 && <p className="text-xs text-faint">{t('engines.choice.noGroups')}</p>}
-                {(groups.data ?? []).map((g) => (
-                  <label key={g.id} className="flex items-center gap-2 py-1 text-sm">
-                    <input type="checkbox" checked={choice.groupIds.includes(g.id)} onChange={(e) => setChoice({ ...choice, groupIds: toggleIn(choice.groupIds, g.id, e.target.checked) })} />
-                    {g.name}
-                  </label>
-                ))}
-              </div>
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted">{t('engines.choice.people')}</p>
-                {members.map((u) => (
-                  <label key={u.id} className="flex items-center gap-2 py-1 text-sm">
-                    <input type="checkbox" checked={choice.userIds.includes(u.id)} onChange={(e) => setChoice({ ...choice, userIds: toggleIn(choice.userIds, u.id, e.target.checked) })} />
-                    {u.name} <span className="text-xs text-faint">{u.username}</span>
-                  </label>
-                ))}
-              </div>
+          <p className="mt-0.5 truncate pl-5 text-xs text-faint" title={meta}>{meta}</p>
+          {apiNotSet ? (
+            <p className="mt-1 pl-5 text-xs text-warn" data-testid="engine-detail">
+              {t(owner ? 'adminux.engines.apiNotSetHint' : 'adminux.engines.apiNotSetOwner')}{' '}
+              {owner && !open && (
+                <button type="button" className="font-medium text-accent-text underline" onClick={() => {
+                  setOpen(true)
+                  // this button goes away with the open row: the keyboard moves on to the form's first field
+                  requestAnimationFrame(() => document.getElementById(details)?.querySelector<HTMLElement>('input, select, textarea')?.focus())
+                }} data-testid="engine-api-setup">
+                  {t('adminux.engines.apiSetUp')}
+                </button>
+              )}
+            </p>
+          ) : e.detail && (
+            <div className="mt-1 flex min-w-0 items-baseline gap-2 pl-5">
+              {/* a problem's line is the fix (a command to run): shown whole, never cut behind "More" */}
+              {ok ? (
+                <OneLine className="min-w-0 flex-1 text-xs text-muted" testId="engine-detail">{e.detail}</OneLine>
+              ) : (
+                <p className="min-w-0 flex-1 text-xs break-words text-warn" data-testid="engine-detail"><CodeText text={e.detail} /></p>
+              )}
             </div>
           )}
-          <p className="mt-2 text-xs text-faint">{t('engines.choice.hint')}</p>
-        </fieldset>
-        <div className="border-t border-line pt-4">
-          <Switch checked={fallback && data.limitFallbackAvailable} disabled={!data.limitFallbackAvailable} onChange={setFallback} label={t('engines.fallback')} />
-          <p className="mt-1 text-xs text-muted">{t(data.limitFallbackAvailable ? 'engines.fallbackDesc' : 'engines.fallbackUnavailable')}</p>
-          {data.limitFallbackAvailable && <p className="mt-1 text-xs text-muted">{t('engines.fallbackHint2')}</p>}
-          {fallback && data.limitFallbackAvailable && (
-            <p role="alert" className="mt-2 flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="fallback-warning">
-              <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden /> {t('engines.fallbackWarning')}
-            </p>
-          )}
         </div>
-        <Button variant="primary" busy={busy} onClick={save} data-testid="engine-choice-save">
-          {t('common.save')}
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <IconButton label={t('engines.check')} onClick={onCheck} disabled={checking}>
+            <RefreshCw size={15} className={checking ? 'animate-spin' : ''} />
+          </IconButton>
+          <Switch checked={e.enabled} onChange={onToggle} label={t('engines.enableNamed', { name: e.label })} hideLabel testId={`engine-switch-${e.id}`} />
+        </div>
       </div>
-    </Card>
+      {accounts}
+      {open && (
+        <div id={details} className="mt-3 space-y-3 pl-5" data-testid="engine-details">
+          {hint && <p className="text-xs leading-relaxed text-muted" data-testid={e.beta ? 'engine-beta' : undefined}>{hint}</p>}
+          <div className="space-y-0.5 text-xs text-faint">
+            <p>{[e.version && `v${e.version}`, mode].filter(Boolean).join(' · ')}</p>
+            {models && <p>{t('engines.models', { list: models })}</p>}
+            {checked && <p>{checked}</p>}
+          </div>
+          {e.id === 'api' && owner && <ApiEngineForm onSaved={onApiSaved} />}
+        </div>
+      )}
+    </li>
   )
 }
 
@@ -405,7 +189,9 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
     if (r) { state.setData(r); setForm({ ...form, key: '' }); onSaved() }
   }
   return (
-    <Card title={t('engines.api.title')} desc={t('engines.api.desc')}>
+    <div className="rounded-xl border border-line p-4">
+      <h4 className="text-sm font-medium">{t('engines.api.title')}</h4>
+      <p className="mt-0.5 mb-3 text-xs text-muted">{t('engines.api.desc')}</p>
       {form && (
         <div className="grid gap-3 sm:grid-cols-2" data-testid="api-engine-form">
           <Field label={t('engines.api.preset')}>
@@ -435,6 +221,24 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
           </div>
         </div>
       )}
-    </Card>
+    </div>
+  )
+}
+
+/** A server line with a command in backticks ("Run `codex login --device-auth` on the server Mac"): the command shown as
+ * code, without the backticks. */
+function CodeText({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(`[^`]+`)/).map((part, i) =>
+        /^`[^`]+`$/.test(part) ? (
+          <code key={i} className="rounded bg-subtle px-1 font-mono text-[0.95em] text-ink select-all max-md:text-[1em]">
+            {part.slice(1, -1)}
+          </code>
+        ) : (
+          part
+        ),
+      )}
+    </>
   )
 }

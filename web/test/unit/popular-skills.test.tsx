@@ -1,5 +1,6 @@
 // B-W7-7 (TEAM-04): the new-chat home shows the team's top skills with "uses · people", like the Skills page.
-// It shows only the first rows, puts the slash command in the composer, and shows nothing when no skill has uses.
+// It shows only the first rows, puts the slash command in the composer, and shows nothing when no skill has uses
+// (on Home: until two different skills were used; Y).
 import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
@@ -19,11 +20,11 @@ afterEach(() => setLocale(before))
 
 describe('popular skills on the new-chat home', () => {
   for (const locale of ['ko', 'en', 'id'] as const) {
-    test(`${locale}: title, home hint and "uses · people"`, () => {
+    test(`${locale}: title and "uses · people", no subtitle on Home`, () => {
       setLocale(locale)
       const html = render(result, { limit: 3, onChoose: () => {} })
       expect(html).toContain(translate(locale, 'skills.popularTitle'))
-      expect(html).toContain(translate(locale, 'home.popularSkillsHint'))
+      expect(html).not.toContain(translate(locale, 'skills.popularHint'))
       expect(html).toContain(translate(locale, 'skills.popularCount', { uses: 7, users: 2 }))
     })
   }
@@ -36,7 +37,7 @@ describe('popular skills on the new-chat home', () => {
     expect((html.match(/<button/g) ?? []).length).toBe(3)
   })
 
-  test('Skills page keeps all rows as links to a new chat', () => {
+  test('without onChoose: all rows are links to a new chat', () => {
     const html = render(result)
     expect(html).toContain('skill-4')
     expect(html).toContain(`href="/?prompt=${encodeURIComponent(skillPrompt('skill-1'))}"`)
@@ -45,6 +46,12 @@ describe('popular skills on the new-chat home', () => {
   test('nothing shows while loading or with no uses', () => {
     expect(render(null, { limit: 3, onChoose: () => {} })).toBe('')
     expect(render({ days: 30, items: [] }, { limit: 3, onChoose: () => {} })).toBe('')
+  })
+
+  test('Home waits for two different skills: one used skill is not a choice yet', () => {
+    const one: PopularSkills = { days: 30, items: [skill(1, 9, 3)] }
+    expect(renderToStaticMarkup(<MemoryRouter><PopularSkillsList result={one} limit={3} min={2} onChoose={() => {}} /></MemoryRouter>)).toBe('')
+    expect(renderToStaticMarkup(<MemoryRouter><PopularSkillsList result={{ days: 30, items: [skill(1, 9, 3), skill(2, 1, 1)] }} limit={3} min={2} onChoose={() => {}} /></MemoryRouter>)).toContain('skill-2')
   })
 
   test('a row fills the composer with the slash command', () => {

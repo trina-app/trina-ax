@@ -1,11 +1,17 @@
 // Shared building blocks. Every icon-only button takes an aria-label (translated); modals trap focus and give it
 // back to where it was (tab 5 "접근성").
 import clsx from 'clsx'
-import { Check, Copy, Loader2, X } from 'lucide-react'
+import { Check, CircleAlert, Copy, Loader2, X } from 'lucide-react'
 import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import { useT } from '../i18n'
 import { useUi } from '../store/ui'
+import { writeRich } from '../lib/clipboard'
+import { edgeFade } from '../lib/edgeFade'
+
+/** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
+const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(node, body) : node)
 
 /** primary: the one main action; secondary (default): a bordered button; ghost: no border (also a plain "no": Deny on a
  * permission card, Skip, Reject of a suggestion, like Claude Code's "No"); danger: a destructive action with a border;
@@ -19,11 +25,15 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       type="button"
       {...props}
       disabled={disabled || busy}
-      aria-busy={busy || undefined}
+      // busy disables; a caller that must keep the focus (an action that asks the server first) says busy itself
+      aria-busy={busy || props['aria-busy'] || undefined}
       className={clsx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-8 px-2.5 text-[13px] max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
+        size === 'sm' ? 'h-8 px-2.5 text-label max-sm:min-h-9' : 'h-9 px-3.5 text-sm max-sm:min-h-10',
         variant === 'primary' && 'bg-accent text-accent-ink hover:bg-accent-hover',
+        // dark mode: the half-transparent accent turned a muddy brown with dim text; a disabled main button is neutral
+        // (a busy one, with its spinner, keeps the accent: it is working, not off)
+        variant === 'primary' && !busy && 'dark:disabled:bg-hover dark:disabled:text-faint dark:disabled:opacity-100 dark:disabled:hover:bg-hover',
         // the edge of a bordered button is what marks it as one on a card: --c-field-border (>= 3:1), not the hairline
         variant === 'secondary' && 'border border-field-border bg-surface text-ink hover:bg-hover',
         variant === 'ghost' && 'text-muted hover:bg-hover hover:text-ink',
@@ -36,6 +46,12 @@ export function Button({ variant = 'secondary', size = 'md', busy, className, ch
       {children}
     </button>
   )
+}
+
+/** onKeyDown of a button that acts at once (a delete with no confirm dialog): a held Enter repeats keydown, and each
+ * repeat would press the button again, or the next one the focus lands on. */
+export const noKeyRepeat = (e: React.KeyboardEvent) => {
+  if (e.repeat) e.preventDefault()
 }
 
 /** danger: a destructive icon action (Delete) that turns red on hover. */
@@ -52,14 +68,14 @@ export const inputCls =
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
  * tied to the control with aria-describedby. */
-export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: string | null }) {
+export function Field({ label, children, hint, error }: { label: string; children: ReactNode; hint?: string; error?: ReactNode }) {
   const id = useId()
   const note = error || hint
   const control = note && isValidElement(children) ? cloneElement(children as React.ReactElement<{ 'aria-describedby'?: string; 'aria-invalid'?: boolean }>, { 'aria-describedby': id, 'aria-invalid': error ? true : undefined }) : children
   return (
     <div className="block">
       <label className="block">
-        <span className="mb-1.5 block text-[13px] font-medium text-ink">{label}</span>
+        <span className="mb-1.5 block text-label font-medium text-ink">{label}</span>
         {control}
       </label>
       {hint && !error && (
@@ -105,12 +121,19 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
   )
 }
 
-export function ErrorNote({ children, onRetry }: { children: ReactNode; onRetry?: () => void }) {
+/** An error with an icon, the message in the body colour and an optional small detail (such as "HTTP 503") under it. */
+export function ErrorNote({ children, onRetry, detail }: { children: ReactNode; onRetry?: () => void; detail?: ReactNode }) {
   const t = useT()
   return (
-    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-soft px-3 py-2.5 text-sm text-ink">
       {/* at least ~12rem for the text: on a phone the button wraps below instead of squeezing it to a column */}
-      <span className="min-w-0 flex-[1_1_12rem]">{children}</span>
+      <span className="flex min-w-0 flex-[1_1_12rem] items-start gap-2">
+        <CircleAlert size={16} className="mt-0.5 shrink-0 text-danger" aria-hidden />
+        <span className="min-w-0">
+          {children}
+          {detail && <span className="mt-0.5 block text-xs text-muted">{detail}</span>}
+        </span>
+      </span>
       {onRetry && (
         <Button size="sm" variant="secondary" className="ml-auto" onClick={onRetry}>
           {t('common.retry')}
@@ -124,7 +147,7 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: 'neutr
   return (
     <span
       className={clsx(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap',
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-micro font-medium whitespace-nowrap',
         tone === 'neutral' && 'bg-subtle text-muted',
         tone === 'accent' && 'bg-accent-soft text-accent-text',
         tone === 'warn' && 'bg-warn-soft text-warn',
@@ -155,16 +178,23 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
     const prev = document.activeElement as HTMLElement | null
     const el = ref.current
     const first = el?.querySelector<HTMLElement>('[data-autofocus]') ?? el?.querySelector<HTMLElement>(FOCUSABLE)
+    // the dialog below (Settings under a confirm) is out of reach while this one is open: inert, and hidden from
+    // assistive technology, like the page behind a modal
+    const below = trapStack[trapStack.length - 1]
+    below?.setAttribute('inert', '')
+    below?.setAttribute('aria-hidden', 'true')
     if (el) trapStack.push(el) // before focusing, so the dialog below doesn't pull focus back
     ;(first ?? el)?.focus()
     const onTop = () => !!el && trapStack[trapStack.length - 1] === el
+    // Esc after the dialog's own controls had their say: one that closes or cancels something of its own (an edit
+    // field, a menu) stops it, and the dialog stays open
+    const onEscape = (e: KeyboardEvent) => {
+      if (!onTop() || e.key !== 'Escape' || e.defaultPrevented) return
+      e.stopPropagation()
+      closeRef.current()
+    }
     const onKey = (e: KeyboardEvent) => {
       if (!onTop()) return
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        closeRef.current()
-        return
-      }
       if (e.key !== 'Tab' || !el) return
       const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement)
       if (!items.length) return
@@ -183,12 +213,18 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
       if (onTop() && el && e.target instanceof Node && !el.contains(e.target)) (first ?? el).focus()
     }
     document.addEventListener('keydown', onKey, true)
+    document.addEventListener('keydown', onEscape)
     document.addEventListener('focusin', onFocusIn)
     return () => {
       document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('keydown', onEscape)
       document.removeEventListener('focusin', onFocusIn)
       const i = el ? trapStack.lastIndexOf(el) : -1
       if (i >= 0) trapStack.splice(i, 1)
+      if (below && !trapStack.slice(trapStack.indexOf(below) + 1).length) {
+        below.removeAttribute('inert')
+        below.removeAttribute('aria-hidden')
+      }
       const back = returnRef.current
       ;(back?.isConnected ? back : prev)?.focus?.()
     }
@@ -202,6 +238,8 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   useFocusTrap(ref, open, onClose, returnTo)
   if (!open) return null
   return (
+    // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert
+    inBody(
     // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={onClose}>
       <div
@@ -210,11 +248,12 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl"
+        // phones: below the status bar; without a footer the body keeps clear of the home indicator itself
+        className={clsx('flex max-h-[min(92dvh,calc(100dvh-var(--safe-top)-0.5rem))] w-full flex-col rounded-t-2xl bg-surface text-ink shadow-xl outline-none [--sticky-bg:var(--c-surface)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl', !footer && 'max-sm:pb-[var(--safe-bottom)]')}
         style={{ maxWidth: width }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-2.5 pr-2.5 pl-5 sm:py-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line py-2.5 pr-2.5 pl-5 max-sm:pr-3 max-sm:pl-4 sm:py-3">
           <h2 id={titleId} className="min-w-0 font-semibold">
             {title}
           </h2>
@@ -222,24 +261,26 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
             <X size={18} />
           </IconButton>
         </div>
-        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div>}
+        <div className="scroll-thin min-h-0 overflow-y-auto overscroll-contain p-5 max-sm:px-4">{children}</div>
+        {footer && <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3 pb-[max(0.75rem,var(--safe-bottom))] max-sm:px-4">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    typeof document === 'undefined' ? null : document.body,
+    )
   )
 }
 
 // ---------------- confirm / prompt dialogs (promise based) ----------------
 type DialogReq = { returnTo: HTMLElement | null } & (
   | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; danger?: boolean; resolve: (ok: boolean) => void }
-  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
+  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
 )
 
 const useDialogs = create<{ req: DialogReq | null; set: (r: DialogReq | null) => void }>((set) => ({ req: null, set: (req) => set({ req }) }))
 
 /** A dialog opened from a menu item: the item unmounts when its menu closes, so focus would end on BODY (B-W41-2).
  *  Find the menu's trigger now, while the menu is still in the page: the expanded control beside the menu. */
-function menuOpener(): HTMLElement | null {
+export function menuOpener(): HTMLElement | null {
   const menu = document.activeElement?.closest<HTMLElement>('[role="menu"]')
   const btns = menu?.parentElement?.querySelectorAll<HTMLElement>('[aria-expanded="true"]') ?? []
   return [...btns].find((b) => !menu!.contains(b)) ?? null
@@ -249,7 +290,8 @@ export function confirmDialog(o: { title: string; body?: ReactNode; confirm: str
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
 }
-export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
+/** `select`: the first characters of `initial` that start selected (a file name without its extension). */
+export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; select?: number; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'prompt', initial: '', ...o, returnTo, resolve }))
 }
@@ -258,11 +300,19 @@ export function DialogHost() {
   const t = useT()
   const req = useDialogs((s) => s.req)
   const setReq = useDialogs((s) => s.set)
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(() => (req?.kind === 'prompt' ? req.initial : ''))
   const [touched, setTouched] = useState(false)
-  useEffect(() => {
+  // a new dialog starts from its own text in the first frame, so the field is focused (Modal) with it in place
+  const [shownReq, setShownReq] = useState(req)
+  if (shownReq !== req) {
+    setShownReq(req)
     if (req?.kind === 'prompt') setValue(req.initial)
     setTouched(false)
+  }
+  const input = useRef<HTMLInputElement>(null)
+  // after Modal focused the field (a child's layout effect runs first)
+  useLayoutEffect(() => {
+    if (req?.kind === 'prompt' && req.select !== undefined) input.current?.setSelectionRange(0, req.select)
   }, [req])
   if (!req) return null
   const close = (ok: boolean) => {
@@ -298,7 +348,7 @@ export function DialogHost() {
           }}
         >
           <Field label={req.label} error={value || touched ? problem : null}>
-            <input data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
+            <input ref={input} data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
           </Field>
         </form>
       )}
@@ -307,12 +357,63 @@ export function DialogHost() {
 }
 
 // ---------------- toasts ----------------
+/** Phones: how far above the window's bottom edge the highest bottom bar starts (the tab bar, a message box: marked
+ * data-bottom-bar), so toasts sit above it instead of over it. null on wider screens or with no bar on screen. While a
+ * toast shows it is measured again, one frame after anything that can move the bars has settled: a resize of the
+ * window or the visual viewport (the phone keyboard), a bar resizing, and the page changing under it (another route
+ * mounts another bar). */
+function useBottomBarLift(toasts: unknown[]) {
+  const [lift, setLift] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    if (!toasts.length) return
+    let frame = 0
+    let watched: HTMLElement[] = []
+    let last: number | null | undefined
+    const bars = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => later())
+    const measure = () => {
+      frame = 0
+      const phone = typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches
+      const els = phone ? [...document.querySelectorAll<HTMLElement>('[data-bottom-bar]')] : []
+      // watch the bars only when they are other elements than before: observing again makes the observer report again,
+      // which would measure again every frame
+      if (els.length !== watched.length || els.some((el, i) => el !== watched[i])) {
+        bars?.disconnect()
+        for (const el of els) bars?.observe(el)
+        watched = els
+      }
+      const tops = els.map((el) => el.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top)
+      const next = tops.length ? Math.max(0, window.innerHeight - Math.min(...tops)) : null
+      if (next !== last) setLift((last = next))
+    }
+    // after layout has settled: a resize or a route change is measured on the next frame, not in the middle of it
+    const later = () => { if (!frame) frame = requestAnimationFrame(measure) }
+    measure()
+    const page = typeof MutationObserver === 'undefined' ? null : new MutationObserver(later)
+    page?.observe(document.body, { childList: true, subtree: true })
+    window.addEventListener('resize', later)
+    window.visualViewport?.addEventListener('resize', later)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      bars?.disconnect()
+      page?.disconnect()
+      window.removeEventListener('resize', later)
+      window.visualViewport?.removeEventListener('resize', later)
+    }
+  }, [toasts])
+  return lift
+}
+
 export function Toaster() {
   const t = useT()
   const toasts = useUi((s) => s.toasts)
   const dismiss = useUi((s) => s.dismiss)
+  const lift = useBottomBarLift(toasts)
   return (
-    <div className="pointer-events-none fixed right-3 bottom-3 left-3 z-[60] flex flex-col items-end gap-2 sm:left-auto sm:w-96" aria-live="polite">
+    <div
+      className="pointer-events-none fixed right-3 bottom-[calc(0.75rem+var(--safe-bottom))] left-3 z-[60] flex flex-col items-end gap-2 sm:left-auto sm:w-96"
+      style={lift === null ? undefined : { bottom: `calc(${lift}px + 0.5rem)` }}
+      aria-live="polite"
+    >
       {toasts.map((x) => (
         <div
           key={x.id}
@@ -348,7 +449,14 @@ export function Toaster() {
 export function useCopy(timeout = 1500) {
   const [copied, setCopied] = useState(false)
   const copy = useCallback(
-    async (text: string) => {
+    /** `html`: formatted text as well (text/html beside the plain text, lib/clipboard.ts) */
+    async (text: string, html?: string) => {
+      if (html !== undefined) {
+        await writeRich({ html, plain: text })
+        setCopied(true)
+        setTimeout(() => setCopied(false), timeout)
+        return
+      }
       try {
         await navigator.clipboard.writeText(text)
       } catch {
@@ -370,30 +478,130 @@ export function useCopy(timeout = 1500) {
   return { copied, copy }
 }
 
-export function CopyButton({ text, label, className, showLabel }: { text: string | (() => string); label?: string; className?: string; showLabel?: boolean }) {
+/** `html`: also put formatted text on the clipboard (an answer: lib/richCopy.tsx), made at the click */
+export function CopyButton({ text, html, label, className, showLabel }: { text: string | (() => string); html?: () => string; label?: string; className?: string; showLabel?: boolean }) {
   const t = useT()
   const { copied, copy } = useCopy()
   const l = copied ? t('common.copied') : label ?? t('common.copy')
+  const click = () => {
+    const plain = typeof text === 'function' ? text() : text
+    let rich: string | undefined
+    // a failure to format still copies the text
+    try { rich = html?.() } catch { rich = undefined }
+    void copy(plain, rich)
+  }
   return (
-    <button type="button" aria-label={l} title={l} onClick={() => void copy(typeof text === 'function' ? text() : text)} className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', className)}>
+    <button type="button" aria-label={l} title={l} onClick={click} className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', className)}>
       {copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
       {showLabel && <span>{l}</span>}
     </button>
   )
 }
 
+// ---------------- layout helpers ----------------
+/** Whether a media query matches now, and again when it changes (a phone turned, a window resized). */
+export function useMediaQuery(query: string) {
+  const get = () => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches
+  const [matches, setMatches] = useState(get)
+  useEffect(() => {
+    const mq = window.matchMedia?.(query)
+    if (!mq) return
+    const on = () => setMatches(mq.matches)
+    on()
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [query])
+  return matches
+}
+
+/** A row that scrolls sideways (class `edge-fade`): marks the edges that have more behind them (data-fade-start,
+ * data-fade-end), and index.css fades those edges. Its scroll-padding keeps a margin when a tab scrolls into view. */
+export function useEdgeFade<T extends HTMLElement>(ref: React.RefObject<T | null>) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => {
+      const f = edgeFade(el.scrollLeft, el.scrollWidth, el.clientWidth)
+      for (const [name, on] of [['data-fade-start', f.start], ['data-fade-end', f.end]] as const) {
+        if (on) el.setAttribute(name, '')
+        else el.removeAttribute(name)
+      }
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null
+    ro?.observe(el)
+    return () => {
+      el.removeEventListener('scroll', update)
+      ro?.disconnect()
+    }
+  }, [ref])
+}
+
 // ---------------- simple tabs ----------------
-export function Tabs<T extends string>({ value, onChange, items, label }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string }) {
+/** The ids that tie a tab to its panel: `base` is the Tabs' `panels` (one useId per Tabs), `id` the tab's. */
+export const tabIds = (base: string, id: string) => ({ tab: `${base}-tab-${id}`, panel: `${base}-panel-${id}` })
+
+/** What the chosen tab shows: role=tabpanel, named by its tab, the one each tab's aria-controls points at. `base`: the
+ * same as the Tabs' `panels`; null when no tabs are shown (a plain box then). */
+export function TabPanel({ base, value, className, children, ...rest }: { base: string | null; value: string; className?: string; children?: ReactNode } & Omit<React.HTMLAttributes<HTMLDivElement>, 'id' | 'role'>) {
+  if (base === null) return <div className={className} {...rest}>{children}</div>
+  const ids = tabIds(base, value)
   return (
-    <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto">
+    <div role="tabpanel" id={ids.panel} aria-labelledby={ids.tab} className={className} {...rest}>
+      {children}
+    </div>
+  )
+}
+
+/** `segmented`: the tabs sit in one quiet pill group, for a page's main switch next to its title. The keyboard follows
+ * the WAI-ARIA tabs pattern: Tab reaches the chosen tab only; the arrow keys, Home and End choose another. `panels`:
+ * the ids of the panels (`useId()`), shared with the TabPanel that shows the chosen tab's content. */
+export function Tabs<T extends string>({ value, onChange, items, label, segmented, panels }: { value: T; onChange: (v: T) => void; items: { id: T; label: string }[]; label: string; segmented?: boolean; panels: string }) {
+  const list = useRef<HTMLDivElement>(null)
+  useEdgeFade(list)
+  // on a phone the tabs may not all fit: the chosen one scrolls into the row (a link can choose the last one). Only
+  // then, so a row that fits never moves the page.
+  useEffect(() => {
+    const row = list.current
+    const tab = row?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    if (!row || !tab || row.scrollWidth <= row.clientWidth) return
+    const r = row.getBoundingClientRect()
+    const b = tab.getBoundingClientRect()
+    if (b.left < r.left || b.right > r.right) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [value, items.length])
+  // the tabs pattern: one Tab stop (the chosen tab); Left / Right (round), Home and End move to a tab and choose it
+  const current = items.some((it) => it.id === value) ? value : items[0]?.id
+  // the tab chosen last, also before the page shows it (a choice can render later: keys pressed quickly go on from it)
+  const chosen = useRef(current)
+  chosen.current = current
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const i = items.findIndex((it) => it.id === chosen.current)
+    const n = items.length
+    const to = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1
+    if (to < 0 || !n) return
+    e.preventDefault()
+    chosen.current = items[to]!.id
+    onChange(items[to]!.id)
+    list.current?.querySelectorAll<HTMLElement>('[role="tab"]')[to]?.focus()
+  }
+  return (
+    <div ref={list} role="tablist" aria-label={label} onKeyDown={onKeyDown} className={clsx('edge-fade flex overflow-x-auto', segmented ? 'max-w-full gap-0.5 rounded-lg bg-subtle p-0.5' : 'gap-1')}>
       {items.map((it) => (
         <button
           key={it.id}
           role="tab"
           type="button"
+          id={tabIds(panels, it.id).tab}
+          aria-controls={tabIds(panels, it.id).panel}
           aria-selected={value === it.id}
+          tabIndex={it.id === current ? 0 : -1}
           onClick={() => onChange(it.id)}
-          className={clsx('rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap', value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover')}
+          className={clsx(
+            'rounded-md font-medium whitespace-nowrap focus-visible:-outline-offset-2',
+            segmented ? 'px-3 py-1 text-label' : 'px-2.5 py-1 text-xs',
+            segmented ? (value === it.id ? 'bg-surface text-ink shadow-sm ring-1 ring-line' : 'text-muted hover:text-ink') : value === it.id ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover',
+          )}
         >
           {it.label}
         </button>
@@ -406,25 +614,88 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
  * canvas, surface and subtle) with a white knob; on: a --c-accent track with a white knob in light (>= 3:1, as in Claude's
  * apps) and a --c-accent-ink knob in dark (a white one would be 2.85:1 on the dark accent). The focus ring sits 2px
  * outside the track, so it shows on the accent. */
-export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+/** `hideLabel`: the label is for screen readers only (a row whose name is already beside the switch). */
+/** `id` with `external`: the switch has no text of its own; a `<label htmlFor={id}>` elsewhere on its row names it (a
+ * settings row with the words on the left and the switch on the right). */
+export function Switch({ checked, onChange, label, disabled, hideLabel, testId, id, external, describedBy }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; hideLabel?: boolean; testId?: string; id?: string; external?: boolean; describedBy?: string }) {
   return (
-    <label className={clsx('inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
-      <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+    <label className={clsx('relative inline-flex cursor-pointer items-center gap-2 text-sm', disabled && 'cursor-not-allowed opacity-60')}>
+      <input id={id} type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} data-testid={testId} aria-describedby={describedBy} />
       <span className="relative h-5 w-9 shrink-0 rounded-full bg-field-border transition peer-checked:bg-accent peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:top-0.5 after:left-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4 dark:peer-checked:after:bg-accent-ink" aria-hidden />
-      <span>{label}</span>
+      {!(external && id) && <span className={hideLabel ? 'sr-only' : undefined}>{label}</span>}
     </label>
   )
 }
 
 // ---------------- page header ----------------
-export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode }) {
+/** The box that scrolls `el` (the page's own scrolling area), or null when the page itself does not scroll there. */
+function scrollBox(el: HTMLElement | null): HTMLElement | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY
+    if (o === 'auto' || o === 'scroll') return p
+  }
+  return null
+}
+
+/** A page's title row that stays at the top while the page scrolls (put `stickyCls` on it). `scrolled`: the page has
+ * scrolled, so the row shows its hairline. The scrolling area keeps the row's height free at its top for the keyboard
+ * (scroll-padding), so a control that gets focus never hides under the row. */
+export function useStickyHeader<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  const [scrolled, setScrolled] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    const box = scrollBox(el)
+    if (!el || !box) return
+    const onScroll = () => setScrolled(box.scrollTop > 0)
+    const pad = () => {
+      box.style.scrollPaddingTop = `${el.offsetHeight + 8}px`
+    }
+    onScroll()
+    pad()
+    box.addEventListener('scroll', onScroll, { passive: true })
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(pad)
+    resize?.observe(el)
+    return () => {
+      box.removeEventListener('scroll', onScroll)
+      resize?.disconnect()
+      box.style.scrollPaddingTop = ''
+    }
+  }, [])
+  return { ref, scrolled }
+}
+/** Filled with the surface it sits on (--sticky-bg: the page, or a dialog's panel), so it looks transparent and nothing
+ * shows through while it scrolls under the row. */
+export const stickyCls = 'sticky top-0 z-20 bg-[var(--sticky-bg)]'
+
+/** A title row (title, tabs, search, the main button) that stays at the top while the page scrolls, with a hairline under
+ * it once the page has scrolled (like Claude's Customize page). `bar`: a full-width bar that has its own line already
+ * (the project page's top line), so no second one. */
+export function StickyHeader({ className, children, testId, bar }: { className?: string; children: ReactNode; testId?: string; bar?: boolean }) {
+  const { ref, scrolled } = useStickyHeader<HTMLDivElement>()
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line px-4 py-4 sm:px-6 sm:py-5">
+    <div ref={ref} data-sticky-header data-scrolled={scrolled || undefined} data-testid={testId} className={clsx(stickyCls, !bar && 'transition-shadow', !bar && scrolled && 'shadow-[0_1px_0_var(--color-line)]', className)}>
+      {children}
+    </div>
+  )
+}
+
+/** A page's content column: centred in the space beside the sidebar, like Claude's Customize page (phones: full width). */
+export const pageColumn = 'mx-auto w-full max-w-5xl'
+
+/** A page's full-width title bar: it keeps its line and stays at the top while the page scrolls; its contents line up
+ * with the page's column (pageColumn). */
+export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode }) {
+  const { ref } = useStickyHeader<HTMLDivElement>()
+  return (
+    <div ref={ref} data-sticky-header className={clsx(stickyCls, 'shrink-0 border-b border-line')}>
+      <div className={clsx(pageColumn, 'flex flex-wrap items-end justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5')}>
       <div className="min-w-0">
         <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
         {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      </div>
     </div>
   )
 }

@@ -49,6 +49,15 @@ export const TEXT = {
     ja: 'この定期タスクは確認カードなしで作成されたため一時停止しています。定期タスクは誰も見ていないときに下の指示をそのまま実行します。指示とアドレスを確認し、再開するか選んでください。\n\nタイトル：{title}\n予定：{when}',
     es: 'Esta tarea programada se creó sin su tarjeta de confirmación, así que está en pausa. Ejecuta la instrucción de abajo por su cuenta, sin que nadie la vigile. Revise la instrucción y sus direcciones y elija si reanudarla.\n\nTítulo: {title}\nHorario: {when}',
   } satisfies L5,
+  /** "수정" in Settings (chat/schedule-edit.ts): the edited task, as it will run */
+  editQuestion: {
+    ko: '예약 작업을 이렇게 바꿀까요? 예약 작업은 아무도 지켜보지 않을 때 아래 지시문을 그대로 실행해요. 지시문과 주소를 확인해 주세요.\n\n제목: {title}\n일정: {when}',
+    en: 'Change this scheduled task to the following? It runs the instruction below on its own, with nobody watching. Check the instruction and its addresses.\n\nTitle: {title}\nSchedule: {when}',
+    id: 'Ubah tugas terjadwal ini menjadi seperti berikut? Tugas ini menjalankan instruksi di bawah sendiri, tanpa ada yang mengawasi. Periksa instruksi dan alamatnya.\n\nJudul: {title}\nJadwal: {when}',
+    ja: 'この定期タスクを次のように変更しますか？定期タスクは誰も見ていないときに下の指示をそのまま実行します。指示とアドレスを確認してください。\n\nタイトル：{title}\n予定：{when}',
+    es: '¿Cambiar esta tarea programada a lo siguiente? Ejecuta la instrucción de abajo por su cuenta, sin que nadie la vigile. Revise la instrucción y sus direcciones.\n\nTítulo: {title}\nHorario: {when}',
+  } satisfies L5,
+  project: { ko: '프로젝트: {name}', en: 'Project: {name}', id: 'Proyek: {name}', ja: 'プロジェクト：{name}', es: 'Proyecto: {name}' } satisfies L5,
   question: {
     ko: 'AI가 예약 작업을 만들려고 해요. 예약 작업은 아무도 지켜보지 않을 때 아래 지시문을 그대로 실행해요. 지시문과 주소를 확인해 주세요.\n\n제목: {title}\n일정: {when}',
     en: 'The AI wants to create a scheduled task. It runs the instruction below on its own, with nobody watching. Check the instruction and its addresses.\n\nTitle: {title}\nSchedule: {when}',
@@ -135,6 +144,10 @@ export const TEXT = {
   resume: { ko: '다시 켜기', en: 'Resume', id: 'Lanjutkan', ja: '再開する', es: 'Reanudar' } satisfies L5,
   resumeWrite: { ko: '다시 켜기(연결 서비스에 보내기 허용)', en: 'Resume, may send to those services', id: 'Lanjutkan, boleh mengirim ke layanan itu', ja: '再開する（そのサービスへの送信を許可）', es: 'Reanudar y permitir enviar a esos servicios' } satisfies L5,
   resumeNoWrite: { ko: '다시 켜기(연결 서비스에는 보내지 않음)', en: 'Resume, never send to connected services', id: 'Lanjutkan, jangan kirim ke layanan terhubung', ja: '再開する（接続サービスには送信しない）', es: 'Reanudar sin enviar a servicios conectados' } satisfies L5,
+  save: { ko: '바꾸기', en: 'Save changes', id: 'Simpan perubahan', ja: '変更する', es: 'Guardar cambios' } satisfies L5,
+  saveWrite: { ko: '바꾸기(연결 서비스에 보내기 허용)', en: 'Save, may send to those services', id: 'Simpan, boleh mengirim ke layanan itu', ja: '変更する（そのサービスへの送信を許可）', es: 'Guardar y permitir enviar a esos servicios' } satisfies L5,
+  saveNoWrite: { ko: '바꾸기(연결 서비스에는 보내지 않음)', en: 'Save, never send to connected services', id: 'Simpan, jangan kirim ke layanan terhubung', ja: '変更する（接続サービスには送信しない）', es: 'Guardar sin enviar a servicios conectados' } satisfies L5,
+  dontSave: { ko: '바꾸지 않기', en: 'Don’t change', id: 'Jangan ubah', ja: '変更しない', es: 'No cambiar' } satisfies L5,
   keep: { ko: '계속 멈춰 두기', en: 'Keep it paused', id: 'Tetap jeda', ja: '一時停止のままにする', es: 'Mantener en pausa' } satisfies L5,
   once: { ko: '{date} {time}에 한 번', en: 'once on {date} at {time}', id: 'sekali pada {date} pukul {time}', ja: '{date} {time}に1回', es: 'una vez el {date} a las {time}' } satisfies L5,
   daily: { ko: '매일 {time}', en: 'every day at {time}', id: 'setiap hari pukul {time}', ja: '毎日 {time}', es: 'todos los días a las {time}' } satisfies L5,
@@ -150,10 +163,11 @@ export function scheduleWhen(s: Pick<ScheduleInputT, 'repeat' | 'time' | 'weekda
 }
 
 /** The schedule card: what the run will do, unattended, and what it may open or send without asking. 'create': the
- * AI's schedule_create; 'review': a task nobody confirmed, shown again to its owner to resume (chat/schedule-review.ts).
+ * AI's schedule_create; 'review': a task nobody confirmed, shown again to its owner to resume (chat/schedule-review.ts);
+ * 'edit': the person changed a task in Settings (chat/schedule-edit.ts), with the project it runs in, if any.
  * `urlsOpen`: can a run open addresses without a person on this server now? Not while it does not know its own exit
  * address (tools/egress.ts egressOf): then every address needs a person, and the card says so instead of promising. */
-export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, connections: string[], L: Locale, mode: 'create' | 'review' = 'create', o: { urlsOpen?: boolean } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
+export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'repeat' | 'time' | 'weekday' | 'day' | 'date'>, connections: string[], L: Locale, mode: 'create' | 'review' | 'edit' = 'create', o: { urlsOpen?: boolean; project?: string | null } = {}): { question: string; urls: string[]; longQuery: string[]; extra: ConfirmExtra } {
   const open = o.urlsOpen !== false
   const urls = [...new Set(extractUrls(input.prompt))]
   // a query over MAX_UNCONFIRMED_QUERY characters always needs a person (url-gate.ts ③): runs never open such an
@@ -162,7 +176,9 @@ export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'r
   const opens = urls.filter((u) => !longQuery.includes(u))
   const promptMarks = opaqueParts(input.prompt)
   // the title is the AI's: one line, so it cannot add lines that look like the server's own
-  const lines = [fill(TEXT[mode === 'review' ? 'reviewQuestion' : 'question'][L], { title: input.title.replace(/\s+/g, ' ').trim(), when: scheduleWhen(input, L) })]
+  const head = fill(TEXT[mode === 'review' ? 'reviewQuestion' : mode === 'edit' ? 'editQuestion' : 'question'][L], { title: input.title.replace(/\s+/g, ' ').trim(), when: scheduleWhen(input, L) })
+  // an edit can move the task into a project (its folder and instructions); the project's name is one line too
+  const lines = [o.project ? `${head}\n${fill(TEXT.project[L], { name: o.project.replace(/\s+/g, ' ').trim() })}` : head]
   if (opens.length) lines.push(fill(TEXT[opens.length === 1 ? (open ? 'urlsOne' : 'urlsBlockedOne') : open ? 'urls' : 'urlsBlocked'][L], { n: String(opens.length) }))
   if (longQuery.length) lines.push(fill(TEXT[longQuery.length === 1 ? 'longQueryOne' : 'longQuery'][L], { n: String(longQuery.length), max: String(MAX_UNCONFIRMED_QUERY) }))
   if (promptMarks.length) lines.push(TEXT.opaque[L])
@@ -178,7 +194,10 @@ export function scheduleCard(input: Pick<ScheduleInputT, 'title' | 'prompt' | 'r
 }
 
 /** The card's answers: with "allow" team connections the person picks whether runs may send to them. */
-export function scheduleOptions(L: Locale, writable: boolean, mode: 'create' | 'review' = 'create'): { label: string; value: string }[] {
+export function scheduleOptions(L: Locale, writable: boolean, mode: 'create' | 'review' | 'edit' = 'create'): { label: string; value: string }[] {
+  if (mode === 'edit') return writable
+    ? [{ label: TEXT.saveWrite[L], value: 'save_write' }, { label: TEXT.saveNoWrite[L], value: 'save' }, { label: TEXT.dontSave[L], value: 'cancel' }]
+    : [{ label: TEXT.save[L], value: 'save' }, { label: TEXT.dontSave[L], value: 'cancel' }]
   if (mode === 'review') return writable
     ? [{ label: TEXT.resumeWrite[L], value: 'resume_write' }, { label: TEXT.resumeNoWrite[L], value: 'resume' }, { label: TEXT.keep[L], value: 'keep' }]
     : [{ label: TEXT.resume[L], value: 'resume' }, { label: TEXT.keep[L], value: 'keep' }]
@@ -199,7 +218,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
     const p = zonedParts(new Date(iso), rt.timeZone)
     return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')} ${String(p.h).padStart(2, '0')}:${String(p.min).padStart(2, '0')} (${rt.timeZone})`
   }
-  const line = (s: ScheduleRow) => `- ${s.id}: "${s.title}", ${describeSchedule(s)}${s.enabled ? `, next ${local(s.next_run_at)}` : needsReview(s) ? ', paused until the user confirms it again in Settings › Scheduled tasks (it was made without its card)' : ', off'}${s.last_run_at ? `, last ran ${local(s.last_run_at)}` : ''}\n  prompt: ${s.prompt.replace(/\s+/g, ' ').slice(0, 200)}`
+  const line = (s: ScheduleRow) => `- ${s.id}: "${s.title}", ${describeSchedule(s)}${s.enabled ? `, next ${local(s.next_run_at)}` : needsReview(s) ? ', paused until the user confirms it again in Scheduled tasks in the sidebar (it was made without its card)' : ', off'}${s.last_run_at ? `, last ran ${local(s.last_run_at)}` : ''}\n  prompt: ${s.prompt.replace(/\s+/g, ' ').slice(0, 200)}`
 
   reg.register({
     name: 'schedule_create',
@@ -231,7 +250,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: answer === 'create_write' ? writable.map((r) => r.id) : [] })
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Settings › Scheduled tasks.${blocked}${longQuery}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Scheduled tasks in the sidebar.${blocked}${longQuery}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })
   reg.register({

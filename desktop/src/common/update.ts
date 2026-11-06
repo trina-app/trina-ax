@@ -1,8 +1,9 @@
 // Desktop app updates (docs/OFFICE.md "자동 업데이트"), the parts without Electron (unit-tested in
 // tests/unit/office-update.test.ts, "desktop updater configuration").
 //
-// Windows: electron-updater with the generic provider pointed at the open team's own address + /downloads/ (the
-// office's Mac puts the installer and its latest.yml there, server/src/office/update.ts), with the team session as a
+// Windows: electron-updater with the generic provider pointed at the open team's own address + /downloads/ (the team
+// server puts the installer and its latest.yml there after each of its updates: an office Mac, server/src/office/update.ts,
+// or a Linux server, server/src/system/windows-app.ts, both from the signed release feed), with the team session as a
 // Bearer token because /downloads/ is for signed-in people only. Checked 20 s after start and every 4 hours, downloaded
 // in the background, installed when the app quits or when the person clicks "다시 시작". The installer is unsigned
 // NSIS: no publisherName, so electron-updater does not ask for a signature; the sha512 in latest.yml is checked.

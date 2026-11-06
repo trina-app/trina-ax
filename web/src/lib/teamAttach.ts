@@ -6,6 +6,7 @@
 // are also kept in this tab's sessionStorage (a reload keeps them; another tab or browser never sees them). Signing
 // out forgets all of it.
 import type { Attachment } from '@mycel/shared/api'
+import { SIGNED_OUT } from './localData'
 
 /** What a composer reports after attaching handed-over paths. */
 export interface AttachResult { added: number; failed: number; error?: string }
@@ -180,9 +181,11 @@ export function forgetDraftChat(userId: string, draftId: string) {
   try { session()?.removeItem(DRAFT_CHAT_PREFIX + key(userId, draftId)) } catch { /* storage blocked */ }
 }
 
-/** Sign-out: nothing of the previous person's drafts, chips or last chat stays for the next one in this tab. */
+/** Sign-out: nothing of the previous person's drafts, chips or last chat stays for the next one in this tab. An upload of
+ * a chip stops too: one waiting for its turn would start with the next person's session. */
 export function forgetTeamAttach() {
   queued.clear()
+  for (const chips of stashes.values()) for (const chip of chips as { abort?: AbortController }[]) chip.abort?.abort(SIGNED_OUT)
   stashes.clear()
   draftChats.clear()
   lastChat = null

@@ -1,18 +1,28 @@
-// Admin > External services: the team's connections (company accounts) and who may use each one in their chats —
+// Admin > MCP (called "External services" before; the address is still /admin/integrations):
+// the team's connections (company accounts) and who may use each one in their chats —
 // the whole team, groups, people. Admins manage them all but use one in their own chats only when the rule includes
 // them, so each row says so. Members' personal connections are not listed (nobody but the owner can use those).
-import { Cable, Plus } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
-import type { Group, Integration, User } from '@mycel/shared/api'
+// "Discover" adds a known service by name; "Add connection" takes any MCP server or API by its address, either for the
+// team with one key or as a template each member connects with their own key (components/integrations/TemplatesView.tsx).
+// Its ⌄ menu also asks one member to connect a service as their own (a popup, components/integrations/RequestDialog.tsx);
+// such a request is a row in the same list while it waits, and for a while after it was declined or expired.
+import { Cable, Plus, Send } from 'lucide-react'
+import { useCallback, useEffect, useId, useState } from 'react'
+import type { Group, Integration, IntegrationRequest, IntegrationTemplate, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { covers, isEmptyAccess, NOBODY } from '../../lib/integrations'
+import type { Connector } from '../../lib/connectors'
+import { covers, isEmptyAccess, NOBODY, type RequestForm } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { reloadAsked } from '../../store/live'
-import { Badge, Button, EmptyState } from '../../components/ui'
+import { Badge, EmptyState, TabPanel } from '../../components/ui'
+import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../../components/integrations/ConnectorsView'
 import { IntegrationDialog } from '../../components/integrations/IntegrationDialog'
+import { RequestDialog, RequestRow, requestFormOf, shownRequests, useTeamRequests } from '../../components/integrations/RequestDialog'
 import { IntegrationRow, useIntegrationActions } from '../../components/integrations/IntegrationRow'
-import { Card, Loadable, useLoad } from './common'
+import { TemplateRow } from '../../components/integrations/TemplatesView'
+import { toast } from '../../store/ui'
+import { Loadable, PageScope, useLoad } from './common'
 
 export default function AdminIntegrations() {
   const t = useT()
@@ -20,7 +30,13 @@ export default function AdminIntegrations() {
   const state = useLoad(async () => (await api.call(API.listTeamIntegrations)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const [dialog, setDialog] = useState<{ existing?: Integration } | null>(null)
+  // an older server has no templates: the page works without them
+  const templates = useLoad(async () => { try { return (await api.call(API.listTeamIntegrationTemplates)).items } catch { return [] as IntegrationTemplate[] } })
+  const [dialog, setDialog] = useState<{ existing?: Integration; template?: IntegrationTemplate; connector?: Connector } | null>(null)
+  const requests = useTeamRequests()
+  const [ask, setAsk] = useState<{ initial?: RequestForm } | null>(null)
+  const [tab, setTab] = useState<ConnectorTab>('connected')
+  const [query, setQuery] = useState('')
   const reloadList = state.reload
   const reload = useCallback(() => void reloadList(), [reloadList])
   useEffect(() => reloadAsked.on(() => void reloadList()), [reloadList])
@@ -30,47 +46,104 @@ export default function AdminIntegrations() {
     reload,
   })
   const person = { id: me.user.id, groupIds: me.groups.map((g) => g.id) }
+  const panels = useId()
   return (
     <>
-      <Card
+      <ConnectorsHeader
         title={t('admin.integrations')}
-        desc={t('integrations.admin.desc')}
-        actions={
-          <Button size="sm" variant="primary" onClick={() => setDialog({})} data-testid="integration-add">
-            <Plus size={14} aria-hidden /> {t('integrations.add')}
-          </Button>
-        }
-      >
-        <Loadable state={state}>
-          {(list) =>
-            !list.length ? (
+        scope={<PageScope />}
+        tab={tab}
+        onTab={setTab}
+        query={query}
+        onQuery={setQuery}
+        onAdd={() => setDialog({})}
+        moreAdd={[
+          { label: t('integrations.addTeam'), icon: <Plus size={15} aria-hidden />, onSelect: () => setDialog({}), testId: 'integration-add-team' },
+          { label: t('integrations.requests.add'), icon: <Send size={15} aria-hidden />, onSelect: () => setAsk({}), testId: 'integration-request-add' },
+        ]}
+        panels={panels}
+      />
+      {/* what this page is for, right under its title (not lost between the list and the requests) */}
+      {tab === 'connected' && <p className="mb-4 text-sm text-muted" data-testid="team-integrations-note">{t('integrations.admin.desc')}</p>}
+      <TabPanel base={panels} value={tab}>
+      <Loadable state={state}>
+        {(list) => {
+          const tpls = templates.data ?? []
+          if (tab === 'discover') return <ConnectorDiscover connected={[...list, ...tpls]} query={query} onAdd={(c) => setDialog({ connector: c })} onCustom={() => setDialog({})} />
+          const reqs = shownRequests(requests.list)
+          if (!list.length && !tpls.length && !reqs.length) {
+            return (
               <EmptyState icon={<Cable size={26} />} title={t('integrations.admin.empty')}>
                 <p>{t('integrations.admin.emptyHint')}</p>
               </EmptyState>
-            ) : (
-              <ul className="-m-4 divide-y divide-line" data-testid="team-integrations">
-                {[...list].sort((a, b) => a.name.localeCompare(b.name)).map((i) => (
+            )
+          }
+          const shown = [...list].filter((i) => matchesQuery(i, query)).sort((a, b) => a.name.localeCompare(b.name))
+          const q = query.trim().toLocaleLowerCase()
+          const shownTpls = tpls.filter((x) => !q || x.name.toLocaleLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name))
+          const shownReqs = reqs.filter((r) => !q || `${r.name} ${r.url} ${r.user.name}`.toLocaleLowerCase().includes(q))
+          if (!shown.length && !shownTpls.length && !shownReqs.length) return <EmptyState title={t('integrations.noMatch', { q: query.trim() })} />
+          return (
+            <ul className="-mx-2 divide-y divide-line" data-testid="team-integrations">
+              {shownTpls.map((x) => (
+                <TemplateRow key={x.id} tpl={x} groups={groups.data ?? []} users={users.data ?? []} onEdit={() => setDialog({ template: x })} onDeleted={() => void templates.reload()} />
+              ))}
+              {shown.map((i) => {
+                // what needs the admin's attention stays on the line: nobody may use it, or the admin cannot
+                const nobody = isEmptyAccess(i.access ?? NOBODY)
+                const notMine = !nobody && !covers(i.access, person)
+                return (
                   <IntegrationRow
                     key={i.id}
                     i={i}
                     actions={actions}
                     onEdit={() => setDialog({ existing: i })}
-                    extra={<AccessLine i={i} groups={groups.data ?? []} users={users.data ?? []} mine={covers(i.access, person)} />}
+                    alert={(nobody || notMine) && (
+                      <span className="inline-flex" data-testid="integration-access-warning">
+                        <Badge tone="warn">{t(nobody ? 'integrations.users.nobody' : 'integrations.users.notMe')}</Badge>
+                      </span>
+                    )}
+                    extra={<AccessLine i={i} groups={groups.data ?? []} users={users.data ?? []} />}
                   />
-                ))}
-              </ul>
-            )
-          }
-        </Loadable>
-      </Card>
+                )
+              })}
+              {shownReqs.map((r: IntegrationRequest) => (
+                <RequestRow key={r.id} r={r} onWithdraw={() => void requests.withdraw(r)} onAskAgain={() => setAsk({ initial: requestFormOf(r) })} />
+              ))}
+            </ul>
+          )
+        }}
+      </Loadable>
+      </TabPanel>
+      {ask && (
+        <RequestDialog
+          users={users.data ?? []}
+          initial={ask.initial}
+          onClose={() => setAsk(null)}
+          onSent={(r) => {
+            requests.sent(r)
+            if (tab === 'discover') setTab('connected')
+          }}
+        />
+      )}
       {dialog && (
         <IntegrationDialog
           scope="team"
           existing={dialog.existing}
+          template={dialog.template}
+          connector={dialog.connector}
           onClose={() => setDialog(null)}
+          onSavedTemplate={() => {
+            const made = !dialog.template
+            setDialog(null)
+            void templates.reload()
+            toast({ level: 'success', text: t(made ? 'integrations.template.made' : 'common.saved') })
+            if (tab === 'discover') afterAdded(setTab, setQuery)
+          }}
           onSaved={(i, next) => {
             setDialog(null)
             actions.saved(i, next, !dialog.existing)
+            if (tab === 'discover') afterAdded(setTab, setQuery)
           }}
         />
       )}
@@ -78,10 +151,11 @@ export default function AdminIntegrations() {
   )
 }
 
-/** "Used by: Finance, Bob", and whether the admin looking at it can use it in their own chats */
-function AccessLine({ i, groups, users, mine }: { i: Integration; groups: Group[]; users: User[]; mine: boolean }) {
+/** "Used by: Finance, Bob" and who added it, in the details. Whether nobody or not the admin may use it is on the line. */
+function AccessLine({ i, groups, users }: { i: Integration; groups: Group[]; users: User[] }) {
   const t = useT()
   const a = i.access ?? NOBODY
+  if (isEmptyAccess(a) && !i.createdBy) return null
   const names = [
     ...a.groups.map((id) => groups.find((g) => g.id === id)?.name ?? '?'),
     ...a.users.map((id) => users.find((u) => u.id === id)?.name ?? '?'),
@@ -89,12 +163,7 @@ function AccessLine({ i, groups, users, mine }: { i: Integration; groups: Group[
   const who = a.everyone ? t('integrations.access.everyone') : names.join(', ')
   return (
     <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" data-testid="integration-access-line">
-      {isEmptyAccess(a) ? (
-        <Badge tone="warn">{t('integrations.users.nobody')}</Badge>
-      ) : (
-        <span className="text-muted">{t('integrations.users', { who })}</span>
-      )}
-      {!mine && !isEmptyAccess(a) && <Badge tone="warn">{t('integrations.users.notMe')}</Badge>}
+      {!isEmptyAccess(a) && <span className="text-muted">{t('integrations.users', { who })}</span>}
       {i.createdBy && <span className="text-faint">{t('integrations.createdBy', { name: i.createdBy.name })}</span>}
     </p>
   )

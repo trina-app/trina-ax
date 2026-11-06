@@ -16,14 +16,15 @@ import { resolveLayout } from '../../system/layout'
 import { egressOf } from '../../tools/egress'
 import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-fetch'
 import { secretHider } from './hide'
-import { McpClient, McpError } from './mcp'
-import { NetError, serviceRequest, type NetOptions, type NetResponse } from './net'
+import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
+import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
 import { authorizationUrl, discover, GrantError, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens } from './oauth'
 import {
-  accessOf, activeUser, connectionAad, flowAad, getRow, isAdmin, mayUse, SecretBox, setAccess, StoreError, usable, view,
+  accessOf, activeUser, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, requestSignedIn, savedTools, SecretBox, selectRows, setAccess, StoreError, toolListsOf, usable, view,
   type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
+import { notifyTemplateReconnect } from '../../notifications/service'
 
 export const MAX_PERSONAL = 20
 export const MAX_TEAM = 50
@@ -62,22 +63,54 @@ export function slugOf(name: string, kind: 'mcp' | 'http'): string {
 }
 
 /** Refused before any lookup: an address that names this computer or a private network outright. */
-function obviouslyPrivate(url: string): boolean {
+export function obviouslyPrivate(url: string): boolean {
   const host = new URL(url).hostname.replace(/^\[|\]$/g, '')
   if (net.isIP(host)) return !isPublicAddress(host) || isLocalAddress(host)
   return !!checkHostName(host)
 }
 
-const normUrl = (u: string) => new URL(u).href
+export const normUrl = (u: string) => new URL(u).href
 /** names go into the AI's instructions and tool descriptions: one line, no control characters */
-const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
-const cleanNotes = (s: string | null | undefined) => s?.replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ').trim() || null
+export const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
+export const cleanNotes = (s: string | null | undefined) => s?.replace(/[\u0000-\u0008\u000b-\u001f\u007f]+/g, ' ').trim() || null
+
+// Characters that show nothing or turn the text around them: format characters (zero-width ones, bidi marks,
+// overrides and isolates, the tag block), other default-ignorable ones (variation selectors, Hangul fillers),
+// private-use characters, lone surrogates, noncharacters and C1 controls. ASCII controls are not here: oneLine and
+// cleanNotes make them spaces.
+const HIDDEN = /[\p{Cf}\p{DI}\p{Co}\p{Cs}\p{Noncharacter_Code_Point}\u0080-\u009f]/u
+const EMOJI = /\p{Emoji}/u
+const PICTOGRAPH = /\p{Extended_Pictographic}/u
+/** an emoji ends just before `i` (its emoji selector and skin tone may follow it) */
+const pictographBefore = (cps: string[], i: number) => {
+  let j = i - 1
+  if (cps[j] === '\ufe0f') j--
+  if (j >= 0 && /\p{Emoji_Modifier}/u.test(cps[j]!)) j--
+  return j >= 0 && PICTOGRAPH.test(cps[j]!)
+}
+/**
+ * Whether the text holds a character a person cannot see or that changes the direction of the text (HIDDEN): text the
+ * AI writes for a person to approve (a connection's name and notes, connect_service's line on the card) could hide
+ * words from them that the AI reads later. Emoji keep working: a zero-width joiner between two emoji ("👩\u200d💻") and an
+ * emoji's presentation selector ("❤\ufe0f") are allowed; Korean, Japanese and line breaks have none of these characters.
+ */
+export function hiddenText(s: string): boolean {
+  const cps = [...s]
+  for (let i = 0; i < cps.length; i++) {
+    const c = cps[i]!
+    if (!HIDDEN.test(c)) continue
+    if ((c === '\ufe0f' || c === '\ufe0e') && i > 0 && EMOJI.test(cps[i - 1]!)) continue
+    if (c === '\u200d' && pictographBefore(cps, i) && PICTOGRAPH.test(cps[i + 1] ?? '')) continue
+    return true
+  }
+  return false
+}
 /** what the admin audit says about a change: team connections in full; a member's own ones without name or address */
 const auditDetail = (row: Pick<Row, 'scope' | 'kind' | 'auth' | 'name' | 'url'>, more: Record<string, unknown> = {}) =>
   row.scope === 'team' ? { scope: row.scope, kind: row.kind, name: row.name, host: new URL(row.url).host, auth: row.auth, ...more } : { scope: row.scope, kind: row.kind, auth: row.auth }
 
 /** A refusal of one field: `validation`, the words (in the person's language) under that field too. */
-function fieldError(L: Locale, field: string, key: TextKey, vars: Record<string, string | number> = {}): never {
+export function fieldError(L: Locale, field: string, key: TextKey, vars: Record<string, string | number> = {}): never {
   const m = say(key, L, vars)
   return fail('validation', m, { fields: { [`body.${field}`]: m } })
 }
@@ -99,12 +132,12 @@ export class Integrations {
 
   // ---------------- reading ----------------
   list(viewer: Viewer, locale: Locale): IntegrationList {
-    const personal = this.db.query("SELECT * FROM integrations WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id").all(viewer.id) as Row[]
-    const team = (this.db.query("SELECT * FROM integrations WHERE scope = 'team' ORDER BY name, id").all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
+    const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(viewer.id) as Row[]
+    const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
     return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed: getTeamSettings(this.db).personalIntegrations }
   }
   listTeam(viewer: Viewer, locale: Locale): Integration[] {
-    return (this.db.query("SELECT * FROM integrations WHERE scope = 'team' ORDER BY name, id").all() as Row[]).map((r) => view(this.db, r, viewer, locale))
+    return (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).map((r) => view(this.db, r, viewer, locale))
   }
   /** connections this person may use in a chat now (tools.ts) */
   usable(userId: string): Row[] { return usable(this.db, userId) }
@@ -119,14 +152,18 @@ export class Integrations {
   }
 
   // ---------------- creating and changing ----------------
-  async create(viewer: Viewer, input: IntegrationInput, scope: 'personal' | 'team', locale: Locale): Promise<Integration> {
+  /** `templateId`: a member's own connection made from an admin's template (templates.ts connect, which checked that
+   * the template is for them and filled in its address, sign-in method and header). The team's switch for members' own
+   * connections and their limit of MAX_PERSONAL do not apply to it: the admin registered the service. */
+  async create(viewer: Viewer, input: IntegrationInput, scope: 'personal' | 'team', locale: Locale, templateId?: string): Promise<Integration> {
     const L = locale
-    if (scope === 'personal' && !getTeamSettings(this.db).personalIntegrations) fail('forbidden', say('personalOff', L))
+    if (templateId && scope !== 'personal') fail('validation')
+    if (scope === 'personal' && !templateId && !getTeamSettings(this.db).personalIntegrations) fail('forbidden', say('personalOff', L))
     if (scope === 'personal' && input.access) fieldError(L, 'access', 'accessTeamOnly')
     // sending without asking is the team's choice (an admin's), never one person's for their own connection
     if (scope === 'personal' && input.writePolicy === 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
-    const count = scope === 'personal'
-      ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ?").get(viewer.id) as { n: number }).n
+    const count = templateId ? 0 : scope === 'personal'
+      ? (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NULL").get(viewer.id) as { n: number }).n
       : (this.db.query("SELECT count(*) AS n FROM integrations WHERE scope = 'team'").get() as { n: number }).n
     const max = scope === 'personal' ? MAX_PERSONAL : MAX_TEAM
     if (count >= max) fail('conflict', say('tooMany', L, { n: max }))
@@ -143,8 +180,8 @@ export class Integrations {
     const row: Row = {
       id, scope, owner_user_id: owner, created_by: viewer.id, kind: input.kind, name: oneLine(input.name), slug, url, auth: input.auth, auth_header: authHeader,
       secret_enc: null, key_version: 1, account: null, notes: cleanNotes(input.notes), write_policy: input.writePolicy ?? 'ask',
-      status: input.auth === 'oauth' ? 'needs_auth' : 'error', last_error: input.auth === 'oauth' ? 'sign_in' : input.auth === 'none' ? null : 'no_secret', tools_json: '[]', tools_updated_at: null,
-      last_used_at: null, version: 1, created_at: now, updated_at: now,
+      status: input.auth === 'oauth' ? 'needs_auth' : 'error', last_error: input.auth === 'oauth' ? 'sign_in' : input.auth === 'none' ? null : 'no_secret', tools_rev: 0, tools_updated_at: null,
+      last_used_at: null, version: 1, created_at: now, updated_at: now, disabled_tools: '[]', template_id: templateId ?? null,
     }
     if (input.secret !== undefined) {
       const sealed = this.sealFor(row, { type: 'key', key: input.secret } satisfies KeySecret, L)
@@ -152,11 +189,13 @@ export class Integrations {
     }
     this.db.transaction(() => {
       this.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
-        write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at, template_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?)`)
         .run(row.id, row.scope, row.owner_user_id, row.created_by, row.kind, row.name, row.slug, row.url, row.auth, row.auth_header, row.secret_enc, row.key_version,
-          row.account, row.notes, row.write_policy, row.status, row.last_error, row.tools_json, row.tools_updated_at, row.last_used_at, row.version, row.created_at, row.updated_at)
+          row.account, row.notes, row.write_policy, row.status, row.last_error, row.tools_updated_at, row.last_used_at, row.version, row.created_at, row.updated_at, row.template_id ?? null)
       if (scope === 'team') setAccess(this.db, id, input.access ?? { everyone: false, groups: [], users: [] })
     })()
+    // made from a template: logged like any member's own connection, without which template (that would say which
+    // service, and that this member connected it: admins see only how many did)
     audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, access: scope === 'team' ? accessOf(this.db, id) : undefined }) })
     const checked = await this.check(getRow(this.db, id)!)
     return view(this.db, checked, viewer, L)
@@ -165,6 +204,11 @@ export class Integrations {
   async update(viewer: Viewer, id: string, patch: IntegrationPatch, locale: Locale): Promise<Integration> {
     const L = locale
     const row = this.manageable(viewer, id)
+    // made from an admin's template: the address, sign-in method, header, name and notes are the template's (a key
+    // must only ever go where the admin registered); the member changes only their key and the write rule
+    if (row.template_id) {
+      for (const k of ['name', 'url', 'auth', 'authHeader', 'notes', 'access'] as const) if (patch[k] !== undefined) fieldError(L, k, 'fromTemplate')
+    }
     const next: Row = { ...row }
     const changed: string[] = []
     if (patch.name !== undefined && oneLine(patch.name) !== row.name) { next.name = oneLine(patch.name); changed.push('name') }
@@ -197,15 +241,16 @@ export class Integrations {
       const sealed = this.sealFor(next, { type: 'key', key: patch.secret } satisfies KeySecret, L)
       next.secret_enc = sealed.enc; next.key_version = sealed.keyVersion; secret = 'replaced'
     } else if ((moved || patch.clearSecret) && row.secret_enc) { next.secret_enc = null; secret = 'removed' }
-    if (moved) { next.tools_json = '[]'; next.tools_updated_at = null; next.account = null }
+    // a moved connection's saved tools go too (the UPDATE below empties tools_json)
+    if (moved) { next.tools_updated_at = null; next.account = null }
     const recheck = moved || secret !== 'kept'
     if (recheck) { next.status = next.auth === 'oauth' && !next.secret_enc ? 'needs_auth' : 'error'; next.last_error = next.auth === 'none' || next.secret_enc ? null : next.auth === 'oauth' ? 'sign_in' : 'no_secret' }
     const accessBefore = row.scope === 'team' ? accessOf(this.db, id) : null
     const now = iso(this.now())
     this.db.transaction(() => {
-      const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?, tools_json=?,
-        tools_updated_at=?, status=?, last_error=?, version=version+1, updated_at=? WHERE id=? AND version=?`)
-        .run(next.name, next.notes, next.write_policy, next.url, next.auth, next.auth_header, next.secret_enc, next.key_version, next.account, next.tools_json,
+      const r = this.db.query(`UPDATE integrations SET name=?, notes=?, write_policy=?, url=?, auth=?, auth_header=?, secret_enc=?, key_version=?, account=?,
+        tools_json=CASE WHEN ? THEN '[]' ELSE tools_json END, tools_updated_at=?, status=?, last_error=?, version=version+1, updated_at=? WHERE id=? AND version=?`)
+        .run(next.name, next.notes, next.write_policy, next.url, next.auth, next.auth_header, next.secret_enc, next.key_version, next.account, moved ? 1 : 0,
           next.tools_updated_at, next.status, next.last_error, now, id, row.version)
       if (!r.changes) fail('conflict')
       if (patch.access) setAccess(this.db, id, patch.access)
@@ -223,6 +268,33 @@ export class Integrations {
     return view(this.db, recheck ? await this.check(cur) : cur, viewer, L)
   }
 
+  /** One tool of an MCP connection on or off for the AI, by whoever manages the connection (manageable: the owner of a
+   * personal one, an admin for a team one). Only a tool the service lists now can be changed; names stay off when the
+   * tool disappears. The version moves on, so a write the AI asked for before is asked again (tools.ts). */
+  setTool(viewer: Viewer, id: string, name: string, enabled: boolean, locale: Locale): Integration {
+    const L = locale
+    const row = this.manageable(viewer, id)
+    if (row.kind !== 'mcp') fieldError(L, 'name', 'toolsMcpOnly')
+    if (!savedTools(this.db, row).some((t) => t.name === name)) fieldError(L, 'name', 'toolUnknown')
+    const off = disabledTools(row)
+    if (off.has(name) === !enabled) return view(this.db, row, viewer, L)
+    if (enabled) off.delete(name)
+    else {
+      off.add(name)
+      // names of tools the service no longer lists go first when the list is full
+      if (off.size > MAX_DISABLED_TOOLS) {
+        const listed = new Set(savedTools(this.db, row).map((t) => t.name))
+        for (const n of [...off]) { if (off.size <= MAX_DISABLED_TOOLS) break; if (!listed.has(n)) off.delete(n) }
+      }
+    }
+    const r = this.db.query('UPDATE integrations SET disabled_tools=?, version=version+1, updated_at=? WHERE id=? AND version=?')
+      .run(JSON.stringify([...off].sort()), iso(this.now()), id, row.version)
+    if (!r.changes) fail('conflict')
+    // a member's own connection: not which tool (its name says which service), as for its name and address
+    audit(this.db, { actor: viewer.id, action: 'integration.update', target: id, detail: { ...auditDetail(row), changed: ['tools'], enabled, ...(row.scope === 'team' ? { tool: name } : {}), off: off.size } })
+    return view(this.db, getRow(this.db, id)!, viewer, L)
+  }
+
   async remove(viewer: Viewer, id: string): Promise<void> {
     const row = this.manageable(viewer, id)
     const old = row.secret_enc ? this.tryOpen(row) : null
@@ -230,8 +302,44 @@ export class Integrations {
     this.db.query('DELETE FROM integrations WHERE id = ?').run(id)
     this.dropClient(id)
     this.recent.delete(id)
+    toolListsOf(this.db).drop(id)
     audit(this.db, { actor: viewer.id, action: 'integration.delete', target: id, detail: auditDetail(row) })
     if (old?.type === 'oauth') await this.revokeTokens(old)
+  }
+
+  /** Delete connections made from an admin's template (templates.ts: the template moved to another address or sign-in,
+   * was deleted, or no longer covers their member). Local first, then each OAuth sign-in is revoked at its service:
+   * waited for when an admin's change caused it (`wait`), only started when a list someone loads found it (sweep).
+   * `actor`: who caused it (null: nobody, e.g. a group change); `why` goes into the activity log, as for any member's
+   * own connection without its name, address, template or member. */
+  async dropFromTemplate(rows: Row[], actor: string | null, why: 'template_moved' | 'template_deleted' | 'not_covered', wait = true): Promise<void> {
+    const olds: Secret[] = []
+    for (const row of rows) {
+      if (!row.template_id) continue
+      const old = row.secret_enc ? this.tryOpen(row) : null
+      if (!this.db.query('DELETE FROM integrations WHERE id = ? AND template_id = ?').run(row.id, row.template_id).changes) continue
+      this.dropClient(row.id)
+      this.recent.delete(row.id)
+      toolListsOf(this.db).drop(row.id)
+      audit(this.db, { actor, action: 'integration.delete', target: row.id, detail: { ...auditDetail(row), why } })
+      if (old?.type === 'oauth') olds.push(old)
+      // the template moved (a new address, sign-in method or header): the member connects it again, and is told so
+      // (its id and new version only; never the address)
+      if (why === 'template_moved' && row.owner_user_id) {
+        const t = this.db.query('SELECT version FROM integration_templates WHERE id = ?').get(row.template_id) as { version: number } | null
+        if (t) notifyTemplateReconnect(this.ctx, row.owner_user_id, row.template_id, t.version)
+      }
+    }
+    const revoking = Promise.all(olds.map((o) => this.revokeTokens(o).catch(() => false)))
+    if (wait) await revoking
+  }
+
+  /** A member's sign-ins at services made from templates, read before their account goes (admin/users.ts deleteUser
+   * deletes the rows): what tells those services, run after the local delete and not waited for. */
+  signInsToRevoke(userId: string): () => void {
+    const rows = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND template_id IS NOT NULL AND auth = 'oauth' AND secret_enc IS NOT NULL`).all(userId) as Row[]
+    const olds = rows.map((r) => this.tryOpen(r)).filter((s): s is Secret => s?.type === 'oauth')
+    return () => { for (const o of olds) void this.revokeTokens(o).catch(() => false) }
   }
 
   async refresh(viewer: Viewer, id: string, locale: Locale): Promise<Integration> {
@@ -239,7 +347,8 @@ export class Integrations {
     return view(this.db, await this.check(row), viewer, locale)
   }
 
-  private headerName(h: string | null, L: Locale): string {
+  /** the header a key is sent in, or a refusal of the field (also for what an admin asks a member to connect, requests.ts) */
+  headerName(h: string | null, L: Locale): string {
     if (!h || !/^[A-Za-z0-9-]{1,64}$/.test(h) || RESERVED_HEADERS.has(h.toLowerCase())) return fieldError(L, 'authHeader', 'badHeader')
     return h
   }
@@ -271,23 +380,25 @@ export class Integrations {
     try { return this.box.open<Secret>(connectionAad(cur), cur.secret_enc, cur.key_version) }
     catch (e) { throw e instanceof StoreError && e.code === 'key_unsafe' ? new NetError('key_unsafe') : new NeedsAuth(row.auth === 'oauth' ? 'sign_in' : 'no_secret') }
   }
-  /** the header that carries the key or token */
-  async authHeaders(row: Row): Promise<[string, string][]> {
+  /** the header that carries the key or token; `deadline`: when a check's request must end (oauthToken) */
+  async authHeaders(row: Row, deadline?: number): Promise<[string, string][]> {
     if (row.auth === 'none') return []
     const s = this.secretOf(row)
     if (row.auth === 'oauth') {
       if (s.type !== 'oauth') throw new NeedsAuth('sign_in')
-      return [['Authorization', `Bearer ${await this.oauthToken(row)}`]]
+      return [['Authorization', `Bearer ${await this.oauthToken(row, undefined, deadline)}`]]
     }
     if (s.type !== 'key') throw new NeedsAuth('no_secret')
     return row.auth === 'bearer' ? [['Authorization', `Bearer ${s.key}`]] : [[row.auth_header ?? 'X-API-Key', s.key]]
   }
 
-  /** A usable access token: refreshed ahead of expiry or after a 401 (`rejected`), one refresh at a time per connection. */
-  private async oauthToken(row: Row, rejected?: string): Promise<string> {
+  /** A usable access token: refreshed ahead of expiry or after a 401 (`rejected`), one refresh at a time per connection.
+   * `deadline` (a check's): a token still valid is used as it is when a refresh (its own 30 s) could end after it. */
+  private async oauthToken(row: Row, rejected?: string, deadline?: number): Promise<string> {
     const s = this.secretOf(row) as OAuthSecret
     const fresh = s.tokens.expiresAt === null || s.tokens.expiresAt > this.now() + 60_000
-    if (fresh && s.tokens.accessToken !== rejected) return s.tokens.accessToken
+    const late = deadline !== undefined && Date.now() + (this.net.timeoutMs ?? TIMEOUT_MS) > deadline && s.tokens.expiresAt !== null && s.tokens.expiresAt > this.now()
+    if ((fresh || late) && s.tokens.accessToken !== rejected) return s.tokens.accessToken
     const pending = this.refreshes.get(row.id)
     if (pending) return pending
     if (!s.tokens.refreshToken) { this.setStatus(row, 'needs_auth', 'sign_in'); throw new NeedsAuth('sign_in') }
@@ -330,8 +441,8 @@ export class Integrations {
    * server started. A secret that cannot be read now is left out. For the turn's own outgoing text: the answer, the
    * steps, the audit lines and the chat title (redact.ts) never repeat one. */
   secretsFor(userId: string): string[] {
-    const personal = this.db.query("SELECT * FROM integrations WHERE scope = 'personal' AND owner_user_id = ? AND secret_enc IS NOT NULL").all(userId) as Row[]
-    const team = (this.db.query("SELECT * FROM integrations WHERE scope = 'team' AND secret_enc IS NOT NULL").all() as Row[]).filter((r) => mayUse(this.db, r, userId))
+    const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND secret_enc IS NOT NULL`).all(userId) as Row[]
+    const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND secret_enc IS NOT NULL`).all() as Row[]).filter((r) => mayUse(this.db, r, userId))
     const out: string[] = []
     for (const r of [...personal, ...team]) out.push(...(this.secretValues(r, true) ?? []))
     return out
@@ -356,10 +467,14 @@ export class Integrations {
   }
 
   // ---------------- checking ----------------
-  private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string } = {}) {
+  /** `total`: how many tools the server offers when it keeps fewer (null: all of them); `totalMore`: the service offers
+   * more than `total` (the check stopped with pages of its list unread) */
+  private setStatus(row: Row, status: Row['status'], reason: string | null, extra: { tools?: string; total?: number | null; totalMore?: boolean } = {}) {
     const now = iso(this.now())
-    if (extra.tools !== undefined) this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?').run(status, reason, extra.tools, now, now, row.id, row.version)
-    else this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
+    if (extra.tools !== undefined) {
+      this.db.query('UPDATE integrations SET status=?, last_error=?, tools_json=?, tools_total=?, tools_total_more=?, tools_updated_at=?, updated_at=? WHERE id=? AND version=?')
+        .run(status, reason, extra.tools, extra.total ?? null, extra.totalMore ? 1 : 0, now, now, row.id, row.version)
+    } else this.db.query('UPDATE integrations SET status=?, last_error=?, updated_at=? WHERE id=? AND version=?').run(status, reason, now, row.id, row.version)
   }
 
   /** a call's failure -> what the connection's status says */
@@ -368,13 +483,22 @@ export class Integrations {
     if (s) this.setStatus(row, s.status, s.reason)
   }
 
-  /** Check the connection now; MCP: save its tool list. Returns the row as stored afterwards. */
+  /** Check the connection now; MCP: save its tool list. Returns the row as stored afterwards. An MCP server with a
+   * saved list, connected or in an error that was only for now (PASSING), whose list could not be read this time for
+   * such a reason keeps that list and is connected, with the reason (lastError): its tools keep working, and Settings
+   * says the last check failed and which list the AI uses (not "Error"). The next check that reads the list, or a call
+   * that goes through (used), clears it. */
   async check(row: Row, signal?: AbortSignal): Promise<Row> {
     try {
       if (row.kind === 'mcp') {
+        // one deadline for the whole check: every request of it ends by then, and no new session or token refresh
+        // starts that would end later (withMcp, mcp.ts listTools)
+        const deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)
         // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
-        const { tools } = await this.withMcp(row, (c) => c.listTools(signal))
-        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools) })
+        const { tools, more, total, unread } = await this.withMcp(row, (c) => c.listTools(signal, deadline), deadline)
+        // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
+        // say "1,000 of 1,200", or "1,000 of more than 1,000" when reading stopped with pages left (mcp.ts listTools)
+        this.setStatus(row, 'connected', null, { tools: JSON.stringify(tools), total: more ? Math.max(total, tools.length) : null, totalMore: unread })
       } else {
         const res = await this.send(row, row.url, { method: 'GET', headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5']], signal })
         if (res.status === 401 || res.status === 403) this.setStatus(row, 'needs_auth', `refused:${res.status}`)
@@ -383,7 +507,13 @@ export class Integrations {
       }
     } catch (e) {
       const s = statusOf(e)
-      this.setStatus(row, s?.status ?? 'error', s?.reason ?? 'unreachable')
+      // the row as it is now: a call during the check may have found a sign-in needed (that stays), or an error
+      const now = getRow(this.db, row.id)
+      if (now && now.version === row.version && now.status === 'needs_auth' && row.status !== 'needs_auth') return now
+      const working = now?.status === 'connected' || (now?.status === 'error' && PASSING.test(now.last_error ?? ''))
+      const kept = !!s && row.kind === 'mcp' && s.status === 'error' && PASSING.test(s.reason) && working && savedTools(this.db, now!).length > 0
+      // a failure we do not know (a JSON-RPC error on tools/list): not MCP as we can use it, never only for now
+      this.setStatus(row, kept ? 'connected' : s?.status ?? 'error', s?.reason ?? (row.kind === 'mcp' ? 'not_mcp' : 'unreachable'))
     }
     return getRow(this.db, row.id) ?? row
   }
@@ -394,20 +524,25 @@ export class Integrations {
     const c = this.clients.get(key)
     if (c && this.now() - c.usedAt < CLIENT_IDLE_MS) return c
     this.dropClient(row.id)
-    const fresh = new McpClient(row.url, () => this.authHeaders(row), this.net, () => this.hider([row]))
+    const fresh = new McpClient(row.url, (deadline) => this.authHeaders(row, deadline), this.net, () => this.hider([row]))
     this.clients.set(key, fresh)
     return fresh
   }
   private dropClient(id: string) { for (const k of [...this.clients.keys()]) if (k.startsWith(id + ':')) this.clients.delete(k) }
 
-  /** Run against the MCP server: a new session when the server forgot ours, one token refresh after a 401. */
-  private async withMcp<T>(row: Row, fn: (c: McpClient) => Promise<T>): Promise<T> {
+  /** Run against the MCP server: a new session when the server forgot ours, one token refresh after a 401. `deadline`
+   * (a check's): neither once it has passed, nor a token refresh (its own 30 s) that would end after it. */
+  private async withMcp<T>(row: Row, fn: (c: McpClient) => Promise<T>, deadline = Infinity): Promise<T> {
     let renewed = false, refreshed = false
     for (;;) {
       const c = this.client(row)
       try { return await fn(c) } catch (e) {
-        if (e instanceof McpError && e.code === 'session_gone' && !renewed) { renewed = true; this.dropClient(row.id); continue }
-        if (e instanceof McpError && e.code === 'unauthorized' && row.auth === 'oauth' && !refreshed && row.secret_enc) {
+        const renew = e instanceof McpError && e.code === 'session_gone' && !renewed
+        const refresh = e instanceof McpError && e.code === 'unauthorized' && row.auth === 'oauth' && !refreshed && !!row.secret_enc
+        // a check without the time for it: its deadline ended it, not a lost session or a token to refresh
+        if ((renew && Date.now() >= deadline) || (refresh && Date.now() + (this.net.timeoutMs ?? TIMEOUT_MS) > deadline)) throw new NetError('list_timeout')
+        if (renew) { renewed = true; this.dropClient(row.id); continue }
+        if (refresh) {
           refreshed = true
           const s = this.secretOf(row)
           if (s.type === 'oauth') { await this.oauthToken(row, s.tokens.accessToken); this.dropClient(row.id); continue }
@@ -422,7 +557,7 @@ export class Integrations {
     const row = getRow(this.db, id)
     if (!row) throw new CallError('this connection no longer exists', 'gone')
     if (!mayUse(this.db, row, userId)) throw new CallError('the user may not use this connection (any more); the person who manages it can change that', 'no access')
-    if (row.auth !== 'none' && !row.secret_enc) throw new CallError(`${row.name} needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings > External services`, 'needs sign-in or key')
+    if (row.auth !== 'none' && !row.secret_enc) throw new CallError(`${row.name} needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings > MCP`, 'needs sign-in or key')
     return row
   }
 
@@ -442,7 +577,8 @@ export class Integrations {
     try {
       const res = await this.send(row, url, { method: req.method, headers: [['Accept', 'application/json, text/plain;q=0.9, */*;q=0.5'], ...(req.contentType ? [['Content-Type', req.contentType] as [string, string]] : [])], body: req.body, signal })
       if (res.status === 401) this.setStatus(row, 'needs_auth', 'refused:401')
-      this.used(row)
+      // only a 2xx says the API works (a 4xx may be the AI's path, a 5xx the service's trouble)
+      this.used(row, res.status >= 200 && res.status < 300)
       return res
     } catch (e) {
       if (!signal?.aborted) this.noteFailure(row, e)
@@ -453,7 +589,14 @@ export class Integrations {
   private async send(row: Row, url: string, r: { method: string; headers: [string, string][]; body?: Buffer | null; signal?: AbortSignal }) {
     return serviceRequest(url, { ...r, headers: [...r.headers, ...(await this.authHeaders(row))] }, this.net)
   }
-  private used(row: Row) { this.db.query('UPDATE integrations SET last_used_at=? WHERE id=?').run(iso(this.now()), row.id) }
+  /** `works`: the call went through, so what a failed check or call left (an error, or "the last check failed") is
+   * cleared; a sign-in that is needed is not (no call runs then, tools.ts) */
+  private used(row: Row, works = true) {
+    const now = iso(this.now())
+    this.db.query('UPDATE integrations SET last_used_at=? WHERE id=?').run(now, row.id)
+    if (works) this.db.query("UPDATE integrations SET status='connected', last_error=NULL, updated_at=? WHERE id=? AND version=? AND status IN ('connected','error') AND (status='error' OR last_error IS NOT NULL)")
+      .run(now, row.id, row.version)
+  }
 
   // ---------------- signing in (OAuth, MCP only) ----------------
   private liveSession(user: string, session: string) {
@@ -485,7 +628,9 @@ export class Integrations {
       client = old?.type === 'oauth' && old.server.issuer === setup.server.issuer && old.client.redirectUri === redirectUri ? old.client : await register(setup.server, redirectUri, this.net)
     } catch (e) {
       const reason = e instanceof NetError ? e.reason : 'oauth_unsupported'
-      this.setStatus(row, row.secret_enc ? row.status : 'needs_auth', reason)
+      // signed in already: the row stays as it is (the answer says why signing in again failed; a connected row with a
+      // reason would read as "the last check failed")
+      if (!row.secret_enc) this.setStatus(row, 'needs_auth', reason)
       return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?' }))
     }
     const flowId = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
@@ -545,12 +690,20 @@ export class Integrations {
       })()
       this.dropClient(cur.id)
       audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })
+      // made from an admin's request (requests.ts): the request is connected now that the member signed in (its
+      // bookkeeping never undoes a sign-in that worked)
+      try { requestSignedIn(this.db, cur, viewer.id, iso(this.now())) } catch (err) { this.ctx.log.warn('connection request not marked connected', { err }) }
       if (old?.type === 'oauth' && old.tokens.refreshToken !== tokens.refreshToken) void this.revokeTokens(old)
       await this.check(getRow(this.db, cur.id)!)
       return true
     } catch { return failed('exchange') }
   }
 }
+
+/** reasons a check fails for now while the service and its saved tools may still work: no answer in time, not
+ * reachable, a list over the limits, the service busy or failing (HTTP 408, 429, 5xx). Not a refused key or sign-in,
+ * an address that is not allowed, a redirect or a bad certificate: those stop the calls too. */
+const PASSING = /^(timeout|list_timeout|unreachable|too_large|http_status:(408|429|5\d\d))$/
 
 /** What a failure says about the connection (null: nothing to record, e.g. the call was stopped). */
 function statusOf(e: unknown): { status: Row['status']; reason: string } | null {
@@ -579,22 +732,22 @@ function kindOf(e: unknown): string {
 /** A failed call in words for the AI: our own words and status codes, plus a JSON-RPC error's message (the tool's answer). */
 function callMessage(e: unknown, row: Row): string {
   if (e instanceof CallError) return e.message
-  if (e instanceof NeedsAuth) return `${row.name} needs ${e.reason === 'sign_in' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings > External services`
+  if (e instanceof NeedsAuth) return `${row.name} needs ${e.reason === 'sign_in' ? 'a new sign-in' : 'its key'}; the user can fix it in Settings > MCP`
   if (e instanceof McpError) {
     if (e.code === 'rpc') return `${row.name} answered with an error: ${e.detail}`
-    if (e.code === 'unauthorized' || e.code === 'forbidden') return `${row.name} refused the stored key or sign-in (HTTP ${e.status}); the user can fix it in Settings > External services`
+    if (e.code === 'unauthorized' || e.code === 'forbidden') return `${row.name} refused the stored key or sign-in (HTTP ${e.status}); the user can fix it in Settings > MCP`
     if (e.code === 'not_mcp') return `${row.name} did not answer like an MCP server`
     return `${row.name} answered HTTP ${e.status}`
   }
   if (e instanceof NetError) {
     const words: Record<string, string> = {
       timeout: 'did not answer within 30 seconds', private_address: 'points to a private, local or office address, which is not allowed', blocked_port: 'uses a port other than 443',
-      tls: 'has a certificate that could not be verified', redirect: `redirected (HTTP ${e.status}); redirects are not followed`, too_large: 'sent an answer over 1 MB',
+      tls: 'has a certificate that could not be verified', redirect: `redirected (HTTP ${e.status}); redirects are not followed`, too_large: 'sent an answer that is too large (over 25 MB for a tool call, 1 MB otherwise)',
       key_unsafe: 'cannot be used: the server\'s key folder is unsafe', unreachable: 'could not be reached',
     }
     return `${row.name} ${words[e.reason] ?? 'could not be reached'}`
   }
-  if (e instanceof GrantError) return `${row.name} needs a new sign-in; the user can fix it in Settings > External services`
+  if (e instanceof GrantError) return `${row.name} needs a new sign-in; the user can fix it in Settings > MCP`
   return `${row.name} could not be reached`
 }
 

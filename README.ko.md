@@ -10,11 +10,11 @@
 
 [웹사이트](https://ax.trina.app) · [10분 만에 써 보기](#10분-만에-써-보기) · [직접 설치](docs/for-admins.ko.md) · [문서](docs/README.md)
 
-[English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md)
+[English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/hero-day-one.gif" width="100%" alt="입사 첫날 팀원이 'Write a proposal for Trina Logistics.' 한 줄을 입력하자, AI가 대표의 제안서 스킬과 팀 영업 자료를 읽고 7쪽짜리 제안서를 저장해 채팅 옆에 열어요.">
+https://github.com/user-attachments/assets/f19762ef-84de-414a-9f5d-69792f319ec7
 
-<sub><b>입사 첫날, 한 줄:</b> “Write a proposal for Trina Logistics.” AI가 팀 영업 자료를 읽고 대표의 <code>proposal</code> 스킬대로 7쪽 제안서를 저장했어요.<br>실제 앱(영어 화면)에 가상 회사 자료를 넣었어요. 만드는 데 81초 걸렸고, 영상은 빨리 감았어요.</sub>
+<sub><b>97초, 소리를 켜고 보세요.</b> 대표님이 Claude를 한 번 세팅하면, 입사 첫날 신입의 제안서도 대표님이 쓴 것처럼 나와요.<br>애니메이션이고, 1:15에 실제 앱 화면이 나와요. 회사는 가상이에요.</sub>
 
 </div>
 
@@ -27,11 +27,11 @@
 </tr>
 <tr>
 <td><img src="docs/images/readme/before-empty-claude.png" alt="빈 폴더의 Claude Code가 'Write a proposal for Trina Logistics'에 회사, 고객, 형식을 묻는 질문 여섯 개로 답해요."></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="트리나 AX는 같은 요청에 'Lead time from 2.1 to 1.4 days'라는 표지의 7쪽 제안서로 답해요."></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="트리나 AX는 같은 요청에 'Lead time from 2.1 to 1.4 days, within your budget'라는 표지의 7쪽 제안서로 답해요."></td>
 </tr>
 </table>
 
-<sub>2026-10-31에 가상 회사 Dawnroute 자료로 실제로 돌린 결과예요. Claude Code가 되묻는 게 맞아요. 빈 폴더에는 우리가 누군지 알려 줄 게 없으니까요. 트리나는 그 폴더를 채워 줘요.</sub>
+<sub>2026-10-31·11-01에 가상 회사 Dawnroute 자료로 실제로 돌린 결과예요. 덱 사진은 Higgsfield로 만들었어요. Claude Code가 되묻는 게 맞아요. 빈 폴더에는 우리가 누군지 알려 줄 게 없으니까요. 트리나는 그 폴더를 채워 줘요.</sub>
 
 ## 이렇게 돌아가요
 
@@ -61,7 +61,7 @@ bun run demo --locale ko   # → http://127.0.0.1:19760 · alice / teamax-demo-1
 | **회사 폴더가 곧 지식** | `shared/`, `groups/`, `projects/`, 개인 폴더에 버전 기록이 남아요. PDF, 오피스 문서, HWP/HWPX의 글자도 읽어요. |
 | **파일처럼 관리하는 팀 스킬** | 스킬은 `SKILL.md` 파일 하나예요. 누가 쓸지는 폴더 규칙이 정하고, AI가 스킬을 바꾸려면 사람의 확인을 받아야 해요. |
 | **파일을 열 때마다 권한 확인** | 볼 수 없는 파일은 파일 화면, AI 답, 검색, 미리보기, 버전 기록, 휴지통 어디에도 나오지 않아요. |
-| **AI 연결은 회사가 고르기** | Claude나 OpenAI를 구독 또는 API 키로 연결하고, 사람·그룹·팀 전체에 나눠 줘요. 사람별 사용량을 보고 한도도 걸 수 있어요. |
+| **AI 연결은 회사가 고르기** | 회사의 Claude나 OpenAI 계정을 한 번 연결하거나, 사람마다 자기 계정을 연결해요. 사람별 사용량을 보고 한도도 걸 수 있어요. 자체 설치라면 [Anthropic 호환 게이트웨이](docs/CONFIGURATION.md#anthropic-compatible-gateway)로 Claude Code를 DeepSeek·Kimi·GLM 같은 다른 모델로도 돌릴 수 있어요. |
 | **직접 설치 또는 호스팅** | 리눅스 서버, 사무실 맥, AWS 서울의 트리나 호스팅 중에 고르세요. 컴퓨터·휴대폰 브라우저와 Windows 설치본으로 써요. |
 
 ## 속을 들여다보면
@@ -104,10 +104,10 @@ owner 계정을 만든 다음 **권한 → AI 연결 → 팀원 초대 → 첫 �
 | 잘 맞는 팀 | IT 담당자가 없는 팀 | IT 담당자가 있는 팀 | 전용 맥이 있는 작은 사무실 | 둘러보기 |
 | 운영 | 트리나(AWS 서울) | 회사 IT | 사무실 담당자 | 직접 |
 | AI | 사용이 허용된 Claude·OpenAI 연결 | 같음 | Claude만(Codex 없음) | 꺼짐 |
-| 비용 | 월 $39부터 + AI 사용료 | 무료 소프트웨어 + 서버 비용 | 무료 소프트웨어 | 무료 |
-| 시작 | [도입 문의](https://ax.trina.app/#contact) | [리눅스 안내](docs/INSTALL-LINUX.md) | [사무실 맥 안내](docs/OFFICE.md) | [빠른 체험](docs/QUICKSTART.ko.md) |
+| 비용 | 3명까지 무료, 그다음 월 $39부터 + AI 사용료 | 무료 소프트웨어 + 서버 비용 | 무료 소프트웨어 | 무료 |
+| 시작 | [요금제 보기](https://ax.trina.app/#pricing) | [리눅스 안내](docs/INSTALL-LINUX.md) | [사무실 맥 안내](docs/OFFICE.md) | [빠른 체험](docs/QUICKSTART.ko.md) |
 
-트리나는 업무 공간을 드리고, AI는 드리지 않아요. Claude·OpenAI 계정과 요금제는 쓰임새에 맞게 허용된 것만 연결하세요. 호스팅 요금(2026-10-30 확인, 미국 달러, 세금 별도): **Starter 월 $39(5명까지), Team $69(15명), Business $129(40명)**. AI 사용료는 따로 나가요. 호스팅은 상담으로 시작하며, 바로 쓰는 무료 체험은 없어요. [최신 요금](https://ax.trina.app/#pricing)
+트리나는 업무 공간을 드리고, AI는 드리지 않아요. Claude·OpenAI 계정과 요금제는 쓰임새에 맞게 허용된 것만 연결하세요. 호스팅 요금(2026-11-02 확인, 미국 달러, 세금 별도): **무료(3명까지, 자리 한정), Starter 월 $39(5명까지), Team $69(15명), Business $129(40명)**, 40명이 넘으면 견적이에요. AI 사용료는 따로 나가요. [최신 요금](https://ax.trina.app/#pricing)
 
 리눅스 직접 설치에는 Debian 12/13 또는 Ubuntu 24.04, systemd와 cgroup v2, amd64나 arm64, RAM 4 GB(권장), 디스크 20 GB(최소)가 필요해요. 설치, 업데이트, 백업 복구는 회사 IT 담당자가 맡아요.
 
@@ -126,8 +126,8 @@ owner 계정을 만든 다음 **권한 → AI 연결 → 팀원 초대 → 첫 �
 - 보안 인증, 완벽한 답, 비용 절감, 법무·재무·인사 결정의 자동화는 약속하지 않아요. 결과와 운영 범위는 사람이 검토하세요.
 - AI는 사진과 스캔한 PDF 쪽을 이미지로 봐요(관리자가 끌 수 있음). 다만 리눅스 서버에는 OCR이 없어서 스캔 문서와 사진은 글자로 검색되지 않아요.
 - 리눅스 서버에서는 AI가 영상·오디오 파일도 읽어요. 일정한 간격으로 뽑은 장면은 이미지처럼 AI 회사로 가고, 소리는 관리자가 허용했을 때만("영상 소리를 글로 바꾸기") 팀의 음성 제공자가 글로 바꿔요. 음성 제공자가 OpenRouter면 팀 파일의 소리가 OpenRouter와 그 제공사로 가요. 기밀 채팅에서는 보내지 않아요. 사무실 맥은 아직 영상을 읽지 못해요.
-- HWP/HWPX 글자 추출은 돼요. [화면 미리보기](resources/hwp/README.md)는 선택 플러그인이고 macOS나 glibc 2.39 이상의 리눅스가 필요해서, Debian 12에서는 **쓸 수 없어요**.
-- 관리형 설치에서는 개인 연결이 먼저 쓰이고, 그다음 사람, 그룹, 팀 전체에 배정한 연결 순서로 쓰여요. 새 트리나 팀은 구독 공유가 기본으로 켜져 있고, 이미 저장한 선택은 그대로 유지돼요. 연결마다 받는 동의도 그대로 적용돼요. **이 설정이 Anthropic이나 OpenAI 약관상의 허락을 뜻하지는 않아요.** 로컬 데모는 AI를 끄고, 개발 모드와 사무실 로컬 로그인 모드는 연결 방식이 달라요. [연결 자세히](docs/FAQ.ko.md)
+- HWP/HWPX 글자 추출은 어느 팀이든 돼요. [화면 미리보기](resources/hwp/README.md)와 AI의 한글 문서 만들기·채우기는 선택 플러그인(한글 문서 미리보기)이고 macOS나 glibc 2.39 이상의 리눅스가 필요해서, Debian 12에서는 **쓸 수 없어요**.
+- 관리형 설치에서는 개인 연결이 먼저 쓰이고, 그다음 사람, 그룹, 팀 전체에 배정한 연결 순서로 쓰여요. 새 트리나 팀은 회사 연결 하나를 팀 전체가 쓸 수 있게 기본으로 켜져 있고, 이미 저장한 선택은 그대로 유지돼요. 연결마다 받는 동의도 그대로 적용돼요. **이 설정이 Anthropic이나 OpenAI 약관상의 허락을 뜻하지는 않아요.** 로컬 데모는 AI를 끄고, 개발 모드와 사무실 로컬 로그인 모드는 연결 방식이 달라요. [연결 자세히](docs/FAQ.ko.md)
 
 </details>
 
@@ -157,7 +157,7 @@ owner 계정을 만든 다음 **권한 → AI 연결 → 팀원 초대 → 첫 �
 <details>
 <summary><b>한글(HWP) 파일도 되나요?</b></summary>
 
-<br>글자는 돼요. AI가 HWP/HWPX의 글자를 읽어요. 화면 미리보기는 선택 플러그인이 필요하고 Debian 12에서는 돌지 않아요. [자세히](docs/FAQ.ko.md)
+<br>돼요. AI가 HWP/HWPX의 글자는 어느 서버에서나 읽어요. 선택 플러그인(한글 문서 미리보기)을 켜면 새 .hwpx 문서(제목·문단·목록·간단한 표)도 만들고, 이미 있는 .hwp·.hwpx 양식의 빈칸·표 행을 채워 같은 형식으로 저장하고(나머지는 그대로 둬요), 화면 미리보기도 보여 줘요. 이 플러그인은 Debian 12에서는 돌지 않아요. [자세히](docs/FAQ.ko.md)
 
 </details>
 

@@ -17,6 +17,6 @@ export function popularSkills(db: Database, files: FileService, user: Principal,
     .all(from, now.toISOString(), ...allowed.map(s => s.path)) as { path: string; uses: number; users: number }[]
   return { items: rows.map(r => {
     const s = byPath.get(r.path)!
-    return { path: s.path, name: s.name, description: s.description, uses: r.uses, users: r.users }
+    return { path: s.path, name: s.name, description: s.description, ...(s.title ? { title: s.title } : {}), uses: r.uses, users: r.users }
   }), days: 30 as const }
 }

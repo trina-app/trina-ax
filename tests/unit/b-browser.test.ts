@@ -9,6 +9,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { hostOf, isPrivateHost, privateIp } from '../../server/src/realtime/private-net'
 import { urlsOf } from '../../server/src/realtime/browser-tools'
 import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
+import { hwpPluginOn } from '../lib/hwp-plugin'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -21,6 +22,8 @@ let desk: TestSocket
 let web: TestSocket
 beforeAll(async () => {
   h = await startHarness({ name: 'b-browser', askUserTimeoutMs: 5000, relay: { windowGoneMs: 600, sweepMs: 100 } })
+  // edit_hwp is in the lists below: it comes with the HWP plugin (tools/hwp-writing.ts)
+  hwpPluginOn(h.ctx)
   desk = await h.ws('alice', { windowId: DESK, client: 'desktop' })
   await desk.next('hello')
   web = await h.ws('alice', { windowId: 'win-web-00001' })
@@ -66,9 +69,9 @@ describe('browser tools', () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await send(fake({ echo: 'tools' }), { window: 'win-web-00001', client: 'web' })(chat.id)
     const d = await web.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
-    // file tools, B's tools (set_title: the chat's first message; edit_files) and C's registered tools (make_file, share_file,
-    // artifact, web_fetch, search, schedule_*); no browser tools
-    expect(d.data.message.content).toBe('artifact,ask_user,copy_files,edit,edit_files,forget,glob,grep,list,make_file,move_files,read,remember,rename_file,schedule_create,schedule_delete,schedule_list,search,set_title,share_file,web_fetch,write')
+    // file tools, B's tools (set_title: the chat's first message; edit_files) and C's registered tools (make_file, edit_hwp, share_file,
+    // artifact, web_fetch, save_url, schedule_*, promo_video, intro_deck; search only with MYCEL_SEMANTIC=on), skill and find_skills; no browser tools
+    expect(d.data.message.content).toBe('artifact,ask_user,connect_service,copy_files,edit,edit_files,edit_hwp,find_skills,forget,glob,grep,intro_deck,list,make_file,move_files,promo_video,read,remember,rename_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,skill,web_fetch,write')
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')

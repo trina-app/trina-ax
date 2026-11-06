@@ -16,11 +16,13 @@ export interface Limits {
   perReauth: number
   /** unknown invite / reset / setup tokens per client IP */
   perTokenIp: number
+  /** join attempts through one team invite link (auth/team-links.ts), from anywhere, right or wrong */
+  perLink: number
 }
 
-export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, perIp: 30, perNetIp: 300, perReauth: 5, perTokenIp: 30 }
+export const DEFAULT_LIMITS: Limits = { windowMs: 15 * 60_000, perAccount: 10, perIp: 30, perNetIp: 300, perReauth: 5, perTokenIp: 30, perLink: 30 }
 
-export type LimitKind = 'account' | 'ip' | 'net-ip' | 'reauth' | 'token-ip'
+export type LimitKind = 'account' | 'ip' | 'net-ip' | 'reauth' | 'token-ip' | 'link'
 export interface LimitKey { kind: LimitKind; id: string }
 
 /**
@@ -65,6 +67,7 @@ export const ipKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'ip', id
 export const netIpKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'net-ip', id: limitIp(ip) }] : [])
 export const reauthKey = (userId: string): LimitKey => ({ kind: 'reauth', id: userId })
 export const tokenIpKeys = (ip: string | null): LimitKey[] => (ip ? [{ kind: 'token-ip', id: limitIp(ip) }] : [])
+export const linkKey = (linkId: string): LimitKey => ({ kind: 'link', id: linkId })
 
 const keyStr = (k: LimitKey) => `${k.kind}:${k.id}`
 
@@ -78,6 +81,7 @@ export class RateLimiter {
       case 'net-ip': return this.limits.perNetIp
       case 'reauth': return this.limits.perReauth
       case 'token-ip': return this.limits.perTokenIp
+      case 'link': return this.limits.perLink
     }
   }
 

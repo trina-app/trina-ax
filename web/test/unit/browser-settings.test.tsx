@@ -9,7 +9,7 @@ import { DESKTOP_BRIDGE_GLOBAL, type DesktopBridge, type DesktopBrowserSettings 
 import { translate } from '../../src/i18n'
 import { browserSettingsBridge } from '../../src/lib/desktop'
 import { allowAllPermitted, BrowserSettingsView } from '../../src/pages/BrowserSettings'
-import { settingsTabs } from '../../src/pages/settingsTabs'
+import { sectionMatches, settingsTabs } from '../../src/pages/settingsTabs'
 import { BrowserPolicySwitch } from '../../src/pages/admin/TeamSettings'
 
 const noop = () => {}
@@ -45,22 +45,49 @@ afterEach(() => {
 describe('where Settings > Browser shows', () => {
   test('a normal browser or the PWA: no Browser tab (the value lives in the desktop app)', () => {
     expect(browserSettingsBridge()).toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'memory', 'drive', 'integrations', 'connectors', 'schedules', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'usage', 'memory', 'integrations', 'connectors', 'ai-apps', 'notifications', 'apps', 'about'])
   })
   test('inside the desktop app: the Browser tab, after Security', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(true)
     expect(browserSettingsBridge()).not.toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'memory', 'drive', 'integrations', 'connectors', 'schedules', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'integrations', 'connectors', 'ai-apps', 'notifications', 'apps', 'about'])
   })
   test('a desktop app from before this addition (no browserSettings): no tab', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(false)
     expect(browserSettingsBridge()).toBeNull()
     expect(settingsTabs(false).some((x) => x.id === 'browser')).toBe(false)
   })
-  test('AI connections still comes after what the AI remembers, with or without the Browser tab', () => {
-    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 5)).toEqual(['profile', 'security', 'browser', 'memory', 'credentials'])
-    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 4)).toEqual(['profile', 'security', 'memory', 'credentials'])
+  test('Dev environment sites: only when the dev environment on srt is on for the person, after App connectors and AI apps', () => {
+    expect(settingsTabs(false, false).some((x) => x.id === 'dev-env-sites')).toBe(false)
+    const ids = settingsTabs(false, false, true).map((x) => x.id)
+    expect(ids.indexOf('ai-apps')).toBe(ids.indexOf('connectors') + 1)
+    expect(ids.indexOf('dev-env-sites')).toBe(ids.indexOf('ai-apps') + 1)
   })
+  test('Providers lead the Connections group, after Account ends with what the AI remembers, with or without the Browser tab', () => {
+    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 7)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'providers', 'integrations'])
+    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'usage', 'memory', 'providers', 'integrations'])
+  })
+  test('the groups: Account, Connections, App (no AI group), each section in one of them', () => {
+    const by = (g: string) => settingsTabs(true, true).filter((x) => x.group === g).map((x) => x.id)
+    expect(by('account')).toEqual(['profile', 'security', 'browser', 'usage', 'memory'])
+    expect(by('ai')).toEqual([])
+    expect(by('connections')).toEqual(['providers', 'integrations', 'connectors', 'ai-apps'])
+    expect(by('app')).toEqual(['notifications', 'apps', 'about'])
+  })
+})
+
+test('the settings search finds a section by what is inside it, in every language (비밀번호 → 보안·기기)', () => {
+  const tabs = settingsTabs(true, true)
+  const find = (l: 'ko' | 'en' | 'id' | 'ja' | 'es', q: string) => tabs.filter((x) => sectionMatches(x, q.trim().toLowerCase(), (k) => translate(l, k))).map((x) => x.id)
+  expect(find('ko', '비밀번호')).toEqual(['security'])
+  expect(find('en', 'Password')).toEqual(['security'])
+  expect(find('id', 'kata sandi')).toEqual(['security'])
+  expect(find('ja', 'パスワード')).toEqual(['security'])
+  expect(find('es', 'contraseña')).toEqual(['security'])
+  // the name still finds it, and an empty search shows every section
+  expect(find('ko', '보안')).toEqual(['security'])
+  expect(find('ko', '다크 모드')).toEqual(['profile'])
+  expect(find('ko', '')).toEqual(tabs.map((x) => x.id))
 })
 
 describe('the Browser section', () => {

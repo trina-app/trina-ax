@@ -1,4 +1,4 @@
-// The AI engine and model are the admin's choice (Admin > AI 엔진): the composer's picker, "다른 모델로 다시 시도" and
+// The AI engine and model are the admin's choice (Admin › 제공자, and its team settings in Admin › 팀 설정): the composer's picker, "다른 모델로 다시 시도" and
 // "내 기본 엔진/모델" only for the owner, admins and the people the admin allows; everyone else never sends a choice
 // (the mock refuses it like the server). The admin screen sets who may pick and the Claude-limit fallback to Codex,
 // with its OpenAI warning, unavailable while Codex is off.
@@ -67,7 +67,9 @@ test('the admin lets a member pick; the member sees the picker without reloading
   await signIn(bob, BOB)
   await expect(bob.getByTestId('engine-picker')).toHaveCount(0)
 
-  await page.goto('/admin/engines')
+  // the old Team provider settings address: Team settings, at the team's AI settings
+  await page.goto('/admin/providers?tab=team')
+  await expect(page).toHaveURL(/\/admin\/settings#ai$/)
   const card = page.getByTestId('engine-choice')
   await expect(card).toContainText('팀원이 엔진 고르기 허용')
   await expect(page.getByTestId('engine-choice-off')).toHaveAttribute('aria-checked', 'true')
@@ -89,7 +91,11 @@ test('the admin lets a member pick; the member sees the picker without reloading
   // Codex off: the fallback is off and cannot be turned on
   await page.reload()
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).toBeChecked()
-  await page.getByTestId('engine-card').filter({ hasText: 'Codex' }).getByText('사용', { exact: true }).click()
+  // the switch is on Admin › Providers; back in Team settings the fallback follows it
+  await page.goto('/admin/providers')
+  await page.locator('[data-engine="codex"] label').filter({ has: page.getByTestId('engine-switch-codex') }).click()
+  await expect(page.getByTestId('engine-switch-codex')).not.toBeChecked()
+  await page.goto('/admin/settings#ai')
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).toBeDisabled()
   await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).not.toBeChecked()
   await expect(card).toContainText('Codex가 꺼져 있어 켤 수 없어요')

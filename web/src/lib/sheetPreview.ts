@@ -34,3 +34,27 @@ export function sheetMeta(wb: WorkBook, decodeRange: DecodeRange): SheetMeta[] {
 export function firstVisibleSheet(meta: readonly Pick<SheetMeta, 'hidden'>[]): number {
   return Math.max(0, meta.findIndex((m) => !m.hidden))
 }
+
+/** The tab to open for an answer's source or a link (&sheet=…): that sheet when the file has it, else the first visible. */
+export function startSheetIndex(meta: readonly Pick<SheetMeta, 'name' | 'hidden'>[], name?: string): number {
+  const i = name === undefined ? -1 : meta.findIndex((m) => m.name === name)
+  return i >= 0 ? i : firstVisibleSheet(meta)
+}
+
+/** The cells of an A1 range ("B12:D14", or one cell) as SheetJS's table cell ids ("sjs-B12"), at most `max`;
+ * [] for anything that is not a range. */
+export function rangeCellIds(range: string | undefined, max = 2000): string[] {
+  const m = range ? /^([A-Z]{1,3})(\d{1,7})(?::([A-Z]{1,3})(\d{1,7}))?$/.exec(range) : null
+  if (!m) return []
+  const col = (s: string) => [...s].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1
+  const name = (c: number) => { let s = ''; for (let n = c + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s }
+  const c0 = col(m[1]!), r0 = Number(m[2]), c1 = m[3] ? col(m[3]) : c0, r1 = m[4] ? Number(m[4]) : r0
+  const out: string[] = []
+  for (let r = Math.min(r0, r1); r <= Math.max(r0, r1); r++) {
+    for (let c = Math.min(c0, c1); c <= Math.max(c0, c1); c++) {
+      if (out.length >= max) return out
+      out.push(`sjs-${name(c)}${r}`)
+    }
+  }
+  return out
+}

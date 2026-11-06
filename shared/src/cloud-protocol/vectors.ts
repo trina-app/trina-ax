@@ -54,6 +54,8 @@ export function buildVectors() {
     ],
     tenantCommandArgv: [
       { command: 'status', args: {}, argv: tenantCommandArgv('status', {}) },
+      // the onboarding block is opt-in by the reader
+      { command: 'status', args: { onboarding: true }, argv: tenantCommandArgv('status', { onboarding: true }) },
       { command: 'idle-wait', args: { max: 600 }, argv: tenantCommandArgv('idle-wait', { max: 600 }) },
       { command: 'reset-link', args: { owner: true }, argv: tenantCommandArgv('reset-link', { owner: true }) },
       { command: 'relay-key-proof', args: { teamId }, argv: tenantCommandArgv('relay-key-proof', { teamId }) },
@@ -63,6 +65,7 @@ export function buildVectors() {
     tenantCommands: {
       allowed: [
         { command: 'status', args: {}, stdin: null },
+        { command: 'status', args: { onboarding: true }, stdin: null },
         { command: 'apply-plan', args: {}, stdin: PLAN },
         { command: 'idle-wait', args: { max: 600 }, stdin: null },
         { command: 'update', args: { version: '0.3.1' }, stdin: null },
@@ -72,16 +75,33 @@ export function buildVectors() {
         { command: 'backup-prepare', args: { kind: 'daily' }, stdin: null },
         // https, or http to this machine (dev)
         { command: 'set-server-config', args: {}, stdin: { publicOrigins: ['https://acme.treesoop.com', 'http://acme.localhost:19100'] } },
+        // the hosting service's speech key, and taking it away
+        { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789' } },
+        { command: 'hosted-speech-key-set', args: {}, stdin: { key: null } },
+        // the hosting service's trial AI credit, paused, and taken away
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z', enabled: true } },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: 12.5, endsAt: '2026-11-19T00:00:00+09:00', enabled: false } },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: null } },
       ],
       refused: [
         { command: 'sh', args: {}, stdin: null, why: 'not a command' },
         { command: 'status', args: { path: '/etc/shadow' }, stdin: null, why: 'unknown argument' },
+        { command: 'status', args: { onboarding: 'yes' }, stdin: null, why: 'onboarding is a flag' },
         { command: 'update', args: { version: '0.3.1; rm -rf /' }, stdin: null, why: 'version format' },
         { command: 'apply-plan', args: {}, stdin: { ...PLAN, maxConcurrency: 99 }, why: 'stdin schema' },
         { command: 'status', args: {}, stdin: { x: 1 }, why: 'no stdin for status' },
         { command: '__proto__', args: {}, stdin: null, why: 'not a command' },
         { command: 'reset-link', args: { username: '../root' }, stdin: null, why: 'username rule' },
         { command: 'set-server-config', args: {}, stdin: { publicOrigins: ['http://evil.example'] }, why: 'http to another machine' },
+        { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-short' }, why: 'not an OpenRouter key' },
+        { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789', extra: 1 }, why: 'unknown stdin field' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-ant-api03-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z', enabled: true }, why: 'a direct Anthropic key: the trial runs on an OpenRouter key, never in Claude Code' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-ant-oat01-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z', enabled: true }, why: 'a subscription token, not an OpenRouter key' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-short', capUsd: 10, endsAt: '2026-11-18T15:00:00Z', enabled: true }, why: 'not an OpenRouter key' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: '2026-11-18T15:00:00Z' }, why: 'enabled missing' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: -1, endsAt: '2026-11-18T15:00:00Z', enabled: true }, why: 'negative cap' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: 'sk-or-v1-test-vector-not-a-key-0123456789', capUsd: 10, endsAt: 'next week', enabled: true }, why: 'not a time' },
+        { command: 'hosted-chat-key-set', args: {}, stdin: { key: null, capUsd: 10 }, why: 'unknown field beside a null key' },
       ],
     },
     enroll: {

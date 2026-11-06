@@ -38,11 +38,9 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Readable } from 'node:stream'
-import zlib from 'node:zlib'
-import { packBundle, signManifest, writeManifest } from '../server/src/system/bundle'
+import { packBundle, packTimeMs, signManifest, writeManifest } from '../server/src/system/bundle'
 import { walkTree } from '../server/src/system/manifest'
-import { writeAtomic } from '../server/src/system/streams'
+import { gzipCompress, writeAtomic } from '../server/src/system/streams'
 import { tarStream, type TarEntryInput } from '../server/src/system/tar'
 import { PRODUCT, productEnv } from '../shared/src/product'
 import { RELEASE_CHANNEL } from '../shared/src/release-channel'
@@ -203,8 +201,10 @@ export const LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-safeops'] as c
  * (native/cmd/mycel-ctl/safeops.go safeOpsCopies, the same list) install them; publish-server.ts counts a change to
  * one of them as a root change (needsRoot). */
 export const LINUX_ROOT_COPIES = ['native/mycel-safeops', 'bin/pandoc'] as const
-/** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/) */
-export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl'] as const
+/** native/bin/linux-<arch>/ programs that go to app/<v>/root/ (installed root-owned into <base>/root/). mycel-boxd, the
+ * dev environment's root helper, runs only from there, never from a version folder (the server account owns those), and
+ * only on a server with its service (scripts/dev-env/install-trial.sh): without the service the file changes nothing. */
+export const LINUX_ROOT_NATIVE = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl', 'mycel-boxd'] as const
 /** repository scripts -> app/<v>/root/<name> (scripts/linux/* are scripts/install-linux.sh's helpers) */
 export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   ['scripts/linux/account.sh', 'mycel-account'],
@@ -220,6 +220,9 @@ export const LINUX_TOOLS = ['bun', 'rg', 'pandoc', 'typst'] as const
 /** app/<v>/fonts/: the fonts make_file PDFs are drawn with (server/src/config.ts bundledFontDir; scripts/linux/downloads.ts
  * LINUX_FONTS). In the version folder, so every update brings them and no root step or distribution package is needed. */
 export const LINUX_FONT_FILES = Object.keys(LINUX_FONTS)
+/** app/<v>/fonts/ also holds the static Pretendard the intro deck's PDF is drawn with and its PowerPoint file embeds
+ * (docs/DECISIONS.md "D2"; resources/fonts/pretendard/, kept in the repository, OFL-1.1). */
+export const PRETENDARD_STATIC = ['Pretendard-Regular.ttf', 'Pretendard-Bold.ttf', 'Pretendard-ExtraBold.ttf'] as const
 /** the install kit's name: <kit>-<version>-linux-<arch>.tar.gz (the office zip's naming, PRODUCT.officeBundle) */
 export const SERVER_KIT = PRODUCT.officeBundle.replace(/-office$/, '-server')
 export const kitName = (version: string, arch: LinuxArch) => `${SERVER_KIT}-${version}-linux-${arch}`
@@ -270,15 +273,18 @@ export function assertLinuxHost(arch: string, platform: string = process.platfor
 export const whisperFiles = (arch: LinuxArch) => (arch === 'amd64' ? ['whisper-cli', 'whisper-cli-v2'] : ['whisper-cli'])
 
 /** Every file a Linux version folder must hold (relative paths; the server's own files are checked by name). */
-export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[] }): string[] {
+/** `web`: the web app is in the bundle (web/dist was built; a strict bundle always has it), and with it the fonts that
+ * come only with the web app (BUNDLED_FONTS `withWeb`), whose notices are then required too. */
+export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whisper: boolean; systemd: string[]; web?: boolean }): string[] {
   return [
     ...RELEASE_NOTICE_FILES,
     ...LINUX_TOOLS.map((t) => `bin/${t}`),
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
     ...LINUX_FONT_FILES.map((f) => `fonts/${f}`),
+    ...PRETENDARD_STATIC.map((f) => `fonts/${f}`),
     // the fonts' notice (scripts/release-notices.ts BUNDLED_FONTS)
-    ...BUNDLED_FONTS.flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
+    ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
     'resources/plugins/catalog.json',
     'server/src/hwp-preflight.js',
@@ -301,13 +307,6 @@ export function elfArch(file: string): LinuxArch | null {
   } finally {
     fs.closeSync(fd)
   }
-}
-
-function gzip(src: AsyncIterable<Uint8Array>): AsyncIterable<Uint8Array> {
-  const z = zlib.createGzip({ level: 9 })
-  const input = Readable.from(src)
-  input.on('error', (e) => z.destroy(e))
-  return input.pipe(z) as unknown as AsyncIterable<Uint8Array>
 }
 
 export async function buildLinuxBundle(o: {
@@ -374,6 +373,11 @@ export async function buildLinuxBundle(o: {
     fs.copyFileSync(await cachedDownload(f, { table: LINUX_FONTS }), path.join(dir, 'fonts', f))
     fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
   }
+  // the intro deck's PDF and PowerPoint fonts (docs/DECISIONS.md "D2"): the static Pretendard from the repository
+  for (const f of PRETENDARD_STATIC) {
+    fs.copyFileSync(path.join(REPO, 'resources', 'fonts', 'pretendard', f), path.join(dir, 'fonts', f))
+    fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
+  }
 
   // root-owned programs and the installer's helpers, inside the signed version folder (spec 3.6.1)
   const root = path.join(dir, 'root')
@@ -412,7 +416,7 @@ export async function buildLinuxBundle(o: {
 
   for (const p of walkDirs(dir)) fs.chmodSync(p, 0o755)
   const absent = new Set(LINUX_ROOT_SCRIPTS.filter(([src]) => missing.includes(src)).map(([, d]) => `root/${d}`))
-  for (const f of linuxBundleFiles({ arch, codexVersion: codexV, whisper: !!o.whisperDir, systemd: units })) {
+  for (const f of linuxBundleFiles({ arch, codexVersion: codexV, whisper: !!o.whisperDir, systemd: units, web: fs.existsSync(web) })) {
     if (!absent.has(f) && !fs.existsSync(path.join(dir, f))) throw new Error(`bundle file ${f} was not written`)
   }
   await writeManifest(dir, o.version)
@@ -431,20 +435,22 @@ export async function buildLinuxBundle(o: {
 }
 
 /** The install kit <out>/<kit>-<version>-linux-<arch>.tar.gz: <out> itself (install-linux.sh, VERSION, product.env,
- * app/<version>/) under one top folder. Also used by scripts/release/release-ci.ts after it signs a CI build. */
+ * app/<version>/) under one top folder. Also used by scripts/release/release-ci.ts after it signs a CI build. Same
+ * folder, same bytes, like packBundle: every entry has the build's time (packTimeMs). */
 export async function packLinuxKit(out: string, version: string, arch: LinuxArch): Promise<{ file: string; size: number; sha256: string }> {
   const dir = path.join(out, 'app', version)
   const top = kitName(version, arch)
-  const entries: TarEntryInput[] = [{ name: top, type: 'dir', mode: 0o755 }]
+  const mtimeMs = await packTimeMs(dir)
+  const entries: TarEntryInput[] = [{ name: top, type: 'dir', mode: 0o755, mtimeMs }]
   for (const f of ['install-linux.sh', 'VERSION', 'product.env']) {
-    if (fs.existsSync(path.join(out, f))) entries.push({ name: `${top}/${f}`, type: 'file', source: path.join(out, f), mode: f.endsWith('.sh') ? 0o755 : 0o644 })
+    if (fs.existsSync(path.join(out, f))) entries.push({ name: `${top}/${f}`, type: 'file', source: path.join(out, f), mode: f.endsWith('.sh') ? 0o755 : 0o644, mtimeMs })
   }
-  entries.push({ name: `${top}/app`, type: 'dir', mode: 0o755 }, { name: `${top}/app/${version}`, type: 'dir', mode: 0o755 })
+  entries.push({ name: `${top}/app`, type: 'dir', mode: 0o755, mtimeMs }, { name: `${top}/app/${version}`, type: 'dir', mode: 0o755, mtimeMs })
   const { files, dirs } = await walkTree(dir)
-  for (const d of dirs) entries.push({ name: `${top}/app/${version}/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs: d.mtimeMs })
-  for (const f of files) entries.push({ name: `${top}/app/${version}/${f.rel}`, type: 'file', source: f.abs, mode: f.mode })
+  for (const d of dirs) entries.push({ name: `${top}/app/${version}/${d.rel}`, type: 'dir', mode: d.mode, mtimeMs })
+  for (const f of files) entries.push({ name: `${top}/app/${version}/${f.rel}`, type: 'file', source: f.abs, mode: f.mode, mtimeMs })
   const file = path.join(out, `${top}.tar.gz`)
-  const kit = await writeAtomic(gzip(tarStream(entries)), file, 0o644)
+  const kit = await writeAtomic(gzipCompress(tarStream(entries)), file, 0o644)
   return { file, size: kit.size, sha256: kit.sha256 }
 }
 

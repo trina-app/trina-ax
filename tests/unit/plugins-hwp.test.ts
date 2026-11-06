@@ -1,6 +1,8 @@
 // HWP as the first plugin (docs/PLUGINS.md): preview and hwp_render exist only while the HWP Preview plugin is
-// installed, on for the company and runnable here (the old MYCEL_HWP_PREVIEW release gate is gone). Reading HWP text and
-// refusing plaintext writes to .hwp/.hwpx are core and work in every plugin state. Turning the plugin off, updating
+// installed, on for the company and runnable here (the old MYCEL_HWP_PREVIEW release gate is gone). Writing and filling
+// Hangul documents (edit_hwp, make_file .hwpx) follow only "installed and on": a renderer that cannot run leaves them on
+// (plugins-hwp-writing.test.ts has the rest). Reading HWP text and refusing plaintext writes to .hwp/.hwpx are core and
+// work in every plugin state. Turning the plugin off, updating
 // it or rolling it back cancels renders, drops cached pages and replaces the renderer; a replaced executable is refused.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -34,6 +36,16 @@ const listed = async () => {
   const viaTurn = turnTool.available!({ userId: 'alice', chatId: 'c', browser: false })
   expect(viaMcp).toBe(viaTurn)
   return viaMcp
+}
+/** Hangul writing (tools/hwp-writing.ts): edit_hwp listed, and make_file showing .hwpx, exactly while it is on */
+const writing = async () => {
+  const t = app.toolCtx('alice', app.turn('alice', app.chat('alice')))
+  const r = await makeHandler(app.ctx.files, app.ctx.db, t)({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+  const on = r.result.tools.some((x: { name: string }) => x.name === 'edit_hwp')
+  const mf = r.result.tools.find((x: { name: string }) => x.name === 'make_file')
+  expect(mf.inputSchema.properties.format.enum.includes('hwpx')).toBe(on)
+  expect(m.hwpWriting()).toBe(on)
+  return on
 }
 const preview = async () => {
   const r = await app.json(`/api/files/hwp-preview?path=${encodeURIComponent(SRC)}&page=1`, { as: 'alice' })
@@ -73,8 +85,9 @@ beforeAll(async () => {
 afterAll(async () => { await app.close() })
 
 describe('HWP availability follows the plugin state', () => {
-  test('no plugin: no tool, preview not available, text reading and the write guard unchanged', async () => {
+  test('no plugin: no tool, preview not available, no Hangul writing, text reading and the write guard unchanged', async () => {
     expect(await listed()).toBe(false)
+    expect(await writing()).toBe(false)
     expect(await preview()).toBe('503:disabled')
     await coreStillWorks()
   })
@@ -83,6 +96,7 @@ describe('HWP availability follows the plugin state', () => {
     const r = await installHwp(v100, undefined, false)
     expect(r).toMatchObject({ id: HWP_PLUGIN_ID, enabled: false, status: 'disabled', license: HWP_PLUGIN_LICENSE })
     expect(await listed()).toBe(false)
+    expect(await writing()).toBe(false)
     expect(await preview()).toBe('503:disabled')
     await coreStillWorks()
   })
@@ -94,6 +108,7 @@ describe('HWP availability follows the plugin state', () => {
       const r = await app.json(`/api/admin/plugins/${HWP_PLUGIN_ID}/enable`, { ...jsonBody({}), as: 'carol' })
       expect(r.body).toMatchObject({ enabled: true, status: 'enabled', unsupported: null })
       expect(m.usable(HWP_PLUGIN_ID)).toBe(true)
+      expect(await writing()).toBe(true)
     } finally { if (prior !== undefined) process.env.MYCEL_HWP_PREVIEW = prior }
   })
 
@@ -151,6 +166,8 @@ describe('HWP availability follows the plugin state', () => {
     expect(r.status).toBe(200)
     expect(await preview()).toBe('png')
     expect(await listed()).toBe(false)
+    // writing does not need the page-image permission
+    expect(await writing()).toBe(true)
     const t = app.toolCtx('alice', app.turn('alice', app.chat('alice')))
     const out = await makeHandler(app.ctx.files, app.ctx.db, t)({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'hwp_render', arguments: { source: SRC, page: 1, format: 'png' } } })
     expect(out.result.isError).toBe(true)
@@ -173,6 +190,7 @@ describe('HWP availability follows the plugin state', () => {
     expect(rolled.body).toMatchObject({ version: '1.0.0', previousVersion: '1.0.1' })
     expect((await app.json(`/api/files/hwp-preview?path=${encodeURIComponent(SRC)}&page=1&cacheId=${after.body.id}`, { as: 'alice' })).body.error.params.reason).toBe('changed')
     expect(await listed()).toBe(true)
+    expect(await writing()).toBe(true)
   })
 
   test('turning it off while a page renders cancels the render and discards the result', async () => {
@@ -195,6 +213,7 @@ describe('HWP availability follows the plugin state', () => {
       await expect(c.hwp.page('alice', SRC, 1)).rejects.toMatchObject({ reason: 'disabled' })
     } finally { c.hwp = old }
     expect(await listed()).toBe(false)
+    expect(await writing()).toBe(false)
   })
 
   test('a replaced executable is refused on enable and before every run', async () => {
@@ -210,6 +229,8 @@ describe('HWP availability follows the plugin state', () => {
       // a page not rendered before (a cached page came from the verified binary)
       componentC(app.ctx).hwp.invalidate()
       expect(await preview()).toBe('503:engine')
+      // the renderer refuses to run; writing (core code) stays on while the plugin is on
+      expect(await writing()).toBe(true)
       await app.json(`/api/admin/plugins/${HWP_PLUGIN_ID}/disable`, { ...jsonBody({}), as: 'carol' })
       const refused = await app.json(`/api/admin/plugins/${HWP_PLUGIN_ID}/enable`, { ...jsonBody({}), as: 'carol' })
       expect(refused.body.error.params.reason).toBe('tampered')
@@ -218,16 +239,19 @@ describe('HWP availability follows the plugin state', () => {
     expect(await preview()).toBe('png')
   })
 
-  test('a broken store and an uninstalled plugin: nothing HWP-specific remains, core reading stays', async () => {
+  test('a broken store keeps Hangul writing on; an uninstalled plugin: nothing HWP-specific remains, core reading stays', async () => {
     const dir = path.dirname(path.dirname(storeBin()))
     fs.renameSync(dir, dir + '.moved')
     expect(await listed()).toBe(false)
     expect(await preview()).toBe('503:disabled')
+    // the plugin is still on: the renderer cannot run, writing and filling (core code) can
+    expect(await writing()).toBe(true)
     await coreStillWorks()
     fs.renameSync(dir + '.moved', dir)
     expect(await preview()).toBe('png')
     expect((await app.json(`/api/admin/plugins/${HWP_PLUGIN_ID}`, { method: 'DELETE', as: 'carol' })).status).toBe(204)
     expect(await listed()).toBe(false)
+    expect(await writing()).toBe(false)
     expect(await preview()).toBe('503:disabled')
     await coreStillWorks()
     expect(fs.existsSync(path.join(app.data, 'plugins/store', HWP_PLUGIN_ID))).toBe(false)

@@ -1,69 +1,107 @@
 // Groups: name, description, members. Folder rules can name a group; deleting a group removes its rules too.
-import { Plus, Trash2 } from 'lucide-react'
+// Laid out like Members (and the Claude Console): title with the count, one line, New group, a search box, then quiet
+// rows (name · members · skills switch · "…"); Edit and Delete are in the row's "…".
+import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Group, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { useT } from '../../i18n'
-import { Button, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useLoad } from './common'
+import { useLocale, useT } from '../../i18n'
+import { Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { AdminPageHeader, CountBadge, Loadable, SearchBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
 import { SkillManagerCell, useSkillManagers } from './SkillManagers'
+import { MemberMenu } from './RowMenu'
 
 export default function Groups() {
   const t = useT()
-  const act = useAction()
+  const locale = useLocale()
+  const actOk = useActionOk()
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
   const skillManagers = useSkillManagers()
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLocaleLowerCase(locale)
+  const focus = useFocusAfterRemove(groups.data, () => document.querySelector<HTMLElement>('[data-testid="group-new"]'))
   const name = (id: string) => users.data?.find((u) => u.id === id)?.name ?? id
   const remove = async (g: Group) => {
     if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body: t('groups.deleteBody'), confirm: t('common.delete'), danger: true }))) return
-    if ((await act(() => api.call(API.deleteGroup, { params: { id: g.id } }))) !== undefined) {
-      void groups.reload()
-      void skillManagers.reload()
-    }
+    if (!(await actOk(() => api.call(API.deleteGroup, { params: { id: g.id } })))) return
+    focus.removed(groups.data?.findIndex((x) => x.id === g.id) ?? 0)
+    void skillManagers.reload()
+    await groups.reload()
   }
   return (
     <>
-      <Card
-        title={t('admin.groups')}
+      <AdminPageHeader
+        title={
+          <>
+            {t('admin.groups')}
+            <CountBadge n={groups.data?.length} testId="groups-count" />
+          </>
+        }
         desc={t('groups.desc')}
+        testId="groups-header"
         actions={
           <Button size="sm" variant="primary" onClick={() => setEditing('new')} data-testid="group-new">
             <Plus size={14} aria-hidden /> {t('groups.new')}
           </Button>
         }
-      >
+        controls={<SearchBox value={query} onChange={setQuery} label={t('groups.search')} testId="group-search" className="sm:w-80" />}
+      />
+      <section className="mb-8" aria-label={t('admin.groups')} ref={focus.box}>
         <Loadable state={groups}>
-          {(list) =>
-            !list.length ? (
-              <p className="text-sm text-faint">{t('groups.none')}</p>
-            ) : (
-              <ul className="divide-y divide-line" data-testid="group-list">
-                {list.map((g) => (
-                  <li key={g.id} className="flex items-center gap-3 py-2.5 text-sm">
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-medium">{g.name}</span>
-                      {g.description && <span className="block text-xs text-muted">{g.description}</span>}
-                      <span className="block text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
-                    </span>
-                    <span className="flex shrink-0 flex-col items-end gap-0.5">
-                      <span className="text-[11px] text-faint">{t('skillMgr.column')}</span>
-                      <SkillManagerCell subject={{ type: 'group', id: g.id, name: g.name }} data={skillManagers.data} onChanged={() => void skillManagers.reload()} />
-                    </span>
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(g)}>
-                      {t('common.edit')}
-                    </Button>
-                    <IconButton label={t('common.delete')} onClick={() => remove(g)}>
-                      <Trash2 size={15} />
-                    </IconButton>
-                  </li>
-                ))}
-              </ul>
+          {(all) => {
+            if (!all.length) return <p className="border-y border-line py-6 text-sm text-faint">{t('groups.none')}</p>
+            const list = all.filter((g) => matches(q, locale, g.name, g.description))
+            if (!list.length)
+              return (
+                <p className="border-y border-line py-6 text-sm text-faint" data-testid="groups-no-match">
+                  {t('groups.noMatch')}
+                </p>
+              )
+            return (
+              <>
+                {/* the column names of the rows below (each row reads on its own, so this is for the eye only) */}
+                <div aria-hidden className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_7rem_2.5rem] gap-4 border-b border-line py-2.5 text-label font-medium text-muted md:grid">
+                  <span>{t('auth.name')}</span>
+                  <span>{t('groups.members')}</span>
+                  <span className="leading-tight">{t('skillMgr.column')}</span>
+                  <span />
+                </div>
+                <ul className="divide-y divide-line border-b border-line max-md:border-t" data-testid="group-list">
+                  {list.map((g) => (
+                    <li key={g.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 py-3.5 text-sm md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_7rem_2.5rem]">
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-ink">{g.name}</span>
+                        {g.description && <span className="block truncate text-xs text-faint">{g.description}</span>}
+                      </span>
+                      {/* a phone: the menu sits next to the name, the members and the switch go under them */}
+                      <span className="min-w-0 text-muted max-md:col-span-2 max-md:row-start-2">
+                        <span className="block text-label">{t('groups.memberCount', { n: g.memberIds.length })}</span>
+                        <span className="block truncate text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
+                      </span>
+                      <span className="flex items-center gap-3 max-md:col-span-2 max-md:row-start-3">
+                        <span className="text-xs text-muted md:sr-only">{t('skillMgr.column')}</span>
+                        <SkillManagerCell subject={{ type: 'group', id: g.id, name: g.name }} data={skillManagers.data} onChanged={() => void skillManagers.reload()} />
+                      </span>
+                      <span className="flex justify-end max-md:col-start-2 max-md:row-start-1">
+                        <MemberMenu
+                          name={g.name}
+                          rowFocus
+                          items={[
+                            { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(g), testId: 'group-edit' },
+                            { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(g), danger: true, testId: 'group-delete' },
+                          ]}
+                        />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )
-          }
+          }}
         </Loadable>
-      </Card>
+      </section>
       {editing && (
         <GroupForm
           group={editing === 'new' ? null : editing}
@@ -117,7 +155,7 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
           <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />
         </Field>
         <fieldset>
-          <legend className="mb-1.5 text-[13px] font-medium">{t('groups.members')}</legend>
+          <legend className="mb-1.5 text-label font-medium">{t('groups.members')}</legend>
           <div className="max-h-60 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
             {users.map((u) => (
               <label key={u.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-hover">

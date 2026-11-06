@@ -18,6 +18,9 @@
     "./text-encoding": "./src/text-encoding.ts",
     "./cloud-protocol": "./src/cloud-protocol/index.ts",
     "./cloud-protocol/relay-ops": "./src/cloud-protocol/relay-ops.ts",
-    "./plugins": "./src/plugins.ts"
+    "./plugins": "./src/plugins.ts",
+    "./plural": "./src/plural.ts",
+    "./honorific": "./src/honorific.ts",
+    "./product": "./src/product.ts"
   }
 }

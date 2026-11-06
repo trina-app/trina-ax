@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -108,7 +109,15 @@ func TestTenantNoticesSet(t *testing.T) {
 	}
 }
 
+// These commands refuse to run as root (they run as the server account), so the tests cannot run as root.
+func skipAsRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("needs an account that is not root")
+	}
+}
+
 func TestTenantSetServerConfig(t *testing.T) {
+	skipAsRoot(t)
 	tb := newTestBase(t, "0.3.0")
 	f := &fakeTenant{}
 	f.install(t)
@@ -142,6 +151,7 @@ func TestTenantSetServerConfig(t *testing.T) {
 }
 
 func TestTenantRelayRegistrationSet(t *testing.T) {
+	skipAsRoot(t)
 	tb := newTestBase(t, "0.3.0")
 	f := &fakeTenant{}
 	f.install(t)
@@ -238,6 +248,106 @@ func TestTenantAdminCommands(t *testing.T) {
 	}
 }
 
+func TestTenantHostedSpeechKeySet(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{adminOut: map[string]string{"hosted-speech-key": `{"ok":true,"set":true}`}}
+	f.install(t)
+	key := "sk-or-v1-" + strings.Repeat("0a", 32)
+	code, out, errs := tb.tctl(`{"key":"`+key+`"}`, "hosted-speech-key-set", "--json")
+	if code != 0 || len(f.adminCalls) != 1 || strings.Join(f.adminCalls[0], " ") != "hosted-speech-key" {
+		t.Fatalf("%d %q %s %v", code, out, errs, f.adminCalls)
+	}
+	// the key goes on admin.js's stdin only: never in its argv, the answer or stderr
+	if f.adminStdin[0] != `{"key":"`+key+`"}` || strings.Contains(out, key) || strings.Contains(errs, key) {
+		t.Fatalf("key handling: stdin %q out %q err %q", f.adminStdin[0], out, errs)
+	}
+	if m := jsonOf(t, out); m["ok"] != true || m["set"] != true || f.restarts != 0 {
+		t.Fatalf("answer %q, %d restarts", out, f.restarts)
+	}
+	// null takes it away
+	f.adminOut["hosted-speech-key"] = `{"ok":true,"set":false}`
+	if code, out, _ := tb.tctl(`{"key":null}`, "hosted-speech-key-set", "--json"); code != 0 || jsonOf(t, out)["set"] != false || f.adminStdin[1] != `{"key":null}` {
+		t.Fatalf("null: %d %q %v", code, out, f.adminStdin)
+	}
+	// refused before admin.js runs
+	f.adminCalls = nil
+	for _, bad := range []string{``, `{}`, `{"key":"sk-or-short"}`, `{"key":"` + key + `","x":1}`, `{"key":1}`, `{"key":"` + key + `; rm -rf /"}`, `[1]`} {
+		if code, out, errs := tb.tctl(bad, "hosted-speech-key-set", "--json"); code == 0 || out != "" || strings.Contains(errs, key) {
+			t.Fatalf("accepted %q: %d %q %s", bad, code, out, errs)
+		}
+	}
+	if len(f.adminCalls) != 0 {
+		t.Fatalf("admin.js ran for refused stdin: %v", f.adminCalls)
+	}
+	// an admin.js answer without set is not passed on
+	f.adminOut["hosted-speech-key"] = `{"ok":true}`
+	if code, out, _ := tb.tctl(`{"key":null}`, "hosted-speech-key-set", "--json"); code == 0 || out != "" {
+		t.Fatalf("an answer without set got through: %d %q", code, out)
+	}
+}
+
+func TestTenantHostedChatKeySet(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{adminOut: map[string]string{"hosted-chat-key": `{"ok":true,"set":true,"usedUsd":1.25}`}}
+	f.install(t)
+	key := "sk-or-v1-" + strings.Repeat("0a", 32)
+	grant := `{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`
+	code, out, errs := tb.tctl(grant, "hosted-chat-key-set", "--json")
+	if code != 0 || len(f.adminCalls) != 1 || strings.Join(f.adminCalls[0], " ") != "hosted-chat-key" {
+		t.Fatalf("%d %q %s %v", code, out, errs, f.adminCalls)
+	}
+	// the key goes on admin.js's stdin only: never in its argv, the answer or stderr
+	if jsonOf(t, f.adminStdin[0])["key"] != key || strings.Contains(out, key) || strings.Contains(errs, key) {
+		t.Fatalf("key handling: stdin %q out %q err %q", f.adminStdin[0], out, errs)
+	}
+	if m := jsonOf(t, f.adminStdin[0]); m["endsAt"] != "2026-11-18T15:00:00Z" || m["enabled"] != true || len(m) != 4 {
+		t.Fatalf("stdin passed on: %q", f.adminStdin[0])
+	}
+	if m := jsonOf(t, out); m["ok"] != true || m["set"] != true || m["usedUsd"] != 1.25 || f.restarts != 0 {
+		t.Fatalf("answer %q, %d restarts", out, f.restarts)
+	}
+	// paused, then taken away
+	if code, _, _ := tb.tctl(`{"key":"`+key+`","capUsd":12.5,"endsAt":"2026-11-19T00:00:00+09:00","enabled":false}`, "hosted-chat-key-set", "--json"); code != 0 {
+		t.Fatalf("paused: %d", code)
+	}
+	f.adminOut["hosted-chat-key"] = `{"ok":true,"set":false,"usedUsd":1.25}`
+	if code, out, _ := tb.tctl(`{"key":null}`, "hosted-chat-key-set", "--json"); code != 0 || jsonOf(t, out)["set"] != false || f.adminStdin[2] != `{"key":null}` {
+		t.Fatalf("null: %d %q %v", code, out, f.adminStdin)
+	}
+	// refused before admin.js runs
+	f.adminCalls = nil
+	for _, bad := range []string{``, `{}`, `{"key":null,"capUsd":1}`, `[1]`, `{"key":1}`,
+		// a direct Anthropic key or a subscription token: the trial never runs in Claude Code
+		`{"key":"sk-ant-api03-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"sk-ant-oat01-` + strings.Repeat("0a", 30) + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"sk-or-short","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z"}`,
+		`{"key":"` + key + `","capUsd":-1,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":"10","endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"next week","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":"yes"}`,
+		`{"key":"` + key + `","capUsd":null,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":null,"enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":null}`,
+		`{"key":"` + key + `; rm -rf /","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true}`,
+		`{"key":"` + key + `","capUsd":10,"endsAt":"2026-11-18T15:00:00Z","enabled":true,"x":1}`,
+	} {
+		if code, out, errs := tb.tctl(bad, "hosted-chat-key-set", "--json"); code == 0 || out != "" || strings.Contains(errs, key) {
+			t.Fatalf("accepted %q: %d %q %s", bad, code, out, errs)
+		}
+	}
+	if len(f.adminCalls) != 0 {
+		t.Fatalf("admin.js ran for refused stdin: %v", f.adminCalls)
+	}
+	// an admin.js answer without set or usedUsd is not passed on
+	for _, ans := range []string{`{"ok":true,"set":true}`, `{"ok":true,"usedUsd":0}`, `{"ok":true,"set":true,"usedUsd":-1}`} {
+		f.adminOut["hosted-chat-key"] = ans
+		if code, out, _ := tb.tctl(`{"key":null}`, "hosted-chat-key-set", "--json"); code == 0 || out != "" {
+			t.Fatalf("answer %s got through: %d %q", ans, code, out)
+		}
+	}
+}
+
 func TestTenantIdleWaitPrepareStop(t *testing.T) {
 	tb := newTestBase(t, "0.3.0")
 	systemdRunDir = t.TempDir()
@@ -302,6 +412,60 @@ func TestTenantStatus(t *testing.T) {
 	f.adminErr = nil
 	if code, out, _ := tb.tctl("", "status", "--detail", "--json"); code != 0 || jsonOf(t, out)["units"] == nil {
 		t.Fatalf("--detail: %d %s", code, out)
+	}
+}
+
+// The optional onboarding block is opt-in by the reader (ax-hostd's TenantStatus is strict): without --onboarding the
+// status keeps its exact earlier fields and admin.js is not asked to count; with it, the block passes with its known
+// fields only, and a block that is null, partial, out of range or of the wrong type is dropped alone.
+func TestTenantStatusOnboarding(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	app := `{"setupNeeded":false,"activeMembers":3,"queue":null,"relay":null,"lastLocalBackup":null,"lastUploadedLocalId":null,"overall":"ok","checks":[],"ai":{"claude":"ok","codex":"none"},"credentialsKey":{"present":true,"version":1},"onboarding":%s}`
+	good := `{"day":2,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false,"skillName":"ad-copy"}`
+	f := &fakeTenant{adminOut: map[string]string{"cloud-status": fmt.Sprintf(app, good)}}
+	f.install(t)
+	// not asked: today's exact fields, and admin.js cloud-status without the flag
+	code, out, errs := tb.tctl("", "status", "--json")
+	if code != 0 {
+		t.Fatalf("%d %s", code, errs)
+	}
+	var keys []string
+	for k := range jsonOf(t, out) {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if strings.Join(keys, " ") != "activeMembers ai app at checks credentialsKey kitVersion lastLocalBackup lastUploadedLocalId overall queue relay resources rootVersion setupNeeded update" {
+		t.Fatalf("fields without --onboarding: %v", keys)
+	}
+	if last := f.adminCalls[len(f.adminCalls)-1]; strings.Join(last, " ") != "cloud-status" {
+		t.Fatalf("admin.js %v", last)
+	}
+	// asked
+	code, out, errs = tb.tctl("", "status", "--json", "--onboarding")
+	if code != 0 {
+		t.Fatalf("%d %s", code, errs)
+	}
+	if last := f.adminCalls[len(f.adminCalls)-1]; strings.Join(last, " ") != "cloud-status --onboarding" {
+		t.Fatalf("admin.js %v", last)
+	}
+	o, ok := jsonOf(t, out)["onboarding"].(map[string]any)
+	if !ok || len(o) != 9 || o["day"] != float64(2) || o["bestSkillRunners"] != float64(2) || o["packInstalled"] != true || strings.Contains(out, "ad-copy") {
+		t.Fatalf("onboarding %s", out)
+	}
+	full := `"day":1,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2`
+	for _, bad := range []string{
+		`null`, `"x"`, `{}`, `{"day":1.5}`,
+		`{` + full + `}`, // goalReached missing: not zero-filled
+		`{` + full + `,"goalReached":null}`,
+		`{"day":-1,"packInstalled":true,"profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false}`,
+		`{"day":1,"packInstalled":"yes","profileSaved":false,"inviteMade":true,"membersJoined":2,"peopleAnswered":3,"membersWithFirstRun":2,"bestSkillRunners":2,"goalReached":false}`,
+	} {
+		f.adminOut["cloud-status"] = fmt.Sprintf(app, bad)
+		code, out, _ = tb.tctl("", "status", "--json", "--onboarding")
+		s := jsonOf(t, out)
+		if _, has := s["onboarding"]; code != 0 || has || s["activeMembers"] != float64(3) || s["overall"] != "ok" {
+			t.Fatalf("%s: %d %s", bad, code, out)
+		}
 	}
 }
 

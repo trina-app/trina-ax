@@ -252,3 +252,114 @@ repository already had it (PR #13 above). Conflicts: only the new sections at th
 ## 2026-10-29 core review security fixes
 
 Selected source patches from potenlab/team-ax `efb92c1d`, `8e637244`, `1628aa4d` and `68cf0ac6` were reviewed and ported without importing private core history or excluded paths. These are direct source SHA references, not filtered-history mappings. Fork branding, service addresses, release configuration and the personal-integration default remain unchanged. Documentation was adapted to the fork; the core opt-in change and its fixture changes were excluded. Migration files 209 and 313 already match core and were not reapplied. Core-only release-configuration commits `9c336176` and `97f4424a` were not ported. Each port commit records its full source SHA.
+
+## 2026-11-02 Team skills: one quiet list
+
+Source change from potenlab/team-ax `744e683` (branch `feat/skills-compact`, core PR #27, not yet on core main), ported by hand onto this repository's own files. No core history was imported.
+
+Resolutions, because this repository has more on that page than core:
+
+- `AvailableSkills.tsx` keeps this repository's export `AvailableSkillsList`, `skillPrompt` from `PopularSkills` and `isSkillsPath`, which also covers `users/<id>/skills`. Personal skills get a section of their own and rows without a folder.
+- `Skills.tsx` keeps `SkillIssues` and `SkillListNote`. Only the page's `PopularSkills` card goes; `PopularSkills.tsx` stays for the new-chat home with its keys.
+- `es` and `ja` get the new keys (`fromTeam`, `search`, `uses`, `usesHint`, `noMatch`, `moreNamed`). `skills.desc`, `availableHint`, `useNamed` and `viewFileNamed` go in all five languages.
+- `web/test/mock/server.ts` is unchanged: this repository already has `listSkills`.
+
+## 2026-11-02 External services: Connected and Discover
+
+Source change from potenlab/team-ax `b09811f` and `7e0d692` (branch `feat/connectors-discover`, core PR #28, on top of PR #27, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/pages/Integrations.tsx` and `web/src/pages/admin/Integrations.tsx` (identical to core before this), and the new `ConnectorsView.tsx`, `lib/connectors.ts` and `web/test/unit/connectors.test.ts`.
+- Core's patch applied without conflict: `IntegrationDialog.tsx`, `lib/integrations.ts`, `web/test/e2e/a11y.spec.ts`, `web/test/e2e/integrations.spec.ts`.
+- `IntegrationRow.tsx` rebuilt on this repository's own version: the tool switches, the tool counts and the `danger` delete button stay, and the "last check failed" note also shows on the line.
+- `es` and `ja` get every new key; `integrations.desc` and `integrations.admin.desc` go in all five languages.
+- The list of 39 services and their logos (`web/public/icons/connectors`) came in with the same change.
+- Changed here after review (2026-11-03), not in core yet: the logo test reads SVGs as XML with allowed elements and
+  attributes; `/icons/**/*.svg` is served with `SVG_ICON_CSP` and `nosniff` (`server/src/routes/web-static.ts`); Admin
+  keeps "Nobody can use it yet" / "Not in your chats" on the line and `integrations.admin.desc` comes back as the note
+  under the list; a Discover dialog in Admin says it adds a team connection; the Discover title no longer says
+  "popular"; `Tabs` scrolls the chosen tab into view; `/skills?mine=` leaves the address once applied. The logo sources
+  are recorded per file in `docs/THIRD-PARTY-NOTICES.md`.
+
+## 2026-11-03 Project page like Claude's
+
+Source change from potenlab/team-ax `a77d7e4` (branch `feat/project-page`, core PR #29, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/components/chat/NewChatComposer.tsx`, `web/src/components/DisclosureRow.tsx`, `plainText` and `firstParagraph` in `web/src/lib/markdown.ts` with their unit tests, and `web/test/e2e/project-page.spec.ts`, to which the dev environment cases are added here.
+- `Projects.tsx`: core's file with this repository's differences kept. Every file opens with `openTeamFile`, without core's download branch, and the Dev environment line comes first in the side column.
+- `Home.tsx`: the same change; `PopularSkills` stays. `Composer.tsx`: only the `placeholder` prop; the answering and running hints are unchanged.
+- Only here: `DevEnvSection.tsx` now exports `DevEnvRow`, one line with the box state that opens in place (box, jobs, processes, port and preview, activity; Edit for admins inside). `web/test/mock/server.ts` gets `POST /__test/dev-env` and the dev environment endpoints, so the page is tested and shown with it. `web/test/unit/design-contrast.test.ts` now checks the project's Delete as a red menu item, because it is no longer a `ghost-danger` button.
+- `es` and `ja` get the new keys (`projects.about`, `open`, `items`, `itemsMore`); `projects.files` goes from all five languages.
+
+## 2026-11-03 Admin: Home first, a grouped menu that stays put
+
+Source change from potenlab/team-ax `9de1281` (branch `feat/admin-home`, core PR #30, not yet on core main),
+ported by hand. No core history was imported.
+
+- Taken as they are: `Home.tsx`, `AdminLayout.tsx`, the `Card` / `OneLine` part of `common.tsx`, `actionLabel` exported
+  from `Audit.tsx`, and `web/test/e2e/admin-home.spec.ts`.
+- This repository's own, added on top: Plugins in the "Shared with the team" group and as a Home card; "No AI" people
+  (`listUsers?noAi=1`) first under "Needs attention" and counted on the AI connections card; the API engine's
+  "Experimental" chip, its hint and the local sign-in hint folded into the engine card's one line.
+- `es` and `ja` get every new key; `admin.desc` is removed in all five languages (`admin.privacy` replaces its last
+  sentence).
+
+## 2026-11-03 Chat screen like Claude's
+
+Source change from potenlab/team-ax branch `feat/chat-like-claude` (on top of `feat/project-page`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/components/TitleMenu.tsx` (the project page's name menu, moved out of `Projects.tsx` so the chat uses it too), `web/src/components/chat/chatActions.ts` (rename and delete for the sidebar and the chat's name) and `web/test/e2e/chat-look.spec.ts`.
+- `Chat.tsx`, `Messages.tsx`, `Composer.tsx`, `Sidebar.tsx`: the same change on this repository's files. In the message box this repository's own keys (answer the AI's question, send later while an answer runs) sit inside the box with Send and Stop, and the voice-off hint for admins sits under it with the mic. Delete keeps this repository's trash days in its question (`chatTrashDays`), and the file card has no download branch, as before here.
+- Only here: `chat.reply` in Japanese and Spanish too, `web/test/unit/design-contrast.test.ts` now reads the red Delete item from `TitleMenu.tsx`, and `web/test/e2e/ask-answer.spec.ts` expects "Reply" in the box once the question is answered.
+
+## 2026-11-04 Version numbers (Semantic Versioning)
+
+The same docs change as potenlab/team-ax branch `docs/semver` (not yet on core main), written here by hand. No core history was imported.
+
+- `docs/RELEASE-CI.md`: the "버전 번호 / Version numbers" section is the same as in core, apart from its examples, which use this repository's version (0.2.21).
+- Only here: the "Version impact" section in `.github/PULL_REQUEST_TEMPLATE.md` (core has no PR template; core's text says "PR 본문"), and the lines in `CLAUDE.md` and `AGENTS.md` (this repository's own files).
+
+## 2026-11-04 MCP name and title rows that stay at the top
+
+Source change from potenlab/team-ax branch `feat/mcp-sticky-headers` (on top of `feat/connectors-discover`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `StickyHeader`, `useStickyHeader` and `stickyCls` in `web/src/components/ui.tsx` (and `PageHeader` staying at the top), the title row of `ConnectorsView.tsx` and `Skills.tsx`, the Settings layout (title and menu in place, only the page beside them scrolls) and `web/test/e2e/sticky-headers.spec.ts`.
+- "External services" becomes "MCP" in the same keys as in core (`integrations.title`, `admin.integrations`, search, Discover, empty states, the audit actions, the request notice, the personal-connections hint, the Admin Home count), and in the server's messages to the AI that name the screen.
+- Only here: the same keys in Spanish and Japanese, and the project page's top line staying at the top (`Projects.tsx`, core has it on its project-page branch).
+
+## 2026-11-04 Sidebar, account menu and Settings like Claude's
+
+Source change from potenlab/team-ax branch `feat/sidebar-account-settings` (on top of `feat/mcp-sticky-headers`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/components/settings/SettingsDialog.tsx`, `web/src/pages/settingsTabs.ts` (sections in groups), `useSettingsOverlay` in `web/src/App.tsx` (Settings over the page it was opened from), the `SettingsPane` and `Row` of `web/src/pages/Settings.tsx`, the sidebar's sizes and `AccountMenu` in `web/src/components/Sidebar.tsx`, the 280 px column in `Layout.tsx` and `web/test/e2e/account-settings.spec.ts`.
+- Here the dialog gives the keyboard back through this repository's `useFocusTrap(…, returnTo)` and `menuOpener`; core, whose trap has no `returnTo`, does it in the dialog itself.
+- Only here: the new strings in Spanish and Japanese.
+
+## 2026-11-04 AI engines: Providers and Team provider settings
+
+Source change from potenlab/team-ax branch `feat/ai-engines-split` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: the two tabs (`?tab=team`, `?engine=<id>`), `EngineRow`, `SettingsSection`, `SettingRow`, `SaveBar` and `Defaults` in `web/src/pages/admin/Engines.tsx`, the `id` / `external` / `hideLabel` / `testId` of `Switch` in `web/src/components/ui.tsx`, and `web/test/e2e/admin-engines.spec.ts`.
+- Here the rows keep this repository's one-line explanations with "More" (`OneLine`), the hints of local sign-in and the experimental API engine, the tab panels (`TabPanel`), and the usage limits' delete that moves the focus on; the test server lists the API engine (off) like a real server.
+- Only here: the new strings in Spanish and Japanese.
+
+## 2026-11-04 Activity log: filters at the top, a simpler list
+
+Source change from potenlab/team-ax branch `feat/activity-log` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: `web/src/lib/activity.ts` (filters in the address, time presets, day groups and folded repeats), `web/src/pages/admin/Audit.tsx`, `web/test/unit/activity.test.ts`, `web/test/e2e/activity-log.spec.ts` and the made-up activity rows of the mock server.
+- Here the title row is this repository's `StickyHeader` in Admin's own scrolling area; core keeps Admin's page title at the top of the same area, so its row sticks just under that title.
+- Only here: the custom range keeps this repository's both-days-included `localDayBounds` (core gets the same helper), and the new strings in Spanish and Japanese.
+
+## 2026-11-04 Usage: your own in Settings, everyone's in Admin
+
+The same change as potenlab/team-ax branch `feat/usage-personal-team` (not yet on core main), written here by hand. No core history was imported.
+
+- Taken as they are: `server/src/admin/my-usage.ts` and `GET /api/me/usage` in `shared/src/api/auth.ts` and `server/src/routes/auth.ts`, `web/src/components/settings/MyUsage.tsx`, `web/src/components/UsageBar.tsx`, `tests/unit/a-my-usage.test.ts`, `web/test/e2e/my-usage.spec.ts`, the Settings tab and the account menu's Usage item.
+- Only here: turns that have an unpriced part (`usage_source = 'engine_unpriced'`) count in `unpricedTurns` and show "+?" by the cost; Admin › Usage keeps its share column with percents and puts its long notes on one line with "More" (`OneLine`); strings in Japanese and Spanish too.
+
+## 2026-11-04 Search like Claude's
+
+Source change from potenlab/team-ax branch `feat/search-palette` (on top of `feat/sidebar-account-settings`, not yet on core main), ported by hand. No core history was imported.
+
+- Taken as they are: the palette in `web/src/components/SearchDialog.tsx` (type tabs, Needs attention, Recents, Actions, keys and hints), `?new=1` on Projects and `?add=1` on MCP (`Projects.tsx`, `Integrations.tsx`), and `web/test/e2e/search-palette.spec.ts`.
+- Only here: the Files tab and row (this repository's file content search, still started only by choosing that row), a chat row's menu with rename and delete (`chat/chatActions.ts`, ⌥↵ / Alt+Enter), scheduled tasks to confirm again under Needs attention (`needsReview`), and the strings in Spanish and Japanese.

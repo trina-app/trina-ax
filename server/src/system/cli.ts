@@ -20,6 +20,10 @@
 //                                                server (pid from status/status.json) so root/bootstrap starts it
 //   prune-versions [--dry-run]                   remove old version and engine folders now, as the server does hourly
 //                                                (system/prune.ts); --dry-run only lists what would go. JSON
+//   desktop-refresh [--from <folder>] [--force]  the Windows desktop app of this release into data/downloads now, as a
+//                                                Linux server does after each start (system/windows-app.ts); --from: the
+//                                                feed's <channel>.json, installer and latest.yml copied into a folder
+//                                                (no internet); --force tries a version that failed today again. JSON
 //   codex-login | codex-status | codex-logout   the engine account's own Codex (ChatGPT) sign-in, through the launcher:
 //                                                codex-login prints a URL and a one-time code (device auth). Older
 //                                                setup: in managed mode ChatGPT is connected from Admin > AI connections
@@ -35,9 +39,17 @@
 //   archive --passphrase-random --upload         the whole team, age with a random passphrase, to presigned URLs (stdin)
 //   restore-artifacts --dir <chain> --to <dir>   rebuild db/ + team/ from a downloaded, decrypted off-site chain
 //   restore-verify --dir <chain> --expect JSON   the same into a throwaway folder, compared with the backup's totals
-//   cloud-status                                 the app's part of TenantStatus (system/cloud-tenant.ts)
+//   cloud-status [--onboarding]                  the app's part of TenantStatus (system/cloud-tenant.ts)
 //   reset-link [--username U]                    one-time reset link at publicOrigins[0] (the owner by default), JSON
 //   credentials-escrow-out --recipient age1…     the AI connections' key age-armored to the CP's escrow recipient
+//   hosted-speech-key < { key | null }           the hosting service's speech-to-text key (stdin only), JSON { ok, set }
+//   hosted-chat-key < { key, capUsd, endsAt, enabled } | { key: null }
+//                                                the hosting service's trial AI credit (stdin only), JSON { ok, set, usedUsd }
+//
+// For the root update timer (`mycel-ctl update --scheduled`, native/cmd/mycel-ctl/schedule.go):
+//   update-window                                the team's update window and time zone, one JSON line
+//                                                { window, timeZone, custom, installId? } (system/update-job.ts
+//                                                updateWindowAnswer; installId for the staged roll-out, system/rollout.ts)
 //
 // Run by scripts/install-macos.sh as root with the admin.js of the bundle it installs (no config, explicit paths only):
 //   lan-cert --cert F --key F [--fingerprint F]  make or keep the office TLS certificate (system/lan-cert.ts); JSON
@@ -49,9 +61,10 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { loadAppConfig } from '../app-config'
 import { SERVER_VERSION, createContext } from '../context'
+import { Database } from 'bun:sqlite'
 import { openDb } from '../db'
 import { createLogger, silentLogger } from '../log'
-import { BackupManager, endSessions, inspectDbCopy, vacuumInto } from './backup'
+import { BackupManager, endSessions, inspectDbCopy, vacuumInto, withoutHostingKey } from './backup'
 import { planInstallState } from './install-plan'
 import { ensureLanCert } from './lan-cert'
 import { resolveLayout } from './layout'
@@ -59,14 +72,18 @@ import { walkTree } from './manifest'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
 import { compareVersions, UpdateManager } from './update'
+import { updateWindowAnswer } from './update-job'
+import { existingInstallId, getTeamSettings, teamTimeZone } from '../admin/settings'
 import { pruneVersions } from './prune'
+import { feedRootOf, folderFetch, refreshWindowsApp } from './windows-app'
+import { DEFAULT_FEED } from '../office/release'
 import { codexCommand } from './codex-login'
 import { archiveUpload, cloudBackupPrepare, cloudBackupUpload, relayKeyCommand, restoreArtifacts, restoreVerify, rotateSetupToken, setupStatus } from './cloud-admin'
 import { makeCredCtx } from '../credentials/store'
 import { DriveStore } from '../integrations/google-drive/store'
 import { rekeyDrive } from '../integrations/google-drive/rekey'
 import { rekeyCredentials } from '../credentials/rekey'
-import { cloudStatus, credentialsEscrowOut, resetLinkBase } from './cloud-tenant'
+import { cloudStatus, credentialsEscrowOut, resetLinkBase, setHostedChatKey, setHostedSpeechKey } from './cloud-tenant'
 import { createResetLink } from '../auth/accounts'
 import { installAuth } from '../auth/service'
 
@@ -148,6 +165,8 @@ export async function main(argv: string[]): Promise<number> {
       const tmpDb = path.join(cfg.dataDir, `archive-${process.pid}.sqlite`)
       await vacuumInto(dbFile, tmpDb)
       try {
+        // an archive leaves the server: the hosting service's key does not go with it
+        withoutHostingKey(tmpDb)
         const tree = await walkTree(cfg.teamRoot, { exclude: ['.system/backups'] })
         const entries: TarEntryInput[] = [
           { name: 'db', type: 'dir' }, { name: 'db/app.sqlite', type: 'file', source: tmpDb },
@@ -227,6 +246,28 @@ export async function main(argv: string[]): Promise<number> {
       out(r)
       return r.errors.length ? 1 : 0
     }
+    case 'desktop-refresh': {
+      // the Windows desktop app of this server's release into data/downloads now, as the server does after each start
+      // (system/windows-app.ts); --from <folder>: from <channel>.json, the installer and latest.yml copied there
+      if (cfg.office) throw new Error('office mode offers the Windows app with its own updater (teamax update now; teamax desktop add)')
+      if (process.getuid?.() === 0) throw new Error('run desktop-refresh as the server account (trina_admin in docs/BACKUP-RESTORE.md), not as root')
+      const from = arg(args, '--from')
+      const feed = feedRootOf(cfg.update.feedUrl) ?? (from ? DEFAULT_FEED : null)
+      if (!feed) throw new Error('this server names no release feed (server.json update.feedUrl); copy the feed files into a folder and use --from <folder> (docs/INSTALL-LINUX.en.md "Windows app")')
+      if (from !== null) {
+        // trina_admin runs from / (docs/BACKUP-RESTORE.md): a relative folder would be looked for there
+        if (!path.isAbsolute(from)) throw new Error(`--from needs the folder's full path (got ${from})`)
+        const manifest = path.join(from, `${cfg.update.channel}.json`)
+        try { fs.accessSync(manifest, fs.constants.R_OK) } catch {
+          throw new Error(`${manifest} is missing or not readable by this account: copy office/${cfg.update.channel}.json of the feed (this server's channel) and the files it names into ${from}`)
+        }
+      }
+      const r = await refreshWindowsApp({ dataDir: cfg.dataDir, version: SERVER_VERSION, channel: cfg.update.channel, feed, force: args.includes('--force'),
+        ...(from ? { fetch: folderFetch(path.resolve(from), feed) } : {}) })
+      out(r)
+      // 0 only when the folder offers this release's app (or a newer one put there by hand); 'ahead': update the server first
+      return ['offered', 'current', 'newer'].includes(r.kind) ? 0 : 1
+    }
     case 'relay-key':
       out(relayKeyCommand(cfg.dataDir, args))
       return 0
@@ -261,7 +302,8 @@ export async function main(argv: string[]): Promise<number> {
     // the hosted service's tenant commands that need the app (system/cloud-tenant.ts, run by mycel-ctl)
     case 'cloud-status': {
       const { db, mgr } = backups()
-      try { out(cloudStatus({ db, config: cfg, dataDir: cfg.dataDir, statusDir: layout.statusDir, secretsDir: layout.secretsDir, backups: mgr.metas() })) } finally { db.close() }
+      // --onboarding: add the team's first days (mycel-ctl status --json --onboarding; counted only when asked)
+      try { out(cloudStatus({ db, config: cfg, dataDir: cfg.dataDir, statusDir: layout.statusDir, secretsDir: layout.secretsDir, backups: mgr.metas(), onboarding: args.includes('--onboarding') })) } finally { db.close() }
       return 0
     }
     case 'reset-link': {
@@ -288,6 +330,25 @@ export async function main(argv: string[]): Promise<number> {
       out(await credentialsEscrowOut(layout.secretsDir, r))
       return 0
     }
+    case 'hosted-speech-key': {
+      const input = await stdinJson()
+      const db = openDb(dbFile)
+      try { out(setHostedSpeechKey({ db, secretsDir: layout.secretsDir, config: cfg, log }, input)) } finally { db.close() }
+      return 0
+    }
+    case 'hosted-chat-key': {
+      const input = await stdinJson()
+      const db = openDb(dbFile)
+      try { out(setHostedChatKey({ db, secretsDir: layout.secretsDir, config: cfg, log }, input)) } finally { db.close() }
+      return 0
+    }
+    // the root update timer's window (mycel-ctl update --scheduled): the same window and zone the app's own updater keeps
+    case 'update-window': {
+      // read only, no migration: root asks every 15 minutes, also right after a switch while the old server still runs
+      const db = new Database(dbFile, { readonly: true, strict: true })
+      try { console.log(JSON.stringify(updateWindowAnswer(getTeamSettings(db), teamTimeZone(db), existingInstallId(db)))) } finally { db.close() }
+      return 0
+    }
     // the engine account's Codex login (server/src/system/codex-login.ts)
     case 'codex-login':
     case 'codex-status':
@@ -310,7 +371,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     default:
-      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out (see server/src/system/cli.ts)')
+      console.error('usage: admin.js backup|list-backups|archive|restore-archive|restore-team|stage-restore|stage-update|switch|rollback|prune-versions|desktop-refresh|codex-login|codex-status|codex-logout|credentials-rekey|drive-rekey|lan-cert|install-state|compare-versions|relay-key|setup-status|setup-token-rotate|cloud-backup|restore-artifacts|restore-verify|cloud-status|reset-link|credentials-escrow-out|hosted-speech-key|hosted-chat-key|update-window (see server/src/system/cli.ts)')
       return 2
   }
 }

@@ -11,11 +11,22 @@ function skillPath(p: string): boolean {
     && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..' && !/[\u0000-\u001f]/.test(s))
 }
 
-/** Called after a permitted skill is supplied. A retried turn or repeated read stays one usage row. */
-export function recordSkillUse(db: Database, input: { turnId: string; userId: string; skill: Pick<SkillInfo, 'path' | 'name'>; source: 'command' | 'read' }): void {
+/**
+ * Called after a permitted skill is supplied. A retried turn or repeated read stays one usage row. `source`: 'command'
+ * ("/name", a skill form), 'tool' (the skill tool loaded it) or 'read' (the AI read the SKILL.md with a file tool).
+ * The skill tool is stored as 'read' in turn_skill_usage (its CHECK list is fixed; Admin › Usage stays as it was);
+ * a command or the skill tool is also a run (turn_skill_runs, migration 223): what the onboarding goal counts
+ * (onboarding/goal.ts), never a plain read.
+ */
+export function recordSkillUse(db: Database, input: { turnId: string; userId: string; skill: Pick<SkillInfo, 'path' | 'name'>; source: 'command' | 'tool' | 'read' }): void {
   const { turnId, userId, skill, source } = input
   if (!skillPath(skill.path) || !skill.name.trim() || skill.name.length > SKILL_NAME_MAX) return
   db.query(`INSERT INTO turn_skill_usage (turn_id, skill_path, skill_name, source)
+    SELECT t.id, ?, ?, ? FROM turns t JOIN users u ON u.id = t.user_id
+    WHERE t.id = ? AND t.user_id = ? AND u.status = 'active'
+    ON CONFLICT(turn_id, skill_path) DO NOTHING`).run(skill.path, skill.name, source === 'tool' ? 'read' : source, turnId, userId)
+  if (source === 'read') return
+  db.query(`INSERT INTO turn_skill_runs (turn_id, skill_path, skill_name, source)
     SELECT t.id, ?, ?, ? FROM turns t JOIN users u ON u.id = t.user_id
     WHERE t.id = ? AND t.user_id = ? AND u.status = 'active'
     ON CONFLICT(turn_id, skill_path) DO NOTHING`).run(skill.path, skill.name, source, turnId, userId)

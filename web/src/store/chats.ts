@@ -1,12 +1,16 @@
 // Chats, the visible branch of each open chat, and everything the WebSocket says about them: streaming text, steps,
-// queue position, ask_user cards, artifacts being written. REST gives the state, events keep it current, and after
-// a reconnect that the server could not resume (reset/resync) everything is reloaded from REST.
+// queue position, ask_user / browser site / connect_service cards, artifacts being written. REST gives the state,
+// events keep it current, and after a reconnect that the server could not resume (reset/resync) everything is
+// reloaded from REST.
 import { create } from 'zustand'
-import { uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
+import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
+/** Artifacts that are the whole answer of their skill: the panel opens them by itself once they are saved (the intro
+ * deck, the promo video, the card news). */
+const OPENS_BY_ITSELF = new Set<string>([DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, CARD_NEWS_ARTIFACT_KEY])
 /** Keep retrying a send that failed on the network for this long (same clientMessageId: the server dedupes). */
 export const SEND_RETRY_MS = 30_000
 
@@ -23,6 +27,9 @@ export interface LiveArtifact {
 }
 
 export interface OpenRequest { turnId: string; chatId: string; messageId: string; request: TurnRequest }
+/** What a connect_service card's button sends (POST /api/turns/:id/connect) besides the card's id. A key only ever
+ * goes sealed (lib/connectCard.ts): the store never holds one. */
+export type ConnectAction = TurnConnectBody extends infer B ? (B extends unknown ? Omit<B, 'requestId'> : never) : never
 
 type Pending = { deltas: Delta[]; steps: ServerEventData<'message.step'>[]; done: Message | null }
 
@@ -33,13 +40,14 @@ interface ChatsState {
   threads: Record<string, Thread>
   /** messageId -> estimated dispatch rank (1 = first queued, 0 = running), not turns ahead */
   queue: Record<string, number>
-  /** open ask_user / browser_site cards by requestId */
+  /** open ask_user / browser_site / dev_env_site / connect_service cards by requestId */
   requests: Record<string, OpenRequest>
   /** chatId -> key -> artifact being written or just saved */
   liveArtifacts: Record<string, Record<string, LiveArtifact>>
   /** bumped when a chat's saved artifacts changed (artifact panel / cards refetch) */
   artifactsRev: Record<string, number>
-  /** artifact the panel should open by itself (the AI started writing one) */
+  /** artifact the panel should open by itself (the AI started writing one, or an intro deck, a promo video or a card news
+   * was saved) */
   autoOpen: { chatId: string; key: string; at: number } | null
 
   loadChats: (reset?: boolean) => Promise<void>
@@ -54,7 +62,10 @@ interface ChatsState {
   regenerate: (chatId: string, assistantId: string, engine?: { engine?: EngineId; model?: string | null }) => Promise<void>
   edit: (chatId: string, userMessageId: string, content: string, attachments: Attachment[]) => Promise<void>
   selectBranch: (chatId: string, messageId: string) => Promise<void>
-  answer: (requestId: string, body: { kind: 'ask_user'; answer: string | string[] | null } | { kind: 'browser_site'; decision: 'once' | 'always' | 'deny' }) => Promise<void>
+  answer: (requestId: string, body: { kind: 'ask_user'; answer: string | string[] | null } | { kind: 'browser_site' | 'dev_env_site'; decision: 'once' | 'always' | 'deny' }) => Promise<void>
+  /** a connect_service card's button: the server's outcome (null: the card is no longer open here). A connected or
+   * skipped card closes right away (the server also closes it with turn.request.closed). */
+  connect: (requestId: string, body: ConnectAction) => Promise<TurnConnectResult | null>
   handleEvent: (ev: ServerEvent) => void
   reloadAll: () => Promise<void>
   reset: () => void
@@ -419,6 +430,22 @@ export const useChats = create<ChatsState>((set, get) => {
       })
     },
 
+    async connect(requestId, body) {
+      const session = generation
+      const r = get().requests[requestId]
+      if (!r || r.request.kind !== 'connect_service') return null
+      const res = await api.call(API.connectTurn, { params: { id: r.turnId }, body: { ...body, requestId } })
+      if (session === generation && (res.state === 'connected' || res.state === 'skipped')) {
+        rememberClosed(requestId)
+        set((s) => {
+          const next = { ...s.requests }
+          delete next[requestId]
+          return { requests: next }
+        })
+      }
+      return res
+    },
+
     async reloadAll() {
       const open = Object.keys(get().threads)
       await Promise.allSettled([get().loadChats(true), ...open.map((id) => get().loadThread(id))])
@@ -521,8 +548,11 @@ export const useChats = create<ChatsState>((set, get) => {
           set((s) => ({
             liveArtifacts: { ...s.liveArtifacts, [d.chatId]: { ...(s.liveArtifacts[d.chatId] ?? {}), [d.key]: live } },
             artifactsRev: d.status === 'done' ? { ...s.artifactsRev, [d.chatId]: (s.artifactsRev[d.chatId] ?? 0) + 1 } : s.artifactsRev,
-            // the panel opens by itself when the AI starts writing (Claude parity)
-            autoOpen: d.status === 'writing' && !prev ? { chatId: d.chatId, key: d.key, at: Date.now() } : s.autoOpen,
+            // the panel opens by itself when the AI starts writing (Claude parity). The team server sends no "writing"
+            // previews yet, only the saved artifact: an intro deck, a promo video or a card news opens when it is saved,
+            // since it is the whole answer (the welcome steps' first result and every later run, docs/DECISIONS.md "W2",
+            // "V", "D2")
+            autoOpen: !prev && (d.status === 'writing' || OPENS_BY_ITSELF.has(d.key)) ? { chatId: d.chatId, key: d.key, at: Date.now() } : s.autoOpen,
           }))
           return
         }

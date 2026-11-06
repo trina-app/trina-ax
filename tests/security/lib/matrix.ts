@@ -27,13 +27,14 @@ const ALICE_OWN = [C.aliceSkill, C.aliceFile, C.aliceFileOld, C.aliceFileName, C
   C.aliceMemory, C.aliceQuestion, C.aliceAttName, C.aliceProjInstr, C.aliceUploadName, C.aliceTranscript]
 const FIN = [C.finSkill, C.finFile, C.finFileOld, C.finTrashName, C.finName]
 // the AI connections' secrets are in no persona's VISIBLE list: any response that carries one fails, for everyone
-const ALL = [...ALICE_OWN, ...FIN, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion, C.teamSecret, C.aliceSecret]
+const DM = [C.dmMsg, C.dmFileName]
+const ALL = [...ALICE_OWN, ...FIN, ...DM, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion, C.teamSecret, C.aliceSecret]
 export const VISIBLE: Record<Who, string[]> = {
   // a skill alice suggested reaches the managers of its target folder (skills/: owner and admins), nobody else
   owner: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
   admin: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
-  memberIn: [...ALICE_OWN, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
-  other: [C.mktBrief, C.mktInstr],
+  memberIn: [...ALICE_OWN, ...DM, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
+  other: [...DM, C.mktBrief, C.mktInstr],
   memberOut: [...FIN, C.bobFile, C.falconPlan, C.falconInstr],
   pwchange: [],
   anon: [],

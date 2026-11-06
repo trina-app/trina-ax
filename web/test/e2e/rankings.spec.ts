@@ -20,16 +20,21 @@ test('own repeated questions fill the composer without sending; empty history ha
   await expect(card).toHaveCount(0)
 })
 
-test('accessible skill ranking links to its slash command without triggering a turn', async ({ page }) => {
+test('accessible skill ranking goes first and fills its slash command without triggering a turn', async ({ page }) => {
   await reset(page)
+  await page.route('**/api/skills', r => r.fulfill({ json: { items: [
+    { path: 'skills/proposal.md', name: 'proposal', description: 'Client proposal' },
+    { path: 'skills/weekly-report/SKILL.md', name: 'weekly-report', description: 'Weekly report' },
+  ] } }))
   await page.route('**/api/skills/popular', r => r.fulfill({ json: { days: 30, items: [
     { path: 'skills/weekly-report/SKILL.md', name: 'weekly-report', description: 'Weekly report', uses: 4, users: 2 },
   ] } }))
   await signIn(page)
   await page.goto('/skills')
-  const card = page.getByTestId('popular-skills')
-  await expect(card).toContainText('4회 · 2명')
-  await card.getByRole('link', { name: 'weekly-report' }).click()
+  const row = page.getByTestId('skill-row').first()
+  await expect(row).toContainText('weekly-report')
+  await expect(row).toContainText('4회')
+  await row.getByTestId('skill-use').click()
   await expect(page.getByTestId('composer-input')).toHaveValue('/weekly-report ')
   await expect(page.getByTestId('assistant-message')).toHaveCount(0)
 })

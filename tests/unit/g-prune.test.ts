@@ -491,6 +491,17 @@ describe('the server runs it, and says what it keeps', () => {
         expect(waited).toBe(true) // the first decision was "go"
         expect(o.busyWith).toBeNull() // and the lock is given back
       }
+      // a release root's update failed here is the root update timer's to try again (root/update-failed.json, its hold
+      // over or not; 0.2.19 review S1)
+      clock = at
+      const failed = path.join(base, 'root', 'update-failed.json')
+      fs.mkdirSync(path.dirname(failed), { recursive: true })
+      fs.writeFileSync(failed, JSON.stringify({ version: '999.0.0', result: 'rolled_back', at: at.toISOString(), failures: 1, until: at.toISOString(), rootIn: true }))
+      const o = new OpsService(ctx, { layout: resolveLayout(ctx.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel' }, 'linux'), platform: 'linux', engines: async () => [], launcherStatus: async () => null, now: () => clock })
+      Object.defineProperty(o.updates, 'feedUsable', { get: () => true })
+      o.updates.checkFeed = async () => ({ version: '999.0.0', minFrom: null, urgent: false, needsRoot: false, notes: '', publishedAt: at.toISOString(), bundles: [] })
+      expect(await o.autoUpdateTick()).toBe('held')
+      fs.rmSync(failed)
     } finally {
       ctx.config.update.auto = was
       setSetting(ctx.db, 'updateWindow', null)

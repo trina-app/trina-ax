@@ -7,18 +7,25 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { isMap, isScalar, parseDocument } from 'yaml'
+import { parseSkillInputs, readSkillTitle, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular } from '../files/store'
 import type { Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 
-export interface SkillInfo { path: string; name: string; description: string }
+/** `inputs`: the short form the skill runs from (metadata `inputs`, shared/src/api/skill-inputs.ts), only when valid.
+ * `title`: the name people read (metadata `title`, "광고 문구"), only when valid; "/<name>" still runs the skill.
+ * `recurring`: metadata `recurring` as written, only when the key is there ("weekly": the work comes back every week,
+ * docs/DECISIONS.md "S"; isRecurring). Server side only: listings (skillInfo) leave it out. */
+export interface SkillInfo { path: string; name: string; description: string; inputs?: SkillInput[]; title?: string; recurring?: string }
 export interface Skill extends SkillInfo { body: string }
 
 const SKILLS_DIR = 'skills'
 const USERS_DIR = 'users'
 const MAX_DEPTH = 3
-const MAX_FILES = 200
+/** entries read per skill root (team skills/, a person's own users/<id>/skills/), team rule files included. Over it the
+ * rest is not read: skill managers see a "too_many" issue (skillIssues), never a silent cut */
+export const MAX_FILES = 1000
 export const SKILL_BODY_MAX = 16_000
 export const SKILL_FILE_MAX_BYTES = 128 * 1024
 const HEADER_MAX = 8 * 1024
@@ -40,37 +47,80 @@ function skillRootLength(parts: readonly string[]): number | null {
 }
 /** A path under users/<id>/skills/ (a personal skill entry). */
 export const isPersonalSkill = (rel: string) => skillRootLength(rel.split('/')) === 3
-/** The metadata a listing shows (no body). `personal` is set only for a personal skill. */
-export const skillInfo = ({ path: p, name, description }: SkillInfo): SkillInfo & { personal?: true } =>
-  (isPersonalSkill(p) ? { path: p, name, description, personal: true } : { path: p, name, description })
+/** The metadata a listing shows (no body). `personal` is set only for a personal skill, `inputs` only for a skill
+ * with a valid form, `title` only for a skill with one. */
+export const skillInfo = ({ path: p, name, description, inputs, title }: SkillInfo): SkillInfo & { personal?: true } =>
+  ({ path: p, name, description, ...(isPersonalSkill(p) ? { personal: true as const } : {}), ...(inputs ? { inputs } : {}), ...(title ? { title } : {}) })
 const hasFrontmatter = (text: string) => /^\uFEFF?---[ \t]*(?:\r?\n|$)/.test(text)
 
 /** Decode the standard metadata without constructing JS objects or expanding aliases. Only the root and the
- * optional metadata string map may be collections. The bounded header also limits parser work before validation. */
-function standardFields(header: string): Map<string, string> | null {
+ * optional metadata string map may be collections. The bounded header also limits parser work before validation.
+ * `metadata` holds the metadata map's values (the form of a skill is its `inputs`). A form written as YAML instead of
+ * one text (a list, or a JSON list without `|`: JSON is YAML) is never read, and never breaks the header: the skill
+ * loads without its form (`inputsNotText`). */
+function standardFields(header: string): { fields: Map<string, string>; metadata: Map<string, string>; inputsNotText: boolean } | null {
   try {
     const doc = parseDocument(header, { strict: true, uniqueKeys: true, schema: 'core', version: '1.2', prettyErrors: false, logLevel: 'silent' })
     if (doc.errors.length || doc.warnings.length || !isMap(doc.contents) || doc.contents.anchor || doc.contents.tag) return null
-    const fields = new Map<string, string>()
+    const fields = new Map<string, string>(), metadata = new Map<string, string>()
+    let inputsNotText = false
     const scalar = (v: unknown): v is import('yaml').Scalar<string> => isScalar(v) && typeof v.value === 'string' && !v.anchor && !v.tag
     for (const item of doc.contents.items) {
       if (!scalar(item.key)) return null
       const key = item.key.value
       if (key === 'metadata') {
         if (!isMap(item.value) || item.value.anchor || item.value.tag) return null
-        for (const pair of item.value.items) if (!scalar(pair.key) || !scalar(pair.value)) return null
+        for (const pair of item.value.items) {
+          if (!scalar(pair.key)) return null
+          if (pair.key.value === 'inputs' && !scalar(pair.value)) { inputsNotText = true; continue }
+          // a title that is not text (left empty, a number, a list) is no title: the skill loads and shows its name
+          if (pair.key.value === 'title' && !scalar(pair.value)) continue
+          if (!scalar(pair.value)) return null
+          metadata.set(pair.key.value, pair.value.value)
+        }
       } else {
         if (!scalar(item.value)) return null
         fields.set(key, item.value.value)
       }
     }
-    return fields
+    return { fields, metadata, inputsNotText }
   } catch { return null }
+}
+
+const HEADER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/
+const INPUTS_NOT_TEXT = 'inputs must be one JSON text: write "inputs: |" and the JSON list on the lines below it, indented'
+
+/** The header with its form (the `inputs` key directly under `metadata:` and the lines under it) left empty, or null
+ * when it has none: a SKILL.md whose form makes the header larger than HEADER_MAX still loads, without the form. An
+ * `inputs:` line anywhere else (inside a description block, deeper in another metadata value) is not the form. */
+function withoutInputs(header: string): string | null {
+  const lines = header.split(/\r?\n/)
+  const indentOf = (l: string) => /^[ \t]*/.exec(l)![0]
+  const meta = lines.findIndex((l) => /^metadata[ \t]*:[ \t]*(?:#.*)?$/.test(l))
+  if (meta < 0) return null
+  let child: string | null = null
+  for (let at = meta + 1; at < lines.length; at++) {
+    const line = lines[at]!
+    if (!line.trim()) continue
+    const indent = indentOf(line)
+    if (!indent) return null // the metadata map ended
+    child ??= indent // its keys are as indented as its first one
+    if (indent !== child || !/^[ \t]+inputs[ \t]*:/.test(line)) continue
+    let end = at + 1
+    while (end < lines.length && (!lines[end]!.trim() || indentOf(lines[end]!).length > indent.length)) end++
+    return [...lines.slice(0, at), `${indent}inputs: ""`, ...lines.slice(end)].join('\n')
+  }
+  return null
 }
 
 /** Why an entry with a header is not a skill. Codes only: the screens translate them (R2-SKILL-03). */
 export type SkillProblem = 'too_large' | 'header' | 'location' | 'name' | 'name_folder' | 'description' | 'compatibility'
-export type SkillCheck = { ok: true; name: string; description: string; body: string } | { ok: false; problem: SkillProblem }
+/** `inputs` / `badInputs`: a SKILL.md's form (metadata `inputs`), when it declares one: the list when valid, else why
+ * not (the skill still loads, without a form: skillIssues reports `inputs`). */
+export type SkillCheck = { ok: true; name: string; description: string; body: string; inputs?: SkillInput[]; badInputs?: string; title?: string; recurring?: string } | { ok: false; problem: SkillProblem }
+
+/** The skill's work comes back every week (metadata `recurring: weekly`). */
+export const isRecurring = (s: Pick<SkillInfo, 'recurring'>): boolean => s.recurring?.trim().toLowerCase() === 'weekly'
 
 /** A header line that the legacy reader takes as a field. legacyHeaderOk uses the same regex for its duplicate check. */
 const LEGACY_KEY = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/
@@ -131,21 +181,42 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   const no = (problem: SkillProblem): SkillCheck => ({ ok: false, problem })
   if (Buffer.byteLength(text, 'utf8') > SKILL_FILE_MAX_BYTES) return no('too_large')
   const t = text.replace(/^\uFEFF/, '')
-  const m = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(t.slice(0, HEADER_MAX + 16))
-  if (!m || Buffer.byteLength(m[1]!, 'utf8') > HEADER_MAX) return no('header')
+  let m = HEADER_RE.exec(t.slice(0, HEADER_MAX + 16))
+  let headerText = m?.[1]
+  let oversized = 0
+  if (!m || Buffer.byteLength(m[1]!, 'utf8') > HEADER_MAX) {
+    // a SKILL.md whose form makes the header too large (Korean takes 3 bytes a letter): the skill without its form,
+    // and an `inputs` issue that says why, rather than a broken header and no skill at all
+    const big = rel !== undefined && isSkillManifest(rel) ? HEADER_RE.exec(t) : null
+    const rest = big ? withoutInputs(big[1]!) : null
+    if (!big || rest === null || Buffer.byteLength(rest, 'utf8') > HEADER_MAX) return no('header')
+    m = big
+    headerText = rest
+    oversized = Buffer.byteLength(big[1]!, 'utf8')
+  }
   if (rel !== undefined && isSkillManifest(rel)) {
     const parts = rel.split('/')
     const root = skillRootLength(parts)
     if (root === null || parts.length < root + 2 || parts.length > root + MAX_DEPTH) return no('location')
-    const fields = standardFields(m[1]!)
-    if (!fields) return no('header')
+    const header = standardFields(headerText!)
+    if (!header) return no('header')
+    const { fields } = header
     const name = fields.get('name'), description = fields.get('description')
     if (!name || name.length > SKILL_NAME_MAX || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) return no('name')
     if (name !== parts.at(-2)) return no('name_folder')
     if (!description?.trim() || [...description].length > DESCRIPTION_MAX) return no('description')
     const compatibility = fields.get('compatibility')
     if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return no('compatibility')
-    return { ok: true, name, description: description.trim(), body: t.slice(m[0].length) }
+    // the name people read: one line, at most SKILL_TITLE_MAX characters; any other value is left out (the name shows)
+    const title = readSkillTitle(header.metadata.get('title'))
+    const recurring = header.metadata.get('recurring')
+    const ok = { ok: true as const, name, description: description.trim(), body: t.slice(m[0].length), ...(title ? { title } : {}), ...(recurring !== undefined ? { recurring: recurring.trim() } : {}) }
+    if (oversized) return { ...ok, badInputs: `with this form the header is ${oversized} bytes, over the ${HEADER_MAX / 1024} KB limit (a Korean letter takes 3 bytes): shorten the labels and placeholders` }
+    if (header.inputsNotText) return { ...ok, badInputs: INPUTS_NOT_TEXT }
+    const raw = header.metadata.get('inputs')
+    if (raw === undefined) return ok
+    const form = parseSkillInputs(raw)
+    return form.ok ? { ...ok, inputs: form.inputs } : { ...ok, badInputs: form.reason }
   }
   if (!legacyHeaderOk(m[1]!)) return no('header')
   const fields: Record<string, string> = Object.create(null)
@@ -158,9 +229,22 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   return { ok: true, name, description: (fields.description ?? '').slice(0, LEGACY_DESCRIPTION_MAX), body: t.slice(m[0].length) }
 }
 
-export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string } | null {
+export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string; inputs?: SkillInput[]; title?: string; recurring?: string } | null {
   const r = checkSkill(text, rel)
-  return r.ok ? { name: r.name, description: r.description, body: r.body } : null
+  return r.ok ? { name: r.name, description: r.description, body: r.body, ...(r.inputs ? { inputs: r.inputs } : {}), ...(r.title ? { title: r.title } : {}), ...(r.recurring !== undefined ? { recurring: r.recurring } : {}) } : null
+}
+
+/** Why the form of a skill that loads does not parse (metadata `inputs`), or null: no form, or a valid one. */
+export function skillInputsProblem(text: string, rel: string): string | null {
+  const r = checkSkill(text, rel)
+  return r.ok && r.badInputs ? r.badInputs : null
+}
+
+/** The problem of an entry that looks like a skill: a SKILL.md, or another file with a header. null: it loads, or it
+ * is a team rule. */
+function loadProblem(text: string, rel: string): SkillProblem | null {
+  const check = checkSkill(text, rel)
+  return !check.ok && (isSkillManifest(rel) || hasFrontmatter(text)) ? check.problem : null
 }
 
 /** Even an invalid or unreadable manifest reserves its folder: resource files must not become separate skills.
@@ -184,11 +268,47 @@ export function skillFileKind(root: string, rel: string, text: string): 'skill' 
   return isSkillManifest(rel) || hasFrontmatter(text) ? 'other' : 'rule'
 }
 
+/** Why `text` does not load at `rel` (R2-SKILL-03), for a save: the confirmation card and the AI's write result. null
+ * for a file that loads, a team rule, a resource file and every path outside the skill roots: a project folder can
+ * hold a SKILL.md for another tool, so a check there gives false alarms. */
+export function skillFileProblem(root: string, rel: string, text: string): SkillProblem | null {
+  if (!rel.endsWith('.md') || skillRootLength(rel.split('/')) === null || isSkillResource(root, rel)) return null
+  return loadProblem(text, rel)
+}
+
+/** One line for the AI after it saved a skill file that does not load, so it can tell the person and fix the file.
+ * Empty when the file is not a problem. Tool results are in English; the screens use the codes. */
+export function skillWriteNote(root: string, rel: string, data: Buffer): string {
+  const problem = skillFileProblem(root, rel, data.toString('utf8'))
+  if (!problem) {
+    const form = isSkillManifest(rel) && skillRootLength(rel.split('/')) !== null && !isSkillResource(root, rel) ? skillInputsProblem(data.toString('utf8'), rel) : null
+    return form ? `\nWarning: the skill loads, but its form (metadata inputs) does not: ${form}. It runs without its form until the value is a JSON list of inputs. Tell the user, and fix it if they want the form.` : ''
+  }
+  const how: Record<SkillProblem, string> = {
+    too_large: `the file is larger than ${SKILL_FILE_MAX_BYTES / 1024} KB`,
+    header: 'the header between the --- lines is broken',
+    location: `SKILL.md must be in its own folder inside the skill folder, at most ${MAX_DEPTH} levels down`,
+    name: isSkillManifest(rel)
+      ? `the name must have only lowercase a to z, 0 to 9 and hyphens, at most ${SKILL_NAME_MAX} characters, and be the same as the folder name; if the folder name has other characters, change the folder name too`
+      : `the name must be present, at most ${LEGACY_NAME_MAX} characters, with no /`,
+    name_folder: 'the name must be the same as the folder name',
+    description: `the description must be present, at most ${DESCRIPTION_MAX} characters`,
+    compatibility: 'the compatibility value must not be empty, at most 500 characters',
+  }
+  return `\nWarning: this skill file does not load, so nobody can use it as a skill: ${how[problem]}. Tell the user, and fix the file if they want this skill.`
+}
+
 /** Read exactly one authorized entry using the same link/size checks as the file tools. A personal entry is a skill
  * only for its owner (the folder rules give nobody else access; this check does not depend on them). */
 export function readSkill(files: FileService, user: Principal, inputPath: string): Skill | null {
+  return readSkillIn(files, user, inputPath, null)
+}
+
+/** readSkill inside one listing walk (walkSkillEntries: its rules and folder listings); never exported, so a memo of
+ * folder listings cannot outlive the synchronous walk that made it */
+function readSkillIn(files: FileService, user: Principal, inputPath: string, scan: Scan | null): Skill | null {
   try {
-    const r = authorize(files.fx, files.rules(), user, inputPath, 'read')
+    const r = authorize(files.fx, scan?.rules ?? files.rules(), user, inputPath, 'read', scan ? { dirs: scan.dirs } : {})
     const root = skillRootLength(r.segs)
     if (root === null || (root === 3 && r.segs[1] !== user.id)) return null
     if (r.segs.length > root + MAX_DEPTH || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
@@ -200,38 +320,51 @@ export function readSkill(files: FileService, user: Principal, inputPath: string
 
 /** Visit the accessible entry candidates under skills/ and under the caller's own users/<id>/skills/: legacy .md
  * files and folder SKILL.md files, capped per root (team skills cannot push personal skills out). Never descend into
- * a skill package. */
-function walkSkillEntries(files: FileService, user: Principal, visit: (rel: string) => void) {
-  walkSkillRoot(files, user, SKILLS_DIR, visit)
-  walkSkillRoot(files, user, personalSkillsDir(user.id), visit)
+ * a skill package. Returns the roots whose walk stopped at the cap (some entries there were not visited). */
+function walkSkillEntries(files: FileService, user: Principal, visit: (rel: string, scan: Scan) => void): string[] {
+  const capped: string[] = []
+  // one synchronous scan: the folder rules and each folder's listing are read once (a folder of 1,000 skills was
+  // listed again for every entry it holds)
+  const scan: Scan = { rules: files.rules(), dirs: new Map() }
+  for (const root of [SKILLS_DIR, personalSkillsDir(user.id)]) if (walkSkillRoot(files, user, root, (rel) => visit(rel, scan), scan)) capped.push(root)
+  return capped
 }
 
-function walkSkillRoot(files: FileService, user: Principal, rootRel: string, visit: (rel: string) => void) {
+/** What one synchronous walk reuses (never across an await): the folder rules and the folder listings it read. */
+interface Scan { rules: ReturnType<FileService['rules']>; dirs: Map<string, string[]> }
+
+/** true: the root has more entries than MAX_FILES (the rest were not visited) */
+function walkSkillRoot(files: FileService, user: Principal, rootRel: string, visit: (rel: string) => void, scan: Scan): boolean {
   let seen = 0
+  let capped = false
   const walk = (rel: string, depth: number) => {
     let names: string[]
     try {
-      const r = authorize(files.fx, files.rules(), user, rel, 'list')
+      const r = authorize(files.fx, scan.rules, user, rel, 'list', { dirs: scan.dirs })
       if (!r.st?.isDirectory()) return
-      names = fs.readdirSync(r.abs).sort()
+      const listed = scan.dirs.get(r.abs) ?? fs.readdirSync(r.abs)
+      scan.dirs.set(r.abs, listed)
+      names = [...listed].sort()
     } catch { return }
     if (depth > 1 && names.includes('SKILL.md')) {
-      if (seen++ < MAX_FILES) visit(`${rel}/SKILL.md`)
+      if (seen < MAX_FILES) { seen++; visit(`${rel}/SKILL.md`) } else capped = true
       return
     }
     for (const n of names) {
-      if (seen >= MAX_FILES) break
+      if (capped) break
       if (n.startsWith('.')) continue
       const child = `${rel}/${n}`
       let st: fs.Stats
-      try { st = authorize(files.fx, files.rules(), user, child, 'list').st! } catch { continue }
+      try { st = authorize(files.fx, scan.rules, user, child, 'list', { dirs: scan.dirs }).st! } catch { continue }
       if (st.isDirectory()) { if (depth < MAX_DEPTH) walk(child, depth + 1); continue }
       if (!st.isFile() || st.nlink > 1 || !n.endsWith('.md')) continue
+      if (seen >= MAX_FILES) { capped = true; break }
       seen++
       visit(child)
     }
   }
   walk(rootRel, 1)
+  return capped
 }
 
 const nameKey = (s: string) => s.normalize('NFC').toLowerCase()
@@ -240,35 +373,72 @@ const nameKey = (s: string) => s.normalize('NFC').toLowerCase()
  * read, and their own personal skills. A personal skill with the same name as a team skill replaces that team skill
  * in this person's list only (other people still get the team skill). */
 export function listSkills(files: FileService, user: Principal): Skill[] {
+  return scanSkills(files, user).skills
+}
+
+/** The team skills `user` can read (skills/ only), whether or not a personal skill of theirs has the same name: for
+ * a check of names before a team skill is added (onboarding/skill-packs.ts). */
+export function listTeamSkills(files: FileService, user: Principal): Skill[] {
   const out: Skill[] = []
-  walkSkillEntries(files, user, (rel) => {
-    const skill = readSkill(files, user, rel)
+  const scan: Scan = { rules: files.rules(), dirs: new Map() }
+  walkSkillRoot(files, user, SKILLS_DIR, (rel) => {
+    const skill = readSkillIn(files, user, rel, scan)
+    if (skill) out.push(skill)
+  }, scan)
+  return out
+}
+
+/** The same skill name for "/<name>" (invokedSkill compares names this way). */
+export const sameSkillName = (a: string, b: string) => nameKey(a) === nameKey(b)
+
+/** listSkills, and the roots whose walk stopped at MAX_FILES (skills/ or the caller's users/<id>/skills). */
+export function scanSkills(files: FileService, user: Principal): { skills: Skill[]; capped: string[] } {
+  const out: Skill[] = []
+  const capped = walkSkillEntries(files, user, (rel, scan) => {
+    const skill = readSkillIn(files, user, rel, scan)
     if (skill) out.push(skill)
   })
   const personal = new Set(out.filter((s) => isPersonalSkill(s.path)).map((s) => nameKey(s.name)))
-  return out.filter((s) => isPersonalSkill(s.path) || !personal.has(nameKey(s.name)))
+  const skills = out.filter((s) => isPersonalSkill(s.path) || !personal.has(nameKey(s.name)))
     .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+  return { skills, capped }
 }
 
-export interface SkillIssue { path: string; problem: SkillProblem }
+/** Skill managers (docs/DECISIONS.md "팀 스킬 관리"): write on skills/ or on one of its folders. The topmost such
+ * folders, [] for everyone else. */
+export function managedSkillRoots(files: FileService, user: Principal): string[] {
+  const rules = files.rules()
+  const writable = [SKILLS_DIR, ...(rules.ruleFolders?.() ?? []).filter((f) => f.startsWith(SKILLS_DIR + '/') && f.split('/').length <= 3)]
+    .filter((f) => rules.access(user, f.split('/')) === 'write')
+  return writable.filter((f) => !writable.some((g) => g !== f && f.startsWith(g + '/')))
+}
+
+export interface SkillIssue { path: string; problem: SkillProblem | 'too_many' | 'too_many_rules' | 'inputs' }
 
 /** Entries that look like skills but do not load (R2-SKILL-03): a SKILL.md that fails validation, or a legacy file
  * with a header that fails. Only entries the caller can read are checked, so a path the caller cannot read never
- * shows. A file without a header is a team rule, not an issue. */
-export function skillIssues(files: FileService, user: Principal): SkillIssue[] {
+ * shows. A file without a header is a team rule, not an issue. A root with more entries than MAX_FILES is one issue
+ * (`too_many`) for the people who manage it: skill managers for skills/, the owner for their personal skills. More
+ * team rule files than the AI follows (`too_many_rules`, prompt.ts teamRules) is one for skill managers. A skill that
+ * loads but whose form does not parse (metadata `inputs`) is `inputs`: it runs without its form. */
+export function skillIssues(files: FileService, user: Principal, o: { rules?: { total: number; followed: number } } = {}): SkillIssue[] {
   const out: SkillIssue[] = []
-  walkSkillEntries(files, user, (rel) => {
+  const capped = walkSkillEntries(files, user, (rel, scan) => {
     try {
-      const r = authorize(files.fx, files.rules(), user, rel, 'read')
+      const r = authorize(files.fx, scan.rules, user, rel, 'read', { dirs: scan.dirs })
       if (isSkillResource(files.fx.root, r.rel)) return
       if (!r.st?.isFile()) return
       if (r.st.size > SKILL_FILE_MAX_BYTES) { out.push({ path: r.rel, problem: 'too_large' }); return }
       const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
-      const check = checkSkill(text, r.rel)
-      if (!check.ok && (isSkillManifest(r.rel) || hasFrontmatter(text))) out.push({ path: r.rel, problem: check.problem })
+      const problem = loadProblem(text, r.rel)
+      if (problem) out.push({ path: r.rel, problem })
+      else if (isSkillManifest(r.rel) && skillInputsProblem(text, r.rel)) out.push({ path: r.rel, problem: 'inputs' })
     } catch { /* not readable: say nothing */ }
   })
-  return out.sort((a, b) => a.path.localeCompare(b.path))
+  const manager = managedSkillRoots(files, user).length > 0
+  for (const root of capped) if (root !== SKILLS_DIR || manager) out.push({ path: root, problem: 'too_many' })
+  if (manager && o.rules && o.rules.total > o.rules.followed) out.push({ path: SKILLS_DIR, problem: 'too_many_rules' })
+  return out.sort((a, b) => a.path.localeCompare(b.path) || a.problem.localeCompare(b.problem))
 }
 
 /** Longest explicit name wins, then file aliases, then a personal skill before a team skill. Folder skills never

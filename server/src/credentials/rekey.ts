@@ -1,10 +1,12 @@
 // credentials-rekey (system/cli.ts, docs/DECISIONS.md "AI 연결" 3.2): a new key file credentials.key.<N+1>, every
 // connection's secret encrypted again under it (one transaction), then the older key files removed. No screen in v1:
 // the operator runs it after a suspected key leak. Rows that do not decrypt (already "needs reconnect") stay as they are.
-// The voice input key (speech-key.ts) uses the same vault and is encrypted again in the same transaction.
+// The voice input key (speech-key.ts) and the hosting service's trial AI key (hosted-chat.ts) use the same vault and are
+// encrypted again in the same transaction.
 import fs from 'node:fs'
 import { Vault } from './vault'
 import { rekeySpeechKey } from './speech-key'
+import { rekeyHostedChatKey } from './hosted-chat'
 import { listRows, type CredCtx } from './store'
 
 export function rekeyCredentials(cc: CredCtx): number {
@@ -18,14 +20,16 @@ export function rekeyCredentials(cc: CredCtx): number {
     out.push({ id: r.id, enc: nv.encrypt(r.id, r.kind, value).enc })
   }
   const speech = rekeySpeechKey(cc.db, cc.vault, nv)
+  const trial = rekeyHostedChatKey(cc.db, cc.vault, nv)
   const now = new Date(cc.now()).toISOString()
   cc.db.transaction(() => {
     for (const o of out) cc.db.query('UPDATE engine_credentials SET secret_enc = ?, key_version = ?, updated_at = ? WHERE id = ?').run(o.enc, next, now, o.id)
     speech.write()
+    trial.write()
   })()
   // the older keys go once no row needs them (rows that never decrypted keep theirs: nothing lost that worked)
   const still = new Set((cc.db.query('SELECT DISTINCT key_version AS v FROM engine_credentials').all() as { v: number }[]).map((x) => x.v))
-  if (speech.version !== null) still.add(speech.version)
+  for (const v of [...speech.versions, ...trial.versions]) still.add(v)
   for (let v = 1; v < next; v++) if (!still.has(v)) fs.rmSync(cc.vault.keyPath(v), { force: true })
   ;(cc as { vault: Vault }).vault = nv
   cc.cache.clear()

@@ -17,9 +17,13 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
+import { SOURCE_LOCS_MAX, SourceLog } from './sources'
+import { locsOfRange } from './locations'
+import type { SourceLoc } from '@mycel/shared/api'
 import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
+import { skillWriteNote } from '../chat/skills'
 import { cpuBudget, currentPlan, readMaxBytes } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
 import type { McpContent } from '../turns'
@@ -36,8 +40,10 @@ import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
+import { FREE_USED, HOSTED_SPEECH_MODEL } from '../credentials/hosted-speech'
 import { converterInputName, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
-import { sendToOpenRouter } from '../jobs/openrouter-stt'
+import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
+import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
 import * as media from './media'
 import { mediaText, personLocale, type MediaTextKey } from './media-text'
@@ -77,6 +83,17 @@ export class TurnFiles {
   readHashes: Map<string, string> = new ReadHashes(this.allReads)
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
+  /** folders whose files' names went to the model in this turn (a listing that showed files, glob): a team chat room's
+   * AI session counts them like reads (chat/turn.ts noteReads; its answers may repeat the names), other chats do not */
+  namePaths = new Set<string>()
+  /** team paths whose own name went to the model, and nothing of what is in them (the sub-folders a listing showed,
+   * chat/turn.ts: every path a room call named): a room session counts each as a name (read-scope.ts {type:'name'}) */
+  listedNames = new Set<string>()
+  /** the same files per file with how and where (files/sources.ts): the answer's "참고한 파일" list. Shared by every
+   * agent of the turn, so a sub-agent's reads are in it, marked with `agent` */
+  readonly sources = new SourceLog()
+  /** the sub-agent whose state this is (the id of its Agent call), null for the main AI (forAgent) */
+  readonly agent: string | null = null
   /** image blocks sent to the model in this turn (files/vision.ts VISION_TURN_IMAGES / VISION_TURN_BYTES) */
   imageBytes = 0
   imageCount = 0
@@ -110,7 +127,7 @@ export class TurnFiles {
    */
   forAgent(agent: string): TurnFiles {
     let v = this.agents.get(agent)
-    if (!v) { v = this.view(); this.agents.set(agent, v) }
+    if (!v) { v = this.view(agent); this.agents.set(agent, v) }
     return v
   }
 
@@ -139,12 +156,13 @@ export class TurnFiles {
     return { files: agent ? this.forAgent(agent) : this, agent, known: true }
   }
 
-  /** this turn's state with read-before-write hashes of its own */
-  private view(): TurnFiles {
+  /** this turn's state with read-before-write hashes of its own; `agent`: the sub-agent it is for (its sources are
+   * marked so), null for a call whose agent is not known */
+  private view(agent: string | null = null): TurnFiles {
     const own = new ReadHashes(this.allReads)
     return new Proxy(this, {
-      get: (t, k) => (k === 'readHashes' ? own : Reflect.get(t, k, t)),
-      set: (t, k, v) => (k === 'readHashes' ? false : Reflect.set(t, k, v, t)),
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' || k === 'agent' ? false : Reflect.set(t, k, v, t)),
     })
   }
 }
@@ -179,6 +197,9 @@ export class FileService {
   /** the team's OpenRouter key for transcripts, read for one request (set by component C: the credentials vault needs
    * the app context); null: none */
   speechKey: () => string | null = () => null
+  /** reads go with the hosting service's key: this month's free seconds left (credentials/hosted-speech.ts; set by
+   * component C); null: the team's own key, or none */
+  speechFree: () => { leftSec: number } | null = () => null
   /** transcripts of video and audio reads by content (files/media.ts) */
   readonly transcripts: media.TranscriptCache
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
@@ -225,17 +246,23 @@ export class FileService {
     const r = authorize(this.fx, rules, ctx.user, a.path ?? '', 'list')
     if (!r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a file; use read`, 'not_folder')
     const lines: string[] = []
+    let shownFiles = 0
     const ents = fs.readdirSync(r.abs, { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))
     for (const e of ents) {
       if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
       const c = [...r.segs, e.name]
-      if (e.isDirectory()) { if (rules.canList(ctx.user, c)) lines.push(e.name + '/') }
+      // a sub-folder shows its name only (who else may list it decides who may see that, read-scope.ts {type:'name'})
+      if (e.isDirectory()) { if (rules.canList(ctx.user, c)) { lines.push(e.name + '/'); ctx.files.listedNames.add(c.join('/')) } }
       else if (e.isFile() && atLeast(rules.access(ctx.user, c), 'read')) {
         let st: fs.Stats; try { st = fs.lstatSync(path.join(r.abs, e.name)) } catch { continue }
         if (st.nlink > 1) continue
         lines.push(`${e.name}  (${human(st.size)}, ${st.mtime.toISOString().slice(0, 16).replace('T', ' ')})`)
+        shownFiles++
       }
     }
+    // file names are the folder's own (only its readers see them); a folder the person may only list (the team root for
+    // a member, a folder on the way to theirs) shows sub-folders and nothing of its own
+    if (shownFiles) ctx.files.namePaths.add(r.rel)
     return { text: lines.join('\n') || '(empty folder)', summary: `list ${r.rel || '.'} -> ${lines.length} entries` }
   }
 
@@ -250,6 +277,8 @@ export class FileService {
     const { rules, r, isFile } = this.base(ctx, a.path)
     const res = await globFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office }, r.segs, isFile, a.pattern.normalize('NFC'))
     const text = res.files.length ? res.files.join('\n') + (res.truncated ? '\n(Results are truncated. Use a more specific path or pattern.)' : '') : 'No files found'
+    // the folders the names came from (one per folder: the rules are on folders)
+    for (const f of res.files) ctx.files.namePaths.add(f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '')
     return { text, summary: `glob ${r.rel || '.'} pattern(len=${a.pattern.length}) -> ${res.files.length} files` }
   }
 
@@ -260,8 +289,15 @@ export class FileService {
     const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office }, r.segs, isFile, {
       officeOwner: ctx.user.id, pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
+      lang: personLocale(this.db, ctx.user.id),
     })
     for (const f of res.files) ctx.files.readPaths.add(f)
+    // content mode: the files whose lines the AI saw (names alone, files_with_matches and count, are not content)
+    if ((a.output_mode ?? 'files_with_matches') === 'content') {
+      const locs = new Map<string, SourceLoc[]>()
+      for (const h of res.hits) if (h.loc) locs.set(h.path, [...(locs.get(h.path) ?? []), h.loc])
+      for (const f of res.files) ctx.files.sources.note(f, 'grep', { agent: ctx.files.agent, locs: locs.get(f) })
+    }
     return { text: res.text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${res.text === 'No matches' ? 0 : res.text.split('\n').length} lines, filtered=${res.stats.filtered}` }
   }
 
@@ -289,8 +325,10 @@ export class FileService {
     // the plan's read limit (system/limits.ts readMaxBytes; 200 MB without a plan, as before)
     const { bytes } = readRegular(r.abs, readMaxBytes())
     const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
-    ctx.files.readHashes.set(r.rel, sha256(bytes))
+    const hash = sha256(bytes)
+    ctx.files.readHashes.set(r.rel, hash)
     ctx.files.readPaths.add(r.rel)
+    ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent, sha256: hash, locs: partLocs(r.rel, text, a) })
     return numberedLines(r.rel, text, a)
   }
 
@@ -323,6 +361,7 @@ export class FileService {
     beforeDelivery()
     ctx.files.readHashes.set(src.rel, src.hash)
     ctx.files.readPaths.add(src.rel)
+    ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
     ctx.files.imageBytes += jpeg.length
     ctx.files.imageCount++
     const text = `Image ${src.rel} (shown below).`
@@ -349,7 +388,11 @@ export class FileService {
     // pages, as before image reads
     const ocrText = !!block && !!this.cfg.ocr
     const why = (b: VisionBlock) => visionText(this.db, ctx.user.id, b)
-    const record = () => { ctx.files.readHashes.set(src.rel, src.hash); ctx.files.readPaths.add(src.rel) }
+    const record = (locs: SourceLoc[] = []) => {
+      ctx.files.readHashes.set(src.rel, src.hash)
+      ctx.files.readPaths.add(src.rel)
+      ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash, locs })
+    }
 
     if (a.pages === undefined && (a.offset !== undefined || a.limit !== undefined)) {
       // the same extraction as the grep text cache (OfficeCache: pdftotext, then Apple Vision when a page has no text
@@ -359,8 +402,9 @@ export class FileService {
         : null
       // the pages without a text layer, named for a read by pages (not when the Apple Vision text is the fallback)
       const layers = ocrText ? [] : await pdfLayer(src.bytes, tools, ctx.signal)
-      record()
-      const out = numberedLines(src.rel, cached ?? layerText(layers), a)
+      const lines = cached ?? layerText(layers)
+      record(partLocs(src.rel, lines, a))
+      const out = numberedLines(src.rel, lines, a)
       const scanned = layers.flatMap((p, i) => (isScannedPage(p) ? [i + 1] : []))
       if (scanned.length) out.text += `\n\n${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(scanned) })} ${block ? why(block) : visionText(this.db, ctx.user.id, 'scannedHint', { first: scanned[0]! })}`
       return out
@@ -442,7 +486,8 @@ export class FileService {
     else if (noPixels) text(why(block!))
     const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
     beforeDelivery?.()
-    record()
+    // the pages of a read by pages; a read of the whole (short) file is the file
+    record(a.pages !== undefined ? pages.slice(0, SOURCE_LOCS_MAX).map((page) => ({ kind: 'page' as const, page })) : [])
     const plain = content.map((c) => (c.type === 'text' ? c.text : '[page image]')).join('\n\n')
     return { text: plain, content, beforeDelivery, summary: `read ${src.rel} -> pages ${pageList(pages)} of ${n}, ${images} image${images === 1 ? '' : 's'}` }
   }
@@ -538,10 +583,20 @@ export class FileService {
     const speed = media.localSpeed(this.db, media.localModelName(this.speech.model), this.speech.threads)
     return { cpuCores: cpuBudget(), localPieceSec: media.LOCAL_PIECE_SEC, localSecPerSec: speed.measured ? speed.secPerSec : null, hostedNewSec: currentPlan() !== null ? media.HOSTED_LOCAL_NEW_SEC : null }
   }
+  /** A piece's WAV as OpenRouter gets it (jobs/openrouter-stt.ts openRouterAudio: quiet sound raised, FLAC), or the WAV
+   * itself when this ffmpeg cannot make one. A run that replaced its work folder or left a link: media_damaged. */
+  async mediaSendable(tools: media.MediaTools, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; workBytes: number }): Promise<{ bytes: Buffer; format: string }> {
+    const r = await openRouterAudio(tools.ffmpeg, work, wavName, wav, o)
+    if (r.ok) return { bytes: r.bytes, format: r.format }
+    if (r.why === 'damaged') throw new ToolError('the sound could not be encoded', 'media_damaged')
+    return { bytes: wav, format: 'wav' }
+  }
   /** One piece of sound (16 kHz WAV, `wav` in the work folder as `wavName`) -> the team speech provider's transcript.
-   * `language`: a hint (ISO 639-1), else the provider detects it. */
-  async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string }): Promise<MediaAnswer> {
-    if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, wav, 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, wavSeconds: true, language: o.language })
+   * `language`: a hint (ISO 639-1), else the provider detects it. `send`: what goes to OpenRouter (mediaSendable),
+   * else the WAV. `again`: whether OpenRouter may get the sound once more after a provider failure (sendToOpenRouter). */
+  async mediaTranscribe(p: MediaSpeech, work: string, wavName: string, wav: Buffer, o: { signal?: AbortSignal; timeoutMs: number; language?: string; send?: { bytes: Buffer; format: string }; again?: () => boolean }): Promise<MediaAnswer> {
+    // 16 kHz mono 16-bit PCM: 32 000 bytes a second
+    if (p.provider === 'openrouter') return sendToOpenRouter(this.speech, p.key, p.model, o.send?.bytes ?? wav, o.send?.format ?? 'wav', { signal: o.signal, timeoutMs: o.timeoutMs, seconds: (wavData(wav)?.length ?? Math.max(0, wav.length - 44)) / 32_000, language: o.language, again: o.again })
     // no temperature fallback: it took a piece of odd sound 5 times as long, which the read's plan cannot hold; and how
     // sure whisper.cpp is of the language it heard (a short piece alone may be told the team's language)
     let languageP: number | undefined
@@ -747,6 +802,7 @@ export class FileService {
       beforeDelivery()
       ctx.files.readHashes.set(src.rel, src.hash)
       ctx.files.readPaths.add(src.rel)
+      ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
       const plain = content.map((c) => (c.type === 'text' ? c.text : '[frame image]')).join('\n')
       return {
         text: plain, content, beforeDelivery,
@@ -801,13 +857,17 @@ export class FileService {
     const cores = cpuBudget()
     const none = (key: MediaTextKey, provider = s.speechProvider): MediaTranscript => ({ segments: [], from: w.from, covered: w.from, notes: [say(key)], label: '', languages: [], provider, made: 0, cached: 0, silent: 0, stopped: key })
     if (s.speechProvider === 'off') return none('voiceOff')
+    // the hosting service's key turns it on by default (its free hours); the team's own key does not
+    const free = s.speechProvider === 'openrouter' ? this.speechFree() : null
     // off by default on a small server (shared mediaTranscriptsDefault): the note says why, and that an admin can turn it on
-    if (!mediaTranscriptsOn(s, cores)) return none(s.aiMediaTranscripts === null && mediaTranscriptsOffSmall(s.speechProvider, cores) ? 'transcriptsOffSmall' : 'transcriptsOff')
+    if (!mediaTranscriptsOn(s, cores, free !== null)) return none(s.aiMediaTranscripts === null && mediaTranscriptsOffSmall(s.speechProvider, cores) ? 'transcriptsOffSmall' : 'transcriptsOff')
     const provider = s.speechProvider
     const hosted = currentPlan() !== null
     const pieceSec = provider === 'local' ? media.LOCAL_PIECE_SEC : media.TRANSCRIPT_PIECE_SEC
-    const model = provider === 'openrouter' ? s.speechModel : media.localModelName(this.speech.model)
-    const label = provider === 'openrouter' ? `OpenRouter, ${s.speechModel}` : `this server, ${model}`
+    // the hosting service's key is for its one model (its guardrail at OpenRouter refuses any other)
+    const orModel = free ? HOSTED_SPEECH_MODEL : s.speechModel
+    const model = provider === 'openrouter' ? orModel : media.localModelName(this.speech.model)
+    const label = provider === 'openrouter' ? `OpenRouter, ${orModel}` : `this server, ${model}`
     // whether new pieces may be made, and with what
     let blocked: MediaTextKey | null = null
     let speech: MediaSpeech | null = null
@@ -815,7 +875,9 @@ export class FileService {
       const key = confidentialTurn(this.db, ctx.turnId) ? null : this.speechKey()
       if (confidentialTurn(this.db, ctx.turnId)) blocked = 'confidential'
       else if (!key) blocked = 'noKey'
-      else speech = { provider, key, model: s.speechModel }
+      // the month's free hours are used (a piece that would go past them still goes; the next request is refused)
+      else if (free && free.leftSec <= 0) blocked = 'freeUsed'
+      else speech = { provider, key, model: orModel }
     } else if (!this.speech.whisperBin) blocked = 'noWhisper'
     else {
       const modelPath = await modelReady(this.speech)
@@ -841,8 +903,18 @@ export class FileService {
     let covered = w.from, made = 0, sentSec = 0, newSec = 0, cached = 0, silent = 0, probed = false
     /** a language a retry proved for this file in this read: the next short pieces are told it at once */
     let proven: string | undefined
+    /** OpenRouter's requests of this read: their generation ids and the provider that served each, when known */
+    const requests: { generation?: string; served?: string }[] = []
     let stopped: string | null = null
     let failure: string | null = null
+    /** why no sound may go to the provider now (the switch, the provider, the chat's confidentiality, the month's free
+     * hours of the hosting key), or null */
+    const sendBlocked = (): MediaTextKey | null => {
+      const now = getTeamSettings(this.db)
+      if (now.speechProvider !== provider || !mediaTranscriptsOn(now, cores, free !== null)) return now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'
+      if (provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId)) return 'confidential'
+      return free && (this.speechFree()?.leftSec ?? 1) <= 0 ? 'freeUsed' : null
+    }
     // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access
     try {
       for (let k = Math.floor(w.from / pieceSec); k * pieceSec < w.to; k++) {
@@ -866,9 +938,8 @@ export class FileService {
           if (budget() < need) { stopped = ctx.turnId ? 'time' : 'connection'; break }
           // right before new sound is cut and sent, as things are now (a read runs for minutes): the switch and the
           // provider, the chat's confidentiality (a safe workflow may lock it meanwhile), the person's access to the file
-          const now = getTeamSettings(this.db)
-          if (now.speechProvider !== provider || !mediaTranscriptsOn(now, cores)) { stopped = now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'; break }
-          if (provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId)) { stopped = 'confidential'; break }
+          const block = sendBlocked()
+          if (block) { stopped = block; break }
           this.recheckSource(ctx, src)
           const wav = `audio-${k}.wav`
           try {
@@ -877,13 +948,23 @@ export class FileService {
             if (voice.voiced < media.MIN_VOICED_SEC) { piece = media.SILENT_PIECE; silent++ }
             else {
               const short = voice.voiced < media.SHORT_SPEECH_SEC
+              // OpenRouter gets the piece raised when quiet and as FLAC, made once for the piece and its retry
+              const send = speech.provider === 'openrouter' ? await this.mediaSendable(tools, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), workBytes: src.size + bytes.length }) : undefined
               newSec += len
               sentSec += len
               // its time counts in this server's speed only with real speech in it (room tone is quick for whisper.cpp)
               const measure = voice.loud >= media.SPEED_SPEECH_SEC
-              const ask = (lang: string | undefined) => speech!.provider === 'local'
-                ? this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need, measure)
-                : this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang })
+              const ask = async (lang: string | undefined) => {
+                if (speech!.provider === 'local') return this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need, measure)
+                // a provider failure's second try sends the sound again: only after the same checks as a new piece
+                const r = await this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang, send, again: () => {
+                  if (sendBlocked()) return false
+                  this.recheckSource(ctx, src)
+                  return true
+                } })
+                requests.push({ ...(r.generation ? { generation: r.generation } : {}), ...(r.served ? { served: r.served } : {}) })
+                return r
+              }
               // A short piece runs on whisper's own guess, or at once on a language a retry already proved in this read.
               // When whisper is unsure, it runs again told the file's language (the one most heard in pieces it was sure
               // of) or else the team's; that answer is kept by media.acceptRetry (not a caption or an invention, the same
@@ -904,6 +985,25 @@ export class FileService {
                   if (again && typeof again === 'object' && media.acceptRetry(answer, again, told)) { answer = again; language = told; proven = told }
                 }
               }
+              // A long OpenRouter piece: whisper names one language for the whole request from its first 30 s (QA: a
+              // 13-minute Korean meeting came back translated into Japanese). When the language it heard is unlikely
+              // (neither the team's nor English, whisper unsure of its words, or another piece of the file heard
+              // otherwise: longRetryLanguage), the piece runs once more told the file's language, else the team's, and
+              // the answer whisper is surer of is kept (keepLongRetry). A told language is never reported as heard; a
+              // retry that fails keeps the first answer. The sound goes again only after the same checks as a new
+              // piece (the first answer can take a minute): switched off or locked meanwhile, the first answer stays.
+              if (speech.provider === 'openrouter' && !language && len >= LONG_PIECE_SEC && typeof answer === 'object') {
+                const told = longRetryLanguage(answer, { team, file: media.heardLanguage(heard) })
+                if (told && budget() >= need && !sendBlocked()) {
+                  this.recheckSource(ctx, src)
+                  let again: Awaited<ReturnType<typeof ask>> | null = null
+                  try { again = await ask(told) } catch {
+                    ctx.signal?.throwIfAborted()
+                    media.assertWork(work)
+                  }
+                  if (again && typeof again === 'object' && keepLongRetry(answer, again, told)) { answer = again; language = told; proven = told }
+                }
+              }
               // whisper.cpp had no time for it after all, or voice input is using it: not made, nothing handed over
               if (answer === 'time' || answer === 'voiceBusy') { sentSec -= len; stopped = answer; break }
               // its language counts as the file's when the piece is long, or whisper was sure of it
@@ -919,6 +1019,8 @@ export class FileService {
             media.assertWork(work)
             // whisper.cpp ran out of the read's time: not a failure, the next read goes on from here (its speed is noted)
             if (e instanceof JobFailure && e.reason === 'timeout') { stopped = 'time'; break }
+            // the month's free hours ran out during the read (voice input or another read used the last of them)
+            if (e instanceof JobFailure && e.reason === FREE_USED) { stopped = 'freeUsed'; break }
             // whisper.cpp's own failure names its reason only; OpenRouter's says what to do (no credits, the key)
             if (e instanceof JobFailure) failure = e.reason ?? e.messages[personLocale(this.db, ctx.user.id)] ?? e.message
             else if (e instanceof ToolError && MEDIA_NOTE[e.code]) failure = say(MEDIA_NOTE[e.code]!)
@@ -939,8 +1041,13 @@ export class FileService {
       }
     } finally {
       if (sentSec || failure) {
-        audit(this.db, { actor: ctx.user.id, action: 'media.transcribe', target: src.rel,
-          detail: { seconds: Math.round(sentSec), provider, model, pieces: made, cached, ...(silent ? { silent } : {}), ok: made > 0 && !failure && !ctx.signal?.aborted, ...(ctx.turnId ? {} : { via: 'connection' }) } })
+        // which provider served each OpenRouter request (no words): what the answer said, else OpenRouter's record of
+        // the generation, looked up a few seconds later (noteServed)
+        const routed = requests.length ? { served: servedCounts(requests), generations: requests.flatMap((r) => (r.generation ? [r.generation] : [])) } : {}
+        const row = audit(this.db, { actor: ctx.user.id, action: 'media.transcribe', target: src.rel,
+          detail: { seconds: Math.round(sentSec), provider, model, pieces: made, cached, ...(silent ? { silent } : {}), ok: made > 0 && !failure && !ctx.signal?.aborted, ...(ctx.turnId ? {} : { via: 'connection' }), ...routed } })
+        // nothing more goes to OpenRouter from a chat locked confidential meanwhile, not even the ids
+        if (requests.some((r) => r.generation && !r.served) && !confidentialTurn(this.db, ctx.turnId)) this.noteServed(row, requests)
       }
     }
     if (stopped === 'slow') notes.push(say('slow', { min: Math.round(media.HOSTED_LOCAL_NEW_SEC / 60) }))
@@ -979,6 +1086,22 @@ export class FileService {
     }
   }
 
+  /** Fills in which provider served a read's OpenRouter requests (audit row `row`, detail `served`) from OpenRouter's
+   * record of each generation, when the answers did not say; best effort, after the read. */
+  private noteServed(row: number, requests: { generation?: string; served?: string }[]) {
+    const key = this.speechKey()
+    if (!key) return
+    const ids = requests.flatMap((r) => (r.generation && !r.served ? [r.generation] : []))
+    void openRouterServed(this.speech, key, ids).then((found) => {
+      if (!Object.keys(found).length) return
+      const got = this.db.query("SELECT detail FROM audit_log WHERE id = ? AND action = 'media.transcribe'").get(row) as { detail: string | null } | null
+      if (!got?.detail) return
+      const detail = JSON.parse(got.detail) as Record<string, unknown>
+      detail.served = servedCounts(requests.map((r) => ({ served: r.served ?? (r.generation ? found[r.generation] : undefined) })))
+      this.db.query('UPDATE audit_log SET detail = ? WHERE id = ?').run(JSON.stringify(detail), row)
+    }).catch(() => { /* the ids stay in the row */ })
+  }
+
   // ---------------- write / edit ----------------
   write(ctx: ToolCtx, a: { file_path: string; content: string }): ToolOutput {
     const data = Buffer.from(a.content, 'utf8')
@@ -1013,7 +1136,8 @@ export class FileService {
     seen.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
     ctx.files.filesWritten.add(r.rel)
-    return { text: `${r.exists ? 'Updated' : 'Created'} ${r.rel} (${human(data.length)})`, summary: `${tool} ${r.rel} -> ${r.exists ? 'update' : 'create'} ${data.length}B` }
+    const note = tool === 'write' ? skillWriteNote(this.fx.root, r.rel, data) : ''
+    return { text: `${r.exists ? 'Updated' : 'Created'} ${r.rel} (${human(data.length)})${note}`, summary: `${tool} ${r.rel} -> ${r.exists ? 'update' : 'create'} ${data.length}B` }
   }
 
   edit(ctx: ToolCtx, a: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }): ToolOutput {
@@ -1046,7 +1170,7 @@ export class FileService {
     this.changed(ctx, r.rel, 'update')
     ctx.files.readHashes.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
-    return { text: `Edited ${r.rel} (${a.replace_all ? n : 1} replacement${(a.replace_all ? n : 1) > 1 ? 's' : ''})`, summary: `edit ${r.rel} -> ${a.replace_all ? n : 1} replacements` }
+    return { text: `Edited ${r.rel} (${a.replace_all ? n : 1} replacement${(a.replace_all ? n : 1) > 1 ? 's' : ''})${skillWriteNote(this.fx.root, r.rel, data)}`, summary: `edit ${r.rel} -> ${a.replace_all ? n : 1} replacements` }
   }
 
   /** 'changed' event { path, action, userId, turnId } for live file-screen updates (component C publishes files.changed) */
@@ -1084,11 +1208,13 @@ export class FileService {
   }
 
   // ---------------- human-side operations (file screen; same rules) ----------------
-  humanSave(userId: string, rel: string, content: Buffer, baseSha: string | null): ToolOutput {
+  /** `by`: what the file event records as the writer's tool ('human'; a starter pack's install says 'pack_install', so
+   * nobody is named as the maker of a skill the pack wrote, skills/author.ts) */
+  humanSave(userId: string, rel: string, content: Buffer, baseSha: string | null, by: 'human' | 'pack_install' = 'human'): ToolOutput {
     const ctx: ToolCtx = { user: this.principal(userId), turnId: null, files: new TurnFiles() }
     const seen = new Map<string, string>()
     if (baseSha) seen.set(authorize(this.fx, this.rules(), ctx.user, rel, 'write', { createDirs: true }).rel, baseSha)
-    return this.writeBytes(ctx, rel, content, seen, 'human')
+    return this.writeBytes(ctx, rel, content, seen, by)
   }
   deleteFile(userId: string, rel: string, turnId: string | null = null) {
     const user = this.principal(userId)
@@ -1112,8 +1238,15 @@ export class FileService {
 
 type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean }
 interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
-/** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from OpenRouter) */
-type MediaAnswer = TranscribeResult & { languageP?: number }
+/** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
+ * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
+type MediaAnswer = OpenRouterAnswer & { languageP?: number }
+/** requests by the provider that served them ("unknown" until known): `{ deepinfra: 2 }` */
+function servedCounts(requests: { served?: string }[]): Record<string, number> {
+  const n: Record<string, number> = {}
+  for (const r of requests) n[r.served ?? 'unknown'] = (n[r.served ?? 'unknown'] ?? 0) + 1
+  return n
+}
 /** what transcribes a piece of a media read: OpenRouter with the team's key, or whisper.cpp with a model already here */
 type MediaSpeech = { provider: 'openrouter'; key: string; model: string } | { provider: 'local'; modelPath: string }
 interface MediaTranscript {
@@ -1146,6 +1279,14 @@ function diskRoom(base: string, size: number): boolean {
   } catch { return true }
 }
 const identity = (s: fs.Stats) => [s.dev, s.ino, s.size, s.mtimeMs, s.ctimeMs, s.nlink].join(':')
+
+/** The places a read by lines covered (offset / limit given: pages, sheets with their rows, slides, sections); a read
+ * of the whole file is the file (no places). */
+function partLocs(rel: string, text: string, a: { offset?: number; limit?: number }): SourceLoc[] {
+  if (a.offset === undefined && a.limit === undefined) return []
+  const off = a.offset ?? 1
+  return locsOfRange(text, rel, off, off + (a.limit ?? 2000) - 1, SOURCE_LOCS_MAX)
+}
 
 /** Text as numbered lines (cat -n), from `offset` (1-based), `limit` lines (default 2000), long lines cut. */
 function numberedLines(rel: string, text: string, a: { offset?: number; limit?: number }): ToolOutput {

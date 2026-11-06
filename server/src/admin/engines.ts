@@ -10,9 +10,9 @@ import os from 'node:os'
 import path from 'node:path'
 import type { EngineId, EngineStatus, Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
-import { REPO_ROOT } from '../app-config'
+import { allowedCredentialKinds, anthropicGateway, gatewayModelIds, REPO_ROOT, type AppConfig } from '../app-config'
 import { findCodexBin } from '../config'
-import { allowedCredentialKinds } from '../app-config'
+import { openRouterKey } from '../credentials/validate'
 import { teamCredentialSummary } from '../credentials/resolve'
 import { resolveLayout } from '../system/layout'
 import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
@@ -29,6 +29,12 @@ export const CLAUDE_MODELS = [
   { id: 'sonnet', label: 'Claude Sonnet' },
   { id: 'haiku', label: 'Claude Haiku' },
 ]
+/** Claude Code's model choices (Admin > AI engines, the team default, the composer): the aliases, or with an
+ * Anthropic-compatible gateway its model ids, the default first (the proxy forwards no other) */
+export function claudeModels(config: Pick<AppConfig, 'engine'>): { id: string; label: string }[] {
+  const g = anthropicGateway(config)
+  return g ? gatewayModelIds(g).map((id) => ({ id, label: id })) : CLAUDE_MODELS
+}
 /** status checks are cached this long (GET /api/admin/engines); POST .../check always runs */
 const CACHE_MS = 10 * 60_000
 
@@ -107,6 +113,8 @@ export interface EngineEnv {
   /** which machine the status lines talk about (deployment.ts hostKind; absent = the Mac wording) and the install base */
   host?: HostKind
   base?: string
+  /** Claude Code's models (claudeModels); absent = the aliases */
+  claudeModels?: { id: string; label: string }[]
 }
 
 export function engineEnv(ctx: AppContext): EngineEnv {
@@ -131,6 +139,7 @@ export function engineEnv(ctx: AppContext): EngineEnv {
     ...(ctx.config.engine.authMode === 'managed' ? { credentials: (family: 'anthropic' | 'openai') => teamCredentialSummary(ctx.db, family, allowedCredentialKinds(ctx.config)) } : {}),
     db: ctx.db,
     host: hostKind(ctx.config), base: resolveLayout(ctx.config).base,
+    claudeModels: claudeModels(ctx.config),
   }
 }
 
@@ -176,7 +185,7 @@ export async function checkEngine(id: EngineId, env: EngineEnv, enabled: boolean
   const bin = id === 'claude-code' ? env.claudeBin : env.codexBin
   const v = await runCli(bin, ['--version'], { timeoutMs: 10_000 })
   const version = v.code === 0 ? versionOf(v.stdout + v.stderr) : null
-  const models = id === 'claude-code' ? CLAUDE_MODELS : codexModels(env)
+  const models = id === 'claude-code' ? env.claudeModels ?? CLAUDE_MODELS : codexModels(env)
   if (!version) {
     const missing = v.error || v.code === 127 || /ENOENT|not found|No such file/i.test(v.error ?? v.stderr)
     // a timeout is not "not installed" (a first start after a long idle can take over 10 s): an error, kept in the picker
@@ -255,10 +264,9 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
     // OpenRouter: GET /key (older servers: /auth/key); neither there = the key is not checked, and the card says so
     let keyUnchecked = false
     if (openrouter) {
-      let k = await get('/key')
-      if (k.status === 404) k = await get('/auth/key')
-      if (k.status === 401 || k.status === 403) return out('not_logged_in', t('apiKey', locale))
-      keyUnchecked = !k.ok
+      const k = await openRouterKey(get)
+      if (k === 'refused') return out('not_logged_in', t('apiKey', locale))
+      keyUnchecked = k === 'unchecked'
     }
     // Anthropic's list comes in pages (20 by default)
     const r = await get(anthropic ? '/models?limit=1000' : '/models')

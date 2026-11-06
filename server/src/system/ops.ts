@@ -7,7 +7,7 @@ import path from 'node:path'
 import type { CheckStatus, ConnectionStatus, DiagnosticCheck, Diagnostics, Locale } from '@mycel/shared/api'
 import { FirewallStatus, PfStatus, type StatusFile } from '@mycel/shared/install'
 import { PRODUCT, type LauncherStatus } from '@mycel/shared'
-import { getTeamSettings, installId, teamDefaultLocale, teamTimeZone } from '../admin/settings'
+import { getSetting, getTeamSettings, installId, setSetting, teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import type { AppContext } from '../context'
 import { allowedCredentialKinds, DEFAULT_PROXY_PORT, isManaged } from '../app-config'
 import { teamCredentialSummary } from '../credentials/resolve'
@@ -23,17 +23,19 @@ import { connectionStatus } from './connection'
 import { diskSpace, resolveLayout, type InstallLayout } from './layout'
 import { M as MAC_M, tr, uptimeText } from './messages'
 import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSandboxDeniedTmp } from './sockets'
-import { UpdateManager } from './update'
+import { compareVersions, UpdateManager } from './update'
+import { rolloutTurn } from './rollout'
 import { lastPrune, PRUNE_FIRST_MS, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
 import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFileProblem } from './limits'
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
-import { configureStorageGuard, levelOf, snapshotOf, storageRoom, StorageMonitor } from './storage'
+import { cappedSnapshot, configureStorageGuard, levelOf, planView, reserveBytes, snapshotOf, storageState, StorageMonitor, timeIn } from './storage'
 import { hostMessages, ML } from './messages-linux'
 import { audit } from '../admin/audit'
-import { autoUpdateDecision, runUpdate } from './update-job'
+import { autoUpdateDecision, DEFAULT_UPDATE_WINDOW, nextWindow, runUpdate, updateWindowAnswer } from './update-job'
 import { zonedParts } from './time-zone'
+import { refreshWindowsApp, WINDOWS_EVERY_MS, WINDOWS_FIRST_MS, WINDOWS_TEXT, windowsAppFeedOf, windowsDiagnostic, type WindowsAppResult } from './windows-app'
 import { getChatRuntime } from '../chat/runtime'
 import { egressSettled, egressStatus, EXIT_ADDRESS_URL, exitAddressCheckOff } from '../tools/egress'
 
@@ -91,13 +93,17 @@ export class OpsService {
     this.backups = new BackupManager({ db: ctx.db, dbFile: path.join(ctx.config.dataDir, 'app.db'), layout: this.layout, log: ctx.log.child({ c: 'backup' }), version: ctx.version, now: o.now })
     this.updates = new UpdateManager({
       appDir: this.layout.appDir, dataDir: ctx.config.dataDir, version: ctx.version, channel: ctx.config.update.channel,
-      feedUrl: ctx.config.update.feedUrl, log: ctx.log.child({ c: 'update' }), allowUnsigned: o.allowUnsignedUpdates,
+      feedUrl: ctx.config.update.feedUrl, log: ctx.log.child({ c: 'update' }), allowUnsigned: o.allowUnsignedUpdates, rootDir: this.layout.rootDir,
     })
-    // the team disk (system/storage.ts): writes are refused near full where the resource limits apply
-    configureStorageGuard({ root: this.layout.teamRoot })
+    // the team disk (system/storage.ts): writes are refused near full where the resource limits apply; the grace state
+    // of a team over its plan's limit is kept in the settings table
+    configureStorageGuard({
+      root: this.layout.teamRoot, now: o.now ? () => this.now().getTime() : undefined,
+      store: { get: (k) => getSetting<string | null>(ctx.db, k) ?? null, set: (k, v) => setSetting(ctx.db, k, v) },
+    })
     this.storage = new StorageMonitor({
       db: ctx.db, teamRoot: this.layout.teamRoot, dataDir: this.layout.dataDir, appDir: this.layout.appDir, now: o.now ? () => this.now().getTime() : undefined,
-      audit: (detail) => audit(ctx.db, { actor: null, action: 'storage.warn', target: null, detail }),
+      audit: (detail, action = 'storage.warn') => audit(ctx.db, { actor: null, action, target: null, detail }),
       notify: (m) => {
         try {
           const admins = ctx.db.query("SELECT id, locale FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string; locale: Locale | null }[]
@@ -117,6 +123,33 @@ export class OpsService {
   /** This server applies app-only releases by itself (Linux self-host: server.json update.auto, never the hosted cloud). */
   get autoUpdates(): boolean { return !!this.ctx.config.update.auto && feature(this.ctx.config, 'selfUpdate') && this.updates.installed }
 
+  /** The team's update window and when it next opens, for the update status (Admin Home says when an automatic update
+   * will install). Only while automatic updates are on. */
+  updateWindowStatus(): { window: string; timeZone: string; nextWindow: { at: string; day: 'now' | 'today' | 'tomorrow' } | null } | null {
+    if (!this.autoUpdates) return null
+    const tz = teamTimeZone(this.ctx.db)
+    const a = updateWindowAnswer(getTeamSettings(this.ctx.db), tz)
+    const n = nextWindow(a.window, this.now(), tz)
+    return { window: a.window, timeZone: tz, nextWindow: n ? { at: n.at.toISOString(), day: n.day } : null }
+  }
+
+  /** What holds the available release back from installing by itself, from the very decision the automatic update makes
+   * (autoUpdateDecision), the window and running answers aside. null: nothing (or nothing to install). */
+  updateHold(): 'rollout' | 'failed' | 'root_failed' | null {
+    try {
+      const feed = this.updates.lastFeed()
+      if (!feed || !this.updates.installed) return null
+      const rootHold = this.rootUpdateFailure()?.version ?? null
+      if (rootHold && rootHold === feed.version) return 'root_failed'
+      let last: { version: string; at: string } | null = null
+      try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
+      const d = autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
+        window: null, running: 0, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(), rootHold, ignoreWindow: true,
+        channel: this.ctx.config.update.channel })
+      return d.go ? null : d.why === 'rollout' ? 'rollout' : d.why === 'held' ? 'failed' : null
+    } catch { return null }
+  }
+
   private autoFile() { return path.join(this.ctx.config.dataDir, 'update-auto.json') }
 
   /** One automatic-update check (hourly): the feed, the roll-out, the team's update window, no running answer; then the
@@ -130,7 +163,8 @@ export class OpsService {
       try { last = JSON.parse(fs.readFileSync(this.autoFile(), 'utf8')) } catch {}
       const s = getTeamSettings(this.ctx.db)
       return autoUpdateDecision({ feed, current: this.ctx.version, installId: installId(this.ctx.db), now: this.now(), tz: teamTimeZone(this.ctx.db),
-        window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last })
+        window: s.updateWindow, running: this.queue().running, history: this.updates.history(), lastAttempt: last, rootVersion: this.updates.rootVersion(),
+        rootHold: this.rootUpdateFailure()?.version ?? null, channel: this.ctx.config.update.channel })
     }
     const first = decide()
     if (!first.go) return first.why
@@ -163,6 +197,34 @@ export class OpsService {
     } finally { this.unlock() }
   }
 
+  /** When the feed's newer release reaches this server's automatic updates in its staged roll-out (system/rollout.ts),
+   * while it waits for that: an ISO time, or null when this feed's roll-out leaves the server out. undefined when nothing
+   * waits (no newer release, already this server's turn, no roll-out, the hosted cloud). Only shown (UpdateStatus
+   * turnAt); autoUpdateDecision and the root update timer decide, and "update now" does not wait. */
+  rolloutTurnAt(): string | null | undefined {
+    if (!feature(this.ctx.config, 'selfUpdate')) return undefined
+    const f = this.updates.lastFeed()
+    if (!f || compareVersions(f.version, this.ctx.version) <= 0) return undefined
+    const t = rolloutTurn(f, installId(this.ctx.db), { now: this.now(), channel: this.ctx.config.update.channel })
+    return t.wait ? t.at?.toISOString() ?? null : undefined
+  }
+
+  /** A Linux server (self-installed or a hosted tenant): the feed this server takes its Windows desktop app from
+   * (system/windows-app.ts), else null */
+  windowsAppFeed(): string | null {
+    if (!this.layout.appDir) return null
+    return windowsAppFeedOf(this.ctx.config, this.platform())
+  }
+
+  /** The Windows app of this server's release into data/downloads, for the desks' app (system/windows-app.ts); null
+   * where this server does not do that. */
+  async refreshWindowsApp(o: { force?: boolean } = {}): Promise<WindowsAppResult | null> {
+    const feed = this.windowsAppFeed()
+    if (!feed) return null
+    const log = this.ctx.log.child({ c: 'update' })
+    return refreshWindowsApp({ dataDir: this.ctx.config.dataDir, version: this.ctx.version, channel: this.ctx.config.update.channel, feed, force: o.force, log: (line) => log.info(line) })
+  }
+
   /** the prune that holds the lock now (seconds): lockAfterPrune waits for it */
   private pruning: Promise<PruneResult | null> | null = null
 
@@ -185,6 +247,45 @@ export class OpsService {
   async lockAfterPrune(name: string): Promise<boolean> {
     if (this.busy === 'prune' && this.pruning) await this.pruning.catch(() => null)
     return this.tryLock(name)
+  }
+
+  /** A Linux self-install's update switches (root/install.json, root 0644: autoUpdate, allowUnsigned) and whether the root
+   * update timer is enabled (systemd's link timers.target.wants/<id>-update.timer; null without systemd). null when
+   * there is no install.json (dev, the Mac). Only shown; the root tool decides (`mycel-ctl auto-update`, `allow-unsigned`). */
+  rootUpdateSettings(): { autoUpdate: boolean; allowUnsigned: boolean; timerEnabled: boolean | null } | null {
+    const L = this.layout
+    if (!L.rootDir) return null
+    let j: unknown
+    try { j = JSON.parse(fs.readFileSync(path.join(L.rootDir, 'install.json'), 'utf8')) } catch { return null }
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return null
+    const o = j as Record<string, unknown>
+    const id = typeof o.id === 'string' && /^[a-z][a-z0-9-]{0,30}$/.test(o.id) ? o.id : null
+    const timerEnabled = o.systemd === false || !id ? null : fs.existsSync(path.join(L.unitDir, 'timers.target.wants', `${id}-update.timer`))
+    return { autoUpdate: o.autoUpdate === true, allowUnsigned: o.allowUnsigned === true, timerEnabled }
+  }
+
+  /** The release whose update by root failed or was rolled back here (root/update-failed.json, root's file 0644,
+   * native/cmd/mycel-ctl/schedule.go; 0.2.19 review S1), its hold over or not: the root update timer tries it again
+   * itself, so the app's own updater leaves it (autoUpdateDecision rootHold). null when there is none. */
+  rootUpdateFailure(): { version: string; rolledBack: boolean; until: Date } | null {
+    const L = this.layout
+    if (!L.rootDir) return null
+    let j: unknown
+    try { j = JSON.parse(fs.readFileSync(path.join(L.rootDir, 'update-failed.json'), 'utf8')) } catch { return null }
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return null
+    const o = j as Record<string, unknown>
+    const until = typeof o.until === 'string' ? new Date(o.until) : null
+    if (typeof o.version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/.test(o.version) || !until || Number.isNaN(until.getTime())) return null
+    return { version: o.version, rolledBack: o.result === 'rolled_back', until }
+  }
+
+  /** rootUpdateFailure while its hold lasts (one that ends more than a week and an hour ahead does not count, like
+   * mycel-ctl: the clock went back a long way). Only shown; mycel-ctl decides. */
+  rootUpdateHold(): { version: string; rolledBack: boolean; until: Date } | null {
+    const h = this.rootUpdateFailure()
+    if (!h) return null
+    const left = h.until.getTime() - this.now().getTime()
+    return left > 0 && left <= 7 * 86_400_000 + 3600_000 ? h : null
   }
 
   /** role-account install: the engine runs as another account (launcher LaunchDaemon) */
@@ -448,7 +549,8 @@ export class OpsService {
     // backups
     const lastB = this.backups.latest()
     const err = this.backups.lastError()
-    if (err && (!lastB || err.at > lastB.createdAt)) add('backups', 'backups', t(M.backups), 'fail', t(M.backupFailed(err.message)))
+    // no room under the plan's limit is a state of the team: `fail` makes the control plane roll updates back
+    if (err && (!lastB || err.at > lastB.createdAt)) add('backups', 'backups', t(M.backups), err.reason === 'plan_space' ? 'warn' : 'fail', t(M.backupFailed(err.message)))
     else if (!lastB) add('backups', 'backups', t(M.backups), 'warn', t(M.backupNone))
     else {
       const h = Math.floor((this.now().getTime() - Date.parse(lastB.createdAt)) / 3600_000)
@@ -461,17 +563,46 @@ export class OpsService {
 
     // updates
     if (this.ctx.config.office) add('update', 'update', t(M.update), 'ok', t(M.updateOffice(this.ctx.version)))
-    else if (host === 'hosted') add('update', 'update', t(M.update), 'ok', t(ML.updateManaged(this.ctx.version)))
+    else if (host === 'hosted') {
+      add('update', 'update', t(M.update), 'ok', t(ML.updateManaged(this.ctx.version)))
+      const win = this.windowsAppFeed() ? windowsDiagnostic(this.ctx.config.dataDir, this.ctx.version, undefined, true) : null
+      if (win) add('windows_app', 'update', t(WINDOWS_TEXT.label), win.status, t(win.text))
+    }
     else if (!this.updates.installed) add('update', 'update', t(M.update), 'ok', t(M.updateDev))
     else {
       const h = this.updates.history().at(-1)
       if (h && h.result !== 'ok' && this.now().getTime() - Date.parse(h.at) < 7 * 86400_000) add('update', 'update', t(M.update), 'warn', t(M.updateRolledBack(h.to, h.detail ?? '')))
       else add('update', 'update', t(M.update), 'ok', t(M.updateOk(this.ctx.version)))
       const us = this.updates.status()
-      if (us.needsRoot && us.available) add('update_root', 'update', t(M.update), 'warn', t(ML.updateNeedsRoot(us.available.version)))
+      // a Linux self-install: whether it updates by itself, and whether it takes unsigned versions (root/install.json
+      // and the root update timer; update audit P3: both were invisible here)
+      const rs = this.platform() === 'linux' ? this.rootUpdateSettings() : null
+      const autoOn = !rs || (rs.autoUpdate && rs.timerEnabled !== false && !!this.ctx.config.update.auto)
+      if (rs) {
+        const s = getTeamSettings(this.ctx.db)
+        const w = s.updateWindow ?? DEFAULT_UPDATE_WINDOW
+        // a window that never opens, or is too short for the 15-minute checks: the app's own updates never run, and
+        // the root update timer uses 03:00-05:00 instead (native/cmd/mycel-ctl/schedule.go)
+        const [from, to] = w.split('-').map((x) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5))) as [number, number]
+        const long = (((to - from) % 1440) + 1440) % 1440 >= 30
+        add('auto_update', 'update', t(ML.autoUpdate), autoOn && long ? 'ok' : 'warn', t(!autoOn ? ML.autoUpdateOff : long ? ML.autoUpdateOn(w, teamTimeZone(this.ctx.db)) : ML.autoUpdateWindowShort(w)))
+        if (rs.allowUnsigned || process.env.MYCEL_ALLOW_UNSIGNED === '1') add('unsigned_updates', 'update', t(ML.unsignedUpdates), 'warn', t(ML.unsignedAllowed))
+      }
+      // a release that failed or was rolled back here: the update timer leaves it for a while (mycel-ctl), said instead
+      // of "the update timer installs it"
+      const held = rs && autoOn ? this.rootUpdateHold() : null
+      const heldNow = held && compareVersions(held.version, this.ctx.version) > 0 ? held : null
+      if (us.needsRoot && us.available && heldNow?.version !== us.available.version) add('update_root', 'update', t(M.update), 'warn', t(ML.updateNeedsRoot(us.available.version, autoOn)))
+      if (heldNow) {
+        const tz = teamTimeZone(this.ctx.db), p = zonedParts(heldNow.until, tz), z = (n: number) => String(n).padStart(2, '0')
+        add('update_held', 'update', t(M.update), 'warn', t(ML.updateHeld(heldNow.version, heldNow.rolledBack, `${p.y}-${z(p.m)}-${z(p.d)} ${z(p.h)}:${z(p.min)} (${tz})`)))
+      }
       const cur = this.updates.currentLinkTarget()
       const signed = !!cur && fs.existsSync(path.join(this.layout.appDir!, 'versions', cur, 'manifest.sig'))
       add('release_signature', 'update', t(M.releaseSig), signed ? 'ok' : 'warn', t(signed ? M.releaseSigned : M.releaseUnsigned))
+      // the Windows desktop app this server offers its desks (system/windows-app.ts): what its last run did
+      const win = this.windowsAppFeed() ? windowsDiagnostic(this.ctx.config.dataDir, this.ctx.version) : null
+      if (win) add('windows_app', 'update', t(WINDOWS_TEXT.label), win.status, t(win.text))
       // the version folders kept after the last clean-up (system/prune.ts); none recorded yet in the first minutes
       const pr = lastPrune(this.ctx.config.dataDir)
       if (pr && !pr.dryRun && pr.kept.length) {
@@ -483,7 +614,7 @@ export class OpsService {
     return {
       version: this.ctx.version,
       host: { os: `${process.platform} ${os.release()}`, arch: process.arch, hostname: os.hostname() },
-      disk: { teamFolderFreeBytes: Math.max(0, Math.floor(team.free)), dataFreeBytes: Math.max(0, Math.floor(data.free)) },
+      disk: { teamFolderFreeBytes: Math.max(0, Math.floor(cappedSnapshot()?.freeBytes ?? team.free)), dataFreeBytes: Math.max(0, Math.floor(data.free)) },
       queue: q,
       checks,
       generatedAt: this.now().toISOString(),
@@ -502,21 +633,35 @@ export class OpsService {
   private linuxStorage(add: (id: string, group: string, label: string, status: CheckStatus, detail: string | null) => void, t: (x: Parameters<typeof tr>[1]) => string,
     team: { free: number; total: number }, data: { free: number; total: number }) {
     const one = (id: string, d: { free: number; total: number }) => {
-      let s
-      try { s = snapshotOf(fs.statfsSync(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { s = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
+      let real
+      try { real = snapshotOf(fs.statfsSync(id === 'disk.team' ? this.layout.teamRoot : this.layout.dataDir)) } catch { real = { totalBytes: d.total, freeBytes: d.free, usedBytes: d.total - d.free, percent: d.total ? Math.round(((d.total - d.free) / d.total) * 1000) / 10 : 0 } }
+      // the team disk by the view the writes are judged by (the plan's bytes on a larger disk), or Admin shows ok while
+      // writes are refused
+      const s = id === 'disk.team' ? planView(real) : real
       const lvl = levelOf(s.percent)
       const pct = Math.round(s.percent)
-      const refused = id === 'disk.team' && storageRoom(0)?.ok === false
-      if (lvl === 'full' || refused) add(id, 'disk', t(ML.storage), 'fail', t(ML.storageFull(s.freeBytes, pct)))
-      else if (lvl === 'high') add(id, 'disk', t(ML.storage), 'warn', t(ML.storageHigh(s.freeBytes, pct)))
+      const state = id === 'disk.team' ? storageState() : null
+      // `fail` only for the real disk. The control plane rolls an update back on `fail`, and a team over its plan's limit
+      // is a normal state of the team that can last a long time.
+      const realFull = levelOf(real.percent) === 'full'
+      if (state?.writesRefused) {
+        const realRefused = realFull || real.freeBytes < reserveBytes(real.totalBytes)
+        add(id, 'disk', t(ML.storage), realRefused ? 'fail' : 'warn', t(realRefused ? ML.storageFull(s.freeBytes, pct) : ML.storageOverPlan(s.freeBytes, pct)))
+      }
+      // writes still work in the grace period, so the "refused" line of a full disk does not apply
+      else if (state?.graceEndsAt) add(id, 'disk', t(ML.storage), 'warn', t(ML.storageGrace(s.freeBytes, pct, timeIn(state.graceEndsAt, teamTimeZone(this.ctx.db)))))
+      else if (realFull) add(id, 'disk', t(ML.storage), 'fail', t(ML.storageFull(s.freeBytes, pct)))
+      else if (lvl === 'high' || lvl === 'full') add(id, 'disk', t(ML.storage), 'warn', t(ML.storageHigh(s.freeBytes, pct)))
       else add(id, 'disk', t(ML.storage), 'ok', t(ML.storageOk(s.freeBytes, pct)))
-      return s
+      return real
     }
-    const s = one('disk.team', team)
+    const real = one('disk.team', team)
     // the data folder is on the same disk in every Linux install; a separate one gets its own line
     if (data.total !== team.total || data.free !== team.free) one('disk.data', data)
     const plan = planDiskBytes()
-    if (plan && Math.abs(s.totalBytes - plan) / plan > 0.1) add('disk.plan', 'disk', t(ML.storage), 'warn', t(ML.storagePlanMismatch(s.totalBytes / 1024 ** 3, plan / 1024 ** 3)))
+    // a disk smaller than the plan means that a grow failed. A larger one is normal after a move to a smaller plan (a
+    // Proxmox disk cannot shrink), and the plan's bytes are enforced in software (system/storage.ts).
+    if (plan && (plan - real.totalBytes) / plan > 0.1) add('disk.plan', 'disk', t(ML.storage), 'warn', t(ML.storagePlanMismatch(real.totalBytes / 1024 ** 3, plan / 1024 ** 3)))
   }
 
   /** Linux install: nftables, the launcher (systemd) and its sandbox report, kernel isolation, cron/at. */
@@ -594,6 +739,7 @@ export class OpsService {
       logsDir: this.layout.logDir,
       connection: { mode: c.mode, state: c.state, address: c.address, detail: c.detail },
       queue: { running: d.queue.running, queued: d.queue.queued },
+      maintenance: this.busy ?? (this.backups.busy ? 'backup' : null),
       firewall: get('pf_anchor'),
       sandbox: get('sandbox'),
       lastBackupAt: this.backups.latest()?.createdAt ?? null,
@@ -650,7 +796,8 @@ export class OpsService {
       if (!this.shouldRunDailyBackup()) return
       this.backups.run({ kind: 'daily', scope: 'full' }).catch((e) => log.error('daily backup failed', { err: e }))
     }, 10 * 60_000))
-    // storage: what uses the space 5 minutes after start, then hourly; the 80% notice is checked every 10 minutes
+    // storage: what uses the space 5 minutes after start, then hourly; the 80% notice and the grace state of a team over
+    // its plan's limit are checked every 10 minutes
     const measure = () => this.storage.measure().catch((e) => log.warn('storage measurement failed', { err: e }))
     const firstMeasure = setTimeout(measure, 5 * 60_000)
     ;(firstMeasure as unknown as { unref?: () => void }).unref?.()
@@ -672,6 +819,23 @@ export class OpsService {
         this.timers.push(hourly)
       }, PRUNE_FIRST_MS)
       this.timers.push(firstPrune as unknown as ReturnType<typeof setInterval>)
+    }
+    // Linux server: the Windows desktop app of the release this server runs, for the desks' app (system/windows-app.ts):
+    // 15 minutes after start (an update restarts the server; the bootstrap has decided by then), then every 6 hours. A
+    // server whose automatic updates are off (update.auto false, --no-auto-update) asks the feed only after a start,
+    // that is after its owner updated it, and never on its own between starts; so does a hosted tenant (the control
+    // plane's `mycel-ctl update` restarts it; its health gate may still be open at the 15th minute, which is harmless:
+    // a failed gate restores the tenant's whole snapshot, the downloads folder with it).
+    if (this.windowsAppFeed()) {
+      const offer = () => { void this.refreshWindowsApp().catch((e) => log.warn('Windows app not offered', { err: e })) }
+      const firstOffer = setTimeout(() => {
+        offer()
+        if (!this.ctx.config.update.auto || isHosted(this.ctx.config)) return
+        const every = setInterval(offer, WINDOWS_EVERY_MS)
+        ;(every as unknown as { unref?: () => void }).unref?.()
+        this.timers.push(every)
+      }, WINDOWS_FIRST_MS)
+      this.timers.push(firstOffer as unknown as ReturnType<typeof setInterval>)
     }
     // retention: old audit / tool / turn / token / job rows (system/retention.ts), hourly
     this.timers.push(setInterval(() => {

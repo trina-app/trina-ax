@@ -11,7 +11,7 @@ import { openDb } from '../../server/src/db'
 import type { AppEnv } from '../../server/src/http/env'
 import { silentLogger } from '../../server/src/log'
 import { ROUTE_MODULES } from '../../server/src/routes'
-import { appCsp, frameCsp, safeFile, sandboxPolicy, SANDBOX_RECEIVER, serveWeb } from '../../server/src/routes/web-static'
+import { appCsp, frameCsp, safeFile, sandboxPolicy, SANDBOX_RECEIVER, serveWeb, SVG_ICON_CSP } from '../../server/src/routes/web-static'
 import { artifactCsp, SANDBOX_FRAME_URL } from '../../web/src/lib/artifacts'
 import { WORK } from '../lib/env'
 
@@ -41,6 +41,9 @@ beforeAll(async () => {
   write(path.join(DIST, 'vendor', 'chunk-a1b2c3.js'), 'export const x = 1')
   write(path.join(DIST, 'sw.js'), 'self.addEventListener("fetch", () => {})')
   write(path.join(DIST, 'manifest.webmanifest'), '{"name":"Team AX"}')
+  write(path.join(DIST, 'icons', 'connectors', 'acme.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><style>path{fill:#000}</style><path d="M0 0h1v1z"/></svg>')
+  write(path.join(DIST, 'icons', 'icon-512.png'), '\x89PNG\r\n\x1a\n')
+  write(path.join(DIST, 'assets', 'logo-abc123.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>')
   write(path.join(DIST, '.hidden'), 'secret')
   write(path.join(OUTSIDE, 'secret.txt'), 'top secret')
   fs.symlinkSync(path.join(OUTSIDE, 'secret.txt'), path.join(DIST, 'link.txt'))
@@ -114,6 +117,23 @@ describe('web app serving', () => {
     expect(sw.headers.get('service-worker-allowed')).toBe('/')
     expect(sw.headers.get('cache-control')).toBe('no-cache')
     expect((await get('/manifest.webmanifest')).headers.get('content-type')).toBe('application/manifest+json')
+  })
+  test('an SVG under /icons/ (the logos in Discover) runs nothing and loads nothing when opened on its own, however the address is spelled', async () => {
+    for (const p of ['/icons/connectors/acme.svg', '/icons/connectors/acme%2Esvg', '/icons%2Fconnectors/acme.svg', '/%69cons/connectors/acme.svg']) {
+      const r = await get(p)
+      expect({ p, status: r.status }).toEqual({ p, status: 200 })
+      expect(r.headers.get('content-type')).toContain('image/svg+xml')
+      expect(r.headers.get('content-security-policy')).toBe(SVG_ICON_CSP)
+      expect(r.headers.get('x-content-type-options')).toBe('nosniff')
+    }
+    expect(SVG_ICON_CSP).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox")
+    // the mock server of the browser tests serves the build through the same handler
+    const mock = serveWeb(new Request('http://x/icons/connectors/acme.svg'), { dist: DIST, dev: false, devPort: 0 })!
+    expect(mock.headers.get('content-security-policy')).toBe(SVG_ICON_CSP)
+    expect(mock.headers.get('x-content-type-options')).toBe('nosniff')
+    // other files under /icons/ and SVGs elsewhere keep their headers
+    expect((await get('/icons/icon-512.png')).headers.get('content-security-policy')).toBeNull()
+    expect((await get('/assets/logo-abc123.svg')).headers.get('content-security-policy')).toBeNull()
   })
   test('a missing asset is a 404, not the app shell', async () => {
     expect((await get('/assets/gone-123.js')).status).toBe(404)

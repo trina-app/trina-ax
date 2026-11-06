@@ -4,6 +4,7 @@
 // or the one picked on the team list screen, kept in <user data>/ui-locale.json; English before either. The
 // system language does not decide. The team page itself is translated by the web app.
 import { PRODUCT } from '@mycel/shared'
+import { fillPlurals } from '@mycel/shared/plural'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { DEFAULT_UI_LOCALE, type UiLocale } from './locales'
 
@@ -195,7 +196,7 @@ const en: Strings = {
   'pane.activity': 'Activity',
   'pane.activityNone': 'Nothing yet.',
   'pane.dismiss': 'Dismiss',
-  'pane.promptsMore': '{n} more questions waiting',
+  'pane.promptsMore': '{n, plural, one {# more question waiting} other {# more questions waiting}}',
   'perm.site.title': 'The AI wants to use {host}',
   'perm.site.body': 'The AI can read pages, click and type on this site.',
   'perm.private.title': 'The AI wants to open the office-network address {host}',
@@ -447,7 +448,7 @@ const ja: Strings = {
   'pane.activity': "操作履歴",
   'pane.activityNone': "履歴はまだありません。",
   'pane.dismiss': "通知を閉じる",
-  'pane.promptsMore': "さらに{n}件の質問が待機中です",
+  'pane.promptsMore': "さらに{n, plural, one {#件} other {#件}}の質問が待機中です",
   'perm.site.title': "AIが{host}を使用しようとしています",
   'perm.site.body': "AIはこのサイトでページの読み取り、クリック、入力ができます。",
   'perm.private.title': "AIが社内ネットワークのアドレス{host}を開こうとしています",
@@ -573,7 +574,7 @@ const es: Strings = {
   'pane.activity': "Actividad",
   'pane.activityNone': "Aún no hay actividad.",
   'pane.dismiss': "Descartar",
-  'pane.promptsMore': "Hay {n} preguntas más en espera",
+  'pane.promptsMore': "{n, plural, one {Hay # pregunta más en espera} other {Hay # preguntas más en espera}}",
   'perm.site.title': "La IA quiere usar {host}",
   'perm.site.body': "La IA puede leer páginas, hacer clic y escribir en este sitio.",
   'perm.private.title': "La IA quiere abrir la dirección de red interna {host}",
@@ -645,6 +646,7 @@ const es: Strings = {
 export const STRINGS: Record<UiLocale, Strings> = { ko, en, id, ja, es }
 
 export function t(locale: UiLocale, key: UiKey, params: Record<string, string> = {}): string {
-  const s = STRINGS[locale]?.[key] ?? STRINGS[DEFAULT_UI_LOCALE][key]
+  // a count first ("{n, plural, one {# more question} other {# more questions}}", shared/src/plural.ts), then the rest
+  const s = fillPlurals(STRINGS[locale]?.[key] ?? STRINGS[DEFAULT_UI_LOCALE][key], params, locale)
   return s.replace(/\{(\w+)\}/g, (m, k: string) => (k === 'app' ? PRODUCT.displayName : k === 'domain' ? SERVICE_HOSTS.teamDomain : (params[k] ?? m)))
 }

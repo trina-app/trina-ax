@@ -20,12 +20,19 @@ export const P4_SPECS: Record<string, Spec> = {
   subscribePush: { build: c => c.post('/api/push/subscriptions', { consent: true, endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic-matrix', keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } }), scope: 'self' },
   updatePushSettings: { build: c => c.patch('/api/push', { enabled: false }), scope: 'self' },
   unsubscribePush: { build: c => c.del('/api/push/subscriptions/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  registerPushDevice: { build: c => c.post('/api/push/devices', { consent: true, platform: 'ios', environment: 'production', token: 'ab'.repeat(32) }), scope: 'self' },
+  unregisterPushDevice: { build: c => c.del('/api/push/devices/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  // public by design (the app removes its device after a team switch, without the old team's session); 204 for anyone
+  removePushDevice: { build: c => c.post('/api/push/devices/00000000-0000-7000-8000-000000000000/remove', { key: 'A'.repeat(43) }), scope: 'byLevel' },
   myDriveConnection: { build: c => c.get('/api/integrations/google-drive?userId=alice'), scope: 'self' },
   authorizeDrive: { build: c => c.post('/api/integrations/google-drive/authorize', {}), scope: 'self' },
   driveFlow: { build: c => c.get('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
   completeDriveFlow: { build: c => c.post('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'self' },
   cancelDriveFlow: { build: c => c.del('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
   disconnectDrive: { build: c => c.del('/api/integrations/google-drive'), scope: 'self' },
+  // Admin › App connectors: setting up Google (admins only; this world has no public address, so a 409 after the check)
+  driveAdminStatus: { build: c => c.get('/api/admin/google-drive'), scope: 'byLevel' },
+  setDriveClient: { build: c => c.put('/api/admin/google-drive/client', { clientId: 'matrix-client', clientSecret: 'matrix-secret' }), scope: 'byLevel' },
 }
 // Callback state/session binding is exercised by c-drive-oauth and p4-route-access (static HTML never reflects input).
 export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH']

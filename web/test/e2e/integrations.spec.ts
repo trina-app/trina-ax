@@ -2,13 +2,18 @@
 // never shown again; editing shows only that one is saved, and a new address asks for it again), an MCP server with
 // sign-in in a new window, its tools with read-only marks, delete, personal connections switched off by the team, and a
 // team connection an admin gives to a group and a person that a member then sees read-only.
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const KEY = 'pm-secret-' + 'k'.repeat(24)
 const BOB = { username: 'bob', password: 'bob password 1' }
 const row = (page: Page, name: string) => page.getByTestId('integration-row').filter({ has: page.getByText(name, { exact: true }) })
+/** a row is one line: its address, key, tools and buttons open on a click */
+const openRow = async (r: Locator) => {
+  const toggle = r.getByTestId('integration-toggle')
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+}
 
 async function signInPage(page: Page) {
   await page.context().route('https://auth.example.test/**', (r) => r.fulfill({ contentType: 'text/html', body: '<title>Sign in</title><p>Synthetic sign-in page</p>' }))
@@ -19,11 +24,11 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/settings/integrations')
-  await expect(page.getByRole('heading', { name: '외부 서비스', level: 2 })).toBeVisible()
-  await expect(page.getByTestId('integrations-empty')).toContainText('아직 연결한 서비스가 없어요')
+  await expect(page.getByRole('heading', { name: 'MCP', level: 2 })).toBeVisible()
+  await expect(page.getByTestId('integrations-empty')).toContainText('아직 연결한 MCP가 없어요')
 
   await page.getByTestId('integration-add').click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '연결 추가' })).toBeVisible()
   await page.getByTestId('integration-kind-http').check()
   // sign-in (OAuth) is for MCP servers only
@@ -52,6 +57,8 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   const pm = row(page, 'AI PM')
   await expect(pm).toHaveAttribute('data-status', 'connected')
   await expect(pm).toContainText('연결됨')
+  await expect(pm.getByTestId('integration-meta')).toHaveCount(0)
+  await openRow(pm)
   await expect(pm.getByTestId('integration-meta')).toContainText('키 저장됨')
   // the key is never shown again, and no response carries it
   await expect(page.locator('body')).not.toContainText(KEY)
@@ -79,6 +86,8 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   // the service refused it: the row says why
   await expect(pm).toHaveAttribute('data-status', 'error')
   await expect(pm.getByTestId('integration-error')).toContainText('키를 거절했어요')
+  // ... without opening it
+  await expect(pm.getByTestId('integration-toggle')).toContainText('키를 거절했어요')
 
   // the server's own refusal shows at its field
   await page.getByTestId('integration-add').click()
@@ -123,6 +132,7 @@ test('an MCP server with sign-in: the service opens in a new window and the conn
   // the flow completes: the account shows. (The window went to another site: with this server's
   // Cross-Origin-Opener-Policy the page cannot close it any more; the service's return page says it can be closed.)
   await expect(notion).toHaveAttribute('data-status', 'connected')
+  await openRow(notion)
   await expect(notion.getByTestId('integration-meta')).toContainText('olga@example.test')
   await expect(notion.getByTestId('integration-signin')).toHaveCount(0)
   await expect(notion.getByTestId('integration-signin-start')).toHaveText('다시 로그인')
@@ -136,6 +146,7 @@ test('an MCP server with sign-in: the service opens in a new window and the conn
   await page.getByTestId('integration-save').click()
   const linear = row(page, 'Linear')
   await expect(linear).toHaveAttribute('data-status', 'connected')
+  await openRow(linear)
   const toggle = linear.getByTestId('integration-tools-toggle')
   await expect(toggle).toHaveText('도구 2개')
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -188,8 +199,10 @@ test('the team turns personal connections off: no adding, and the ones there are
   await page.goto('/settings/integrations')
   await expect(page.getByTestId('integrations-personal-off')).toContainText('팀에서 개인 연결을 꺼 두었어요')
   await expect(page.getByTestId('integration-add')).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: '둘러보기' })).toHaveCount(0)
   await expect(row(page, 'AI PM')).toBeVisible()
   // nothing to add, and the empty state says why
+  await openRow(row(page, 'AI PM'))
   await row(page, 'AI PM').getByTestId('integration-delete').click()
   await page.getByTestId('dialog-confirm').click()
   await expect(page.getByTestId('integrations-empty')).toContainText('팀에서 개인 연결을 꺼 두었어요')
@@ -202,10 +215,12 @@ test('an admin gives a team connection to a group and a person; a member sees it
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/admin/integrations')
-  await expect(page.getByRole('heading', { name: '외부 서비스' }).first()).toBeVisible()
-  await expect(page.getByText('아직 팀 연결이 없어요')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'MCP' }).first()).toBeVisible()
+  await expect(page.getByText('아직 팀 MCP 연결이 없어요')).toBeVisible()
+  // what the page is for, in one short line
+  await expect(page.getByTestId('team-integrations-note')).toHaveText('회사 계정과 템플릿, 그리고 각각 누가 쓸 수 있는지예요. 멤버 개인 연결은 보이지 않아요.')
   await page.getByTestId('integration-add').click()
-  const dialog = page.getByRole('dialog')
+  const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '팀 연결 추가' })).toBeVisible()
   const access = page.getByTestId('integration-access')
   await expect(access).toContainText('관리자도 여기에 들어 있어야')
@@ -240,8 +255,10 @@ test('an admin gives a team connection to a group and a person; a member sees it
   expect(body).toMatchObject({ kind: 'http', name: 'Company PM', auth: 'header', authHeader: 'X-API-Key', secret: KEY, writePolicy: 'deny', access: { everyone: false, users: ['bob'] } })
   expect(body.access.groups).toHaveLength(1)
   const pm = row(page, 'Company PM')
+  // the admin is in the finance group: nothing to warn about on the line
+  await expect(pm.getByTestId('integration-access-warning')).toHaveCount(0)
+  await openRow(pm)
   await expect(pm.getByTestId('integration-access-line')).toContainText('사용할 사람: 재무팀, Bob')
-  await expect(pm.getByTestId('integration-access-line')).not.toContainText('내 대화에서는 못 씀')
   await expect(pm).toContainText('쓰기 막기')
   await expect(page.locator('body')).not.toContainText(KEY)
 
@@ -261,26 +278,225 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await page.getByTestId('integration-save').click()
   await expect(pm.getByTestId('integration-access-line')).toContainText('사용할 사람: 재무팀, Bob')
 
-  // a second one only for the admin's colleague: the admin is told it is not in their chats
-  expect((await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Design MCP', url: 'https://mcp.design.example/mcp', auth: 'none', access: { everyone: false, groups: [], users: ['olga'] } } })).status()).toBe(201)
-  expect((await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Sales MCP', url: 'https://mcp.sales.example/mcp', auth: 'none', access: { everyone: false, groups: [], users: [] } } })).status()).toBe(201)
+  // one only for the admin, one for nobody yet, one only for Bob: the line says what needs the admin's attention
+  // before anything is opened
+  const teamConnection = (name: string, users: string[]) => page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name, url: `https://mcp.${name.split(' ')[0]!.toLowerCase()}.example/mcp`, auth: 'none', access: { everyone: false, groups: [], users } } })
+  expect((await teamConnection('Design MCP', ['olga'])).status()).toBe(201)
+  expect((await teamConnection('Sales MCP', [])).status()).toBe(201)
+  expect((await teamConnection('Bob MCP', ['bob'])).status()).toBe(201)
   await page.reload()
-  await expect(row(page, 'Sales MCP').getByTestId('integration-access-line')).toContainText('아직 아무도 못 씀')
-  await expect(row(page, 'Design MCP').getByTestId('integration-access-line')).not.toContainText('못 씀')
+  const warning = (name: string) => row(page, name).getByTestId('integration-access-warning')
+  await expect(warning('Sales MCP')).toHaveText('아직 아무도 못 씀')
+  await expect(warning('Bob MCP')).toHaveText('내 대화에서는 못 씀')
+  await expect(warning('Design MCP')).toHaveCount(0)
+  for (const name of ['Sales MCP', 'Bob MCP']) {
+    await expect(row(page, name).getByTestId('integration-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await expect(row(page, name).getByTestId('integration-details')).toHaveCount(0)
+  }
+  // opened, the details say who may use it, without the warning a second time
+  await openRow(row(page, 'Bob MCP'))
+  await expect(row(page, 'Bob MCP').getByTestId('integration-access-line')).toHaveText(/^사용할 사람: Bob/)
+  await expect(row(page, 'Bob MCP').getByText('내 대화에서는 못 씀')).toHaveCount(1)
 
-  // Bob sees the team connection read-only, and not the ones he was not given
+  // Bob sees the team connections he was given read-only, and not the others
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/settings/integrations')
   const team = page.getByTestId('integrations-team')
-  await expect(team.getByTestId('integration-row')).toHaveCount(1)
+  await expect(team.getByTestId('integration-row')).toHaveCount(2)
+  for (const name of ['Company PM', 'Bob MCP']) await expect(team.getByTestId('integration-row').filter({ has: page.getByText(name, { exact: true }) })).toHaveCount(1)
   const shared = row(page, 'Company PM')
   await expect(shared).toContainText('팀 연결')
+  await openRow(shared)
   await expect(shared).toContainText('쓰기 막기')
   for (const id of ['integration-refresh', 'integration-edit', 'integration-delete', 'integration-signin-start']) await expect(shared.getByTestId(id)).toHaveCount(0)
   // his own list is still empty and he may add one
   await expect(page.getByTestId('integrations-empty')).toBeVisible()
   await expect(page.getByTestId('integration-add')).toBeVisible()
+  // (a 404: Bob's file tree asks for the folder Olga had open, which he cannot see)
+  expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
+})
+
+test('single tools on and off: a switch each for whoever manages the connection; new tools are on; members see which are off', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  // a personal MCP connection (two tools at the first check)
+  expect((await page.request.post('/api/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.example/mcp', auth: 'none' } })).status()).toBe(201)
+  await page.goto('/settings/integrations')
+  const linear = row(page, 'Linear')
+  await openRow(linear)
+  await linear.getByTestId('integration-tools-toggle').click()
+  const create = linear.getByTestId('integration-tool').filter({ hasText: 'Create page' })
+  const sw = create.getByRole('checkbox', { name: 'AI가 Create page 쓰기' })
+  await expect(sw).toBeChecked()
+  await expect(linear).toContainText('끈 도구는 AI에게 보이지 않고 쓸 수도 없어요. 서비스에 나중에 새로 생긴 도구는 켜진 채로 추가돼요.')
+  const sent = page.waitForRequest((r) => /\/api\/integrations\/[^/]+\/tools$/.test(r.url()) && r.method() === 'POST')
+  await create.locator('label').click()
+  expect((await sent).postDataJSON()).toEqual({ name: 'create_page', enabled: false })
+  await expect(sw).not.toBeChecked()
+  await expect(create).toHaveAttribute('data-enabled', 'false')
+  await expect(linear.getByTestId('integration-tools-off')).toHaveText(' · 1개 꺼짐')
+  // the keyboard works too (a real checkbox): Space turns it back on, and off again
+  await sw.focus()
+  await page.keyboard.press('Space')
+  await expect(sw).toBeChecked()
+  await page.keyboard.press('Space')
+  await expect(sw).not.toBeChecked()
+  // checking again brings a new tool: it is on, the one turned off stays off
+  await linear.getByTestId('integration-refresh').click()
+  await expect(linear.getByTestId('integration-tool')).toHaveCount(3)
+  await expect(linear.getByTestId('integration-tool').filter({ hasText: 'get_page' })).toHaveAttribute('data-enabled', 'true')
+  await expect(create).toHaveAttribute('data-enabled', 'false')
+  await page.reload()
+  await openRow(row(page, 'Linear'))
+  await row(page, 'Linear').getByTestId('integration-tools-toggle').click()
+  await expect(row(page, 'Linear').getByTestId('integration-tool').filter({ hasText: 'Create page' }).getByRole('checkbox')).not.toBeChecked()
+
+  // a team connection: the admin's switches in Admin › External services; Bob, who uses it, sees "Off" and no switch
+  const made = await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Team wiki', url: 'https://mcp.wiki.example/mcp', auth: 'none', access: { everyone: true, groups: [], users: [] } } })
+  expect(made.status()).toBe(201)
+  await page.goto('/admin/integrations')
+  const wiki = row(page, 'Team wiki')
+  await openRow(wiki)
+  await wiki.getByTestId('integration-tools-toggle').click()
+  await wiki.getByTestId('integration-tool').filter({ hasText: 'Search pages' }).locator('label').click()
+  await expect(wiki.getByTestId('integration-tool').filter({ hasText: 'Search pages' })).toHaveAttribute('data-enabled', 'false')
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  await page.goto('/settings/integrations')
+  const seen = row(page, 'Team wiki')
+  await openRow(seen)
+  await seen.getByTestId('integration-tools-toggle').click()
+  await expect(seen.getByTestId('integration-tool-switch')).toHaveCount(0)
+  await expect(seen.getByTestId('integration-tool').filter({ hasText: 'Search pages' })).toContainText('꺼짐')
+  await expect(seen).toContainText('꺼진 도구는 AI가 쓰지 않아요. 켜고 끄는 것은 이 연결을 관리하는 사람이 해요.')
+  const refused = await page.request.post(`/api/integrations/${(await made.json()).id}/tools`, { headers: { [CSRF_HEADER]: '1' }, data: { name: 'search_pages', enabled: true } })
+  expect(refused.status()).toBe(403)
+  expect(realErrors(errors).filter((e) => !/status of 40[34]/.test(e))).toEqual([])
+})
+
+test('Discover: a listed service in two clicks, marked once added; anything else by its address', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signInPage(page)
+  await signIn(page)
+  await page.goto('/admin/integrations')
+  await page.getByRole('tab', { name: '둘러보기' }).click()
+  const cards = page.getByTestId('connector-card')
+  await expect(cards.first()).toContainText('Notion')
+  await expect(page.getByTestId('connector-count')).toHaveText(String(await cards.count()))
+  // a logo comes from this server: anything else would be stopped by the content security policy
+  const logo = cards.first().getByTestId('connector-logo')
+  await expect(logo).toHaveAttribute('src', '/icons/connectors/notion.svg')
+  await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+  // a logo file runs and loads nothing when opened on its own, and every logo still shows in the app
+  const file = await page.request.get('/icons/connectors/notion.svg')
+  expect(file.headers()['content-security-policy']).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox")
+  expect(file.headers()['x-content-type-options']).toBe('nosniff')
+  await expect.poll(() => page.getByTestId('connector-logo').evaluateAll((els) => els.filter((el) => !(el as HTMLImageElement).complete || !(el as HTMLImageElement).naturalWidth).map((el) => el.getAttribute('src')))).toEqual([])
+  // ... with its own styles: Calendly's colours are in a <style>, without them it would be black
+  const coloured = await cards.filter({ hasText: 'Calendly' }).getByTestId('connector-logo').evaluate(async (img: HTMLImageElement) => {
+    await img.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 64
+    const g = canvas.getContext('2d')!
+    g.drawImage(img, 0, 0, 64, 64)
+    const d = g.getImageData(0, 0, 64, 64).data
+    let blue = 0
+    for (let k = 0; k < d.length; k += 4) if (d[k + 3]! > 0 && d[k + 2]! > d[k]! + 60) blue++
+    return blue
+  })
+  expect(coloured).toBeGreaterThan(0)
+  // what a service does is searched too
+  const search = page.getByTestId('connector-search')
+  await search.fill('jira')
+  await expect(cards).toHaveCount(1)
+  await expect(cards).toContainText('Atlassian')
+  await search.fill('nothing like this')
+  await expect(page.getByText('"nothing like this"에 맞는 항목이 없어요.')).toBeVisible()
+  await search.fill('')
+
+  const notion = cards.filter({ hasText: 'Notion' })
+  await notion.getByRole('button', { name: 'Notion 추가' }).click()
+  const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
+  // in Admin it says it becomes a team connection
+  await expect(dialog.getByRole('heading', { name: 'Notion 팀 연결 추가' })).toBeVisible()
+  await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.notion.com/mcp')
+  // what the list answers is not asked; who may use it and what the AI may change still are
+  for (const id of ['integration-name', 'integration-url', 'integration-kind-http', 'integration-auth-oauth']) await expect(page.getByTestId(id)).toHaveCount(0)
+  await expect(page.getByTestId('integration-write-ask')).toBeChecked()
+  await expect(page.getByTestId('integration-access').getByRole('checkbox', { name: /Olga/ })).toBeChecked()
+  await expect(page.getByTestId('integration-save')).toHaveText('저장하고 로그인')
+  const sent = page.waitForRequest((r) => r.url().endsWith('/api/admin/integrations') && r.method() === 'POST')
+  const popup = page.waitForEvent('popup')
+  await page.getByTestId('integration-save').click()
+  expect((await sent).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', writePolicy: 'ask' })
+  await popup
+
+  // back on the list with it, which the search box also filters
+  await expect(page.getByRole('tab', { name: '연결됨' })).toHaveAttribute('aria-selected', 'true')
+  await expect(row(page, 'Notion')).toBeVisible()
+  await expect(row(page, 'Notion').getByTestId('connector-logo')).toBeVisible()
+  await search.fill('linear')
+  await expect(page.getByTestId('integration-row')).toHaveCount(0)
+  await expect(page.getByText('"linear"에 맞는 항목이 없어요.')).toBeVisible()
+  await search.fill('')
+
+  // it cannot be added twice
+  await page.getByRole('tab', { name: '둘러보기' }).click()
+  await expect(notion.getByTestId('connector-added')).toBeVisible()
+  await expect(notion.getByTestId('connector-add')).toHaveCount(0)
+
+  // found by what it does, which the list of connections does not search: the new row still shows, with its sign-in
+  await search.fill('jira')
+  await page.getByRole('button', { name: 'Atlassian 추가' }).click()
+  const second = page.waitForEvent('popup')
+  await page.getByTestId('integration-save').click()
+  await second
+  await expect(row(page, 'Atlassian')).toBeVisible()
+  await expect(search).toHaveValue('')
+  await expect(page.getByRole('tab', { name: '연결됨' })).toBeFocused()
+  await page.getByRole('tab', { name: '둘러보기' }).click()
+
+  // any other MCP server or API by its address
+  await page.getByTestId('connector-custom').click()
+  await expect(page.getByTestId('integration-url')).toHaveValue('')
+  await expect(page.getByTestId('integration-kind-mcp')).toBeChecked()
+  await expect(page.getByTestId('integration-kind-http')).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // a team connection the member may use is not their own account: they can still add that
+  expect((await page.request.post('/api/admin/integrations', { headers: { [CSRF_HEADER]: '1' }, data: { kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'none', access: { everyone: true, groups: [], users: [] } } })).status()).toBe(201)
+
+  // a member adds their own the same way, with no question about who may use it, and then has both
+  await page.context().clearCookies()
+  await signIn(page, BOB)
+  await page.goto('/settings/integrations')
+  await page.getByRole('tab', { name: '둘러보기' }).click()
+  await page.getByRole('button', { name: 'Linear 추가' }).click()
+  await expect(dialog.getByRole('heading', { name: 'Linear 추가' })).toBeVisible()
+  await expect(page.getByTestId('connector-summary')).toContainText('https://mcp.linear.app/mcp')
+  await expect(page.getByTestId('integration-access')).toHaveCount(0)
+  const own = page.waitForRequest((r) => r.url().endsWith('/api/integrations') && r.method() === 'POST')
+  const ownSignIn = page.waitForEvent('popup')
+  await page.getByTestId('integration-save').click()
+  expect((await own).postDataJSON()).toMatchObject({ kind: 'mcp', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', writePolicy: 'ask' })
+  await ownSignIn
+  await expect(page.getByRole('tab', { name: '연결됨' })).toHaveAttribute('aria-selected', 'true')
+  const mine = page.getByTestId('integrations-mine').getByTestId('integration-row')
+  const shared = page.getByTestId('integrations-team').getByTestId('integration-row')
+  await expect(mine).toHaveCount(1)
+  await expect(mine).toHaveAttribute('data-name', 'Linear')
+  await expect(mine).toHaveAttribute('data-scope', 'personal')
+  // signed in at the service with his own account
+  await expect(mine).toHaveAttribute('data-status', 'connected')
+  await expect(shared).toHaveCount(1)
+  await expect(shared).toHaveAttribute('data-name', 'Linear')
+  await expect(shared).toHaveAttribute('data-scope', 'team')
+  // the server keeps the two, at the same address
+  const listed = (await (await page.request.get('/api/integrations')).json()).items as { scope: string; url: string }[]
+  expect(listed.filter((i) => i.url === 'https://mcp.linear.app/mcp').map((i) => i.scope).sort()).toEqual(['personal', 'team'])
   // (a 404: Bob's file tree asks for the folder Olga had open, which he cannot see)
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
@@ -305,6 +521,7 @@ test('screenshots', async ({ page }) => {
     const suffix = scheme === 'dark' ? '-dark' : ''
     await page.setViewportSize({ width: 1360, height: 960 })
     await page.goto('/settings/integrations')
+    await openRow(row(page, 'Linear'))
     await row(page, 'Linear').getByTestId('integration-tools-toggle').click()
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/int-settings-list${suffix}.png`, fullPage: true })
@@ -316,6 +533,7 @@ test('screenshots', async ({ page }) => {
     await page.waitForTimeout(200)
     await page.screenshot({ path: `${dir}/int-add-dialog${suffix}.png` })
     await page.keyboard.press('Escape')
+    await openRow(row(page, 'AI PM'))
     await row(page, 'AI PM').getByTestId('integration-edit').click()
     await page.waitForTimeout(200)
     await page.screenshot({ path: `${dir}/int-edit-dialog${suffix}.png` })

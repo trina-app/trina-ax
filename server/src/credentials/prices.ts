@@ -4,7 +4,11 @@
 // Update every release: open the two official price pages, match the tables, change PRICES_AS_OF
 // (tests/unit/a-prices.test.ts warns when it is older than 90 days).
 //   https://platform.claude.com/docs/en/about-claude/pricing      https://developers.openai.com/api/docs/pricing
+// With an Anthropic-compatible gateway (engine.anthropicGateway) an Anthropic API key connection is priced from the
+// gateway's `prices` in server.json, or at what OpenRouter says it charged (usage.cost); a model without a price there
+// is priced at CLAUDE_MAX like any unknown model.
 import type { CredentialKind } from '@mycel/shared/api'
+import { isOpenRouter, type AnthropicGatewayConf } from '../app-config'
 
 export const PRICES_AS_OF = '2026-10-22'
 /** web search: USD per 1,000 searches (both providers) */
@@ -70,6 +74,8 @@ export interface ClaudeUsage {
   input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number
   cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number }
   server_tool_use?: { web_search_requests?: number }
+  /** OpenRouter: what it charged for the request, USD; is_byok = the provider bills the team's own key besides */
+  cost?: number; is_byok?: boolean
 }
 export interface OpenAiUsage {
   input_tokens?: number; output_tokens?: number
@@ -78,16 +84,36 @@ export interface OpenAiUsage {
   web_search_calls?: number
 }
 
-export function claudeCost(model: string, u: ClaudeUsage): number {
-  const n = (x: number | undefined) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0)
-  const cw1h = n(u.cache_creation?.ephemeral_1h_input_tokens)
+const num = (x: number | undefined) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0)
+/** a Claude usage's tokens by price column */
+function claudeTokens(u: ClaudeUsage) {
+  const cw1h = num(u.cache_creation?.ephemeral_1h_input_tokens)
   const split = u.cache_creation && (u.cache_creation.ephemeral_5m_input_tokens !== undefined || u.cache_creation.ephemeral_1h_input_tokens !== undefined)
-  const cw5 = split ? n(u.cache_creation?.ephemeral_5m_input_tokens) : n(u.cache_creation_input_tokens)
-  const cr = n(u.cache_read_input_tokens), i = n(u.input_tokens), o = n(u.output_tokens)
+  const cw5 = split ? num(u.cache_creation?.ephemeral_5m_input_tokens) : num(u.cache_creation_input_tokens)
+  return { i: num(u.input_tokens), cw5, cw1h, cr: num(u.cache_read_input_tokens), o: num(u.output_tokens) }
+}
+const claudeAt = (p: ClaudePrice, u: ClaudeUsage) => {
+  const t = claudeTokens(u)
+  return (t.i * p.in + t.cw5 * p.cw5 + t.cw1h * p.cw1h + t.cr * p.cr + t.o * p.out) / 1e6 + num(u.server_tool_use?.web_search_requests) * WEB_SEARCH_PER_1K / 1000
+}
+
+export function claudeCost(model: string, u: ClaudeUsage): number {
+  const t = claudeTokens(u)
   let p = claudePrice(model)
-  if (p === CLAUDE_PRICES['claude-haiku-5-5'] && i + cw5 + cw1h + cr > HAIKU_55_LIMIT) p = HAIKU_55_LONG
+  if (p === CLAUDE_PRICES['claude-haiku-5-5'] && t.i + t.cw5 + t.cw1h + t.cr > HAIKU_55_LIMIT) p = HAIKU_55_LONG
   if (!p) { unknown(model); p = CLAUDE_MAX }
-  return (i * p.in + cw5 * p.cw5 + cw1h * p.cw1h + cr * p.cr + o * p.out) / 1e6 + n(u.server_tool_use?.web_search_requests) * WEB_SEARCH_PER_1K / 1000
+  return claudeAt(p, u)
+}
+
+/** A request through the Anthropic-compatible gateway: OpenRouter's own figure when it gives one above 0 (not with
+ * the team's own provider key: then it is only OpenRouter's fee), else the server.json price of the model (cache reads
+ * and writes at the input price unless given), else CLAUDE_MAX (unknown, audited and logged once). */
+export function gatewayCost(g: Pick<AnthropicGatewayConf, 'baseUrl' | 'prices'>, model: string, u: ClaudeUsage): number {
+  if (isOpenRouter(g) && u.is_byok !== true && num(u.cost) > 0) return u.cost!
+  const p = g.prices?.[model]
+  if (!p) { unknown(model); return claudeAt(CLAUDE_MAX, u) }
+  const cw = p.cacheWrite ?? p.input
+  return claudeAt({ in: p.input, cw5: cw, cw1h: cw, cr: p.cacheRead ?? p.input, out: p.output }, u)
 }
 
 export function openaiCost(model: string, u: OpenAiUsage): number {
@@ -104,8 +130,10 @@ export function openaiCost(model: string, u: OpenAiUsage): number {
     + n(u.web_search_calls) * WEB_SEARCH_PER_1K / 1000
 }
 
-/** Cost of one request of a connection: list price for API keys, 0 for subscriptions. */
-export function costOf(kind: CredentialKind, model: string, usage: ClaudeUsage | OpenAiUsage): number {
+/** Cost of one request of a connection: list price for API keys (the gateway's when engine.anthropicGateway is set),
+ * 0 for subscriptions. */
+export function costOf(kind: CredentialKind, model: string, usage: ClaudeUsage | OpenAiUsage, gateway?: Pick<AnthropicGatewayConf, 'baseUrl' | 'prices'> | null): number {
+  if (kind === 'anthropic-api-key' && gateway) return gatewayCost(gateway, model, usage as ClaudeUsage)
   if (kind === 'anthropic-api-key') return claudeCost(model, usage as ClaudeUsage)
   if (kind === 'openai-api-key') return openaiCost(model, usage as OpenAiUsage)
   return 0

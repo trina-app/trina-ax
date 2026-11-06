@@ -61,7 +61,7 @@ describe('zip check (zip-guard.ts)', () => {
   test('a good xlsx passes and reads as before', async () => {
     const z = zip(xlsxParts([['이름', '금액'], ['a', 1234]]))
     expect(() => checkZip(z)).not.toThrow()
-    expect(await extractText('a.xlsx', z, tools)).toBe('# sheet: S1 (tab-separated)\n이름\t금액\na\t1234')
+    expect(await extractText('a.xlsx', z, tools)).toBe('# sheet: S1 · A1:B2 (tab-separated)\n이름\t금액\na\t1234')
   })
   test('one part that expands more than 100 times (and over 10 MB) is refused', async () => {
     const z = zip(withPart(xlsxParts([['x']]), SHEET, { data: sheetXml('A1', '', ' '.repeat(30 * MIB)) }))
@@ -101,9 +101,9 @@ describe('spreadsheets in the worker', () => {
     const t0 = Date.now()
     // three rows of the declared 16384 columns stay as they were (empty fields, the old output)
     const t = await extractText('dim.xlsx', near, tools)
-    expect(t).toMatch(/^# sheet: S1 \(tab-separated\)\nhello\t{16383}\n\t42\t{16382}$/)
+    expect(t).toMatch(/^# sheet: S1 · A1:XFD3 \(tab-separated\)\nhello\t{16383}\n# row 3\n\t42\t{16382}$/)
     // a million rows of them would be 17 billion empty fields: the columns are cut to the real ones
-    expect(await extractText('far.xlsx', far, tools)).toBe('# sheet: S1 (tab-separated)\ntop\nbottom')
+    expect(await extractText('far.xlsx', far, tools)).toBe('# sheet: S1 · A1:A1048576 (tab-separated)\ntop\n# row 1048576\nbottom')
     expect(Date.now() - t0).toBeLessThan(10_000)
   })
   test('an .ods that repeats a filled cell over a million rows and 16384 columns is refused within the limits', async () => {
@@ -124,6 +124,8 @@ describe('spreadsheets in the worker', () => {
   }, 90_000)
   test('normal workbooks (xlsx, xls, ods, xlsb): the same text as the old in-process code', async () => {
     const old = (b: Uint8Array) => { const wb = XLSX.read(b, { type: 'array', cellFormula: false, cellHTML: false }); return wb.SheetNames.map((s) => `# sheet: ${s} (tab-separated)\n` + XLSX.utils.sheet_to_csv(wb.Sheets[s]!, { FS: '\t', blankrows: false })).join('\n\n') }
+    // the same cells as before; 0.2.17 adds the sheet's range to its label and `# row N` where blank rows were left out
+    const cells = (t: string) => t.replace(/^(# sheet: .*?) · [A-Z]+\d+:[A-Z]+\d+ \(tab-separated\)$/gm, '$1 (tab-separated)').replace(/^# row \d+\n/gm, '')
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.aoa_to_sheet([['이름', '금액', '날짜'], ['a', 1234.5, new Date(2024, 0, 2)], [], ['b', '007', null, 'far']], { cellDates: true, origin: 'C3' } as XLSX.AOA2SheetOpts)
     ws['!ref'] = 'A1:Z200'
@@ -132,8 +134,8 @@ describe('spreadsheets in the worker', () => {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Array.from({ length: 200 }, (_, i) => ({ i, s: 'row ' + i, f: i / 7 }))), 'big')
     for (const [bookType, ext] of [['xlsx', 'xlsx'], ['biff8', 'xls'], ['ods', 'ods'], ['xlsb', 'xlsx']] as const) {
       const b = new Uint8Array(XLSX.write(wb, { type: 'buffer', bookType }))
-      expect(sheetText(b), bookType).toBe(old(b))
-      expect(await extractText(`a.${ext}`, b, tools), bookType).toBe(old(b))
+      expect(cells(sheetText(b)), bookType).toBe(old(b))
+      expect(cells(await extractText(`a.${ext}`, b, tools)), bookType).toBe(old(b))
     }
   })
   test('not a workbook: a clear error from the worker', async () => {

@@ -118,7 +118,7 @@ async function main() {
   else {
     // a reused kit gets this checkout's native programs (they change more often than the rest)
     const nb = path.join(REPO, 'native', 'bin', `linux-${ARCH}`), d1 = path.join(kit(1), 'app', V(1))
-    for (const f of ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl']) fs.copyFileSync(path.join(nb, f), path.join(d1, 'root', f))
+    for (const f of ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl', 'mycel-boxd']) fs.copyFileSync(path.join(nb, f), path.join(d1, 'root', f))
     for (const f of ['mycel-gate', 'mycel-bridge', 'mycel-safeops']) fs.copyFileSync(path.join(nb, f), path.join(d1, 'native', f))
     for (const f of fs.readdirSync(path.join(REPO, 'scripts', 'linux', 'systemd'))) fs.copyFileSync(path.join(REPO, 'scripts', 'linux', 'systemd', f), path.join(d1, 'root', 'systemd', f))
     for (const [src, dst] of [['account.sh', 'mycel-account'], ['set-claude-token.sh', 'set-claude-token'], ['safe-fs.sh', 'safe-fs.sh'], ['apparmor-bwrap.in', 'apparmor-bwrap.in']])
@@ -182,7 +182,7 @@ async function main() {
   ]
   const bad = tree.filter(([p, want]) => statOf(BASE + p) !== want).map(([p, want]) => `${p || '/'}: ${statOf(BASE + p)} (want ${want})`)
   check('folders: owners and modes (spec 3.1.1)', bad.length === 0, bad.join('; '))
-  const rootFiles = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl', 'mycel-account', 'set-claude-token'].map((f) => [f, statOf(`${BASE}/root/${f}`)])
+  const rootFiles = ['mycel-bootstrap', 'mycel-launcher', 'mycel-sandbox', 'mycel-ctl', 'mycel-boxd', 'mycel-account', 'set-claude-token'].map((f) => [f, statOf(`${BASE}/root/${f}`)])
   check('root programs: root:root 755', rootFiles.every(([, s]) => s === 'root:root 755'), JSON.stringify(rootFiles))
   // safe operations 1A run only root-owned programs (QA 2026-10-30 B1): root's own copies of the app's mycel-safeops and pandoc
   const copies = [['mycel-safeops', 'native/mycel-safeops'], ['pandoc', 'bin/pandoc']].map(([n, rel]) => [n, statOf(`${BASE}/root/safe-ops/${n}`),

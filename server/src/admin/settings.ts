@@ -30,7 +30,7 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   /** tool rounds per answer (Claude Code --max-turns; chat/runtime.ts maxEngineTurns) */
   answerStepLimit: DEFAULT_ANSWER_STEP_LIMIT,
   /** voice input is off until an admin picks OpenRouter (with a key) or this server (docs/DECISIONS.md "Voice input
-   * through OpenRouter") */
+   * through OpenRouter"); a hosted server with the hosting service's key starts on OpenRouter (getTeamSettings) */
   speechProvider: 'off',
   speechModel: DEFAULT_SPEECH_MODEL,
   /** not chosen: the default follows the speech provider (shared mediaTranscriptsDefault) */
@@ -38,6 +38,17 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
 }
 
 const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
+
+/** The hosting service's speech-to-text key (credentials/speech-key.ts, set only by the control plane through mycel-ctl
+ * hosted-speech-key-set). While it is here and no admin chose a speech provider, voice input defaults to OpenRouter. */
+export const HOSTED_SPEECH_KEY_SETTING = 'speech.hostedKey'
+/** this month's seconds of sound sent with that key (credentials/hosted-speech.ts) */
+export const HOSTED_SPEECH_USAGE_SETTING = 'speech.hostedUsage'
+/** The hosting service's trial AI credit (credentials/hosted-chat.ts, set only by the control plane through mycel-ctl
+ * hosted-chat-key-set): an OpenRouter key for the API engine, its dollar cap, end time and switch. */
+export const HOSTED_CHAT_KEY_SETTING = 'ai.hostedChatKey'
+/** the dollars spent with that key so far (credentials/hosted-chat.ts) */
+export const HOSTED_CHAT_USAGE_SETTING = 'ai.hostedChatUsage'
 
 export function getSetting<T>(db: Database, key: string): T | undefined {
   const row = db.query('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | null
@@ -62,6 +73,9 @@ export function getTeamSettings(db: Database): TeamSettingsT {
     // Equal endpoints keep updates closed and let the admin read, replace or clear the setting.
     else if (r.key === 'updateWindow') out[r.key] = '00:00-00:00'
   }
+  // a hosted team that has not chosen gets voice input through the hosting service's key (10 free hours a month); an
+  // admin's choice, "off" too, always wins
+  if (!rows.some((r) => r.key === 'speechProvider') && db.query('SELECT 1 FROM settings WHERE key = ?').get(HOSTED_SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'
   return out as TeamSettingsT
 }
 
@@ -140,11 +154,18 @@ export function teamTimeZone(db: Database): string {
  * use and kept in the settings table. Spreads the nightly backup, update roll-outs and the first search indexing of
  * the teams on one host (system/ops.ts, system/update-job.ts, tools/search.ts). */
 export function installId(db: Database, env: Record<string, string | undefined> = process.env): string {
-  const e = env.MYCEL_INSTALL_ID
-  if (e && /^[A-Za-z0-9._-]{1,128}$/.test(e)) return e
-  const v = getSetting<unknown>(db, 'system.installId')
-  if (typeof v === 'string' && v) return v
+  const have = existingInstallId(db, env)
+  if (have) return have
   const id = crypto.randomUUID()
   db.query("INSERT INTO settings (key, value) VALUES ('system.installId', ?) ON CONFLICT(key) DO NOTHING").run(JSON.stringify(id))
   return getSetting<string>(db, 'system.installId') ?? id
+}
+
+/** installId without making one (a read-only database: admin.js update-window for the root update timer's staged
+ * roll-out, system/rollout.ts); null when the install has none yet. */
+export function existingInstallId(db: Database, env: Record<string, string | undefined> = process.env): string | null {
+  const e = env.MYCEL_INSTALL_ID
+  if (e && /^[A-Za-z0-9._-]{1,128}$/.test(e)) return e
+  const v = getSetting<unknown>(db, 'system.installId')
+  return typeof v === 'string' && v ? v : null
 }

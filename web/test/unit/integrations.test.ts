@@ -2,9 +2,9 @@
 // bodies the contract accepts, sends only what changed, never sends a stored key anywhere new, and the sign-in address
 // from the server is opened only when it is https.
 import { describe, expect, test } from 'bun:test'
-import { ApiError, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
+import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  authorizationUrl, authOf, covers, dropsSecret, emptyForm, formFrom, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, urlProblem, validate, withKind,
+  authorizationUrl, authOf, covers, dropsSecret, emptyForm, formFrom, lastCheckNote, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
@@ -160,5 +160,36 @@ describe('what comes back from the server', () => {
     const { mine, team } = splitByScope(items)
     expect(mine.map((x) => x.id)).toEqual(['c', 'b'])
     expect(team.map((x) => x.id)).toEqual(['d', 'a'])
+  })
+})
+
+describe('the tool list in Settings', () => {
+  const tools = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `t${i}`, title: null, description: '', readOnly: false, enabled: true }))
+  test('every tool the service lists is there: "186 tools", no "N of M"; a short list says why', () => {
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(186) }))).toBeNull()
+    // a list an older server cut at 100: checking again saves the rest
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(100), toolsTotal: 150 }))).toBe('integrations.toolsStale')
+    // over the server's ceiling
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(INTEGRATION_TOOLS_MAX), toolsTotal: INTEGRATION_TOOLS_MAX + 200 }))).toBe('integrations.toolsCapped')
+    // over the 4,000,000 characters with fewer than 1,000 tools: checking again would not help
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(400), toolsTotal: 500 }))).toBe('integrations.toolsCapped')
+    // the server stopped reading the list with pages left: "1,000 of more than 1,000", never "check again"
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(INTEGRATION_TOOLS_MAX), toolsTotal: INTEGRATION_TOOLS_MAX, toolsTotalMore: true }))).toBe('integrations.toolsCappedMore')
+    expect(toolsShortfall(connection({ kind: 'mcp', tools: tools(40), toolsTotal: 40, toolsTotalMore: true }))).toBe('integrations.toolsCappedMore')
+    for (const d of Object.values(DICTS)) for (const k of ['integrations.toolsStale', 'integrations.toolsCapped', 'integrations.toolsCappedMore', 'integrations.tools', 'integrations.toolsOf', 'integrations.toolsOfMore'] as const) expect(d[k]).toBeTruthy()
+    expect(DICTS.ko['integrations.toolsStale']).toContain('다시 확인')
+  })
+})
+
+describe('a connection whose last check failed', () => {
+  test('connected with a reason: the check failed for now and the AI keeps the list saved before; an error or a sign-in says it in the row', () => {
+    const reason = 'The service did not answer within 30 seconds.'
+    expect(lastCheckNote(connection({ kind: 'mcp' }))).toBeNull()
+    expect(lastCheckNote(connection({ kind: 'mcp', status: 'connected', lastError: reason, toolsUpdatedAt: at }))).toEqual({ key: 'integrations.checkFailedKept', reason, date: at })
+    expect(lastCheckNote(connection({ kind: 'mcp', status: 'connected', lastError: reason }))).toEqual({ key: 'integrations.lastCheckFailed', reason, date: null })
+    expect(lastCheckNote(connection({ kind: 'mcp', status: 'error', lastError: reason, toolsUpdatedAt: at }))).toBeNull()
+    expect(lastCheckNote(connection({ kind: 'mcp', status: 'needs_auth', lastError: reason, toolsUpdatedAt: at }))).toBeNull()
+    for (const d of Object.values(DICTS)) for (const k of ['integrations.checkFailedKept', 'integrations.lastCheckFailed'] as const) expect(d[k]).toContain('{reason}')
+    for (const d of Object.values(DICTS)) expect(d['integrations.checkFailedKept']).toContain('{date}')
   })
 })

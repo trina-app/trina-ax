@@ -49,7 +49,8 @@ test('the message box answers the open question with the typed text; files attac
   await expect(page.getByTestId('composer-no-secrets')).toHaveCount(0)
   // the attached file was not part of the answer: it is still in the box for the next message
   await expect(page.getByTestId('attachment-chip')).toContainText('notes.txt')
-  await expect(input).toHaveAttribute('placeholder', '무엇이든 물어보세요')
+  // back to the usual hint of a chat that has started
+  await expect(input).toHaveAttribute('placeholder', '답장하기')
   expect(realErrors(errors)).toEqual([])
 })
 
@@ -95,7 +96,7 @@ test('a server safety check is never answered from the box: the message waits an
   const card = page.getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
   const input = page.getByTestId('composer-input')
-  await expect(input).toHaveAttribute('placeholder', '먼저 위에서 골라 주세요. 지금 입력한 메시지는 답이 끝나면 보내요')
+  await expect(input).toHaveAttribute('placeholder', '먼저 위에서 골라 주세요. 쓴 글은 답 뒤에 보내요')
   await expect(page.getByTestId('composer-answering')).toHaveCount(0)
   let answers = 0
   page.on('request', (r) => {
@@ -107,8 +108,7 @@ test('a server safety check is never answered from the box: the message waits an
   await expect(card).toBeVisible()
   expect(answers).toBe(0)
   // the card's own buttons decide; then the waiting message goes
-  await card.getByLabel('열지 않기').check()
-  await card.getByRole('button', { name: '답하기' }).click()
+  await card.getByRole('button', { name: '열지 않기', exact: true }).click()
   await expect(card).toHaveCount(0)
   await expect(page.getByTestId('user-text').last()).toHaveText('allow', { timeout: 20_000 })
   await expect(page.getByTestId('assistant-message').first()).toContainText('You chose "deny"')

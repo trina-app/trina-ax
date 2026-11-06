@@ -17,7 +17,11 @@ import { parseInput, walk } from '../policy/resolve'
 import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
+import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
+import { shownSegs } from './access-rows'
+import { rulesHash } from './access-edit'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
+import { syncRoomsNow } from '../rooms/service'
 
 export interface FolderRow { id: string; path: string; created_at: string }
 interface RuleRow { id: string; folder_id: string; subject_type: FolderRule['subjectType']; subject_id: string | null; access: Access; updated_by: string | null; updated_at: string }
@@ -146,20 +150,62 @@ export function rulesOf(db: Database, folderId: string): FolderRuleInput[] {
 
 export function toFolder(ctx: AppContext, f: FolderRow): Folder {
   const rows = ctx.db.query('SELECT id, folder_id, subject_type, subject_id, access, updated_by, updated_at FROM folder_rules WHERE folder_id = ? ORDER BY subject_type, subject_id').all(f.id) as RuleRow[]
-  let exists = false
-  try { exists = fs.lstatSync(path.join(ctx.files.fx.root, ...(f.path ? f.path.split('/') : []))).isDirectory() } catch {}
+  // a real folder at every step, as the tree lists them (a link anywhere on the way is not there): a row under a
+  // folder that became a link is listed with the folders not in the tree, not taken for one in it
+  let exists = true
+  let cur = ctx.files.fx.root
+  for (const seg of f.path ? f.path.split('/') : []) {
+    cur = path.join(cur, seg)
+    try { if (!fs.lstatSync(cur).isDirectory()) { exists = false; break } } catch { exists = false; break }
+  }
+  const groupId = groupOfFolder(ctx.db, f.id)
   return {
     id: f.id,
     path: f.path,
     exists,
     createdAt: f.created_at,
     rules: rows.map((r) => ({ id: r.id, folderId: r.folder_id, subjectType: r.subject_type, subjectId: r.subject_id, access: r.access, updatedBy: userRef(ctx.db, r.updated_by), updatedAt: r.updated_at })),
+    groupId,
+    keep: folderKeep(f.path, groupId, ctx.files.fx.caseInsensitive),
+    // the folder answers never show it (access-rows.ts): the tree lists such a row apart
+    hidden: shownSegs(f.path) === null,
+    // a save sends it back (expectedHash): another admin's change in between is refused, not undone unseen
+    rulesHash: rulesHash(rows.map((r) => ({ subjectType: r.subject_type, subjectId: r.subject_id, access: r.access }))),
   }
+}
+
+/** The hash of a folder's rules now, by path (no row or no rules: the hash of none), as `Folder.rulesHash` says it. */
+export function rulesHashAt(db: Database, p: string): string {
+  const f = getFolderByPath(db, p)
+  return rulesHash(f ? rulesOf(db, f.id) : [])
+}
+
+/** Why the admin API keeps this row (folder-keep.ts): 'team' for shared/ and skills/ (in any case on a case-insensitive
+ * volume, exactly elsewhere), 'group' for a group's folder, null when it may go. */
+export function keepOfRow(ctx: AppContext, f: FolderRow): FolderKeep | null {
+  return folderKeep(f.path, groupOfFolder(ctx.db, f.id), ctx.files.fx.caseInsensitive)
+}
+
+/**
+ * The actual-name path an admin-typed path stands for, as resolveFolderPath would store it, without creating anything
+ * (a missing tail stays as typed). null: not a valid path (resolveFolderPath then says why).
+ */
+export function actualFolderPath(ctx: AppContext, rel: string): string | null {
+  try {
+    const w = walk(ctx.files.fx.root, parseInput(rel), ctx.files.fx.caseInsensitive)
+    return [...w.actual, ...w.missing].join('/')
+  } catch {
+    return null
+  }
+}
+
+export function groupOfFolder(db: Database, folderId: string): string | null {
+  return (db.query('SELECT id FROM groups WHERE folder_id = ? ORDER BY id LIMIT 1').get(folderId) as { id: string } | null)?.id ?? null
 }
 
 /** Folders that carry rules (and folders rows without rules, e.g. after all rules were removed by a group delete). */
 export function listFolders(ctx: AppContext): Folder[] {
-  return (ctx.db.query('SELECT id, path, created_at FROM folders ORDER BY path').all() as FolderRow[]).map((f) => toFolder(ctx, f))
+  return (ctx.db.query('SELECT id, path, created_at FROM folders ORDER BY path').all() as FolderRow[]).filter((f) => !isParkedRow(f.path)).map((f) => toFolder(ctx, f))
 }
 
 // ---------------- effective access: snapshots, diffs, preview ----------------
@@ -260,6 +306,8 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out } })
+  // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)
+  syncRoomsNow(ctx)
   return out
 }
 

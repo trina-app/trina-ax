@@ -13,6 +13,7 @@ import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
 import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath } from './folders'
+import { notifyTemplateOffers } from '../notifications/service'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -56,8 +57,23 @@ function folderNameFor(ctx: AppContext, name: string, id: string): string {
 }
 
 export function createGroup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof GroupBody>): Group {
-  const auth = c.get('auth')!
-  const locale = c.get('locale')
+  return createGroupAs(ctx, c.get('auth')!.user.id, b, c.get('locale'))
+}
+
+/** The id of the group named `name` (any case), or null. */
+export function groupIdByName(ctx: AppContext, name: string): string | null {
+  return (ctx.db.query('SELECT id FROM groups WHERE lower(name) = lower(?)').get(name) as { id: string } | null)?.id ?? null
+}
+
+/** The folder of a group (its folders row's path), or null when it has none. */
+export function groupFolder(ctx: AppContext, id: string): string | null {
+  return (ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(id) as { path: string } | null)?.path ?? null
+}
+
+/** Make a group as `actorId` (Admin › Groups, and the welcome steps' team group): the group, its folder groups/<name>/
+ * with its folders row and the rule "this group writes", audited as group.create. */
+export function createGroupAs(ctx: AppContext, actorId: string, b: { name: string; description?: string | null; memberIds: readonly string[] }, locale: Locale): Group {
+  const auth = { user: { id: actorId } }
   if (nameTaken(ctx, b.name)) fail('conflict', msg('groupNameTaken', locale), { fields: { 'body.name': 'taken' } })
   const memberIds = checkMembers(ctx, b.memberIds, locale)
   const id = newId()
@@ -74,6 +90,8 @@ export function createGroup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Gr
     audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds } })
   })()
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  // templates for this group reach its members now (security review 2, #1)
+  notifyTemplateOffers(ctx)
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
@@ -95,7 +113,7 @@ export function updateGroup(c: Context<AppEnv>, ctx: AppContext, id: string, b: 
     }
     audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds } })
   })()
-  if (memberIds) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  if (memberIds) { afterAccessChange(ctx, before, { actor: auth.user.id, target: id }); notifyTemplateOffers(ctx) }
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
@@ -109,6 +127,9 @@ export function deleteGroup(c: Context<AppEnv>, ctx: AppContext, id: string): vo
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query('DELETE FROM groups WHERE id = ?').run(id)
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    // team connections' and templates' rules: a group nobody can see any more would block every later change of them
+    ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name } })
   })()
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })

@@ -83,7 +83,7 @@ Allow 30–60 minutes for the tools on a fresh Mac.
 Check: `bun --version` prints `1.3.12`, `node --version` prints v24 or later, `claude --version` prints
 `2.1.305 (Claude Code)`.
 
-Claude Code updates itself. Once it has moved past the pin, Admin → AI engines shows "Unsupported version"
+Claude Code updates itself. Once it has moved past the pin, Admin → AI providers shows "Unsupported version"
 (`version_unsupported`); dev chats still work. Reinstall the pin with `curl -fsSL https://claude.ai/install.sh | bash -s 2.1.305`
 before a production install, because the installer copies whatever version it is given and does not warn.
 
@@ -133,11 +133,11 @@ The setup link sits inside that JSON log line, before the closing `)`. Debug lin
 ### 1.4 Create the team
 
 **Your own team.** Open the `http://127.0.0.1:19100/setup?token=…` link from the log. The setup token field is
-hidden when the token is in the URL. "Create your team" asks for:
-- Team name.
-- **Team language**: English, 한국어, Bahasa Indonesia, 日本語 or Español. The initial suggestion can follow the browser; confirm the intended team default. Picking one also switches the screen.
-- The owner's name, username (letters, digits and `. _ @ -`, 2–64 characters), password (at least 8
-  characters) and **Confirm password**.
+hidden when the token is in the URL. "Create your team" has two groups:
+- **Team**: the team name and the **Team language** (English, 한국어, Bahasa Indonesia, 日本語 or Español). The
+  initial suggestion can follow the browser; confirm the intended team default. Picking one also switches the screen.
+- **Your account · Owner**: your name, username (letters, digits and `. _ @ -`, 2–64 characters) and password (at
+  least 8 characters). There is one password field; **Show password** shows what you typed.
 
 Click **Create team and start**. `127.0.0.1` and `localhost` are separate cookie origins, so keep using
 `http://127.0.0.1:19100` (the setup link's origin); `localhost:19100` asks you to sign in again.
@@ -208,7 +208,7 @@ The owner's steps, in order:
 | 2.2 Bundle | `bun run build:bundle` | `dist/release/root/` has `set-claude-token` and `mycel-account` |
 | 2.3 Check, then install | `scripts/install-macos.sh --check …`, then the same with `sudo` and without `--check` | `install: installed mycel 0.1.0 …`; `curl -s http://127.0.0.1:47820/api/health` |
 | 2.6 First owner | `open "http://127.0.0.1:47820/setup?token=$(sudo cat …/setup/code)"` or `root/mycel-account create-owner` | sign in at `http://127.0.0.1:47820` |
-| 2.3a AI connections | Admin → AI connections (`/admin/credentials`) in the browser | the connection shows "OK" |
+| 2.3a AI connections | Admin → AI providers (`/admin/providers`) in the browser, Add account in the engine's row | the connection shows "OK" |
 | 2.4 Claude token (optional; 2.3a is the usual way) | `claude setup-token`, then `pbpaste \| tr -d '[:space:]' \| sudo …/root/set-claude-token`, `pbcopy < /dev/null` | `set-claude-token: stored for _axserver …`; `sudo ls -l …/secrets/claude-oauth-token` |
 | 2.5 Codex login (older setup; 2.3a is the usual way) | `cd / && sudo -u _axserver … admin.js codex-login` | `Codex is signed in for the engine account.` |
 | 2.7 Verify | Admin → System → Diagnostics, then a chat | Claude Code "Signed in (setup-token)", model proxy "Listening on 127.0.0.1:47821", Claude answers |
@@ -374,12 +374,12 @@ settings, so a `bunfig.toml` or `.env` in the folder it was started from is neve
 
 ### 2.3a AI connections (owner, from the web)
 
-The engines answer with the team's **AI connections**: Admin > AI connections (`/admin/credentials`). The owner adds
+The engines answer with the team's **AI connections**: Admin > AI providers (`/admin/providers`). The owner adds
 them in the browser; nothing on the server's command line is needed.
 
 - **Claude API key** / **OpenAI API key** (pay as you go, made for team use): paste a key made for this team in the
   provider's console (set a monthly limit there too). Checked with `GET /models` (no tokens spent).
-- **Claude subscription (Pro, Max, Team)**: on any computer run `claude setup-token`, paste the `sk-ant-oat01-…` token.
+- **Claude subscription (Pro, Max, Team)**: "Connect Claude subscription" shows Claude's approval link; approve with the account and paste the code Claude shows. The server's own Claude Code makes the token (`claude setup-token` as the engine account, in the sandbox). Or, folded under "Make it in a terminal instead": on any computer run `claude setup-token` and paste the `sk-ant-oat01-…` token.
   Trina estimates expiry from the stored issue time and warns 14 days before; actual validity depends on the provider. Checked without spending tokens where the provider allows it.
 - **ChatGPT plan (Codex)**: "Start sign-in" shows an address and a one-time code; sign in with an account authorized for the intended use. The server keeps the sign-in and refreshes it itself.
 - Confirm that the account and plan authorize the intended use. The screen requires connection-level acknowledgment; it does not grant provider permission.
@@ -387,8 +387,8 @@ them in the browser; nothing on the server's command line is needed.
   the UI/API does not return the stored secret. This does not protect against the server administrator. The page must be opened over https (or on this Mac at `http://127.0.0.1`).
 - One connection serves the whole team. Connections can be assigned to groups or people, ordered, given a monthly
   limit, switched off. When one hits its limit or is refused, the answer continues on the next one of the same engine.
-- Members can add their own connections (Settings > AI connections) by default; the owner can disable them.
-  Eligible personal connections take priority. Fresh Trina teams allow shared subscriptions by default; existing saved choices persist. Connection-level consent still applies. This software setting is not permission under provider terms; use only authorized accounts and plans.
+- Members can add their own connections (Settings > AI providers) by default; the owner can disable them.
+  Eligible personal connections take priority. On fresh Trina teams, one company connection can serve the whole team by default; existing saved choices persist. Connection-level consent still applies. This software setting is not permission under provider terms; use only authorized accounts and plans.
 
 server.json (`engine`), for operators:
 
@@ -396,7 +396,8 @@ server.json (`engine`), for operators:
 |---|---|
 | `authMode` | `"managed"` (AI connections behind the model proxy). `"subscription"` and `"proxy"` are read as `"managed"`; this release's installer still writes `"subscription"` so a rollback starts. `"local-login"`: dev / office with the Mac's own login. |
 | `credentialKinds` | the kinds this server allows, default all four: `["anthropic-oauth","anthropic-api-key","chatgpt","openai-api-key"]`. The hosted cloud's enrollment may write `["anthropic-api-key","openai-api-key"]`: subscription kinds then cannot be added and existing ones show as "off on this server" (never deleted). |
-| `modelUpstreams` | tests only: `{ "anthropic", "openai", "chatgpt", "openaiAuth" }` addresses (https, or http to 127.0.0.1). `modelUpstream` is the older name of `anthropic`. |
+| `modelUpstreams` | tests only: `{ "anthropic", "openai", "chatgpt", "openaiAuth", "openrouter" }` addresses (https, or http to 127.0.0.1). `modelUpstream` is the older name of `anthropic`; `openrouter` is where a hosted trial credit's answers go (default `https://openrouter.ai/api/v1`). |
+| `anthropicGateway` | Claude Code on another company's models through an Anthropic-compatible address (OpenRouter, DeepSeek, Kimi, GLM): `{ "baseUrl", "models": { "default", "opus"?, "sonnet"?, "haiku"? }, "label"?, "prices"? }`. Only those model ids are forwarded; Claude subscription connections (and Claude API keys added for Anthropic) are off while it is set. Not with `modelUpstreams.anthropic`. [Configuration](CONFIGURATION.md#anthropic-compatible-gateway). |
 
 Rotating the key of the stored secrets: `admin.js credentials-rekey` (same `sudo -u _axserver … admin.js` form as
 2.5). The key files are left out of backups: on another machine the connections must be connected again.
@@ -425,7 +426,7 @@ otherwise be stored half, reported as stored for a year, and refused on the firs
 - No restart: legacy connection import checks the file periodically (up to five minutes); it does not reread it for every model request.
 - Diagnostics then show Claude Code as "Signed in (setup-token)". They also say when the token is older than a year
   (expired), expires within 14 days, or was refused by Claude (revoked or pasted wrong; admins also get a notice).
-- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → AI connections.
+- Replace the token before its displayed expiry or if the provider revokes it. `--remove` removes the legacy token file; also review any imported connection in Admin → AI providers.
 
 ### 2.5 Codex login for the engine account (older setup)
 
@@ -501,8 +502,8 @@ owner's other sessions are signed out. The tool runs the bundled account CLI as 
 
 | Where | What it shows |
 |---|---|
-| Admin → AI engines | Claude Code and Codex: "AI connections" with how many can be used now; "No AI connection. Add one in Admin > AI connections." until one is added (2.3a) or imported (2.4, 2.5). |
-| Admin → AI connections | Each connection with its state (OK, limit reached, needs reconnect, …), this month's use and cost. |
+| Admin → AI providers | Claude Code and Codex: "AI connections" with how many can be used now; "No AI connection. Add one in Admin > AI connections." until one is added (2.3a) or imported (2.4, 2.5). |
+| Admin → AI providers, under each engine | Each connection with its state (OK, limit reached, needs reconnect, …), this month's use and cost. |
 | Admin → System → Diagnostics | Claude Code: "Signed in (setup-token)" once the token is stored, or why not (missing, expired, refused). Model proxy: listening on 127.0.0.1:47821. Codex: a warning until 2.5 (the launcher reports the engine account's login), then "Signed in". pf, sandbox, launcher, cron.deny and Time Machine: real checks. Release signature: a warning (unsigned). |
 | A chat | Without an AI connection for that engine: "There is no AI connection for this engine. Let your admin know." With one: the engine answers. |
 
@@ -775,9 +776,9 @@ queue, pf, sandbox, launcher, cron.deny, Time Machine, backups, update and relea
 | `cannot start: socket path too long` (dev) or Diagnostics "AI engine socket paths" fails | The data folder path is too long; use the default `~/.team-ax-dev` |
 | "The AI engine is not available right now…" | Dev: no `native/bin/<platform>`; install Go and run `bun run build:native` (Intel: `ARCHS=amd64`). Production: Diagnostics shows why (launcher, engine file); an engine "Not installed" needs the installer again with `--engine claude=…` |
 | "The AI connection (model proxy) is not ready" | Production: see "Model proxy" in Diagnostics; the server retries binding every 10 s |
-| Engine "not logged in" (dev) | Run `claude` or `codex login` as the same macOS user, then refresh in Admin → AI engines |
+| Engine "not logged in" (dev) | Run `claude` or `codex login` as the same macOS user, then refresh in Admin → AI providers |
 | "relay skipped: it needs Node 24+" | Install Node 24+ (26 recommended); the direct address still works |
-| Admin → AI engines: "Unsupported version" | Claude Code is not 2.1.305 (it updated itself). Dev chats still work; for production reinstall the pin (1.1) and run the installer again with `--engine claude=…` |
+| Admin → AI providers: "Unsupported version" | Claude Code is not 2.1.305 (it updated itself). Dev chats still work; for production reinstall the pin (1.1) and run the installer again with `--engine claude=…` |
 | An `admin.js` command ends with `error: An unknown error occurred (Unexpected)` | It was started from a folder `_axserver` cannot enter; start it with `cd / &&` (2.5) |
 | Diagnostics say to run "Repair firewall" / "Reinstall" in the menubar app | Those menubar actions do not exist yet; run the installer again (2.7) |
 | Port in use | `lsof -nP -iTCP:<port> -sTCP:LISTEN`. Dev: 19100, 19161, 19140 (with `--vite`). Production: 47820, 8443, 47821 |

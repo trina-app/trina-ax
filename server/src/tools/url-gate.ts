@@ -7,8 +7,11 @@
 //     search results of this chat (this turn's and the saved steps of earlier answers) and links of an earlier
 //     web_fetch result of this chat. Learned links are within a budget: which link the AI picks can carry data out
 //     (about 9 bits a pick), and a search result can bring in an attacker's page without any card, so at most
-//     LINK_BUDGET.turn new ones per answer and LINK_BUDGET.chat per chat open without asking (docs/DECISIONS.md
-//     "Outbound web channels"); then each new one needs the person;
+//     LINK_BUDGET.turn new ones per answer and LINK_BUDGET.chat per chat open without asking (LINK_BUDGET.unattended
+//     in a run nobody watches; docs/DECISIONS.md "Outbound web channels", "Web links: a bigger budget"); then each
+//     new one needs the person. A learned link that carried what the AI had sent to a tool of this chat before it
+//     came (an echo, tools/connection-urls.ts: a page or a search that repeated the AI's address or data) always
+//     needs the person, whatever is left of the budget;
 //   ①b addresses on a site the person allowed for this conversation on an address card ("allow this site in this
 //     conversation", chat_allowed_sites): the same registrable domain (eTLD+1, Public Suffix List with its private
 //     section: news.example.co.kr and example.co.kr are one site, alice.github.io and bob.github.io are two), in this
@@ -18,6 +21,10 @@
 //     one with a user name or password, never in a confidential chat. Like Claude Code's "don't ask again for this
 //     domain", but for one conversation;
 //   ② any other URL: a confirmation card with the full URL, raised by the server inside the tool call;
+//   ①c save_url only (`connection`): addresses that came back in this chat from an external-service connection the
+//     person can use now (tools/connection-urls.ts), learned links within the same budget, unless the AI had sent the
+//     address or a random-looking part of it to a tool of this chat before it came back (an echo: always a card, as
+//     for the learned links of ①);
 //   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
 //   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts).
 // The caller looks nothing up in DNS before this says yes (tools/index.ts web_fetch, chat/tools.ts browser tools): a
@@ -30,17 +37,31 @@ import { getDomain } from 'tldts'
 import type { ConfirmDetail, Locale } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
 import { isConfidentialChat } from '../safe-ops/confidential'
+import { usable } from '../integrations/connections/store'
+import type { EchoCheck } from './connection-urls'
+import type { ResolveOptions } from './web-fetch'
 
 /** ③: a query string this long always needs a person, wherever the URL came from */
 export const MAX_UNCONFIRMED_QUERY = 200
 /** links of one fetched page remembered for later turns of the chat */
 export const MAX_SEEN_PER_FETCH = 500
 
-/** Learned links (search results, links of fetched pages) the AI may open without a card: per answer, per chat.
- * Operators can change them with MYCEL_WEB_LINK_BUDGET="<per answer>,<per chat>" (e.g. "8,30"); 0 asks for every one. */
-export function linkBudgetFrom(v: string | undefined): { turn: number; chat: number } {
-  const m = /^\s*(\d{1,4})\s*,\s*(\d{1,4})\s*$/.exec(v ?? '')
-  return m ? { turn: Number(m[1]), chat: Number(m[2]) } : { turn: 8, chat: 30 }
+/** Learned links (search results, links of fetched pages, addresses from connections for save_url) the AI may open
+ * without a card: `turn` per answer and `chat` per chat; `unattended` per answer where nobody can be asked (a
+ * scheduled run, a call outside a turn), which stays what every answer had before 2026-11-01 (8 / 30): nobody sees
+ * those steps as they happen. The echo check (tools/connection-urls.ts) is what lets a watched answer have more: a
+ * learned link that carries what the AI sent always asks, so the budget only bounds which links the AI picks
+ * (docs/DECISIONS.md "Web links: a bigger budget"). The one place these numbers are set. */
+export const DEFAULT_LINK_BUDGET = { turn: 30, chat: 150, unattended: 8 } as const
+export interface LinkBudget { turn: number; chat: number; unattended: number }
+/** Operators can change them with MYCEL_WEB_LINK_BUDGET="<per answer>,<per chat>[,<per unattended run>]" (e.g.
+ * "30,150,8"); 0 asks for every one. Without the third number a run nobody watches gets the smaller of 8 and the
+ * per-answer number. */
+export function linkBudgetFrom(v: string | undefined): LinkBudget {
+  const m = /^\s*(\d{1,4})\s*,\s*(\d{1,4})\s*(?:,\s*(\d{1,4})\s*)?$/.exec(v ?? '')
+  if (!m) return { ...DEFAULT_LINK_BUDGET }
+  const turn = Number(m[1])
+  return { turn, chat: Number(m[2]), unattended: m[3] !== undefined ? Number(m[3]) : Math.min(DEFAULT_LINK_BUDGET.unattended, turn) }
 }
 export const LINK_BUDGET = linkBudgetFrom(process.env.MYCEL_WEB_LINK_BUDGET)
 
@@ -94,7 +115,30 @@ export interface TurnPerson {
   turnUrls(): Iterable<string>
   /** a scheduled run: nobody is watching, so no card is raised (it could only go unanswered) */
   unattended?: boolean
+  /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
+  unattendedLabel?: string
+  /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/
+   * draft.ts): the refusal for an address outside it, null inside. The gate checks the address, web_fetch every
+   * redirect hop. */
+  scope?: (url: string) => string | null
+  /** a turn that shows the person each page it opens as it happens (a company profile draft: onboarding/draft.ts
+   * DraftPages): web_fetch reports every call, where it ended up and how it went */
+  pages?: WebPageLog
 }
+
+/** Why web_fetch did not read a page: not_linked (the gate refused an address that was neither typed nor linked),
+ * off_site (a redirect hop outside the turn's `scope`), unreachable (anything else: no answer, an error page, a type
+ * it cannot read, an address it may not open, the exit address unknown). */
+export type WebPageFailure = 'not_linked' | 'off_site' | 'unreachable'
+/** One web_fetch call as the server saw it: started with the address asked for, then ok or failed once. */
+export interface WebPageEntry {
+  /** `text` / `html`: what was read (the markup when the log asked for it, `wantsHtml`); `fetch`: the network rules the
+   * call used, for anything the log fetches from the page itself (its pictures, onboarding/brand-assets.ts) */
+  ok(r: { url: string; title?: string; chars: number; text?: string; html?: string; fetch?: ResolveOptions & { insecureTlsForTests?: boolean } }): void
+  /** `hop`: the redirect address that was refused (off_site) */
+  failed(why: WebPageFailure, hop?: string): void
+}
+export interface WebPageLog { start(url: string): WebPageEntry; /** web_fetch keeps the page's markup for ok() */ wantsHtml?: boolean }
 
 /** Addresses written out in what the person typed in this chat (user messages the server did not send for them). A
  * scheduled turn's message counts as sent for them also without the mark: an older build run on this database (a
@@ -133,45 +177,80 @@ export function chatUrls(db: Database, chatId: string): Set<string> {
   return seen
 }
 
-type SeenRow = { source: string | null; free_turn_id: string | null }
+type SeenRow = { source: string | null; free_turn_id: string | null; echo: number }
+/** An address a connection returned in this chat (tools/connection-urls.ts); echo = always a card. */
+type ConnectionUrl = { echo: boolean; integrationId: string; freeTurnId: string | null }
+function connectionUrl(db: Database, chatId: string, url: string): ConnectionUrl | null {
+  const r = db.query('SELECT integration_id, echo, free_turn_id FROM chat_connection_urls WHERE chat_id = ? AND url = ?').get(chatId, url) as { integration_id: string; echo: number; free_turn_id: string | null } | null
+  return r ? { echo: !!r.echo, integrationId: r.integration_id, freeTurnId: r.free_turn_id } : null
+}
+type Origin = { origin: 'typed' | 'allowed' | 'learned' | 'echo'; row: SeenRow | null; conn?: ConnectionUrl }
 
 /** Where an address of ① came from: typed by the person, allowed by the person, or learned (search result, link of a
- * fetched page); null = not in the conversation. */
-function originOf(db: Database, chatId: string | null, url: string, person: TurnPerson | null): { origin: 'typed' | 'allowed' | 'learned'; row: SeenRow | null } | null {
-  const row = chatId ? db.query('SELECT source, free_turn_id FROM chat_seen_urls WHERE chat_id = ? AND url = ?').get(chatId, url) as SeenRow | null : null
+ * fetched page, and with `connection` an address a connection returned: ①c); 'echo': a learned address that carried
+ * what the AI had sent (a page's, a search's or a connection's echo); null = not in the conversation. */
+function originOf(db: Database, chatId: string | null, url: string, person: TurnPerson | null, o: { connection?: boolean; userId?: string | null } = {}): Origin | null {
+  const row = chatId ? db.query('SELECT source, free_turn_id, echo FROM chat_seen_urls WHERE chat_id = ? AND url = ?').get(chatId, url) as SeenRow | null : null
   if (chatId && typedUrls(db, chatId).has(url)) return { origin: 'typed', row }
   if (row?.source === 'allowed') return { origin: 'allowed', row }
-  if (row) return { origin: 'learned', row }
+  if (row) return { origin: row.echo ? 'echo' : 'learned', row }
   if (person) for (const u of person.turnUrls()) if (normUrl(u) === url) return { origin: 'learned', row }
   if (chatId && searchUrls(db, chatId).has(url)) return { origin: 'learned', row }
+  if (o.connection && chatId && o.userId) {
+    const c = connectionUrl(db, chatId, url)
+    // only while the person can still use the connection it came from (removed, or their access taken away: a card)
+    if (c && usable(db, o.userId).some((r) => r.id === c.integrationId)) return { origin: c.echo ? 'echo' : 'learned', row, conn: c }
+  }
   return null
+}
+
+/** Learned addresses opened without a card so far, in this answer and in this chat (web pages and search results, and
+ * addresses from connections: one budget). */
+function budgetUsed(db: Database, chatId: string, turn: string): { turn: number; chat: number } {
+  const count = (sql: string, ...args: string[]) => (db.query(sql).get(...args) as { n: number }).n
+  return {
+    turn: count('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id = ?', chatId, turn) + count('SELECT COUNT(*) AS n FROM chat_connection_urls WHERE chat_id = ? AND free_turn_id = ?', chatId, turn),
+    chat: count('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id IS NOT NULL', chatId) + count('SELECT COUNT(*) AS n FROM chat_connection_urls WHERE chat_id = ? AND free_turn_id IS NOT NULL', chatId),
+  }
+}
+
+/** The budget of one answer: LINK_BUDGET.unattended per answer where nobody can be asked (a scheduled run starts in
+ * a new chat, so that is also all its chat gets). */
+export function budgetFor(unattended: boolean): { turn: number; chat: number } {
+  return { turn: unattended ? LINK_BUDGET.unattended : LINK_BUDGET.turn, chat: LINK_BUDGET.chat }
 }
 
 /** A learned address opened without a card: counted once per chat (the same address again is free). Synchronous, so
  * parallel calls of one answer cannot all pass the same last place. false = over the budget (the person decides). */
-function spendLinkBudget(db: Database, chatId: string, url: string, turnId: string | null, row: SeenRow | null): boolean {
-  if (row?.free_turn_id) return true
+function spendLinkBudget(db: Database, chatId: string, url: string, turnId: string | null, from: Origin, unattended: boolean): boolean {
+  if (from.conn ? from.conn.freeTurnId : from.row?.free_turn_id) return true
   if (url.length > 4000) return false
   const turn = turnId ?? ''
-  const nTurn = (db.query('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id = ?').get(chatId, turn) as { n: number }).n
-  const nChat = (db.query('SELECT COUNT(*) AS n FROM chat_seen_urls WHERE chat_id = ? AND free_turn_id IS NOT NULL').get(chatId) as { n: number }).n
-  if (nTurn >= LINK_BUDGET.turn || nChat >= LINK_BUDGET.chat) return false
-  db.query(`INSERT INTO chat_seen_urls (chat_id, url, source, free_turn_id) VALUES (?, ?, 'search', ?)
+  const used = budgetUsed(db, chatId, turn)
+  const limit = budgetFor(unattended)
+  if (used.turn >= limit.turn || used.chat >= limit.chat) return false
+  if (from.conn) db.query('UPDATE chat_connection_urls SET free_turn_id = ? WHERE chat_id = ? AND url = ?').run(turn, chatId, url)
+  else db.query(`INSERT INTO chat_seen_urls (chat_id, url, source, free_turn_id) VALUES (?, ?, 'search', ?)
     ON CONFLICT (chat_id, url) DO UPDATE SET free_turn_id = excluded.free_turn_id`).run(chatId, url, turn)
   return true
 }
 
-/** Remember URLs for later turns of the chat: links of a fetched page ('fetched', within the link budget later) or
- * addresses the person allowed ('allowed', open without asking). */
-export function rememberUrls(db: Database, chatId: string, urls: Iterable<string>, source: 'fetched' | 'allowed' = 'fetched') {
+/** Remember URLs for later turns of the chat: links of a fetched page ('fetched') and web search results ('search'),
+ * within the link budget later, or addresses the person allowed ('allowed', open without asking). `echo`: is a
+ * learned address an echo of what the AI sent (tools/connection-urls.ts webEcho, decided now, as it comes; an echo
+ * always asks). An address remembered before stays an echo once it was one. */
+export function rememberUrls(db: Database, chatId: string, urls: Iterable<string>, source: 'fetched' | 'search' | 'allowed' = 'fetched', echo?: EchoCheck) {
   const ins = source === 'allowed'
     ? db.query("INSERT INTO chat_seen_urls (chat_id, url, source) VALUES (?, ?, 'allowed') ON CONFLICT (chat_id, url) DO UPDATE SET source = 'allowed'")
-    : db.query("INSERT OR IGNORE INTO chat_seen_urls (chat_id, url, source) VALUES (?, ?, 'fetched')")
+    : db.query(`INSERT INTO chat_seen_urls (chat_id, url, source, echo) VALUES (?, ?, ?, ?)
+      ON CONFLICT (chat_id, url) DO UPDATE SET echo = MAX(echo, excluded.echo)`)
   db.transaction(() => {
     let n = 0
     for (const u of urls) {
       if (n++ >= MAX_SEEN_PER_FETCH) break
-      if (u.length <= 4000) ins.run(chatId, u)
+      if (u.length > 4000) continue
+      if (source === 'allowed') ins.run(chatId, u)
+      else ins.run(chatId, u, source, echo?.(u) ? 1 : 0)
     }
   })()
 }
@@ -287,6 +366,27 @@ export const TEXT = {
     ja: 'AIが確認なしで開けるウェブページや検索結果のアドレスの上限に達しました（回答ごとに{turn}件、会話ごとに{chat}件）。どのアドレスを開くかによってもデータが外部に送られる可能性があるため、アドレス全体を確認してください：\n\n{url}',
     es: 'La IA ya abrió sin preguntar todas las direcciones de páginas web y resultados de búsqueda que puede ({turn} por respuesta, {chat} por conversación). La dirección que elige también puede sacar datos; revise la dirección completa:\n\n{url}',
   },
+  echo: {
+    ko: 'AI가 연결된 서비스의 답에 나온 주소를 열려고 해요. 그런데 이 주소(또는 그 일부)는 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 서비스가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
+    en: 'The AI wants to open an address from a connected service\'s answer, but the address (or part of it) matches what the AI had sent to a tool earlier in this conversation. The service may have repeated what it was sent, so check the whole address:\n\n{url}',
+    id: 'AI ingin membuka alamat dari jawaban layanan yang terhubung, tetapi alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Layanan mungkin mengulang apa yang dikirim kepadanya, jadi periksa seluruh alamatnya:\n\n{url}',
+    ja: 'AIが連携サービスの回答にあったアドレスを開こうとしています。ただし、このアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。サービスが受け取った内容をそのまま返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
+    es: 'La IA quiere abrir una dirección de la respuesta de un servicio conectado, pero la dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. El servicio puede haber repetido lo que recibió; revise la dirección completa:\n\n{url}',
+  },
+  echoWeb: {
+    ko: 'AI가 웹 페이지나 검색 결과에 나온 주소를 열려고 해요. 그런데 이 주소(또는 그 일부)는 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 사이트가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
+    en: 'The AI wants to open an address from a web page or a search result, but the address (or part of it) matches what the AI had sent to a tool earlier in this conversation. A site may have repeated what it was sent, so check the whole address:\n\n{url}',
+    id: 'AI ingin membuka alamat dari halaman web atau hasil pencarian, tetapi alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Situs mungkin mengulang apa yang dikirim kepadanya, jadi periksa seluruh alamatnya:\n\n{url}',
+    ja: 'AIがウェブページや検索結果にあったアドレスを開こうとしています。ただし、このアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。サイトが受け取った内容をそのまま返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
+    es: 'La IA quiere abrir una dirección de una página web o de un resultado de búsqueda, pero la dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. Un sitio puede haber repetido lo que recibió; revise la dirección completa:\n\n{url}',
+  },
+  redirectEcho: {
+    ko: 'AI가 여는 주소가 다른 주소로 넘어가요. 그런데 넘어가는 주소(또는 그 일부)가 AI가 앞서 이 대화에서 도구에 보낸 내용과 같아요. 짧은 주소 서비스처럼 사이트가 받은 내용을 되돌려 준 것일 수 있으니 주소 전체를 확인해 주세요.\n\n{url}',
+    en: 'The address the AI is opening redirects to another one, and that address (or part of it) matches what the AI had sent to a tool earlier in this conversation. A site may have kept what it was sent and given it back (like a link shortener), so check the whole address:\n\n{url}',
+    id: 'Alamat yang dibuka AI dialihkan ke alamat lain, dan alamat itu (atau sebagiannya) sama dengan isi yang dikirim AI ke sebuah alat sebelumnya di percakapan ini. Situs mungkin menyimpan apa yang dikirim kepadanya lalu mengembalikannya (seperti pemendek tautan), jadi periksa seluruh alamatnya:\n\n{url}',
+    ja: 'AIが開こうとしているアドレスは別のアドレスに転送されます。転送先のアドレス（またはその一部）は、この会話でAIが先にツールへ送った内容と一致します。短縮URLサービスのように、サイトが受け取った内容を返した可能性があるため、アドレス全体を確認してください：\n\n{url}',
+    es: 'La dirección que la IA quiere abrir redirige a otra, y esa dirección (o parte de ella) coincide con lo que la IA envió antes a una herramienta en esta conversación. Un sitio puede haber guardado lo que recibió y devolverlo (como un acortador de enlaces); revise la dirección completa:\n\n{url}',
+  },
   opaque: {
     ko: '주소에 알아보기 어려운 긴 문자열이 있어요(강조 표시). 내용을 실어 보낼 수 있으니 무엇인지 확인해 주세요.',
     en: 'The address contains long strings that are hard to read (highlighted). They can carry data; check what they are.',
@@ -326,9 +426,11 @@ export type GateResult = 'seen' | 'site' | 'confirmed'
  * person of the turn; the sites they allowed in this chat (①b) count only for them (none without it).
  * Decides from the address text and the database alone: the caller looks the name up only after a yes.
  */
-export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null } = {}): Promise<GateResult> {
+export async function gateUrl(db: Database, chatId: string | null, rawUrl: string, person: TurnPerson | null, o: { egressKnown?: boolean; turnId?: string | null; userId?: string | null; connection?: boolean } = {}): Promise<GateResult> {
   const url = normUrl(rawUrl)
   if (!url) throw new ToolError('only http and https URLs can be fetched')
+  const outOfScope = person?.scope?.(url)
+  if (outOfScope) throw new ToolError(outOfScope)
   const parsed = new URL(url)
   const long = parsed.search.slice(1).length > MAX_UNCONFIRMED_QUERY
   // this server's own public exit address is not known yet (tools/egress.ts): no URL opens without the person
@@ -345,23 +447,33 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // a user name or password in the address (the in-app browser takes one; web_fetch refuses it before this) is data
   // for the site: never covered by a site allowance
   const userinfo = !!(parsed.username || parsed.password)
-  let why: 'unseen' | 'longQuery' | 'noEgress' | 'budget' = long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'
+  let why: 'unseen' | 'longQuery' | 'noEgress' | 'budget' | 'echo' | 'echoWeb' = long ? 'longQuery' : noEgress ? 'noEgress' : 'unseen'
+  // a scheduled run, or no turn: nobody can be asked, and nobody sees the steps as they happen (the smaller budget)
+  const unattended = !person || !!person.unattended
   if (!long && !noEgress) {
-    const from = originOf(db, chatId, url, person)
+    const from = originOf(db, chatId, url, person, o)
     if (from?.origin === 'typed' || from?.origin === 'allowed') return 'seen'
     // ①b: a site the person allowed in this conversation, outside the link budget
     if (site && !marks.length && !userinfo && allowedSites(db, chatId, o.userId).has(site)) return 'site'
     if (from?.origin === 'learned') {
-      if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from.row)) return 'seen'
+      if (chatId && spendLinkBudget(db, chatId, url, o.turnId ?? null, from, unattended)) return 'seen'
       why = 'budget'
     }
+    // an echo of what the AI sent: always the person, whatever is left of the budget (a connection's answer, or a web
+    // page / search result: their own wording)
+    if (from?.origin === 'echo') why = from.conn ? 'echo' : 'echoWeb'
   }
   // nobody to ask (no turn, or a scheduled run): say why, so the AI tells the person what really happened
-  if (!person || person.unattended) {
+  if (unattended) {
+    const b = budgetFor(true)
     throw new ToolError(why === 'budget'
-      ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed (${LINK_BUDGET.turn} per answer, ${LINK_BUDGET.chat} per chat), and nobody can confirm it here, so it was not opened`
+      ? `this address came from a web page or search result, the AI already opened as many of those without asking as allowed where nobody can confirm them (${b.turn} per ${person ? person.unattendedLabel ?? 'scheduled run' : 'answer'}, ${b.chat} per chat), and nobody can confirm it here, so it was not opened`
       : why === 'noEgress'
-        ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction (writing the address into a scheduled task does not change it); tell the user the server could not open web addresses this time'
+        ? 'this server does not know its own public internet address yet, so every web address needs a person to confirm it, and nobody can confirm it here, so it was not opened. It is not because of this address or the instruction' + (person?.unattendedLabel ? '' : ' (writing the address into a scheduled task does not change it)') + '; tell the user the server could not open web addresses this time'
+        : why === 'echo'
+          ? 'this address came back from a connected service, but the AI had sent this address or a part of it to a tool earlier in this chat (the service may have repeated it), so it needs a person to confirm it, and nobody can confirm it here, so it was not opened'
+        : why === 'echoWeb'
+          ? 'this address came from a web page or search result, but the AI had sent this address or a part of it to a tool earlier in this chat (the site may have repeated it), so it needs a person to confirm it, and nobody can confirm it here, so it was not opened'
         : why === 'longQuery'
           ? `this address has a long query part (over ${MAX_UNCONFIRMED_QUERY} characters), which always needs a person to confirm it, even when it appeared in the conversation or the task, and nobody can confirm it here, so it was not opened`
           : 'this address did not appear in the conversation and nobody can confirm it here, so it was not opened')
@@ -377,7 +489,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   // the card of an address that looks like it carries data (a marked part, a user name or password): that is the card
   // an AI's first try to send something out raises, and one click there would trust the whole site for the rest of the
   // chat. The next plain address of the site offers it.
-  const offerSite = !!(site && person.choose && !long && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
+  const offerSite = !!(site && person.choose && why !== 'echo' && why !== 'echoWeb' && !long && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
   if (offerSite) lines.push(TEXT.site[L].replace('{site}', () => siteLabel(site!)))
   const extra: ConfirmExtra | undefined = marks.length ? { details: [{ label: TEXT.labelUrl[L], text: readable, marks }] } : undefined
   const question = lines.join('\n\n')

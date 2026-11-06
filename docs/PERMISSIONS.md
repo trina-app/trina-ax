@@ -11,7 +11,7 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 |---|---|
 | `shared/` | 폴더 규칙대로 (보통 팀 전체) |
 | `groups/<그룹>/` | 그 그룹 사람 (관리자가 규칙으로 다른 그룹에 읽기·쓰기를 줄 수 있음) |
-| `projects/<프로젝트>/` | 그 프로젝트에 속한 사람 |
+| `projects/<프로젝트>/` | 폴더 규칙대로. 관리자가 새 팀 프로젝트 폴더를 만들면 고른 그룹·사람과 만든 사람에게 읽기·쓰기 규칙이 생긴다(owner·관리자는 늘 봄). 프로젝트에는 따로 구성원 명단이 없다: 프로젝트(이름·지침)는 그 폴더를 읽을 수 있는 사람에게 보이고, 폴더 하나에 프로젝트 하나다 |
 | `skills/` (팀 스킬·팀 규칙) | 모두 읽기. 바꾸는 사람은 **스킬 관리자**: owner·관리자, 그리고 관리자가 멤버·그룹 화면의 "팀 스킬 관리"로 켜 준 사람·그룹(`skills/` 전체 또는 `skills/재무/` 같은 하위 폴더만) |
 | `skills/<sub>/` (restricted team skills) | The folder rules, the same as for files. Only people who can **read** the folder see and use its skills. See "Skills" below. |
 | `users/<id>/skills/` (personal skills) | **The owner only**, the same as all of `users/<id>/`. Owner and admins cannot see them. |
@@ -22,6 +22,9 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 
 - 권한이 없는 폴더와 파일은 **이름조차 보이지 않습니다**. "없음"과 "권한 없음"을 같은 답으로 돌려줘서 존재 여부도 알 수 없습니다.
 - 파일 화면, AI, 검색, 미리보기, 버전 기록, 휴지통, 실시간 알림이 모두 같은 규칙을 따릅니다.
+- 관리자 > 폴더 권한에서 `shared/`와 `skills/`는 규칙을 모두 지울 수 없습니다(규칙이 없으면 팀원은 팀 폴더 맨 위의 규칙을 따르는데, 기본으로는 맨 위에 규칙이 없어 팀장과 관리자만 보게 됩니다. 팀장과 관리자만 보게 하려면 "모두: 권한 없음" 규칙을 둡니다). 맥(대소문자를 가리지 않는 볼륨)에서는 대소문자만 바꾼 이름(`Shared`)도 같고, 리눅스에서 `Shared`는 다른 폴더라 보통 폴더로 다룹니다. 그룹 폴더 항목은 그룹이 있는 동안 지울 수 없고, 휴지통에 있는 폴더의 항목은 목록에 나오지 않습니다. 규칙을 모두 지우기 전에는 누가 어떤 권한을 얻고 잃는지 서버가 계산해 보여 줍니다(권한은 사람마다 위로 올라가며 그 사람에게 맞는 가장 가까운 규칙으로 정해집니다).
+- 관리자 > 폴더 권한 > 폴더별은 팀 폴더를 맨 위부터 트리로 보여 줍니다. 줄마다 볼 수 있는 사람과 그 권한이 어느 폴더의 규칙에서 오는지, 계산된 위험(팀 전체가 쓸 수 있는 폴더, `skills/` 아래를 모두가 쓰는 경우, 맨 위의 "모두" 규칙)이 나오고, 폴더를 고르면 사람마다 권한과 이유가 나옵니다. `users/`는 한 줄(사람 수)로만 보이고 안을 나열하지 않습니다. 디스크에 없는 폴더의 규칙은 트리 아래에 따로 모여 지울 수 있습니다. 모두 서버의 같은 권한 함수로 계산한 것이고, 이 화면은 권한을 정하지 않습니다.
+- 폴더를 고르고 "규칙 바꾸기"를 누르면 그 자리에서 편집 패널이 열립니다(휴대폰에서는 화면 전체). 먼저 **기본 접근**(아래에 정하지 않은 모든 팀원)을 고릅니다: 위 폴더 따르기(그 폴더에 "모두" 규칙 없음) / 정한 사람만("모두: 권한 없음") / 모두 읽기 / 모두 읽기·쓰기. "위 폴더 따르기"는 지금 그것이 무엇을 뜻하는지 서버가 계산해 보여 주고, 팀 폴더 맨 위에는 따를 폴더가 없으며, 연결 폴더(원본에서 한쪽으로만 복사)에는 "모두 읽기·쓰기"가 없습니다. 그다음 **사람과 그룹**을 검색해 더하고 각각 읽기·읽기·쓰기·권한 없음을 정합니다(사람 규칙이 그룹보다 먼저, 여러 그룹이면 가장 넓은 권한). 바꾸는 동안 서버가 같은 권한 함수로 누가 권한을 잃고 얻는지(쓰기→읽기도 줄어듦), 그 아래 규칙이 있는 폴더 중 같이 바뀌는 곳, 경고(shared·skills를 팀원의 AI가 못 읽게 됨, skills에서 모두가 쓰기 = 모두 스킬 관리자, 맨 위를 모두에게 엶)를 계산해 보여 주고(`POST /api/admin/access/edit-preview`, 저장하지 않음), 저장 버튼이 그 수를 말합니다. 예전 역할 규칙("팀원 전체"는 같은 뜻의 "모두"로, 효과가 없는 "관리자 전체"는 빠짐)은 저장할 때 정리되며 누구의 권한도 바뀌지 않습니다. 저장은 시작할 때 규칙의 해시(`Folder.rulesHash`)를 함께 보내고, 그사이 다른 관리자나 멤버 화면의 "팀 스킬 관리"가 규칙을 바꿨으면 서버가 거부(409)해 패널이 다시 계산하고 알려 줍니다. "위 폴더 따르기"는 규칙을 비워 저장하는 것이고(행을 지우지 않음: 그룹 연결과 프로젝트 표시가 남음), "규칙 모두 지우기"는 정리용으로만 남았습니다(디스크에 없거나 트리에 안 보이는 폴더의 행, 프로젝트가 쓰지 않는 빈 행).
 - 그룹에서 빠지거나 규칙이 바뀌면 **바로** 적용됩니다. AI 도구는 호출할 때마다 권한을 다시 읽고, 권한을 잃은 채팅은 AI 세션을 새로 시작합니다.
 - AI는 **묻는 사람의 권한만큼만** 일합니다. alice의 AI는 alice가 볼 수 있는 것만 봅니다.
 - **팀 스킬은 따로 조심합니다.** `skills/`의 내용은 팀 전체 AI가 따르는 지침입니다. 그래서 "팀 스킬 관리"는 별도 권한 표가 아니라 `skills/`(또는 하위 폴더)의 **쓰기 규칙** 그 자체입니다(폴더 권한 화면에도 같은 규칙으로 보임). 스킬 관리자의 AI라도 `skills/`에 저장하기 전에는 서버가 바뀌는 내용을 보여 주며 확인을 받고(AI가 대신 답할 수 없는 카드), 확인이 없으면 쓰지 않습니다. 사람이든 AI든 `skills/`가 바뀌면 감사 기록에 남고, owner·관리자에게 버전 기록 링크가 붙은 알림이 갑니다.
@@ -32,12 +35,12 @@ A skill is an instruction that the person can read. It never gives more access. 
 
 - **Team skills use the folder rules.** A skill in `skills/<sub>/` (any depth) is visible and usable only by the people who can read that folder. Admins set this in Admin > Folder permissions, the same as for any folder. A folder rule that applies to nobody falls back to the rules of the folder above (`skills/`: everyone reads). Thus, to limit `skills/finance/`, set "Everyone: No access" and give read access to the finance group. Skills directly in `skills/` stay team-wide.
 - **Personal skills** are in `users/<id>/skills/` (a `.md` file with a skill header, or a `<name>/SKILL.md` folder). Only the owner sees and uses them. Owner and admins cannot see them. The owner can suggest one to the team with "Suggest as skill" on the Files screen. A manager of the target folder reviews it.
-- **One rule for every path.** The skill list is always the list of the person who runs the turn: the "/" menu (`GET /api/skills`), the skill index in the AI instructions, "/name" in a message, `skills_list` of the remote MCP connector, popular skills on the home screen, skill issues and the skill screens. In a shared project chat, this is the person who sent the message. In a scheduled task, this is the owner of the schedule.
+- **One rule for every path.** The skill list is always the list of the person who runs the turn: the "/" menu (`GET /api/skills`), the skill list in the AI instructions, the AI's `skill` and `find_skills` tools (also in sub-agents; each call checks again), "/name" in a message, `skills_list` of the remote MCP connector, popular skills on the home screen, skill issues and the skill screens. In a shared project chat, this is the person who sent the message. In a scheduled task, this is the owner of the schedule.
 - **Same name.** When a personal skill has the same name as a team skill, the personal skill replaces the team skill for its owner only. The screens show it as "Personal".
 - **No usage records for personal skills.** Admin > Usage and popular skills count team skills only, so no admin sees the name of a personal skill.
 - Team rules (a `skills/*.md` file without a skill header) are unchanged. A file without a header in `users/<id>/skills/` is not a rule.
 
-## AI 연결 (관리자 > AI 연결)
+## AI 연결 (관리자 > AI 제공자)
 
 AI가 답할 때 쓰는 계정(Claude 구독 토큰, API 키, ChatGPT 로그인)입니다. 자세한 근거는 [DECISIONS.md](DECISIONS.md) "AI 연결".
 
@@ -127,4 +130,4 @@ AI가 Claude Code의 Agent 도구로 일을 나눠 다른 AI(자식)에게 맡�
 - **AI가 내용을 더 넓은 곳으로 옮길 수 있습니다.** 예를 들어 그룹 폴더 내용을 공용 폴더에 쓰는 경우입니다. 채팅이 읽은 범위보다 더 많은 사람이 보는 곳에 쓰려 하면, 서버가 확인 카드로 먼저 묻습니다. 이 확인은 AI가 끌 수 없습니다.
 - **AI 회사로 보내지는 내용이 있습니다.** AI가 읽은 내용은 답을 만들기 위해 Anthropic(또는 OpenAI)으로 전송됩니다.
 
-사용자용 요약: [보안과 권한](security-and-permissions.ko.md). 새 팀은 구독 공유 기본 켜짐이며 저장한 기존 설정은 유지됩니다. 개인 연결이 우선이고 연결별 동의가 필요합니다. 제공사 약관상 허가는 별도입니다.
+사용자용 요약: [보안과 권한](security-and-permissions.ko.md). 새 팀은 회사 연결 하나를 팀 전체가 쓰는 설정이 기본 켜짐이며 저장한 기존 설정은 유지됩니다. 개인 연결이 우선이고 연결별 동의가 필요합니다. 제공사 약관상 허가는 별도입니다.

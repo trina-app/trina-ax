@@ -3,15 +3,17 @@
 // platform) and the admin approves exactly the digest and permissions shown. Optional permissions start ticked (as in
 // Claude Code) and the prompt says so. Stage 1 turns plugins on for the whole company only.
 import { AlertTriangle, Check, FileUp, Minus, Puzzle, RotateCcw, Trash2 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { CatalogPlugin, InstalledPlugin, PluginList, PluginPlan } from '@mycel/shared/api'
 import type { PluginPermission, PluginPlatform } from '@mycel/shared/plugins'
+import { HWP_PLUGIN_ID } from '@mycel/shared/hwp'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatSize } from '../../lib/format'
 import { DICTS, useLocale, useT, type MessageKey } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Badge, Button, EmptyState, Modal, confirmDialog } from '../../components/ui'
-import { Card, Loadable, useLoad } from './common'
+import { AdminPageHeader, Card, Loadable, useLoad } from './common'
 
 type T = ReturnType<typeof useT>
 
@@ -41,6 +43,14 @@ function TrustBadge({ trust, verifiedBy }: { trust: InstalledPlugin['trust']; ve
       {trust === 'official' && verifiedBy === 'release' && <span className="text-xs text-faint" data-testid="plugin-verified-release">{t('plugins.trust.release')}</span>}
     </>
   )
+}
+
+/** What the HWP plugin also turns on, from core (its package text describes the preview only and is pinned): writing
+ * and filling Hangul documents (docs/DECISIONS.md "Hangul writing and filling come with the HWP plugin"). */
+function HwpWriting({ id, className = '' }: { id: string; className?: string }) {
+  const t = useT()
+  if (id !== HWP_PLUGIN_ID) return null
+  return <p className={`text-sm text-muted ${className}`} data-testid="plugin-hwp-writing">{t('plugins.hwpWriting')}</p>
 }
 
 /** `showGrant`: an installed plugin — an optional permission the admin did not allow is shown as such. */
@@ -101,6 +111,7 @@ function PlanDialog({ plan, onClose, onDone }: { plan: PluginPlan; onClose: () =
             <TrustBadge trust={plan.trust} verifiedBy={plan.verifiedBy} />
           </p>
           <p className="mt-1 text-muted">{plan.description}</p>
+          <HwpWriting id={plan.id} className="mt-1" />
           <p className="mt-1 text-xs text-faint">{t('plugins.publisher', { name: plan.publisher.name })} · {t('plugins.prompt.size', { size: formatSize(plan.sizeBytes, locale) })} · {t('plugins.platforms', { list: platformText(t, plan.platforms) })}</p>
         </div>
         {!plan.supported && (
@@ -124,7 +135,7 @@ function PlanDialog({ plan, onClose, onDone }: { plan: PluginPlan; onClose: () =
             <ul className="text-xs text-muted">{plan.components.map((c) => <li key={c.name}>{c.name}{c.version ? ` ${c.version}` : ''} · {c.license}</li>)}</ul>
           </div>
         )}
-        <p className="font-mono text-[11px] break-all text-faint">{t('plugins.prompt.digest', { digest: plan.manifestSha256.slice(0, 16) })}</p>
+        <p className="font-mono text-micro break-all text-faint">{t('plugins.prompt.digest', { digest: plan.manifestSha256.slice(0, 16) })}</p>
       </div>
     </Modal>
   )
@@ -150,6 +161,7 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
         {status}
       </div>
       <p className="text-sm text-muted">{p.description}</p>
+      <HwpWriting id={p.id} />
       <p className="text-xs text-faint">
         {t('plugins.publisher', { name: p.publisher.name })} · {p.kinds.map((k) => t(`plugins.kind.${k}` as MessageKey)).join(', ')} · {t('plugins.platforms', { list: platformText(t, p.platforms) })}
       </p>
@@ -176,10 +188,58 @@ function InstalledRow({ p, reload }: { p: InstalledPlugin; reload: () => void })
   )
 }
 
+/** One licence ("MIT") stays on the line; a list of them ("MIT AND Apache-2.0 AND …") is long and noisy there. */
+export const longLicense = (license: string) => /\s(AND|OR)\s/i.test(license) || license.length > 24
+
+/** The publisher and platforms line. A long licence list is "Licenses" there: the full list in its tooltip, and under
+ * the line when pressed (a phone has no tooltip). */
+export function PluginMeta({ text, license }: { text: string; license: string }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const listId = useId()
+  if (!longLicense(license)) return <p className="text-xs text-faint">{text} · {license}</p>
+  return (
+    <div className="text-xs text-faint">
+      <p>
+        {text} ·{' '}
+        <button type="button" aria-expanded={open} aria-controls={listId} title={license} onClick={() => setOpen((v) => !v)} className="underline decoration-dotted underline-offset-2 hover:text-ink" data-testid="plugin-licenses">
+          {t('plugins.licenses')}
+        </button>
+      </p>
+      {open && <p id={listId} className="mt-1 break-words" data-testid="plugin-license-list">{license}</p>}
+    </div>
+  )
+}
+
 function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id: string) => Promise<void>; fileInstall: boolean }) {
   const t = useT()
   // the server may first download the package from the release feed
   const [busy, setBusy] = useState(false)
+  // installed and up to date: the full text is already in "Installed" above, so here one line and a link to it
+  if (c.installedVersion && !c.updateAvailable) {
+    return (
+      <li className="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm" data-testid="plugin-catalog" data-plugin={c.id} data-compact>
+        <span className="font-medium">{c.name}</span>
+        <Badge tone="ok">{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>
+        <button
+          type="button"
+          className="ml-auto text-xs font-medium text-accent-text underline-offset-2 hover:underline"
+          onClick={() => {
+            const el = [...document.querySelectorAll<HTMLElement>('[data-testid="plugin-installed"]')].find((x) => x.dataset.plugin === c.id)
+            if (!el) return
+            el.tabIndex = -1
+            el.scrollIntoView({ block: 'center' })
+            el.focus({ preventScroll: true })
+          }}
+          data-testid="plugin-catalog-show-installed"
+        >
+          {/* the visible words start the name (a voice command says them); the plugin name follows for screen readers */}
+          {t('adminux.plugins.showInstalled')}
+          <span className="sr-only">: {c.name}</span>
+        </button>
+      </li>
+    )
+  }
   return (
     <li className="space-y-2 px-4 py-3" data-testid="plugin-catalog" data-plugin={c.id}>
       <div className="flex flex-wrap items-center gap-2">
@@ -189,7 +249,8 @@ function CatalogRow({ c, review, fileInstall }: { c: CatalogPlugin; review: (id:
         {c.installedVersion && <Badge>{t('plugins.installedVersion', { version: c.installedVersion })}</Badge>}
       </div>
       <p className="text-sm text-muted">{c.description}</p>
-      <p className="text-xs text-faint">{t('plugins.publisher', { name: c.publisher.name })} · {t('plugins.platforms', { list: platformText(t, c.platforms) })} · {c.license}</p>
+      <HwpWriting id={c.id} />
+      <PluginMeta text={`${t('plugins.publisher', { name: c.publisher.name })} · ${t('plugins.platforms', { list: platformText(t, c.platforms) })}`} license={c.license} />
       {c.recommended && <p className="text-xs text-muted">{t('plugins.recommendedHint')}</p>}
       <Permissions items={c.permissions} />
       {c.availability === 'available' && (!c.installedVersion || c.updateAvailable) && (
@@ -213,10 +274,23 @@ export default function Plugins() {
   const [plan, setPlan] = useState<PluginPlan | null>(null)
   const file = useRef<HTMLInputElement>(null)
   const reload = () => void state.reload()
+  // ?focus=<plugin id> (an Admin Home to-do): bring that plugin's card into view once the list is there
+  const focus = useSearchParams()[0].get('focus')
+  const listed = state.data !== null
+  useEffect(() => {
+    if (!focus || !listed) return
+    const el = [...document.querySelectorAll<HTMLElement>('[data-plugin]')].find((e) => e.dataset.plugin === focus)
+    if (!el) return
+    el.tabIndex = -1
+    el.scrollIntoView({ block: 'center' })
+    el.focus({ preventScroll: true })
+  }, [focus, listed])
   const inspect = async (fn: () => Promise<PluginPlan>) => {
     try { setPlan(await fn()) } catch (e) { toast({ level: 'error', text: refusal(t, e, locale) }) }
   }
   return (
+    <>
+    <AdminPageHeader title={t('admin.plugins')} />
     <Loadable state={state}>
       {(d: PluginList) => (
         <>
@@ -262,5 +336,6 @@ export default function Plugins() {
         </>
       )}
     </Loadable>
+    </>
   )
 }

@@ -21,7 +21,10 @@ import type { Database } from 'bun:sqlite'
 import type { TranscribeResult } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
 import { readOutput, runIsolated } from '../tools/isolate'
-import { OPENROUTER_MAX_BYTES } from '../jobs/openrouter-stt'
+import { OPENROUTER_MAX_BYTES, wavData } from '../jobs/openrouter-stt'
+import { saysOtherLanguage, writingSystem } from '../jobs/speech-language'
+
+export { saysOtherLanguage, writingSystem }
 
 /** the largest video or audio file a read takes (founder: a fixed constant, not per plan) */
 export const MEDIA_INPUT_MAX = 1024 ** 3
@@ -162,14 +165,6 @@ const CLEAR_SOUND_SEC = 1
 export const SHORT_SPEECH_SEC = 8
 /** whisper.cpp is sure of the language it heard from this probability on */
 export const LANGUAGE_SURE = 0.5
-/** whisper's own caption when it was told a language the sound is not in ("(speaking in foreign language)", "[Foreign
- * language]"): measured on 4-6 s Korean pieces told "en" (auto had guessed ko or ja at p 0.32-0.36) */
-const OTHER_LANGUAGE = /^\s*(?:[([][^)\]]*\b(foreign|non-english)\b[^)\]]*[)\]]|\*[^*]*\blanguage\b[^*]*\*)[\s.]*$/i
-/** Whether an answer holds nothing but that caption: the language it was told is not the sound's. */
-export function saysOtherLanguage(r: TranscribeResult): boolean {
-  const lines = r.segments?.length ? r.segments.map((s) => s.text) : [r.text]
-  return lines.some((t) => t.trim()) && lines.every((t) => !t.trim() || OTHER_LANGUAGE.test(t))
-}
 export interface Voice {
   /** seconds with sound */ voiced: number
   /** seconds above LOUD_RMS (real speech) */ loud: number
@@ -177,15 +172,7 @@ export interface Voice {
 }
 /** Where a server-made WAV has sound (its data chunk; any other chunk, such as ffmpeg's LIST, is skipped). */
 export function voiceOf(wav: Uint8Array): Voice {
-  const b = Buffer.from(wav.buffer, wav.byteOffset, wav.byteLength)
-  let pos = 12, data: Buffer | null = null
-  if (b.length >= 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WAVE') {
-    while (pos + 8 <= b.length) {
-      const id = b.toString('latin1', pos, pos + 4), size = b.readUInt32LE(pos + 4)
-      if (id === 'data') { data = b.subarray(pos + 8, Math.min(b.length, pos + 8 + size)); break }
-      pos += 8 + size + (size & 1)
-    }
-  }
+  const data = wavData(wav)
   if (!data) return { voiced: Infinity, loud: Infinity, frames: [] }
   const per = Math.round(16_000 * VOICE_FRAME_SEC)
   const frames: boolean[] = []
@@ -346,14 +333,16 @@ export async function framePng(tools: MediaTools, work: string, name: string, st
 }
 
 /** The sound from `start` for `seconds` as 16 kHz mono 16-bit WAV (at most OPENROUTER_MAX_BYTES), written to `out` in
- * the work folder and read back without following a link; the file stays for whisper.cpp, the caller removes it. */
+ * the work folder and read back without following a link; the file stays for whisper.cpp, the caller removes it. No
+ * tags: ffmpeg copies a file's title and comment into the WAV's LIST chunk by default, and the WAV may go to
+ * OpenRouter. */
 export async function audioWav(tools: MediaTools, work: string, name: string, stream: number, start: number, seconds: number, out: string,
   o: { signal?: AbortSignal; timeoutMs?: number; inputBytes: number }): Promise<Buffer> {
   const r = await runIsolated({
     cmd: tools.ffmpeg, workDir: work, signal: o.signal, timeoutMs: Math.min(AUDIO_TIMEOUT_MS, o.timeoutMs ?? AUDIO_TIMEOUT_MS), maxRssMiB: AUDIO_RSS_MIB,
     maxStdout: 1024 * 1024, maxWorkBytes: o.inputBytes + OPENROUTER_MAX_BYTES + 16 * 1024 ** 2,
     args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '1', ...INPUT_GUARD, '-ss', start.toFixed(3), '-t', seconds.toFixed(3), '-i', name,
-      '-map', `0:${stream}`, '-vn', '-sn', '-dn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', out],
+      '-map', `0:${stream}`, '-vn', '-sn', '-dn', '-map_metadata', '-1', '-fflags', '+bitexact', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', '-f', 'wav', out],
   })
   if (r.killed || r.code !== 0) throw refused(r, o.signal)
   const got = readOutput(work, out, OPENROUTER_MAX_BYTES)
@@ -583,23 +572,11 @@ export function pieceOf(r: TranscribeResult, offset: number, length: number, voi
 /** The language most spoken in the pieces whose language counts as heard (Piece.sure), or undefined. */
 export const heardLanguage = (pieces: Piece[]): string | undefined => transcriptLanguages(pieces.filter((p) => p.sure))[0]
 
-/** The writing system most of a text's letters are in: a told language that changes it gave a translation, not a
- * transcript (measured: English told "ko" gave "이제 Friday에 입장해 봅시다.", Korean told "en" an English sentence). Kana
- * and Han count as one (Japanese mixes them; Chinese and Japanese guesses swap). null: no letters. */
-export function writingSystem(text: string): 'hangul' | 'latin' | 'cjk' | null {
-  const n = { hangul: 0, latin: 0, cjk: 0 }
-  for (const ch of text) {
-    if (/\p{Script=Hangul}/u.test(ch)) n.hangul++
-    else if (/\p{Script=Latin}/u.test(ch)) n.latin++
-    else if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(ch)) n.cjk++
-  }
-  const best = (Object.entries(n) as [keyof typeof n, number][]).sort((a, b) => b[1] - a[1])[0]!
-  return best[1] ? best[0] : null
-}
 const answerText = (r: TranscribeResult) => (r.segments?.length ? r.segments.map((x) => x.text).join(' ') : r.text)
 /** whisper's inventions of a video's end (subtitles of web videos in its training): told a language the sound is not
- * clearly in, it gave these (measured: "구독과 좋아요를 눌러주세요!", "I'll see you in the next video!") */
-const OUTRO = /구독과?\s*좋아요|시청해\s*주셔서|다음\s*영상|next video|thanks? (you )?for watching|please subscribe|subtitles by/i
+ * clearly in, it gave these (measured: "구독과 좋아요를 눌러주세요!", "I'll see you in the next video!"; in Japanese over
+ * silence and in a wrong language, "ご視聴ありがとうございました", "チャンネル登録をお願いします") */
+const OUTRO = /구독과?\s*좋아요|시청해\s*주셔서|다음\s*영상|next video|thanks? (you )?for watching|please subscribe|subtitles by|ご視聴ありがとうございました|チャンネル登録/i
 /**
  * Whether a short piece's retry, told `told`, replaces whisper's unsure first answer. Not when it is only the "foreign
  * language" caption or a video-outro invention. Otherwise it must be written like the first answer (another writing

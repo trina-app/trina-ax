@@ -280,6 +280,13 @@ function serveTeamIcon(req: Request, url: URL, icon: TeamIconFile | null, root: 
   return new Response(Bun.file(file), { headers: iconHeaders('image/png', ICON_CACHE_SHORT) })
 }
 
+/** The policy of an SVG under /icons/ (the logos in External services › Discover, web/public/icons/connectors): served
+ * from the team's own address, so opened on its own it runs nothing and loads nothing, like the team logo (ICON_CSP);
+ * only its own styles apply. */
+export const SVG_ICON_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+/** an SVG under /icons/: the name of the file served decides, not how the address spelled it (`%2Esvg`) */
+const iconSvg = (p: string, file: string) => file.toLowerCase().endsWith('.svg') && decodeURIComponent(p).startsWith('/icons/')
+
 /** A path whose last part has a file extension (a static file, not a page of the app). */
 const hasExtension = (p: string) => /\.[A-Za-z0-9]{1,10}$/.test(p.slice(p.lastIndexOf('/') + 1))
 
@@ -329,6 +336,11 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
       if (p.endsWith('.webmanifest')) h.set('content-type', 'application/manifest+json')
     }
     if (p.endsWith('.html')) h.set('content-security-policy', appCsp(url.host))
+    // safeFile decoded this path already, so decoding it again cannot throw
+    if (iconSvg(p, file)) {
+      h.set('content-security-policy', SVG_ICON_CSP)
+      h.set('x-content-type-options', 'nosniff')
+    }
     return res
   }
   // a missing hashed asset is a 404, not the app shell (a stale page would otherwise get HTML as JavaScript); so is any

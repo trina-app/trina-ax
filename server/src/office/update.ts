@@ -1,32 +1,45 @@
 // Office mode automatic updates (docs/OFFICE.md "자동 업데이트"). The third LaunchAgent of an installation,
-// <label>.update (app.team-ax.office.update), runs `office.js update run` every night at the chosen time (default 03:00)
-// and when someone asks (`teamax update now`, Admin > System "지금 업데이트": a request file + launchctl kickstart):
+// <label>.update (app.team-ax.office.update), runs `office.js update run` every 15 minutes, and that run goes on only
+// inside the team's update window in the team's time zone (Admin > Team settings, 03:00-05:00 when empty: the same
+// window as a Linux server's updates, officeSchedule; update audit 2026-11-01 O1), and when someone asks (`teamax update
+// now`, Admin > System "지금 업데이트": a request file + launchctl kickstart):
 //
 //   1. GET <feed>/<dir>/<channel>.json (the only address contacted: RELEASE_CHANNEL.feed), verify the Ed25519
-//      signature with a key baked into this build (./release.ts), the channel, no downgrade, not below minFrom
+//      signature with a key baked into this build (./release.ts), the channel, no downgrade, not below minFrom; the
+//      nightly run also waits for this Mac's turn in a stable release's staged roll-out (system/rollout.ts, the same
+//      rule as a Linux server's; about 10% of offices the first day, 50% the second, all from the third)
 //   2. download the office zip, check its size and SHA-256, unpack it into update/staging/ (what an earlier failed
 //      release left there and in update/download is removed first)
-//   3. the new bundle's own installer with --check-only, wait until no answer is running (10 min at most), a database
-//      backup (admin.js backup --scope db --kind pre-update)
+//   3. the new bundle's own installer with --check-only, wait until no answer is running, a database backup (admin.js
+//      backup --scope db --kind pre-update). The nightly run waits until the window closes (at most an hour) and then
+//      leaves the update for the next check rather than cut an answer off; after three days of that it waits at most
+//      10 minutes, like "update now" (O4, the Linux root update's rule: native/cmd/mycel-ctl/schedule.go)
 //   4. the new bundle's own installer with --update: it stops the agents, copies its app/ next to the old one, keeps
 //      the old one as app.previous, swaps, starts the server and cloudflared again
 //   5. /api/health on 127.0.0.1 must answer with the new version (and still after 15 s); otherwise roll back: stop
 //      the agents, app -> app.failed, app.previous -> app, the old version's `office.js install`, wait for the old
 //      version; that version is not tried again by the nightly run (`teamax update now` tries again)
 //   6. the release's Windows desktop installer + latest.yml into data/downloads (index.json), so the desks' app
-//      (electron-updater, generic provider) updates from the office's own Mac
+//      (electron-updater, generic provider) updates from the office's own Mac (offerWindows; a Linux team server does
+//      the same after each of its updates, system/windows-app.ts)
 //
 // data/, team/, tls/ and config/ are never touched by an update (the installer keeps them; the rollback moves only
 // app folders). The updater's own files live in <home>/update/: settings.json (channel, time, paused), state.json
 // (what the web and `teamax update status` show), request.json (an "update now" waiting for the agent), lock, the
 // download and the unpacked bundle. Its log is logs/update.log.
+import { Database } from 'bun:sqlite'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { TeamSettings } from '@mycel/shared/api'
+import { defaultTimeZone, isValidTimeZone, zonedParts, zonedToUtc } from '../system/time-zone'
 import { compareVersions } from '../system/update'
-import { CHANNELS, decide, DEFAULT_FEED, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
-import { addInstaller, readIndex } from './desktop'
+import { DEFAULT_UPDATE_WINDOW, inWindow } from '../system/update-job'
+import { rolloutTurn, type RolloutTurn } from '../system/rollout'
+import { CHANNELS, decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_RELEASE_KEYS, ReleaseError, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from './release'
+import { addInstaller, ensureDir, planAdd, readIndex } from './desktop'
+import { reserveBytes, snapshotOf } from '../system/storage'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import { PRODUCT } from '@mycel/shared'
 
@@ -34,7 +47,8 @@ import { PRODUCT } from '@mycel/shared'
 
 export interface UpdateSettings {
   channel: Channel
-  /** local time of the nightly check, HH:MM */
+  /** before 0.2.19: the nightly time in this Mac's clock, HH:MM (`teamax update time`). The schedule is the team's update
+   * window now (officeSchedule); a time other than 03:00 set before still counts while the team has no window. */
   time: string
   paused: boolean
   /** tests only: a feed on this Mac (http://127.0.0.1:<port>); anything else is ignored */
@@ -49,8 +63,9 @@ export interface UpdateState {
   lastCheckAt: string | null
   /** what the last run (or check) found */
   last: { kind: ResultKind; at: string; version: string | null; message: string | null } | null
-  /** a newer version on the feed that is not installed yet */
-  available: { version: string; channel: Channel; notes: string; publishedAt: string } | null
+  /** a newer version on the feed that is not installed yet; turnAt: when the nightly run may take it in its staged
+   * roll-out (null: never with this release), absent when nothing waits (officeRolloutTurn) */
+  available: { version: string; channel: Channel; notes: string; publishedAt: string; turnAt?: string | null } | null
   /** the last install attempt */
   lastUpdate: { from: string; to: string; at: string; result: 'updated' | 'rolled-back' | 'failed'; error: string | null } | null
   /** versions that failed and were rolled back: the nightly run does not try them again */
@@ -59,8 +74,10 @@ export interface UpdateState {
   running: { pid: number; since: string; step: UpdateStep; phase: string; target: string | null } | null
   /** the Windows desktop app last put into data/downloads */
   desktop: { version: string; at: string } | null
+  /** a nightly update that found answers running until its window closed, since when (the last resort after 3 days) */
+  deferred?: { version: string; since: string } | null
 }
-const emptyState = (): UpdateState => ({ lastCheckAt: null, last: null, available: null, lastUpdate: null, failed: {}, running: null, desktop: null })
+const emptyState = (): UpdateState => ({ lastCheckAt: null, last: null, available: null, lastUpdate: null, failed: {}, running: null, desktop: null, deferred: null })
 
 export interface UpdatePaths { dir: string; settings: string; state: string; request: string; lock: string; download: string; staging: string; log: string }
 export function updatePaths(home: string): UpdatePaths {
@@ -127,14 +144,111 @@ function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM' }
 }
 
-/** The next nightly window after `now` (local time), or null while paused. */
-export function nextWindow(time: string, now = new Date(), paused = false): Date | null {
+// ---- the schedule: the team's update window (one setting for every kind of install) -----------------------------
+
+export interface OfficeSchedule {
+  /** "HH:mm-HH:mm" in timeZone (update-job.ts inWindow: equal ends never open) */
+  window: string
+  timeZone: string
+  /** team = Admin > Team settings; legacy = `teamax update time` of an older version; default = 03:00-05:00 */
+  source: 'team' | 'legacy' | 'default'
+}
+
+const plus = (hhmm: string, min: number) => { const [h, m] = hhmm.split(':').map(Number) as [number, number]; const t = (h * 60 + m + min) % 1440; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` }
+
+/** The team's update window and time zone, read from the database (read only; the same values the server's
+ * getTeamSettings / teamTimeZone give: an invalid stored window is "00:00-00:00", which never opens). A team without a
+ * window gets the time an older `teamax update time` set (as its window's start, two hours long), else 03:00-05:00. */
+export function officeSchedule(home: string, env: Record<string, string | undefined> = process.env): OfficeSchedule {
+  let window: string | null = null, tz: string | null = null
+  try {
+    const db = new Database(path.join(officePaths(home).data, 'app.db'), { readonly: true })
+    try {
+      for (const r of db.query("SELECT key, value FROM settings WHERE key IN ('updateWindow', 'timeZone')").all() as { key: string; value: string }[]) {
+        let v: unknown
+        try { v = JSON.parse(r.value) } catch { v = undefined }
+        if (r.key === 'updateWindow') window = TeamSettings.shape.updateWindow.safeParse(v).success ? (v as string | null) : '00:00-00:00'
+        else if (isValidTimeZone(v)) tz = v
+      }
+    } finally { db.close() }
+  } catch { /* no database yet, or not readable: the defaults */ }
+  const timeZone = tz ?? defaultTimeZone(env)
+  if (window) return { window, timeZone, source: 'team' }
+  const legacy = readUpdateSettings(home).time
+  if (legacy !== DEFAULT_UPDATE_SETTINGS.time) return { window: `${legacy}-${plus(legacy, 120)}`, timeZone, source: 'legacy' }
+  return { window: DEFAULT_UPDATE_WINDOW, timeZone, source: 'default' }
+}
+
+/** The install id of this office (the server's own, server/src/admin/settings.ts installId: MYCEL_INSTALL_ID, else the
+ * settings table, read only), for the staged roll-out (system/rollout.ts); null when there is none yet: the last wave. */
+export function officeInstallId(home: string, env: Record<string, string | undefined> = process.env): string | null {
+  const e = env.MYCEL_INSTALL_ID
+  if (e && /^[A-Za-z0-9._-]{1,128}$/.test(e)) return e
+  try {
+    const db = new Database(path.join(officePaths(home).data, 'app.db'), { readonly: true })
+    try {
+      const r = db.query("SELECT value FROM settings WHERE key = 'system.installId'").get() as { value: string } | null
+      const v: unknown = r ? JSON.parse(r.value) : null
+      return typeof v === 'string' && v ? v : null
+    } finally { db.close() }
+  } catch { return null }
+}
+
+/** This Mac's turn for a release in its staged roll-out (system/rollout.ts): the same rule as a Linux server's. */
+export function officeRolloutTurn(home: string, r: Pick<OfficeRelease, 'rollout' | 'publishedAt'>, channel: Channel, now: Date): RolloutTurn {
+  return rolloutTurn(r, officeInstallId(home), { now, channel })
+}
+
+/** When the window that holds `now` closes (the next end after now, in the window's zone). */
+export function windowEnd(window: string, timeZone: string, now: Date): Date {
+  const to = window.split('-')[1]!
+  const [h, m] = to.split(':').map(Number) as [number, number]
+  const p = zonedParts(now, timeZone)
+  let end = zonedToUtc(p.y, p.m, p.d, h, m, timeZone)
+  if (end.getTime() <= now.getTime()) {
+    const next = zonedParts(new Date(now.getTime() + 86_400_000), timeZone)
+    end = zonedToUtc(next.y, next.m, next.d, h, m, timeZone)
+  }
+  return end
+}
+
+/** The agent's next run that the window lets go on (it starts every 15 minutes: :00, :15, :30, :45), or null while
+ * paused or when the window never opens. */
+export function nextRunAt(s: Pick<OfficeSchedule, 'window' | 'timeZone'>, now = new Date(), paused = false): Date | null {
   if (paused) return null
-  const m = TIME_RE.exec(time) ?? TIME_RE.exec(DEFAULT_UPDATE_SETTINGS.time)!
-  const d = new Date(now)
-  d.setHours(Number(m[1]), Number(m[2]), 0, 0)
-  if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1)
-  return d
+  const q = 15 * 60_000
+  const up = (t: number) => Math.ceil(t / q) * q
+  // inside the window now: the next start; else the first start after the window opens today, tomorrow or the day
+  // after (a few zone conversions: the web asks for this every few seconds while an update runs)
+  const next = up(now.getTime() + 1)
+  if (inWindow(s.window, new Date(next), s.timeZone)) return new Date(next)
+  const [h, m] = s.window.slice(0, 5).split(':').map(Number) as [number, number]
+  const today = zonedParts(now, s.timeZone)
+  for (let day = 0; day < 3; day++) {
+    // calendar days in the team's zone (not now + 24 h: a day around a clock change is 23 or 25 hours)
+    const c = new Date(Date.UTC(today.y, today.m - 1, today.d + day, 12))
+    const [y, mo, d] = [c.getUTCFullYear(), c.getUTCMonth() + 1, c.getUTCDate()]
+    const start = zonedToUtc(y, mo, d, h, m, s.timeZone)
+    const t = up(start.getTime())
+    if (t > now.getTime() && inWindow(s.window, new Date(t), s.timeZone)) return new Date(t)
+    // a start the clocks skip that night (02:30 on a spring-forward night): the quarters of that day
+    const sp = zonedParts(start, s.timeZone)
+    if (sp.h !== h || sp.min !== m) {
+      const from = zonedToUtc(y, mo, d, 0, 0, s.timeZone).getTime()
+      for (let x = up(Math.max(from, now.getTime() + 1)); x < from + 25 * 3600_000; x += q) if (inWindow(s.window, new Date(x), s.timeZone)) return new Date(x)
+    }
+  }
+  return null
+}
+
+/** A run of the agent now: does the window let it go on, and until when may it wait for running answers. */
+export function scheduledRun(home: string, now = new Date()): { go: false; schedule: OfficeSchedule } | { go: true; schedule: OfficeSchedule; quietBy: Date; lastResort: boolean } {
+  const schedule = officeSchedule(home)
+  if (!inWindow(schedule.window, now, schedule.timeZone)) return { go: false, schedule }
+  const end = windowEnd(schedule.window, schedule.timeZone, now)
+  const quietBy = new Date(Math.min(end.getTime(), now.getTime() + RUN_WAIT_MS))
+  const d = readUpdateState(home).deferred
+  return { go: true, schedule, quietBy, lastResort: !!d && now.getTime() - Date.parse(d.since) >= LAST_RESORT_MS }
 }
 
 export const installedVersion = (home: string): string | null => {
@@ -148,10 +262,10 @@ export const updateLabel = (s: Pick<OfficeSettings, 'label'>) => `${s.label}.upd
 const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /** The update agent: not kept alive, not run at load, a normal process (Background throttles disk I/O: unpacking the
- * zip took a minute, and "update now" is waited for); launchd starts it at the nightly time (and after a wake if the
- * Mac slept through it) and when kickstarted. PATH has Claude Code's folder (the new installer checks it). */
-export function updatePlist(s: OfficeSettings, time: string, envPath: string): string {
-  const m = TIME_RE.exec(time) ?? TIME_RE.exec(DEFAULT_UPDATE_SETTINGS.time)!
+ * zip took a minute, and "update now" is waited for); launchd starts it every 15 minutes (and after a wake if the Mac
+ * slept through one) and when kickstarted. A run outside the team's update window ends at once, without network or a
+ * log line (update-cli.ts `update run`). PATH has Claude Code's folder (the new installer checks it). */
+export function updatePlist(s: OfficeSettings, envPath: string): string {
   const p = officePaths(s.home)
   const args = [path.join(s.home, 'app', 'bin', 'bun'), path.join(s.home, 'app', 'server', 'src', 'office.js'), 'update', 'run', '--home', s.home]
   const env: Record<string, string> = { PATH: envPath, HOME: os.homedir(), LANG: 'ko_KR.UTF-8', NO_COLOR: '1', TEAMAX_HOME: s.home, ...(s.claudeBin ? { TEAMAX_CLAUDE_BIN: s.claudeBin } : {}) }
@@ -168,7 +282,7 @@ export function updatePlist(s: OfficeSettings, time: string, envPath: string): s
 ${Object.entries(env).map(([k, v]) => `    <key>${k}</key><string>${xml(v)}</string>`).join('\n')}
   </dict>
   <key>StartCalendarInterval</key>
-  <dict><key>Hour</key><integer>${Number(m[1])}</integer><key>Minute</key><integer>${Number(m[2])}</integer></dict>
+  <array>${[0, 15, 30, 45].map((min) => `<dict><key>Minute</key><integer>${min}</integer></dict>`).join('')}</array>
   <key>RunAtLoad</key><false/>
   <key>ProcessType</key><string>Standard</string>
   <key>StandardOutPath</key><string>${xml(path.join(p.logs, 'update.log'))}</string>
@@ -184,7 +298,12 @@ export interface OfficeUpdateView {
   current: string
   channel: Channel
   paused: boolean
+  /** the window's start (older web pages show it) */
   time: string
+  /** the team's update window, where it comes from and its zone (officeSchedule) */
+  window: string
+  windowSource: OfficeSchedule['source']
+  timeZone: string
   nextWindowAt: string | null
   lastCheckAt: string | null
   last: UpdateState['last']
@@ -203,9 +322,11 @@ export function updateView(home: string, o: { now?: Date; agentInstalled?: boole
   const available = st.available && compareVersions(st.available.version, current) > 0 ? st.available : null
   const s = (() => { try { return loadSettings(home) } catch { return null } })()
   const agentInstalled = o.agentInstalled ?? (s ? fs.existsSync(officePaths(home).plist(updateLabel(s))) : false)
-  const next = nextWindow(set.time, o.now ?? new Date(), set.paused)
+  const sched = officeSchedule(home)
+  const next = nextRunAt(sched, o.now ?? new Date(), set.paused)
   return {
-    current, channel: set.channel, paused: set.paused, time: set.time, nextWindowAt: agentInstalled && next ? next.toISOString() : null,
+    current, channel: set.channel, paused: set.paused, time: sched.window.slice(0, 5), window: sched.window, windowSource: sched.source, timeZone: sched.timeZone,
+    nextWindowAt: agentInstalled && next ? next.toISOString() : null,
     lastCheckAt: st.lastCheckAt, last: st.last, available, lastUpdate: st.lastUpdate,
     running: st.running ? { since: st.running.since, step: st.running.step ?? 'check', phase: st.running.phase, target: st.running.target } : null,
     requested: fs.existsSync(updatePaths(home).request), agentInstalled, desktop: st.desktop,
@@ -279,6 +400,10 @@ const MANIFEST_MAX = 256 * 1024
 export const HEALTH_WAIT_MS = 150_000
 export const STABLE_MS = 15_000
 export const IDLE_WAIT_MS = 10 * 60_000
+/** a nightly run waits for a quiet moment at most this long (the agent's next start in the window goes on) */
+export const RUN_WAIT_MS = 60 * 60_000
+/** an update deferred this long goes in after IDLE_WAIT_MS even with answers running */
+export const LAST_RESORT_MS = 72 * 3600_000
 
 export interface RunOptions {
   /** 'schedule' = the nightly run (honours pause and earlier failures); 'now' = asked for; 'check' = look only */
@@ -288,6 +413,11 @@ export interface RunOptions {
   healthWaitMs?: number
   stableMs?: number
   idleWaitMs?: number
+  /** the nightly run inside the team's window (scheduledRun): wait for running answers until then and leave the update
+   * for a later run instead of interrupting them; without it a run waits idleWaitMs and goes on */
+  quietBy?: Date
+  /** the update was deferred for 3 days: wait idleWaitMs, then go on */
+  lastResort?: boolean
   /** release public keys (tests sign with their own) */
   keys?: readonly string[]
 }
@@ -296,28 +426,43 @@ export interface RunResult { kind: ResultKind; version: string | null; message: 
 /** fetch and verify the channel's manifest */
 export async function fetchRelease(home: string, d: Pick<UpdateDeps, 'fetch'>, keys: readonly string[] = OFFICE_RELEASE_KEYS): Promise<OfficeRelease> {
   const set = readUpdateSettings(home)
-  const feed = feedOf(set)
-  const url = manifestUrl(feed, set.channel)
+  return fetchManifest(feedOf(set), set.channel, d, keys)
+}
+
+/** GET <feed>/<dir>/<channel>.json and verify it (signature with a baked key, the channel, every file on the feed); the
+ * office updater and a Linux server's Windows app (system/windows-app.ts). NotPublished for 404. `version`: that
+ * version's own copy, <feed>/<dir>/<version>/<channel>.json (scripts/release/publish.ts keeps it for good), which must
+ * be that version. */
+export async function fetchManifest(feed: string, channel: Channel, d: Pick<UpdateDeps, 'fetch'>, keys: readonly string[] = OFFICE_RELEASE_KEYS, version?: string): Promise<OfficeRelease> {
+  if (version !== undefined && !VERSION_RE.test(version)) throw new NotPublished(`${version} is not a release version`)
+  const url = version === undefined ? manifestUrl(feed, channel) : fileUrl(feed, version, `${channel}.json`)
   let res: Response
   try { res = await d.fetch(`${url}?t=${Date.now()}`, { redirect: 'error', signal: AbortSignal.timeout(30_000), headers: { 'cache-control': 'no-cache' } }) } catch (e) { throw new UpdateFailure(`cannot reach ${feed}: ${(e as Error).message}`) }
-  if (res.status === 404) throw new NotPublished(`no ${set.channel} release published yet`)
+  if (res.status === 404) throw new NotPublished(version === undefined ? `no ${channel} release published yet` : `the feed keeps no ${channel} manifest of ${version}`)
   if (!res.ok) throw new UpdateFailure(`${url}: HTTP ${res.status}`)
   const buf = new Uint8Array(await res.arrayBuffer())
   if (buf.byteLength > MANIFEST_MAX) throw new UpdateFailure(`${url} is larger than a manifest`)
-  return verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel: set.channel, feed })
+  const r = verifyRelease(Buffer.from(buf).toString('utf8'), { keys, channel, feed })
+  if (version !== undefined && r.version !== version) throw new ReleaseError(`${url} is the manifest of ${r.version}, not ${version}`)
+  return r
 }
 
-/** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. */
-export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 'fetch'>): Promise<string> {
+/** Download a release file into `dir`, checking size and SHA-256 on the way. Returns the file. `o.sha512` gets the
+ * file's SHA-512 (base64, electron-updater's latest.yml), computed on the way too. */
+export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 'fetch'>, o: { sha512?: (b64: string) => void } = {}): Promise<string> {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   const dest = path.join(dir, f.file)
-  if (fs.existsSync(dest) && fs.statSync(dest).size === f.size && sha256File(dest) === f.sha256) return dest // already here (an earlier try)
+  if (fs.existsSync(dest) && fs.statSync(dest).size === f.size && sha256File(dest) === f.sha256) { // already here (an earlier try)
+    o.sha512?.(sha256File(dest, 'sha512', 'base64'))
+    return dest
+  }
   const part = `${dest}.part`
   fs.rmSync(part, { force: true })
   let res: Response
   try { res = await d.fetch(f.url, { redirect: 'error', signal: AbortSignal.timeout(60 * 60_000) }) } catch (e) { throw new UpdateFailure(`download ${f.file}: ${(e as Error).message}`) }
   if (!res.ok || !res.body) throw new UpdateFailure(`download ${f.file}: HTTP ${res.status}`)
   const h = crypto.createHash('sha256')
+  const h512 = o.sha512 ? crypto.createHash('sha512') : null
   const fd = fs.openSync(part, 'wx', 0o600)
   let n = 0
   try {
@@ -325,6 +470,7 @@ export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 
       n += c.byteLength
       if (n > f.size) throw new UpdateFailure(`${f.file} is larger than the release says (${f.size} bytes)`)
       h.update(c)
+      h512?.update(c)
       fs.writeSync(fd, c)
     }
   } catch (e) {
@@ -333,8 +479,11 @@ export async function download(f: ReleaseFile, dir: string, d: Pick<UpdateDeps, 
   }
   fs.closeSync(fd)
   const sha = h.digest('hex')
+  // shorter than the release: the connection ended early (said as a download problem, so it is simply tried again)
+  if (n < f.size) { fs.rmSync(part, { force: true }); throw new UpdateFailure(`download ${f.file}: it ended after ${n} of ${f.size} bytes`) }
   if (n !== f.size || sha !== f.sha256) { fs.rmSync(part, { force: true }); throw new UpdateFailure(`${f.file} does not match the signed release (size ${n}/${f.size}, SHA-256 ${sha.slice(0, 12)}… / ${f.sha256.slice(0, 12)}…)`) }
   fs.renameSync(part, dest)
+  if (h512) o.sha512!(h512.digest('base64'))
   return dest
 }
 
@@ -380,11 +529,19 @@ export async function unpack(zip: string, version: string, home: string, d: Pick
   return dir
 }
 
-/** answers running on the server right now (status/status.json, written every 30 s); null = unknown */
+/** answers running on the server right now (status/status.json, written every 30 s); null = unknown (old or missing:
+ * the caller asks the server whether it is up, update audit O4: an unknown count used to mean "do not wait") */
 export function runningAnswers(home: string, now = Date.now()): number | null {
   const j = readJson(path.join(home, 'status', 'status.json')) as { writtenAt?: string; queue?: { running?: number } } | null
   if (!j?.writtenAt || now - Date.parse(j.writtenAt) > 120_000) return null
   return typeof j.queue?.running === 'number' ? j.queue.running : null
+}
+
+/** the server's own maintenance running now (status.json: a backup, a restore), null for none or an old file */
+export function serverMaintenance(home: string, now = Date.now()): string | null {
+  const j = readJson(path.join(home, 'status', 'status.json')) as { writtenAt?: string; maintenance?: unknown } | null
+  if (!j?.writtenAt || now - Date.parse(j.writtenAt) > 120_000) return null
+  return typeof j.maintenance === 'string' && j.maintenance ? j.maintenance.slice(0, 40) : null
 }
 
 function toolEnv(home: string): Record<string, string> {
@@ -427,38 +584,130 @@ async function waitVersion(port: number, want: string, d: UpdateDeps, ms: number
 }
 
 /** Offer the release's Windows installer to the desks: data/downloads/<installer>, latest.yml, index.json. */
-export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>): Promise<string | null> {
+export async function deliverWindows(home: string, r: OfficeRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<string | null> {
   const w = r.windows
   if (!w) return null
-  const dir = path.join(officePaths(home).data, 'downloads')
-  const st = readUpdateState(home)
-  const items = readIndex(dir)
-  const have = items.find((i) => i.platform === 'windows' && i.file === w.installer.file && i.version === w.version)
-  if (have && st.desktop?.version === w.version && fs.existsSync(path.join(dir, w.installer.file)) && fs.existsSync(path.join(dir, 'latest.yml'))) return null
-  const newer = items.find((i) => i.platform === 'windows' && compareVersions(i.version, w.version) > 0)
-  if (newer) { d.log(`Windows app ${newer.version} is already offered (newer than ${w.version}); left as it is`); return null }
-  const tmp = path.join(updatePaths(home).download, 'windows')
-  const exe = await download(w.installer, tmp, d)
-  const yml = await download(w.latestYml, tmp, d)
-  checkLatestYml(fs.readFileSync(yml, 'utf8'), w.version, w.installer.file, sha256File(exe, 'sha512', 'base64'), w.installer.size)
-  // the same checks and index.json as `teamax desktop add` (./desktop.ts): an NSIS installer, the only Windows one
-  const added = addInstaller(dir, exe, { version: w.version })
-  if (added.item.sha256 !== w.installer.sha256) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
-  // latest.yml last: it never names a file that is not there yet
-  const dest = path.join(dir, 'latest.yml')
-  const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
-  fs.copyFileSync(yml, t)
-  fs.chmodSync(t, 0o600)
-  fs.renameSync(t, dest)
-  fs.rmSync(tmp, { recursive: true, force: true })
+  let res: Awaited<ReturnType<typeof offerWindows>>
+  try { res = await offerWindows(path.join(officePaths(home).data, 'downloads'), path.join(updatePaths(home).download, 'windows'), w, d, o) }
+  finally {
+    // update/download/ itself when nothing else waits there (O9: an empty folder was left after every update; a failed
+    // download too). rmdir removes only an empty folder: a deferred release's zip stays
+    try { fs.rmdirSync(updatePaths(home).download) } catch {}
+  }
+  if (res.kind === 'newer') { d.log(`Windows app ${res.version} is already offered (newer than ${w.version}); left as it is`); return null }
+  if (res.kind === 'no-room') throw new UpdateFailure(res.message)
+  if (res.kind === 'current') {
+    if (readUpdateState(home).desktop?.version !== w.version) patchUpdateState(home, (s) => { s.desktop = { version: w.version, at: new Date().toISOString() } })
+    return null
+  }
   patchUpdateState(home, (s) => { s.desktop = { version: w.version, at: new Date().toISOString() } })
   d.log(`Windows app ${w.version} offered to the desks (${w.installer.file}, latest.yml)`)
   return w.version
 }
 
+export type WindowsRelease = NonNullable<OfficeRelease['windows']>
+export type StatfsLike = (p: string) => { bsize: number | bigint; blocks: number | bigint; bfree: number | bigint; bavail: number | bigint }
+export type WindowsOffer =
+  | { kind: 'offered' | 'current'; version: string }
+  /** a newer Windows app is offered (put there by hand): left as it is, never replaced by an older one */
+  | { kind: 'newer'; version: string }
+  /** the disk has no room for the download (nothing was downloaded) */
+  | { kind: 'no-room'; message: string }
+
+/** `dir` offers exactly this release's Windows app: index.json lists the installer with its SHA-256, the file is there
+ * with that size, and latest.yml is the release's (by SHA-256). */
+export function windowsOffered(dir: string, w: WindowsRelease, items = readIndex(dir)): boolean {
+  const i = items.find((x) => x.platform === 'windows' && x.file === w.installer.file)
+  if (!i || i.version !== w.version || i.sha256 !== w.installer.sha256) return false
+  try {
+    if (fs.statSync(path.join(dir, w.installer.file)).size !== w.installer.size) return false
+    return sha256File(path.join(dir, 'latest.yml')) === w.latestYml.sha256
+  } catch { return false }
+}
+
+/** Room for `bytes` more next to `p`: what is left keeps the reserve below which the team folder refuses writes
+ * (system/storage.ts: max(512 MiB, 2% of the disk)), so a download never takes the team's last space. */
+export function roomFor(p: string, bytes: number, statfs: StatfsLike = (x) => fs.statfsSync(x)): { ok: boolean; freeBytes: number; needBytes: number } {
+  let at = path.resolve(p)
+  while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
+  const s = snapshotOf(statfs(at))
+  const needBytes = bytes + reserveBytes(s.totalBytes)
+  return { ok: s.freeBytes >= needBytes, freeBytes: s.freeBytes, needBytes }
+}
+
+/**
+ * Put a verified release's Windows installer and its latest.yml into the downloads folder `dir` (index.json), so the
+ * desks' app (electron-updater, generic provider = <team address>/downloads/) updates from its own team server. Both
+ * files are downloaded into `tmp` with their size and SHA-256 checked against the signed manifest, latest.yml must name
+ * exactly that installer (version, sha512, size), the installer gets the checks of `teamax desktop add` and replaces
+ * every older Windows installer in the folder (moved in, not copied: the folder needs room for one copy), and latest.yml
+ * comes last, so it never names a file that is not there. `tmp` is removed afterwards, whatever happened.
+ */
+export async function offerWindows(dir: string, tmp: string, w: WindowsRelease, d: Pick<UpdateDeps, 'fetch' | 'log'>, o: { statfs?: StatfsLike } = {}): Promise<WindowsOffer> {
+  const items = readIndex(dir)
+  if (windowsOffered(dir, w, items)) return { kind: 'current', version: w.version }
+  const newer = items.find((i) => i.platform === 'windows' && compareVersions(i.version, w.version) > 0)
+  if (newer) return { kind: 'newer', version: newer.version }
+  // the installer is already listed and in place (its SHA-256 recorded when it was added), only latest.yml is not the
+  // release's: that file alone (pinned by the signed manifest) is put right; the 110 MB file is not fetched or read again
+  const listed = items.find((i) => i.platform === 'windows' && i.file === w.installer.file && i.version === w.version && i.sha256 === w.installer.sha256)
+  const inPlace = !!listed && (() => { try { return fs.statSync(path.join(dir, w.installer.file)).size === w.installer.size } catch { return false } })()
+  const room = roomFor(tmp, (inPlace ? 0 : w.installer.size) + w.latestYml.size, o.statfs)
+  if (!room.ok) return { kind: 'no-room', message: `not enough disk space for the Windows app ${w.version} (${Math.ceil(room.needBytes / 1048576)} MB needed with the reserve, ${Math.floor(room.freeBytes / 1048576)} MB free)` }
+  fs.rmSync(tmp, { recursive: true, force: true })
+  if (inPlace) {
+    try {
+      const yml = await download(w.latestYml, tmp, d)
+      const text = fs.readFileSync(yml, 'utf8')
+      const val = (k: string) => ymlValue(text, k)
+      if (val('version') !== w.version || val('path') !== w.installer.file) throw new UpdateFailure(`latest.yml names ${val('path')} ${val('version')}, not ${w.installer.file} ${w.version}`)
+      const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
+      try {
+        fs.copyFileSync(yml, t)
+        fs.chmodSync(t, 0o600)
+        fs.renameSync(t, path.join(dir, 'latest.yml'))
+      } finally { fs.rmSync(t, { force: true }) }
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+    return { kind: 'offered', version: w.version }
+  }
+  const wasThere = fs.existsSync(path.join(dir, w.installer.file))
+  try {
+    // the hashes on the way (a Linux server does this in its own process: no second pass over 110 MB there)
+    let exe512 = ''
+    const exe = await download(w.installer, tmp, d, { sha512: (b) => { exe512 = b } })
+    const yml = await download(w.latestYml, tmp, d)
+    checkLatestYml(fs.readFileSync(yml, 'utf8'), w.version, w.installer.file, exe512, w.installer.size)
+    // the same checks as `teamax desktop add` (./desktop.ts: an NSIS installer, the only Windows one), decided before
+    // anything in the folder changes
+    const plan = planAdd(dir, exe, { version: w.version })
+    if (plan.action === 'refused') throw new UpdateFailure(plan.reason)
+    if (plan.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} would be offered as ${plan.item.file}`)
+    // latest.yml goes into the folder first under a name that is never served, so a full disk stops here, before
+    // index.json changes; it takes its own name last, so it never names a file that is not there yet
+    ensureDir(dir)
+    const t = path.join(dir, `.latest.yml.tmp-${process.pid}`)
+    try {
+      fs.copyFileSync(yml, t)
+      fs.chmodSync(t, 0o600)
+      const added = addInstaller(dir, exe, { version: w.version, move: true, sha256: w.installer.sha256 })
+      if (added.item.sha256 !== w.installer.sha256 || added.item.file !== w.installer.file) throw new UpdateFailure(`${w.installer.file} changed while it was offered`)
+      fs.renameSync(t, path.join(dir, 'latest.yml'))
+    } finally { fs.rmSync(t, { force: true }) }
+  } catch (e) {
+    // moved in but not listed (index.json could not be written): not served, so not left to take 110 MB
+    const f = path.join(dir, w.installer.file)
+    if (!wasThere && fs.existsSync(f) && !readIndex(dir).some((i) => i.file === w.installer.file)) fs.rmSync(f, { force: true })
+    throw e
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+  return { kind: 'offered', version: w.version }
+}
+
+/** a top-level `key: value` of latest.yml (quotes off) */
+export const ymlValue = (text: string, k: string): string | null => new RegExp(`^${k}:\\s*'?([^'\\n]*?)'?\\s*$`, 'm').exec(text)?.[1] ?? null
+
 /** electron-updater's latest.yml of the installer: the version, a plain file name (no URL elsewhere), its sha512. */
 export function checkLatestYml(text: string, version: string, file: string, sha512b64: string, size: number) {
-  const val = (k: string) => new RegExp(`^${k}:\\s*'?([^'\\n]*?)'?\\s*$`, 'm').exec(text)?.[1] ?? null
+  const val = (k: string) => ymlValue(text, k)
   if (val('version') !== version) throw new UpdateFailure(`latest.yml names version ${val('version')}, not ${version}`)
   if (val('path') !== file) throw new UpdateFailure(`latest.yml names ${val('path')}, not ${file}`)
   if (val('sha512') !== sha512b64) throw new UpdateFailure('latest.yml sha512 does not match the installer')
@@ -506,18 +755,30 @@ export async function runUpdate(home: string, o: RunOptions): Promise<RunResult>
       return finish({ kind: e instanceof ReleaseError ? 'refused' : 'failed', version: null, message: (e as Error).message })
     }
     const dec = decide(current, r)
+    // the staged roll-out (system/rollout.ts): the nightly run waits for this Mac's turn; "update now" does not
+    const turn = dec.kind === 'install' ? officeRolloutTurn(home, r, set.channel, d.now()) : null
     patchUpdateState(home, (s) => {
       s.lastCheckAt = d.now().toISOString()
-      s.available = dec.kind === 'install' || dec.kind === 'too-old' ? { version: r.version, channel: r.channel, notes: r.notes, publishedAt: r.publishedAt } : null
+      s.available = dec.kind === 'install' || dec.kind === 'too-old'
+        ? { version: r.version, channel: r.channel, notes: r.notes, publishedAt: r.publishedAt, ...(turn?.wait ? { turnAt: turn.at?.toISOString() ?? null } : {}) }
+        : null
     })
     if (dec.kind === 'older' || dec.kind === 'too-old') return finish({ kind: 'refused', version: r.version, message: dec.reason })
     if (dec.kind === 'current') {
+      if (o.reason !== 'check') patchUpdateState(home, (s) => { s.deferred = null })
       if (o.reason !== 'check') await deliverWindows(home, r, d).catch((e) => d.log(`Windows app not offered: ${(e as Error).message}`))
       return finish({ kind: 'up-to-date', version: current, message: null })
     }
     if (o.reason === 'check') return finish({ kind: 'available', version: r.version, message: null })
     const failedBefore = readUpdateState(home).failed[r.version]
     if (failedBefore && o.reason === 'schedule') return finish({ kind: 'skipped', version: r.version, message: `${r.version} failed on ${failedBefore.at} and was rolled back; not tried again at night (teamax update now tries again)` })
+    if (turn?.wait && o.reason === 'schedule') {
+      // a deferral left by an earlier release must not carry its three days over to this one (the last resort would cut
+      // answers off at this release's turn), like the root update timer
+      patchUpdateState(home, (s) => { if (s.deferred && s.deferred.version !== r.version) s.deferred = null })
+      const when = turn.at ? `this Mac's turn comes at ${turn.at.toISOString()}` : 'this release does not reach this Mac by itself'
+      return finish({ kind: 'skipped', version: r.version, message: `${r.version} is in a staged roll-out: ${when} (teamax update now installs it now)` })
+    }
     return finish(await install(home, current, r, d, o, phase))
   } catch (e) {
     return finish({ kind: 'failed', version: null, message: (e as Error).message })
@@ -553,12 +814,32 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
     phase('precheck', `checking the new installer (${target})`, target)
     const chk = await d.exec(['/bin/bash', path.join(bundle, 'office-install.sh'), '--prefix', home, '--update', '--check-only'], { cwd: bundle, env: { ...toolEnv(home), TEAMAX_UPDATE_RUN: '1' }, capture: true, timeoutMs: 5 * 60_000 })
     if (chk.code !== 0) return fail(`the new installer's check failed: ${chk.out.split('\n').slice(-3).join(' ').slice(0, 600)}`)
-    // running answers finish first (an answer that is still running after 10 minutes is interrupted)
-    const idleEnd = d.now().getTime() + (o.idleWaitMs ?? IDLE_WAIT_MS)
-    for (let n = runningAnswers(home, d.now().getTime()); n && n > 0 && d.now().getTime() < idleEnd; n = runningAnswers(home, d.now().getTime())) {
-      phase('wait-idle', `waiting for ${n} running answer(s) to finish`, target)
-      await d.sleep(15_000)
+    // running answers finish first. The nightly run waits until quietBy and then leaves the update for a later run;
+    // "update now" (and the last resort) waits idleWaitMs, then an answer still running is interrupted. A count the
+    // server did not write lately (status.json older than 2 minutes) counts as running while the server answers.
+    // what keeps the update waiting, '' for nothing: running answers, the server's own maintenance (a backup)
+    const busy = async (): Promise<string> => {
+      const now = d.now().getTime()
+      const m = serverMaintenance(home, now)
+      const n = runningAnswers(home, now)
+      if (n !== null) return n > 0 ? `${n} answer(s) still running` : m ? `the server's ${m} still running` : ''
+      return (await d.health(s.appPort)) === null ? '' : 'answers may be running (the server has not said lately)'
     }
+    let patient = o.reason === 'schedule' && !!o.quietBy && !o.lastResort
+    let idleEnd = patient ? o.quietBy!.getTime() : d.now().getTime() + (o.idleWaitMs ?? IDLE_WAIT_MS)
+    let why = await busy()
+    while (why && d.now().getTime() < idleEnd) {
+      phase('wait-idle', `waiting: ${why}`, target)
+      await d.sleep(15_000)
+      // "update now" while the nightly run waits: it waits as "update now" does from here
+      if (patient && takeRequest(home)) { patient = false; idleEnd = d.now().getTime() + (o.idleWaitMs ?? IDLE_WAIT_MS); d.log('update now asked while waiting') }
+      why = await busy()
+    }
+    if (why && patient) {
+      const since = patchUpdateState(home, (x) => { x.deferred = { version: target, since: x.deferred?.since ?? d.now().toISOString() } }).deferred!.since
+      return { kind: 'skipped', version: target, message: `${why} when the update window's wait ended (${o.quietBy!.toISOString()}); ${target} waits for a quiet moment in the update window (deferred since ${since})` }
+    }
+    if (why) d.log(`${why}: installing anyway${o.lastResort ? ' (deferred for 3 days)' : ''}`)
     phase('backup', 'backing up the database (pre-update)', target)
     const app = path.join(home, 'app')
     const bk = await d.exec([path.join(app, 'bin', 'bun'), path.join(app, 'server', 'src', 'admin.js'), 'backup', '--scope', 'db', '--kind', 'pre-update'], { cwd: home, env: toolEnv(home), capture: true, timeoutMs: 15 * 60_000 })
@@ -590,6 +871,7 @@ async function install(home: string, current: string, r: OfficeRelease, d: Updat
   patchUpdateState(home, (x) => {
     x.lastUpdate = { from: current, to: target, at: d.now().toISOString(), result: 'updated', error: null }
     x.available = null
+    x.deferred = null
     delete x.failed[target]
   })
   // tidy: the unpacked bundle, the zip, an older failed app folder

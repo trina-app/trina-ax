@@ -22,7 +22,7 @@ import {
 } from '@mycel/shared/cloud-protocol'
 import type { Logger } from '../log'
 import { loadOrCreateKey } from '../relay-client/registration'
-import { BackupError, BackupManager, BackupMeta, endSessions, inspectDbCopy, restoreTeamChain, vacuumInto } from './backup'
+import { BackupError, BackupManager, BackupMeta, endSessions, inspectDbCopy, restoreTeamChain, vacuumInto, withoutHostingKey } from './backup'
 import type { InstallLayout } from './layout'
 import { walkTree } from './manifest'
 import { ageEncrypt, ageEncryptTo, readFileChunks, writeAtomic, zstdCompress, zstdDecompress, type Bytes } from './streams'
@@ -225,6 +225,8 @@ export async function archiveUpload(o: { dbFile: string; teamRoot: string; dataD
   const tmpDb = path.join(o.dataDir, `archive-${process.pid}.sqlite`)
   await vacuumInto(o.dbFile, tmpDb)
   try {
+    // the export is the team's: nothing of the hosting service's own goes with it
+    withoutHostingKey(tmpDb)
     const tree = await walkTree(o.teamRoot, { exclude: ['.system/backups'] })
     const entries: TarEntryInput[] = [
       { name: 'db', type: 'dir' }, { name: 'db/app.sqlite', type: 'file', source: tmpDb },

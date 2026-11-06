@@ -2,15 +2,22 @@
 // a resource the acting person must NOT reach unless the design says so — alice's private chat/file/project, the
 // finance folder, a trashed file — so a correct server answers 401/403/404 (never the data) to the wrong person.
 // The expected allow/deny per persona is computed from the endpoint's auth level and the resource's scope.
+import fs from 'node:fs'
+import path from 'node:path'
 import { ChatQueueSnapshot, CSRF_HEADER } from '@mycel/shared/api'
 import type { Client, Resp } from './instance'
-import { authOf, enc, levelExp, type Case, type Exp } from './matrix'
+import { authOf, enc, leaks, levelExp, type Case, type Exp } from './matrix'
 import { C, USER_OF, WHO, type Who, type World } from './world'
 import { P4_SPECS } from './p4-cases'
 import { INTEGRATION_SPECS } from './integrations-cases'
 import { TEAM_ICON_SPECS } from './team-icon-cases'
+import { PEOPLE_SPECS } from './people-cases'
 import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
+import { ROOM_SPECS } from './rooms-cases'
+import { SLACK_SPECS } from './slack-cases'
+import { PROMO_VIDEO_SPECS } from './promo-video-cases'
+import { INTRO_DECK_SPECS } from './intro-deck-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -26,9 +33,10 @@ type Scope =
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
+  | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
-export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void; todo?: Partial<Record<Who, string>>;
+export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
   /** the request carries intentionally-wrong credentials, or re-logs-in and swaps the client's cookie: a 2xx is not
    *  expected for the legit caller, so it is covered by the deny matrix + world build, not the positive-allow pass. */
   skipPositive?: boolean }
@@ -47,6 +55,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
+    case 'room-dm': return who === 'memberIn' || who === 'other'
     case 'nobody': return false
   }
 }
@@ -67,8 +76,13 @@ export const SPECS: Record<string, Spec> = {
   ...P4_SPECS,
   ...INTEGRATION_SPECS,
   ...TEAM_ICON_SPECS,
+  ...PEOPLE_SPECS,
   ...REMOTE_MCP_SPECS,
   ...PLUGIN_SPECS,
+  ...ROOM_SPECS,
+  ...SLACK_SPECS,
+  ...PROMO_VIDEO_SPECS,
+  ...INTRO_DECK_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
@@ -82,9 +96,22 @@ export const SPECS: Record<string, Spec> = {
   connectInfo: { build: (c) => c.get('/api/connect-info'), scope: 'byLevel' },
   lanFailure: { build: (c) => c.post('/api/connect-info/lan-failure', { code: 'unreachable' }), scope: 'byLevel' },
   mySessions: { build: (c) => c.get('/api/me/sessions'), scope: 'byLevel' },
+  // own usage only: nothing in the request names another person (tests/unit/a-my-usage.test.ts)
+  myUsage: { build: (c) => c.get('/api/me/usage'), scope: 'self' },
   revokeMySession: { skipPositive: true, build: (c, w) => c.del(`/api/me/sessions/${w.ids.aliceSession}`), scope: 'byLevel',
     // alice's session id: no one else may revoke it (cross-user). bob etc must 404, not kill her session.
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} revoked alice's session`) } },
+  // own account deletion request (shared/src/api/account-deletion.ts): the caller's own only, whatever the request
+  // names; the owner cannot ask (409, a state to change first, not a permission check)
+  myDeletionRequest: { build: (c) => c.get('/api/me/deletion-request?userId=alice'), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none') && r.json?.state !== 'pending') throw new Error(`unexpected state for ${who}: ${r.text}`) } },
+  requestAccountDeletion: { build: (c) => c.post('/api/me/deletion-request?userId=alice', { confirm: true }), scope: 'self',
+    check: (r, _w, who) => {
+      if (who === 'owner' && r.status !== 409) throw new Error(`the owner asked for their own account to be deleted: ${r.status}`)
+      if (who !== 'owner' && r.status < 300 && r.json?.state !== 'pending') throw new Error(`${who}'s request is not their own: ${r.text}`)
+    } },
+  cancelAccountDeletion: { build: (c) => c.del('/api/me/deletion-request?userId=alice'), scope: 'self',
+    check: (r, _w, who) => { if (r.status < 300 && r.json?.state !== (who === 'owner' ? 'owner' : 'none')) throw new Error(`${who}'s cancel left a request open: ${r.text}`) } },
   inviteInfo: { build: (c, w) => c.get(`/api/invites/${w.ids.inviteToken}`), scope: 'byLevel' },
   acceptInvite: { skipPositive: true, build: (c, w) => c.post(`/api/invites/${w.ids.inviteToken}/accept`, { username: 'newbie' + Math.random().toString(36).slice(2, 7), name: 'New Bie', password: 'Fresh-pass-Owl-3321-xy' }), scope: 'byLevel' },
   passwordResetInfo: { build: (c, w) => c.get(`/api/password-resets/${w.ids.resetToken}`), scope: 'byLevel' },
@@ -118,12 +145,22 @@ export const SPECS: Record<string, Spec> = {
   sendMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages`, { clientMessageId: cm(), attachmentIds: [], content: 'hi from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
   stop: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/stop`), scope: 'own-alice-chat' },
+  messageSources: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/sources`), scope: 'own-alice-chat' },
   regenerate: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/regenerate`, { clientMessageId: cm() }), scope: 'own-alice-chat' },
   editMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.userMsg}/edit`, { clientMessageId: cm(), content: 'x' }), scope: 'own-alice-chat' },
   selectBranch: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/branch`, { messageId: w.ids.userMsg }), scope: 'own-alice-chat' },
   listTurnRequests: { build: (c, w) => c.get(`/api/chats/${w.ids.chatB}/requests`), scope: 'own-alice-chat' },
   answerTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnB}/answer`, { kind: 'ask_user', requestId: w.ids.requestB, answer: 'from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} answered alice's card`) } },
+  // an open connect_service card of alice's turn (buildWorld's connectCard option, which the matrix sets): only alice
+  // may finish it. A skip is enough to show who reaches it: anyone else who got through would close it (2xx). Alice's
+  // own skip runs in phase 2 and closes it (or meets a card whose time ran out: 409).
+  connectTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnConnect}/connect`, { action: 'skip', requestId: w.ids.requestConnect }), scope: 'own-alice-chat',
+    check: (r, w, who) => {
+      if (!w.ids.turnConnect) throw new Error('the world has no connect_service card (buildWorld connectCard)')
+      if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} finished alice's connect card`)
+      if (who === 'memberIn' && r.status !== 409 && !(r.status === 200 && r.json?.state === 'skipped')) throw new Error(`alice could not finish her own connect card: ${r.status}`)
+    } },
   listProjects: { build: (c) => c.get('/api/projects'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceProjInstr)) throw new Error(`${who} sees alice's private-folder project`) } },
   createProject: { build: (c) => c.post('/api/projects', { name: 'p', folderPath: 'shared', instructions: '' }), scope: 'shared' },
@@ -141,12 +178,20 @@ export const SPECS: Record<string, Spec> = {
   listSchedules: { build: (c) => c.get('/api/schedules'), scope: 'self' },
   updateSchedule: { build: (c) => c.patch('/api/schedules/00000000-0000-7000-8000-000000000000', { enabled: false }), scope: 'self' },
   deleteSchedule: { build: (c) => c.del('/api/schedules/00000000-0000-7000-8000-000000000000'), scope: 'self' },
+  // run now and edit: own tasks only (each person's own are covered in tests/unit/schedule-edit.test.ts, incl. 404 to others)
+  runScheduleNow: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/run', {}), scope: 'self' },
+  scheduleEditCard: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/edit', { kind: 'task', title: 'x', prompt: 'x x x', repeat: 'daily', time: '09:00', projectId: null }), scope: 'self' },
+  editSchedule: { build: (c) => c.put('/api/schedules/00000000-0000-7000-8000-000000000000', { kind: 'template', time: '09:00', sourcePath: 'shared', outputPath: 'users/x' }), scope: 'self' },
   // nobody's task (each person's own waiting task is covered in tests/unit/schedule-review.test.ts, incl. 404 to others)
   getScheduleReview: { build: (c) => c.get('/api/schedules/00000000-0000-7000-8000-000000000000/review'), scope: 'nobody' },
   confirmScheduleReview: { build: (c) => c.post('/api/schedules/00000000-0000-7000-8000-000000000000/review', { requestId: 'schedule-review-x', answer: 'resume' }), scope: 'self' },
   listSchedulesAwaitingReview: { build: (c) => c.get('/api/admin/schedule-reviews'), scope: 'byLevel' },
   listMemories: { build: (c) => c.get('/api/memories'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceMemory)) throw new Error(`${who} sees alice's memory`) } },
+  // adding is each person's own (a new memory of the caller); correcting someone else's is never allowed
+  createMemory: { build: (c) => c.post('/api/memories', { text: 'matrix memory' }), scope: 'self' },
+  updateMemory: { build: (c, w) => c.patch(`/api/memories/${w.ids.memory}`, { text: 'pwned memory' }), scope: 'own-alice',
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} changed alice's memory`) } },
   deleteMemory: { build: (c, w) => c.del(`/api/memories/${w.ids.memory}`), scope: 'own-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's memory`) } },
   clearMemories: { build: (c) => c.del('/api/memories'), scope: 'self' },
@@ -268,11 +313,127 @@ export const SPECS: Record<string, Spec> = {
   deleteGroup: { build: (c, w) => c.del(`/api/admin/groups/${w.groups.finance}`), scope: 'byLevel' },
   listFolders: { build: (c) => c.get('/api/admin/folders'), scope: 'byLevel' },
   createFolder: { build: (c) => c.post('/api/admin/folders', { path: 'shared/sub' + Math.random().toString(36).slice(2, 6), create: true, rules: [] }), scope: 'byLevel' },
+  // shared/ and skills/ keep at least one rule, also for the owner and admins (fix/folders-safety 1b): the admin API
+  // refuses "no rules" (400) and the delete below (409)
   putFolderRules: { build: (c, w) => c.put(`/api/admin/folders/${w.folders['groups/finance']}/rules`, { rules: [{ subjectType: 'user', subjectId: 'alice', access: 'write' }] }), scope: 'byLevel',
-    check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.status >= 300) throw new Error('admin could not set folder rules') } },
-  deleteFolder: { build: (c, w) => c.del(`/api/admin/folders/${w.folders['projects/falcon/public']}`), scope: 'byLevel' },
+    check: async (r, w, who) => {
+      if ((who === 'owner' || who === 'admin') && r.status >= 300) throw new Error('admin could not set folder rules')
+      if (who !== 'owner' && who !== 'admin') return
+      for (const p of ['shared', 'skills']) {
+        const empty = await w.as[who].put(`/api/admin/folders/${w.folders[p]}/rules`, { rules: [] })
+        if (empty.status !== 400) throw new Error(`${who} removed every rule of ${p}/: ${empty.status}`)
+      }
+      // a save that names rules the folder no longer has (another admin changed them: stage 5) is refused and changes
+      // nothing; the folder's hash as listed saves
+      const listed = async () => ((await w.as[who].get('/api/admin/folders')).json?.items ?? []) as { id: string; rules: unknown[]; rulesHash?: string }[]
+      const fin = (await listed()).find((f) => f.id === w.folders['groups/finance'])
+      if (!fin?.rulesHash) throw new Error(`${who}: the folder list carries no rules hash`)
+      const stale = await w.as[who].put(`/api/admin/folders/${fin.id}/rules`, { rules: [], expectedHash: 'not-the-rules-hash' })
+      if (stale.status !== 409 || stale.json?.error?.params?.reason !== 'rules_changed') throw new Error(`${who} saved over rules that changed: ${stale.status}`)
+      if (JSON.stringify((await listed()).find((f) => f.id === fin.id)?.rules) !== JSON.stringify(fin.rules)) throw new Error(`${who}: a refused save changed the rules`)
+      const same = await w.as[who].put(`/api/admin/folders/${fin.id}/rules`, { rules: [{ subjectType: 'user', subjectId: 'alice', access: 'write' }], expectedHash: fin.rulesHash })
+      if (same.status !== 200) throw new Error(`${who} could not save with the folder's own hash: ${same.status}`)
+    } },
+  // the team's default folders and a group's folder row stay (409), for the owner and admins too. The group is made here:
+  // the world's groups may already be gone (deleteGroup runs before this case), and nothing here may depend on order
+  deleteFolder: { build: (c, w) => c.del(`/api/admin/folders/${w.folders['projects/falcon/public']}`), scope: 'byLevel',
+    check: async (r, w, who) => {
+      if (who !== 'owner' && who !== 'admin') return
+      const c = w.as[who]
+      const made = await c.post('/api/admin/groups', { name: `keep-${who}-${Math.random().toString(36).slice(2, 8)}`, memberIds: [] })
+      if (made.status !== 201) throw new Error(`${who} could not make a group to test with: ${made.status}`)
+      const listed = async () => ((await c.get('/api/admin/folders')).json?.items ?? []) as { id: string; path: string; groupId?: string | null }[]
+      const own = (await listed()).find((f) => f.groupId === made.json.id)
+      let cleanup: { group: number; row: number | null } | null = null
+      try {
+        if (!own) throw new Error('the new group has no folder row')
+        const rows = (await listed()).filter((f) => f.path === 'shared' || f.path === 'skills')
+        if (rows.length !== 2) throw new Error(`shared/ and skills/ rows: ${rows.map((f) => f.path).join(', ')}`)
+        for (const f of [...rows, own]) {
+          const d = await c.del(`/api/admin/folders/${f.id}`)
+          if (d.status !== 409) throw new Error(`${who} removed the folder row of ${f.path}: ${d.status}`)
+        }
+        const left = new Set((await listed()).map((f) => f.id))
+        for (const f of [...rows, own]) if (!left.has(f.id)) throw new Error(`the folder row of ${f.path} is gone`)
+      } finally {
+        // leave the world as it was, also when a check above failed: the group, then its row (an ordinary one once the
+        // group is gone), then its folder on disk
+        const group = (await c.del(`/api/admin/groups/${made.json.id}`)).status
+        const row = own ? (await c.del(`/api/admin/folders/${own.id}`)).status : null
+        if (own?.path.startsWith('groups/keep-')) fs.rmSync(path.join(w.inst.team, ...own.path.split('/')), { recursive: true, force: true })
+        cleanup = { group, row }
+      }
+      // reached only when the checks passed (an earlier failure is the one reported)
+      if (cleanup.group !== 204) throw new Error('the test group could not be deleted')
+      if (cleanup.row !== null && cleanup.row !== 204) throw new Error('the row of a deleted group could not be removed')
+    } },
   previewRules: { build: (c) => c.post('/api/admin/folder-rules/preview', { changes: [{ path: 'shared', rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }] }), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && r.text.includes(C.bobFile)) throw new Error('preview leaks private content') } },
+  // the edit panel's preview (admin/access-edit.ts): admins and the owner only, nothing saved, no file content or name
+  // of anyone's personal folder; a path inside alice's folder is refused without her file's name
+  previewFolderEdit: { build: (c, w) => c.post('/api/admin/access/edit-preview', { path: w.groups.finFolder, rules: [{ subjectType: 'everyone', subjectId: null, access: 'read' }] }), scope: 'byLevel',
+    check: async (r, w, who) => {
+      if (r.status === 200) {
+        if (r.text.includes(C.bobFile) || r.text.includes(C.aliceFileName) || r.text.includes('Private plan')) throw new Error(`${who}: the edit preview shows file content or a personal name`)
+        if (typeof r.json?.hash !== 'string' || !Array.isArray(r.json?.changes)) throw new Error(`${who}: the edit preview has no hash or changes`)
+        // nothing was saved: the finance folder's rules are as they were
+        const still = ((await w.as[who].get('/api/admin/folders')).json?.items ?? []).find((f: any) => f.path === w.groups.finFolder)
+        if (still?.rules?.some((x: any) => x.subjectType === 'everyone')) throw new Error(`${who}: the edit preview saved its rules`)
+      }
+      const probe = await w.as[who].post('/api/admin/access/edit-preview', { path: `users/alice/${C.aliceFileName}.md`, rules: [] })
+      if (probe.status < 400 || probe.status >= 500) throw new Error(`${who}: a path in users/alice was answered (${probe.status})`)
+      const l = [...leaks(who, probe.text), ...(probe.text.includes(C.aliceFileName) ? [C.aliceFileName] : [])]
+      if (l.length) throw new Error(`${who}: the refusal shows ${l.join(', ')}`)
+    } },
+  // folder access explained (server/src/admin/access-explain.ts): admins and the owner only. A person's list holds
+  // their own users/<id> row from the member list and nothing else of users/ (no file, folder or personal project
+  // name of alice's: the canaries plus her private project's name) and nothing of .system/
+  explainFolderAccess: { build: (c, w) => c.get(`/api/admin/access/folder?path=${enc(w.groups.finFolder)}`), scope: 'byLevel',
+    check: async (r, w, who) => {
+      if (r.status === 200 && r.json?.people?.find((p: any) => p.user.id === 'bob')?.access !== 'write') throw new Error(`${who}: the finance folder does not show bob writing`)
+      // the refusal of a path inside alice's folder (a file name an admin may not know) carries nothing of it either
+      const probe = await w.as[who].get(`/api/admin/access/folder?path=${enc(`users/alice/${C.aliceFileName}.md`)}`)
+      if (probe.status < 400 || probe.status >= 500) throw new Error(`${who}: a path in users/alice was answered (${probe.status})`)
+      const l = [...leaks(who, probe.text), ...(probe.text.includes(C.aliceFileName) ? [C.aliceFileName] : [])]
+      if (l.length) throw new Error(`${who}: the refusal shows ${l.join(', ')}`)
+    } },
+  explainPersonAccess: { build: (c) => c.get('/api/admin/access/people/alice'), scope: 'byLevel',
+    check: (r, w, who) => {
+      if (r.status !== 200) return
+      const paths: string[] = r.json.folders.map((f: any) => f.path)
+      if (paths.some((p) => (p.startsWith('users/') && p !== 'users/alice') || p.startsWith('.system'))) throw new Error(`${who}: alice's folder list shows ${paths.filter((p) => p.startsWith('users/') || p.startsWith('.system')).join(', ')}`)
+      if (r.text.includes('Private plan')) throw new Error(`${who}: alice's folder list names her personal project`)
+      if (!paths.includes('projects/falcon')) throw new Error(`${who}: alice's folder list misses projects/falcon`)
+    } },
+  // the folder tree (admin/access-tree.ts): admins and the owner only. users/ is one row (how many personal folders)
+  // and nothing in it is listed, never .system/; a path inside alice's folder is refused without her file's name; the
+  // finance group's folder shows bob writing there
+  explainAccessTree: { build: (c) => c.get('/api/admin/access/tree?path=&open=1'), scope: 'byLevel',
+    check: async (r, w, who) => {
+      if (r.status === 200) {
+        const nodes: any[] = r.json.levels.flatMap((l: any) => l.children)
+        const bad = nodes.map((n) => n.path).filter((p: string) => p.startsWith('users/') || p.startsWith('.system'))
+        if (bad.length) throw new Error(`${who}: the tree shows ${bad.join(', ')}`)
+        const users = nodes.find((n) => n.path === 'users')
+        if (!users || users.folders || users.who.length || !users.kinds.includes('personal')) throw new Error(`${who}: users/ is not one closed row`)
+        if (r.text.includes(C.aliceFileName) || r.text.includes('Private plan')) throw new Error(`${who}: the tree names something of alice's folder`)
+        const fin = await w.as[who].get(`/api/admin/access/tree?path=${enc(w.groups.finFolder.split('/').slice(0, -1).join('/'))}`)
+        const node = fin.json?.levels?.[0]?.children?.find((n: any) => n.path === w.groups.finFolder)
+        if (!node?.who.some((x: any) => x.access === 'write' && x.reason === 'rule')) throw new Error(`${who}: the finance folder does not show its group writing`)
+        // "rule folders only": nothing of users/ or .system/ either, and the finance group's folder is there
+        const ruled = await w.as[who].get('/api/admin/access/tree?path=&rules=1&limit=500')
+        const listed: string[] = [...(ruled.json?.levels?.[0]?.children ?? []), ...(ruled.json?.above ?? [])].map((n: any) => n.path)
+        if (listed.some((p) => p.startsWith('users') || p.startsWith('.system'))) throw new Error(`${who}: rule folders only shows ${listed.join(', ')}`)
+        if (!listed.includes(w.groups.finFolder)) throw new Error(`${who}: rule folders only misses the finance group's folder`)
+        if (ruled.text.includes(C.aliceFileName) || ruled.text.includes('Private plan')) throw new Error(`${who}: rule folders only names something of alice's folder`)
+      }
+      const probe = await w.as[who].get(`/api/admin/access/tree?path=${enc('users/alice')}`)
+      if (probe.status < 400 || probe.status >= 500) throw new Error(`${who}: users/alice was listed (${probe.status})`)
+      const l = [...leaks(who, probe.text), ...(probe.text.includes(C.aliceFileName) ? [C.aliceFileName] : [])]
+      if (l.length) throw new Error(`${who}: the refusal shows ${l.join(', ')}`)
+    } },
+  explainNewPersonAccess: { build: (c, w) => c.post('/api/admin/access/new-person', { role: 'member', groupIds: [w.groups.finance] }), scope: 'byLevel',
+    check: (r, w, who) => { if (r.status === 200 && r.json.folders.some((f: any) => f.path.startsWith('users'))) throw new Error(`${who}: the new-person list shows users/`) } },
   engines: { build: (c) => c.get('/api/admin/engines'), scope: 'byLevel' },
   // the request a member would make to let themselves pick the engine (and to send conversations to OpenAI)
   updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3, memberChoice: { mode: 'off', groupIds: [], userIds: [] }, limitFallback: false }), scope: 'byLevel' },
@@ -290,6 +451,8 @@ export const SPECS: Record<string, Spec> = {
   startCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/admin/credential-logins', { label: 'x', acknowledgedPlanNotice: true, password: 'wrong-pass' }), scope: 'byLevel' },
   getCredentialLogin: { build: (c) => c.get('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   cancelCredentialLogin: { build: (c) => c.del('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
+  // the Claude code of a sign-in: only its starter's (an unknown sign-in: 404 before the sealed value is opened)
+  submitCredentialLoginCode: { build: (c) => c.post('/api/admin/credential-logins/nonexistent-login-id-0000/code', { sealed: FAKE_SEALED }), scope: 'nobody' },
   updateCredentialSettings: { build: (c) => c.patch('/api/admin/credential-settings', { memberOwn: true }), scope: 'byLevel' },
   sealingKey: { build: (c) => c.get('/api/credentials/sealing-key'), scope: 'self',
     check: (r) => { if (r.status === 200 && ('d' in (r.json?.publicJwk ?? {}) || /"d"\s*:/.test(r.text))) throw new Error('the sealing key response carries the private part') } },
@@ -301,6 +464,7 @@ export const SPECS: Record<string, Spec> = {
   startMyCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/me/credential-logins', { label: '', acknowledgedPlanNotice: true }), scope: 'self' },
   getMyCredentialLogin: { build: (c) => c.get('/api/me/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   cancelMyCredentialLogin: { build: (c) => c.del('/api/me/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
+  submitMyCredentialLoginCode: { build: (c) => c.post('/api/me/credential-logins/nonexistent-login-id-0000/code', { sealed: FAKE_SEALED }), scope: 'nobody' },
   listBudgets: { build: (c) => c.get('/api/admin/budgets'), scope: 'byLevel' },
   createBudget: { build: (c) => c.post('/api/admin/budgets', { subjectType: 'team', subjectId: null, period: 'day', limitUsd: 10, action: 'warn' }), scope: 'byLevel' },
   updateBudget: { build: (c, w) => c.patch(`/api/admin/budgets/${w.ids.budget}`, { limitUsd: 20 }), scope: 'byLevel' },

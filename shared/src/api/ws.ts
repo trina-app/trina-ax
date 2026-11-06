@@ -18,6 +18,9 @@ import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
 import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
+import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
+import { SkillProblem } from './skills'
+import { Room, RoomAiRun, RoomMessage } from './rooms'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -77,6 +80,8 @@ export const SkillWritePreview = z.object({
   isNew: z.boolean(),
   /** the skill's name from its header; null = a team rule (a .md without a header) or not Markdown */
   skillName: z.string().nullable(),
+  /** why this file does not load as a skill (the same codes as GET /api/skills/issues); absent: nothing to warn about */
+  problem: SkillProblem.optional(),
   /** "@@ … @@" unified diff of the text (a new file: every line added), or a one-line summary for other files */
   diff: z.string(),
   added: z.number().int().nonnegative(),
@@ -92,6 +97,8 @@ export type SkillWritePreview = z.infer<typeof SkillWritePreview>
 export const ConfirmDetail = z.object({
   label: z.string(),
   text: z.string(),
+  /** show the first this many characters of `text` and the rest on request ("전체 보기"); absent: all of it */
+  collapsedAt: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
 })
@@ -118,7 +125,45 @@ export const AskUserRequest = z.object({
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
-export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest])
+/** The AI filled in a connection for the person to finish (connect_service, docs/INTEGRATIONS.md "Connecting from a chat").
+ * The card shows where a key or sign-in goes (`service.host`). The person pastes the key into the card or signs in; the
+ * key goes from the card to POST /api/turns/:id/connect sealed in the browser ('integration.secret'), never through
+ * /answer, whose answers reach the AI. Nothing is connected until the person presses the card's button. */
+export const ConnectServiceRequest = z.object({
+  kind: z.literal('connect_service'),
+  requestId: z.string(),
+  target: z.enum(['service', 'google_drive']),
+  /** the service as people call it ("Higgsfield"); "Google Drive" for google_drive */
+  name: z.string(),
+  /** personal: only this person uses it; team: an admin adds it for the team and picks who may use it */
+  scope: IntegrationScope,
+  /** target 'service': the connection the AI filled in. host = the address's host, the card's main line */
+  service: z.object({ kind: IntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
+  /** a connection template an admin shared with this person (scope personal): connecting it makes their own
+   * connection from the template (its address, sign-in method and header fixed), only while the template is the
+   * version shown here; older servers omit it */
+  template: z.object({ id: z.string(), version: z.number().int().positive() }).optional(),
+  /** the AI's one line on what it is for */
+  why: z.string().optional(),
+  /** an HTTP API's usage notes as the AI wrote them: saved with the connection exactly as here and given to the AI in
+   * later chats (api_request's description), so the card shows them before the person connects */
+  notes: z.string().optional(),
+  /** when the card closes by itself (the AI then continues without it) */
+  expiresAt: z.string().optional(),
+})
+/** A dev-environment command needs a site that is not allowed (docs/DECISIONS.md "Dev environment: sites a person
+ * allows"). Raised by the server only (the AI's ask_user cannot make one), for the person who owns the turn, in every
+ * window of hers. once: this answer (a job or dev server keeps it); always: her own list of allowed sites; deny. */
+export const DevEnvSiteRequest = z.object({
+  kind: z.literal('dev_env_site'),
+  requestId: z.string(),
+  /** the host name, checked by the server (no address, no local name, not the team server) */
+  host: z.string(),
+  /** the command that needs it, secrets hidden */
+  command: z.string().optional(),
+  expiresAt: z.string().optional(),
+})
+export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest, ConnectServiceRequest, DevEnvSiteRequest])
 export type TurnRequest = z.infer<typeof TurnRequest>
 
 export const FileChange = z.object({
@@ -162,7 +207,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('browser.call', z.object({ windowId: z.string(), call: BrowserCall })),
   /** the turn stopped; abandon this call */
   ev('browser.cancel', z.object({ windowId: z.string(), callId: z.string() })),
-  ev('memory.changed', z.object({ change: z.enum(['created', 'deleted', 'cleared']), memory: Memory.nullable() })),
+  ev('memory.changed', z.object({ change: z.enum(['created', 'updated', 'deleted', 'cleared']), memory: Memory.nullable() })),
   /** budget warnings, scheduled update, engine trouble (shown as a banner/toast) */
   ev('notice', z.object({ level: z.enum(['info', 'warn', 'error']), code: z.string(), message: z.string(), error: ApiErrorBody.optional(),
     /** an app address to open from the banner (e.g. the version history of a changed team skill) */
@@ -170,6 +215,25 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** a ChatGPT sign-in this person started (Admin / Settings > AI connections): the device address and code, then the
    * result. Sent to the person who started it only, never to the other admins. */
   ev('credential.login', CredentialLogin),
+  /** room events go to the room's members only (shared/src/api/rooms.ts). A new message (also to the sender's other
+   * windows; dedupe by message id) */
+  ev('room.message', z.object({ roomId: Uuid7, message: RoomMessage })),
+  /** a message was edited or deleted (deleted: body '' and deletedAt set, files gone) */
+  ev('room.message.updated', z.object({ roomId: Uuid7, message: RoomMessage })),
+  /** a member read the messages fromSeq < seq <= toSeq: each of those messages has one unread fewer. Nobody is named;
+   * mine: it was me (another window or device): my unread badge for the room is recounted */
+  ev('room.read', z.object({ roomId: Uuid7, fromSeq: z.number().int().nonnegative(), toSeq: z.number().int().nonnegative(), mine: z.boolean() })),
+  /** added: I am in a new room; members: someone joined or left (reload the members and messages' counts); updated: my
+   * setting or the name changed; removed: I am no longer in it (room null: close it) */
+  ev('room.updated', z.object({ roomId: Uuid7, change: z.enum(['added', 'updated', 'members', 'removed']), room: Room.nullable() })),
+  /** the AI in a room: how many questions it is answering there now, to every member (nobody is named while it works).
+   * An answer that stays private to the person who asked shows on the question itself (RoomMessage.answeredPrivately,
+   * through room.message.updated) */
+  ev('room.ai', z.object({ roomId: Uuid7, answering: z.number().int().nonnegative() })),
+  /** my own question to the AI in a room started, waits, runs or ended (only to the person who asked) */
+  ev('room.ai.run', z.object({ roomId: Uuid7, run: RoomAiRun })),
+  /** a step of my own question's answer (only to the person who asked: labels name files and searches) */
+  ev('room.ai.step', z.object({ roomId: Uuid7, turnId: Uuid7, step: Step })),
   /** the session ended (logout elsewhere, password changed, account disabled); the socket closes with 4401 */
   ev('session.ended', z.object({ reason: z.enum(['logout', 'password_changed', 'disabled', 'expired', 'revoked']) })),
 ])

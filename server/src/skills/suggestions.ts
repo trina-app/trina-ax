@@ -18,7 +18,9 @@ import { badSegment } from '../policy/names'
 import { notifySkillSuggestion } from '../notifications/service'
 import { isSkillFolder, managedSkillFolders, managesSkillFolder, skillFolders } from './managers'
 import { st } from './text'
-import { checkSkill, type SkillProblem } from '../chat/skills'
+import { checkSkill, listSkills, type SkillProblem } from '../chat/skills'
+import { buildSkillList, descriptionOrder, usageScores } from '../chat/skill-list'
+import { neutralizeTags, teamRuleFiles } from '../chat/prompt'
 
 interface Row {
   id: string; suggester_id: string; target_folder: string; name: string; description: string; content: string
@@ -90,11 +92,16 @@ export function skillsOverview(ctx: AppContext, userId: string): SkillsOverview 
   const managed = managedSkillFolders(ctx, p, rules)
   const suggest = skillFolders(ctx).filter((f) => atLeast(rules.access(p, segsOf(f)), 'read'))
   const pending = ctx.db.query(`SELECT ${COLS} FROM skill_suggestions WHERE status = 'pending'`).all() as Row[]
+  // what the AI's list holds of this person's skills (no chat: the order by usage now)
+  const skills = listSkills(ctx.files, p)
+  const list = buildSkillList(skills, { order: descriptionOrder(skills, usageScores(ctx.db, userId, skills.map((s) => s.path))), tag: neutralizeTags })
+  const teamRules = teamRuleFiles(ctx.files, p)
   return {
     managedFolders: managed,
     suggestFolders: suggest,
     pendingReview: pending.filter((r) => managesSkillFolder(ctx, p, r.target_folder, rules)).length,
     myPending: pending.filter((r) => r.suggester_id === userId).length,
+    aiList: { skills: list.total, described: list.described, nameOnly: list.nameOnly, unlisted: list.unlisted, cut: list.cut, rules: teamRules.total, rulesFollowed: teamRules.followed },
   }
 }
 

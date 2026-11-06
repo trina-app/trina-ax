@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { makeEnv } from '../lib/env'
 import { EXPECTED } from '../lib/fixtures'
 import { RuleSet } from '../../server/src/policy/access'
@@ -58,5 +60,37 @@ describe('authorize: actual names, symlinks, collisions', () => {
     const m1 = (() => { try { authorize(env.files.fx, rules, alice, 'groups/finance/budget.md', 'read') } catch (e: any) { return e.message } })()
     const m2 = (() => { try { authorize(env.files.fx, rules, alice, 'groups/finance/nope.md', 'read') } catch (e: any) { return e.message } })()
     expect(m1.replace(/'.*'/, '')).toBe(m2.replace(/'.*'/, ''))
+  })
+})
+
+// A listing walk (chat/skills.ts, prompt.ts teamRuleFiles) passes one memo of folder listings to its authorize calls so
+// a folder of 1,000 skills is read once. The memo only says which names a folder had: every step is still lstat'ed and
+// realpath-checked, and access is decided on the names found on disk. A write never uses it.
+describe('authorize: the folder listing memo of one scan (resolve.ts walk `dirs`)', () => {
+  const alice = env.files.principal('alice')
+  const team = env.files.fx.root
+  test('a stale listing never authorizes: a folder swapped for a link is refused, a removed entry is not found', () => {
+    const dir = path.join(team, 'shared', 'memo-probe')
+    fs.mkdirSync(path.join(dir, 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'sub', 'a.md'), 'x')
+    try {
+      const dirs = new Map<string, string[]>()
+      expect(authorize(env.files.fx, rules, alice, 'shared/memo-probe/sub/a.md', 'read', { dirs }).rel).toBe('shared/memo-probe/sub/a.md')
+      expect(dirs.get(dir)).toEqual(['sub'])
+      // "sub" becomes a link to a folder alice cannot read; the memo still lists it
+      fs.rmSync(path.join(dir, 'sub'), { recursive: true })
+      fs.symlinkSync(path.join(team, 'groups', 'finance'), path.join(dir, 'sub'))
+      expect(() => authorize(env.files.fx, rules, alice, 'shared/memo-probe/sub/budget.md', 'read', { dirs })).toThrow(/symbolic|no access/)
+      expect(() => authorize(env.files.fx, rules, alice, 'shared/memo-probe/sub', 'list', { dirs })).toThrow(/symbolic|no access/)
+      // gone: the memo's name is looked up on disk again
+      fs.rmSync(path.join(dir, 'sub'))
+      expect(() => authorize(env.files.fx, rules, alice, 'shared/memo-probe/sub/a.md', 'read', { dirs })).toThrow()
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+  test('a write never uses it', () => {
+    // a memo that lists a name the folder does not have
+    const dirs = new Map([[path.join(team, 'users', 'alice'), ['made-up.md']]])
+    expect(authorize(env.files.fx, rules, alice, 'users/alice/made-up.md', 'write', { dirs }).exists).toBe(false)
+    expect(() => authorize(env.files.fx, rules, alice, 'users/alice/made-up.md', 'read', { dirs })).toThrow()
   })
 })

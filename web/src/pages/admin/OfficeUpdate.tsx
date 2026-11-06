@@ -10,19 +10,28 @@ import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Button, Field, Modal, inputCls } from '../../components/ui'
-import { finishedRun } from '../../lib/officeUpdate'
+import { cardZone, finishedRun, officeTurn, shareOfficeStatus, turnDate, windowZone } from '../../lib/officeUpdate'
+import { ReleaseNotes } from '../../components/ReleaseNotes'
+import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Card, useAction } from './common'
 
 export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateStatus; reload: () => Promise<void> }) {
   const t = useT()
   const locale = useLocale()
+  const me = useMe()
   const act = useAction()
   const [ask, setAsk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [pw, setPw] = useState('')
   const u = status
+  // every time on this card is in one zone, the team's (update audit O2), and says which
+  const zone = cardZone(u, me?.server.timeZone)
+  const inWindow = windowZone(u, me?.server.timeZone)
+  const turn = officeTurn(u, me?.server.timeZone)
   const active = !!u.running || u.requested
+  // the banner on every page shows what this card shows (a pause, another time, an update that happened)
+  useEffect(() => shareOfficeStatus(u), [u])
   // the run this page watched has ended: say how, and after an update load the new version's page
   const before = useRef<OfficeUpdateStatus | null>(null)
   useEffect(() => {
@@ -51,24 +60,33 @@ export default function OfficeUpdate({ status, reload }: { status: OfficeUpdateS
           <p className="text-warn">{t('officeUpdate.noAgent')}</p>
         ) : u.paused ? (
           <p className="text-muted">{t('officeUpdate.paused')}</p>
+        ) : u.nextWindowAt ? (
+          // the sentence names the window's zone: the date says its own only when this browser cannot show it in that one
+          <p className="text-muted">{t('officeUpdate.schedule', { window: u.window ?? u.time, zone: inWindow, date: `${formatDateTime(u.nextWindowAt, locale, zone)}${inWindow === zone ? '' : ` (${zone})`}` })}</p>
         ) : (
-          <p className="text-muted">{t('officeUpdate.schedule', { time: u.time, date: formatDateTime(u.nextWindowAt, locale) })}</p>
+          <p className="text-warn">{t('officeUpdate.windowClosed', { window: u.window ?? u.time })}</p>
         )}
         {u.lastCheckAt && (
           <p className="text-xs text-faint">
-            {t('officeUpdate.lastCheck', { date: formatDateTime(u.lastCheckAt, locale) })}
+            {t('officeUpdate.lastCheck', { date: formatDateTime(u.lastCheckAt, locale, zone), zone })}
             {result && ` · ${result}`}
           </p>
         )}
         {u.available && !active && (
-          <div className="rounded-lg border border-line p-3">
+          <div className="border-l-2 border-accent py-1 pl-3">
             <p className="font-medium">{t('officeUpdate.available', { version: u.available.version })}</p>
-            {u.available.notes && <p className="mt-1 text-xs whitespace-pre-wrap text-muted">{u.available.notes}</p>}
+            {/* a stable release waiting for this Mac's turn in its staged roll-out (later than the next run, or never) */}
+            {turn && !u.paused && u.agentInstalled && (
+              <p className="text-muted" data-testid="office-update-turn">
+                {turn.kind === 'never' ? t('officeUpdate.bannerNever') : t('officeUpdate.bannerTurn', { date: turnDate(turn.date, locale), window: turn.window, zone: turn.zone })}
+              </p>
+            )}
+            {u.available.notes && <ReleaseNotes notes={u.available.notes} />}
           </div>
         )}
         {u.lastUpdate && (
           <p className={u.lastUpdate.result === 'updated' ? 'text-xs text-faint' : 'text-xs text-warn'}>
-            {t('officeUpdate.lastUpdate', { from: u.lastUpdate.from, to: u.lastUpdate.to, date: formatDateTime(u.lastUpdate.at, locale) })}
+            {t('officeUpdate.lastUpdate', { from: u.lastUpdate.from, to: u.lastUpdate.to, date: formatDateTime(u.lastUpdate.at, locale, zone), zone })}
             {u.lastUpdate.result !== 'updated' && ` · ${t(`officeUpdate.result.${u.lastUpdate.result}` as MessageKey, { version: u.lastUpdate.to })}`}
           </p>
         )}

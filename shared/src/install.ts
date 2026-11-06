@@ -67,6 +67,9 @@ export const StatusFile = z.object({
     detail: z.string().nullable(),
   }),
   queue: z.object({ running: z.number().int(), queued: z.number().int() }),
+  /** the server's own maintenance running now (a backup, a restore, an update, an export, a prune), null for none: the
+   * root update timer and the office updater wait for it like for a running answer. Absent from older servers. */
+  maintenance: z.string().max(40).nullable().optional(),
   firewall: z.enum(['ok', 'warn', 'fail', 'unknown']),
   sandbox: z.enum(['ok', 'warn', 'fail', 'unknown']),
   lastBackupAt: z.string().nullable(),

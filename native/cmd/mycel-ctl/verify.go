@@ -74,7 +74,20 @@ func verifyPath(p string, o bundle.Options) VerifyResult {
 	}
 	dir, want := p, ""
 	if st.IsDir() {
-		if b := filepath.Base(filepath.Clean(p)); bundle.ValidVersion(b) && strings.ContainsAny(b, "0123456789") {
+		// a link to a version folder (app/current -> versions/<v>): the folder it names, so the walk goes inside it
+		// (filepath.WalkDir does not follow a root that is a link: every file was "missing", update audit P5) and the
+		// folder-name rule below sees <v>
+		real, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			r.Error = err.Error()
+			return r
+		}
+		dir = real
+		b := filepath.Base(filepath.Clean(p)) // the name given (app/<v>), else the folder a link names (app/current)
+		if !(bundle.ValidVersion(b) && strings.ContainsAny(b, "0123456789")) {
+			b = filepath.Base(filepath.Clean(real))
+		}
+		if bundle.ValidVersion(b) && strings.ContainsAny(b, "0123456789") {
 			want = b // app/<v>: the folder name must be the manifest's version (bootstrap rule)
 		}
 	} else {

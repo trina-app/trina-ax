@@ -1,6 +1,7 @@
 // Words people see for external-service connections (docs/INTEGRATIONS.md): the server's confirmation card, API
 // refusals and why a connection check failed (lastError, stored as a code and put into words for each reader).
 import type { Locale } from '@mycel/shared/api'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -26,6 +27,31 @@ export const TEXT = {
   notOauth: t('이 연결은 로그인 방식이 아니에요.', 'This connection does not use sign-in.', 'Koneksi ini tidak memakai login.', "この接続はログインを使用しません。", "Esta conexión no usa inicio de sesión."),
   keyLineBreak: t('키에는 줄바꿈을 넣을 수 없어요.', 'A key cannot contain line breaks.', 'Kunci tidak boleh berisi baris baru.', "キーに改行は含められません。", "Una clave no puede contener saltos de línea."),
   unknownSubjects: t('없는 그룹이나 사람이에요: {list}', 'No such group or person: {list}', 'Grup atau orang tidak ada: {list}', "該当するグループまたはメンバーがいません：{list}", "No existe este grupo o persona: {list}"),
+  toolUnknown: t('이 서비스가 지금 알려 준 도구 목록에 없는 도구예요. "다시 확인"을 누른 뒤 다시 해 주세요.', 'The service does not list this tool now. Choose "Check again" and try again.', 'Layanan tidak mencantumkan alat ini sekarang. Pilih "Periksa lagi" lalu coba lagi.', "このサービスは現在このツールを提供していません。「再確認」を押してからもう一度お試しください。", "El servicio no ofrece esta herramienta ahora. Elija «Comprobar de nuevo» e inténtelo otra vez."),
+  toolsMcpOnly: t('도구를 하나씩 켜고 끄는 것은 MCP 서버 연결에서만 할 수 있어요.', 'Single tools can be turned on and off for MCP server connections only.', 'Alat satu per satu hanya bisa dinyalakan dan dimatikan untuk koneksi server MCP.', "ツールを個別にオン・オフできるのはMCPサーバー接続のみです。", "Solo se pueden activar y desactivar herramientas una a una en conexiones a servidores MCP."),
+  // an admin's request to a member to connect a service as their own connection (requests.ts)
+  requestNotice: t('{by}님이 {name} 연결을 요청했어요(주소: {host}). 이 주소가 정말 {name}의 주소인지 확인한 뒤 내 키나 로그인으로 연결해 주세요.', '{by} asked you to connect {name} at {host}. Check that {host} is really {name}\'s address before you connect it with your own key or sign-in.', '{by} meminta Anda menghubungkan {name} di {host}. Pastikan {host} memang alamat {name} sebelum menghubungkannya dengan kunci atau login Anda sendiri.', "{by}さんが{name}（{host}）の接続を依頼しました。{host}が本当に{name}のアドレスか確認してから、ご自身のキーまたはログインで接続してください。", "{by} le pidió conectar {name} en {host}. Compruebe que {host} es de verdad la dirección de {name} antes de conectarlo con su propia clave o inicio de sesión."),
+  requestPersonalOff: t('지금은 직원이 개인 연결을 추가할 수 없어요. 먼저 팀 설정에서 "직원이 개인 연결을 추가할 수 있음"을 켜 주세요.', 'Members cannot add their own connections now. First turn on "Members can add their own connections" in Team settings.', 'Anggota tidak bisa menambah koneksi sendiri sekarang. Nyalakan dulu "Anggota dapat menambah koneksi pribadi" di Pengaturan tim.', "現在、メンバーは個人接続を追加できません。先にチーム設定で「メンバーによる個人接続の追加を許可」をオンにしてください。", "Ahora los miembros no pueden añadir sus propias conexiones. Active primero «Los miembros pueden añadir sus propias conexiones» en la configuración del equipo."),
+  requestNoUser: t('이 팀에서 쓰고 있는 계정이 아니에요.', 'This is not an active account of the team.', 'Ini bukan akun aktif di tim.', "このチームの有効なアカウントではありません。", "No es una cuenta activa del equipo."),
+  requestNoName: t('보이는 글자가 있는 이름을 넣어 주세요.', 'Enter a name with at least one visible character.', 'Masukkan nama dengan setidaknya satu karakter yang terlihat.', "表示できる文字を含む名前を入力してください。", "Introduzca un nombre con al menos un carácter visible."),
+  requestDuplicate: t('이 사람에게 같은 주소로 보낸 요청이 아직 기다리고 있어요.', 'A request for this address is already waiting for this person.', 'Permintaan untuk alamat ini sudah menunggu orang ini.', "このアドレスへの依頼がすでにこの人の返答を待っています。", "Ya hay una solicitud para esta dirección esperando a esta persona."),
+  requestTooMany: t('한 사람에게 요청은 {n}개까지 기다릴 수 있어요.', 'At most {n} requests can wait for one person.', 'Paling banyak {n} permintaan bisa menunggu satu orang.', "1人に対して待機できる依頼は最大{n}件です。", "Como máximo {n} solicitudes pueden esperar a una persona."),
+  requestTooManyTeam: t('요청은 한꺼번에 {n}개까지 기다릴 수 있어요.', 'At most {n} requests can wait at once.', 'Paling banyak {n} permintaan bisa menunggu sekaligus.', "同時に待機できる依頼は最大{n}件です。", "Como máximo {n} solicitudes pueden esperar a la vez."),
+  requestDone: t('이미 연결된 요청이에요.', 'This request is already connected.', 'Permintaan ini sudah terhubung.', "この依頼はすでに接続済みです。", "Esta solicitud ya está conectada."),
+  requestDeclined: t('거절된 요청이에요.', 'This request was declined.', 'Permintaan ini ditolak.', "この依頼は辞退されました。", "Esta solicitud fue rechazada."),
+  requestWithdrawn: t('철회된 요청이에요.', 'This request was withdrawn.', 'Permintaan ini ditarik.', "この依頼は取り下げられました。", "Esta solicitud fue retirada."),
+  requestExpired: t('기한이 지난 요청이에요.', 'This request has expired.', 'Permintaan ini sudah kedaluwarsa.', "この依頼は期限切れです。", "Esta solicitud ha caducado."),
+  requestBusy: t('이 요청을 지금 연결하고 있어요. 잠시 뒤에 다시 확인해 주세요.', 'This request is being connected right now. Check again in a moment.', 'Permintaan ini sedang dihubungkan. Periksa lagi sebentar lagi.', "この依頼は現在接続中です。しばらくしてから確認してください。", "Esta solicitud se está conectando ahora. Vuelva a comprobarlo en un momento."),
+  // an admin's template: each member connects the service with their own key or sign-in (templates.ts)
+  fromTemplate: t('팀이 정한 항목이라 바꿀 수 없어요. 키나 로그인, 쓰기 규칙만 바꿀 수 있어요.', 'Your team set this, so it cannot be changed here. You can change your key or sign-in and the write rule.', 'Tim Anda yang mengatur ini, jadi tidak bisa diubah di sini. Anda bisa mengubah kunci atau login dan aturan tulis.', "チームが設定した項目のため、ここでは変更できません。変更できるのはキーまたはログインと書き込みルールです。", "Lo configuró su equipo, así que no se puede cambiar aquí. Puede cambiar su clave o inicio de sesión y la regla de escritura."),
+  templateTooMany: t('템플릿은 {n}개까지 만들 수 있어요.', 'There can be at most {n} templates.', 'Paling banyak {n} templat.', "テンプレートは最大{n}件です。", "Puede haber como máximo {n} plantillas."),
+  templateNameHidden: t('이름에 보이지 않는 글자, 방향을 바꾸는 글자, 큰따옴표(")나 제어 문자는 넣을 수 없어요.', 'A template\'s name cannot hold invisible or direction-changing characters, a double quote (") or control characters.', 'Nama templat tidak boleh memuat karakter tak terlihat atau pengubah arah, tanda kutip ganda (") atau karakter kontrol.', "テンプレート名には、見えない文字や向きを変える文字、二重引用符（\"）、制御文字は使えません。", 'El nombre de una plantilla no puede contener caracteres invisibles o que cambien la dirección, comillas dobles (") ni caracteres de control.'),
+  templateNotesHidden: t('메모에 보이지 않는 글자나 방향을 바꾸는 글자는 넣을 수 없어요.', 'Notes cannot hold invisible or direction-changing characters.', 'Catatan tidak boleh memuat karakter tak terlihat atau pengubah arah.', 'メモには、見えない文字や向きを変える文字は使えません。', 'Las notas no pueden contener caracteres invisibles o que cambien la dirección.'),
+  addressNoQuery: t('여러 사람이 함께 쓰는 주소에는 ?로 시작하는 부분(쿼리)을 넣을 수 없어요. 거기 키가 있으면 모두에게 가요. 키는 각자 자기 연결에 넣어요.', 'An address many people use cannot have a query (the part after ?): a key there would reach everyone. Each person adds their own key to their connection.', 'Alamat yang dipakai banyak orang tidak boleh memiliki kueri (bagian setelah ?): kunci di sana akan sampai ke semua orang. Setiap orang menambahkan kuncinya sendiri ke koneksinya.', "複数の人が使うアドレスにはクエリ（?以降の部分）を含められません。そこにキーがあると全員に届きます。キーは各自の接続に入れてください。", "Una dirección que usan varias personas no puede tener una consulta (la parte después de ?): una clave ahí llegaría a todos. Cada persona agrega su propia clave a su conexión."),
+  requestAddressKey: t('이 주소에 키가 들어 있는 것 같아요. 키는 빼 주세요. 키는 그 사람이 직접 넣어요.', 'This address seems to hold a key. Leave the key out: the member adds their own.', 'Alamat ini tampaknya berisi kunci. Hapus kuncinya: anggota menambahkan kuncinya sendiri.', "このアドレスにはキーが含まれているようです。キーは外してください。キーはメンバー本人が入れます。", "Esta dirección parece contener una clave. Quítela: el miembro agrega la suya."),
+  templateChanged: t('이 템플릿이 바뀌었어요. 다시 확인하고 연결해 주세요.', 'This template changed. Check it and connect again.', 'Templat ini berubah. Periksa lalu hubungkan lagi.', "このテンプレートが変更されました。確認してからもう一度接続してください。", "Esta plantilla cambió. Revísela y conéctese de nuevo."),
+  templateNotForYou: t('이 템플릿은 나에게 공유되지 않았어요.', 'This template is not shared with you.', 'Templat ini tidak dibagikan kepada Anda.', "このテンプレートはあなたに共有されていません。", "Esta plantilla no está compartida con usted."),
+  templateNoKeyAuth: t('템플릿은 API 키나 로그인을 쓰는 서비스에만 만들 수 있어요.', 'A template is for a service that uses an API key or sign-in.', 'Templat untuk layanan yang memakai kunci API atau login.', "テンプレートはAPIキーまたはログインを使うサービス用です。", "Una plantilla es para un servicio que usa una clave de API o inicio de sesión."),
   // the page the browser lands on after signing in at the service (the app watches the sign-in by itself)
   callbackTitle: t('로그인', 'Sign-in', 'Login', "ログイン", "Iniciar sesión"),
   callbackOk: t('로그인했어요. 이 창을 닫고 앱으로 돌아가세요.', 'Signed in. You can close this window and go back to the app.', 'Sudah login. Anda bisa menutup jendela ini dan kembali ke aplikasi.', "ログインしました。このウィンドウを閉じてアプリに戻ってください。", "Sesión iniciada. Puede cerrar esta ventana y volver a la aplicación."),
@@ -34,6 +60,8 @@ export const TEXT = {
   // why a check failed (lastError)
   unreachable: t('서비스에 연결하지 못했어요. 주소를 확인해 주세요.', 'Could not reach the service. Check the address.', 'Tidak dapat menghubungi layanan. Periksa alamatnya.', "サービスに接続できませんでした。アドレスを確認してください。", "No se pudo conectar con el servicio. Revise la dirección."),
   timeout: t('서비스가 30초 안에 답하지 않았어요.', 'The service did not answer within 30 seconds.', 'Layanan tidak menjawab dalam 30 detik.', "サービスが30秒以内に応答しませんでした。", "El servicio no respondió en 30 segundos."),
+  // its tools/list kept coming but did not end in time (mcp.ts MCP_LIST_TIMEOUT_MS)
+  list_timeout: t('서비스가 90초 안에 도구 목록을 다 보내지 않았어요.', 'The service did not send its whole tool list within 90 seconds.', 'Layanan tidak mengirim seluruh daftar alatnya dalam 90 detik.', "サービスが90秒以内にツール一覧をすべて送信しませんでした。", "El servicio no envió su lista completa de herramientas en 90 segundos."),
   private_address: t('사내망이나 이 서버의 주소에는 연결할 수 없어요. 인터넷의 공개 주소를 넣어 주세요.', 'Addresses on the office network or of this server cannot be used. Use a public internet address.', 'Alamat di jaringan kantor atau server ini tidak bisa dipakai. Pakai alamat publik di internet.', "社内ネットワークやこのサーバーのアドレスは使用できません。公開インターネットアドレスを使ってください。", "No se pueden usar direcciones de la red interna ni de este servidor. Use una dirección pública de internet."),
   blocked_port: t('https 기본 포트(443)만 쓸 수 있어요.', 'Only the standard https port (443) can be used.', 'Hanya port https standar (443) yang bisa dipakai.', "標準のhttpsポート（443）のみ使用できます。", "Solo se puede usar el puerto https estándar (443)."),
   tls: t('서비스의 보안 인증서를 확인하지 못했어요.', 'The service’s security certificate could not be verified.', 'Sertifikat keamanan layanan tidak dapat diverifikasi.', "サービスのセキュリティ証明書を確認できませんでした。", "No se pudo verificar el certificado de seguridad del servicio."),
@@ -50,11 +78,12 @@ export const TEXT = {
 }
 export type TextKey = keyof typeof TEXT
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
-export type Reason = 'unreachable' | 'timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
+export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_failed' | 'key_unsafe'
 
 export const say = (key: TextKey, locale: Locale, vars: Record<string, string | number> = {}) =>
-  (TEXT[key][locale] ?? TEXT[key].en).replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all))
+  // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts)
+  dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, vars).replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all))
 
 /** The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"). */
 export function reasonText(code: string | null, locale: Locale): string | null {

@@ -1,7 +1,8 @@
 // Admin > Plugins against the mock server (web/test/mock/plugins.ts): the Korean workspace sees HWP Preview recommended
 // and installable from the official list, nothing installed until an admin approves the permission prompt (the optional
 // page-image permission starts ticked and the prompt says so); a skill pack installs only through the prompt, then turns
-// off, on and is removed; a file upload shows its trust and can be cancelled; a refused package says why.
+// off, on and is removed; a file upload shows its trust and can be cancelled; a refused package says why. Core adds,
+// by the HWP plugin's id, that it also turns on writing and filling Hangul documents (its package text is pinned).
 // PLUGIN_SHOTS=<folder> also saves screenshots.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -27,6 +28,9 @@ test('Korean workspace: HWP is recommended and installs through the permission p
   await expect(hwp.getByTestId('plugin-not-yet')).toHaveCount(0)
   await expect(hwp).toContainText('이 서버의 격리된 프로세스에서 프로그램을 실행해요')
   await expect(hwp).toContainText('Linux x64 (glibc 2.39 이상)')
+  await expect(hwp.getByTestId('plugin-hwp-writing')).toHaveText('켜 두면 AI가 한글 문서(HWPX)를 새로 만들고, 이미 있는 HWP·HWPX 양식도 채울 수 있어요. 끄면 만들기와 채우기도 꺼져요. 한글 문서의 글자 읽기와 원본 다운로드는 플러그인 없이도 돼요.')
+  // a plugin that is not HWP says nothing about Hangul documents
+  await expect(catalogRow(page, 'app.trina.office-starter').getByTestId('plugin-hwp-writing')).toHaveCount(0)
   await shot(page, 'plugins-ko-catalog.png')
   // the prompt: official (matches the list in this release), the page-image permission ticked and said so plainly
   await hwp.getByTestId('plugin-catalog-install').click()
@@ -35,6 +39,7 @@ test('Korean workspace: HWP is recommended and installs through the permission p
   await expect(hwpPrompt.getByTestId('plugin-optional-model.send.preview-pixels')).toBeChecked()
   await expect(hwpPrompt).toContainText('요청하면 AI가 페이지 이미지를 볼 수 있어요. 이때 이미지가 설정된 AI 제공사로 전송돼요.')
   await expect(hwpPrompt.getByTestId('plugin-optional-on')).toHaveText('선택 권한도 미리 체크해 두었어요. 원하지 않는 항목은 체크를 해제하세요.')
+  await expect(hwpPrompt.getByTestId('plugin-hwp-writing')).toHaveText('켜 두면 AI가 한글 문서(HWPX)를 새로 만들고, 이미 있는 HWP·HWPX 양식도 채울 수 있어요. 끄면 만들기와 채우기도 꺼져요. 한글 문서의 글자 읽기와 원본 다운로드는 플러그인 없이도 돼요.')
   await shot(page, 'plugins-ko-hwp-prompt.png')
   await hwpPrompt.getByRole('button', { name: '취소' }).click()
   await expect(hwpPrompt).toHaveCount(0)
@@ -48,6 +53,7 @@ test('Korean workspace: HWP is recommended and installs through the permission p
   await expect(dialog.getByTestId('plugin-plan-release')).toContainText('공식 빌드예요.')
   await expect(dialog).toContainText('더해지는 회사 스킬: meeting-minutes, weekly-report')
   await expect(dialog).toContainText('사용 대상: 회사 전체')
+  await expect(dialog.getByTestId('plugin-hwp-writing')).toHaveCount(0)
   await shot(page, 'plugins-ko-prompt.png')
   await dialog.getByTestId('plugin-install-enable').click()
   await expect(dialog).toHaveCount(0)
@@ -78,6 +84,7 @@ test('English workspace: no recommendation; an uploaded test build shows its war
   await expect(hwp).toContainText('HWP Preview')
   await expect(hwp.getByTestId('plugin-recommended')).toHaveCount(0)
   await expect(hwp.getByTestId('plugin-catalog-install')).toBeVisible()
+  await expect(hwp.getByTestId('plugin-hwp-writing')).toContainText('While it is on, the AI can also make new Hangul documents (HWPX) and fill in existing HWP and HWPX forms.')
   await shot(page, 'plugins-en-catalog.png')
 
   await page.getByTestId('plugin-file-input').setInputFiles({ name: 'sample.trinaplugin', mimeType: 'application/octet-stream', buffer: Buffer.from('package') })
@@ -107,6 +114,7 @@ test('HWP Preview installed but turned off: an admin is told to turn it on, not 
   await catalogRow(page, 'app.trina.hwp-preview').getByTestId('plugin-catalog-install').click()
   await page.getByRole('dialog').getByTestId('plugin-install-only').click()
   await expect(installedRow(page, 'app.trina.hwp-preview')).toContainText('꺼짐')
+  await expect(installedRow(page, 'app.trina.hwp-preview').getByTestId('plugin-hwp-writing')).toHaveText('켜 두면 AI가 한글 문서(HWPX)를 새로 만들고, 이미 있는 HWP·HWPX 양식도 채울 수 있어요. 끄면 만들기와 채우기도 꺼져요. 한글 문서의 글자 읽기와 원본 다운로드는 플러그인 없이도 돼요.')
   await page.goto('/files?path=marketing')
   await page.getByTestId('files-input').setInputFiles(path.resolve(import.meta.dirname, '../../../tests/fixtures/hwp/two-pages.hwp'))
   await page.getByTestId('file-row').filter({ hasText: 'two-pages.hwp' }).getByRole('button').first().click()

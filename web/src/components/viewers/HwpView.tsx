@@ -6,10 +6,11 @@ import { isAdmin, useMe } from '../../store/session'
 import { Button } from '../ui'
 
 /** Shared web/Electron/WebView viewer. Only server-produced PNG pixels enter the page. */
-export default function HwpView({ path, download }: { path: string; download: () => void }) {
+export default function HwpView({ path, download, startPage }: { path: string; download: () => void; startPage?: number }) {
   const t = useT()
   const me = useMe()
-  const [page, setPage] = useState(1)
+  // a page the AI looked at (hwp_render), from an answer's sources
+  const [page, setPage] = useState(startPage && startPage >= 1 ? startPage : 1)
   const [revision, retry] = useState(0)
   const [shown, setShown] = useState<{ url: string; meta: HwpPage } | null>(null)
   const [reason, setReason] = useState<HwpReason | 'missing' | null>(null)

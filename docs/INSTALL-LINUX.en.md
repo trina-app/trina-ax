@@ -2,7 +2,7 @@
 
 [한국어](INSTALL-LINUX.md) · [IT checklist](for-admins.md)
 
-Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be available. A plain Docker container is not supported by this production installer.** Do not bypass those checks. A local demo is a separate development environment.
+Use a dedicated server or VM. **systemd must be PID 1 and cgroup v2 must be available. A plain Docker container is not supported by this production installer.** Do not bypass those checks. For Docker, use the image and compose file in [INSTALL-DOCKER.md](INSTALL-DOCKER.md) instead (fewer limits than this install). A local demo is a separate development environment.
 
 ## Requirements
 
@@ -23,7 +23,7 @@ The AI reads video and audio files with the distribution's ffmpeg and ffprobe (t
 
 The server learns its own public address from the release feed (`https://updates.trina.app/ip`, once over IPv4 and once over IPv6, at start and every 30 minutes) and refuses web addresses the AI opens that lead back to it (through the router or NAT in front of the server). While it does not know it (no internet, or that outbound connection blocked), every web address the AI opens needs a person and scheduled tasks open none. `MYCEL_EXIT_ADDRESS_CHECK=off` in `/etc/default/mycel` stops the check (the server then keeps asking).
 
-HWP/HWPX text extraction is available. Visual previews are the optional HWP Preview plugin: installing it from the official list in Admin > Plugins makes the server download the pinned build over https from the release feed (the address updates come from), so that outbound connection must be open. Default release kits do not include the rhwp executable. Debian 12 does not support visual previews and Admin > Plugins says so (glibc 2.36; the pinned renderer needs 2.39). Original downloads and text extraction remain available. See [runtime limits](../resources/hwp/README.md).
+HWP/HWPX text extraction is available. Visual previews are the optional HWP Preview plugin: installing it from the official list in Admin > Plugins makes the server download the pinned build over https from the release feed (the address updates come from), so that outbound connection must be open. Default release kits do not include the rhwp executable. Debian 12 does not support visual previews and Admin > Plugins says so (glibc 2.36; the pinned renderer needs 2.39). The AI's Hangul writing and filling come with the same plugin, so Debian 12 does not have them either. Original downloads and text extraction remain available. See [runtime limits](../resources/hwp/README.md).
 
 Korean, Japanese and Chinese in PDFs: the PDFs the AI makes are drawn with the Noto Sans CJK fonts in the kit (`app/<version>/fonts/`, OFL-1.1, notice in `licenses/noto-sans-cjk/`). A Linux server has no font for these characters, so up to 0.2.15 they came out as empty boxes. Nothing to install on the server: an installed server gets the fonts with its normal update (no root step, no apt). PDFs made before that need to be made again. The fonts add about 32 MB to the kit (40 MB unpacked).
 
@@ -73,7 +73,9 @@ cd dist/linux && sudo ./install-linux.sh install --from . --allow-unsigned --eng
 Without `--ignore-scripts`, `bun install` runs install scripts with bun's stand-in for `node`
 (`/tmp/bun-node-*/node`); if that points to a bun that was deleted, it stops with `node: command not found`
 (`electron-winstaller` exited with 127). Use `--ignore-scripts` or delete that folder. A self-built kit is unsigned,
-hence `--allow-unsigned`.
+hence `--allow-unsigned`. Repair and update keep that setting: after moving to signed releases, turn it off with
+`sudo mycel-ctl allow-unsigned off` (installer: `--require-signed`). `sudo mycel-ctl status` and Admin › Diagnostics warn
+while it is on.
 
 ## Install
 
@@ -91,14 +93,20 @@ On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <serv
 Then follow **permissions → AI connection → invite the team → first skill → first backup**:
 
 1. Admin → Groups/Folders: assign sources and verify access with two pilot accounts.
-2. Owner → Admin → AI connections: connect an authorized Claude or Codex account/API key. Fresh teams allow shared subscriptions by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
+2. Owner → Admin → AI providers: connect an authorized Claude or Codex account/API key. On fresh teams one company connection can serve the whole team by default; saved choices persist. Personal connections take priority; connection consent is separate. This setting is not permission under provider terms. Use HTTPS for credential setup.
 3. Configure an HTTPS address before inviting colleagues. A separately installed tunnel/reverse proxy must reach `127.0.0.1:47820`; register its hostname with `sudo ./install-linux.sh repair --public-host team.example.com`. Tunnel credentials are managed outside this installer. Official relay registration needs an issued connection code; it is not a free hostname signup.
 4. Invite a small group, copy a [starter skill](../examples/README.md), and review its result against sources.
 5. Make a backup and practice [restore](BACKUP-RESTORE.md) before real rollout.
 
+Claude Code on other models (DeepSeek, Kimi, GLM and others through OpenRouter or a provider's Anthropic-compatible API): set `engine.anthropicGateway` in `/var/lib/mycel/config/server.json`, restart with `sudo systemctl restart mycel-server`, and add the gateway's key in Admin → AI providers. Conversations then go to the gateway provider and the model's vendor, and Claude subscription connections are off. [Anthropic-compatible gateway](CONFIGURATION.md#anthropic-compatible-gateway).
+
 ## Upgrade and rollback
 
-Read the [latest release](https://github.com/trina-app/trina-ax/releases/latest) and admin actions, make a full backup plus an encrypted off-host archive, then review diagnostics. The signed Trina feed is `https://updates.trina.app/server/stable.json`. App-only updates can apply during the configured window when no answers are running; root changes require the update timer or `sudo mycel-ctl update`. Check `sudo mycel-ctl status` afterward and test login and a permitted file.
+Read the [latest release](https://github.com/trina-app/trina-ax/releases/latest) and admin actions, make a full backup plus an encrypted off-host archive, then review diagnostics. The signed Trina feed is `https://updates.trina.app/server/stable.json`. App-only updates can apply during the configured window when no answers are running; root changes require the update timer or `sudo mycel-ctl update`. The update timer checks every 15 minutes and installs a root release only inside the team's update window (Admin › Settings › Update time, in the team time zone; 03:00–05:00 when empty) while no answer is running. It waits for a quiet moment instead of interrupting answers (at most an hour per check, then the next check or the next night); after three days without one it installs in the next window after waiting at most 10 minutes. A check outside the window ends at once, without network. A server whose root files (`root/VERSION`) are older than the feed's `rootSince` (the oldest release with the same root files) gets the root update, so skipping a root release is safe; one at `rootSince` or newer takes the release as an app update. (`needsRoot` stays true while `rootSince` is newer than 0.2.18, for servers on 0.2.18 or older, which read nothing else.) A release whose app failed or was rolled back after its root files went in is not tried again by the timer for 20 hours (the next day's window), then 44 and 92 hours after more failures in a row, at most a week; a failure before the root files went in (a download cut short, a hash that does not match, a full disk) waits 1 hour, doubling up to 20 (`root/update-failed.json`). The server's own updater leaves such a release to the timer. `sudo mycel-ctl status` says until when (Admin › Diagnostics too once the app is 0.2.19 or newer), `sudo mycel-ctl update` tries at once, and a newer release ends the wait. When the app was rolled back to 0.2.18 or older, which cannot tell the timer the team's window, the `admin.js` of the root files' version (`root/VERSION`) reads it. `sudo mycel-ctl auto-update off|on` turns automatic updates off or on (the timer and `server.json` `update.auto` together; installer: `--no-auto-update` / `--auto-update`); repair and update keep the timer as it is. `sudo mycel-ctl status` and Admin › Diagnostics warn while automatic updates are off. Check `sudo mycel-ctl status` afterward and test login and a permitted file. Admin › Home shows the owner a new version with when it installs ("Version … installs automatically tonight at 22:00–01:00", in the team time zone); with automatic updates off the same line has an "Install now" button, and a release that needs root says the update timer installs it. What an update leaves for an admin to do (for example turning on the HWP plugin) also shows on Admin › Home with a button and "Not needed".
+
+The update timer and `sudo mycel-ctl update` without `--version` install the feed's release only when it is newer than the app that runs, in the same version order as the app's own updater (a server on a pre-release such as 0.2.18-pre.1 skips a 0.2.17 feed and says so); to go back on purpose, give the version: `sudo mycel-ctl update --version <version>` (newer root files stay).
+
+A new stable release does not reach every server on the same night (staged roll-out): about 10% of servers take it automatically on the first day after it was published, about 50% on the second, and all of them from the third, so a bad release reaches few teams. Each server works out its turn itself from its install id (`MYCEL_INSTALL_ID`, else the id the app made) and a value chosen anew for every release, counted from the feed's signed `publishedAt`; the app's own updater, the update timer and office Macs keep the same rule, and a server installs in its next update window once its turn has come. A server whose install id cannot be read is in the last wave (100%). A release published while the previous one is still in its stages continues them, so several releases a few hours apart still reach every server within two days of the first. The beta channel, an urgent release (`urgent`) and an administrator's update (Admin › System › Update, `sudo mycel-ctl update`) do not wait. While a server waits, `sudo mycel-ctl status` says "this server's turn comes at …" and the app's update status (`GET /api/admin/update`) has `turnAt`. Servers on 0.4.0-beta.2 or older do not know the rule and take a release at once, as before.
 
 For manual updates, download and verify the new kit as above, then use `sudo ./install-linux.sh update --from .`. A startup failure can roll the app back; it does **not** undo database migrations or file changes. Do not assume an older binary can read every future database. Restore from a verified pre-update backup when needed, using a compatible release.
 
@@ -113,6 +121,35 @@ Every update brings one version folder, `app/versions/<version>` (about 540 MB u
 - Now, by hand: `trina_admin prune-versions --dry-run` (lists what would go, JSON; also works as root) and `trina_admin prune-versions` (`trina_admin` as in [BACKUP-RESTORE.md](BACKUP-RESTORE.md); not as root).
 - The first update to 0.2.16 removes the versions collected so far ten minutes after it: in a test (Debian 13 container) 9 versions, 4.5 GB and about 40,000 files took 5 seconds. A slow disk may take tens of seconds; the server keeps answering meanwhile.
 - An older kit put in by the installer (`older`: the running version stays) is kept for one day only; switch to it within that day (`admin.js switch <version>`).
+
+### Windows app
+
+The Windows desktop app updates only from its own team server's `/downloads/latest.yml` (every 4 hours; installed when
+the app quits). Fifteen minutes after the server starts (an update restarts it) and every 6 hours after that, a Linux
+server puts the Windows installer and `latest.yml` of the release it runs into `data/downloads`; Settings › Apps shows
+the installer too, and the "Windows app" line of Admin › System › Diagnostics shows the last result. A server whose
+automatic updates are off (`--no-auto-update`, `update.auto: false`) asks the feed only when it starts, that is after
+you updated it.
+
+- Source: `office/<channel>.json` (signed) on the same feed as the server's. The signature, both files' size and
+  SHA-256, and that `latest.yml` names exactly that installer are checked. An app newer than the server waits until
+  the server has that release.
+- One Windows installer is kept (about 110 MB; older ones are removed). Nothing is downloaded when the free space left
+  afterwards would be under the team folder's write reserve (512 MB or 2% of the disk, whichever is larger). A newer
+  installer put there by hand stays.
+- Windows apps already installed need nothing: they pick up the new version at their next check.
+- Now, by hand: `trina_admin desktop-refresh` (`trina_admin` as in [BACKUP-RESTORE.md](BACKUP-RESTORE.md); JSON; not as
+  root). A version whose files did not match is tried again a day later; `--force` tries at once.
+- A server without internet: on another computer download the server's channel file
+  `https://updates.trina.app/office/stable.json` (`beta.json` on the beta channel) and the Windows installer and
+  `latest.yml` it names (`office/<version>/`), put them in one folder the server account can read and run
+  `trina_admin desktop-refresh --from /full/path` (not a relative path: `trina_admin` runs from `/`). The same checks
+  apply. A release newer than the server is not offered (`ahead`): update the server first. The command exits non-zero
+  unless the result is `offered`, `current` or `newer` (a newer installer put there by hand).
+- When the channel has already moved on to a newer release, the server takes its own release's signed manifest
+  instead (`office/<version>/<channel>.json`, kept on the feed for every release from 0.2.19 on).
+- Office mode (Mac) does the same with its own update agent. A hosted tenant does only the run after each start (the
+  hosted service's update restarts it), from its own feed; its owner sees the result in Diagnostics.
 
 ## Safe PowerPoint (safe operations 1A, optional)
 

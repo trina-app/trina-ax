@@ -1,4 +1,4 @@
-import { base64Size, MAX_FILE_BYTES, parseMessage, sameTeam, TRANSFER_IDLE_MS, type FileMessage, type MobileConfig, type MobileReply } from './protocol'
+import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -79,10 +79,42 @@ export class FileTransfers {
   }
 }
 
+/** Android: a same-document navigation reported as loading gets no load end, and the bridge would stay off. After
+ * `ms` the app installs it again, but only on the page that was loading then: the top-level URL on screen is still that
+ * one and on the team's origin, and that page is neither ready nor failed. Cancelled on every load start, on load end,
+ * on the failure screen and when the team page goes away. */
+export class StuckLoad {
+  private timer: ReturnType<typeof setTimeout> | null = null
+  constructor(private ms: number, private set: typeof setTimeout = setTimeout, private unset: typeof clearTimeout = clearTimeout) {}
+  arm(url: string, still: (url: string) => boolean, reinstall: (url: string) => void) {
+    this.cancel()
+    this.timer = this.set(() => { this.timer = null; if (still(url)) reinstall(url) }, this.ms)
+  }
+  cancel() { if (this.timer) this.unset(this.timer); this.timer = null }
+  get armed() { return this.timer !== null }
+}
+export const stillStuck = (o: { saved: string; current: string; origin: string; ready: boolean; failed: boolean }) =>
+  o.current === o.saved && sameTeam(o.origin, o.current) && !o.ready && !o.failed
+
+/** True at most once per `ms`: open-settings, so a page cannot keep sending the person to the phone's Settings. */
+export function onceEvery(ms: number, now: () => number = Date.now): () => boolean {
+  let last = -Infinity
+  return () => { const t = now(); if (t - last < ms) return false; last = t; return true }
+}
+
+/** The only push failures the web page learns: the person said no, or this build/device cannot receive push. */
+export class PushRefused extends Error { constructor(readonly code: 'push_denied' | 'push_unavailable') { super(code) } }
+/** token: ask the OS (permission prompt) for the device token; registered: the page registered it with its team;
+ * permission: what the OS says so far, never a prompt; openSettings: this app's page in the phone's Settings. */
+export interface PushBridge {
+  token(): Promise<PushToken>; registered(device: { deviceId: string; removeKey: string }): Promise<void>
+  permission?(): Promise<PushPermission>; openSettings?(): Promise<void>
+}
+
 /** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>) {}
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void) {}
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.files.clear() }
   activate(config: MobileConfig) { this.config = config; this.enabled = true }
   async receive(raw: string, sourceUrl: string): Promise<MobileReply | null> {
@@ -98,8 +130,28 @@ export class MobileReceiver {
     }
     try {
       if (m.type === 'external-open') await this.external(m.url)
-      else await this.files.receive(m)
-    } catch { reply.ok = false; reply.error = 'mobile_operation_failed' }
+      else if (m.type === 'push-token') {
+        // Same origin/nonce/generation checks as files; the token goes only to the document that asked.
+        if (!this.push || !current.capabilities.includes(PUSH_CAPABILITY)) throw new PushRefused('push_unavailable')
+        const token = await this.push.token()
+        if (!validPushToken(token)) throw new PushRefused('push_unavailable')
+        reply.push = { platform: token.platform, token: token.token, environment: token.environment }
+      } else if (m.type === 'push-registered') {
+        if (!this.push || !current.capabilities.includes(PUSH_REGISTERED_CAPABILITY)) throw new PushRefused('push_unavailable')
+        await this.push.registered({ deviceId: m.deviceId, removeKey: m.removeKey })
+      } else if (m.type === 'push-permission' || m.type === 'open-settings') {
+        if (!this.push?.permission || !this.push.openSettings || !current.capabilities.includes(PUSH_PERMISSION_CAPABILITY)) throw new PushRefused('push_unavailable')
+        if (m.type === 'open-settings') await this.push.openSettings()
+        else {
+          const permission = await this.push.permission()
+          if (!pushPermission(permission)) throw new PushRefused('push_unavailable')
+          reply.permission = permission
+        }
+      } else if (m.type === 'appearance') {
+        if (!this.appearance || !current.capabilities.includes(APPEARANCE_CAPABILITY)) throw new Error('unsupported')
+        this.appearance({ dark: m.dark, system: m.system === true })
+      } else await this.files.receive(m)
+    } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused ? error.code : 'mobile_operation_failed' }
     return this.enabled && this.config === current ? reply : null
   }
 }

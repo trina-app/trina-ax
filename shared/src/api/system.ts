@@ -67,8 +67,33 @@ export const UpdateStatus = z.object({
   auto: z.boolean().optional(),
   /** the hosted cloud: the hosting provider installs updates; the in-app update and roll-back are off */
   managed: z.boolean().optional(),
+  /** the team's update window ("HH:mm-HH:mm", team time zone; the default when none is set) and the zone. Only on a
+   * server with automatic updates; absent from older servers. */
+  window: z.string().optional(),
+  timeZone: z.string().optional(),
+  /** when the window next opens: `now` = inside it, `today` / `tomorrow` = the day (in the team's zone) it starts.
+   * null: the window never opens (equal start and end). Absent without `window`. */
+  nextWindow: z.object({ at: IsoTime, day: z.enum(['now', 'today', 'tomorrow']) }).nullable().optional(),
+  /** why the available release will not install by itself even in the window: rollout = not this server's turn yet;
+   * failed = a try of it failed or was rolled back here (on hold); root_failed = root's update of it failed. null/absent:
+   * nothing holds it. Absent from older servers. */
+  hold: z.enum(['rollout', 'failed', 'root_failed']).nullable().optional(),
+  /** staged roll-out of a stable release (server/src/system/rollout.ts): the feed's newer release reaches this
+   * server's automatic updates at this time ("this server's turn"; it comes with hold 'rollout'); null: this release's
+   * roll-out leaves the server out. Absent when nothing waits for it (and from older servers). "Update now" does not wait. */
+  turnAt: IsoTime.nullable().optional(),
 })
 export type UpdateStatus = z.infer<typeof UpdateStatus>
+/** After-update to-dos (server/src/system/after-update.ts): something a release leaves for an admin to do, shown on Admin
+ * Home with a button until it is done or dismissed. `id` is stable; clients show only the ids they know. */
+export const AfterUpdateAction = z.object({
+  id: z.string(),
+  /** the version it came with */
+  since: z.string(),
+  /** where its button goes (an admin path) */
+  to: z.string(),
+})
+export type AfterUpdateAction = z.infer<typeof AfterUpdateAction>
 export const ReauthBody = z.object({ password: z.string().min(1).max(256) })
 export const StartUpdateBody = ReauthBody.extend({
   /** default: the available version; 'rollback' = switch back to the previous version */
@@ -155,9 +180,10 @@ const Bytes = z.number().nonnegative()
 export const StorageBreakdown = z.object({ team: Bytes, history: Bytes, trash: Bytes, backups: Bytes, models: Bytes, data: Bytes, app: Bytes, other: Bytes })
 export type StorageBreakdown = z.infer<typeof StorageBreakdown>
 export const StorageStatus = z.object({
-  /** statfs of the team folder's disk (the hosted cloud: the plan's disk) */
+  /** statfs of the team folder's disk. When the plan is smaller than the disk: total = the plan's bytes, used = statfs,
+   * free = what is left of the plan's bytes (0 when over) */
   totalBytes: Bytes, usedBytes: Bytes, freeBytes: Bytes,
-  /** used / (used + available), 0–100 */
+  /** used / (used + available), or used / the plan's bytes (100 at most), 0–100 */
   percent: z.number().min(0).max(100),
   /** ok < 80% <= warn < 90% <= high < 95% <= full */
   level: StorageLevel,
@@ -165,6 +191,9 @@ export const StorageStatus = z.object({
   reserveBytes: Bytes,
   /** saves, uploads and the AI's writes are refused now (507 storage_full) */
   writesRefused: z.boolean(),
+  /** over the plan's limit on a larger disk: when the grace period ends (in the past = it ended), else null. After it,
+   * writes are refused until the use is under the limit */
+  graceEndsAt: IsoTime.nullable(),
   /** what uses the space (measured hourly; null until the first measurement) */
   breakdown: StorageBreakdown.nullable(),
   measuredAt: IsoTime.nullable(),
@@ -224,6 +253,8 @@ export const SYSTEM = {
   diagnostics: endpoint({ method: 'GET', path: '/api/admin/diagnostics', auth: 'owner', owner: 'G', response: Diagnostics, summary: 'Relay, disk, engine keys, queue, pf anchor, sandbox, backups.' }),
   updateStatus: endpoint({ method: 'GET', path: '/api/admin/update', auth: 'owner', owner: 'G', response: UpdateStatus, summary: 'Current / available version.' }),
   startUpdate: endpoint({ method: 'POST', path: '/api/admin/update', auth: 'owner-reauth', owner: 'G', status: 202, body: StartUpdateBody, response: JobAccepted, summary: 'Back up the DB, switch app/current, restart; roll back if the health check fails.' }),
+  afterUpdateActions: endpoint({ method: 'GET', path: '/api/admin/after-update', auth: 'admin', owner: 'G', response: z.object({ items: z.array(AfterUpdateAction) }), summary: 'What a release left for an admin to do and that still applies to this team (not dismissed).' }),
+  dismissAfterUpdate: endpoint({ method: 'POST', path: '/api/admin/after-update/:id/dismiss', auth: 'admin', owner: 'G', status: 204, body: z.object({}), response: empty, summary: 'Remember for the team that one after-update to-do is not needed.' }),
   listBackups: endpoint({ method: 'GET', path: '/api/admin/backups', auth: 'owner', owner: 'G', response: z.object({ items: z.array(BackupInfo) }), summary: 'Backups in .system/backups/.' }),
   startBackup: endpoint({ method: 'POST', path: '/api/admin/backup', auth: 'owner', owner: 'G', status: 202, body: StartBackupBody, response: JobAccepted, summary: 'Back up now (VACUUM INTO + team folder manifest diff).' }),
   startRestore: endpoint({ method: 'POST', path: '/api/admin/restore', auth: 'owner-reauth', owner: 'G', status: 202, body: StartRestoreBody, response: JobAccepted, summary: 'Restore a backup (everything after it is lost; the UI shows how much).' }),

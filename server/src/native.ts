@@ -253,6 +253,55 @@ export function codexSignIn(sock: string, o: { cmd: string; proxy: string; login
   return { done, cancel: () => { cancelled = true; try { (c as net.Socket | null)?.destroy() } catch {} } }
 }
 
+/**
+ * A Claude sign-in for an AI connection (docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"): the launcher runs the
+ * official `claude setup-token` as the engine account in a fresh folder <agent root>/.claude-login/<loginId> on a
+ * terminal of its own, through the model proxy with the one-time proxy token in `proxy`. It never forwards what the
+ * program prints; it tells: started{pid} (bind the token to it now), url (the authorize address, once the paste prompt
+ * is up), code{ok} (the pasted code was typed, or refused), failed{reason, detail?} (the program showed an error:
+ * bad_code, exchange_failed, cli_error, unexpected_url; cli_exit = it ended before the address, detail = the last lines
+ * of its screen, nothing secret yet), token (only after our code, only here), then exit{code, signal?} or error{message}.
+ * sendCode() types the code once; cancel() closes the connection (the launcher stops the program and removes the
+ * folder).
+ */
+export function claudeSignIn(sock: string, o: { cmd: string; proxy: string; loginId: string; timeoutMs?: number; exchangeTimeoutMs?: number }, on: { started?(pid: number): void; url?(url: string): void; code?(ok: boolean): void; failed?(reason: string, detail?: string): void; token?(token: string): void }): { done: Promise<{ code: number | null; message?: string }>; cancel(): void; sendCode(code: string): void } {
+  let c: net.Socket | null = null
+  let cancelled = false
+  const done = new Promise<{ code: number | null; message?: string }>((res) => {
+    let b = ''
+    let result: { code: number | null; message?: string } | null = null
+    connectUnix(sock, (s) => {
+      c = s
+      if (cancelled) { s.destroy(); res({ code: null, message: 'cancelled' }); return }
+      s.setEncoding('utf8')
+      s.on('connect', () => s.write(JSON.stringify({ op: 'claude-login', cmd: o.cmd, proxy: o.proxy, loginId: o.loginId, timeoutMs: o.timeoutMs ?? 0, exchangeTimeoutMs: o.exchangeTimeoutMs ?? 0 }) + '\n'))
+      s.on('data', (d: string) => {
+        b += d
+        let i
+        while ((i = b.indexOf('\n')) >= 0) {
+          const l = b.slice(0, i); b = b.slice(i + 1)
+          let e: any
+          try { e = JSON.parse(l) } catch { continue }
+          if (e.ev === 'started') on.started?.(e.pid)
+          else if (e.ev === 'claude_url' && typeof e.url === 'string') on.url?.(e.url)
+          else if (e.ev === 'claude_code') on.code?.(e.ok === true)
+          else if (e.ev === 'claude_failed' && typeof e.reason === 'string') on.failed?.(e.reason, typeof e.detail === 'string' ? e.detail.slice(0, 400) : undefined)
+          else if (e.ev === 'claude_token' && typeof e.b64 === 'string') on.token?.(Buffer.from(e.b64, 'base64').toString('utf8'))
+          else if (e.ev === 'exit') { result = { code: e.code, ...(e.signal ? { message: e.signal } : {}) }; s.end() }
+          else if (e.ev === 'error') { result = { code: null, message: e.message }; s.end() }
+        }
+      })
+      s.on('close', () => res(result ?? { code: null, message: cancelled ? 'cancelled' : 'launcher closed the connection' }))
+      s.on('error', (e) => { result ??= { code: null, message: 'launcher: ' + e.message } })
+    })
+  })
+  return {
+    done,
+    cancel: () => { cancelled = true; try { (c as net.Socket | null)?.destroy() } catch {} },
+    sendCode: (code: string) => { try { (c as net.Socket | null)?.write(JSON.stringify({ op: 'code', code }) + '\n') } catch {} },
+  }
+}
+
 /** One-time migration (credentials/migrate.ts): the engine account's old Codex login (--codex-auth-dir), as JSON;
  * null = none there; undefined = this launcher does not know the request (older launcher) or did not answer. */
 export async function codexExport(sock: string): Promise<string | null | undefined> {

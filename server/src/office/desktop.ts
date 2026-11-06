@@ -210,7 +210,16 @@ export function writeIndex(dir: string, items: DownloadItem[]) {
   fs.renameSync(tmp, f)
 }
 
-export interface AddOptions { version?: string; keep?: boolean; name?: string; signature?: SignatureCheck }
+export interface AddOptions {
+  version?: string; keep?: boolean; name?: string; signature?: SignatureCheck
+  /** `src` is a temporary file of the caller (an updater's checked download): it is moved into the folder instead of
+   * copied when both are on one file system, so the folder never needs room for two copies (the caller compares the
+   * SHA-256 the result names with what it expects; another file system falls back to the copy) */
+  move?: boolean
+  /** with `move`: the SHA-256 the caller checked while downloading `src` (a rename does not change the bytes), so the
+   * moved file is not read a second time */
+  sha256?: string
+}
 /** What adding would do, decided without changing anything (dry runs and the real add use the same answer). */
 export type AddPlan =
   | { action: 'add'; item: Omit<DownloadItem, 'sha256'>; real: string; replaces: string[] }
@@ -271,10 +280,14 @@ export function addInstaller(dir: string, src: string, o: AddOptions = {}): AddR
     const tmp = path.join(dir, `.${name}.tmp-${process.pid}`)
     fs.rmSync(tmp, { force: true })
     try {
-      fs.copyFileSync(real, tmp, fs.constants.COPYFILE_EXCL)
+      let moved = false
+      if (o.move) {
+        try { fs.renameSync(real, tmp); moved = true } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e }
+      }
+      if (!moved) fs.copyFileSync(real, tmp, fs.constants.COPYFILE_EXCL)
       fs.chmodSync(tmp, 0o600)
-      sha = sha256File(tmp)
-      if (sha !== sha256File(real) || fs.statSync(tmp).size !== plan.item.size) throw new Error(`${src} changed while it was copied; try again`)
+      sha = moved && o.sha256 && /^[0-9a-f]{64}$/.test(o.sha256) ? o.sha256 : sha256File(tmp)
+      if ((!moved && sha !== sha256File(real)) || fs.statSync(tmp).size !== plan.item.size) throw new Error(`${src} changed while it was copied; try again`)
       fs.renameSync(tmp, dest)
     } finally { fs.rmSync(tmp, { force: true }) }
   }

@@ -13,6 +13,8 @@
 //             SHA-256 the list names), then goes through the same inspect -> permission prompt -> install
 //   revoked   a build the official list of this release withdrew is turned off at start (audit plugin.revoke) and is
 //             never usable, installable, enabled or rolled back to
+//   HWP       the plugin's renderer drives previews and hwp_render while usable(); writing and filling Hangul documents
+//             (core code) follow only "installed and on" (hwpWriting)
 //
 // Nothing here runs package code in the server. A native package only supplies bytes for a driver core implements
 // (plugins/drivers.ts), run through the existing isolated converter path. The store lives outside the team folder, so
@@ -246,6 +248,17 @@ export class PluginManager {
   }
   /** hwp_render: the preview is usable and the admin allowed page images to go to the AI provider. */
   hwpToolUsable(): boolean { return !!this.hwpPackage() && this.granted(HWP_PLUGIN_ID, 'model.send.preview-pixels') }
+
+  /** Writing and filling Hangul documents (make_file .hwpx, edit_hwp; tools/hwp-writing.ts): the HWP plugin is
+   * installed and on for the company, and the official list of this release has not withdrawn its build. Deliberately
+   * not usable(): the writer and the editors are core code that never runs rhwp, so a renderer that cannot run here (a
+   * damaged store, a build core no longer accepts, no isolation) or a declined page-image permission leaves writing on. */
+  hwpWriting(): boolean {
+    try {
+      const x = this.installed(HWP_PLUGIN_ID)
+      return !!x && this.access(HWP_PLUGIN_ID).everyone && !this.isRevoked(HWP_PLUGIN_ID, x.pkg.manifest_sha256)
+    } catch { return false }
+  }
 
   /** After any change: no renderer instance, cached page or managed-path answer survives. */
   private changed() {

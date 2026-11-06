@@ -1,0 +1,257 @@
+// "쓸 수 있는 스킬" on the Team skills page: every skill the person can use (GET /api/skills, the same list as the "/"
+// menu: the team skills in the skills/ folders they can read, and their own personal skills), the most used first
+// (GET /api/skills/popular: the top 10 of the last 30 days have a count). A row is one line of text: clicking it starts
+// a chat with the skill, and its "…" menu also opens the file. The whole description is the row's tooltip. The same
+// read-only list for members and admins; what only skill managers and admins do (review suggestions, recent changes)
+// stays in the page's other tabs. A chat starts from the skill's name, so of two skills with one name the server picks
+// (server/src/chat/skills.ts). A skill with a form (metadata `inputs`) opens it instead (skills/SkillForm.tsx), from
+// the row, its run button and its menu. With no skill at all, owners and admins can install the recommended pack in
+// one click (POST /api/onboarding/packs/marketing/install); members read that an admin can. A team that has skills but
+// none under skills/marketing/ (every team that walked the welcome steps has the general pack) gets one quiet line under
+// the list for owners and admins: "마케팅 스킬 7개 넣기", the same install on a click.
+import { FileText, MessageSquarePlus, MoreHorizontal, PackagePlus, Play, ScrollText, Sparkles } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { skillSummary, skillTitle, WELCOME_PACK_SKILLS, type SkillInfo, type SkillPackId } from '@mycel/shared/api'
+import { api, API, errorText } from '../lib/api'
+import { navigateTo } from '../lib/nav'
+import { parentPath } from '../lib/paths'
+import { isSkillsPath } from '../lib/skillIssues'
+import { useLocale, useT } from '../i18n'
+import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
+import { isAdmin, useMe } from '../store/session'
+import { toast } from '../store/ui'
+import { skillPrompt } from './PopularSkills'
+import { SkillFormDialog } from './skills/SkillForm'
+import { Button, EmptyState, ErrorNote, IconButton, Skeleton } from './ui'
+
+type Skill = SkillInfo & { uses?: number }
+
+/** The skill's file in Files (its folder, the file selected). */
+export const skillFileLink = (path: string) => `/files?path=${encodeURIComponent(parentPath(path))}&select=${encodeURIComponent(path)}`
+/** A new chat with "/<name> " in the message box. */
+export const skillChatLink = (name: string) => `/?prompt=${encodeURIComponent(skillPrompt(name))}`
+
+/** The folder a skill belongs to: for a skill that is a folder of its own (…/<name>/SKILL.md), the one around it. */
+const skillHome = (path: string) => {
+  const dir = parentPath(path)
+  return path.endsWith('/SKILL.md') ? parentPath(dir) || dir : dir
+}
+
+/** `query`: the page's search box, matched against the name and the description. */
+export function AvailableSkills({ query }: { query: string }) {
+  const t = useT()
+  const [items, setItems] = useState<Skill[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    let active = true, generation = 0
+    const load = () => {
+      const g = ++generation
+      // the counts are a bonus: the list still shows when they don't load
+      Promise.all([api.call(API.listSkills), api.call(API.popularSkills).catch(() => null)]).then(
+        ([list, popular]) => {
+          if (!active || g !== generation) return
+          const uses = new Map(popular?.items.map((p) => [p.path, p.uses]))
+          setItems(list.items.map((s) => ({ ...s, uses: uses.get(s.path) ?? 0 })).sort((a, b) => b.uses - a.uses))
+          setFailed(false)
+        },
+        () => { if (active && g === generation) setFailed(true) },
+      )
+    }
+    load()
+    const offs = [
+      accessChanged.on(load), skillsChanged.on(load), reloadAsked.on(load),
+      filesChanged.on((changes) => { if (changes.some((c) => isSkillsPath(c.path) || (c.from && isSkillsPath(c.from)))) load() }),
+    ]
+    return () => { active = false; for (const off of offs) off() }
+  }, [attempt])
+  // never "no skills" for a list that did not load
+  if (failed && !items) return <ErrorNote onRetry={() => { setFailed(false); setAttempt((n) => n + 1) }}>{t('error.network')}</ErrorNote>
+  return <AvailableSkillsList items={items} query={query} />
+}
+
+/** The marketing pack's skills live here (the server installs a pack under skills/<id>/). */
+const MARKETING_FOLDER = `skills/${'marketing' satisfies SkillPackId}/`
+
+/** The list without the data load (null: still loading). Personal skills get a section of their own. */
+export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | null; query?: string }) {
+  const t = useT()
+  const admin = isAdmin(useMe())
+  const [running, setRunning] = useState<Skill | null>(null)
+  if (!items) return <Skeleton lines={3} />
+  if (!items.length) return <NoSkills />
+  const q = query.trim().toLowerCase()
+  const shown = q ? items.filter((s) => `${s.name} ${s.title ?? ''} ${s.description}`.toLowerCase().includes(q)) : items
+  if (!shown.length) return <EmptyState icon={<Sparkles size={22} />} title={t('skills.noMatch', { q: query.trim() })} />
+  // no marketing skill in the team yet: owners and admins can add the pack (not while searching)
+  const offerMarketing = admin && !q && !items.some((s) => !s.personal && s.path.startsWith(MARKETING_FOLDER))
+  return (
+    <div className="space-y-6" data-testid="skill-list">
+      <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal)} folders={admin} onRun={setRunning} />
+      <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} folders={admin} onRun={setRunning} />
+      {offerMarketing && <MarketingPackLine />}
+      {running && <SkillFormDialog path={running.path} skill={running} onClose={() => setRunning(null)} />}
+    </div>
+  )
+}
+
+/** Install the marketing pack on a click and say what happened (only what is missing goes in; nothing is replaced). */
+function usePackInstall() {
+  const t = useT()
+  const locale = useLocale()
+  const [busy, setBusy] = useState(false)
+  const install = async () => {
+    setBusy(true)
+    try {
+      const r = await api.call(API.installSkillPack, { params: { id: 'marketing' } })
+      const created = r.skills.filter((s) => s.status === 'created').length
+      const blocked = r.skills.filter((s) => s.status === 'blocked').length
+      toast({ level: blocked ? 'warn' : 'success', text: [created ? t('skillPack.installed', { n: created }) : t('skillPack.already'), blocked ? t('skillPack.blocked', { n: blocked }) : ''].filter(Boolean).join(' ') })
+      skillsChanged.emit()
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return { busy, install }
+}
+
+/** Under the list, one quiet text button: "마케팅 스킬 7개 넣기" (what goes in is its tooltip). */
+function MarketingPackLine() {
+  const t = useT()
+  const { busy, install } = usePackInstall()
+  return (
+    <p className="text-[13px]">
+      <button type="button" className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink disabled:opacity-50"
+        title={t('skillPack.adminHint')} disabled={busy} onClick={() => void install()} data-testid="skill-pack-marketing">
+        {t('skillPack.addMarketing', { n: WELCOME_PACK_SKILLS })}
+      </button>
+    </p>
+  )
+}
+
+/** No skill yet: owners and admins install the recommended pack here; members learn that an admin can. */
+function NoSkills() {
+  const t = useT()
+  const admin = isAdmin(useMe())
+  const { busy, install } = usePackInstall()
+  return (
+    <EmptyState icon={<Sparkles size={22} />} title={t('skills.noSkills')}>
+      {admin ? (
+        <div className="flex flex-col items-center gap-3" data-testid="skill-pack-offer">
+          <p>{t('skillPack.adminHint')}</p>
+          <Button variant="primary" busy={busy} onClick={() => void install()} data-testid="skill-pack-install">
+            <PackagePlus size={14} aria-hidden /> {t('skillPack.install')}
+          </Button>
+        </div>
+      ) : (
+        <>
+          <p data-testid="skill-pack-member">{t('skillPack.memberHint')}</p>
+          <p className="mt-1">{t('skills.noSkillsHint')}</p>
+        </>
+      )}
+    </EmptyState>
+  )
+}
+
+/** `folders`: each team skill's folder before its line ("skills/marketing/ · …"), for owners and admins, who manage the
+ * folders; a member reads the title and the line only (a raw path told them nothing: docs/DECISIONS.md "W3"). */
+function SkillSection({ title, items, folders, onRun }: { title: string; items: Skill[]; folders: boolean; onRun: (s: Skill) => void }) {
+  if (!items.length) return null
+  return (
+    <section aria-label={title}>
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium">
+        {title}
+        {/* phones: the count as plain text, no pill */}
+        <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums max-md:bg-transparent max-md:px-0 max-md:font-normal" data-testid="skill-count">{items.length}</span>
+      </h2>
+      <ul className="-mx-2 divide-y divide-line">
+        {items.map((s) => <SkillRow key={s.path} skill={s} folder={folders} onRun={onRun} />)}
+      </ul>
+    </section>
+  )
+}
+
+function SkillRow({ skill: s, folder, onRun }: { skill: Skill; folder: boolean; onRun: (s: Skill) => void }) {
+  const t = useT()
+  // the name people read (its title, else its name); the description without a lead that repeats the title
+  const title = skillTitle(s)
+  const line = [s.personal || !folder ? '' : `${skillHome(s.path)}/`, skillSummary(s)].filter(Boolean).join(' · ')
+  // a skill with a form opens it; any other starts a chat with "/<name> " in the message box, as before
+  const use = () => (s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
+  return (
+    <li className="flex items-center gap-1 py-1" data-testid="skill-row" data-path={s.path}>
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 text-left hover:bg-hover"
+        title={s.description || (folder ? s.path : title)}
+        onClick={use}
+        data-testid="skill-use"
+      >
+        {/* phones: the icon alone, no framed tile on every row */}
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted max-md:size-5 max-md:border-0 max-md:bg-transparent">
+          <ScrollText size={16} aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium" title={s.title ? `${title} · /${s.name}` : s.name}>{title}</span>
+          {line && <span className="mt-0.5 block truncate text-xs text-muted">{line}</span>}
+        </span>
+        {!!s.uses && <span className="shrink-0 text-xs text-faint tabular-nums" title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span>}
+        <span className="sr-only">{t('skills.use')}</span>
+      </button>
+      {!!s.inputs?.length && (
+        <IconButton label={t('skillForm.runNamed', { name: title })} onClick={() => onRun(s)} data-testid="skill-run">
+          <Play size={16} aria-hidden />
+        </IconButton>
+      )}
+      <SkillMenu skill={s} onUse={use} />
+    </li>
+  )
+}
+
+function SkillMenu({ skill: s, onUse }: { skill: Skill; onUse: () => void }) {
+  const t = useT()
+  const box = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const menuItems = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  useEffect(() => {
+    if (!open) return
+    menuItems()[0]?.focus()
+    // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
+    const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [open])
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (!open) return
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      if (e.key === 'Escape') e.stopPropagation() // only the menu: not an open file or browser panel too (Layout)
+      setOpen(false)
+      box.current?.querySelector('button')?.focus() // Tab then moves on from the "…" button
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const items = menuItems()
+      const at = items.indexOf(document.activeElement as HTMLElement)
+      items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus()
+    }
+  }
+  const item = 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover'
+  return (
+    <div ref={box} className="relative shrink-0" onKeyDown={onKeyDown}>
+      <IconButton label={t('skills.moreNamed', { name: skillTitle(s) })} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="skill-more">
+        <MoreHorizontal size={16} aria-hidden />
+      </IconButton>
+      {open && (
+        <div role="menu" aria-label={t('skills.moreNamed', { name: skillTitle(s) })} className="absolute top-full right-0 z-30 mt-1 w-44 rounded-lg border border-line bg-surface p-1 shadow-lg">
+          <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onUse() }}>
+            <MessageSquarePlus size={14} aria-hidden /> {t('skills.use')}
+          </button>
+          <button role="menuitem" type="button" className={item} onClick={() => navigateTo(skillFileLink(s.path))} data-testid="skill-file">
+            <FileText size={14} aria-hidden /> {t('skills.viewFile')}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}

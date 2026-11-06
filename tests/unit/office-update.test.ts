@@ -10,9 +10,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { decide, DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, publicKeyOf, signRelease, verifyRelease, type OfficeRelease } from '../../server/src/office/release'
 import {
-  checkLatestYml, deliverWindows, download, feedOf, nextWindow, readIndex, readUpdateState, runUpdate, updatePlist, updateView, writeUpdateSettings,
-  sha256File, type UpdateDeps,
+  checkLatestYml, deliverWindows, download, feedOf, nextRunAt, officeSchedule, patchUpdateState, readIndex, readUpdateState, runUpdate, scheduledRun, updatePlist, updateView,
+  windowEnd, writeUpdateSettings, sha256File, type UpdateDeps,
 } from '../../server/src/office/update'
+import { viewText } from '../../server/src/office/update-cli'
+import { Database } from 'bun:sqlite'
 import { settingsFrom } from '../../server/src/office/settings'
 import { officeUpdateHooks } from '../../server/src/routes/office-update'
 import builderConfig from '../../desktop/electron-builder.config'
@@ -233,6 +235,71 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect((await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).kind).toBe('up-to-date')
   })
 
+  withZip('the nightly run never cuts an answer off: it waits until its window closes, then leaves the update for later (O4)', async () => {
+    const home = makeHome('run-busy', '0.2.0')
+    const files = new Map<string, Uint8Array | string>()
+    publish(files, '0.3.0', makeZip('0.3.0'))
+    const f = fakeDeps(home, files)
+    const now = () => f.deps.now!()
+    const status = (running: number) => { fs.mkdirSync(path.join(home, 'status'), { recursive: true }); fs.writeFileSync(path.join(home, 'status', 'status.json'), JSON.stringify({ writtenAt: now().toISOString(), queue: { running } })) }
+    // two answers keep running (the server keeps writing status.json)
+    const sleep = f.deps.sleep!
+    f.deps.sleep = async (ms) => { await sleep(ms); status(2) }
+    status(2)
+    const quietBy = new Date(now().getTime() + 30 * 60_000)
+    const r = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy })
+    expect(r.kind).toBe('skipped')
+    expect(r.message).toContain('2 answer(s) still running')
+    expect(now().getTime()).toBeGreaterThanOrEqual(quietBy.getTime())
+    expect(f.calls).toEqual(['installer --prefix <home> --update --check-only']) // no backup, no install
+    expect(fs.readFileSync(path.join(home, 'app', 'VERSION'), 'utf8').trim()).toBe('0.2.0')
+    const since = readUpdateState(home).deferred!.since
+    expect(readUpdateState(home).deferred).toMatchObject({ version: '0.3.0' })
+    // the next night, still busy: the first deferral's time stays
+    const r2 = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy: new Date(now().getTime() + 60_000) })
+    expect(r2.kind).toBe('skipped')
+    expect(readUpdateState(home).deferred!.since).toBe(since)
+    // a status.json the server has not written lately counts as running while the server answers
+    f.deps.sleep = sleep
+    fs.writeFileSync(path.join(home, 'status', 'status.json'), JSON.stringify({ writtenAt: new Date(now().getTime() - 10 * 60_000).toISOString(), queue: { running: 0 } }))
+    const r3 = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy: new Date(now().getTime() + 60_000) })
+    expect(r3.kind).toBe('skipped')
+    expect(r3.message).toContain('answers may be running')
+    // the server's own backup counts too, and "update now" asked meanwhile ends the long wait (idleWaitMs from there)
+    const status2 = (m: string | null) => fs.writeFileSync(path.join(home, 'status', 'status.json'), JSON.stringify({ writtenAt: now().toISOString(), queue: { running: 0 }, maintenance: m }))
+    f.deps.sleep = async (ms) => { await sleep(ms); status2('backup') }
+    status2('backup')
+    const r5 = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy: new Date(now().getTime() + 60_000) })
+    expect(r5.message).toContain("the server's backup still running")
+    let asked = false
+    f.deps.sleep = async (ms) => { await sleep(ms); status2('backup'); if (!asked) { asked = true; fs.writeFileSync(path.join(home, 'update', 'request.json'), JSON.stringify({ action: 'now', by: 'test', at: new Date().toISOString() })) } }
+    const t0 = now().getTime()
+    const r6 = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy: new Date(now().getTime() + 3600_000) })
+    expect(r6.kind).toBe('updated')
+    expect(now().getTime() - t0).toBeLessThan(10 * 60_000) // not the hour of the nightly wait
+    expect(fs.existsSync(path.join(home, 'update', 'request.json'))).toBe(false)
+    expect(readUpdateState(home).deferred).toBeNull()
+    expect(fs.existsSync(path.join(home, 'update', 'download'))).toBe(false)
+  })
+
+  withZip('the last resort: deferred for 3 days, waits idleWaitMs, then installs', async () => {
+    const home = makeHome('run-busy-last', '0.2.0')
+    const files = new Map<string, Uint8Array | string>()
+    publish(files, '0.3.0', makeZip('0.3.0'))
+    const f = fakeDeps(home, files)
+    const now = () => f.deps.now!()
+    const status = (running: number) => { fs.mkdirSync(path.join(home, 'status'), { recursive: true }); fs.writeFileSync(path.join(home, 'status', 'status.json'), JSON.stringify({ writtenAt: now().toISOString(), queue: { running } })) }
+    const sleep = f.deps.sleep!
+    // the last resort (deferred for 3 days): waits idleWaitMs, then installs
+    f.deps.sleep = async (ms) => { await sleep(ms); status(1) }
+    status(1)
+    const r4 = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short, quietBy: new Date(now().getTime() + 60_000), lastResort: true })
+    expect(r4.kind).toBe('updated')
+    expect(readUpdateState(home).deferred).toBeNull()
+    // update/download/ is not left behind (O9)
+    expect(fs.existsSync(path.join(home, 'update', 'download'))).toBe(false)
+  })
+
   withZip('downgrade and minFrom: refused, nothing downloaded or installed', async () => {
     const home = makeHome('run-down', '0.3.0')
     const files = new Map<string, Uint8Array | string>()
@@ -339,6 +406,86 @@ describe('a whole update run (fake bundle, fake health)', () => {
     expect(r.message).toContain(`${PRODUCT.officeBundle}-0.3.0`)
     expect(fs.readFileSync(path.join(home, 'app', 'VERSION'), 'utf8').trim()).toBe('0.2.0')
   })
+
+  // the staged roll-out (server/src/system/rollout.ts, the same rule as a Linux server's): install-0 is bucket 62 with
+  // this salt (native/cmd/mycel-ctl/testdata/rollout.json), the third wave
+  const SALT = '3f9a1c7e5b2d4086a1e0c9b8f7d6e5a4'
+  const ramp = { percent: 100, salt: SALT, ramp: [{ afterHours: 0, percent: 10 }, { afterHours: 24, percent: 50 }, { afterHours: 48, percent: 100 }] }
+  function withInstallId(home: string, id: string) {
+    fs.rmSync(path.join(home, 'data', 'app.db'))
+    const db = new Database(path.join(home, 'data', 'app.db'))
+    db.run('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.query('INSERT INTO settings (key, value) VALUES (?, ?)').run('system.installId', JSON.stringify(id))
+    db.close()
+  }
+  function publishStable(files: Map<string, Uint8Array | string>, version: string, zip: Uint8Array, publishedAt: Date) {
+    const name = `${PRODUCT.officeBundle}-${version}-mac.zip`
+    files.set(fileUrl(FEED, version, name), zip)
+    files.set(manifestUrl(FEED, 'stable'), signRelease(release({ version, channel: 'stable', publishedAt: publishedAt.toISOString(), rollout: ramp }, [{ name, bytes: zip }]), keyPem))
+  }
+
+  withZip('a stable release in its staged roll-out: the nightly run waits for this Mac\'s turn, "update now" does not', async () => {
+    const home = makeHome('run-rollout', '0.2.0')
+    writeUpdateSettings(home, { channel: 'stable' })
+    withInstallId(home, 'install-0')
+    const files = new Map<string, Uint8Array | string>()
+    const f = fakeDeps(home, files)
+    const published = new Date(f.deps.now!().getTime() - 3600_000)
+    publishStable(files, '0.3.0', makeZip('0.3.0'), published)
+    const turn = new Date(published.getTime() + 48 * 3600_000).toISOString()
+    const night = await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })
+    expect(night).toMatchObject({ kind: 'skipped', version: '0.3.0' })
+    expect(night.message).toBe(`0.3.0 is in a staged roll-out: this Mac's turn comes at ${turn} (teamax update now installs it now)`)
+    expect(f.calls).toEqual([]) // nothing downloaded, checked or installed
+    expect(readUpdateState(home).available).toMatchObject({ version: '0.3.0', turnAt: turn })
+    expect(updateView(home).available?.turnAt).toBe(turn)
+    expect(viewText(updateView(home))).toContain("this Mac's turn")
+    // a look only says the same
+    expect((await runUpdate(home, { reason: 'check', deps: f.deps, ...short })).kind).toBe('available')
+    expect(readUpdateState(home).available?.turnAt).toBe(turn)
+    // "update now": at once
+    const now = await runUpdate(home, { reason: 'now', deps: f.deps, ...short })
+    expect(now).toMatchObject({ kind: 'updated', version: '0.3.0' })
+  })
+
+  withZip('waiting for the turn clears a deferral left by an earlier release (its three days would cut answers off at the turn)', async () => {
+    const home = makeHome('run-rollout-deferred', '0.2.0')
+    writeUpdateSettings(home, { channel: 'stable' })
+    withInstallId(home, 'install-0')
+    const files = new Map<string, Uint8Array | string>()
+    const f = fakeDeps(home, files)
+    publishStable(files, '0.3.0', makeZip('0.3.0'), new Date(f.deps.now!().getTime() - 3600_000))
+    patchUpdateState(home, (s) => { s.deferred = { version: '0.2.9', since: new Date(f.deps.now!().getTime() - 5 * 86_400_000).toISOString() } })
+    expect((await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).kind).toBe('skipped')
+    expect(readUpdateState(home).deferred).toBeNull()
+    // one of the same release stays
+    const same = { version: '0.3.0', since: new Date(f.deps.now!().getTime() - 5 * 86_400_000).toISOString() }
+    patchUpdateState(home, (s) => { s.deferred = same })
+    await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })
+    expect(readUpdateState(home).deferred).toEqual(same)
+  })
+
+  withZip('the staged roll-out: an office without an install id is the last wave (48 h), never left out; the beta channel does not wait', async () => {
+    const home = makeHome('run-rollout-noid', '0.2.0') // data/app.db is not a database: no install id
+    writeUpdateSettings(home, { channel: 'stable' })
+    const files = new Map<string, Uint8Array | string>()
+    const f = fakeDeps(home, files)
+    const published = new Date(f.deps.now!().getTime() - 47 * 3600_000)
+    publishStable(files, '0.3.0', makeZip('0.3.0'), published)
+    expect((await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).kind).toBe('skipped')
+    await f.deps.sleep!(3600_000) // the fake clock: 48 h after publishing
+    expect(await runUpdate(home, { reason: 'schedule', deps: f.deps, ...short })).toMatchObject({ kind: 'updated', version: '0.3.0' })
+    // the beta channel: a stable release with a ramp is taken at once
+    const beta = makeHome('run-rollout-beta', '0.2.0')
+    withInstallId(beta, 'install-0')
+    const files2 = new Map<string, Uint8Array | string>()
+    const f2 = fakeDeps(beta, files2)
+    const zip = makeZip('0.3.0')
+    const name = `${PRODUCT.officeBundle}-0.3.0-mac.zip`
+    files2.set(fileUrl(FEED, '0.3.0', name), zip)
+    files2.set(manifestUrl(FEED, 'beta'), signRelease(release({ version: '0.3.0', publishedAt: f2.deps.now!().toISOString(), rollout: ramp }, [{ name, bytes: zip }]), keyPem))
+    expect(await runUpdate(beta, { reason: 'schedule', deps: f2.deps, ...short })).toMatchObject({ kind: 'updated', version: '0.3.0' })
+  })
 })
 
 // ---- the Windows app in data/downloads ------------------------------------------------------------------------
@@ -415,18 +562,30 @@ describe('the Windows installer for the desks (data/downloads, latest.yml, index
   })
 })
 
+describe('Admin › System diagnostics in office mode', () => {
+  test('"Updates" says the Mac updates itself, not that it needs a newer zip, in every language', async () => {
+    const { M } = await import('../../server/src/system/messages')
+    const t = M.updateOffice('0.2.18')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(t[l]).toContain('0.2.18')
+      expect(t[l]).not.toContain('office-install.sh')
+    }
+    expect(t.en).toContain('Automatic updates')
+  })
+})
+
 describe('the update LaunchAgent and the schedule', () => {
-  test('plist: <label>.update, nightly StartCalendarInterval, not kept alive, not run at load, the log', () => {
+  test('plist: <label>.update, every 15 minutes (the run keeps the team window), not kept alive, not run at load, the log', () => {
     const s = settingsFrom('/Users/x/TeamAX', { TEAMAX_CLAUDE_BIN: '/Users/x/.local/bin/claude' })
-    const p = updatePlist(s, '03:00', '/usr/bin:/bin')
+    const p = updatePlist(s, '/usr/bin:/bin')
     expect(p).toContain('<key>Label</key><string>app.team-ax.office.update</string>')
-    expect(p).toContain('<key>StartCalendarInterval</key>\n  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>')
+    expect(p).toContain('<key>StartCalendarInterval</key>\n  <array><dict><key>Minute</key><integer>0</integer></dict><dict><key>Minute</key><integer>15</integer></dict><dict><key>Minute</key><integer>30</integer></dict><dict><key>Minute</key><integer>45</integer></dict></array>')
+    expect(p).not.toContain('<key>Hour</key>')
     expect(p).toContain('<key>RunAtLoad</key><false/>')
     expect(p).not.toContain('KeepAlive')
     expect(p).toContain('<string>/Users/x/TeamAX/app/server/src/office.js</string><string>update</string><string>run</string>')
     expect(p).toContain('/Users/x/TeamAX/logs/update.log')
     expect(p).toContain('<key>TEAMAX_CLAUDE_BIN</key><string>/Users/x/.local/bin/claude</string>')
-    expect(updatePlist(s, '23:45', '/usr/bin')).toContain('<integer>23</integer><key>Minute</key><integer>45</integer>')
   })
   test('an update run rewrites the agent plist without reloading it (it is the running job) and leaves a marker the supervisor acts on later', async () => {
     const { syncUpdateAgent, reloadMarkedUpdateAgent } = await import('../../server/src/office/update-cli')
@@ -449,13 +608,89 @@ describe('the update LaunchAgent and the schedule', () => {
       expect(fs.existsSync(path.join(home, 'update', 'agent-reload'))).toBe(true)
     } finally { delete process.env.TEAMAX_AGENTS_DIR }
   })
-  test('next window: today if still ahead, else tomorrow; none while paused', () => {
-    const at = (h: number, m: number) => { const d = new Date(2026, 9, 21, h, m); return d }
-    expect(nextWindow('03:00', at(1, 0))!.getDate()).toBe(21)
-    expect(nextWindow('03:00', at(1, 0))!.getHours()).toBe(3)
-    expect(nextWindow('03:00', at(3, 0))!.getDate()).toBe(22)
-    expect(nextWindow('03:00', at(14, 0), true)).toBeNull()
+  test('the schedule is the team\'s update window in the team\'s time zone, read from the database (O1)', () => {
+    const home = makeHome('schedule-db', '0.2.18')
+    fs.rmSync(path.join(home, 'data', 'app.db'))
+    // no database yet: 03:00-05:00 in the server's default zone (MYCEL_TEAM_TZ, else this Mac's)
+    expect(officeSchedule(home, { MYCEL_TEAM_TZ: 'Asia/Jakarta' })).toEqual({ window: '03:00-05:00', timeZone: 'Asia/Jakarta', source: 'default' })
+    // a time an older `teamax update time` set counts while the team has no window
+    writeUpdateSettings(home, { time: '02:30' })
+    expect(officeSchedule(home, { MYCEL_TEAM_TZ: 'Asia/Jakarta' })).toEqual({ window: '02:30-04:30', timeZone: 'Asia/Jakarta', source: 'legacy' })
+    const db = new Database(path.join(home, 'data', 'app.db'))
+    db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    const set = (k: string, v: string) => db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v)
+    set('updateWindow', JSON.stringify('22:00-23:00'))
+    set('timeZone', JSON.stringify('Asia/Seoul'))
+    expect(officeSchedule(home)).toEqual({ window: '22:00-23:00', timeZone: 'Asia/Seoul', source: 'team' })
+    // an invalid stored window never opens (as getTeamSettings reads it); null is the default again
+    set('updateWindow', JSON.stringify('25:00-26:00'))
+    expect(officeSchedule(home).window).toBe('00:00-00:00')
+    set('updateWindow', 'null')
+    expect(officeSchedule(home)).toMatchObject({ window: '02:30-04:30', source: 'legacy' })
+    // the web's Team settings says what runs while its field is empty: the view names where the window comes from
+    expect(updateView(home, { agentInstalled: true })).toMatchObject({ window: '02:30-04:30', windowSource: 'legacy' })
+    set('updateWindow', JSON.stringify('22:00-23:00'))
+    expect(updateView(home, { agentInstalled: true })).toMatchObject({ window: '22:00-23:00', windowSource: 'team' })
+    db.close()
     expect(() => writeUpdateSettings(path.join(BASE, 'settings-x'), { time: '25:00' })).toThrow(/HH:MM/)
+  })
+  test('`teamax update time` sets the team\'s update window (the setting the web shows), not a Mac-only time', async () => {
+    const { updateCommand } = await import('../../server/src/office/update-cli')
+    const home = makeHome('update-time', '0.2.18')
+    fs.rmSync(path.join(home, 'data', 'app.db'))
+    writeUpdateSettings(home, { time: '02:30' })
+    const agents = path.join(BASE, 'agents-time')
+    process.env.TEAMAX_AGENTS_DIR = agents
+    process.env.TEAMAX_UPDATE_RUN = '1' // only write the plist: no launchctl in a test
+    const log = console.log, err = console.error
+    console.log = () => {}; console.error = () => {}
+    try {
+      expect(await updateCommand(home, ['time', '22:00'], '/usr/bin')).toBe(0)
+      expect(officeSchedule(home)).toMatchObject({ window: '22:00-00:00', source: 'team' })
+      expect(JSON.parse(fs.readFileSync(path.join(home, 'update', 'settings.json'), 'utf8')).time).toBeUndefined()
+      expect(await updateCommand(home, ['time', '02:00-05:00'], '/usr/bin')).toBe(0)
+      expect(officeSchedule(home).window).toBe('02:00-05:00')
+      const { getTeamSettings } = await import('../../server/src/admin/settings')
+      const { openDb } = await import('../../server/src/db')
+      const db = openDb(path.join(home, 'data', 'app.db'))
+      try { expect(getTeamSettings(db).updateWindow).toBe('02:00-05:00') } finally { db.close() }
+      for (const bad of ['25:00', '03:00-03:00', '3:00', '']) expect(await updateCommand(home, ['time', bad], '/usr/bin')).toBe(2)
+      expect(fs.readFileSync(path.join(agents, 'app.team-ax.test-update.update.plist'), 'utf8')).toContain('<array><dict><key>Minute</key><integer>0</integer></dict>')
+    } finally { console.log = log; console.error = err; delete process.env.TEAMAX_AGENTS_DIR; delete process.env.TEAMAX_UPDATE_RUN }
+  })
+  test('next run: the first 15-minute start inside the window, in the team zone; none while paused or when it never opens (O2)', () => {
+    const jkt = { window: '03:00-05:00', timeZone: 'Asia/Jakarta' }
+    expect(nextRunAt(jkt, new Date('2026-11-01T15:00:00Z'))!.toISOString()).toBe('2026-11-01T20:00:00.000Z') // 22:00 -> 03:00 WIB
+    expect(nextRunAt(jkt, new Date('2026-11-01T20:07:00Z'))!.toISOString()).toBe('2026-11-01T20:15:00.000Z') // inside: the next start
+    expect(nextRunAt(jkt, new Date('2026-11-01T15:00:00Z'), true)).toBeNull()
+    expect(nextRunAt({ window: '00:00-00:00', timeZone: 'UTC' }, new Date('2026-11-01T15:00:00Z'))).toBeNull()
+    // a window that does not start on a quarter: the first start after it opens
+    expect(nextRunAt({ window: '22:51-00:51', timeZone: 'Asia/Jakarta' }, new Date('2026-11-01T15:00:00Z'))!.toISOString()).toBe('2026-11-01T16:00:00.000Z')
+    // clock changes: the evening before spring-forward shows the next night, not the one after; a start the clocks skip
+    // (02:30 that night) gets the first quarter of the window that exists
+    const ny = { window: '03:00-05:00', timeZone: 'America/New_York' }
+    expect(nextRunAt(ny, new Date('2026-03-08T04:30:00Z'))!.toISOString()).toBe('2026-03-08T07:00:00.000Z') // 23:30 EST Mar 7
+    expect(nextRunAt({ window: '02:30-04:00', timeZone: 'America/New_York' }, new Date('2026-03-08T04:30:00Z'))!.toISOString()).toBe('2026-03-08T07:00:00.000Z') // 03:00 EDT
+    expect(nextRunAt(ny, new Date('2026-11-01T03:30:00Z'))!.toISOString()).toBe('2026-11-01T08:00:00.000Z') // 23:30 EDT Oct 31 -> 03:00 EST
+    expect(windowEnd('03:00-05:00', 'Asia/Jakarta', new Date('2026-11-01T20:10:00Z')).toISOString()).toBe('2026-11-01T22:00:00.000Z')
+    expect(windowEnd('23:00-01:00', 'Asia/Seoul', new Date('2026-11-01T14:30:00Z')).toISOString()).toBe('2026-11-01T16:00:00.000Z')
+  })
+  test('the agent\'s run: only inside the window; it waits at most until the window closes or an hour; 3 days deferred is the last resort', () => {
+    const home = makeHome('schedule-run', '0.2.18')
+    fs.rmSync(path.join(home, 'data', 'app.db'))
+    const db = new Database(path.join(home, 'data', 'app.db'))
+    db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.query('INSERT INTO settings (key, value) VALUES (?, ?), (?, ?)').run('updateWindow', JSON.stringify('03:00-05:00'), 'timeZone', JSON.stringify('Asia/Jakarta'))
+    db.close()
+    expect(scheduledRun(home, new Date('2026-11-01T15:51:00Z')).go).toBe(false) // 22:51 WIB
+    const r = scheduledRun(home, new Date('2026-11-01T21:30:00Z')) // 04:30 WIB
+    expect(r).toMatchObject({ go: true, lastResort: false })
+    expect((r as { quietBy: Date }).quietBy.toISOString()).toBe('2026-11-01T22:00:00.000Z')
+    expect((scheduledRun(home, new Date('2026-11-01T20:00:00Z')) as { quietBy: Date }).quietBy.toISOString()).toBe('2026-11-01T21:00:00.000Z')
+    fs.writeFileSync(path.join(home, 'update', 'state.json'), JSON.stringify({ deferred: { version: '0.2.19', since: '2026-10-28T20:00:00Z' } }))
+    expect(scheduledRun(home, new Date('2026-11-01T20:00:00Z'))).toMatchObject({ go: true, lastResort: true })
+    // the view says the window and its zone
+    expect(updateView(home, { now: new Date('2026-11-01T15:00:00Z'), agentInstalled: true })).toMatchObject({ window: '03:00-05:00', windowSource: 'team', timeZone: 'Asia/Jakarta', time: '03:00', nextWindowAt: '2026-11-01T20:00:00.000Z' })
   })
 })
 
@@ -474,7 +709,7 @@ describe('Admin > System endpoints', () => {
   test('owner and admin see the state and can ask for an update / pause; a member cannot', async () => {
     const owner = await withOwner(h)
     const st = await owner.call('GET', '/api/admin/office-update')
-    expect(st).toMatchObject({ current: '0.2.0', channel: 'beta', paused: false, time: '03:00', agentInstalled: false, nextWindowAt: null, running: null })
+    expect(st).toMatchObject({ current: '0.2.0', channel: 'beta', paused: false, time: '03:00', windowSource: 'default', agentInstalled: false, nextWindowAt: null, running: null })
     // no update agent yet (an install from before automatic updates): "now" says how to get it
     const no = await owner.try('POST', '/api/admin/office-update', { action: 'now', password: OWNER_PW })
     expect(no.status).toBe(409)
@@ -526,6 +761,30 @@ describe('Admin > System endpoints', () => {
   test('the view shows the next window once the agent is installed', () => {
     const v = updateView(home, { now: new Date(2026, 9, 21, 12, 0), agentInstalled: true })
     expect(new Date(v.nextWindowAt!).getHours()).toBe(3)
+  })
+})
+
+describe('teamax update status', () => {
+  test('every time is in the team\'s zone and names it, the checked, updated and Windows app lines like the next run', () => {
+    const at = '2026-11-01T15:00:00.000Z'
+    // two zones on two sides of any machine's clock
+    for (const timeZone of ['Asia/Jakarta', 'America/New_York']) {
+      const shown = `${new Date(at).toLocaleString('ko-KR', { hour12: false, timeZone })} ${timeZone}`
+      const text = viewText({
+        current: '0.2.20', channel: 'stable', paused: false, time: '03:00', window: '03:00-05:00', windowSource: 'default', timeZone, nextWindowAt: at, lastCheckAt: at,
+        last: { kind: 'up-to-date', at, version: '0.2.20', message: null }, available: null, lastUpdate: { from: '0.2.19', to: '0.2.20', at, result: 'updated', error: null },
+        running: null, requested: false, agentInstalled: true, desktop: { version: '0.2.20', at },
+      })
+      const of = (start: string) => text.split('\n').find((l) => l.startsWith(start)) ?? ''
+      for (const line of [of('자동 업데이트'), of('마지막 확인'), of('마지막 업데이트'), of('윈도우 앱')]) expect(line).toContain(shown)
+    }
+  })
+  test('a time that never was stays a dash', () => {
+    const text = viewText({
+      current: '0.2.20', channel: 'stable', paused: true, time: '03:00', window: '03:00-05:00', windowSource: 'default', timeZone: 'Asia/Jakarta', nextWindowAt: null, lastCheckAt: null,
+      last: null, available: null, lastUpdate: null, running: null, requested: false, agentInstalled: true, desktop: null,
+    })
+    expect(text.split('\n').find((l) => l.startsWith('마지막 확인'))?.trimEnd().endsWith('-')).toBe(true)
   })
 })
 

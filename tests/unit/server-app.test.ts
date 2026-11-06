@@ -215,6 +215,8 @@ describe('route registry', () => {
       'GET *', 'GET /api/ws',
       // External OAuth/MCP protocols are tested through their raw contracts, not our app JSON API.
       'GET /api/integrations/google-drive/callback', 'GET /api/integrations/oauth/callback',
+      // Sign in with Slack's return (tests/unit/c-slack.test.ts; matrix: SLACK_RAW_COVERED)
+      'GET /api/integrations/slack/oauth/callback',
       'GET /.well-known/oauth-protected-resource', 'GET /.well-known/oauth-protected-resource/mcp',
       'GET /.well-known/oauth-authorization-server', 'GET /oauth/authorize',
       'POST /oauth/register', 'POST /oauth/token', 'POST /oauth/revoke',
@@ -305,6 +307,16 @@ describe('migrations', () => {
   })
   test('two files with the same number are an error', () => {
     expect(() => readMigrations(dir('dup', { '005_a_x.sql': '', '005_b_y.sql': '' }))).toThrow('two migrations with number 5')
+  })
+  test('every repo migration is numbered in its component\'s range (db.ts header, docs/WORKPLAN.md)', () => {
+    const range: Record<string, [number, number]> = { a: [100, 199], b: [200, 299], c: [300, 399], f: [600, 699], g: [700, 799] }
+    const wrong = readMigrations().filter((m) => {
+      const c = /^\d{3}_([a-z])_/.exec(m.name)?.[1]
+      if (c === undefined) return m.version > 99
+      const r = range[c]
+      return !r || m.version < r[0] || m.version > r[1]
+    }).map((m) => m.name)
+    expect(wrong).toEqual([])
   })
 })
 

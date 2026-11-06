@@ -1,19 +1,24 @@
 // `teamax update …` (docs/OFFICE.md "자동 업데이트") and the update LaunchAgent's own entry (`update run`).
 //
-//   teamax update [status]          version, channel, next night window, last check / update
+//   teamax update [status]          version, channel, update window (team time zone), next run, last check / update
 //   teamax update check             look at the feed now (installs nothing)
 //   teamax update now [--inline]    install the newest version now (through the agent; --inline runs it here)
 //   teamax update pause | resume    automatic updates off / on (the web's "자동 업데이트 끄기" is the same)
 //   teamax update channel stable|beta
-//   teamax update time HH:MM        the nightly time (default 03:00, this Mac's local time)
-//   teamax update run               what the agent runs (nightly, or a request from `now` / the web)
+//   teamax update time HH:MM[-HH:MM]  the team's update window (Admin > Team settings; HH:MM alone = two hours), in
+//                                   the team's time zone
+//   teamax update run               what the agent runs (every 15 minutes: only inside the window; or a request
+//                                   from `now` / the web)
 import fs from 'node:fs'
+import path from 'node:path'
 import { launchAgent } from '../../../scripts/dev-service'
+import { updateTeamSettings } from '../admin/settings'
+import { openDb } from '../db'
 import { CHANNELS, type Channel } from './release'
 import { loadSettings, officePaths, type OfficeSettings } from './settings'
 import {
-  readUpdateSettings, readUpdateState, requestUpdate, runUpdate, takeRequest, updateLabel, updatePaths, updatePlist, updateView,
-  writeUpdateSettings, type OfficeUpdateView, type RunResult,
+  officeSchedule, readUpdateSettings, readUpdateState, requestUpdate, runUpdate, scheduledRun, takeRequest, updateLabel, updatePaths, updatePlist,
+  updateView, writeUpdateSettings, type OfficeUpdateView, type RunResult,
 } from './update'
 
 const uid = () => process.getuid?.() ?? 0
@@ -24,7 +29,7 @@ export function syncUpdateAgent(s: OfficeSettings, envPath: string, env: Record<
   const p = officePaths(s.home)
   const label = updateLabel(s)
   const file = p.plist(label)
-  const text = updatePlist(s, readUpdateSettings(s.home).time, envPath)
+  const text = updatePlist(s, envPath)
   const ua = launchAgent(label, file)
   let before = ''
   try { before = fs.readFileSync(file, 'utf8') } catch {}
@@ -40,7 +45,8 @@ export function syncUpdateAgent(s: OfficeSettings, envPath: string, env: Record<
   fs.writeFileSync(file, text, { mode: 0o644 })
   ua.start()
   const t = readUpdateSettings(s.home)
-  return `자동 업데이트 / automatic updates (${label}): 매일 / every night ${t.time}, ${t.channel}${t.paused ? ', 꺼짐 / paused' : ''}`
+  const w = officeSchedule(s.home)
+  return `자동 업데이트 / automatic updates (${label}): 업데이트 시간 / update window ${w.window} (${w.timeZone}), ${t.channel}${t.paused ? ', 꺼짐 / paused' : ''}`
 }
 
 const reloadMarker = (home: string) => `${updatePaths(home).dir}/agent-reload`
@@ -69,18 +75,25 @@ export function removeUpdateAgent(s: OfficeSettings): string {
   return was ? `update agent: removed` : ''
 }
 
-const local = (iso: string | null) => (iso ? new Date(iso).toLocaleString('ko-KR', { hour12: false }) : '-')
+/** a time in the team's zone, with the zone named: every line of `update status` the same way */
+const local = (iso: string | null, timeZone: string) => (iso ? `${new Date(iso).toLocaleString('ko-KR', { hour12: false, timeZone })} ${timeZone}` : '-')
 
 export function viewText(v: OfficeUpdateView): string {
+  const when = v.nextWindowAt ? `다음 / next ${local(v.nextWindowAt, v.timeZone)}` : '열리지 않음 / never opens: Admin > Team settings'
   const lines = [
     `현재 버전 / installed   ${v.current}`,
     `채널 / channel          ${v.channel}`,
-    `자동 업데이트 / auto    ${!v.agentInstalled ? '설치 안 됨 / agent not installed (office-install.sh)' : v.paused ? '꺼짐 / paused (teamax update resume)' : `매일 / every night ${v.time} (다음 / next ${local(v.nextWindowAt)})`}`,
-    `마지막 확인 / checked   ${local(v.lastCheckAt)}${v.last ? `  → ${v.last.kind}${v.last.version ? ` ${v.last.version}` : ''}${v.last.message ? ` (${v.last.message})` : ''}` : ''}`,
+    `자동 업데이트 / auto    ${!v.agentInstalled ? '설치 안 됨 / agent not installed (office-install.sh)' : v.paused ? '꺼짐 / paused (teamax update resume)' : `업데이트 시간 / window ${v.window} ${v.timeZone}, 답변이 없을 때 / when no answer runs (${when})`}`,
+    `마지막 확인 / checked   ${local(v.lastCheckAt, v.timeZone)}${v.last ? `  → ${v.last.kind}${v.last.version ? ` ${v.last.version}` : ''}${v.last.message ? ` (${v.last.message})` : ''}` : ''}`,
   ]
-  if (v.available) lines.push(`새 버전 / available     ${v.available.version} (${v.available.channel})`)
-  if (v.lastUpdate) lines.push(`마지막 업데이트 / last  ${v.lastUpdate.from} → ${v.lastUpdate.to} ${v.lastUpdate.result} ${local(v.lastUpdate.at)}${v.lastUpdate.error ? ` (${v.lastUpdate.error})` : ''}`)
-  if (v.desktop) lines.push(`윈도우 앱 / Windows app ${v.desktop.version} (data/downloads, ${local(v.desktop.at)})`)
+  if (v.available) {
+    // a stable release's staged roll-out (system/rollout.ts): when the nightly run takes it here
+    const t = v.available.turnAt
+    const turn = t === undefined ? '' : t ? `, 이 맥 차례 / this Mac's turn ${local(t, v.timeZone)}` : ', 자동으로 오지 않음 / not by itself (teamax update now)'
+    lines.push(`새 버전 / available     ${v.available.version} (${v.available.channel}${turn})`)
+  }
+  if (v.lastUpdate) lines.push(`마지막 업데이트 / last  ${v.lastUpdate.from} → ${v.lastUpdate.to} ${v.lastUpdate.result} ${local(v.lastUpdate.at, v.timeZone)}${v.lastUpdate.error ? ` (${v.lastUpdate.error})` : ''}`)
+  if (v.desktop) lines.push(`윈도우 앱 / Windows app ${v.desktop.version} (data/downloads, ${local(v.desktop.at, v.timeZone)})`)
   if (v.running) lines.push(`진행 중 / running       ${v.running.phase}`)
   else if (v.requested) lines.push('요청됨 / requested     곧 시작해요 / starting')
   return lines.join('\n')
@@ -113,7 +126,11 @@ export async function updateCommand(home: string, args: string[], envPath: strin
   switch (sub) {
     case 'run': {
       const req = takeRequest(home)
-      await runUpdate(home, { reason: req ? 'now' : 'schedule' })
+      if (req) { await runUpdate(home, { reason: 'now' }); return 0 }
+      // launchd starts this every 15 minutes: outside the team's update window it ends here (no network, no log line)
+      const run = scheduledRun(home)
+      if (!run.go) return 0
+      await runUpdate(home, { reason: 'schedule', quietBy: run.quietBy, lastResort: run.lastResort })
       return 0
     }
     case 'status':
@@ -153,8 +170,16 @@ export async function updateCommand(home: string, args: string[], envPath: strin
       return 0
     }
     case 'time': {
-      if (!val || !/^([01]\d|2[0-3]):[0-5]\d$/.test(val)) { console.error('usage: teamax update time HH:MM (e.g. 03:00)'); return 2 }
-      writeUpdateSettings(home, { time: val })
+      // the team's update window (one setting for the web, this Mac and a Linux server): HH:MM alone is two hours
+      const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/
+      const [from, to] = (val ?? '').split('-')
+      if (!from || !hhmm.test(from) || (to !== undefined && !hhmm.test(to)) || from === to) { console.error('usage: teamax update time HH:MM[-HH:MM] (e.g. 03:00 or 02:00-05:00, team time zone)'); return 2 }
+      const window = `${from}-${to ?? (() => { const [h, m] = from.split(':').map(Number) as [number, number]; const t = (h * 60 + m + 120) % 1440; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` })()}`
+      const db = openDb(path.join(officePaths(home).data, 'app.db'))
+      try { updateTeamSettings(db, { updateWindow: window }) } finally { db.close() }
+      // the time an older version kept here no longer counts
+      const cur = readUpdateSettings(home)
+      fs.writeFileSync(updatePaths(home).settings, JSON.stringify({ channel: cur.channel, paused: cur.paused, ...(cur.feed ? { feed: cur.feed } : {}) }, null, 1) + '\n', { mode: 0o600 })
       const line = syncUpdateAgent(s, envPath)
       if (line) console.log(line)
       console.log(viewText(updateView(home)))
@@ -169,7 +194,7 @@ export async function updateCommand(home: string, args: string[], envPath: strin
       return 0
     }
     default:
-      console.error('usage: teamax update [status] | check | now [--inline] | pause | resume | channel stable|beta | time HH:MM')
+      console.error('usage: teamax update [status] | check | now [--inline] | pause | resume | channel stable|beta | time HH:MM[-HH:MM]')
       return 2
   }
 }

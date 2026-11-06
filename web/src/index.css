@@ -8,6 +8,8 @@
    field ≥ 3:1 (WCAG 2.2 AA, 1.4.11). --c-line is for cards and dividers (decoration, softer); --c-field-border is the
    edge of inputs, selects and text areas, ≥ 3:1 against canvas, surface and subtle (test/unit/field-contrast.test.ts). */
 :root {
+  /* what a row that stays at the top fills itself with: the page here, a dialog's own surface inside one */
+  --sticky-bg: var(--c-canvas);
   --c-canvas: #faf9f6;
   --c-surface: #ffffff;
   --c-subtle: #f3f1ec;
@@ -67,6 +69,20 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
+  /* The app's own type sizes next to Tailwind's text-xs / text-sm / text-base: reading (answers, messages, the message
+     boxes), label (field labels, steps, small buttons), micro (tab labels, dates, counts), nano (badges) and code (code
+     blocks and the file editor; code-sm: diffs and card details; code-file: the plain-text file preview). No
+     --line-height companions: each keeps the line height around it, as the px sizes they replace did. Phones get one
+     step up (the @media block below); leading-reading is the line of room messages and the message boxes. */
+  --text-reading: 15px;
+  --text-label: 13px;
+  --text-micro: 11px;
+  --text-nano: 10px;
+  --text-code: 13px;
+  --text-code-sm: 12px;
+  --text-code-file: 12.5px;
+  --leading-reading: 1.5rem;
+
   --color-canvas: var(--c-canvas);
   --color-surface: var(--c-surface);
   --color-subtle: var(--c-subtle);
@@ -92,7 +108,22 @@
   --color-code-ink: var(--c-code-ink);
 }
 
+/* Safe areas (status bar, notch, home indicator, Android's navigation bar): the page draws under them and pads itself,
+   so its own backgrounds fill them in either look. env() is what iOS and recent Android WebViews report; the phone app
+   also sets --app-inset-* (CSS px) before the page loads, for WebViews that report nothing (mobile/App.tsx). While the
+   on-screen keyboard is open nothing sits under the home indicator (lib/viewport.ts sets .keyboard-open). */
+:root {
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--app-inset-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-inset-bottom, 0px));
+}
+html.keyboard-open { --safe-bottom: 0px; }
 html, body { height: 100%; }
+/* the top inset: the page's own background runs under the status bar; full-screen layers pad themselves */
+#root { padding-top: var(--safe-top); }
+/* the signed-in app (components/Layout.tsx) is exactly the window: the page itself never scrolls or rubber-bands, only
+   the areas inside it do (a hidden screen-reader label positioned against the page could otherwise make it scroll) */
+html.app-shell, html.app-shell body { overflow: hidden; overscroll-behavior: none; }
+html.app-shell #root { position: relative; overflow: clip; }
 #root { height: var(--app-h, 100dvh); }
 body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing: antialiased; }
 /* Korean wraps between words, not in the middle of one ("정|한"); a very long unbroken run still wraps instead of
@@ -100,9 +131,34 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
 ::selection { background: var(--c-accent-soft); }
 
-/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields. */
+/* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
+   (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
+   11px, nothing else under 13px. Width, not the pointer: a narrow window on a computer is laid out as a phone, so it
+   reads as one. Every screen follows it, admin too (its tables keep their secondary columns for wide screens). Check it
+   with web/scripts/type-audit.ts. */
+@media (max-width: 767.98px) {
+  :root {
+    --text-xs: 0.8125rem; /* 13/18 */
+    --text-xs--line-height: calc(1.125 / 0.8125);
+    --text-sm: 0.9375rem; /* 15/22 */
+    --text-sm--line-height: calc(1.375 / 0.9375);
+    --text-base: 1.0625rem; /* 17/24 */
+    --text-base--line-height: calc(1.5 / 1.0625);
+    --text-reading: 17px;
+    --leading-reading: 26px;
+    --text-label: 14px;
+    --text-micro: 13px;
+    --text-nano: 11px;
+    --text-code-sm: 13px;
+    --text-code-file: 13px;
+  }
+}
+
+/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields. The message boxes keep the
+   reading size where it is larger (17px on phones). */
 @media (hover: none) and (pointer: coarse) {
   input, textarea, select { font-size: 16px; }
+  textarea.text-reading { font-size: max(16px, var(--text-reading)); }
 }
 
 /* one visible focus style everywhere (3:1 against both themes) */
@@ -111,7 +167,46 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
   :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 }
 
+/* Every single-choice <select> draws its own arrow, 0.75em in from the right edge. The browser's own arrow sits on the
+   edge and ignores padding, so it looked glued to the border. Not in a layer, so it wins over a field's px-* class
+   (the text keeps clear of the arrow). The arrow is --c-muted of each theme (a data: image cannot read a variable). */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2357524a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75em center;
+  background-size: 1em 1em;
+  padding-inline-end: 2.25em;
+}
+.dark select:not([multiple]):not([size]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c2bcb1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* Search fields with a clear button of their own (data-own-clear): the browser's blue "x" is hidden, so the field does
+   not show two clear buttons. A field without its own button keeps the browser's one, so a mouse can still clear it. */
+input[type="search"][data-own-clear]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+
+/* Native checkboxes and radios use the app's accent colour (not the browser's blue) in both themes. */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
+
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--c-line) transparent; }
+
+/* touch-hit: on phones a control smaller than 44px (Apple's minimum touch target) takes taps from a 44px box around its
+   middle; it looks the same. Not for a control placed with absolute/fixed (this makes it relative), nor one whose
+   ::after draws something. */
+@utility touch-hit {
+  @media (max-width: 767.98px) {
+    position: relative;
+    &::after { content: ""; position: absolute; top: 50%; left: 50%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+  }
+}
+
+/* A row that scrolls sideways (useEdgeFade in components/ui.tsx): an edge with more behind it fades out, in both
+   themes (a mask, not a colour), and a tab scrolled into view keeps a margin from the edge instead of sitting cut. */
+.edge-fade { --fade: 1.75rem; scroll-padding-inline: 2rem; }
+.edge-fade[data-fade-end] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent); mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent); }
+.edge-fade[data-fade-start] { -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade)); mask-image: linear-gradient(to right, transparent, #000 var(--fade)); }
+.edge-fade[data-fade-start][data-fade-end] { -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent); mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent); }
 
 .sr-only-focusable:not(:focus) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -144,8 +239,9 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
   --tw-prose-td-borders: var(--c-line);
 }
 
-/* highlight.js tokens (code blocks are always dark) */
-.hljs-comment, .hljs-quote { color: #8b8579; font-style: italic; }
+/* highlight.js tokens (code blocks are always dark). Comments are upright: Hangul has no italic, and the browser's
+   slanted Hangul reads badly. */
+.hljs-comment, .hljs-quote { color: #8b8579; }
 .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #e8a87c; }
 .hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string { color: #a6d189; }
 .hljs-number, .hljs-symbol, .hljs-bullet { color: #ef9f76; }

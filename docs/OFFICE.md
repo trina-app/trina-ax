@@ -98,6 +98,18 @@ rm ~/Downloads/team.example.com.tunnel-token ~/Downloads/claude-token.txt
 `--check-only`를 붙이면 확인만 하고 아무것도 바꾸지 않습니다. 포트가 다른 프로그램에 잡혀 있으면 설치 전에 멈추고
 `--lan-port`·`--app-port`·`--helper-port`로 다른 번호를 고르라고 알려 줍니다.
 
+**이 맥 사용자의 `~/.claude.json`에 MCP 서버가 있으면**(토큰 없이 설치할 때만): 이 방식에서는 서버가 시작할 때와 AI 답마다
+그 파일의 MCP 설정(사용자·프로젝트의 MCP 서버, `.mcp.json` 승인, Claude CLI가 두는 그 파일의 사본)을 비웁니다(8장). 그래서
+설치기가 지울 것을 이름과 개수로 보여 주고(`--check-only`도 같음) **새 설치를 멈춥니다**. 고르세요.
+- 남기기: 구독 토큰(`--claude-token-file`)으로 설치합니다. 이 방식의 서버는 `~/.claude.json`을 읽지도 바꾸지도 않습니다. 또는
+  Trina AX만 쓰는 다른 맥 사용자로 설치합니다.
+- 지우기: `--remove-claude-mcp`를 붙여 다시 실행합니다. 설치기가 서버를 켜기 전에 사본을 `~/TeamAX/config/claude-mcp-backups/`
+  (이 맥 사용자만 읽음)에 두고, 사본을 못 두면 거기서 멈춥니다.
+
+이미 설치된 맥과 자동 업데이트는 멈추지 않고, 이 버전부터 서버가 지우기 전에 사본을 둡니다(`office-uninstall.sh`로 프로그램을
+지운 뒤 다시 설치하면 새 설치로 봅니다). 확인·사본·되돌리기:
+`~/TeamAX/teamax claude-mcp check | backups | restore <사본>`(8장).
+
 > **앱 포트(`--app-port`)를 바꿨다면**: Cloudflare 터널도 그 포트를 가리켜야 합니다. 설치 담당자 맥에서
 > `bun scripts/office/public-address.ts set team.example.com --port <새 포트> --cert <cert 파일>`을 한 번 더 실행하세요
 > (맥 미니는 다시 할 일이 없음). 안 하면 인터넷 주소가 **502**를 내고, 설치기·`teamax public-address status`가 이 명령을
@@ -136,7 +148,7 @@ sudo pmset -a sleep 0 disksleep 0 womp 1 autorestart 1
 
 확인: 홈 화면이 열리고 오른쪽 위에 대표님 이름이 보입니다.
 
-첫 주는 **권한 → AI 연결 → 팀원 초대 → 첫 스킬 → 첫 백업** 순서입니다. 먼저 관리자 → 폴더 권한에서 그룹별 접근을 두 계정으로 확인하고, 이 Mac의 허용된 Claude 연결로 가상 자료 질문을 시험하세요. 새 팀의 구독 공유 설정은 기본 **켜짐**이며 저장된 선택은 유지됩니다. 관리형 연결의 연결별 동의도 필요하고, 소프트웨어 설정은 제공사 약관상 허가가 아닙니다. office local-login은 이 Mac의 CLI 연결을 사용합니다.
+첫 주는 **권한 → AI 연결 → 팀원 초대 → 첫 스킬 → 첫 백업** 순서입니다. 먼저 관리자 → 폴더 권한에서 그룹별 접근을 두 계정으로 확인하고, 이 Mac의 허용된 Claude 연결로 가상 자료 질문을 시험하세요. 새 팀은 회사 연결 하나를 팀 전체가 쓰는 설정이 기본 **켜짐**이며 저장된 선택은 유지됩니다. 관리형 연결의 연결별 동의도 필요하고, 소프트웨어 설정은 제공사 약관상 허가가 아닙니다. office local-login은 이 Mac의 CLI 연결을 사용합니다.
 
 그다음 **관리자 → 멤버**에서 데스크마다 **초대 링크**를 만듭니다(메일 발송 없음, 링크 복사). 맥 미니에서 만들면 링크는
 인터넷 주소(`https://team.example.com/invite/…`; 인터넷 주소가 없으면 데스크 주소 `https://192.168.x.x:8443/…`)로
@@ -234,8 +246,10 @@ Edge 오른쪽 위 **⋯ → 앱 → 이 사이트를 앱으로 설치** → 설
 ## 6. 업데이트 (GitHub Releases에서 수동 설치)
 
 현재 버전은 [최신 릴리스](https://github.com/trina-app/trina-ax/releases/latest)에서 확인하세요. [GitHub Releases](https://github.com/trina-app/trina-ax/releases/latest)와
-트리나 업데이트 피드(`https://updates.trina.app`, 2026-10-29부터 운영)에서 배포합니다. 사무실 맥은 밤마다
-`<피드>/office/<채널>.json`을 확인해 새 버전을 설치합니다. 바로 설치하려면 `teamax update now`를 실행하세요.
+트리나 업데이트 피드(`https://updates.trina.app`, 2026-10-29부터 운영)에서 배포합니다. 사무실 맥은 팀의 업데이트 시간
+(관리자 › 팀 설정 › 자동 업데이트 시간, 팀 시간대, 비우면 03:00–05:00)에 `<피드>/office/<채널>.json`을 확인해 새 버전을
+설치합니다. 리눅스 서버와 같은 설정 하나입니다. 업데이트 에이전트는 15분마다 깨어나고, 그 시간 밖이면 네트워크 없이 바로
+끝납니다. 바로 설치하려면 `teamax update now`를 실행하세요.
 손으로 설치하려면 릴리스의 체크섬·서명을 확인한 사무실 ZIP을 받아 설치기를 다시 실행하세요. 기존 설치를 먼저 백업하고
 압축 파일과 폴더 이름이 내려받은 버전과 일치하는지 확인하세요. 아래 VERSION은 받은 릴리스 버전으로 바꾸세요:
 
@@ -256,9 +270,15 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
 자동 업데이트가 하는 일 (`server/src/office/update.ts`, 기록 `~/TeamAX/logs/update.log`, 상태 `~/TeamAX/update/state.json`):
 1. 채널(stable 기본, beta)의 릴리스 정보를 받아 **서명**(Ed25519, 서명 키는 해당 배포 운영자만 보유, 공개 키는 프로그램 안)과
    채널을 확인합니다. **더 오래된 버전으로는 절대 내려가지 않고**, 릴리스가 정한 최소 버전보다 오래된 설치는 "손으로 한
-   번 설치하세요"라고만 알립니다.
+   번 설치하세요"라고만 알립니다. 새 stable 릴리스는 **단계적으로** 갑니다: 게시된 뒤 첫날 약 10%, 둘째 날 약 50%, 셋째
+   날부터 모든 사무실이 밤 업데이트로 받습니다(리눅스 서버와 같은 규칙, 이 맥의 설치 id로 차례가 정해짐). 차례를 기다리는
+   동안 `teamax update status`의 새 버전 줄에 "이 맥 차례"가 보입니다. beta 채널과 `teamax update now`·"지금 업데이트"는
+   기다리지 않습니다.
 2. zip을 받아 크기·SHA-256을 확인하고 풉니다. 새 zip의 설치 프로그램이 먼저 점검만 합니다(`--check-only`).
-3. 진행 중인 답변이 끝나기를 기다리고(최대 10분), 데이터베이스를 백업합니다(백업 목록에 `업데이트 전`).
+3. 진행 중인 답변이 끝나기를 기다리고, 데이터베이스를 백업합니다(백업 목록에 `업데이트 전`). 밤 업데이트는 답변을 끊지
+   않습니다: 업데이트 시간이 끝날 때까지(한 번에 최대 1시간) 기다렸다가 그래도 답변이 돌고 있으면 다음 기회로 미룹니다.
+   사흘 동안 미뤄지면 그다음 업데이트 시간에 최대 10분만 기다리고 설치합니다. `지금 업데이트`는 최대 10분 기다립니다. 서버가
+   최근에 답변 수를 적지 않았으면(`status/status.json`이 2분보다 오래됨) 서버가 켜져 있는 동안 답변이 도는 것으로 봅니다.
 4. 새 zip의 설치 프로그램으로 설치합니다(`office-install.sh --update`: 서버와 cloudflared를 멈추고, 이전 프로그램은
    `app.previous`, 새 프로그램을 `app`으로, 다시 시작).
 5. 새 버전이 `http://127.0.0.1:<앱 포트>/api/health`에 그 버전으로 답하고 15초 뒤에도 답해야 성공입니다. 2분 30초 안에
@@ -276,18 +296,20 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
 **관리자 > 시스템 > 자동 업데이트**에서 현재 버전, 채널, 다음 확인 시각, 마지막 결과를 보고 **지금 업데이트**(비밀번호를 한
 번 더 입력)와 **자동 업데이트 끄기/켜기**를 누릅니다. 진행 단계(내려받는 중 → 설치하고 서버를 다시 시작하는 중 → 새 버전
 확인)가 보이고, 서버가 다시 뜨면 화면이 스스로 다시 연결되어 새 버전으로 바뀝니다. 새 버전이 나오면 팀장·관리자에게만
-화면 위에 "새 버전 x.y.z이 있어요 — 지금 업데이트 · 오늘 밤 03:00에 자동으로 설치돼요" 띠가 보입니다(닫으면 그 버전은 다시
+화면 위에 "새 버전 x.y.z이 있어요 — 지금 업데이트 · 팀의 업데이트 시간 03:00-05:00(Asia/Seoul)에 자동으로 설치돼요" 띠가 보입니다(닫으면 그 버전은 다시
 안 보임, 팀원에게는 안 보임). 웹 서버는 설치를 직접 하지 않습니다: 요청 파일(`update/request.json`)을 쓰고 업데이트
 에이전트를 깨울 뿐이고, 설치는 에이전트가 합니다(서버는 `app/`을 건드리지 않음). 같은 일을 맥 미니 터미널에서:
 ```sh
-~/TeamAX/teamax update status            # 버전·채널·다음 확인·마지막 결과
+~/TeamAX/teamax update status            # 버전·채널·업데이트 시간(팀 시간대)·다음 확인·마지막 결과
 ~/TeamAX/teamax update check             # 지금 확인만 (설치하지 않음)
 ~/TeamAX/teamax update now               # 지금 설치 (터미널 창을 닫아도 계속됨)
 ~/TeamAX/teamax update pause             # 자동 업데이트 끄기 (resume: 다시 켜기)
 ~/TeamAX/teamax update channel beta      # 시험판 받기 (stable: 정식판으로)
-~/TeamAX/teamax update time 02:30        # 밤 확인 시각 바꾸기
+~/TeamAX/teamax update time 02:30        # 팀의 업데이트 시간 바꾸기(02:30-04:30, 팀 시간대. 02:00-05:00처럼도 됨)
 ```
-세 번째 LaunchAgent `app.team-ax.office.update`가 이 일을 합니다(맥이 그 시각에 잠들어 있었다면 깨어날 때). 제거
+`teamax update time`은 관리자 › 팀 설정의 자동 업데이트 시간과 같은 설정을 바꿉니다(0.2.18까지는 이 맥의 시계로 따로
+저장했고, 그 값은 팀 설정이 비어 있는 동안만 쓰입니다. 그동안 팀 설정의 칸은 비어 있고, 적용 중인 시간을 자리표시자와 안내로 알려 줍니다). 세 번째 LaunchAgent `app.team-ax.office.update`가 15분마다 이 일을
+합니다(맥이 잠들어 있었다면 깨어날 때). 제거
 (`office-uninstall.sh`)하면 함께 지워집니다.
 
 ### 릴리스 내보내기 (유지보수자, 개발 맥에서)
@@ -381,9 +403,23 @@ bun scripts/release/publish.ts --channel stable --build --version 0.2.1
   맥을 **Trina AX 전용**으로 두고 다른 서비스의 암호를 키체인에 저장하지 마세요.
 - 이 방식에서는 엔진이 `~/.claude.json`을 쓸 수 있으므로 서버가 시작할 때와 매 턴 뒤에 그 파일과 백업
   (`~/.claude.json.backup`, `~/.claude/backups/`)에서 **MCP 서버를 지우고**, 그 자리에 링크가 있으면 보통 파일로 바꿉니다
-  (관리자 → 기록에 `engine.claude_json_mcp_removed`). 샌드박스는 그 이름들에 링크를 만들지 못하게 합니다. 이 맥 계정에서
+  (관리자 → 기록에 `engine.claude_json_mcp_removed`). 샌드박스는 그 이름들에 링크를 만들지 못하게 합니다. 파일은 Claude Code와
+  똑같이 읽고(맨 앞 BOM은 건너뜀), 읽거나 다시 쓸 수 없는 파일(JSON이 아니거나 너무 깊게 중첩됨)은 통째로
+  `~/TeamAX/config/claude-mcp-backups/moved-…`로 옮기고 그 자리에 빈 설정 `{}`을 둡니다(기록에 남음). 맨 위의 `env`도
+  지웁니다(사본에 남음): Claude Code가 그 값을 자기가 실행하는 모든 명령의 환경에 넣기 때문입니다. 이 맥 계정에서
   터미널 `claude`는 **로그인(`/login`) 말고 쓰지 마세요**. 로그인이 만료돼 다시 로그인하기 전에 `claude mcp list`가
   "No MCP servers configured"인지 보세요.
+- **지운 MCP 설정은 사본으로 남습니다**(0.2.19부터). 지우기 전에 `~/TeamAX/config/claude-mcp-backups/claude-mcp-<시각>-install.json`
+  (설치기), `…-start.json`(서버 시작 때) 또는 `…-turn.json`(AI 답 뒤)에 그대로 둡니다(바로 앞 사본과 같으면 새로 만들지 않음). 폴더 700·파일 600이라 이 맥 사용자만 읽고 엔진은 읽지도 쓰지도
+  못합니다. 기록 항목에 사본 이름이 나오고, 값(키가 든 `env` 등)은 사본에만 있습니다. `-turn` 사본은 최근 20개만 남깁니다.
+  `teamax claude-mcp check`는 지금 지울 것을 보여 주고(아무것도 바꾸지 않음), `teamax claude-mcp backups`는 사본 목록입니다.
+- **되돌리기**: 서버가 더 이상 지우지 않게 한 뒤(`teamax configure --claude-token-file <파일> && teamax restart`, 또는 Trina AX를
+  치울 때 `teamax uninstall-agent`를 먼저) `~/TeamAX/teamax claude-mcp restore <사본>`. 이미 있는 설정은 그대로 두고 없는 것만
+  넣습니다. 어느 사본이든 AI 턴이 심은 서버가 섞였을 수 있어서(특히 `-turn`) 먼저 서버마다 전부(명령·인자·`env`·헤더·주소; 키처럼 보이는 이름의 값은 가림)를 한 줄씩 보여 주고, 확인한 뒤
+  `--yes`를 붙여야 넣습니다. 서버가 아직 이 맥의 로그인으로 돌고 있으면(토큰으로 바꾸고 `restart` 전) 넣지 않습니다. `office-uninstall.sh`는
+  `config/`를 남기므로 사본도 남습니다(일반 JSON이라 직접 옮겨도 됨). `--delete-data`는 사본도 지웁니다.
+- 구독 토큰 방식에서 이 맥의 로그인 방식으로 되돌릴 때(`teamax configure --claude-auth local-login`)도 `~/.claude.json`에 MCP
+  설정이 있으면 멈추고, `--remove-claude-mcp`를 붙여야 바꿉니다.
 - 사무실 네트워크에는 **https만** 열리고, **맥 미니와 같은 사무실 대역**(예: 192.168.1.0/24)에서 온 연결만 받습니다(VPN·다른
   대역은 403). 평문 앱 포트는 맥 미니 안(`127.0.0.1`)에서만. 인증서 페이지(8442)는 인증서와 안내만 주고 API가 없습니다.
   서버는 자기 주소로 온 요청만 받습니다(다른 Host는 421). 로그인 쿠키는 `__Host-`·Secure·HttpOnly, 로그인 시도 제한은

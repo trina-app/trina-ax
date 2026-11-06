@@ -51,7 +51,8 @@ describe.skipIf(!fs.existsSync(path.join(ROOT, 'scripts/linux/deps.txt')))('the 
   test('deps.txt and install-linux.sh install no tesseract; the kit and native build have no Linux mycel-ocr', () => {
     expect(fs.readFileSync(path.join(ROOT, 'scripts/linux/deps.txt'), 'utf8')).not.toContain('tesseract')
     expect(fs.readFileSync(path.join(ROOT, 'scripts/install-linux.sh'), 'utf8')).not.toContain('tesseract')
-    expect(fs.readFileSync(path.join(ROOT, 'native/build.sh'), 'utf8')).toMatch(/LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl"/)
+    // mycel-link: the ax-link agent of the EC2 image (scripts/image/README.md), not OCR
+    expect(fs.readFileSync(path.join(ROOT, 'native/build.sh'), 'utf8')).toMatch(/LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl mycel-boxd mycel-link"/)
     expect(fs.existsSync(path.join(ROOT, 'native/cmd/mycel-ocr'))).toBe(false)
     expect(fs.readFileSync(path.join(ROOT, 'scripts/build-bundle.ts'), 'utf8')).toContain("LINUX_NATIVE = ['mycel-gate', 'mycel-bridge', 'mycel-safeops']")
     expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'versions.json'), 'utf8')).tesseract).toBeUndefined()

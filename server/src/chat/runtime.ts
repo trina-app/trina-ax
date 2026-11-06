@@ -4,11 +4,11 @@
 // getChatRuntime(ctx).
 import fs from 'node:fs'
 import path from 'node:path'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type TurnStarted } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, roomAiQuestion, type ApiErrorBody, type Attachment, type ChatRunState, type ChatQueueSnapshot, type EngineId, type FileChange, type Locale, type Step, type TurnStarted } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { Running } from '../server'
 import { atLeast, type Principal } from '../policy/access'
-import { canRead } from './projects'
+import { canSeeProject } from './projects'
 import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
@@ -27,6 +27,8 @@ import { QueueStore } from './queue-store'
 import { launcherStatus } from '../native'
 import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
+import type { RoomPrompt } from './prompt'
+import { isInternalChat } from './internal-chats'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -59,6 +61,32 @@ export interface ChatRuntimeOptions {
   /** tests: a fixed --max-turns instead of the team setting */
   maxEngineTurns?: number
   purgeIntervalMs?: number
+}
+
+/**
+ * The team chat rooms' side of a room's AI session (rooms/ai.ts, installed by the rooms route module): the turn is a
+ * normal chat turn of the person who asked, in a chat with room_id set, and these hooks are where it differs.
+ */
+export interface RoomTurns {
+  /** The room context for this turn (in front of the question) and the room for the instructions, or why the person
+   * may not ask there now. `continues`: the session (or the history a fresh one gets) already holds the person's own
+   * earlier questions and answers in the room. */
+  prepare(o: { chatId: string; roomId: string; userId: string; userMessageId: string; continues: boolean }): RoomTurnContext | { error: ApiErrorBody }
+  /** A step of the answer: to the person who asked only (the labels name files and searches). */
+  step(o: { roomId: string; turnId: string; userId: string }, step: Step): void
+  /** The turn ended in any way (answered, stopped, failed, or stopped while it still waited in the queue). */
+  ended(turnId: string): void
+}
+export interface RoomTurnContext {
+  /** the <room_context> block */
+  block: string
+  /** the block holds words someone else wrote (another member, or the AI for them) */
+  others: boolean
+  /** the seq of the oldest room message in the block (null: none): what the room's read source names */
+  fromSeq: number | null
+  prompt: RoomPrompt
+  /** may every member of the room (at the start of the turn) read this team path? (which skills the AI is shown) */
+  readable(rel: string): boolean
 }
 
 const pendingOptions = new WeakMap<AppContext, ChatRuntimeOptions>()
@@ -139,6 +167,8 @@ export class ChatRuntime {
   private capacityWatcher: ReturnType<typeof setInterval>
   /** a fixed --max-turns (tests); null: the team setting, read when each answer starts */
   private engineTurnsOverride: number | null
+  /** the team chat rooms' hooks (rooms/ai.ts); null until the rooms route module is up (a room turn then fails) */
+  rooms: RoomTurns | null = null
   private queued: (TurnSpec & QueueTiming)[] = []
   private running = new Map<string, TurnExec>()
   private positions = new Map<string, number>()
@@ -385,11 +415,22 @@ export class ChatRuntime {
     this.positions.delete(spec.turnId)
     this.queueRevision++
     const row = this.store.messageRow(spec.assistantId)
-    if (row) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId, messageId: spec.assistantId, status: 'stopped', message: this.store.toMessage(row) } })
+    if (this.isRoomChat(chatId)) this.roomEnded(spec.turnId)
+    else if (row) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId, messageId: spec.assistantId, status: 'stopped', message: this.store.toMessage(row) } })
     this.publishChat(spec.userId, chatId, 'updated')
     this.schedule()
     this.publishPositions()
     return spec.turnId
+  }
+
+  // ---------------- team chat rooms ----------------
+  /** Is this chat a room's AI session (rooms/ai.ts)? Its events go through the room, never as chat events. */
+  isRoomChat(chatId: string): boolean {
+    return !!(this.db.query('SELECT room_id FROM chats WHERE id = ?').get(chatId) as { room_id: string | null } | null)?.room_id
+  }
+  /** A room session's turn ended: the rooms post or keep the answer (never throws). */
+  roomEnded(turnId: string) {
+    try { this.rooms?.ended(turnId) } catch (e) { this.log.error('room answer failed', { err: e, turn: turnId }) }
   }
 
   // ---------------- turns ----------------
@@ -455,8 +496,11 @@ export class ChatRuntime {
     this.enqueue(spec)
     try {
     if (o.scheduled) this.publishChat(o.userId, chat.id, 'created')
-    if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: userMessage } })
-    this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: assistantMessage } })
+    // a room's AI session: the person follows it in the room (rooms/ai.ts), never as a chat of theirs
+    if (!chat.room_id) {
+      if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: userMessage } })
+      this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: assistantMessage } })
+    }
     } finally { this.schedule() }
     this.publishChat(o.userId, chat.id, 'updated')
     return { userMessage, assistantMessage: this.store.toMessage(this.store.messageRow(assistantId)!), turnId,
@@ -513,20 +557,57 @@ export class ChatRuntime {
     return this.db.query('SELECT id, text FROM memories WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100').all(userId) as { id: string; text: string }[]
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
-   * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI). */
+   * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and
+   * never while its folder is in the trash, for anyone, admins included: its path may be another folder's by now
+   * (as for the dev environment's box). Admins still see, edit and delete the project itself (canSeeProject). */
   projectForChat(projectId: string | null, user: Principal) {
     if (!projectId) return null
     const p = this.store.projectRow(projectId)
-    if (!p || !canRead(this.files, user, p.folder_path)) return null
-    return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by }
+    if (!p || p.trashed_with !== null || !canSeeProject(this.files, user, p)) return null
+    return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by, instructionsAuthor: p.instructions_author, instructionsAuthored: p.instructions_authored }
   }
-  /** project instructions someone else wrote count as outside content (remember protection) */
-  projectTaints(project: { instructions: string; createdBy: string | null } | null, userId: string): boolean {
-    return !!project && project.createdBy !== userId && project.instructions.trim() !== ''
+  /**
+   * Project instructions count as outside content (remember protection) unless this person wrote every saved version
+   * of them: they are the recorded author and the instructions are still what they last saved (a build without the
+   * author columns may have changed them since). Not created_by: an admin may have rewritten the creator's
+   * instructions (docs/DECISIONS.md "Projects: a folder with instructions").
+   */
+  projectTaints(project: { instructions: string; instructionsAuthor: string | null; instructionsAuthored: string | null } | null, userId: string): boolean {
+    if (!project || project.instructions.trim() === '') return false
+    return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
-  history(leafId: string | null): { role: 'user' | 'assistant'; content: string }[] {
-    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+  history(leafId: string | null, room = false): { role: 'user' | 'assistant'; content: string }[] {
+    const rows = this.store.pathTo(leafId)
+    if (!room) return rows.filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+    // a room's AI session (rooms/ai.ts) remembers only what went to the room, as the room holds it now: a question and
+    // its answer while that answer is a room message (posted, not deleted); a private preview, a stopped or failed
+    // answer is left out. Both are the room's copies, never the chat's: the answer as the room got it
+    // (room_messages.body: cut at ROOM_AI_ANSWER_MAX with a line saying so), the question as it reads in the room now
+    // (edited: the new text; deleted: left out). Every question decides on what it used itself, so text the room
+    // never saw, or no longer shows, must not come back
+    const chatId = rows[0]?.chat_id
+    const posted = new Map<string, { answer: string; question: string | null }>()
+    const found = chatId ? this.db.query(`SELECT a.turn_id, m.body, q.body AS q_body, q.mentions AS q_mentions, q.deleted_at AS q_deleted FROM room_ai_turns a
+      JOIN room_messages m ON m.id = a.answer_id LEFT JOIN room_messages q ON q.id = a.question_id
+      WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL`).all(chatId) as { turn_id: string; body: string; q_body: string | null; q_mentions: string | null; q_deleted: string | null }[] : []
+    for (const r of found) {
+      // the people the question mentions: a person named like the AI is not a call of it (roomAiQuestion)
+      let ids: string[] = []
+      try { const v = JSON.parse(r.q_mentions ?? '[]'); if (Array.isArray(v)) ids = v.filter((x): x is string => typeof x === 'string') } catch {}
+      const names = ids.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { name: string }[]).map((u) => u.name) : []
+      posted.set(r.turn_id, { answer: r.body, question: r.q_body !== null && !r.q_deleted ? roomAiQuestion(r.q_body, names) : null })
+    }
+    const out: { role: 'user' | 'assistant'; content: string }[] = []
+    for (const m of rows) {
+      if (m.role !== 'assistant' || !m.turn_id) continue
+      const p = posted.get(m.turn_id)
+      if (!p) continue
+      const asked = m.parent_id ? rows.find((x) => x.id === m.parent_id) : undefined
+      if (asked && p.question !== null) out.push({ role: 'user', content: composeMessage({ ...asked, content: p.question }, this.store.attachmentsOf(asked)) })
+      if (p.answer.trim()) out.push({ role: 'assistant', content: p.answer })
+    }
+    return out
   }
 
   siteGranted(userId: string, host: string): boolean {
@@ -551,7 +632,11 @@ export class ChatRuntime {
   }
 
   publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged') {
+    // a draft the server runs for its own work (internal-chats.ts) is not in the person's chat list: no event for it
+    if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
+    // a room's AI session is not one of the person's chats (no sidebar entry)
+    if (r?.room_id) return
     const chat = r ? this.store.toChat(r, this.runState(chatId)) : null
     // never a stored connection secret of the person in the title (QA B-W5-1)
     if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)

@@ -2,7 +2,7 @@
 // data, its checks (the same limits as shared/src/api/integrations.ts, so most mistakes show before anything is sent),
 // the request bodies it becomes, and the checks on what the server sends back (the sign-in address).
 // Keys are write-only: the form only ever holds a key the person is typing now; a stored one is `hasSecret`.
-import { ApiError, ERROR_MESSAGES, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationStatus, type WritePolicy } from '@mycel/shared/api'
+import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type WritePolicy } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 /** how the connection proves who it is: sign in at the service (MCP only), a key, or nothing */
@@ -59,6 +59,23 @@ export function formFrom(i: Integration): IntegrationForm {
     notes: i.notes ?? '',
     writePolicy: i.writePolicy,
     access: i.scope === 'team' ? i.access ?? NOBODY : null,
+  }
+}
+
+/** the form for editing an admin's template (never a key: each member adds their own) */
+export function formFromTemplate(t: IntegrationTemplate): IntegrationForm {
+  return {
+    kind: t.kind,
+    name: t.name,
+    url: t.url,
+    method: t.auth === 'oauth' ? 'oauth' : 'key',
+    header: t.auth === 'header' ? 'custom' : 'bearer',
+    headerName: t.authHeader ?? '',
+    secret: '',
+    keyAction: 'keep',
+    notes: t.notes ?? '',
+    writePolicy: 'ask',
+    access: t.access,
   }
 }
 
@@ -184,13 +201,44 @@ export function authorizationUrl(value: string): string {
 
 export const STATUS_TONE: Record<IntegrationStatus, 'ok' | 'warn' | 'danger'> = { connected: 'ok', needs_auth: 'warn', error: 'danger' }
 
+/** What Settings says under a connection's tools when the server holds fewer than the service offers: over the
+ * server's ceiling of 1,000 tools or 4,000,000 characters (`toolsCapped`; `toolsCappedMore` when the server stopped
+ * reading the list with pages left, so it only knows the service offers more than `toolsTotal`), or a list an older
+ * server cut at 100 tools or 256,000 characters (`toolsStale`: checking again saves every tool;
+ * INTEGRATION_TOOLS_OLD_MAX); null when it holds them all, so a service with 186 tools just shows "186 tools". */
+export function toolsShortfall(i: Pick<Integration, 'tools' | 'toolsTotal' | 'toolsTotalMore'>): 'integrations.toolsCapped' | 'integrations.toolsCappedMore' | 'integrations.toolsStale' | null {
+  if (!i.toolsTotal) return null
+  if (i.toolsTotalMore) return i.toolsTotal >= i.tools.length ? 'integrations.toolsCappedMore' : null
+  if (i.toolsTotal <= i.tools.length) return null
+  return i.tools.length > INTEGRATION_TOOLS_OLD_MAX ? 'integrations.toolsCapped' : 'integrations.toolsStale'
+}
+
+/** What Settings says under a connection that is connected although its last check failed (the server keeps a
+ * connected MCP server whose list could not be read this time, slow or away for a moment, with the list saved before:
+ * integrations/connections/service.ts check): why, and which list the AI uses. null: nothing failed, or the row's
+ * status says it (an error, a sign-in needed). */
+export function lastCheckNote(i: Pick<Integration, 'status' | 'lastError' | 'toolsUpdatedAt'>): { key: 'integrations.checkFailedKept' | 'integrations.lastCheckFailed'; reason: string; date: string | null } | null {
+  if (i.status !== 'connected' || !i.lastError) return null
+  return i.toolsUpdatedAt ? { key: 'integrations.checkFailedKept', reason: i.lastError, date: i.toolsUpdatedAt } : { key: 'integrations.lastCheckFailed', reason: i.lastError, date: null }
+}
+
+/** An address without what does not change the service (letter case, a trailing slash), to compare two of them. */
+export function canonicalService(url: string): string {
+  try {
+    const u = new URL(url)
+    return `${u.host}${u.pathname.replace(/\/+$/, '')}`.toLowerCase()
+  } catch {
+    return url.trim().toLowerCase()
+  }
+}
+
 /** sign-in (OAuth) is offered: an MCP server with sign-in that the person manages */
 export const canSignIn = (i: Integration) => i.kind === 'mcp' && i.auth === 'oauth' && i.canManage
 
 /** Personal connections first, then team ones; each by name. */
 export function splitByScope(items: Integration[]): { mine: Integration[]; team: Integration[] } {
   const byName = (a: Integration, b: Integration) => a.name.localeCompare(b.name)
-  return { mine: items.filter((x) => x.scope === 'personal').sort(byName), team: items.filter((x) => x.scope === 'team').sort(byName) }
+  return { mine: items.filter((x) => x.scope === 'personal' && !x.templateId).sort(byName), team: items.filter((x) => x.scope === 'team').sort(byName) }
 }
 
 const FIELD_OF: Record<string, FormField> = { name: 'name', slug: 'name', url: 'url', auth: 'method', authHeader: 'headerName', secret: 'secret', clearSecret: 'secret', notes: 'notes', writePolicy: 'writePolicy', access: 'access' }
@@ -200,15 +248,76 @@ const FIELD_OF: Record<string, FormField> = { name: 'name', slug: 'name', url: '
  * server's own words when it gave specific ones (they are in the person's language), else null (the screen says
  * "check this value"). Errors that name no field of the form: an empty object.
  */
-export function serverFieldErrors(e: unknown): Partial<Record<FormField, string | null>> {
+export function serverFieldErrors(e: unknown): Partial<Record<FormField, string | null>>
+export function serverFieldErrors<F extends string>(e: unknown, fieldOf: Record<string, F>): Partial<Record<F, string | null>>
+export function serverFieldErrors(e: unknown, fieldOf: Record<string, string> = FIELD_OF): Partial<Record<string, string | null>> {
   if (!(e instanceof ApiError) || !e.body.fields) return {}
   const known = ERROR_MESSAGES[e.code]
   const specific = e.message && !(known && Object.values(known).includes(e.message)) ? e.message : null
-  const out: Partial<Record<FormField, string | null>> = {}
+  const out: Partial<Record<string, string | null>> = {}
   for (const key of Object.keys(e.body.fields)) {
     const parts = key.split('.')
-    const field = FIELD_OF[(parts[0] === 'body' ? parts[1] : parts[0]) ?? '']
+    const field = fieldOf[(parts[0] === 'body' ? parts[1] : parts[0]) ?? '']
     if (field && !(field in out)) out[field] = specific
   }
   return out
+}
+
+// ---------------- asking a member to connect a service as their own (Admin › External services) ----------------
+/** What an admin fills in for a member: the service, never a key (the member adds their own) and never 'none'. */
+export interface RequestForm {
+  userId: string
+  kind: IntegrationKind
+  name: string
+  url: string
+  method: 'oauth' | 'key'
+  header: HeaderChoice
+  headerName: string
+  notes: string
+}
+export type RequestField = 'userId' | 'name' | 'url' | 'method' | 'headerName' | 'notes'
+
+/** the request's fields a refused send names (serverFieldErrors) */
+export const REQUEST_FIELD_OF: Record<string, RequestField> = { userId: 'userId', name: 'name', url: 'url', auth: 'method', authHeader: 'headerName', notes: 'notes' }
+
+export const requestMethodsFor = (kind: IntegrationKind): ('oauth' | 'key')[] => (kind === 'mcp' ? ['oauth', 'key'] : ['key'])
+
+export function emptyRequestForm(kind: IntegrationKind = 'mcp'): RequestForm {
+  return { userId: '', kind, name: '', url: '', method: kind === 'mcp' ? 'oauth' : 'key', header: 'bearer', headerName: '', notes: '' }
+}
+
+/** the same limits as a connection's own fields (validate), plus the member */
+export function validateRequest(f: RequestForm): Partial<Record<RequestField, MessageKey>> {
+  const e: Partial<Record<RequestField, MessageKey>> = {}
+  if (!f.userId) e.userId = 'integrations.request.error.user'
+  const name = f.name.trim()
+  if (!name) e.name = 'integrations.error.name'
+  else if (name.length > NAME_MAX) e.name = 'integrations.error.nameLong'
+  const url = urlProblem(f.url)
+  if (url) e.url = url
+  if (!requestMethodsFor(f.kind).includes(f.method)) e.method = 'integrations.error.field'
+  if (f.method === 'key' && f.header === 'custom' && !HEADER_RE.test(f.headerName.trim())) e.headerName = 'integrations.error.header'
+  if (f.kind === 'http' && f.notes.length > NOTES_MAX) e.notes = 'integrations.error.notes'
+  return e
+}
+
+export function toRequestInput(f: RequestForm): IntegrationRequestInput {
+  const auth = f.method === 'oauth' ? 'oauth' : f.header === 'custom' ? 'header' : 'bearer'
+  return {
+    userId: f.userId,
+    kind: f.kind,
+    name: f.name.trim(),
+    url: f.url.trim(),
+    auth,
+    authHeader: auth === 'header' ? f.headerName.trim() : null,
+    notes: f.kind === 'http' ? f.notes.trim() || null : null,
+  }
+}
+
+export const REQUEST_STATE_TONE: Record<IntegrationRequestState, 'accent' | 'ok' | 'warn' | 'neutral'> = { waiting: 'accent', connected: 'ok', declined: 'warn', withdrawn: 'neutral', expired: 'neutral' }
+
+/** The request a link opens (Settings › External services ?request=<id>): an id the server made, nothing else. */
+export function requestIdFrom(search: string): string | null {
+  const id = new URLSearchParams(search).get('request')
+  return id && /^[A-Za-z0-9_-]{1,100}$/.test(id) ? id : null
 }

@@ -19,14 +19,24 @@ export const OfficeUpdateStatus = z.object({
   channel: Channel,
   /** automatic updates off ("자동 업데이트 끄기", `teamax update pause`) */
   paused: z.boolean(),
-  /** nightly time, HH:MM in the server Mac's local time */
+  /** the start of the update window, HH:MM in timeZone (older pages show it) */
   time: z.string(),
-  /** the next nightly window; null while paused or without the update agent */
+  /** the team's update window, HH:mm-HH:mm (Admin > Team settings; 03:00-05:00 when empty), in timeZone */
+  window: z.string().optional(),
+  /** where the window comes from: team = Admin > Team settings; legacy = a time `teamax update time` of an older version
+   * set, which counts while the team setting is empty; default = 03:00-05:00 */
+  windowSource: z.enum(['team', 'legacy', 'default']).optional(),
+  /** the team's time zone (IANA) the window and nextWindowAt are shown in */
+  timeZone: z.string().optional(),
+  /** the update agent's next run inside the window; null while paused, without the update agent, or when the window
+   * never opens */
   nextWindowAt: IsoTime.nullable(),
   lastCheckAt: IsoTime.nullable(),
   last: z.object({ kind: OfficeUpdateResult, at: IsoTime, version: z.string().nullable(), message: z.string().nullable() }).nullable(),
-  /** a newer version on the feed, not installed yet */
-  available: z.object({ version: z.string(), channel: Channel, notes: z.string(), publishedAt: IsoTime }).nullable(),
+  /** a newer version on the feed, not installed yet. turnAt: staged roll-out of a stable release
+   * (server/src/system/rollout.ts), the nightly run takes it from then on ("this Mac's turn"); null: this release's
+   * roll-out leaves the Mac out; absent: no wait. "Update now" does not wait. */
+  available: z.object({ version: z.string(), channel: Channel, notes: z.string(), publishedAt: IsoTime, turnAt: IsoTime.nullable().optional() }).nullable(),
   lastUpdate: z.object({ from: z.string(), to: z.string(), at: IsoTime, result: z.enum(['updated', 'rolled-back', 'failed']), error: z.string().nullable() }).nullable(),
   /** an update in progress */
   running: z.object({ since: IsoTime, step: OfficeUpdateStep, phase: z.string(), target: z.string().nullable() }).nullable(),

@@ -13,6 +13,7 @@ import { TurnFiles } from '../../server/src/files/service'
 import { sha256 } from '../../server/src/files/store'
 import { lineDiff } from '../../server/src/skills/diff'
 import { replaceRules } from '../../server/src/admin/folders'
+import { RuleSet } from '../../server/src/policy/access'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 
 setDefaultTimeout(60_000)
@@ -83,6 +84,20 @@ describe('"팀 스킬 관리": a write rule on skills/, nothing else', () => {
     expect((await h.api('carol').call(API.listSkillManagers)).items).toContainEqual({ subjectType: 'user', subjectId: 'erin', path: 'skills' })
     await setManager('carol', { subjectType: 'user', subjectId: 'erin', enabled: false })
     expect(folderRules()).toEqual([{ t: 'everyone', s: null, a: 'read' }])
+  })
+
+  test('off for the last rule of skills/: "admins: write" stays in its place (skills/ keeps a rule), nobody\'s access changes', async () => {
+    const fid = (h.ctx.db.query("SELECT id FROM folders WHERE path = 'skills'").get() as { id: string }).id
+    const folderRules = () => h.ctx.db.query('SELECT subject_type AS t, subject_id AS s, access AS a FROM folder_rules WHERE folder_id = ?').all(fid)
+    // the edit panel saved skills/ as "follow the folder above" with Erin writing: one rule left
+    replaceRules(h.ctx.db, fid, [{ subjectType: 'user', subjectId: 'erin', access: 'write' }], 'carol')
+    await setManager('carol', { subjectType: 'user', subjectId: 'erin', enabled: false })
+    expect(folderRules()).toEqual([{ t: 'role', s: 'admin', a: 'write' }])
+    // as with no rules there: every member gets at skills/ what they get at the team root; admins and the owner write
+    const rules = RuleSet.load(h.ctx.db)
+    for (const u of ['alice', 'bob', 'erin']) expect(rules.access(h.ctx.files.principal(u), ['skills'])).toBe(rules.access(h.ctx.files.principal(u), []))
+    for (const u of ['carol', 'dana']) expect(rules.access(h.ctx.files.principal(u), ['skills'])).toBe('write')
+    replaceRules(h.ctx.db, fid, [{ subjectType: 'everyone', subjectId: null, access: 'read' }], 'carol')
   })
 
   test('limited to a subfolder for a group: only that folder (created on disk), nobody else gains anything', async () => {

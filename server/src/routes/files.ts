@@ -8,6 +8,8 @@ import { fileError, mapErrors } from '../team-files/errors'
 import { HeicPreviews, isHeic, noPreviewError } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
 import { contentDisposition, streamFile } from '../team-files/download'
+import { embedNarrower } from '../team-files/embed'
+import { authorize } from '../policy/authorize'
 import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
 import { hashFile, writeTemp } from '../team-files/place'
@@ -46,6 +48,11 @@ export const filesRoutes: RouteModule = {
       const p = await writeTemp(tmpDir, file)
       return { p, sha: await hashFile(p) }
     }
+    /** A part of another size than the sender read lost bytes on the way (WebKit bug 319985 sends none at all): it stops
+     * here, before it takes a name or replaces a file. An empty file that says so is an upload like any other. */
+    const assertWhole = (file: File, size: number | undefined) => {
+      if (size !== undefined && size !== file.size) fileError('validation', 'incompleteUpload', { 'body.file': `expected ${size} bytes, got ${file.size}` })
+    }
 
     kit.handle(API.tree, ({ c, query, auth }) => mapErrors(c.get('locale'), () => svc.tree(auth.user.id, query.path, query.cursor, query.limit)))
 
@@ -60,6 +67,15 @@ export const filesRoutes: RouteModule = {
 
     kit.handle(API.download, ({ c, query, auth }) => mapErrors(c.get('locale'), () => {
       const f = svc.fileForDownload(auth.user.id, query.path, !query.preview && query.disposition === 'attachment')
+      // a file an HTML file's preview puts into the page (team-files/embed.ts): only one that everyone who can read the
+      // page can read too; the person must be able to read the page as well (404 like any other file otherwise)
+      if (query.embedIn !== undefined) {
+        const me = svc.principal(auth.user.id)
+        const rules = svc.rules()
+        const page = authorize(svc.fx, rules, me, query.embedIn, 'read')
+        const file = authorize(svc.fx, rules, me, query.path, 'read')
+        if (embedNarrower(ctx.db, rules, page.segs, file.segs)) fileError('forbidden', 'embedNarrower', undefined, { reason: 'embed_narrower' })
+      }
       // Browser-owned Fetch Metadata also blocks stale clients and img/iframe/fetch
       // consumers that request attachment bytes without the explicit preview flag.
       // Headerless API/native clients may still perform an authorized download.
@@ -106,6 +122,7 @@ export const filesRoutes: RouteModule = {
     }))
 
     kit.handle(API.upload, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      assertWhole(body.file, body.fields.size)
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try {
@@ -130,6 +147,7 @@ export const filesRoutes: RouteModule = {
 
     // ---------------- attachments ----------------
     kit.handle(API.uploadAttachment, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
+      assertWhole(body.file, body.fields.size)
       assertStorageRoom(body.file.size)
       const { p, sha } = await spool(body.file)
       try { return await C.attachments.create(auth.user.id, body.fields.chatId, body.fields.name ?? (body.file.name || 'file'), p, sha) } finally { fs.rmSync(p, { force: true }) }
@@ -152,7 +170,7 @@ export const filesRoutes: RouteModule = {
     kit.handle(API.attachTeamFile, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.teamRefs.create(auth.user.id, body.chatId, body.path)))
 
     // ---------------- chunked uploads ----------------
-    kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => { assertStorageRoom(body.size); return C.uploads.create(auth.user.id, body.target, body.size, body.sha256) }, 'target'))
+    kit.handle(API.createUploadSession, ({ c, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.create(auth.user.id, body.target, body.size, body.sha256), 'target'))
     kit.handle(API.uploadChunk, ({ c, params, body, auth }) => mapErrors(c.get('locale'), () => C.uploads.putChunk(auth.user.id, params.id, Number(params.n), body)))
     kit.handle(API.getUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.get(auth.user.id, params.id)))
     kit.handle(API.completeUploadSession, ({ c, params, auth }) => mapErrors(c.get('locale'), () => C.uploads.complete(auth.user.id, params.id)))

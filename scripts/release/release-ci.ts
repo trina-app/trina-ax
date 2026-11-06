@@ -4,6 +4,9 @@
 //   bun scripts/release/release-ci.ts tag <tag>
 //       the release of a tag: v<version> where <version> is server/package.json's; a tag with "-" (v0.3.0-beta.1) is
 //       the beta channel, otherwise stable. Prints version=, channel=, prerelease= lines (for $GITHUB_OUTPUT).
+//   bun scripts/release/release-ci.ts rollout <notes file> [tag|staged|all]
+//       the staged roll-out of the release (rolloutOf): a "Rollout: all" line in the tag message, or the workflow's
+//       input; takes the line out of the notes file and prints rollout=staged|all (for $GITHUB_OUTPUT)
 //   bun scripts/release/release-ci.ts check-key <pem file>
 //       the key's public part must be one of RELEASE_CHANNEL.keys (shared/src/release-channel.ts); prints its key id
 //   bun scripts/release/release-ci.ts sign-linux <dir> <amd64|arm64> <pem file>
@@ -38,6 +41,54 @@ export function parseReleaseTag(rawTag: string, packageVersion: string): TagRele
   if (version !== packageVersion) throw new Error(`tag ${tag} is not the version in server/package.json (${packageVersion}): bump it in a commit, then tag that commit v${packageVersion}`)
   const beta = version.includes('-')
   return { tag, version, channel: beta ? 'beta' : 'stable', prerelease: beta }
+}
+
+export type RolloutMode = 'staged' | 'all'
+/** the marker: the word, an ASCII colon and one word, alone on its line */
+const ROLLOUT_LINE = /^[ \t]*rollout[ \t]*:[ \t]*([^\s]*)[ \t\r]*$/i
+/** any line that mentions it (in markup, a list, a sentence, with a full-width colon): not the marker, so it stops */
+const ROLLOUT_MENTION = /rollout\s*[:：]/i
+/** a fenced code block's opening or closing line (CommonMark: three or more ` or ~, indented at most three spaces) */
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/
+
+/**
+ * The staged roll-out of a release (server/src/system/rollout.ts, docs/RELEASE-CI.md "단계적 배포"): a line that says
+ * only `Rollout: all` in the tag message publishes a stable release to every server at once (a fix for a bad release, a
+ * security fix); `Rollout: staged` or no such line keeps the default (about 10% of the servers the first day, 50% the
+ * second, all from the third). The line is taken out of the notes (they become the release notes). `override` is the
+ * workflow's input on a manual run ('staged' or 'all'; '' or 'tag' follows the tag message). Anything else after
+ * "Rollout:", or any other line that mentions "rollout:" (in a list, a quote, a heading, bold, code, HTML, a sentence,
+ * with a full-width colon), stops the release: neither a typo nor markup may decide how fast a release goes out. Fenced
+ * code blocks are notes only: nothing in them counts, and they stay as they are.
+ */
+export function rolloutOf(notes: string, override = ''): { rollout: RolloutMode; notes: string } {
+  const found: string[] = []
+  const kept: string[] = []
+  let fence: string | null = null
+  let dropBlank = false
+  for (const line of notes.split('\n')) {
+    const f = FENCE.exec(line)
+    if (fence) {
+      // the closing fence: the same character, at least as long, nothing after it
+      if (f && f[1]![0] === fence[0] && f[1]!.length >= fence.length && !f[2]!.trim()) fence = null
+      kept.push(line)
+      continue
+    }
+    if (f && !(f[1]![0] === '`' && f[2]!.includes('`'))) { fence = f[1]!; kept.push(line); continue }
+    const m = ROLLOUT_LINE.exec(line)
+    if (m) { found.push(m[1]!.toLowerCase()); dropBlank = true; continue }
+    if (ROLLOUT_MENTION.test(line)) throw new Error(`the tag message has the line ${JSON.stringify(line.trim().slice(0, 80))}: write "Rollout: all" alone on its own line, outside code (every server at once), or word the line without "rollout:"`)
+    // the blank line a removed marker leaves at the top or doubled
+    if (dropBlank && !line.trim() && (!kept.length || !kept.at(-1)!.trim())) { dropBlank = false; continue }
+    dropBlank = false
+    kept.push(line)
+  }
+  for (const v of found) if (v !== 'staged' && v !== 'all') throw new Error(`the tag message says "Rollout: ${v}": write "Rollout: all" (every server at once) or leave the line out (staged over three days)`)
+  if (new Set(found).size > 1) throw new Error('the tag message has both "Rollout: all" and "Rollout: staged"')
+  const o = override.trim().toLowerCase()
+  if (o && o !== 'tag' && o !== 'staged' && o !== 'all') throw new Error(`rollout input ${JSON.stringify(override)}: tag, staged or all`)
+  const rollout: RolloutMode = o === 'staged' || o === 'all' ? o : (found[0] as RolloutMode | undefined) ?? 'staged'
+  return { rollout, notes: found.length ? kept.join('\n') : notes }
 }
 
 export function packageVersion(root = REPO): string {
@@ -86,7 +137,8 @@ export function verifySums(sumsFile: string, keys: readonly string[] = RELEASE_C
 
 /**
  * Sign an unsigned Linux build (the --out folder of build-bundle.ts --os linux: app/<version>/, install-linux.sh,
- * VERSION, product.env) and pack what is published: <version>-linux-<arch>.tar.zst and the install kit.
+ * VERSION, product.env) and pack what is published: <version>-linux-<arch>.tar.zst and the install kit. Signing a build
+ * again gives the same two files, byte for byte (bundle.ts packTimeMs), which is what lets a stopped publish go on.
  */
 export async function signLinuxBuild(o: { dir: string; arch: string; pem: string; keys?: readonly string[] }) {
   const keys = o.keys ?? RELEASE_CHANNEL.keys
@@ -117,6 +169,11 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
   if (cmd === 'tag' && a.length === 1) {
     const r = parseReleaseTag(a[0]!, packageVersion())
     out(`tag=${r.tag}\nversion=${r.version}\nchannel=${r.channel}\nprerelease=${r.prerelease}\n`)
+  } else if (cmd === 'rollout' && (a.length === 1 || a.length === 2)) {
+    const file = path.resolve(a[0]!)
+    const r = rolloutOf(fs.readFileSync(file, 'utf8'), a[1] ?? '')
+    fs.writeFileSync(file, r.notes)
+    out(`rollout=${r.rollout}\n`)
   } else if (cmd === 'check-key' && a.length === 1) {
     out(`release key ${checkSigningKey(readKeyFile(a[0]!))}: one of this product's release keys\n`)
   } else if (cmd === 'sign-linux' && a.length === 3) {
@@ -128,7 +185,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
   } else if (cmd === 'verify-sums' && a.length === 1) {
     for (const n of verifySums(path.resolve(a[0]!))) out(`${n}: OK\n`)
   } else {
-    throw new Error('usage: release-ci.ts tag <tag> | check-key <pem> | sign-linux <dir> <arch> <pem> | sums <out> <pem> <file>... | verify-sums <SHA256SUMS>')
+    throw new Error('usage: release-ci.ts tag <tag> | rollout <notes file> [tag|staged|all] | check-key <pem> | sign-linux <dir> <arch> <pem> | sums <out> <pem> <file>... | verify-sums <SHA256SUMS>')
   }
 }
 

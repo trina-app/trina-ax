@@ -1,304 +1,194 @@
 // Folder permissions (tab 2): folders that carry rules, each rule = who (everyone / role / group / person) gets
-// none / read / write. Before saving, "who sees what" shows every active person's access before → after, and who
-// loses access (their chats that touched those folders get a fresh engine session).
-import clsx from 'clsx'
-import { ArrowRight, Eye, FolderLock, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
-import type { Access, Folder, FolderRuleInput, Group, PreviewResponse, User } from '@mycel/shared/api'
+// none / read / write. "By folder" (AccessTree.tsx) is the team folder as a tree: who sees each folder and from where,
+// each person's access and why; its rules change in the edit panel there (AccessEdit.tsx). "By person"
+// (AccessPeople.tsx) shows, read only, what one person and their AI see and why; changing a folder's rules from there
+// opens the same panel in By folder (`?edit=<path>&back=<the person view>`), and closing it goes back.
+import { ArrowRight, Loader2, Trash2 } from 'lucide-react'
+import { lazy, Suspense, useId, useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import type { Folder, PreviewResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useT } from '../../i18n'
-import FolderPicker from '../../components/FolderPicker'
-import { Badge, Button, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { Card, Loadable, useAction, useLoad } from './common'
+import { isSkillsPath } from '../../lib/access-view'
+import { IconButton, Spinner, TabPanel, Tabs, confirmDialog } from '../../components/ui'
+import { AdminPageHeader, useActionOk, useOneAtATime } from './common'
+import { FolderHeaderSlots } from './folder-slots'
 
-/** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule) */
-const isSkillsFolder = (p: string) => p === 'skills' || p.startsWith('skills/')
+const AccessPeople = lazy(() => import('./AccessPeople'))
+const AccessTree = lazy(() => import('./AccessTree'))
 
-type RuleRow = { subjectType: FolderRuleInput['subjectType']; subjectId: string | null; access: Access }
+/** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule). Compared as the
+ * server compares it (any case or Unicode form of the first name), like the tree's label. */
+export const isSkillsFolder = isSkillsPath
 
-const toInput = (r: RuleRow): FolderRuleInput | null => {
-  switch (r.subjectType) {
-    case 'everyone':
-      return { subjectType: 'everyone', subjectId: null, access: r.access }
-    case 'role':
-      return r.subjectId === 'admin' || r.subjectId === 'member' ? { subjectType: 'role', subjectId: r.subjectId, access: r.access } : null
-    case 'group':
-      return r.subjectId ? { subjectType: 'group', subjectId: r.subjectId, access: r.access } : null
-    case 'user':
-      return r.subjectId ? { subjectType: 'user', subjectId: r.subjectId, access: r.access } : null
+/** Rules inside a personal folder never applied (access.ts), so removing them changes nothing and the server has no
+ * preview for them. */
+const isPersonal = (p: string) => p === 'users' || p.startsWith('users/')
+
+/** How long the remove dialog waits for the server's preview before it opens with the general text. */
+const PREVIEW_WAIT_MS = 5000
+
+/** The server's "who sees what" for no rules at `path`; null when it fails or takes longer than PREVIEW_WAIT_MS. */
+async function removalPreview(path: string): Promise<PreviewResponse | null> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), PREVIEW_WAIT_MS)
+  try {
+    return await api.call(API.previewRules, { body: { changes: [{ path, rules: [] }] }, signal: ctl.signal })
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
-export function rulesFromRows(rows: RuleRow[]): FolderRuleInput[] | null {
-  const out: FolderRuleInput[] = []
-  for (const r of rows) {
-    const x = toInput(r)
-    if (!x) return null
-    out.push(x)
-  }
-  return out
+/**
+ * The people whose access a preview changes, per folder (the folder itself and rule folders below it). Access is decided
+ * per person, walking up from the folder to the first rules that name them, so only the server can say who gains or
+ * loses what (a rule above may not name them, and a rule higher up or none at all, owner and admins aside, then decides).
+ */
+export function previewChanges(preview: PreviewResponse): { path: string; users: PreviewResponse['folders'][number]['users'] }[] {
+  return preview.folders.map((f) => ({ path: f.path, users: f.users.filter((u) => u.before !== u.after) })).filter((f) => f.users.length > 0)
 }
 
+/**
+ * "Remove all rules of a folder", the way every list here does it: ask the server what that changes (the delete button
+ * is busy meanwhile: `checking`), confirm with that answer, delete, then `onRemoved`. One at a time. Rows the server
+ * keeps (Folder.keep) offer no delete; the server refuses them anyway.
+ */
+export function useRemoveRules(rootName: string) {
+  const t = useT()
+  const actOk = useActionOk()
+  const once = useOneAtATime<string>()
+  /** the row whose delete is asking the server what it would change (the button shows it is busy) */
+  const [checking, setChecking] = useState<string | null>(null)
+  const remove = (f: Folder, onRemoved: () => void | Promise<void>) =>
+    once.run(f.id, async () => {
+      // what removing the rules really does, from the server (the same "who sees what" as saving rules); without it,
+      // the general text
+      let body: ReactNode = t('rules.removeBodyPersonal')
+      if (!isPersonal(f.path)) {
+        setChecking(f.id)
+        const preview = await removalPreview(f.path)
+        setChecking(null)
+        body = preview ? <RemovePreview preview={preview} /> : t('rules.removeBody')
+      }
+      if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || rootName }), body, confirm: t('common.delete'), danger: true }))) return
+      if (!(await actOk(() => api.call(API.deleteFolder, { params: { id: f.id } })))) return
+      await onRemoved()
+    })
+  return { remove, checking }
+}
+
+/** The delete button of a folder's rules: names the folder, busy while the server works out what deleting changes. */
+export function RemoveRulesButton({ f, label, checking, onClick, testId }: { f: Folder; label: string; checking: string | null; onClick: () => void; testId?: string }) {
+  return (
+    <IconButton label={label} onClick={onClick} aria-busy={checking === f.id || undefined} data-row-focus data-testid={testId}>
+      {checking === f.id ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <Trash2 size={15} />}
+    </IconButton>
+  )
+}
+
+/** Folder permissions: by folder (the tree, AccessTree.tsx) or by person (what one person and their AI see, and why:
+ * read only, AccessPeople.tsx). The choice is in the address (`?view=people&person=<id>`, `?folder=<path>`), so links
+ * and Back work. */
 export default function Folders() {
   const t = useT()
-  const act = useAction()
-  const folders = useLoad(async () => (await api.call(API.listFolders)).items)
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const [editing, setEditing] = useState<{ folder: Folder | null; path: string } | null>(null)
-  const [picking, setPicking] = useState(false)
-
-  const subject = (type: string, id: string | null) => {
-    if (type === 'everyone') return t('rules.everyone')
-    if (type === 'role') return t('rules.roleOf', { role: t(id === 'admin' ? 'role.admin' : 'role.member') })
-    if (type === 'group') return t('rules.groupOf', { name: groups.data?.find((g) => g.id === id)?.name ?? '?' })
-    return users.data?.find((u) => u.id === id)?.name ?? id ?? '?'
+  const [params, setParams] = useSearchParams()
+  const panels = useId()
+  const view = params.get('view') === 'people' ? 'people' : 'folders'
+  // a fresh start each way: the person, someone new's choices and the folder narrowed to stay with the person view.
+  // Compared with the address itself: the router shows a change in a transition, so `view` can still be the one before
+  // (two keys pressed quickly on the tabs)
+  const choose = (v: 'folders' | 'people') => {
+    const q = new URLSearchParams(window.location.search)
+    const now = q.get('view') === 'people' ? 'people' : 'folders'
+    // "By folder" again while a folder is chosen: back to the tree (the folder leaves the address)
+    if (v !== now || (v === 'folders' && q.has('folder'))) setParams(v === 'people' ? { view: 'people' } : {})
   }
-  const remove = async (f: Folder) => {
-    if (!(await confirmDialog({ title: t('rules.removeTitle', { path: f.path || t('files.root') }), body: t('rules.removeBody'), confirm: t('common.delete'), danger: true }))) return
-    if ((await act(() => api.call(API.deleteFolder, { params: { id: f.id } }))) !== undefined) void folders.reload()
-  }
-
+  // the header stays at the top (like every admin page); the By folder detail column sticks just under it, so the
+  // header's height is passed down as --folders-head
+  const [actions, setActions] = useState<HTMLElement | null>(null)
+  const [filter, setFilter] = useState<HTMLElement | null>(null)
+  const [head, setHead] = useState(0)
+  useLayoutEffect(() => {
+    const el = document.querySelector<HTMLElement>('[data-testid="folders-header"]')
+    if (!el) return
+    const measure = () => setHead(el.getBoundingClientRect().height)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   return (
-    <>
-      <Card
+    <FolderHeaderSlots.Provider value={{ actions, filter }}>
+      {/* the same header as Members and Groups: title, one line, Add folder; under them the by folder / by person
+          switch and the view's own filter (its switch or its person search) */}
+      <AdminPageHeader
         title={t('admin.folders')}
-        desc={t('rules.desc')}
-        actions={
-          <Button size="sm" variant="primary" onClick={() => setPicking(true)} data-testid="folder-rule-new">
-            <Plus size={14} aria-hidden /> {t('rules.addFolder')}
-          </Button>
+        desc={t('folders.pageDesc')}
+        testId="folders-header"
+        actions={<span ref={setActions} className="contents" />}
+        controls={
+          <>
+            <Tabs
+              segmented
+              value={view}
+              onChange={choose}
+              panels={panels}
+              items={[
+                { id: 'folders', label: t('accessView.byFolder') },
+                { id: 'people', label: t('accessView.byPerson') },
+              ]}
+              label={t('accessView.tabs')}
+            />
+            <span ref={setFilter} className="contents" />
+          </>
         }
-      >
-        <Loadable state={folders}>
-          {(list) =>
-            !list.length ? (
-              <p className="text-sm text-faint">{t('rules.none')}</p>
-            ) : (
-              <ul className="divide-y divide-line" data-testid="folder-list">
-                {[...list].sort((a, b) => a.path.localeCompare(b.path)).map((f) => (
-                  <li key={f.id} className="flex flex-wrap items-start gap-3 py-3 text-sm">
-                    <FolderLock size={16} className="mt-0.5 shrink-0 text-accent-text" aria-hidden />
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-medium">{f.path || t('files.root')}</span>
-                      {!f.exists && <Badge tone="warn">{t('rules.missingOnDisk')}</Badge>}
-                      <span className="mt-1 flex flex-wrap gap-1">
-                        {f.rules.map((r) => (
-                          <Badge key={r.id} tone={r.access === 'write' ? 'accent' : r.access === 'read' ? 'neutral' : 'danger'}>
-                            {subject(r.subjectType, r.subjectId)}: {t(`access.${r.access}`)}
-                            {isSkillsFolder(f.path) && r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && <span data-testid="skill-manager-badge"> · {t('skillMgr.ruleBadge')}</span>}
-                          </Badge>
-                        ))}
-                      </span>
-                      {isSkillsFolder(f.path) && <span className="mt-1 block text-xs text-muted">{t('skillMgr.folderHint')}</span>}
-                    </span>
-                    <Button size="sm" variant="ghost" onClick={() => setEditing({ folder: f, path: f.path })}>
-                      {t('common.edit')}
-                    </Button>
-                    <IconButton label={t('common.delete')} onClick={() => remove(f)}>
-                      <Trash2 size={15} />
-                    </IconButton>
+      />
+      <TabPanel base={panels} value={view} style={{ '--folders-head': `${head}px` } as CSSProperties}>
+        <Suspense fallback={<Spinner />}>{view === 'people' ? <AccessPeople /> : <AccessTree />}</Suspense>
+      </TabPanel>
+    </FolderHeaderSlots.Provider>
+  )
+}
+
+/** The remove dialog's body: the files stay, and who gains or loses what (only the people whose access changes). */
+export function RemovePreview({ preview }: { preview: PreviewResponse }) {
+  const t = useT()
+  const changes = previewChanges(preview)
+  return (
+    <div className="space-y-3" data-testid="rules-remove-preview">
+      <p>{t('rules.removeKeeps')}</p>
+      {!changes.length && !preview.losing.length ? (
+        <p>{t('rules.removeNoChange')}</p>
+      ) : (
+        <>
+          {changes.map((f) => (
+            <div key={f.path}>
+              <p className="mb-1 text-xs font-medium text-muted">{t('rules.removeAt', { path: f.path || t('files.root') })}</p>
+              <ul className="divide-y divide-line rounded-lg border border-line text-sm text-ink">
+                {f.users.map((u) => (
+                  <li key={u.user.id} className="flex items-center gap-2 px-3 py-1.5">
+                    <span className="min-w-0 flex-1 truncate">{u.user.name}</span>
+                    <span className="text-xs text-muted">{t(`access.${u.before}`)}</span>
+                    <ArrowRight size={12} className="text-faint" aria-label={t('rules.becomes')} />
+                    <span className="text-xs font-medium text-warn">{t(`access.${u.after}`)}</span>
                   </li>
                 ))}
               </ul>
-            )
-          }
-        </Loadable>
-      </Card>
-      <FolderPicker
-        open={picking}
-        title={t('rules.addFolder')}
-        confirmLabel={t('common.choose')}
-        needWrite={false}
-        onClose={() => setPicking(false)}
-        onPick={(path) => {
-          setPicking(false)
-          const existing = folders.data?.find((f) => f.path === path) ?? null
-          setEditing({ folder: existing, path })
-        }}
-      />
-      {editing && (
-        <RulesEditor
-          folder={editing.folder}
-          path={editing.path}
-          users={users.data ?? []}
-          groups={groups.data ?? []}
-          subject={subject}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null)
-            void folders.reload()
-          }}
-        />
-      )}
-    </>
-  )
-}
-
-function RulesEditor({ folder, path, users, groups, subject, onClose, onSaved }: { folder: Folder | null; path: string; users: User[]; groups: Group[]; subject: (type: string, id: string | null) => string; onClose: () => void; onSaved: () => void }) {
-  const t = useT()
-  const act = useAction()
-  const [rows, setRows] = useState<RuleRow[]>(folder?.rules.map((r) => ({ subjectType: r.subjectType, subjectId: r.subjectId, access: r.access })) ?? [])
-  const [preview, setPreview] = useState<PreviewResponse | null>(null)
-  const [busy, setBusy] = useState<'preview' | 'save' | null>(null)
-  const rules = rulesFromRows(rows)
-  const set = (i: number, patch: Partial<RuleRow>) => {
-    setPreview(null)
-    setRows((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)))
-  }
-  const runPreview = async () => {
-    if (!rules) return
-    setBusy('preview')
-    const r = await act(() => api.call(API.previewRules, { body: { changes: [{ path, rules }] } }))
-    setBusy(null)
-    if (r) setPreview(r)
-  }
-  const save = async () => {
-    if (!rules) return
-    setBusy('save')
-    const r = await act(() => (folder ? api.call(API.putFolderRules, { params: { id: folder.id }, body: { rules } }) : api.call(API.createFolder, { body: { path, create: true, rules } })), t('common.saved'))
-    setBusy(null)
-    if (r) onSaved()
-  }
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t('rules.editTitle', { path: path || t('files.root') })}
-      width={720}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={runPreview} busy={busy === 'preview'} disabled={!rules} data-testid="rules-preview">
-            <Eye size={14} aria-hidden /> {t('rules.preview')}
-          </Button>
-          <Button variant="primary" onClick={save} busy={busy === 'save'} disabled={!rules} data-testid="rules-save">
-            {t('common.save')}
-          </Button>
-        </>
-      }
-    >
-      <p className="mb-3 text-xs text-muted">{t('rules.editHint')}</p>
-      {isSkillsFolder(path) && (
-        <p role="note" className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="skill-folder-warning">
-          {t('skillMgr.folderHint')} {t('skillMgr.readHint')}
-        </p>
-      )}
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs text-faint">
-            <th className="py-1 pr-2 font-medium">{t('rules.who')}</th>
-            <th className="py-1 pr-2 font-medium">{t('rules.target')}</th>
-            <th className="py-1 pr-2 font-medium">{t('rules.access')}</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td className="py-1 pr-2">
-                <select aria-label={t('rules.who')} className={inputCls} value={r.subjectType} onChange={(e) => set(i, { subjectType: e.target.value as RuleRow['subjectType'], subjectId: e.target.value === 'everyone' ? null : e.target.value === 'role' ? 'member' : null })}>
-                  <option value="everyone">{t('rules.everyone')}</option>
-                  <option value="role">{t('rules.role')}</option>
-                  <option value="group">{t('rules.group')}</option>
-                  <option value="user">{t('rules.person')}</option>
-                </select>
-              </td>
-              <td className="py-1 pr-2">
-                {r.subjectType === 'role' && (
-                  <select aria-label={t('rules.target')} className={inputCls} value={r.subjectId ?? 'member'} onChange={(e) => set(i, { subjectId: e.target.value })}>
-                    <option value="member">{t('role.member')}</option>
-                    <option value="admin">{t('role.admin')}</option>
-                  </select>
-                )}
-                {r.subjectType === 'group' && (
-                  <select aria-label={t('rules.target')} className={inputCls} value={r.subjectId ?? ''} onChange={(e) => set(i, { subjectId: e.target.value || null })}>
-                    <option value="">—</option>
-                    {groups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {r.subjectType === 'user' && (
-                  <select aria-label={t('rules.target')} className={inputCls} value={r.subjectId ?? ''} onChange={(e) => set(i, { subjectId: e.target.value || null })}>
-                    <option value="">—</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </td>
-              <td className="py-1 pr-2">
-                <select aria-label={t('rules.access')} className={inputCls} value={r.access} onChange={(e) => set(i, { access: e.target.value as Access })}>
-                  <option value="none">{t('access.none')}</option>
-                  <option value="read">{t('access.read')}</option>
-                  <option value="write">{t('access.write')}</option>
-                </select>
-              </td>
-              <td className="py-1">
-                <IconButton
-                  label={t('rules.removeRule')}
-                  onClick={() => {
-                    setPreview(null)
-                    setRows((x) => x.filter((_, j) => j !== i))
-                  }}
-                >
-                  <Trash2 size={15} />
-                </IconButton>
-              </td>
-            </tr>
+            </div>
           ))}
-        </tbody>
-      </table>
-      <Button size="sm" variant="ghost" className="mt-2" onClick={() => setRows((r) => [...r, { subjectType: 'group', subjectId: groups[0]?.id ?? null, access: 'read' }])} data-testid="rule-add">
-        <Plus size={14} aria-hidden /> {t('rules.addRule')}
-      </Button>
-      {!rules && rows.length > 0 && <p className="mt-2 text-xs text-warn">{t('rules.incomplete')}</p>}
-      {preview && <PreviewTable preview={preview} subject={subject} />}
-    </Modal>
-  )
-}
-
-function PreviewTable({ preview }: { preview: PreviewResponse; subject: (type: string, id: string | null) => string }) {
-  const t = useT()
-  return (
-    <div className="mt-5 space-y-4" data-testid="rules-preview-result">
-      <h3 className="text-sm font-semibold">{t('rules.whoSeesWhat')}</h3>
-      {preview.folders.map((f) => (
-        <div key={f.path}>
-          <p className="mb-1 text-xs font-medium text-muted">{f.path || t('files.root')}</p>
-          <ul className="divide-y divide-line rounded-lg border border-line text-sm">
-            {f.users.map((u) => {
-              const changed = u.before !== u.after
-              return (
-                <li key={u.user.id} className={clsx('flex items-center gap-2 px-3 py-1.5', changed && 'bg-warn-soft')}>
-                  <span className="min-w-0 flex-1 truncate">
-                    {u.user.name} <span className="text-xs text-faint">{t(`role.${u.role}`)}</span>
-                  </span>
-                  <span className="text-xs text-muted">{t(`access.${u.before}`)}</span>
-                  <ArrowRight size={12} className="text-faint" aria-label={t('rules.becomes')} />
-                  <span className={clsx('text-xs font-medium', changed ? 'text-warn' : 'text-muted')}>{t(`access.${u.after}`)}</span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      ))}
-      {preview.losing.length > 0 && (
-        <div className="rounded-lg bg-danger-soft p-3 text-xs text-danger" role="note">
-          <p className="mb-1 font-semibold">{t('rules.losing')}</p>
-          <ul className="space-y-0.5">
-            {preview.losing.map((l) => (
-              <li key={l.user.id}>{t('rules.losingLine', { name: l.user.name, paths: l.paths.join(', '), n: l.chatsReset })}</li>
-            ))}
-          </ul>
-        </div>
+          {preview.losing.length > 0 && (
+            <div className="rounded-lg bg-danger-soft p-3 text-xs text-danger" role="note">
+              <p className="mb-1 font-semibold">{t('rules.losing')}</p>
+              <ul className="space-y-0.5">
+                {preview.losing.map((l) => (
+                  <li key={l.user.id}>{t('rules.losingLine', { name: l.user.name, paths: l.paths.map((x) => x || t('files.root')).join(', '), n: l.chatsReset })}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

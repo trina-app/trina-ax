@@ -20,6 +20,7 @@ import { confidentialTurn, externalSearch } from "../safe-ops/confidential"
 // engine then gets 403 (never 401, which would make Codex try to refresh). Long 429s mark this connection only.
 import type { Database } from 'bun:sqlite'
 import type { CredentialBroker } from '../credentials/broker'
+import { isCreditLimit } from '../credentials/store'
 import { overBudget, retryAfterSeconds, apiError, expectedAnswer, unreachable, toolPolicyOf, type ProxyTurnEvent, type TokenRow } from './model-proxy'
 
 export interface CodexPathDeps {
@@ -45,7 +46,6 @@ const FORBIDDEN_KEYS = ['background', 'previous_response_id', 'conversation', 'p
 const MAX_BODY = 32 * 1024 * 1024
 /** a 429 whose retry-after is this short is retried once by the proxy (Codex does not retry 429 itself, C14) */
 const RETRY_429_MAX_S = 10
-const CREDIT_CODES = new Set(['insufficient_quota', 'credit_balance_exhausted', 'organization_usage_limit_exceeded'])
 /** GETs Codex 0.163 sends to chatgpt_base_url on every turn with a ChatGPT sign-in (codex-rs backend-client; the path
  * style follows the base URL, ours has no "/backend-api"). Both are answered 404 on purpose, as before, and Codex goes
  * on without them; only the warning goes (QA 2026-10-30: three per answer buried the real ones):
@@ -340,7 +340,7 @@ export async function handleCodex(req: Request, url: URL, d: CodexPathDeps): Pro
     if (type === 'usage_limit_reached') {
       const resets = typeof err.resets_at === 'number' ? err.resets_at * 1000 : null
       until = new Date(resets && resets > now ? resets : ra !== null ? now + ra * 1000 : now + 3600_000)
-    } else if (CREDIT_CODES.has(type) || /_spend_limit_exceeded$/.test(type)) {
+    } else if (isCreditLimit(type)) {
       until = new Date(now + 3600_000)
     } else if (type === 'usage_not_included') {
       d.broker.markInvalid(cred.credentialId, 'usage_not_included', 429)

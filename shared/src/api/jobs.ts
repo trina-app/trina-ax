@@ -9,7 +9,8 @@ import { Job } from './entities'
 export const TranscribeFields = z.object({
   /** language hint (ISO 639-1), default: auto */
   language: z.string().regex(/^[a-z]{2}$/).optional(),
-  /** chat the voice input belongs to (optional; for the composer) */
+  /** chat the voice input belongs to (the composer sends it; absent: a chat not created yet). The server checks it is
+   * the caller's and refuses (403, reason `confidential`) to send a confidential chat's recording to OpenRouter. */
   chatId: Uuid7.optional(),
 })
 

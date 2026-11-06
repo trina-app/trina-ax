@@ -88,6 +88,7 @@ func killLeftovers() {
 		n := 0
 		for _, p := range ps {
 			if p.Pid != me {
+				logKill("leftover", p)
 				_ = syscall.Kill(p.Pid, syscall.SIGKILL)
 				n++
 			}
@@ -99,7 +100,10 @@ func killLeftovers() {
 	}
 }
 
-// reaper kills processes of this uid that were orphaned (ppid 1) and are not in a live turn session.
+// reaper kills processes of this uid that were orphaned (ppid 1) and are not in a live turn session. It checks
+// every 5 s, so such a process dies 0-5 s after it starts, whatever its size. This also kills a process that an
+// operator starts as the engine account from systemd (systemd-run, a unit with User=): its ppid is 1. Turns are
+// safe on Linux: bwrap --unshare-pid makes the turn's own init the parent of its orphans, never host pid 1.
 func reaper() {
 	me, myPpid := os.Getpid(), os.Getppid()
 	mySid, _ := unix.Getsid(me)
@@ -114,12 +118,39 @@ func reapOnce(me, myPpid, mySid int) {
 	if err != nil {
 		return
 	}
-	for _, p := range ps {
-		if p.Pid == me || p.Pid == myPpid || p.Sid == mySid || live.has(p.Sid) || p.Ppid != 1 {
-			continue
-		}
+	for _, p := range strays(ps, me, myPpid, mySid, live.has) {
+		logKill("orphan", p)
 		_ = syscall.Kill(p.Pid, syscall.SIGKILL)
 	}
+}
+
+// strays: the processes reapOnce kills. Not the launcher, its parent or its session; not a live turn session; only
+// orphans (ppid 1).
+func strays(ps []peer.Proc, me, myPpid, mySid int, isLive func(int) bool) []peer.Proc {
+	var out []peer.Proc
+	for _, p := range ps {
+		if p.Pid == me || p.Pid == myPpid || p.Sid == mySid || isLive(p.Sid) || p.Ppid != 1 {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// logKill writes one journal line for each process the launcher kills, so the kill has a reason in the log. Only
+// pid, ppid, sid and the process name (comm): never cmdline or environ, which can hold secrets.
+func logKill(why string, p peer.Proc) {
+	fmt.Fprintf(os.Stderr, "mycel-launcher: SIGKILL %s pid=%d ppid=%d sid=%d comm=%q\n", why, p.Pid, p.Ppid, p.Sid, procComm(p.Pid))
+}
+
+// procComm: the process name from /proc/<pid>/comm ("" when there is no /proc, as on macOS). The process sets this
+// name itself, so the caller prints it quoted.
+func procComm(pid int) string {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSuffix(string(b), "\n")
 }
 
 type fileSpec struct {
@@ -259,6 +290,17 @@ func lookupHome() string {
 // `-D CHAT_DIR=…`: sandbox-exec's argv is readable by every process of the account until it exec()s the engine. The
 // returned cleanup removes that copy; call it when the engine has exited.
 func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.Cmd, func(), error) {
+	return engineCommandWith(cmdPath, args, chat, sessDir, sbOpts{})
+}
+
+// sbOpts: what a sign-in changes in the profile (claudelogin.go): the one terminal it may use (LOGIN_TTY; empty for
+// every turn) and never the account's own login, whatever --local-login says.
+type sbOpts struct {
+	tty          string
+	noLocalLogin bool
+}
+
+func engineCommandWith(cmdPath string, args []string, chat, sessDir string, so sbOpts) (*exec.Cmd, func(), error) {
 	if *sandboxProfile == "" {
 		return exec.Command(cmdPath, args...), func() {}, nil
 	}
@@ -267,7 +309,7 @@ func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.C
 		return nil, nil, fmt.Errorf("engine: %v", err)
 	}
 	ll, lc := "0", "0"
-	if *localLogin {
+	if *localLogin && !so.noLocalLogin {
 		ll = "1"
 		if *localCodex {
 			lc = "1"
@@ -284,6 +326,7 @@ func engineCommand(cmdPath string, args []string, chat, sessDir string) (*exec.C
 		"LOCAL_CODEX": lc,
 		"USER_HOME":   resolvePath(accountHome),
 		"SESSION_DIR": resolvePath(filepath.Clean(sessDir)),
+		"LOGIN_TTY":   so.tty,
 	}
 	text, err := os.ReadFile(*sandboxProfile)
 	if err != nil {
@@ -428,6 +471,7 @@ func main() {
 	if *exitWithParent {
 		go func() { _, _ = io.Copy(io.Discard, os.Stdin); stopAllAndExit() }()
 	}
+	clearSignInLeftovers() // claudelogin.go: folders of sign-ins an earlier launcher did not finish
 	_ = os.Remove(*listen)
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: *listen, Net: "unix"})
 	if err != nil {
@@ -499,6 +543,32 @@ func serve(c *net.UnixConn) {
 		return
 	case "codex-export":
 		codexExport(o)
+		return
+	case "claude-login": // claudelogin.go
+		stop := make(chan struct{})
+		codes := make(chan string, 1)
+		go func() { // the server closed the connection or sent kill: stop the sign-in; a code goes to the program
+			for {
+				l, err := r.ReadBytes('\n')
+				var m struct {
+					Op   string `json:"op"`
+					Code string `json:"code"`
+				}
+				if err != nil || (json.Unmarshal(l, &m) == nil && m.Op == "kill") {
+					close(stop)
+					return
+				}
+				if m.Op == "code" {
+					select {
+					case codes <- m.Code:
+					default: // one at a time; the sign-in answers the first
+					}
+				}
+			}
+		}()
+		if err := claudeLogin(line, o, claudeControl{stop: stop, codes: codes}); err != nil {
+			o.send(map[string]any{"ev": "error", "message": err.Error()})
+		}
 		return
 	case "codex-login":
 		stop := make(chan struct{})

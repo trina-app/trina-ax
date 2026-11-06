@@ -32,7 +32,9 @@ test('HWP native pages, navigation, mobile layout and original download', async 
   await expect(img).toHaveJSProperty('naturalWidth',794)
   await expect(view).toContainText('Page 1 of 2')
   if(process.env.HWP_SHOTS) await page.screenshot({path:path.join(process.env.HWP_SHOTS,'web-mobile.png')})
-  const [download]=await Promise.all([page.waitForEvent('download'),page.getByTestId('file-panel').getByRole('button',{name:'Download',exact:true}).click()])
+  // phones: download is in the panel's ⋯ menu
+  await page.getByTestId('file-panel').getByTestId('file-panel-more').click()
+  const [download]=await Promise.all([page.waitForEvent('download'),page.getByTestId('file-panel').getByRole('menuitem',{name:'Download',exact:true}).click()])
   const sha=(b:Buffer)=>crypto.createHash('sha256').update(b).digest('hex')
   expect(sha(fs.readFileSync((await download.path())!))).toBe(sha(fs.readFileSync(fixture)))
 })

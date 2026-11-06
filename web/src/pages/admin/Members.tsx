@@ -1,25 +1,45 @@
 // Members and invites. Invites are links (no mail in v1): pick role and groups, copy the link or show its QR code,
-// hand it over any way you like; revoke unused ones. Members: role, groups, disable (ends their sessions),
+// hand it over any way you like; revoke unused ones. The team invite link (components/onboarding/TeamLinkPanel.tsx) is
+// one link for many people, members only, with a ready-made message for KakaoTalk or Slack. Members: role, groups, disable (ends their sessions),
 // temporary password reset or a one-time reset link to hand over (both audited; the owner resets only on the server
-// Mac), remove.
-import { KeyRound, Link2, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey } from 'lucide-react'
-import { useId, useState } from 'react'
+// Mac), remove. Each person links to the folders they see (Folder permissions › By person); the invite and add dialogs
+// preview the folders someone new with that role and those groups will see.
+//
+// Laid out like the Claude Console's Members: title with the count, one line, Invite on the right, then a search box
+// and a Role filter, then a quiet table (name · username · role · skills switch · "…"). The owner changes a role right
+// in the row; every other action, and "Folders they see", is in the row's "…". Below the md width each member is a
+// stacked row with the same parts. Invites (the team link and the invite links) stay under the table.
+// The owner sees who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge. Removing
+// that person works as for anyone: their personal files go to the owner's archive. The owner's inbox entry opens
+// /admin/members?member=<id>: that person's row is marked and scrolled to.
+import { FolderLock, KeyRound, Link2, Pencil, Plus, QrCode as QrIcon, RefreshCw, Trash2, UserPlus, UserRoundKey, UserRoundX, UserRoundCheck } from 'lucide-react'
+import clsx from 'clsx'
+import { useCallback, useId, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { z } from 'zod'
-import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, Role, User } from '@mycel/shared/api'
+import type { CreatedInvite as CreatedInviteSchema, Group, Invite, Locale, User } from '@mycel/shared/api'
 import { TEMP_PASSWORD_TTL_DAYS, tempPasswordCharsOk } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { chatTrashDays } from '../../lib/chat-trash'
 import { newTemporaryPassword } from '../../lib/temp-password'
 import { PASSWORD_MIN } from '../Auth'
+import { toast } from '../../store/ui'
 import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
-import { SkillManagerCell, useSkillManagers } from './SkillManagers'
-import { Card, Loadable, SecretBox, useAction, useLoad } from './common'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
+import { SkillManagerCell, skillsVia, useFolderPeople, useSkillManagers } from './SkillManagers'
+import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, SearchBox, SecretBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
+import { FilterPill } from '../../components/usage/FilterPill'
+import { MemberMenu, type MemberMenuItem } from './RowMenu'
+import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
+import { NewPersonPreview, personViewLink } from './AccessResults'
+import { TeamLinkDialog } from '../../components/onboarding/TeamLinkPanel'
 
-type MemberRole = Exclude<Role, 'owner'>
+// the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
+export { MemberMenu, type MemberMenuItem }
+
 type CreatedInvite = z.infer<typeof CreatedInviteSchema>
 
 export default function Members() {
@@ -27,10 +47,14 @@ export default function Members() {
   const locale = useLocale()
   const me = useMeStrict()
   const act = useAction()
-  const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const actOk = useActionOk()
+  // the members and who cannot use AI now ("No AI": no AI connection of their own and none of the team's for them)
+  const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const skillManagers = useSkillManagers()
+  // who writes in skills/ through a group's rule or everyone's: their switch is on, and says why
+  const skillsAccess = useFolderPeople('skills', users.data, skillManagers.data)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [addOpen, setAddOpen] = useState(false)
@@ -39,8 +63,36 @@ export default function Members() {
   const [resetting, setResetting] = useState<User | null>(null)
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
+  // the person an inbox entry points at (?member=<id>): marked, and scrolled to once
+  const focusId = useSearchParams()[0].get('member')
+  const scrolled = useRef<string | null>(null)
+  const focusRow = useCallback((el: HTMLElement | null) => {
+    if (!el || scrolled.current === focusId) return
+    scrolled.current = focusId
+    el.scrollIntoView?.({ block: 'center' })
+  }, [focusId])
+  /** asked for their account to be deleted (the owner's list only) */
+  const requested = (u: User) => !!users.data?.deletionRequested?.includes(u.id)
+  const navigate = useNavigate()
+  // the team invite link: made and managed in a popup (TeamLinkDialog); the page lists it under the members
+  const teamLink = useLoad(() => api.call(API.getTeamLink))
+  const [teamLinkOpen, setTeamLinkOpen] = useState(false)
+  const revokeTeamLink = async () => {
+    if (!(await confirmDialog({ title: t('teamLink.revokeTitle'), body: t('teamLink.revokeBody'), confirm: t('teamLink.revoke'), danger: true }))) return
+    if (await actOk(() => api.call(API.revokeTeamLink))) await teamLink.reload()
+  }
 
   const groupName = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? '?'
+  // a phone: one card per member instead of a squeezed table (the same query as Tailwind's md)
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  /** the owner and yourself have no actions here; an admin is managed by the owner only */
+  const canManage = (u: User) => u.role !== 'owner' && u.id !== me.user.id && (u.role !== 'admin' || isOwner(me))
+  const skillCell = (u: User) =>
+    u.status === 'active' ? (
+      <SkillManagerCell subject={{ type: 'user', id: u.id, name: u.name, always: u.role !== 'member' }} data={skillManagers.data} via={skillsVia(skillsAccess.data?.get(u.id), (id) => groups.data?.find((g) => g.id === id)?.name)} onChanged={() => void skillManagers.reload()} />
+    ) : (
+      <span className="text-xs text-faint">—</span>
+    )
 
   const resetPassword = (u: User) => setResetting(u)
   /** One-time link (24 h) the person opens to choose a new password; no email, the admin hands it over. */
@@ -51,129 +103,239 @@ export default function Members() {
   }
   const toggleDisabled = async (u: User) => {
     const disabling = u.status === 'active'
-    if (disabling && !(await confirmDialog({ title: t('members.disableTitle', { name: u.name }), body: t('members.disableBody'), confirm: t('members.disable'), danger: true }))) return
+    // an admin who leaves could see the team invite link: their own link ends with them, someone else's may need replacing
+    const body = u.role === 'admin' ? <><p>{t('members.disableBody')}</p><p className="mt-2" data-testid="disable-team-link-hint">{t('teamLink.adminHint')}</p></> : t('members.disableBody')
+    if (disabling && !(await confirmDialog({ title: t('members.disableTitle', { name: u.name }), body, confirm: t('members.disable'), danger: true }))) return
     if (await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { status: disabling ? 'disabled' : 'active' } }))) void users.reload()
   }
   const remove = async (u: User) => {
-    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: t('members.removeBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
-    await act(async () => {
-      await api.call(API.deleteUser, { params: { id: u.id } })
-      await users.reload()
-    })
+    // personal files are archived for the owner either way; the text only says that this person asked
+    const body = requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
+    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body, confirm: t('common.delete'), danger: true }))) return
+    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
   }
-  const revoke = async (i: Invite) => {
-    await act(async () => {
-      await api.call(API.revokeInvite, { params: { id: i.id } })
+  /** The actions used less often: on a phone in the card's "…" menu with the others, on a wide screen in the row's
+   * "…" menu next to Edit and Reset password, so the row keeps one line. */
+  const moreActions = (u: User): MemberMenuItem[] => [
+    { label: t('members.resetLinkButton'), icon: <UserRoundKey size={14} aria-hidden />, onSelect: () => void createResetLink(u), testId: `reset-link-${u.username}` },
+    u.status === 'active'
+      ? { label: t('members.disable'), icon: <UserRoundX size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `disable-member-${u.username}` }
+      : { label: t('members.enable'), icon: <UserRoundCheck size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `enable-member-${u.username}` },
+    ...(isOwner(me) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `delete-member-${u.username}` }] : []),
+  ]
+  // an invite is revoked at once, with no confirm dialog: one at a time, a held key does not repeat it, and the focus goes
+  // to the list's title (the next row's button is another revoke)
+  const invitesTitle = useRef<HTMLHeadingElement>(null)
+  // (with no link left the list goes away: then to the Invite button)
+  const inviteFocus = useFocusAfterRemove(invites.data, () => invitesTitle.current ?? document.querySelector<HTMLElement>('[data-testid="invite-new"]'))
+  const revoking = useOneAtATime<string>()
+  const revoke = (i: Invite) =>
+    revoking.run(i.id, async () => {
+      if (!(await actOk(() => api.call(API.revokeInvite, { params: { id: i.id } })))) return
+      inviteFocus.removed(0)
       await invites.reload()
     })
-  }
+
+  // search and role filter (like the Claude Console's Members): they narrow what is loaded, nothing is asked again
+  const [query, setQuery] = useState('')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all')
+  const q = query.trim().toLocaleLowerCase(locale)
+  const shown = (list: User[]) => list.filter((u) => (roleFilter === 'all' || u.role === roleFilter) && matches(q, locale, u.name, u.username, u.email))
+  /** the owner changes roles (members ↔ admins) right in the row, on anyone but themselves; everyone else reads it */
+  const roleEditable = (u: User) => isOwner(me) && u.role !== 'owner' && u.id !== me.user.id
+  const roleBusy = useOneAtATime<string>()
+  const changeRole = (u: User, role: MemberRole) =>
+    roleBusy.run(u.id, async () => {
+      const r = await act(() => api.call(API.updateUser, { params: { id: u.id }, body: { role } }))
+      if (!r) return
+      toast({ level: 'success', text: t('members.roleChanged', { name: u.name, role: t(`role.${r.role}`) }) })
+      // an admin made a member could see the team invite link: suggest replacing it (as the edit dialog does)
+      if (u.role === 'admin' && r.role === 'member') toast({ level: 'info', text: t('teamLink.adminHint') })
+      await users.reload()
+    })
+  const roleCell = (u: User) =>
+    roleEditable(u) ? (
+      <InlineRole user={u} busy={roleBusy.busy === u.id} onChange={(r) => void changeRole(u, r)} />
+    ) : (
+      <span className="text-sm text-ink" data-testid={`member-role-${u.username}`}>
+        {t(`role.${u.role}`)}
+      </span>
+    )
+  /** Every row's "…": the folders this person sees (anyone's), then the actions on the people this viewer manages. */
+  const menuItems = (u: User): MemberMenuItem[] => [
+    { label: t('accessView.membersLink'), icon: <FolderLock size={14} aria-hidden />, onSelect: () => navigate(personViewLink({ person: u.id })), testId: 'member-access-link' },
+    ...(canManage(u)
+      ? [
+          { label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setEditing(u), testId: `edit-member-${u.username}` },
+          { label: t('members.reset'), icon: <KeyRound size={14} aria-hidden />, onSelect: () => resetPassword(u), testId: `reset-password-${u.username}` },
+          ...moreActions(u),
+        ]
+      : []),
+  ]
 
   return (
     <>
-      <Card
-        title={t('members.title')}
+      <AdminPageHeader
+        title={
+          <>
+            {t('members.title')}
+            <CountBadge n={users.data?.items.length} testId="members-count" />
+          </>
+        }
+        desc={t('members.pageDesc')}
+        testId="members-header"
         actions={
           <>
             <Button size="sm" onClick={() => setAddOpen(true)}>
               <UserPlus size={14} aria-hidden /> {t('members.add')}
             </Button>
+            <Button size="sm" onClick={() => setTeamLinkOpen(true)} data-testid="team-link-open">
+              <Link2 size={14} aria-hidden /> {t('teamLink.title')}
+            </Button>
             <Button size="sm" variant="primary" onClick={() => setInviteOpen(true)} data-testid="invite-new">
-              <Link2 size={14} aria-hidden /> {t('members.invite')}
+              <Plus size={14} aria-hidden /> {t('members.inviteToTeam')}
             </Button>
           </>
         }
-      >
+        controls={
+          <>
+            <SearchBox value={query} onChange={setQuery} label={t('members.search')} testId="member-search" className="sm:w-80" />
+            <FilterPill
+              label={t('members.role')}
+              value={roleFilter}
+              onChange={setRoleFilter}
+              options={[
+                { value: 'all', label: t('members.roleAll') },
+                { value: 'owner', label: t('role.owner') },
+                { value: 'admin', label: t('role.admin') },
+                { value: 'member', label: t('role.member') },
+              ]}
+              testId="member-role-filter"
+            />
+          </>
+        }
+      />
+      <section className="mb-8" aria-label={t('members.title')}>
         <Loadable state={users}>
-          {(list) => (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm" data-testid="members-table">
-                <thead>
-                  <tr className="text-left text-xs text-faint">
-                    <th className="py-2 pr-3 font-medium">{t('auth.name')}</th>
-                    <th className="py-2 pr-3 font-medium">{t('members.role')}</th>
-                    <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('admin.groups')}</th>
-                    <th className="hidden py-2 pr-3 font-medium md:table-cell">{t('members.lastSeen')}</th>
-                    <th className="py-2 pr-3 font-medium">{t('skillMgr.column')}</th>
-                    <th className="py-2">
-                      <span className="sr-only">{t('files.actions')}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {list.map((u) => (
-                    <tr key={u.id} className={u.status === 'disabled' ? 'opacity-60' : ''}>
-                      <td className="py-2 pr-3">
-                        <span className="block font-medium">{u.name}</span>
-                        <span className="block text-xs text-faint">
-                          {u.username} · users/{u.id}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <Badge tone={u.role === 'member' ? 'neutral' : 'accent'}>{t(`role.${u.role}`)}</Badge>
-                        {u.status === 'disabled' && <Badge tone="danger" className="ml-1">{t('members.disabled')}</Badge>}
-                        {u.mustChangePassword && <TempPasswordBadge user={u} />}
-                      </td>
-                      <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.groupIds.map(groupName).join(', ') || '—'}</td>
-                      <td className="hidden py-2 pr-3 text-xs text-muted md:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
-                      <td className="py-2 pr-3">
-                        {u.status === 'active' ? (
-                          <SkillManagerCell subject={{ type: 'user', id: u.id, name: u.name, always: u.role !== 'member' }} data={skillManagers.data} onChanged={() => void skillManagers.reload()} />
-                        ) : (
-                          <span className="text-xs text-faint">—</span>
-                        )}
-                      </td>
-                      <td className="py-2">
-                        {u.role !== 'owner' && u.id !== me.user.id && (u.role !== 'admin' || isOwner(me)) && (
-                          // one line when there is room; on a phone the buttons wrap here instead of scrolling the table sideways
-                          <div className="flex flex-wrap items-center justify-end">
-                            <Button size="sm" variant="ghost" onClick={() => setEditing(u)}>
-                              {t('common.edit')}
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => resetPassword(u)} data-testid={`reset-password-${u.username}`}>
-                              <KeyRound size={14} aria-hidden /> {t('members.reset')}
-                            </Button>
-                            <IconButton label={t('members.resetLinkButton')} onClick={() => createResetLink(u)} data-testid={`reset-link-${u.username}`}>
-                              <UserRoundKey size={15} />
-                            </IconButton>
-                            <Button size="sm" variant="ghost" onClick={() => toggleDisabled(u)}>
-                              {u.status === 'active' ? t('members.disable') : t('members.enable')}
-                            </Button>
-                            {isOwner(me) && (
-                              <IconButton label={t('common.delete')} onClick={() => remove(u)}>
-                                <Trash2 size={15} />
-                              </IconButton>
-                            )}
-                          </div>
-                        )}
-                      </td>
+          {({ items, noAi }) => {
+            const list = shown(items)
+            if (!list.length)
+              return (
+                <p className="border-y border-line py-6 text-sm text-faint" data-testid="members-no-match">
+                  {t('members.noMatch')}
+                </p>
+              )
+            // a phone: one stacked row per member instead of a squeezed table
+            return phone ? (
+              <ul className="divide-y divide-line border-y border-line" data-testid="members-list">
+                {list.map((u) => (
+                  <li key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx('flex items-start gap-2 py-3.5 text-sm', u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')} data-testid={`member-card-${u.username}`}>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{u.name}</p>
+                      <p className="truncate text-xs text-faint">
+                        {u.username}
+                        {u.email ? ` · ${u.email}` : ''}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {roleCell(u)}
+                        <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
+                      </div>
+                      <div className="mt-2 flex items-start gap-3 text-xs">
+                        <span className="pt-0.5 text-muted">{t('skillMgr.column')}</span>
+                        {skillCell(u)}
+                      </div>
+                    </div>
+                    <MemberMenu name={u.name} items={menuItems(u)} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" data-testid="members-table">
+                  <thead>
+                    <tr className="border-b border-line text-left text-label whitespace-nowrap text-muted">
+                      <th scope="col" className="py-2.5 pr-4 font-medium">{t('auth.name')}</th>
+                      <th scope="col" className="py-2.5 pr-4 font-medium">{t('auth.username')}</th>
+                      <th scope="col" className="py-2.5 pr-4 font-medium">{t('members.role')}</th>
+                      {/* the only long header: it may take two lines */}
+                      <th scope="col" className="w-28 py-2.5 pr-4 font-medium whitespace-normal">{t('skillMgr.column')}</th>
+                      <th scope="col" className="hidden py-2.5 pr-4 font-medium xl:table-cell">{t('members.lastSeen')}</th>
+                      <th scope="col" className="w-10 py-2.5">
+                        <span className="sr-only">{t('files.actions')}</span>
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {list.map((u) => (
+                      <tr key={u.id} ref={u.id === focusId ? focusRow : undefined} className={clsx(u.status === 'disabled' && 'opacity-60', u.id === focusId && 'bg-accent-soft')}>
+                        <td className="py-3.5 pr-4">
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium text-ink">{u.name}</span>
+                            <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} requested={requested(u)} />
+                          </span>
+                          {u.groupIds.length > 0 && <span className="mt-0.5 block text-xs text-faint">{u.groupIds.map(groupName).join(', ')}</span>}
+                        </td>
+                        <td className="py-3.5 pr-4 text-muted">
+                          <span className="block">{u.username}</span>
+                          {u.email && <span className="block text-xs text-faint">{u.email}</span>}
+                        </td>
+                        <td className="py-3.5 pr-4">{roleCell(u)}</td>
+                        <td className="py-3.5 pr-4">{skillCell(u)}</td>
+                        <td className="hidden py-3.5 pr-4 text-xs whitespace-nowrap text-muted xl:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
+                        <td className="py-3.5 text-right">
+                          <MemberMenu name={u.name} items={menuItems(u)} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }}
         </Loadable>
-      </Card>
+      </section>
 
       <ScheduleReviews />
 
-      <Card title={t('members.invites')} desc={t('members.invitesDesc')}>
-        <Loadable state={invites}>
-          {(list) =>
-            !list.length ? (
-              <p className="text-sm text-faint">{t('members.noInvites')}</p>
-            ) : (
-              <ul className="divide-y divide-line text-sm" data-testid="invite-list">
-                {list.map((i) => {
+      {/* Invite links, quiet and only when there are any: the team link (copy, or "…" to change or turn it off in its
+          popup) and the single-use links (revoke at once). Making a link happens in the popups of the header buttons. */}
+      {(!!teamLink.data?.link || !!invites.data?.length) && (
+        <section className="mb-8" aria-labelledby="invite-links-title" data-testid="invite-links">
+          <h2 id="invite-links-title" ref={invitesTitle} tabIndex={-1} className="text-sm font-semibold">
+            {t('members.invites')}
+          </h2>
+          <OneLine className="mt-0.5 mb-2 text-xs text-muted">{t('members.invitesDesc')}</OneLine>
+          <div className="divide-y divide-line border-y border-line text-sm">
+            {teamLink.data?.link && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5" data-testid="team-link-row">
+                <Link2 size={14} className="shrink-0 text-muted" aria-hidden />
+                <span className="font-medium">{t('teamLink.title')}</span>
+                <span className="min-w-0 flex-1 text-xs text-muted">
+                  {teamLink.data.link.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {t('teamLink.uses', { used: teamLink.data.link.uses, max: teamLink.data.link.maxUses })} ·{' '}
+                  {Date.parse(teamLink.data.link.expiresAt) < Date.now() ? t('members.expired') : t('teamLink.until', { date: formatDateTime(teamLink.data.link.expiresAt, locale) })}
+                </span>
+                {teamLink.data.link.url && <CopyButton text={teamLink.data.link.url} label={t('teamLink.copyLink')} showLabel className="border border-line" />}
+                <MemberMenu
+                  name={t('teamLink.title')}
+                  items={[
+                    { label: t('members.teamLinkOpen'), icon: <Pencil size={14} aria-hidden />, onSelect: () => setTeamLinkOpen(true), testId: 'team-link-row-open' },
+                    { label: t('teamLink.revoke'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void revokeTeamLink(), danger: true, testId: 'team-link-row-revoke' },
+                  ]}
+                />
+              </div>
+            )}
+            {!!invites.data?.length && (
+              <ul className="divide-y divide-line" data-testid="invite-list">
+                {invites.data.map((i) => {
                   const expired = Date.parse(i.expiresAt) < Date.now()
                   return (
-                    <li key={i.id} className="flex flex-wrap items-center gap-2 py-2">
+                    <li key={i.id} className="flex flex-wrap items-center gap-2 py-2.5">
                       <Badge>{t(`role.${i.role}`)}</Badge>
                       <span className="min-w-0 flex-1 text-xs text-muted">
                         {i.groupIds.map(groupName).join(', ') || t('members.noGroups')} · {i.usedAt ? t('members.usedBy', { name: i.usedBy?.name ?? '?' }) : expired ? t('members.expired') : t('members.expires', { date: formatDateTime(i.expiresAt, locale) })}
                       </span>
                       {!i.usedAt && !expired && (
-                        <Button size="sm" variant="ghost" onClick={() => revoke(i)}>
+                        <Button size="sm" variant="ghost" onClick={() => void revoke(i)} onKeyDown={noKeyRepeat} aria-disabled={revoking.busy !== null || undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
                           {t('members.revoke')}
                         </Button>
                       )}
@@ -181,10 +343,11 @@ export default function Members() {
                   )
                 })}
               </ul>
-            )
-          }
-        </Loadable>
-      </Card>
+            )}
+          </div>
+        </section>
+      )}
+      {teamLinkOpen && <TeamLinkDialog onClose={() => setTeamLinkOpen(false)} onChange={(r) => teamLink.setData(r)} />}
 
       {inviteOpen && (
         <InviteDialog
@@ -245,8 +408,57 @@ export default function Members() {
   )
 }
 
+type RoleFilter = 'all' | User['role']
+
+/** What needs the admin's eye, next to the name: disabled, a temporary password, no AI. (The role has its own column.) */
+function AttentionBadges({ user: u, noAi, requested = false }: { user: User; noAi: boolean; requested?: boolean }) {
+  const t = useT()
+  return (
+    <>
+      {u.status === 'disabled' && <Badge tone="danger">{t('members.disabled')}</Badge>}
+      {requested && <span className="inline-flex" data-testid="member-deletion-requested"><Badge tone="danger">{t('accountDeletion.badge')}</Badge></span>}
+      {u.mustChangePassword && <TempPasswordBadge user={u} />}
+      {noAi && <NoAiBadge />}
+    </>
+  )
+}
+
+/** The role as a small select in the row (the owner's view): member ↔ admin. A change is saved at once; while it is
+ * saved a second choice waits (aria-busy, not disabled, so the keyboard focus stays on it). */
+function InlineRole({ user, busy, onChange }: { user: User; busy: boolean; onChange: (r: MemberRole) => void }) {
+  const t = useT()
+  // the arrow is every select's own (index.css), so none is drawn here
+  return (
+    <select
+      aria-label={t('members.roleFor', { name: user.name })}
+      aria-busy={busy || undefined}
+      value={user.role === 'owner' ? 'admin' : user.role}
+      onChange={(e) => {
+        if (!busy) onChange(e.target.value as MemberRole)
+      }}
+      className="h-8 cursor-pointer rounded-md border border-line bg-surface pl-2.5 text-sm text-ink hover:bg-hover focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none aria-busy:opacity-60"
+      data-testid={`member-role-${user.username}`}
+    >
+      <option value="member">{t('role.member')}</option>
+      <option value="admin">{t('role.admin')}</option>
+    </select>
+  )
+}
+
+/** "No AI": this person cannot use any AI connection now (none of their own, none of the team's for them). Opens
+ * Admin › AI providers, where the owner adds one or assigns one to them. */
+function NoAiBadge() {
+  const t = useT()
+  return (
+    <Link to="/admin/providers" title={t('members.noAiHint')} className="inline-flex" data-testid="member-no-ai">
+      <Badge tone="warn">{t('members.noAi')}</Badge>
+      <span className="sr-only">{t('members.noAiHint')}</span>
+    </Link>
+  )
+}
+
 /** Scheduled tasks paused until their owners confirm them again (made without the schedule card). Metadata only: the
- * title and the instruction are the person's own words; the owner checks them in Settings › Scheduled tasks. Shown
+ * title and the instruction are the person's own words; the owner checks them in Scheduled tasks (sidebar). Shown
  * only while some task waits. */
 function ScheduleReviews() {
   const t = useT()
@@ -266,31 +478,6 @@ function ScheduleReviews() {
         ))}
       </ul>
     </Card>
-  )
-}
-
-function GroupChecks({ groups, value, onChange }: { groups: Group[]; value: string[]; onChange: (v: string[]) => void }) {
-  const t = useT()
-  if (!groups.length) return <p className="text-xs text-faint">{t('groups.none')}</p>
-  return (
-    <div className="flex flex-wrap gap-2">
-      {groups.map((g) => (
-        <label key={g.id} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-sm">
-          <input type="checkbox" checked={value.includes(g.id)} onChange={(e) => onChange(e.target.checked ? [...value, g.id] : value.filter((x) => x !== g.id))} />
-          {g.name}
-        </label>
-      ))}
-    </div>
-  )
-}
-
-function RoleSelect({ value, onChange, disabled }: { value: MemberRole; onChange: (r: MemberRole) => void; disabled?: boolean }) {
-  const t = useT()
-  return (
-    <select className={inputCls} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value as MemberRole)}>
-      <option value="member">{t('role.member')}</option>
-      <option value="admin">{t('role.admin')}</option>
-    </select>
   )
 }
 
@@ -333,7 +520,7 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
           <RoleSelect value={role} onChange={setRole} disabled={!isOwner(me)} />
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
         <Field label={t('members.validDays')}>
@@ -346,6 +533,7 @@ function InviteDialog({ groups, onClose, onCreated }: { groups: Group[]; onClose
           </select>
         </Field>
         <p className="text-xs text-muted">{t('members.inviteNote')}</p>
+        <NewPersonPreview role={role} groupIds={groupIds} groups={groups} />
       </div>
     </Modal>
   )
@@ -387,7 +575,7 @@ function TempPasswordBadge({ user }: { user: User }) {
       ? (['danger', t('members.tempExpired'), t('members.tempExpiredHelp'), 'temp-expired'] as const)
       : (['warn', t('members.mustChange'), tp ? t('members.tempUntil', { date: formatDateTime(tp.expiresAt, locale) }) : undefined, 'must-change'] as const)
   return (
-    <span className="ml-1" title={help} data-testid={testId}>
+    <span className="inline-flex" title={help} data-testid={testId}>
       <Badge tone={tone}>{text}</Badge>
     </span>
   )
@@ -435,7 +623,7 @@ function TempPasswordField({ value, onChange, serverError, hint }: { value: stri
   const error = problem ? t(problem) : serverError ?? null
   return (
     <div>
-      <label htmlFor={`${id}-input`} className="mb-1.5 block text-[13px] font-medium text-ink">
+      <label htmlFor={`${id}-input`} className="mb-1.5 block text-label font-medium text-ink">
         {t('members.tempPassword')}
       </label>
       <div className="flex items-center gap-1">
@@ -611,9 +799,10 @@ function AddMember({ groups, onClose, onCreated }: { groups: Group[]; onClose: (
           <RoleSelect value={f.role} onChange={(role) => set({ role })} disabled={!isOwner(me)} />
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={f.groupIds} onChange={(groupIds) => set({ groupIds })} />
         </div>
+        <NewPersonPreview role={f.role} groupIds={f.groupIds} groups={groups} />
         <DialogError error={error} />
       </div>
     </Modal>
@@ -647,6 +836,8 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
               setBusy(true)
               const r = await act(() => api.call(API.updateUser, { params: { id: user.id }, body: { name: name.trim(), groupIds, ...(canChangeRole ? { role } : {}), ...(language !== (user.localeChoice ?? '') ? { locale: language || null } : {}) } }))
               setBusy(false)
+              // an admin made a member could see the team invite link: suggest replacing it
+              if (r && user.role === 'admin' && r.role === 'member') toast({ level: 'info', text: t('teamLink.adminHint') })
               if (r) onSaved()
             }}
           >
@@ -673,7 +864,7 @@ function EditMember({ user, groups, canChangeRole, onClose, onSaved }: { user: U
           </select>
         </Field>
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('admin.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('admin.groups')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
       </div>

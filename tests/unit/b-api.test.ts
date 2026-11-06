@@ -156,6 +156,47 @@ describe('memories paging and engine session reset', () => {
     expect(await code(h.api('carol').call(API.deleteMemory, { params: { id: uuidv7() } }))).toBe('404 not_found')
   })
 
+  test('the person adds and corrects memories with the AI\'s limits; own only; audited without the text; the AI sees the new text', async () => {
+    const me = h.api('alice')
+    const m = await me.call(API.createMemory, { body: { text: '  Weekly   report\non  Mondays  ' } })
+    expect(m).toMatchObject({ text: 'Weekly report on Mondays', sourceChatId: null })
+    const row = h.ctx.db.query('SELECT source, created_turn_id FROM memories WHERE id = ?').get(m.id) as { source: string; created_turn_id: string | null }
+    expect(row).toEqual({ source: 'user', created_turn_id: null })
+    expect((await me.call(API.listMemories, {})).items[0]!.id).toBe(m.id)
+    // the same rules as remember (chat/tools.ts): not empty, at most 300 characters after folding
+    const refused = async (text: string) => { try { await me.call(API.createMemory, { body: { text } }); return null } catch (e) { return e instanceof ApiError ? { status: e.status, code: e.code, field: e.body.fields?.['body.text'] ?? null } : String(e) } }
+    expect(await refused('   \n\t ')).toEqual({ status: 400, code: 'validation', field: expect.stringContaining('remember') })
+    expect(await refused('a'.repeat(301))).toEqual({ status: 400, code: 'validation', field: expect.stringContaining('300') })
+    expect(await refused('a '.repeat(150) + ' ')).toBeNull()
+    expect(await refused('x'.repeat(2001))).toMatchObject({ status: 400, code: 'validation' })
+    // correcting one: the AI's memory becomes the person's; its origin chat stays
+    const ai = uuidv7(), chat = (await me.call(API.createChat, { body: {} })).id
+    h.ctx.db.query("INSERT INTO memories (id, user_id, text, source_chat_id, source, created_at) VALUES (?, 'alice', 'Likes tea', ?, 'ai', ?)").run(ai, chat, new Date().toISOString())
+    const u = await me.call(API.updateMemory, { params: { id: ai }, body: { text: 'Likes green tea' } })
+    expect(u).toMatchObject({ id: ai, text: 'Likes green tea', sourceChatId: chat })
+    expect((h.ctx.db.query('SELECT source FROM memories WHERE id = ?').get(ai) as { source: string }).source).toBe('user')
+    expect(await code(me.call(API.updateMemory, { params: { id: ai }, body: { text: 'b'.repeat(301) } }))).toBe('400 validation')
+    expect(await code(me.call(API.updateMemory, { params: { id: ai }, body: { text: ' ' } }))).toBe('400 validation')
+    // someone else's memory is not there for anyone else (404, unchanged)
+    expect(await code(h.api('erin').call(API.updateMemory, { params: { id: ai }, body: { text: 'pwned' } }))).toBe('404 not_found')
+    expect(await code(me.call(API.updateMemory, { params: { id: uuidv7() }, body: { text: 'x' } }))).toBe('404 not_found')
+    expect((h.ctx.db.query('SELECT text FROM memories WHERE id = ?').get(ai) as { text: string }).text).toBe('Likes green tea')
+    // audit: who and which, never the text
+    const rows = h.ctx.db.query("SELECT action, target, detail FROM audit_log WHERE actor_id = 'alice' AND action LIKE 'memory.%' ORDER BY id").all() as { action: string; target: string; detail: string | null }[]
+    expect(rows.map((r) => r.action)).toEqual(['memory.create', 'memory.create', 'memory.update'])
+    expect(rows[0]).toMatchObject({ target: m.id, detail: JSON.stringify({ chars: 24 }) })
+    expect(JSON.stringify(rows)).not.toContain('Weekly')
+    expect(JSON.stringify(rows)).not.toContain('tea')
+    // an unchanged text changes nothing (no audit line)
+    await me.call(API.updateMemory, { params: { id: ai }, body: { text: ' Likes  green tea ' } })
+    expect((h.ctx.db.query("SELECT count(*) n FROM audit_log WHERE actor_id = 'alice' AND action = 'memory.update'").get() as { n: number }).n).toBe(1)
+    // the next turn's instructions carry the corrected text
+    expect(h.ctx.db.query("SELECT text FROM memories WHERE user_id = 'alice' ORDER BY created_at DESC").all().map((r) => (r as { text: string }).text)).toContain('Likes green tea')
+    await me.call(API.deleteMemory, { params: { id: m.id } })
+    await me.call(API.clearMemories)
+    expect((h.ctx.db.query("SELECT group_concat(action) a FROM audit_log WHERE actor_id = 'alice' AND action IN ('memory.delete','memory.clear')").get() as { a: string }).a).toBe('memory.delete,memory.clear')
+  })
+
   test('resetEngineSessions drops the stash; the next turn starts fresh with the history', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     await ask(h, alice, 'alice', chat.id, 'secret plan\n' + fake({ say: 'noted' }))

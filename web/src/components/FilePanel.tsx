@@ -8,22 +8,27 @@
 import clsx from 'clsx'
 import { Download, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import Papa from 'papaparse'
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api, API, fetchFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
 import { useFrameScripts } from '../lib/confidential'
 import { formatSize } from '../lib/format'
+import { splitFrontMatter } from '../lib/markdown'
 import { parentPath } from '../lib/paths'
-import { decodePreviewText, languageOf, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
+import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
 import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
+import type { SourceLoc } from '@mycel/shared/api'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { useLocale, useT } from '../i18n'
 import { CodeBlock, Markdown } from './Markdown'
 import SandboxFrame, { StaticFrame } from './SandboxFrame'
+import ExternalImagesNote from './ExternalImagesNote'
+import { useFrameFiles } from '../lib/useFrameFiles'
 import { toast } from '../store/ui'
 import { Button, confirmDialog, IconButton } from './ui'
+import { MenuButton, type MenuItem } from './rooms/MenuButton'
 
 const HwpView = lazy(() => import('./viewers/HwpView'))
 const PdfView = lazy(() => import('./viewers/PdfView'))
@@ -146,6 +151,17 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   }, [])
 
   const download = () => (file.source === 'team' ? startDownload(fileUrl(file.path), file.name) : saveBlob(file.blob, file.name))
+  // phones: "add to chat", "open in Files" and "download" sit behind one ⋯ (a computer keeps them as icons)
+  const teamPath = file.source === 'team' ? file.path : null
+  const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
+  const openInFiles = () => teamPath && navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+  const canDownload = error?.kind !== 'missing'
+  // the app's "…" menu (rooms/MenuButton.tsx): arrow keys, Home / End, Esc back to the button; a bottom sheet on phones
+  const more: MenuItem[] = [
+    ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
+    ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
+    ...(canDownload ? [{ label: t('common.download'), icon: <Download size={15} className="shrink-0" aria-hidden />, onSelect: download, testId: 'file-more-download' }] : []),
+  ]
 
   return (
     <aside aria-label={t('preview.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="file-panel">
@@ -167,12 +183,13 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
           {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && (
-            <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} className="mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-sm:py-1.5" data-testid="file-ask-ai">
-              <Sparkles size={14} aria-hidden /> {t('files.askAiShort')}
+            <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
+              {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
+              <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
             </button>
           )}
-          {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && chatAttach.target && (
-            <IconButton label={t('files.addToChatNamed', { title: chatAttach.target.title })} onClick={() => chatAttach.addToChat([file.path])} data-testid="file-add-to-chat">
+          {addToChat && (
+            <IconButton label={t('files.addToChatNamed', { title: addToChat.title })} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">
               <Paperclip size={16} />
             </IconButton>
           )}
@@ -182,15 +199,16 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </IconButton>
           )}
           {file.source === 'team' && (
-            <IconButton label={t('preview.openInFiles')} onClick={() => navigate(`/files?path=${encodeURIComponent(parentPath(file.path))}&select=${encodeURIComponent(file.name)}`)}>
+            <IconButton label={t('preview.openInFiles')} className="max-md:hidden" onClick={openInFiles}>
               <FolderOpen size={16} />
             </IconButton>
           )}
-          {error?.kind !== 'missing' && (
-            <IconButton label={t('common.download')} onClick={download}>
+          {canDownload && (
+            <IconButton label={t('common.download')} className="max-md:hidden" onClick={download}>
               <Download size={16} />
             </IconButton>
           )}
+          {more.length > 0 && <MenuButton label={t('files.actionsFor', { name: file.name })} items={more} className="md:hidden" muted testId="file-panel-more" />}
           <IconButton label={t('common.close')} onClick={onClose}>
             <X size={16} />
           </IconButton>
@@ -201,7 +219,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           <div className="flex h-full flex-col gap-2 p-3">
             <textarea
               aria-label={t('preview.editorLabel', { name: file.name })}
-              className="min-h-0 flex-1 resize-none rounded-lg border border-field-border bg-surface p-3 font-mono text-[13px] leading-5 text-ink focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
+              className="min-h-0 flex-1 resize-none rounded-lg border border-field-border bg-surface p-3 font-mono text-code leading-5 text-ink focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
               value={editing.draft}
               onChange={(e) => setEditing({ ...editing, draft: e.target.value })}
               spellCheck={false}
@@ -239,14 +257,14 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             {error.text}
           </p>
         ) : kind === 'hwp' && file.source === 'team' ? (
-          <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.path} path={file.path} download={download} /></Suspense>
+          <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.path} path={file.path} download={download} startPage={file.at?.kind === 'page' ? file.at.page : undefined} /></Suspense>
         ) : !blob ? (
           <p className="flex items-center gap-2 p-6 text-sm text-faint">
             <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}
           </p>
         ) : (
           <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}>
-            <Viewer kind={kind} blob={blob} width={width} name={file.name} />
+            <Viewer kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} />
           </Suspense>
         )}
       </div>
@@ -254,22 +272,25 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   )
 }
 
-function Viewer({ kind, blob, width, name }: { kind: PreviewKind; blob: Blob; width: number; name: string }) {
+/** `at`: the place to open the file at (an answer's source, a link): a PDF page, a slide, a sheet and its range. Word
+ * and Hangul previews have no such place and open at the top. */
+function Viewer({ kind, blob, width, name, at, path, download }: { kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc; path: string | null; download: () => void }) {
   switch (kind) {
     case 'pdf':
-      return <PdfView blob={blob} width={width} />
+      // `download`: a PDF that pdf.js cannot read shows a Download button in place of the pages
+      return <PdfView blob={blob} width={width} startPage={at?.kind === 'page' ? at.page : undefined} download={download} />
     case 'docx':
       return <DocxView blob={blob} />
     case 'pptx':
-      return <PptxView blob={blob} width={width} />
+      return <PptxView blob={blob} width={width} startSlide={at?.kind === 'slide' ? at.slide : undefined} />
     case 'sheet':
-      return <SheetView blob={blob} />
+      return <SheetView blob={blob} startSheet={at?.kind === 'sheet' ? at.sheet : undefined} range={at?.kind === 'sheet' ? at.range : undefined} />
     case 'image':
     case 'audio':
     case 'video':
       return <MediaView kind={kind} blob={blob} name={name} />
     default:
-      return <TextKinds kind={kind} blob={blob} name={name} />
+      return <TextKinds kind={kind} blob={blob} name={name} path={path} />
   }
 }
 
@@ -295,7 +316,8 @@ function MediaView({ kind, blob, name }: { kind: 'image' | 'audio' | 'video'; bl
   )
 }
 
-function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: string }) {
+/** `path`: the team file (its folder is where the page's relative images are; null for a file from this computer) */
+function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; name: string; path: string | null }) {
   const t = useT()
   const [text, setText] = useState<string | null>(null)
   // HTML / SVG next to a confidential chat (or with every chat confidential) run no scripts outside the desktop app
@@ -308,22 +330,56 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
       live = false
     }
   }, [blob])
+  const framed = kind === 'html' || kind === 'svg'
+  const page = text === null || !framed ? null : kind === 'svg' ? `<div style="display:grid;place-items:center;min-height:100vh">${text}</div>` : text
+  // the page's team images and clips as data: URLs (lib/frame-files.ts), each only if everyone who can read this page
+  // can read it too (embedIn); null while they are fetched
+  const files = useFrameFiles(page, { folder: path === null ? null : parentPath(path), embedIn: path ?? undefined })
   if (text === null) return null
   const cut = blob.size > MAX_TEXT && <p className="px-4 pb-4 text-xs text-faint">{t('preview.truncated')}</p>
-  if (kind === 'markdown')
+  if (kind === 'markdown') {
+    // a leading YAML block (a SKILL.md's name and description): a quiet fields block above the page, not its first line
+    const { body: md, ...fields } = splitFrontMatter(text)
+    const shown = Object.entries(fields).filter(([, v]) => v)
     return (
       <div className="mx-auto min-h-full max-w-3xl bg-surface p-6">
-        <Markdown text={text} />
+        {shown.length > 0 && (
+          <dl className="mb-5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-b border-line pb-4 text-xs" data-testid="md-front-matter">
+            {shown.map(([k, v]) => (
+              <Fragment key={k}>
+                <dt className="font-mono text-faint">{k}</dt>
+                <dd className="min-w-0 text-muted">{v}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        )}
+        <Markdown text={md} />
         {cut}
       </div>
     )
-  if ((kind === 'html' || kind === 'svg') && scripts === null) return null
-  const page = kind === 'svg' ? `<div style="display:grid;place-items:center;min-height:100vh">${text}</div>` : text
-  if ((kind === 'html' || kind === 'svg') && !scripts) return <StaticFrame html={page} title={name} gutter={kind === 'html'} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
-  if (kind === 'html') return <SandboxFrame html={wrapHtml(page, location.origin, { gutter: true })} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
-  if (kind === 'svg') return <SandboxFrame html={wrapHtml(page, location.origin)} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
+  }
+  if (framed && scripts === null) return null
+  if (framed && !files)
+    return (
+      <p className="flex items-center gap-2 p-6 text-sm text-faint">
+        <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}
+      </p>
+    )
+  if (framed && files) {
+    const frame = scripts
+      ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true } : {})} title={name} className="h-full min-h-[70vh] w-full border-0 bg-white" />
+      : <StaticFrame html={files.html} title={name} gutter={kind === 'html'} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
+    if (!files.external) return frame
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <ExternalImagesNote count={files.external} />
+        {frame}
+      </div>
+    )
+  }
   if (kind === 'csv') {
     const rows = Papa.parse<string[]>(text, { skipEmptyLines: true, delimiter: name.toLowerCase().endsWith('.tsv') ? '\t' : '' }).data.slice(0, 2000)
+    const numbers = numberColumns(rows)
     return (
       <div className="overflow-auto p-4">
         <table className="border-collapse bg-surface text-xs">
@@ -331,7 +387,7 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
             {rows.map((r, i) => (
               <tr key={i} className={i === 0 ? 'bg-subtle font-semibold' : ''}>
                 {r.map((c, j) => (
-                  <td key={j} className="border border-line px-2.5 py-1.5 whitespace-nowrap">
+                  <td key={j} className={clsx('border border-line px-2.5 py-1.5 whitespace-nowrap', numbers.has(j) && 'text-right tabular-nums')}>
                     {c}
                   </td>
                 ))}
@@ -346,7 +402,7 @@ function TextKinds({ kind, blob, name }: { kind: PreviewKind; blob: Blob; name: 
   if (kind === 'text' && /\.(txt|log)$/i.test(name))
     return (
       <>
-        <pre className="m-0 min-h-full overflow-auto bg-surface p-4 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-ink">{text}</pre>
+        <pre className="m-0 min-h-full overflow-auto bg-surface p-4 font-mono text-code-file leading-5 whitespace-pre-wrap text-ink">{text}</pre>
         {cut}
       </>
     )

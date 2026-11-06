@@ -2,7 +2,8 @@
 // - docx / pptx: pandoc --sandbox --fail-if-warnings (a missing or remote image is an error, not a silent hole),
 //   optional --reference-doc template from skills/
 // - pdf: pandoc -t typst, then typst compile --root <work folder> (nothing outside the work folder can be read,
-//   remote images are never fetched); Korean-capable fonts first. A Linux bundle brings its own (Noto Sans CJK in
+//   remote images are never fetched); the fonts and typst's language follow the document's writing (pdfLanguage: a
+//   Japanese document gets Japanese faces first, Chinese Chinese ones, else the team's language). A Linux bundle brings its own (Noto Sans CJK in
 //   app/<v>/fonts, given to typst with --font-path and to the converter isolation read-only): a Linux server has no
 //   Korean, Japanese or Chinese font, and without one those characters came out as empty boxes. A Mac uses its own.
 // - xlsx: exceljs (CSV, or every Markdown pipe table becomes a sheet); numbers become numbers, header row bold,
@@ -19,14 +20,20 @@
 // Without a chat turn there is nobody to ask: such a save is refused.
 // - pptx: the slide level is set from the headings and the slides pandoc made are checked against expected_slides /
 //   expected_notes before anything is saved (tools/pptx-check.ts)
+// - hwpx (Hangul): pandoc's tree of the Markdown (or a CSV's table), written by our OWPML writer in the office worker
+//   (files/hwpx-write.ts, never in this process) with the built-in or a team template from skills/; anything the
+//   writer does not support is refused there, naming it. The file is then read back with hwp.ts, as read and grep
+//   read it: when its paragraphs and headings are not the document's, nothing is saved (files/hwpx-check.ts).
 import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
 import type { z } from 'zod'
 import type { MakeFileInput } from '@mycel/shared'
+import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
-import { ext } from '../files/extract'
+import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
+import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import type { ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
@@ -72,7 +79,73 @@ function freshName(work: string, base: string, x: string): string {
   }
 }
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'tif', 'tiff'])
-export const PDF_FONTS = ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'Malgun Gothic', 'Helvetica Neue', 'Arial', 'Libertinus Serif']
+/** The faces of each CJK writing system, a Mac's own first, then the bundled Noto Sans CJK family (one .ttc holds all
+ * four), then other systems'. Han characters look different in each (骨, 直, 角 …): the document's own language must
+ * come first, or a Japanese PDF gets Korean-style kanji. */
+const CJK_FONTS = {
+  ko: ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'Malgun Gothic'],
+  ja: ['Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans CJK JP', 'Noto Sans JP', 'Yu Gothic'],
+  'zh-Hans': ['PingFang SC', 'Hiragino Sans GB', 'Heiti SC', 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei'],
+  'zh-Hant': ['PingFang TC', 'Heiti TC', 'Noto Sans CJK TC', 'Noto Sans TC', 'Microsoft JhengHei'],
+} as const
+type CjkScript = keyof typeof CJK_FONTS
+const LATIN_FONTS = ['Helvetica Neue', 'Arial', 'Libertinus Serif']
+/** a PDF's language: the team's languages and the two Chinese scripts */
+export type PdfLanguage = Locale | 'zh-Hans' | 'zh-Hant'
+/** typst's lang (and region) for each */
+const TYPST_LANG: Record<PdfLanguage, string> = { ko: 'lang: "ko"', en: 'lang: "en"', id: 'lang: "id"', ja: 'lang: "ja"', es: 'lang: "es"', 'zh-Hans': 'lang: "zh", region: "cn"', 'zh-Hant': 'lang: "zh", region: "tw"' }
+
+/** The fonts of a PDF in `lang`: its own CJK faces first, the other CJK faces (a Japanese report quoting a Korean name
+ * still draws it), then Latin fallbacks. A language without CJK of its own keeps Korean first, as before. */
+export function pdfFonts(lang: PdfLanguage): string[] {
+  const first: CjkScript = lang === 'ja' || lang === 'zh-Hans' || lang === 'zh-Hant' ? lang : 'ko'
+  return [...CJK_FONTS[first], ...(Object.keys(CJK_FONTS) as CjkScript[]).filter((k) => k !== first).flatMap((k) => CJK_FONTS[k]), ...LATIN_FONTS]
+}
+/** the font list of a Korean (or Latin-script) PDF */
+export const PDF_FONTS = pdfFonts('ko')
+
+const SIMPLIFIED = new Set('们这说时会来个为国学对发经过还进实现与关从开问长东车门见电话体书业产动机后头间两样么认义务网络页数据'.split(''))
+const TRADITIONAL = new Set('們這說時會來個為國學對發經過還進實現與關從開問長東車門見電話體書業產動機後頭間兩樣麼認義務網絡頁數據'.split(''))
+
+/**
+ * The language a PDF is set in, from its text: Hangul makes it Korean, kana Japanese (whichever there is more of),
+ * Han characters alone Chinese (traditional when more of its common characters are, else simplified; Japanese when the
+ * team's language is). Text without CJK takes the team's language when that is written in Latin letters, else
+ * English. Only the first 200,000 characters are looked at.
+ */
+export function pdfLanguage(text: string, team: Locale): PdfLanguage {
+  let hangul = 0, kana = 0, han = 0, simp = 0, trad = 0
+  const end = Math.min(text.length, 200_000)
+  for (let i = 0; i < end; i++) {
+    const c = text.charCodeAt(i)
+    if ((c >= 0xac00 && c <= 0xd7a3) || (c >= 0x1100 && c <= 0x11ff) || (c >= 0x3130 && c <= 0x318f)) hangul++
+    else if ((c >= 0x3040 && c <= 0x30ff) || (c >= 0x31f0 && c <= 0x31ff) || (c >= 0xff66 && c <= 0xff9f)) kana++
+    else if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf) || (c >= 0xf900 && c <= 0xfaff)) {
+      han++
+      const ch = text[i]!
+      if (SIMPLIFIED.has(ch)) simp++
+      else if (TRADITIONAL.has(ch)) trad++
+    }
+  }
+  if (kana > hangul || (kana > 0 && kana === hangul && team === 'ja')) return 'ja'
+  if (hangul > 0) return 'ko'
+  if (han > 0) return team === 'ja' ? 'ja' : trad > simp ? 'zh-Hant' : 'zh-Hans'
+  return team === 'en' || team === 'es' || team === 'id' ? team : 'en'
+}
+
+/** The first lines of a PDF's typst document: page, the language's fonts and typst language, headings, tables. */
+export function typstPreamble(lang: PdfLanguage): string {
+  return [
+    `#set page(paper: "a4", margin: (x: 2cm, y: 2.2cm), numbering: "1")`,
+    `#set text(font: (${pdfFonts(lang).map((f) => JSON.stringify(f)).join(', ')}), size: 10.5pt, ${TYPST_LANG[lang]})`,
+    `#set par(justify: false, leading: 0.75em)`,
+    `#show heading: set block(above: 1.2em, below: 0.6em)`,
+    `#set table(stroke: 0.5pt + luma(180), inset: 6pt)`,
+    // pandoc's typst output uses this helper for horizontal rules
+    `#let horizontalrule = line(start: (25%,0%), end: (75%,0%))`,
+    '',
+  ].join('\n')
+}
 
 export interface Converters {
   pandoc: string | null
@@ -138,6 +211,7 @@ export class MakeFile {
       let shape: DeckShape | null = null
       let formulas: number | undefined
       if (a.format === 'xlsx') formulas = await this.xlsx(text, kind, produced)
+      else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
         let input: string
@@ -168,7 +242,7 @@ export class MakeFile {
           fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : text)
           from = 'csv'
         }
-        if (a.format === 'pdf') await this.pdf(work, input, from)
+        if (a.format === 'pdf') await this.pdf(work, input, from, text)
         else {
           // without images pandoc reads only the files on its command line (--sandbox); with images it must read
           // the copies, which are the only image paths left in the tree (and the OS sandbox, when there is one,
@@ -279,18 +353,8 @@ export class MakeFile {
    * into account), and when more people can read the output than those files (or what the chat read), the chat turn
    * asks the person first. No chat turn (nobody to ask): refused. Runs before anything is placed.
    */
-  private async checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
-    for (const p of sources) c.files.readPaths.add(p)
-    if (c.confirmWidening) {
-      const refusal = await c.confirmWidening(target, sources, binding)
-      if (refusal) throw new Denied(refusal)
-      return
-    }
-    const db = this.ctx.db
-    const rules = this.files.rules()
-    const chatId = c.turnId ? (db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
-    const w = widening(db, chatId, targetSegs, sources.map((p) => sourceOf(db, rules, p)))
-    if (w) throw new Denied(`more people can read '${target}' than the files it is made from; nothing was saved. Save it in a folder that only the people who can read those files can see, or ask the user where to put it.`)
+  private checkWidening(c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
+    return confirmSources(this.ctx, this.files, c, target, targetSegs, sources, binding)
   }
 
   private template(c: ToolCtx, tpl: string, format: string, work: string): { local: string; rel: string } {
@@ -304,20 +368,45 @@ export class MakeFile {
     return { local, rel: r.rel }
   }
 
-  private async pdf(work: string, input: string, from: 'json' | 'csv') {
+  /**
+   * .hwpx: pandoc's tree (pandoc --sandbox reads only the input file), then the office worker writes the file
+   * (files/hwpx-write.ts: what it cannot hold is refused there, naming it all). The bytes are read back by hwp.ts in the
+   * worker, as read and grep read them; the file is put in the work folder only when they read as the document.
+   */
+  private async hwpx(c: ToolCtx, a: Input, text: string, kind: 'markdown' | 'csv' | 'tsv', work: string, produced: string, sources: string[]) {
+    if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
+    const tpl = a.template ? this.hwpxTemplate(c, a.template) : null
+    if (tpl) sources.push(tpl.rel)
+    const input = kind === 'markdown' ? 'in.md' : 'in.csv'
+    fs.writeFileSync(path.join(work, input), kind === 'tsv' ? tsvToCsv(text) : text)
+    const j = await runIsolated({ cmd: this.conv.pandoc, args: ['--sandbox', '-f', kind === 'markdown' ? 'markdown' : 'csv', '-t', 'json', '-o', 'ast.json', input], workDir: work, timeoutMs: 120_000 })
+    if (j.code !== 0) throw new ToolError(convertError('pandoc', j.stderr, j.killed, work))
+    const got = readOutput(work, 'ast.json', MAX_AST)
+    if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
+    const astJson = got.bytes.toString('utf8')
+    let ast: unknown
+    try { ast = JSON.parse(astJson) } catch { throw new ToolError('the converter produced an unexpected document tree') }
+    const bytes = await officeWorkerWrite(HWPX_WRITE_MODE, encodeHwpxRequest(astJson, tpl?.bytes), c.signal)
+    const diff = firstDifference(hwpxExpectedLines(ast), hwpxReadLines(await officeWorkerText('hwpx', bytes, c.signal)))
+    if (diff) throw new ToolError(`the .hwpx did not read back as the document (${diff}); nothing was saved`)
+    try { fs.writeFileSync(produced, bytes, { flag: 'wx', mode: 0o600 }) } catch { throw new ToolError('the converter produced no file') }
+  }
+
+  /** A team's .hwpx template under skills/: its bytes go to the office worker, which checks them (files/hwpx-write.ts). */
+  private hwpxTemplate(c: ToolCtx, tpl: string): { bytes: Uint8Array; rel: string } {
+    const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
+    if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
+    if (ext(r.rel) !== 'hwpx') throw new ToolError('the template must be a .hwpx file (a .hwp can be saved as .hwpx in Hangul)')
+    if (checkRegular(r.abs).size > HWPX_TEMPLATE_MAX) throw new ToolError(`template is too large (max ${HWPX_TEMPLATE_MAX / 1024 / 1024} MB)`)
+    return { bytes: readRegular(r.abs, HWPX_TEMPLATE_MAX).bytes, rel: r.rel }
+  }
+
+  /** `text`: the document's source, whose writing decides the language and font order (pdfLanguage) */
+  private async pdf(work: string, input: string, from: 'json' | 'csv', text: string) {
     if (!this.conv.typst) throw new ToolError(missingConverter('typst'))
     const t = await runIsolated({ cmd: this.conv.pandoc!, args: ['--sandbox', '--fail-if-warnings', '-f', from, '-t', 'typst', '-o', 'body.typ', input], workDir: work, timeoutMs: 120_000 })
     if (t.code !== 0) throw new ToolError(convertError('pandoc', t.stderr, t.killed, work))
-    const pre = [
-      `#set page(paper: "a4", margin: (x: 2cm, y: 2.2cm), numbering: "1")`,
-      `#set text(font: (${PDF_FONTS.map((f) => JSON.stringify(f)).join(', ')}), size: 10.5pt, lang: "ko")`,
-      `#set par(justify: false, leading: 0.75em)`,
-      `#show heading: set block(above: 1.2em, below: 0.6em)`,
-      `#set table(stroke: 0.5pt + luma(180), inset: 6pt)`,
-      // pandoc's typst output uses this helper for horizontal rules
-      `#let horizontalrule = line(start: (25%,0%), end: (75%,0%))`,
-      '',
-    ].join('\n')
+    const pre = typstPreamble(pdfLanguage(text, teamDefaultLocale(this.ctx.db)))
     const body = readOutput(work, 'body.typ', MAX_TYPST)
     if (!body.ok) throw new ToolError(body.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
     const doc = freshName(work, 'doc', 'typ')
@@ -377,14 +466,41 @@ export class MakeFile {
 }
 
 /**
- * Put a produced file into the team folder (policy checked again) and record it: the AI's new files (make_file, and
- * generated media such as generate_video). An existing file the AI has not read in this turn is kept (conflict copy).
+ * A new file carries the bytes of `sources` (make_file's source, images and template; edit_hwp's document saved as a
+ * new file): they join the chat's read scope, and when more people can read the target than those files (or what the
+ * chat read), the chat turn asks the person first. No chat turn (nobody to ask): refused. Runs before anything is
+ * placed.
  */
-export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void): Promise<MadeFile> {
+export async function confirmSources(ctx: AppContext, files: TeamFiles, c: ToolCtx, target: string, targetSegs: string[], sources: string[], binding?: string) {
+  for (const p of sources) c.files.readPaths.add(p)
+  if (c.confirmWidening) {
+    const refusal = await c.confirmWidening(target, sources, binding)
+    if (refusal) throw new Denied(refusal)
+    return
+  }
+  const db = ctx.db
+  const rules = files.rules()
+  const chatId = c.turnId ? (db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
+  const w = widening(db, chatId, targetSegs, sources.map((p) => sourceOf(db, rules, p)))
+  if (w) throw new Denied(`more people can read '${target}' than the files it is made from; nothing was saved. Save it in a folder that only the people who can read those files can see, or ask the user where to put it.`)
+}
+
+/**
+ * Put a produced file into the team folder (policy checked again) and record it: the AI's new files (make_file, and
+ * generated media such as generate_video) and edit_hwp's changed documents. An existing file the AI read in this turn
+ * gets a new version (the old bytes in its history); one it has not read, or that changed since, is kept (conflict copy).
+ */
+/** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget
+ * (maxWriteBytesPerTurn, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
+ * card over 1 GB and the disk check bounds (tools/save-url.ts). `detail`: more for the file event (the source URL). */
+export interface PlaceOptions { turnBytes?: boolean; detail?: Record<string, unknown> }
+
+export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
   const cfg = ctx.engineConfig
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
   const size = checkRegular(produced).size
-  if (c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+  const counted = po.turnBytes !== false
+  if (counted && c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
@@ -427,12 +543,12 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   installFile(fx.root, target, produced)
   consumeSkillApproval(c, rel0)
   const rel = target.join('/')
-  c.files.bytesWritten += size
+  if (counted) c.files.bytesWritten += size
   c.files.filesWritten.add(rel)
   c.files.readHashes.set(rel, sha)
   // a conflict copy is told to both people and listed in the original's history (before the copy's own event)
   if (conflictOf) recordConflictCopy(ctx.db, ctx.files.events, { original: conflictOf, copy: rel, userId: c.user.id, turnId: c.turnId, size, sha256: sha, tool })
-  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
+  fileEvent(ctx.db, { turnId: c.turnId, userId: c.user.id, path: rel, action, size, sha256: sha, detail: { tool, ...po.detail, ...(conflictOf ? { conflictCopyOf: conflictOf } : {}) } })
   // All office consumers already run in workers; PPTX was validated before this
   // publication. Never add an in-process document parser here.
   files.extractText(rel)

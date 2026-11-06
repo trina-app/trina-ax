@@ -68,15 +68,54 @@ export const HwpRenderInput = z.strictObject({ source: relPath, page: z.number()
 export const MakeFileInput = z.strictObject({
   source: optRelPath.describe('.md/.csv file to convert (source or content)'),
   content: z.string().optional(),
-  format: z.enum(['docx', 'pptx', 'xlsx', 'pdf']),
+  format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),
-  template: optRelPath.describe('Template file under skills/'),
+  template: optRelPath.describe('Template file under skills/ (.docx, .pptx or .hwpx, the same format as the output)'),
   expected_slides: z.number().int().min(1).max(500).optional().describe('pptx only: the number of slides the user asked for, title slide included. Give it whenever the user names a number; a different result is an error and nothing is saved.'),
   expected_notes: z.number().int().min(0).max(500).optional().describe('pptx only: how many slides must have speaker notes (e.g. the slide count when the user wants notes on every slide)'),
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),
 }).refine((v) => (v.source === undefined) !== (v.content === undefined), { message: 'give exactly one of source or content' })
   .refine((v) => v.format === 'pptx' || (v.expected_slides === undefined && v.expected_notes === undefined && v.expected_layouts === undefined), { message: 'expected_slides and expected_notes are only for format "pptx"' })
 export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional() })
+
+/** edit_hwp: the text of an existing Hangul document (.hwp or .hwpx) changed, the rest of the file kept as it was
+ * (server/src/tools/edit-hwp.ts, server/src/files/hwpx-edit.ts, server/src/files/hwp-edit.ts). */
+const n1 = z.number().int().min(1).max(100_000)
+const hwpText = (max: number) => z.string().max(max)
+export const EditHwpChange = z.union([
+  z.strictObject({
+    find: z.string().min(1).max(2000).describe('Exact text inside one paragraph, e.g. a placeholder "{{name}}" or a date to change'),
+    replace: hwpText(20_000).describe('The new text; it takes the formatting of the text it replaces. "\\n" is a line break.'),
+    occurrence: n1.optional().describe('Which match, 1-based in reading order, when the text appears more than once'),
+    all: z.boolean().optional().describe('Replace every match'),
+  }),
+  z.strictObject({
+    cell: z.strictObject({
+      next_to: z.string().min(1).max(500).optional().describe('The whole text of the label cell, e.g. "Name": the empty cell right of it (or below it) is filled'),
+      direction: z.enum(['right', 'below']).optional().describe('Where the empty cell is from the label (default right)'),
+      occurrence: n1.optional().describe('Which label cell, when several read the same'),
+      table: n1.optional().describe('Or the cell by position: table number (1-based, in reading order)'),
+      row: n1.optional(),
+      col: n1.optional(),
+    }),
+    value: hwpText(20_000).describe('Text for the empty cell'),
+  }),
+  z.strictObject({
+    add_rows: z.strictObject({
+      table: n1.optional().describe('Table number (1-based, in reading order)'),
+      table_with: z.string().min(1).max(500).optional().describe('Or the whole text of one of its cells, e.g. a column title "Item"'),
+      after_row: n1.optional().describe('The new rows go after this row (default: the last row)'),
+      copy_row: n1.optional().describe('The row whose cells the new rows copy: borders, sizes, alignment, fonts (default: after_row)'),
+      rows: z.array(z.array(hwpText(5000)).max(64)).min(1).max(500).describe('One list per new row, one value per cell of the copied row, left to right'),
+    }),
+  }),
+])
+export const EditHwpInput = z.strictObject({
+  file_path: relPath.describe('The .hwp or .hwpx to change; read it in this turn first'),
+  changes: z.array(EditHwpChange).min(1).max(100).describe('Applied together, each to the document as you read it'),
+  output: optRelPath.describe('Save the result as this new file (same format as file_path) instead of a new version of file_path'),
+})
+export const EditHwpOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), conflictCopyOf: z.string().optional() })
 
 export const ShareFileInput = z.strictObject({ path: relPath, mode: z.enum(['preview', 'download']) })
 export const ShareFileOutput = z.object({ url: z.string() })
@@ -121,6 +160,15 @@ export const SetTitleInput = z.strictObject({
 })
 export const SetTitleOutput = z.object({ ok: z.literal(true), title: z.string() })
 
+/** Load one skill by the name the instructions list (server/src/chat/tools.ts, like Claude Code's Skill tool). */
+export const SkillInput = z.strictObject({
+  name: z.string().min(1).max(300).describe('The skill\'s name as listed under Team skills in your instructions (a path from find_skills works too).'),
+})
+/** Search the skills the person can use by words (name, description, folders). */
+export const FindSkillsInput = z.strictObject({
+  query: z.string().min(1).max(500).describe('A few words of what the user wants, in their language, e.g. "quote for a customer" or "weekly report".'),
+})
+
 export const AskUserInput = z.strictObject({
   question: z.string().min(1).max(2000),
   options: z.array(z.strictObject({ label: z.string(), value: z.string() })).max(20).optional(),
@@ -129,9 +177,36 @@ export const AskUserInput = z.strictObject({
 })
 export const AskUserOutput = z.union([z.object({ answer: z.union([z.string(), z.array(z.string())]) }), z.object({ skipped: z.literal(true) })])
 
+/** connect_service (docs/INTEGRATIONS.md "Connecting from a chat"): the AI fills in a connection to a service, or
+ * Google Drive, and shows the person a card to finish it. The person pastes the key into the card or signs in at the
+ * service; the key never reaches the AI. Nothing is connected until the person presses the card's button. */
+export const ConnectServiceInput = z.strictObject({
+  target: z.enum(['service', 'google_drive']).optional().describe('service (default): an MCP server or HTTP API. google_drive: the person\'s own Google Drive (only name is used)'),
+  name: z.string().trim().min(1).max(60).describe('The service\'s own name as it brands itself, in its own spelling even when the user writes in another language, e.g. "Higgsfield", "Notion" (the card checks it against the address)'),
+  kind: z.enum(['mcp', 'http']).optional().describe('mcp: an MCP server (use it when the service has one); http: a plain HTTP API with a key. Required for a service'),
+  url: z.string().max(2000).optional().describe('The service\'s own https address from its documentation: the MCP endpoint (mcp) or the API base (http). Required for a service'),
+  auth: z.enum(['none', 'bearer', 'header', 'oauth']).optional().describe('How it signs in: oauth = the person signs in at the service (MCP only); bearer = an API key sent as "Authorization: Bearer"; header = an API key in the header authHeader names; none. Required for a service'),
+  authHeader: z.string().max(64).optional().describe('The header that carries the key when auth is header, e.g. X-API-Key'),
+  scope: z.enum(['personal', 'team']).optional().describe('personal (default): only this person uses it. team: for the team, only when the person is an admin'),
+  notes: z.string().max(4000).optional().describe('http only: how to use the API (endpoints, parameters), saved with the connection for later chats'),
+  why: z.string().max(200).optional().describe('One short line shown on the card: what the person asked for'),
+  template: z.string().max(64).optional().describe('The id of a team template listed under "Connected services" as not connected yet: the card connects the person\'s own key for it (its address and sign-in come from the template; kind, url and auth are not needed)'),
+})
+export const ConnectServiceOutput = z.union([
+  z.object({ connected: z.literal(true), name: z.string(), status: z.string(), tools: z.array(z.string()).optional() }),
+  z.object({ skipped: z.literal(true), reason: z.string().optional() }),
+])
+
 // Web search is Claude Code's built-in WebSearch (runs on Anthropic's side). We keep only our own fetch.
 export const WebFetchInput = z.strictObject({ url: z.string().url().max(4000), maxChars: z.number().int().min(100).max(200000).optional() })
 export const WebFetchOutput = z.object({ url: z.string(), title: z.string().optional(), text: z.string(), truncated: z.boolean() })
+/** save_url (server/src/tools/save-url.ts): a file from the web, or one a connected service returned inline
+ * (mcp-file:<id>), saved into the team folder. */
+export const SaveUrlInput = z.strictObject({
+  url: z.string().min(1).max(4000).describe('The http(s) address of the file, or an mcp-file:<id> handle from a connected service\'s answer'),
+  save_as: z.string().max(300).optional().describe('Team path to save to, e.g. "landing/images/hero.png" (next to the page that shows it). A path ending in "/" keeps the file\'s own name. Default: users/<you>/images/ for images, users/<you>/downloads/ for other files'),
+})
+export const SaveUrlOutput = z.object({ url: z.string(), path: z.string(), size: z.number(), sha256: z.string(), type: z.string(), conflictCopyOf: z.string().optional() })
 
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
@@ -142,7 +217,7 @@ export const FILE_TOOLS = {
   glob: { input: GlobInput, description: 'Find files by name pattern (e.g. "**/*.pdf"). Returns paths relative to the team root. Folders you cannot access are skipped.' },
   grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. Images have no searchable text, and scanned PDF pages may have none: read them to see them. Folders you cannot access are skipped.' },
   read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. Word/Excel/PowerPoint files are converted to text. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound.' },
-  write: { input: WriteInput, description: 'Create a text file or overwrite one. An existing file must be read first in this conversation turn. If someone else changed it since you read it, your version is saved as a conflict copy instead. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
+  write: { input: WriteInput, description: 'Create a text file or overwrite one. An existing file must be read first in this conversation turn. If someone else changed it since you read it, your version is saved as a conflict copy instead. The server checks access on each call: call it when asked, even if the folder looks read-only. An HTML page\'s preview shows only team files: put images next to it (save_url saves one from the web) and use relative paths.' },
   edit: { input: EditInput, description: 'Replace an exact string in a text file you have read in this turn. old_string must be unique unless replace_all is true. The server checks access on each call: call it when asked, even if the folder looks read-only.' },
 } as const
 export type FileToolName = keyof typeof FILE_TOOLS
@@ -150,6 +225,7 @@ export type FileToolName = keyof typeof FILE_TOOLS
 export const OTHER_TOOLS = {
   hwp_render: { input: HwpRenderInput, output: HwpPage },
   make_file: { input: MakeFileInput, output: MakeFileOutput },
+  edit_hwp: { input: EditHwpInput, output: EditHwpOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },
@@ -159,8 +235,12 @@ export const OTHER_TOOLS = {
   remember: { input: RememberInput, output: RememberOutput },
   forget: { input: ForgetInput, output: ForgetOutput },
   ask_user: { input: AskUserInput, output: AskUserOutput },
+  connect_service: { input: ConnectServiceInput, output: ConnectServiceOutput },
   set_title: { input: SetTitleInput, output: SetTitleOutput },
+  skill: { input: SkillInput, output: TextOutput },
+  find_skills: { input: FindSkillsInput, output: TextOutput },
   web_fetch: { input: WebFetchInput, output: WebFetchOutput },
+  save_url: { input: SaveUrlInput, output: SaveUrlOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

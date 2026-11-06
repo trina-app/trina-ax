@@ -22,7 +22,86 @@ const put = (id: string, n: number, data: Uint8Array, as: 'alice' | 'bob' = 'ali
 const create = (target: unknown, data: Uint8Array, as: 'alice' | 'bob' = 'alice') => A.json('/api/upload-sessions', { ...jsonBody({ target, size: data.length, sha256: sha256hex(data) }), as })
 const chunk = (d: Uint8Array, n: number) => d.subarray(n * UPLOAD_CHUNK_SIZE, (n + 1) * UPLOAD_CHUNK_SIZE)
 
+describe('the size the sender read (WebKit bug 319985: a file can go out with no bytes)', () => {
+  const form = (fields: Record<string, string>, bytes: number, name = 'a.pdf') => {
+    const fd = new FormData()
+    for (const [k, v] of Object.entries(fields)) fd.set(k, v)
+    fd.set('file', new File([new Uint8Array(bytes).fill(7)], name))
+    return fd
+  }
+  const send = (url: string, fd: FormData) => A.json(url, { method: 'POST', body: fd, as: 'alice' })
+  const inFolder = (name: string) => path.join(A.team, 'shared', name)
+
+  test('a team file: refused before it takes a name, in the person\'s words', async () => {
+    const r = await send('/api/files/upload', form({ folder: 'shared', name: 'lost.pdf', onExists: 'rename', size: '1000' }, 0))
+    expect(r.status).toBe(400)
+    expect(r.body.error).toMatchObject({ code: 'validation', fields: { 'body.file': 'expected 1000 bytes, got 0' } })
+    expect(fs.existsSync(inFolder('lost.pdf'))).toBe(false)
+  })
+
+  test('a file that is there is not replaced by a part that came empty', async () => {
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: 'keep.pdf', onExists: 'rename' }, 100))).status).toBe(201)
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: 'keep.pdf', onExists: 'replace', size: '100' }, 0))).status).toBe(400)
+    expect(fs.statSync(inFolder('keep.pdf')).size).toBe(100)
+  })
+
+  test('a chat attachment: refused, and nothing is stored', async () => {
+    const chatId = A.chat('alice')
+    const r = await send('/api/uploads', form({ chatId, name: 'lost.pdf', size: '1000' }, 10))
+    expect(r.status).toBe(400)
+    expect(r.body.error.code).toBe('validation')
+    expect(fs.existsSync(path.join(A.team, 'users', 'alice', '.attachments', chatId))).toBe(false)
+  })
+
+  test('a whole file passes, an empty file too, and a sender that names no size as before', async () => {
+    const chatId = A.chat('alice')
+    expect((await send('/api/uploads', form({ chatId, name: 'ok.pdf', size: '100' }, 100))).body).toMatchObject({ size: 100 })
+    expect((await send('/api/uploads', form({ chatId, name: 'old.pdf' }, 100))).body).toMatchObject({ size: 100 })
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: '.gitkeep', onExists: 'rename', size: '0' }, 0, '.gitkeep'))).body).toMatchObject({ size: 0 })
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: 'old.pdf', onExists: 'rename' }, 0))).body).toMatchObject({ size: 0 })
+  })
+
+  test.each([['many'], [''], [' 10 '], ['1e1'], ['0xA'], ['10.0'], ['-0'], ['-10'], ['+10']])('a size that is not plain digits is a bad field: %j', async (size) => {
+    const r = await send('/api/files/upload', form({ folder: 'shared', name: 'bad.pdf', onExists: 'rename', size }, 10))
+    expect(r.status).toBe(400)
+    expect(r.body.error).toMatchObject({ code: 'validation', fields: { 'body.size': expect.any(String) } })
+    expect(fs.existsSync(inFolder('bad.pdf'))).toBe(false)
+  })
+
+  test('digits with a leading zero are the same size, and a number too long for a file is simply another size', async () => {
+    expect((await send('/api/files/upload', form({ folder: 'shared', name: 'zeros.pdf', onExists: 'rename', size: '0010' }, 10))).status).toBe(201)
+    const r = await send('/api/files/upload', form({ folder: 'shared', name: 'long.pdf', onExists: 'rename', size: '99999999999999999999' }, 10))
+    expect(r.status).toBe(400)
+    expect(fs.existsSync(inFolder('long.pdf'))).toBe(false)
+  })
+})
+
 describe('upload sessions', () => {
+  // web/src/lib/folderUpload.ts depends on these answers
+  test('a folder upload: folders one level at a time, a target with subfolders, the access check for each file', async () => {
+    const mkdir = (p: string) => A.json('/api/files/mkdir', { ...jsonBody({ path: p }), as: 'alice' })
+    expect((await mkdir('shared/up/raw')).status).toBe(404)
+    expect((await mkdir('shared/up')).status).toBe(201)
+    expect((await mkdir('shared/up/raw')).status).toBe(201)
+    expect((await mkdir('shared/up')).status).toBe(409)
+    const data = blob(UPLOAD_CHUNK_SIZE + 10)
+    const target = { kind: 'path', path: 'shared/up/raw/a.bin', onExists: 'rename' }
+    const s = await create(target, data)
+    expect(s.status).toBe(201)
+    await put(s.body.id, 0, chunk(data, 0))
+    await put(s.body.id, 1, chunk(data, 1))
+    expect((await A.json(`/api/upload-sessions/${s.body.id}/complete`, { method: 'POST', as: 'alice' })).body.entry.path).toBe('shared/up/raw/a.bin')
+    const again = await create(target, data)
+    await put(again.body.id, 0, chunk(data, 0))
+    await put(again.body.id, 1, chunk(data, 1))
+    expect((await A.json(`/api/upload-sessions/${again.body.id}/complete`, { method: 'POST', as: 'alice' })).body.entry.path).not.toBe('shared/up/raw/a.bin')
+    // no write access: the same answer for a folder and for a file below it, chunked or small
+    const denied = (await mkdir('groups/finance/up')).status
+    expect(denied).toBeGreaterThanOrEqual(403)
+    expect(denied).toBeLessThanOrEqual(404)
+    expect((await create({ kind: 'path', path: 'groups/finance/a.bin', onExists: 'rename' }, data)).status).toBe(denied)
+  })
+
   test('out-of-order chunks, resume from GET, re-sent chunk is a no-op, complete places the file', async () => {
     const data = blob(2 * UPLOAD_CHUNK_SIZE + 12345)
     expect((await create({ kind: 'path', path: 'shared/big/video.bin' }, data)).status).toBe(404) // the folder must exist

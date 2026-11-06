@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -45,13 +46,21 @@ type UpdateResult struct {
 var resultCodes = map[string]int{"ok": 0, "rolled_back": 10, "verify_failed": 20, "busy": 30, "error": 1}
 
 // ReleaseFeed is server/src/system/update.ts ReleaseFeed (the signed channel manifest <feed>/server/<channel>.json).
-// A Linux bundle is the entry with os "linux" and the machine's arch. needsRoot: the release changes root files.
+// A Linux bundle is the entry with os "linux" and the machine's arch. rootSince (feeds from 0.2.19 on): the oldest
+// release with the same root files as this one (rootNeeded). needsRoot: in a feed without rootSince, the release's
+// root files differ from those of the channel heads it was published over; in one with rootSince, it is kept for the
+// updaters of 0.2.18 and older, which read only needsRoot (publish-server.ts: true while rootSince is newer than
+// 0.2.18, so such a server never takes a release without the root files it needs).
+// urgent and rollout: the staged roll-out the update timer keeps (rollout.go; rollout is read leniently, never a reason to refuse the feed).
 type ReleaseFeed struct {
-	Version     string `json:"version"`
-	MinFrom     string `json:"minFrom"`
-	NeedsRoot   bool   `json:"needsRoot"`
-	Notes       string `json:"notes"`
-	PublishedAt string `json:"publishedAt"`
+	Version     string       `json:"version"`
+	MinFrom     string       `json:"minFrom"`
+	Urgent      bool         `json:"urgent"`
+	NeedsRoot   bool         `json:"needsRoot"`
+	RootSince   string       `json:"rootSince"`
+	Notes       string       `json:"notes"`
+	PublishedAt string       `json:"publishedAt"`
+	Rollout     *rolloutSpec `json:"-"` // read leniently from "rollout" (rollout.go UnmarshalJSON, readRollout)
 	Bundles     []struct {
 		OS     string `json:"os"`
 		Arch   string `json:"arch"`
@@ -70,11 +79,36 @@ type updater struct {
 	work          string
 	arch          string
 	res           *UpdateResult
+	// scheduled: the update timer's run (--scheduled, schedule.go): wait for a quiet moment until quietBy, and leave
+	// the update for later rather than cut answers off, unless force (the last resort)
+	scheduled bool
+	quietBy   time.Time
+	force     bool
+	busy      int
+	busyWith  string
+	deferred  bool
+	turnedOff bool
+	// gateVersion: the release the scheduled gate decided on (its window, hold and staged roll-out); run() installs only
+	// that one, so a release published while the gate waited for a quiet moment waits for the next check's own gate
+	gateVersion string
+	// attempted: the run began to bring the release in (a download, or a --bundle unpacked); a failure from then on
+	// holds the release from the update timer (root/update-failed.json, schedule.go). rootIn: its root files are in
+	// place (updateRoot finished), so what failed was the app: the long hold
+	attempted bool
+	rootIn    bool
 	// hooks for tests (default: the real thing)
-	liveTurns  func() (int, error)
-	runAsSrv   func(args []string, env []string) (string, error)
-	restartSrv func() error
+	liveTurns func() (int, error)
+	runAsSrv  func(args []string, env []string) (string, error)
+	// runVersionAdmin runs app/versions/<v>'s admin.js as the server account (nil: not asked)
+	runVersionAdmin func(v string, args []string, env []string) (string, error)
+	restartSrv      func() error
+	sleep           func(time.Duration)
+	// maintenance is the server's own operation running now (a backup, a restore), "" for none (status/status.json)
+	maintenance func() string
 }
+
+// errDeferred: a scheduled run left the update for later (answers kept running); nothing is an error.
+var errDeferred = errors.New("deferred")
 
 // updateTestHook replaces the parts of an update that need a real launcher and server account (tests only).
 var updateTestHook func(u *updater)
@@ -82,9 +116,10 @@ var updateTestHook func(u *updater)
 func cmdUpdate(e *env, args []string) (int, error) {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	e.flags(fs)
-	version := fs.String("version", "", "update to this version (from the feed); default: the channel's newest")
+	version := fs.String("version", "", "update to this version (from the feed; an older one too: a roll-back); default: the channel's newest, only when it is newer than the app that runs")
 	bundleFile := fs.String("bundle", "", "update from this release archive (<v>-linux-<arch>.tar.zst) instead of the feed")
 	onlyRoot := fs.Bool("only-if-needs-root", false, "do nothing unless the release changes root files (the update timer)")
+	scheduled := fs.Bool("scheduled", false, "the update timer: only inside the team's update window (team time zone), when it is this server's turn in a release's staged roll-out, and only when no answer runs; waits for a quiet moment instead of interrupting answers")
 	asJSON := fs.Bool("json", false, "JSON output")
 	maxWait := fs.Int("max-wait", 600, "seconds to wait for running turns before replacing root files")
 	healthWait := fs.Int("health-timeout", 180, "seconds to wait for the new version's /api/health")
@@ -95,6 +130,9 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	}
 	if *version != "" && *bundleFile != "" {
 		return 2, usageError{"--version and --bundle exclude each other"}
+	}
+	if *scheduled && (*version != "" || *bundleFile != "") {
+		return 2, usageError{"--scheduled takes the channel's release: not with --version or --bundle"}
 	}
 	if *version != "" && !bundle.ValidVersion(*version) {
 		return 2, usageError{"bad --version"}
@@ -114,8 +152,15 @@ func cmdUpdate(e *env, args []string) (int, error) {
 		}
 		if *asJSON {
 			printJSON(e.stdout, res)
+		} else if res.Skipped {
+			fmt.Fprintf(e.stdout, "%s: nothing changed, %s stays: %s\n", res.Result, orNone(res.From), res.Detail)
 		} else {
 			fmt.Fprintf(e.stdout, "%s: %s -> %s (root files updated: %v, app updated: %v) %s\n", res.Result, orNone(res.From), orNone(res.To), res.RootUpdated, res.AppUpdated, res.Detail)
+		}
+		if !*asJSON {
+			for _, n := range res.Notes {
+				fmt.Fprintln(e.stdout, "note: "+n)
+			}
 		}
 		if code != 0 && err == nil {
 			err = fmt.Errorf("%s", res.Result)
@@ -126,25 +171,217 @@ func cmdUpdate(e *env, args []string) (int, error) {
 	if err != nil {
 		return finish(1, err)
 	}
-	unlock, err := lockUpdate(e.root(".update.lock"))
-	if err != nil {
-		res.Result = "busy"
-		return finish(30, err)
-	}
-	defer unlock()
 	u := &updater{e: e, in: in, keys: append(append([]string{}, bundle.ReleaseKeys...), extra...), maxWait: time.Duration(*maxWait) * time.Second,
-		healthTimeout: time.Duration(*healthWait) * time.Second, arch: runtime.GOARCH, res: res}
+		healthTimeout: time.Duration(*healthWait) * time.Second, arch: runtime.GOARCH, res: res, scheduled: *scheduled}
 	u.liveTurns = u.launcherLiveTurns
 	u.runAsSrv = u.runAsServer
+	u.runVersionAdmin = u.runVersionAsServer
 	u.restartSrv = u.restartServer
+	u.sleep = time.Sleep
+	u.maintenance = u.serverMaintenance
 	if updateTestHook != nil {
 		updateTestHook(u)
 	}
+	if u.scheduled {
+		// the window and a quiet moment first, without the lock: an administrator's `mycel-ctl update` meanwhile is not
+		// "busy", and nothing is downloaded while answers run
+		if goOn, err := u.gate(*onlyRoot); err != nil || !goOn {
+			if errors.Is(err, errDeferred) {
+				err = nil
+			}
+			if err != nil && res.Result == "ok" {
+				res.Result = "error"
+			}
+			return finish(resultCodes[res.Result], err)
+		}
+	}
+	unlock, err := lockUpdate(e.root(".update.lock"))
+	if err != nil {
+		res.Result = "busy"
+		if u.scheduled {
+			// an administrator's update runs now: the timer has nothing to do
+			res.Result, res.Skipped, res.Detail = "ok", true, "another update is running"
+			return finish(0, nil)
+		}
+		return finish(30, err)
+	}
+	defer unlock()
+	// what runs now (the scheduled gate waited without the lock: an administrator may have updated meanwhile)
+	res.From = currentVersion(e.base)
 	err = u.run(*version, *bundleFile, *onlyRoot)
+	if errors.Is(err, errDeferred) {
+		err = nil
+	}
 	if err != nil && res.Result == "ok" {
 		res.Result = "error"
 	}
+	switch {
+	case err == nil && res.Result == "ok" && !res.Skipped && !u.deferred:
+		clearDeferred(e) // any update that went through (an administrator's too): nothing waits any more
+		clearFailedUpTo(e, res.To)
+	case res.Result != "ok" && u.attempted && bundle.ValidVersion(res.To):
+		// the release came in and then failed (an administrator's run too): the update timer leaves it for a while
+		// instead of downloading it and restarting the server again at every check of the window (0.2.19 review S1)
+		detail := res.Detail
+		if detail == "" && err != nil {
+			detail = err.Error()
+		}
+		if h := noteFailed(e, res.To, res.Result, detail, u.rootIn); h != nil {
+			res.Notes = append(res.Notes, h.String())
+		}
+		if u.rootIn {
+			// the root files are in and the run found its quiet moment: after the hold, the app's next try waits for
+			// one again rather than the last resort. Before that the deferral keeps its time, so a failure (a download
+			// the server account cut short, say) does not start the three days again.
+			clearDeferred(e)
+		}
+	}
 	return finish(resultCodes[res.Result], err)
+}
+
+// gate is the scheduled run's first part (schedule.go): inside the team's window, a release this server needs, and a
+// quiet moment. false: nothing to do now (res says why).
+func (u *updater) gate(onlyRoot bool) (bool, error) {
+	if u.timerTurnedOff() {
+		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "automatic updates are off ("+u.in.ID+"-update.timer disabled)"
+		return false, nil
+	}
+	s := u.readSchedule()
+	now := u.e.now().In(s.loc)
+	if !s.w.contains(now) {
+		// no check got inside the team's window for three days (a window that falls between two checks, or a server
+		// account that keeps moving the window or the zone): 03:00-05:00 in a zone root trusts (MYCEL_TEAM_TZ of
+		// /etc/default/<id>, else this machine's), not in the zone the server account said. Such a run does not
+		// count as a pass, so the count goes on until the team's own window lets a check in again.
+		def, _ := parseWindow(defaultUpdateWindow)
+		loc, zone := fallbackZone(u.in.ID)
+		if since := windowPassed(u.e); u.e.now().Sub(since) >= scheduleLastResort && def.contains(u.e.now().In(loc)) {
+			s = updateSchedule{w: def, loc: loc, zone: zone, installID: s.installID, note: "no check got inside the team's window (" + s.String() + ") since " + since.UTC().Format(time.RFC3339) + ", so the default"}
+			now = u.e.now().In(loc)
+		} else {
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "outside the update window "+s.String()
+			return false, nil
+		}
+	} else {
+		notePass(u.e)
+	}
+	feed, err := u.fetchFeed("")
+	if err != nil {
+		return false, err
+	}
+	u.res.To = feed.Version
+	root := rootVersion(u.e)
+	why := notNewer(feed.Version, u.res.From, root)
+	if why == "" && onlyRoot && !rootJob(feed, root, u.res.From) && !heldHere(u.e, feed.Version) {
+		why = "release " + feed.Version + " does not change root files"
+	}
+	if why == "" && feed.Version == u.res.From && root == feed.Version {
+		why = "already at " + feed.Version
+	}
+	if why != "" {
+		clearDeferred(u.e)
+		clearFailedUpTo(u.e, u.res.From) // a hold of a version the app has reached is over
+		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+		return false, nil
+	}
+	// a release that failed here a short while ago waits (root/update-failed.json); a newer one ends the hold
+	if h := readFailed(u.e); h != nil {
+		switch {
+		case compareVersions(feed.Version, h.Version) > 0:
+			clearFailed(u.e)
+		case feed.Version == h.Version && h.active(u.e.now()):
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, h.String()
+			return false, nil
+		}
+	}
+	// the staged roll-out of a stable release (rollout.go, the app's rule): this server's turn may come a day or two
+	// later. Only for a release newer than the app that runs (root files catching up with the running version are not
+	// held), never on a hosted server (its control plane picks), and never for an administrator's `mycel-ctl update`.
+	if !u.in.Hosted && u.res.From != "" && compareVersions(feed.Version, u.res.From) > 0 {
+		if w := rolloutTurn(feed, installIDOf(u.in, s), serverChannel(u.e.base), u.e.now()); w.wait {
+			// a deferral left by an earlier release (no quiet moment for it) must not carry its three days over to this
+			// one: at this release's turn the last resort would cut answers off at the first check
+			if d := readDeferred(u.e); d != nil && d.Version != feed.Version {
+				clearDeferred(u.e)
+			}
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, w.detail(feed.Version, s.loc)
+			return false, nil
+		}
+	}
+	u.gateVersion = feed.Version
+	u.quietBy = s.w.end(now)
+	if lim := now.Add(scheduleRunWait); lim.Before(u.quietBy) {
+		u.quietBy = lim
+	}
+	if d := readDeferred(u.e); d != nil && u.e.now().Sub(d.Since) >= scheduleLastResort {
+		// the last resort: the old wait, then on (answers still running then are interrupted)
+		u.force, u.quietBy = true, u.e.now().Add(u.maxWait)
+		u.res.Notes = append(u.res.Notes, fmt.Sprintf("a root update has waited for a quiet moment since %s: installing after at most %v even with answers running", d.Since.Format(time.RFC3339), u.maxWait))
+	}
+	quiet := u.waitQuiet(u.quietBy)
+	if u.turnedOff {
+		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "automatic updates were turned off while it waited"
+		return false, nil
+	}
+	if quiet || u.force {
+		return true, nil
+	}
+	return false, u.deferUpdate(feed.Version, "before the download")
+}
+
+// timerTurnedOff: the scheduled job's timer is disabled now (`mycel-ctl auto-update off`, systemctl disable): a run
+// started by hand, or one that waited while it was turned off, does nothing more.
+func (u *updater) timerTurnedOff() bool {
+	if !u.scheduled || !u.in.Systemd || !fileExists(systemdRunDir) {
+		return false
+	}
+	out, _ := exec.Command(u.e.systemctl, "is-enabled", u.in.ID+"-update.timer").Output()
+	return strings.TrimSpace(string(out)) == "disabled"
+}
+
+// deferUpdate ends a scheduled run that found no quiet moment (nothing changed after `when`): the next check in the
+// window tries again; the first deferral's time is kept for the last resort.
+func (u *updater) deferUpdate(version, when string) error {
+	if u.turnedOff {
+		u.res.Result, u.res.Skipped = "ok", !u.res.RootUpdated
+		u.res.Detail = "automatic updates were turned off while it waited (" + when + ")"
+		return errDeferred
+	}
+	noteDeferred(u.e, version, u.busy)
+	u.deferred = true
+	u.res.Result, u.res.Skipped = "ok", !u.res.RootUpdated
+	what := fmt.Sprintf("%d running answer(s)", u.busy)
+	if u.busyWith != "" {
+		what = fmt.Sprintf("%d running answer(s) and the server's %s", u.busy, u.busyWith)
+	}
+	u.res.Detail = fmt.Sprintf("%s did not finish by %s (%s); the update to %s waits for a quiet moment in the update window",
+		what, u.quietBy.Format("15:04 MST"), when, version)
+	return errDeferred
+}
+
+// serverMaintenance is the operation the server reports in status/status.json (written every 30 s; the server
+// account's file, read without following a link): a backup, a restore, an update, an export. Older or missing: "".
+func (u *updater) serverMaintenance() string {
+	b, err := readSmall(filepath.Join(u.e.base, "status", "status.json"), 1<<20)
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		WrittenAt   string  `json:"writtenAt"`
+		Maintenance *string `json:"maintenance"`
+	}
+	if json.Unmarshal(b, &st) != nil || st.Maintenance == nil || *st.Maintenance == "" {
+		return ""
+	}
+	at, err := time.Parse(time.RFC3339Nano, st.WrittenAt)
+	if err != nil || u.e.now().Sub(at) > 2*time.Minute {
+		return ""
+	}
+	m := *st.Maintenance
+	if len(m) > 40 || strings.ContainsAny(m, "\n\r") {
+		m = "maintenance"
+	}
+	return m
 }
 
 // lockUpdate takes BASE/root/.update.lock (flock); a second update at the same time is "busy".
@@ -170,6 +407,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	dir := filepath.Join(work, "bundle")
 	needsRoot := true
 	if bundleFile != "" {
+		u.attempted = true
 		if err := extractBundle(bundleFile, dir); err != nil {
 			u.res.Result = "verify_failed"
 			return err
@@ -179,7 +417,17 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		if err != nil {
 			return err
 		}
-		u.res.To, needsRoot = feed.Version, feed.NeedsRoot
+		u.res.To, needsRoot = feed.Version, rootJob(feed, rootVersion(u.e), u.res.From) || heldHere(u.e, feed.Version)
+		if u.scheduled && u.gateVersion != "" && feed.Version != u.gateVersion {
+			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the feed moved from "+u.gateVersion+" to "+feed.Version+" while this run waited for a quiet moment; the next check decides on "+feed.Version
+			return nil
+		}
+		if version == "" {
+			if why := notNewer(feed.Version, u.res.From, rootVersion(u.e)); why != "" {
+				u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+				return nil
+			}
+		}
 		if onlyRoot && !needsRoot {
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "release "+feed.Version+" does not change root files"
 			return nil
@@ -191,6 +439,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		if feed.MinFrom != "" && u.res.From != "" && compareVersions(u.res.From, feed.MinFrom) < 0 {
 			return fmt.Errorf("%s cannot update to %s by itself (needs %s or newer first)", u.res.From, feed.Version, feed.MinFrom)
 		}
+		u.attempted = true
 		if err := u.download(feed, dir); err != nil {
 			return err
 		}
@@ -208,6 +457,7 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	if err := u.updateRoot(dir, m.Version); err != nil {
 		return err
 	}
+	u.rootIn = true
 	if onlyRoot && !u.res.RootUpdated && bundleFile != "" {
 		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the release changes no root files"
 		return nil
@@ -217,6 +467,67 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		return nil
 	}
 	return u.updateApp(dir, m.Version)
+}
+
+// lastOldUpdater is the last release whose updaters (the app's own and mycel-ctl) read only the feed's needsRoot and
+// whose admin.js has no `update-window` (rootSince and the windowed update timer came with 0.2.19).
+const lastOldUpdater = "0.2.18"
+
+// rootNeeded: does this server need the release's root files? rootSince names the oldest release with this release's
+// root files, so root/VERSION older than it (or missing, or not a version) needs them; one at rootSince or newer has
+// them. needsRoot only compared with the releases at the channel heads when it was published, which a server that
+// skipped a release can miss (update audit P4: 0.2.17 root files, a 0.2.18 that changed them, a 0.2.19 that did not),
+// and in a feed with rootSince it is the flag for 0.2.18 and older (true while rootSince is newer than 0.2.18), so it
+// is not read here. A feed without rootSince (published before 0.2.19) keeps the old meaning. The same rule as
+// server/src/system/update.ts releaseNeedsRoot.
+func rootNeeded(f *ReleaseFeed, root string) bool {
+	if f.RootSince == "" {
+		return f.NeedsRoot
+	}
+	if !bundle.ValidVersion(f.RootSince) || root == "" || !bundle.ValidVersion(root) {
+		return true
+	}
+	return compareVersions(root, f.RootSince) < 0
+}
+
+// rootJob: is the release the root update timer's (--only-if-needs-root)? Its root files are needed here, or the app
+// that runs is 0.2.18 or older (a server whose app the bootstrap rolled back to one, 0.2.19 review S3) and reads only
+// needsRoot: it refuses a release with needsRoot, so root installs it, the root files already in place (and so when
+// no app/current is there to take it).
+func rootJob(f *ReleaseFeed, root, app string) bool {
+	return rootNeeded(f, root) || f.NeedsRoot && (app == "" || compareVersions(app, lastOldUpdater) <= 0)
+}
+
+// heldHere: root's update of version failed here (root/update-failed.json, the hold over or not). The timer tries it
+// again itself after the hold, also when the root files are in place and the app could take it: the app's own
+// updater leaves such a release to root (server/src/system/update-job.ts autoUpdateDecision rootHold), so one
+// back-off decides when it comes again.
+func heldHere(e *env, version string) bool {
+	h := readFailed(e)
+	return h != nil && h.Version == version
+}
+
+// notNewer says why the channel's newest release (an update without --version: the update timer, a plain
+// `mycel-ctl update`) is not installed, or "" to go on. Like the app's own updater (server/src/system/update.ts
+// status, update-job.ts autoUpdateDecision), it must be newer than the version that runs: a pre-release or a test
+// build newer than the channel stays when the feed still names an older release. The same version is skipped too,
+// unless root files are older than it or root/VERSION is missing (the app came to it without them): then only the
+// root files catch up. --version and --bundle are an admin's explicit choice (a roll-back too) and are not checked:
+// root files newer than the release stay anyway (updateRoot), and the app goes to the version asked for.
+func notNewer(feed, app, root string) string {
+	if app == "" {
+		return "" // no app/current: nothing runs that a downgrade could replace
+	}
+	switch c := compareVersions(feed, app); {
+	case c < 0:
+		return fmt.Sprintf("the feed's release %s is older than the installed %s, not installed (to go back to it, run `mycel-ctl update --version %s`)", feed, app, feed)
+	case c == 0 && root != "" && compareVersions(root, feed) >= 0:
+		if root != feed {
+			return "already at " + feed + " (root files " + root + ")"
+		}
+		return "already at " + feed
+	}
+	return ""
 }
 
 // workDir is a fresh folder under BASE/.install-tmp (root 700; the installer and mycel-ctl share it). An update-*
@@ -472,7 +783,27 @@ func (u *updater) updateRoot(dir, v string) error {
 			from[rel] = bsrc
 		}
 	}
+	systemd := u.in.Systemd && fileExists(systemdRunDir)
+	// before the files change: a process from before an older install-linux.sh update stays with no other sign
+	stale := systemd && u.boxdStale()
 	if len(diff) == 0 {
+		// root files already those of v: say so (rootNeeded compares root/VERSION with the feed's rootSince, and a server
+		// whose files are right would otherwise be sent here again by every check)
+		if rv := rootVersion(u.e); rv == "" || compareVersions(rv, v) < 0 {
+			if err := writeRootFile(u.e.root("VERSION"), []byte(v+"\n"), 0o644); err != nil {
+				return err
+			}
+			u.res.Notes = append(u.res.Notes, "root files already match "+v+": root/VERSION is "+v+" now")
+		}
+		if err := u.syncUnits(systemd, false); err != nil {
+			return err
+		}
+		if stale {
+			if !u.waitForTurns() {
+				return u.deferUpdate(v, boxdUnit+" not restarted")
+			}
+			u.restartBoxd()
+		}
 		return nil
 	}
 	stage := u.e.root(".new")
@@ -494,11 +825,19 @@ func (u *updater) updateRoot(dir, v string) error {
 			return fmt.Errorf("copy of root/%s changed", rel)
 		}
 	}
-	u.waitForTurns()
-	units := false
+	if !u.waitForTurns() {
+		return u.deferUpdate(v, "root files not replaced")
+	}
+	units, boxd := false, stale
+	// also when a later step fails: the next run finds root/mycel-boxd already new and would not restart it
+	defer func() {
+		if boxd && systemd {
+			u.restartBoxd()
+		}
+	}()
 	for _, rel := range diff {
 		dest := u.e.root(rel)
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		if err := mkdirAll755(filepath.Dir(dest)); err != nil {
 			return err
 		}
 		if filepath.Dir(rel) == "safe-ops" {
@@ -513,19 +852,16 @@ func (u *updater) updateRoot(dir, v string) error {
 		if strings.HasPrefix(rel, "systemd/") {
 			units = true
 		}
+		if rel == boxdProgram {
+			boxd = true
+		}
 	}
 	if err := writeRootFile(u.e.root("VERSION"), []byte(v+"\n"), 0o644); err != nil {
 		return err
 	}
 	u.res.RootUpdated = true
-	systemd := u.in.Systemd && fileExists(systemdRunDir)
-	if units && systemd {
-		if _, _, err := renderUnits(u.in, u.e.root("systemd"), systemdUnitDir); err != nil {
-			return fmt.Errorf("units: %v", err)
-		}
-		if out, err := exec.Command(u.e.systemctl, "daemon-reload").CombinedOutput(); err != nil {
-			return fmt.Errorf("daemon-reload: %v %s", err, out)
-		}
+	if err := u.syncUnits(systemd, units); err != nil {
+		return err
 	}
 	if _, err := firewallApply(u.e); err != nil {
 		return fmt.Errorf("firewall: %v", err)
@@ -536,6 +872,135 @@ func (u *updater) updateRoot(dir, v string) error {
 		}
 	} else {
 		u.res.Notes = append(u.res.Notes, "no systemd: restart `mycel-ctl supervise` to run the new root files")
+	}
+	return nil
+}
+
+// The dev environment's root helper: root/<boxdProgram> comes with every kit, and only a server with the dev env has
+// the service (scripts/dev-env/install-trial.sh writes it, with this name for every install id). Without the service the
+// file runs nothing, so a server without the dev env has no step here. A hosted team VM with the service takes the same
+// step: the control plane's update runs this code too.
+const (
+	boxdProgram = "mycel-boxd"
+	boxdUnit    = "mycel-boxd.service"
+)
+
+// boxdSock is the default of mycel-boxd --listen (install-trial.sh keeps it). boxdWait is the time for its checks, the
+// same as in install-trial.sh. Variables for the tests.
+var (
+	boxdSock = "/run/mycel-boxd/boxd.sock"
+	boxdWait = 30 * time.Second
+	boxdExe  = func(pid string) string { return "/proc/" + pid + "/exe" }
+)
+
+// boxdStale: the service runs root/mycel-boxd, but its process has other content than that file. The path of the process
+// says "(deleted)" also for a file that was replaced with the same content, and that needs no restart, so this compares
+// the content, as install-trial.sh does. A service that runs another path, has no process, or has a program that cannot
+// be read is not stale: a restart stops the boxes.
+func (u *updater) boxdStale() bool {
+	unit, err := os.ReadFile(filepath.Join(systemdUnitDir, boxdUnit))
+	if err != nil || !strings.Contains(string(unit), "\nExecStart="+u.e.root(boxdProgram)+" ") {
+		return false
+	}
+	out, err := exec.Command(u.e.systemctl, "show", "-p", "MainPID", "--value", boxdUnit).Output()
+	pid := strings.TrimSpace(string(out))
+	if err != nil || pid == "" || pid == "0" {
+		return false
+	}
+	running, _, err := bundle.HashFile(boxdExe(pid))
+	if err != nil {
+		return false
+	}
+	file, _, err := bundle.HashFile(u.e.root(boxdProgram))
+	if err != nil || running == file {
+		return false
+	}
+	u.res.Notes = append(u.res.Notes, boxdUnit+" runs an old program, not the file "+u.e.root(boxdProgram)+": it restarts")
+	return true
+}
+
+// restartBoxd runs the new root/mycel-boxd after this update replaced it, before the team server restarts (updateApp).
+// A helper that starts stops the boxes that run (native/cmd/mycel-boxd setup fails closed), so only a changed program
+// comes here, and only a service that runs this file restarts: one from an earlier trial runs another path and would
+// stop the boxes for nothing. A service that an administrator stopped stays stopped; a failed one restarts. The server
+// works without boxes, so a failure is a note and the update goes on.
+func (u *updater) restartBoxd() {
+	unit, err := os.ReadFile(filepath.Join(systemdUnitDir, boxdUnit))
+	if err != nil {
+		return
+	}
+	if !strings.Contains(string(unit), "\nExecStart="+u.e.root(boxdProgram)+" ") {
+		u.res.Notes = append(u.res.Notes, boxdUnit+" does not run "+u.e.root(boxdProgram)+", so it keeps the old program: run scripts/dev-env/install-trial.sh again")
+		return
+	}
+	if out, _ := exec.Command(u.e.systemctl, "is-active", boxdUnit).Output(); strings.TrimSpace(string(out)) == "inactive" {
+		u.res.Notes = append(u.res.Notes, boxdUnit+" is stopped, so it stays stopped: its next start runs the new "+boxdProgram)
+		return
+	}
+	if out, err := exec.Command(u.e.systemctl, "restart", boxdUnit).CombinedOutput(); err != nil {
+		u.res.Notes = append(u.res.Notes, fmt.Sprintf("restart of %s failed, so boxes may not work: %v %s (journalctl -u %s, then `sudo systemctl restart %s`)",
+			boxdUnit, err, strings.TrimSpace(string(out)), boxdUnit, boxdUnit))
+		return
+	}
+	if why := boxdProblem(); why != "" {
+		u.res.Notes = append(u.res.Notes, fmt.Sprintf("%s restarted, but boxes may not work: %s (journalctl -u %s)", boxdUnit, why, boxdUnit))
+		return
+	}
+	u.res.Notes = append(u.res.Notes, boxdProgram+" changed: "+boxdUnit+" restarted; boxes that ran have stopped and start again at their next use")
+}
+
+// boxdProblem asks the helper after a restart and says why boxes do not work, or "". The exit status of `systemctl
+// restart` cannot say this: the unit is Type=simple, so systemctl is done when the process starts, also for a program that
+// stops at once. The helper answers after its checks; until then the socket file of the old process refuses a connection.
+func boxdProblem() string {
+	for end := time.Now().Add(boxdWait); ; {
+		var st struct {
+			Ev        string `json:"ev"`
+			Available bool   `json:"available"`
+			Reason    string `json:"reason"`
+		}
+		if line, err := boxdAsk(); err == nil && json.Unmarshal(line, &st) == nil {
+			if st.Ev == "status" && !st.Available {
+				return "boxes are not available: " + st.Reason
+			}
+			return "" // a boxd from before the status for root says no, but it answers: it runs
+		}
+		if time.Now().After(end) {
+			return "no answer on " + boxdSock + " after " + boxdWait.String()
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// boxdAsk sends one status request. boxd takes only this request from root.
+func boxdAsk() ([]byte, error) {
+	c, err := net.DialTimeout("unix", boxdSock, 2*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := c.Write([]byte(`{"op":"status"}` + "\n")); err != nil {
+		return nil, err
+	}
+	return bufio.NewReader(c).ReadBytes('\n')
+}
+
+// syncUnits renders the units from root/systemd and root/install.json on every update (not only when a template
+// changed), so units an older tool left disagreeing with install.json (--allow-unsigned, update audit P3) are right
+// again; daemon-reload when anything changed (or the templates did).
+func (u *updater) syncUnits(systemd, templates bool) error {
+	if !systemd {
+		return nil
+	}
+	_, changed, err := renderUnits(u.in, u.e.root("systemd"), systemdUnitDir)
+	if err != nil {
+		return fmt.Errorf("units: %v", err)
+	}
+	if changed || templates {
+		if out, err := exec.Command(u.e.systemctl, "daemon-reload").CombinedOutput(); err != nil {
+			return fmt.Errorf("daemon-reload: %v %s", err, out)
+		}
 	}
 	return nil
 }
@@ -553,7 +1018,7 @@ func copyFile(src, dest string) error {
 	if st.Mode()&0o111 != 0 {
 		mode = 0o755
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	if err := mkdirAll755(filepath.Dir(dest)); err != nil {
 		return err
 	}
 	in, err := os.Open(src)
@@ -575,19 +1040,38 @@ func copyFile(src, dest string) error {
 	return cerr
 }
 
-// waitForTurns waits until the launcher runs no turn, at most maxWait. Turns still running then become
-// "interrupted" when the launcher restarts (the server is not told to stop taking turns, spec 3.6.5).
-func (u *updater) waitForTurns() {
-	deadline := time.Now().Add(u.maxWait)
-	for {
+// waitForTurns waits until the launcher runs no turn before a restart. An administrator's update waits at most
+// maxWait; turns still running then become "interrupted" when the launcher restarts (the server is not told to stop
+// taking turns, spec 3.6.5). A scheduled run waits until quietBy and then gives up (false) instead, unless force.
+func (u *updater) waitForTurns() bool {
+	if !u.scheduled {
+		u.waitQuiet(u.e.now().Add(u.maxWait))
+		return true
+	}
+	return (u.waitQuiet(u.quietBy) || u.force) && !u.turnedOff
+}
+
+// waitQuiet asks the launcher until it runs no turn and the server runs no maintenance (true) or the deadline passes
+// (false; u.busy and u.busyWith are the last answers).
+func (u *updater) waitQuiet(deadline time.Time) bool {
+	for i := 0; ; i++ {
+		if i > 0 && i%12 == 0 && u.timerTurnedOff() { // about once a minute
+			u.turnedOff = true
+			return false
+		}
 		n, err := u.liveTurns()
-		if err == nil && n == 0 {
-			return
+		m := ""
+		if u.maintenance != nil {
+			m = u.maintenance()
 		}
-		if time.Now().After(deadline) {
-			return
+		if err == nil && n == 0 && m == "" {
+			return true
 		}
-		time.Sleep(2 * time.Second)
+		u.busy, u.busyWith = n, m
+		if !u.e.now().Before(deadline) {
+			return false
+		}
+		u.sleep(schedulePoll)
 	}
 }
 
@@ -691,6 +1175,11 @@ func (u *updater) updateApp(dir, v string) error {
 			if err := os.RemoveAll(dest); err != nil {
 				return err
 			}
+		} else if st.IsDir() {
+			// an older update with umask 077 left 0700 folders: the launcher account cannot enter them
+			if err := repairTree(dest, srv); err != nil {
+				return fmt.Errorf("repair modes of %s: %v", dest, err)
+			}
 		}
 	}
 	if _, err := os.Lstat(dest); errors.Is(err, fs.ErrNotExist) {
@@ -705,6 +1194,10 @@ func (u *updater) updateApp(dir, v string) error {
 		if err := os.Rename(partial, dest); err != nil {
 			return err
 		}
+	}
+	if u.scheduled && !u.waitForTurns() {
+		// root files may be new already; the app (a server restart) waits like the rest
+		return u.deferUpdate(v, "the app not switched yet")
 	}
 	u.res.AppUpdated = true
 	systemd := u.in.Systemd && fileExists(systemdRunDir)
@@ -767,6 +1260,64 @@ func (u *updater) rolledBack(v string) string {
 	return ""
 }
 
+// mkdirAll755 creates dir and every missing parent with mode 755 whatever the process umask (os.MkdirAll alone
+// applies the umask, so a `mycel-ctl update` run with umask 077 would leave folders the other accounts cannot enter).
+// Folders that exist already keep their mode.
+func mkdirAll755(dir string) error {
+	var missing []string
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Lstat(d); err == nil {
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		missing = append(missing, d)
+		if filepath.Dir(d) == d {
+			break
+		}
+	}
+	for i := len(missing) - 1; i >= 0; i-- {
+		if err := os.Mkdir(missing[i], 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		if err := os.Chmod(missing[i], 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// repairTree sets the modes and the owner copyTree gives on a version folder that exists already: folders 755, files
+// 755 when the owner can execute them and 644 otherwise. Servers that updated with umask 077 have 0700 folders that
+// the launcher (another account) cannot enter; this heals them. Links are left alone.
+func repairTree(root string, owner account) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		var mode os.FileMode
+		switch {
+		case d.IsDir():
+			mode = 0o755
+		case d.Type().IsRegular():
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			mode = 0o644
+			if info.Mode()&0o111 != 0 {
+				mode = 0o755
+			}
+		default:
+			return nil
+		}
+		if err := os.Lchown(p, owner.uid, owner.gid); err != nil {
+			return err
+		}
+		return os.Chmod(p, mode)
+	})
+}
+
 // copyTree copies a verified bundle folder to dest, owned by the server account (folders 755, files 755/644).
 func copyTree(src, dest string, owner account) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
@@ -778,6 +1329,10 @@ func copyTree(src, dest string, owner account) error {
 		switch {
 		case d.IsDir():
 			if err := os.Mkdir(t, 0o755); err != nil && !(rel == "." && errors.Is(err, fs.ErrExist)) {
+				return err
+			}
+			// Mkdir applies the umask (077 under mycel-link): set the mode again so it does not depend on the process
+			if err := os.Chmod(t, 0o755); err != nil {
 				return err
 			}
 		case d.Type().IsRegular():
@@ -794,18 +1349,60 @@ func copyTree(src, dest string, owner account) error {
 // runAsServer runs the CURRENT version's admin.js as the server account (its SERVER_VERSION is the running one, so
 // `switch <new>` is not "already running"), with an empty environment besides the installation's.
 func (u *updater) runAsServer(args []string, extraEnv []string) (string, error) {
+	return u.runAdmin(filepath.Join(u.in.Base, "app", "current"), args, extraEnv)
+}
+
+// runVersionAsServer runs the admin.js of app/versions/<v> instead (readSchedule: `update-window` of the root files'
+// version when the app that runs is older and does not know the command). The folder is the server account's like
+// app/current, and the program runs as that account: it can say nothing it could not say through app/current.
+func (u *updater) runVersionAsServer(v string, args []string, extraEnv []string) (string, error) {
+	if !bundle.ValidVersion(v) {
+		return "", fmt.Errorf("bad version %q", v)
+	}
+	return u.runAdmin(filepath.Join(u.in.Base, "app", "versions", v), args, extraEnv)
+}
+
+func (u *updater) runAdmin(dir string, args []string, extraEnv []string) (string, error) {
 	srv, err := lookupAccount(u.in.ServerUser)
 	if err != nil {
 		return "", err
 	}
-	b := u.in.Base
-	cmd := exec.Command(filepath.Join(b, "app", "current", "bin", "bun"), append([]string{filepath.Join(b, "app", "current", "server", "src", "admin.js")}, args...)...)
+	// a hung admin.js must not hold the update timer's job (TimeoutStartSec): update-window is a settings read
+	limit := 10 * time.Minute
+	if args[0] == "update-window" {
+		limit = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(dir, "bin", "bun"), append([]string{filepath.Join(dir, "server", "src", "admin.js")}, args...)...)
 	cmd.Dir = "/"
-	cmd.Env = append([]string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(b, "data"), "LANG=C.UTF-8", "MYCEL_MODE=prod",
-		"MYCEL_CONFIG=" + filepath.Join(b, "config", "server.json"), "MYCEL_INSTALL_BASE=" + b, "MYCEL_LABEL=" + u.in.ID}, extraEnv...)
+	cmd.Env = append(adminEnv(u.in), extraEnv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(srv.uid), Gid: uint32(srv.gid), Groups: []uint32{}}}
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	// the server account's program: at most 1 MiB of output kept, and a child left holding the pipe does not keep
+	// this waiting past the program's own end
+	var out limitedBuffer
+	out.b = &bytes.Buffer{}
+	out.max = 1 << 20
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.WaitDelay = 5 * time.Second
+	err = cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.Success() {
+		err = nil // it ended well; only a child it left kept the pipe open
+	}
+	return out.b.String(), err
+}
+
+// adminEnv is admin.js's environment: the installation's, and MYCEL_ALLOW_UNSIGNED=1 when the install accepts unsigned
+// versions, as the server unit has it (serverEnv): without it `admin.js switch` of a signed running version refused an
+// unsigned one that mycel-ctl had just accepted ("bundle is not signed"; seen in the 0.2.14 -> 0.2.19 container run).
+func adminEnv(in *Install) []string {
+	b := in.Base
+	env := []string{"PATH=/usr/bin:/bin", "HOME=" + filepath.Join(b, "data"), "LANG=C.UTF-8", "MYCEL_MODE=prod",
+		"MYCEL_CONFIG=" + filepath.Join(b, "config", "server.json"), "MYCEL_INSTALL_BASE=" + b, "MYCEL_LABEL=" + in.ID}
+	if in.AllowUnsigned {
+		env = append(env, "MYCEL_ALLOW_UNSIGNED=1")
+	}
+	return env
 }
 
 func (u *updater) restartServer() error {
@@ -815,14 +1412,21 @@ func (u *updater) restartServer() error {
 	return nil
 }
 
-// compareVersions orders semver like server/src/system/update.ts compareVersions: -1, 0, 1.
+// compareVersions orders versions exactly like server/src/system/update.ts compareVersions (the app's own updater,
+// the installer's `admin.js compare-versions` and the release scripts): -1, 0, 1. Semver: numbers compare as numbers,
+// a release is newer than its pre-releases, pre-release identifiers compare one by one (all-digit ones as numbers, so
+// rc.10 is newer than rc.9; numeric before text; text by bytes; more identifiers newer when the rest is equal), build
+// metadata (+...) is ignored. To give the same answer on every input, numbers are read the way JavaScript reads them:
+// a part of the main version is its leading digits (parseInt, none = 0), an identifier is numeric only when it is all
+// digits (/^\d+$/), and both become float64 like a JavaScript number. testdata/version-order.json is checked by both
+// sides (TestCompareVersionsMatchesServer here, tests/unit/g-update.test.ts there).
 func compareVersions(a, b string) int {
-	split := func(v string) ([]int, []string) {
+	split := func(v string) ([]float64, []string) {
 		core := strings.SplitN(v, "+", 2)[0]
 		main, pre, hasPre := strings.Cut(core, "-")
-		var nums []int
+		var nums []float64
 		for _, x := range strings.Split(main, ".") {
-			n, _ := strconv.Atoi(x)
+			n, _ := jsNumber(x[:len(x)-len(strings.TrimLeft(x, "0123456789"))])
 			nums = append(nums, n)
 		}
 		if !hasPre {
@@ -833,7 +1437,7 @@ func compareVersions(a, b string) int {
 	xn, xp := split(a)
 	yn, yp := split(b)
 	for i := 0; i < len(xn) || i < len(yn); i++ {
-		var p, q int
+		var p, q float64
 		if i < len(xn) {
 			p = xn[i]
 		}
@@ -868,18 +1472,18 @@ func compareVersions(a, b string) int {
 		if p == q {
 			continue
 		}
-		pn, perr := strconv.Atoi(p)
-		qn, qerr := strconv.Atoi(q)
+		pn, pok := jsNumber(p)
+		qn, qok := jsNumber(q)
 		switch {
-		case perr == nil && qerr == nil:
+		case pok && qok:
 			if pn < qn {
 				return -1
 			}
 			if pn > qn {
 				return 1
 			}
-		case (perr == nil) != (qerr == nil):
-			if perr == nil {
+		case pok != qok:
+			if pok {
 				return -1
 			}
 			return 1
@@ -891,4 +1495,14 @@ func compareVersions(a, b string) int {
 		}
 	}
 	return 0
+}
+
+// jsNumber reads an all-digit string as JavaScript's Number() does (the nearest float64); ok is false for "" and
+// anything else.
+func jsNumber(s string) (float64, bool) {
+	if s == "" || strings.TrimLeft(s, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(s, 64)
+	return n, err == nil || errors.Is(err, strconv.ErrRange)
 }

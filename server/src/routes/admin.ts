@@ -13,15 +13,20 @@ import { audit, listAudit } from '../admin/audit'
 import { createBudget, deleteBudget, listBudgets, updateBudget, usage } from '../admin/budgets'
 import { EngineStatusCache, engineStatusCache } from '../admin/engines'
 import {
-  afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, listFolders, previewRules, replaceRules,
-  resolveFolderPath, rulesOf, toFolder, validateRules,
+  actualFolderPath, afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolder, getFolderByPath, keepOfRow, listFolders,
+  previewRules, replaceRules, resolveFolderPath, rulesHashAt, rulesOf, toFolder, validateRules, type FolderRow,
 } from '../admin/folders'
+import { rulesHash } from '../admin/access-edit'
+import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
+import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
 import { credentialsOf } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
+import { openDeletionRequests } from '../auth/deletion-requests'
+import { peopleWithoutAi } from '../credentials/access'
 import type { Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { codexIsBeta } from '../chat/engines'
@@ -32,6 +37,7 @@ import { listSkillChanges } from '../skills/changes'
 import { readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
 import { registerCredentialRoutes } from './credentials'
+import { registerTeamLinkRoutes } from './team-links'
 import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
 import { checkApiEngineUrl } from '../system/egress'
 import { feature } from '../system/deployment'
@@ -56,7 +62,15 @@ export const adminRoutes: RouteModule = {
     const engineCache = engineStatusCache(ctx)
 
     // ---------------- users ----------------
-    kit.handle(API.listUsers, () => ({ items: listUsers(ctx) }))
+    kit.handle(API.listUsers, ({ query, auth }) => {
+      // "No AI" only for the screens that show it (Admin › Members, the owner's checklist)
+      let problems = {}
+      if (query.noAi) try { problems = getChatRuntime(ctx).engines.get().problems } catch { /* no chat runtime: none known */ }
+      const noAi = query.noAi ? peopleWithoutAi(ctx, { problems }) : null
+      // who asked for their account to be deleted: the owner's (who deletes accounts) only
+      const deletionRequested = auth.user.role === 'owner' ? openDeletionRequests(ctx) : null
+      return { items: listUsers(ctx), ...(noAi ? { noAi } : {}), ...(deletionRequested ? { deletionRequested } : {}) }
+    })
     kit.handle(API.createUser, ({ c, body }) => createUser(c, ctx, body))
     kit.handle(API.updateUser, ({ c, params, body }) => updateUser(c, ctx, params.id, body))
     kit.handle(API.deleteUser, ({ c, params, query }) => deleteUser(c, ctx, params.id, query.personalFolder))
@@ -79,13 +93,40 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.deleteGroup, ({ c, params }) => deleteGroup(c, ctx, params.id))
 
     // ---------------- folders and rules ----------------
+    // What the admin API refuses here, and only here: replaceRules / dropFolderRow also serve deleting a group, deleting
+    // a person, turning a skills manager off and dropping a project's marker row, which must keep working whatever
+    // rules are left. shared/ and skills/ keep at least one rule (with none, everyone but the owner and admins falls back
+    // to the team root's rules, and the root has none by default: "Everyone: No access" is the way to keep them to
+    // admins); a group's folder row stays while the group does (removing it cuts the group's link and the folder's
+    // protection for good); a row parked with a trashed folder is not there (404). Which row is which: folder-keep.ts,
+    // also sent as Folder.keep.
+    const editableRow = (id: string): FolderRow => {
+      const f = getFolder(ctx.db, id)
+      if (!f || isParkedRow(f.path)) return fail('not_found')
+      return f
+    }
+    const keepsRules = (p: string, rules: readonly unknown[], locale: Locale) => {
+      if (!rules.length && isTeamDefaultFolder(p, ctx.files.fx.caseInsensitive)) fail('validation', msg('teamFolderKeepsRules', locale), { fields: { 'body.rules': 'shared/ and skills/ keep at least one rule' } })
+    }
+    // A save that names the rules it started from (`expectedHash`, Folder.rulesHash) is refused when the folder's rules
+    // are not those any more: another admin, or the Members screen's skill manager switch, changed them in between, and
+    // saving would undo that unseen. Checked inside the save's transaction. Without the field: replaced as before.
+    const sameRules = (now: string, expected: string | undefined, locale: Locale) => {
+      if (expected !== undefined && expected !== now) fail('conflict', msg('rulesChanged', locale), { params: { reason: 'rules_changed' } })
+    }
     kit.handle(API.listFolders, () => ({ items: listFolders(ctx) }))
 
     kit.handle(API.createFolder, ({ c, body, auth }) => {
       const locale = c.get('locale')
       validateRules(ctx.db, body.rules, locale)
+      // judged before anything is made on disk (create: true)
+      const typed = actualFolderPath(ctx, body.path)
+      if (typed !== null) keepsRules(typed, body.rules, locale)
+      // another admin's rules made meanwhile: said as such, before anything is made on disk
+      if (body.expectedHash !== undefined && typed !== null) sameRules(rulesHashAt(ctx.db, typed), body.expectedHash, locale)
       const { path: p, created } = resolveFolderPath(ctx, body.path, { create: body.create, locale })
       const existing = getFolderByPath(ctx.db, p)
+      if (body.expectedHash !== undefined) sameRules(rulesHashAt(ctx.db, p), body.expectedHash, locale)
       if (existing && rulesOf(ctx.db, existing.id).length) fail('conflict', msg('folderExists', locale))
       const before = captureState(ctx.db)
       const f = ctx.db.transaction(() => {
@@ -136,34 +177,44 @@ export const adminRoutes: RouteModule = {
     })
 
     kit.handle(API.putFolderRules, ({ c, params, body, auth }) => {
-      const f = getFolder(ctx.db, params.id)
-      if (!f) fail('not_found')
+      const f = editableRow(params.id)
       // a folder moved into users/ keeps its row; rules there are ignored, so refuse to edit them as if they worked
-      if (f!.path === 'users' || f!.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
+      if (f.path === 'users' || f.path.startsWith('users/')) fail('validation', msg('rulesInUsers', c.get('locale')), { fields: { 'params.id': 'users/ cannot carry rules' } })
+      keepsRules(f.path, body.rules, c.get('locale'))
       validateRules(ctx.db, body.rules, c.get('locale'))
       const before = captureState(ctx.db)
-      const old = rulesOf(ctx.db, f!.id)
+      const old = rulesOf(ctx.db, f.id)
       ctx.db.transaction(() => {
-        replaceRules(ctx.db, f!.id, body.rules, auth.user.id)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f!.path, detail: { before: old, after: body.rules } })
+        sameRules(rulesHash(rulesOf(ctx.db, f.id)), body.expectedHash, c.get('locale'))
+        replaceRules(ctx.db, f.id, body.rules, auth.user.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'folder.rules', target: f.path, detail: { before: old, after: body.rules } })
       })()
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: f!.path })
-      return toFolder(ctx, f!)
+      afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
+      return toFolder(ctx, f)
     })
 
-    kit.handle(API.deleteFolder, ({ params, auth }) => {
-      const f = getFolder(ctx.db, params.id)
-      if (!f) fail('not_found')
+    kit.handle(API.deleteFolder, ({ c, params, auth }) => {
+      const f = editableRow(params.id)
+      const keep = keepOfRow(ctx, f)
+      if (keep === 'team') fail('conflict', msg('teamFolderKeepsRules', c.get('locale')))
+      if (keep === 'group') fail('conflict', msg('groupFolderKeepsRow', c.get('locale')))
       const before = captureState(ctx.db)
-      const old = rulesOf(ctx.db, f!.id)
+      const old = rulesOf(ctx.db, f.id)
       ctx.db.transaction(() => {
-        dropFolderRow(ctx.db, f!.id)
-        audit(ctx.db, { actor: auth.user.id, action: 'folder.delete', target: f!.path, detail: { before: old } })
+        dropFolderRow(ctx.db, f.id)
+        audit(ctx.db, { actor: auth.user.id, action: 'folder.delete', target: f.path, detail: { before: old } })
       })()
-      afterAccessChange(ctx, before, { actor: auth.user.id, target: f!.path })
+      afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
     })
 
     kit.handle(API.previewRules, ({ c, body }) => previewRules(ctx, body.changes, c.get('locale')))
+    // who sees a folder and why, what one person sees and why (admin/access-explain.ts; read only)
+    kit.handle(API.explainFolderAccess, ({ c, query }) => explainFolder(ctx, query, c.get('locale')))
+    kit.handle(API.explainPersonAccess, ({ params, query }) => explainPerson(ctx, params.id, query))
+    kit.handle(API.explainNewPersonAccess, ({ c, body }) => explainNewPerson(ctx, body, c.get('locale')))
+    kit.handle(API.explainAccessTree, ({ c, query }) => explainTree(ctx, query, c.get('locale')))
+    // the edit panel: what saving these rules would change (admin/access-edit.ts; nothing is saved)
+    kit.handle(API.previewFolderEdit, ({ c, body }) => explainEdit(ctx, body, c.get('locale')))
 
     // ---------------- team skills: who manages them, what changed (skills/managers.ts, skills/changes.ts) ----------------
     kit.handle(API.listSkillManagers, () => listSkillManagers(ctx))
@@ -237,6 +288,7 @@ export const adminRoutes: RouteModule = {
 
     // ---------------- AI connections (server/src/credentials, routes/credentials.ts) ----------------
     registerCredentialRoutes(kit, ctx)
+    registerTeamLinkRoutes(kit, ctx)
 
     // ---------------- budgets, settings, usage, audit ----------------
     kit.handle(API.listBudgets, () => ({ items: listBudgets(ctx.db) }))

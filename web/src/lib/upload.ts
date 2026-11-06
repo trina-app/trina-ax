@@ -2,16 +2,46 @@
 // upload session (8 MB chunks, sha256 checked by the server). A session survives a dropped connection and a page
 // reload: it is remembered per file (name, size, mtime, target) and continues from the chunks the server already has.
 import { createSHA256 } from 'hash-wasm'
+import { t } from '../i18n'
 import { UPLOADS_KEY } from './localData'
 import { API, ApiError, SMALL_UPLOAD_MAX, UPLOAD_CHUNK_SIZE, type ApiClient, type UploadComplete, type UploadSession, type UploadTarget } from '@mycel/shared/api'
 
-/** Up to this size one request is enough (and shows progress less needed); bigger files go chunked. */
+/** Up to this size one request is enough; bigger files go chunked. */
 export const SINGLE_REQUEST_MAX = 8 * 1024 * 1024
+/** The browser counts sent bytes many times a second, and each report redraws what shows it: a new whole percent, at most
+ * this often, is enough for a person. */
+const REPORT_EVERY_MS = 250
+/** Uploads on their way at a time, on the whole page: a small file, or one chunk of a large one. Each holds a copy in memory
+ * until its request ends, and the file screen and a chat start all that was picked at once: 20 files of 8 MB took 684 MB in
+ * WebKit's network process. A folder upload sends three at a time by itself and takes its places in the same line. */
+const COPIES_AT_ONCE = 3
+/** No byte out for this long: the upload goes on without its place, and the line moves. There is no time limit on a
+ * request, so a stopped one would otherwise hold its place until the person removes it. */
+const PLACE_IDLE_MS = 20_000
 
+/** `loaded` and `total` count the file's own bytes, in every phase. */
 export interface UploadProgress {
   phase: 'hashing' | 'uploading' | 'finishing'
   loaded: number
   total: number
+}
+
+export type Running = { phase: UploadProgress['phase'] | null; loaded: number; total: number } | null | undefined
+
+/** The whole percent of a running upload, or null when there is no number to show: nothing has gone out yet, the file
+ * is being hashed (a percent of that would fall back to 0 when the bytes start), or the server is taking the last of
+ * it. Never 100 while the upload runs: the answer can still take a while, and 100 would look stuck. */
+export function uploadPercent(p: Running): number | null {
+  if (p?.phase !== 'uploading' || !p.total) return null
+  const pct = Math.floor((p.loaded / p.total) * 100)
+  return pct > 0 ? Math.min(pct, 99) : null
+}
+
+/** What a running upload says beside its spinner. */
+export function uploadLabel(p: Running, t: (key: 'files.preparing' | 'files.finishing') => string): string {
+  if (p?.phase === 'finishing') return t('files.finishing')
+  const pct = uploadPercent(p)
+  return pct === null ? t('files.preparing') : `${pct}%`
 }
 
 export interface UploadOptions {
@@ -22,6 +52,10 @@ export interface UploadOptions {
   storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null
   /** wait between retries (tests pass 0) */
   retryDelayMs?: number
+  /** at least this long between reports of bytes on their way (tests pass 0) */
+  reportEveryMs?: number
+  /** how long an upload with no byte out keeps its place (tests pass less) */
+  placeIdleMs?: number
   singleRequestMax?: number
 }
 
@@ -55,7 +89,8 @@ export async function sha256Hex(blob: Blob, onProgress?: (done: number) => void,
   return h.digest('hex')
 }
 
-const retryable = (e: unknown) => !(e instanceof ApiError) || e.status >= 500 || e.code === 'rate_limited' || e.code === 'unavailable'
+// 507 storage_full is an answer, not a server fault: a person must free space first, so it ends the file at once
+const retryable = (e: unknown) => !(e instanceof ApiError) || (e.status >= 500 && e.code !== 'storage_full') || e.code === 'rate_limited' || e.code === 'unavailable'
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, ms)
@@ -80,24 +115,132 @@ export async function uploadFile(file: File, target: UploadTarget, o: UploadOpti
   return uploadChunked(file, target, o)
 }
 
-async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
-  o.onProgress?.({ phase: 'uploading', loaded: 0, total: file.size })
-  let out: UploadComplete
-  if (target.kind === 'path') {
-    const slash = target.path.lastIndexOf('/')
-    const folder = slash < 0 ? '' : target.path.slice(0, slash)
-    const name = target.path.slice(slash + 1)
-    const entry = await o.client.call(API.upload, { body: { fields: { folder, name, onExists: target.onExists }, file, filename: name }, signal: o.signal })
-    out = { kind: 'path', entry }
-  } else if (target.kind === 'attachment') {
-    const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name }, file, filename: target.name }, signal: o.signal })
-    out = { kind: 'attachment', attachment }
-  } else {
-    const { jobId } = await o.client.call(API.transcribe, { body: { fields: {}, file, filename: target.name }, signal: o.signal })
-    out = { kind: 'transcribe', jobId }
+/** Reports bytes on their way, sparingly (REPORT_EVERY_MS). A report of a new phase goes straight to o.onProgress. */
+function sparingly(o: UploadOptions) {
+  let at = 0
+  let percent = -1
+  return (p: UploadProgress) => {
+    const now = Date.now()
+    const pct = Math.floor((p.loaded / p.total) * 100)
+    if (pct === percent || now - at < (o.reportEveryMs ?? REPORT_EVERY_MS)) return
+    at = now
+    percent = pct
+    o.onProgress?.(p)
   }
-  o.onProgress?.({ phase: 'finishing', loaded: file.size, total: file.size })
-  return out
+}
+
+let onTheirWay = 0
+/** Uploads that gave their place back and still run. A slow line that reports late can look stopped, so this has a limit
+ * too: with COPIES_AT_ONCE more, at most six copies are on their way, what a browser opens to one host anyway. */
+let overtime = 0
+const inLine: (() => void)[] = []
+
+interface Place {
+  /** bytes went out */
+  moved(): void
+  /** the upload or the chunk ended, whichever way */
+  end(): void
+}
+
+function holdPlace(idleMs: number): Place {
+  let held = true
+  let timer: ReturnType<typeof setTimeout>
+  const giveBack = () => {
+    held = false
+    // the next in line takes the place over as it is
+    const next = inLine.shift()
+    if (next) next()
+    else onTheirWay--
+  }
+  const watch = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (overtime >= COPIES_AT_ONCE) return watch()
+      overtime++
+      giveBack()
+    }, idleMs)
+  }
+  watch()
+  return {
+    moved: () => { if (held) watch() },
+    end: () => {
+      clearTimeout(timer)
+      if (held) giveBack()
+      else overtime--
+    },
+  }
+}
+
+/** A voice recording is in memory already, there is one at a time, and the person waits for it with the message box shut. */
+const NO_PLACE: Place = { moved: () => {}, end: () => {} }
+
+/** A place among COPIES_AT_ONCE, first come first served. A cancel leaves the line at once. */
+async function takePlace(target: UploadTarget, o: UploadOptions): Promise<Place> {
+  if (target.kind === 'transcribe') return NO_PLACE
+  const { signal } = o
+  signal?.throwIfAborted()
+  if (onTheirWay < COPIES_AT_ONCE) onTheirWay++
+  else {
+    await new Promise<void>((resolve, reject) => {
+      const turn = () => {
+        signal?.removeEventListener('abort', leave)
+        resolve()
+      }
+      const leave = () => {
+        inLine.splice(inLine.indexOf(turn), 1)
+        reject(signal!.reason)
+      }
+      inLine.push(turn)
+      signal?.addEventListener('abort', leave, { once: true })
+    })
+  }
+  return holdPlace(o.placeIdleMs ?? PLACE_IDLE_MS)
+}
+
+async function uploadSmall(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
+  const total = file.size
+  const finishing = () => o.onProgress?.({ phase: 'finishing', loaded: total, total })
+  o.onProgress?.({ phase: 'uploading', loaded: 0, total })
+  const place = await takePlace(target, o)
+  try {
+    // WebKit bug 319985: Safari and iOS from 26.5 can send a File with no bytes (Content-Length: 0), and a page under a
+    // service worker is the reported case, as this app with web/pwa/sw.js is. A copy in memory goes out whole. In every
+    // browser: all browsers on an iPhone are WebKit, a wrong guess from the user agent fails the whole upload, and only a
+    // few copies exist at a time. A chunk of a larger file is copied too: a slice is still read from the disk by the network
+    // process, which is where iOS refuses it.
+    const body = new Blob([await file.arrayBuffer()], { type: file.type })
+    o.signal?.throwIfAborted()
+    const report = sparingly(o)
+    // the last byte out is not the end: the server still stores the file and answers
+    const onUploadProgress = o.onProgress && ((sent: number) => {
+      place.moved()
+      if (sent < 1) report({ phase: 'uploading', loaded: Math.round(sent * total), total })
+      else finishing()
+    })
+    const request = { signal: o.signal, onUploadProgress }
+    // the server refuses a part of another size before it stores it; this is for one that has no such check
+    const kept = (size: number | null) => { if (size !== total) throw new ApiError(400, { code: 'validation', message: t('files.incompleteUpload') }) }
+    let out: UploadComplete
+    if (target.kind === 'path') {
+      const slash = target.path.lastIndexOf('/')
+      const folder = slash < 0 ? '' : target.path.slice(0, slash)
+      const name = target.path.slice(slash + 1)
+      const entry = await o.client.call(API.upload, { body: { fields: { folder, name, onExists: target.onExists, size: String(total) }, file: body, filename: name }, ...request })
+      kept(entry.size)
+      out = { kind: 'path', entry }
+    } else if (target.kind === 'attachment') {
+      const attachment = await o.client.call(API.uploadAttachment, { body: { fields: { chatId: target.chatId, name: target.name, size: String(total) }, file: body, filename: target.name }, ...request })
+      kept(attachment.size)
+      out = { kind: 'attachment', attachment }
+    } else {
+      const { jobId } = await o.client.call(API.transcribe, { body: { fields: target.chatId ? { chatId: target.chatId } : {}, file: body, filename: target.name }, ...request })
+      out = { kind: 'transcribe', jobId }
+    }
+    finishing()
+    return out
+  } finally {
+    place.end()
+  }
 }
 
 async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions): Promise<UploadComplete> {
@@ -128,15 +271,29 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
   const id = session.id
   const size = session.chunkSize
   let received = new Set(session.received)
-  const report = () => o.onProgress?.({ phase: 'uploading', loaded: Math.min(total, received.size * size), total })
-  report()
+  // the most bytes reported so far: a chunk sent again does not take the number back (or a folder's sum, which adds these)
+  let shown = 0
+  const sentSoFar = (onItsWay = 0): UploadProgress => {
+    shown = Math.max(shown, Math.min(total, received.size * size + onItsWay))
+    return { phase: 'uploading', loaded: shown, total }
+  }
+  const report = sparingly(o)
+  o.onProgress?.(sentSoFar())
   for (let n = 0; n < session.chunkCount; n++) {
     if (received.has(n)) continue
     o.signal?.throwIfAborted()
     const chunk = file.slice(n * size, Math.min(total, (n + 1) * size))
     const r = await withRetry(async () => {
+      // a place for this try only: not between tries, and between chunks other files get their turn
+      const place = await takePlace(target, o)
       try {
-        return await o.client.call(API.uploadChunk, { params: { id, n: String(n) }, body: chunk, signal: o.signal })
+        const body = new Blob([await chunk.arrayBuffer()]) // why a copy: uploadSmall
+        o.signal?.throwIfAborted()
+        const onUploadProgress = o.onProgress && ((sent: number) => {
+          place.moved()
+          report(sentSoFar(Math.round(sent * chunk.size)))
+        })
+        return await o.client.call(API.uploadChunk, { params: { id, n: String(n) }, body, signal: o.signal, onUploadProgress })
       } catch (e) {
         // after a network drop, ask what arrived before sending again
         if (!(e instanceof ApiError)) {
@@ -144,10 +301,12 @@ async function uploadChunked(file: File, target: UploadTarget, o: UploadOptions)
           if (s?.received.includes(n)) return { received: s.received }
         }
         throw e
+      } finally {
+        place.end()
       }
     }, o)
     received = new Set(r.received)
-    report()
+    o.onProgress?.(sentSoFar())
   }
   o.onProgress?.({ phase: 'finishing', loaded: total, total })
   const done = await withRetry(() => o.client.call(API.completeUploadSession, { params: { id }, signal: o.signal }), o)

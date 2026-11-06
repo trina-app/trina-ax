@@ -5,21 +5,22 @@ import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
-import { Check, Copy, Download, Eye, FileText, ImageOff, ExternalLink } from 'lucide-react'
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Check, ChevronRight, Copy, Download, FileText, ImageOff, ExternalLink } from 'lucide-react'
+import { createContext, memo, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
 import rehypeKatex from 'rehype-katex'
 import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import { fileUrl, saveBlob, startDownload } from '../lib/api'
+import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown } from '../lib/markdown'
 import { previewKind } from '../lib/preview'
+import type { SourceLoc } from '@mycel/shared/api'
 import { openTeamFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
-import { useCopy } from './ui'
+import { useCopy, useEdgeFade } from './ui'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
 const mathRehype = [rehypeKatex, { throwOnError: false, strict: false, trust: false, maxExpand: 500 }] as const
@@ -122,20 +123,20 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
     }
   }, [lang, code])
   return (
-    <div className="not-prose group my-3 overflow-hidden rounded-lg bg-code-bg text-code-ink">
+    <div className="not-prose group my-3 overflow-hidden rounded-lg bg-code-bg text-code-ink dark:ring-1 dark:ring-line">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-1 text-xs text-[#b9b3a8]">
         <span>{lang ?? t('md.code')}</span>
-        <span className="flex items-center gap-1">
-          <button type="button" className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => void copy(code)} aria-label={copied ? t('common.copied') : t('md.copyCode')}>
+        <span className="flex items-center gap-1 max-md:gap-3">
+          <button type="button" className="touch-hit flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white" onClick={() => void copy(code)} aria-label={copied ? t('common.copied') : t('md.copyCode')}>
             {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
             <span>{copied ? t('common.copied') : t('common.copy')}</span>
           </button>
-          <button type="button" className="rounded p-1 hover:bg-white/10 hover:text-white" aria-label={t('md.downloadCode')} title={t('md.downloadCode')} onClick={() => saveBlob(new Blob([code], { type: 'text/plain;charset=utf-8' }), `code.${LANG_EXT[lang ?? ''] ?? 'txt'}`)}>
+          <button type="button" className="touch-hit rounded p-1 hover:bg-white/10 hover:text-white" aria-label={t('md.downloadCode')} title={t('md.downloadCode')} onClick={() => saveBlob(new Blob([code], { type: 'text/plain;charset=utf-8' }), `code.${LANG_EXT[lang ?? ''] ?? 'txt'}`)}>
             <Download size={13} aria-hidden />
           </button>
         </span>
       </div>
-      <pre className="m-0 overflow-x-auto p-3 text-[13px] leading-5">
+      <pre className="m-0 overflow-x-auto p-3 text-code leading-5">
         {html !== null ? <code className="hljs font-mono" dangerouslySetInnerHTML={{ __html: html }} /> : <code className="font-mono">{code}</code>}
       </pre>
     </div>
@@ -147,6 +148,9 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
 function CopyableTable({ children }: { children: ReactNode }) {
   const t = useT()
   const ref = useRef<HTMLTableElement>(null)
+  // a table wider than the answer scrolls sideways: the edge with more columns behind it fades, so the cut reads as "scroll"
+  const scroller = useRef<HTMLDivElement>(null)
+  useEdgeFade(scroller)
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     const rows = [...ref.current!.rows].map((r) => [...r.cells].map((c) => ({ head: c.tagName === 'TH', text: c.innerText.replace(/\s*\n\s*/g, ' ').trim() })))
@@ -162,18 +166,25 @@ function CopyableTable({ children }: { children: ReactNode }) {
     setTimeout(() => setCopied(false), 1500)
   }
   return (
-    // phones (button always shown): the button sits under the table instead of on its top border, over the header row
-    <div className="group relative my-3 max-sm:flex max-sm:flex-col">
-      <div className="overflow-x-auto rounded-lg border border-line">
-        <table ref={ref} className="m-0 min-w-full text-sm">
-          {children}
-        </table>
+    // the button sits under the table on the right, over nothing (on its top border it covered the last header cell);
+    // phones: always shown, screens with a pointer: on hover or focus, like a quote's copy button
+    <div className="group relative my-3 flex flex-col">
+      <div className="relative">
+        {/* a wider fade than the tab rows, and a round arrow at the cut edge: the mask alone is faint on the dark page */}
+        <div ref={scroller} className="edge-fade peer overflow-x-auto rounded-lg border border-line [--fade:3rem]!" data-testid="md-table-scroll">
+          <table ref={ref} className="m-0 min-w-full text-sm">
+            {children}
+          </table>
+        </div>
+        <span className="pointer-events-none absolute top-1/2 right-1.5 hidden size-6 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-surface text-muted shadow-sm peer-data-[fade-end]:flex" aria-hidden data-testid="md-table-more">
+          <ChevronRight size={14} />
+        </span>
       </div>
       <button
         type="button"
         onClick={copy}
         title={t('md.copyTableHint')}
-        className="absolute -top-2.5 right-2 flex items-center gap-1 max-sm:static max-sm:mt-1.5 max-sm:self-end rounded-md border border-line bg-surface px-1.5 py-0.5 text-xs font-medium text-muted shadow-sm transition hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        className="mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >
         {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
         {copied ? t('common.copied') : t('md.copyTable')}
@@ -182,22 +193,65 @@ function CopyableTable({ children }: { children: ReactNode }) {
   )
 }
 
-// ---------------- links and images ----------------
-/** A file the AI made or mentioned: a chip that opens the preview panel. A file without a viewer opens the panel
- *  too, which shows the "can't be previewed" notice and a download button. */
-function TeamFileLink({ path, children }: { path: string; children: ReactNode }) {
+// ---------------- quotes ----------------
+/** A quote with its own quiet copy button (an ad option, a message draft: each block copies on its own). Phones: the
+ * button is always there, under the quote on the right; screens with a pointer: on hover or focus. No frame added.
+ * Only top-level quotes of an assistant answer (labelQuotes, `copyQuotes`); `label` names what it copies. */
+function CopyableQuote({ label, children }: { label: string; children: ReactNode }) {
   const t = useT()
+  const ref = useRef<HTMLQuoteElement>(null)
+  const { copied, copy } = useCopy()
+  return (
+    <div className="group/quote relative my-3 flex flex-col [&>blockquote]:my-0!" data-testid="copyable-quote">
+      {/* upright and without the typography's added quote marks: an option to copy, not a citation (Korean has no italics) */}
+      <blockquote ref={ref} className="not-italic [&>p:first-of-type]:before:content-none [&>p:last-of-type]:after:content-none">
+        {children}
+      </blockquote>
+      <button
+        type="button"
+        onClick={() => void copy((ref.current?.innerText ?? ref.current?.textContent ?? '').trim())}
+        aria-label={copied ? t('common.copied') : t('md.copyQuote', { what: label })}
+        className="not-prose mt-1 flex items-center gap-1 self-end rounded-md px-1.5 py-0.5 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-focus-within/quote:opacity-100 [@media(hover:hover)]:group-hover/quote:opacity-100"
+        data-testid="copy-quote"
+      >
+        {copied ? <Check size={12} className="text-ok" aria-hidden /> : <Copy size={12} aria-hidden />}
+        {copied ? t('common.copied') : t('common.copy')}
+      </button>
+    </div>
+  )
+}
+
+/** The plain text of a table cell (its Markdown node). */
+const cellText = (n: Element | ElementContent | undefined): string =>
+  !n ? '' : n.type === 'text' ? n.value : 'children' in n ? n.children.map((c) => cellText(c as ElementContent)).join('') : ''
+/** A number, amount, percent or date ("1,234.5", "-12%", "$3.2M", "2026-11-04"): it must not break over two lines. */
+const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]*(%|[A-Za-z]{1,3})?\)?$/.test(text.trim())
+
+// ---------------- links and images ----------------
+/** Team files this viewer may open, where the text is shown to people with different access (an AI answer in a team
+ * chat room: RoomMessage.openable). Inside it, a link or picture of any other team file is plain text: no chip to
+ * click, no picture loaded. Absent (null), as in the person's own chats, every team link is a chip. */
+const OpenableFiles = createContext<ReadonlySet<string> | null>(null)
+const openableOk = (set: ReadonlySet<string> | null, path: string) => !set || set.has(path.replace(/^\/+|\/+$/g, ''))
+
+/** A file the AI made or mentioned: a link in the sentence, with a small file icon at the text's height, that opens the
+ *  preview panel (which has the download; a file without a viewer shows the "can't be previewed" notice and a
+ *  download button there). No frame, divider or button of its own: it reads like a word and wraps like one. */
+function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
+  const t = useT()
+  if (!openableOk(useContext(OpenableFiles), path)) return <span data-testid="team-file-text">{children}</span>
   const canPreview = previewKind(path) !== null
   return (
-    <span className="not-prose my-1 inline-flex max-w-full items-stretch overflow-hidden rounded-xl border border-line bg-surface align-middle text-sm font-medium text-ink shadow-sm">
-      <button type="button" onClick={() => openTeamFile(path)} className="inline-flex min-w-0 items-center gap-2 px-3 py-1.5 text-left hover:bg-hover" title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}>
-        {canPreview ? <Eye size={15} className="shrink-0 text-accent-text" aria-hidden /> : <FileText size={15} className="shrink-0 text-accent-text" aria-hidden />}
-        <span className="break-all">{children}</span>
-      </button>
-      <button type="button" onClick={() => startDownload(fileUrl(path), baseName(path))} className="border-l border-line px-2.5 text-muted hover:bg-hover" aria-label={t('common.download')} title={t('common.download')}>
-        <Download size={14} aria-hidden />
-      </button>
-    </span>
+    <button
+      type="button"
+      onClick={() => openTeamFile(path, at)}
+      className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text"
+      title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}
+      data-testid="team-file-chip"
+    >
+      <FileText className="mr-0.5 inline-block size-[0.95em] shrink-0 align-[-0.125em]" aria-hidden />
+      {children}
+    </button>
   )
 }
 
@@ -205,6 +259,8 @@ function TeamFileLink({ path, children }: { path: string; children: ReactNode })
 export function TeamImage({ path, alt, className }: { path: string; alt?: string; className?: string }) {
   const t = useT()
   const [failed, setFailed] = useState(false)
+  const openable = useContext(OpenableFiles)
+  if (!openableOk(openable, path)) return <span className="text-faint" data-testid="team-file-text">[{alt || baseName(path) || t('md.image')}]</span>
   if (!isDisplayableImagePath(path) || failed)
     return (
       <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path)}>
@@ -238,9 +294,10 @@ const origin = () => (typeof location === 'undefined' ? 'http://localhost' : loc
 // defined once: inline component functions are new types on every render, which remounts (and resets) diagrams
 const COMPONENTS: Components = {
   table: ({ children }) => <CopyableTable>{children}</CopyableTable>,
+  td: ({ node, className, ...props }) => <td {...props} className={clsx(className, isNumberCell(cellText(node)) && 'whitespace-nowrap') || undefined} />,
   a: ({ href, children }) => {
     const l = classifyLink(href, origin())
-    if (l.kind === 'team-file') return <TeamFileLink path={l.path}>{children}</TeamFileLink>
+    if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
     if (l.kind === 'app') return <Link to={l.href}>{children}</Link>
     if (l.kind === 'external')
       return (
@@ -264,13 +321,22 @@ const COMPONENTS: Components = {
     return <span className="text-faint">[{alt}]</span>
   },
 }
+/** An assistant answer's Markdown: the top-level quotes labelQuotes named get a copy button each; other quotes stay
+ * plain quotes, as in files, docs, artifacts and the rest of the app. */
+const COMPONENTS_ANSWER: Components = {
+  ...COMPONENTS,
+  blockquote: ({ node, children }) => {
+    const label = node?.properties?.dataQuoteLabel
+    return typeof label === 'string' ? <CopyableQuote label={label}>{children}</CopyableQuote> : <blockquote>{children}</blockquote>
+  },
+}
 
 // cjk-friendly: "**마일스톤(◆)**으로" is bold (CommonMark ends emphasis only before punctuation or a space, and Korean
 // particles follow the closing ** directly)
-const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never]
+export const REMARK = [remarkGfm, remarkCjkFriendly, mathRemark as never]
 
 /** Remove only parsed comments from raw HTML; keep all other HTML escaped by ReactMarkdown as before. */
-function hideHtmlComments() {
+export function hideHtmlComments() {
   return (tree: Root) => {
     function visit(node: Root | RootContent) {
       if (node.type === 'raw' && node.value.includes('<!--')) {
@@ -298,24 +364,73 @@ function hideHtmlComments() {
   }
 }
 
+/** The visible text of a hast node (no markup). */
+function hastText(n: Root | RootContent | ElementContent): string {
+  if (n.type === 'text') return n.value
+  return 'children' in n ? (n.children as RootContent[]).map(hastText).join('') : ''
+}
+/** Longest name a copy button gets from a heading or a quote's first line. */
+const QUOTE_LABEL_MAX = 40
+
+/**
+ * Assistant answers only: every top-level quote (a child of the answer itself, never a quote inside a quote or a list)
+ * gets the name of its copy button in `data-quote-label`: the heading right before it ("1안 · 혜택 중심"), else its own
+ * first line, else its number; a name already used in the answer gets " (2)", " (3)". A quote without the name keeps
+ * the plain quote styling (COMPONENTS_ANSWER).
+ */
+export function labelQuotes() {
+  return (tree: Root) => {
+    const used = new Map<string, number>()
+    let heading: string | null = null
+    let n = 0
+    for (const c of tree.children) {
+      if (c.type === 'text' && !c.value.trim()) continue
+      if (c.type === 'element' && /^h[1-6]$/.test(c.tagName)) { heading = hastText(c).trim(); continue }
+      if (c.type === 'element' && c.tagName === 'blockquote') {
+        n++
+        const first = hastText(c).trim().split('\n')[0]!.trim()
+        let label = (heading || first || `#${n}`).replace(/\s+/g, ' ')
+        if (label.length > QUOTE_LABEL_MAX) label = label.slice(0, QUOTE_LABEL_MAX - 1).trimEnd() + '…'
+        const seen = (used.get(label) ?? 0) + 1
+        used.set(label, seen)
+        c.properties = { ...c.properties, dataQuoteLabel: seen > 1 ? `${label} (${seen})` : label }
+      }
+      heading = null
+    }
+  }
+}
+
 const REHYPE = [hideHtmlComments, mathRehype as never]
+const REHYPE_ANSWER = [hideHtmlComments, labelQuotes, mathRehype as never]
 
 /** Keep the react-markdown default URL check (javascript: etc. become empty), but let our own download links through. */
-function urlTransform(url: string): string {
+export function urlTransform(url: string): string {
   if (/^(https?:|mailto:|tel:|\/|#|\.|data:image\/(png|jpeg|gif|webp);)/i.test(url)) return url
   if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) return url // relative
   return ''
 }
 
-export const Markdown = memo(function Markdown({ text, streaming, className }: { text: string; streaming?: boolean; className?: string }) {
+// A size is chosen here, not overridden through className: Tailwind orders the built stylesheet by its own rules, not by
+// the order in the class attribute, so of two sizes on one element either may win (leading-7 and prose-h3:text-reading
+// the same way). text-reading is 15px, 17px on phones (index.css).
+const SIZES = {
+  answer: 'text-reading leading-7 prose-h1:text-lg prose-h2:text-base prose-h3:text-reading',
+  // (inline code is 0.85em; in small text on a phone that would read under 13px, so there it is the text's size)
+  small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs max-md:prose-code:text-[1em]',
+}
+
+/** `copyQuotes`: an assistant answer in the chat, where each top-level quote copies on its own (ad options, drafts). */
+export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes, openable }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean; openable?: ReadonlySet<string> }) {
+  if (openable) return <OpenableFiles.Provider value={openable}><Markdown text={text} streaming={streaming} className={className} size={size} copyQuotes={copyQuotes} /></OpenableFiles.Provider>
   return (
     <div
       className={clsx(
-        'answer prose max-w-none text-[15px] leading-7 break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-[15px] prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+        'answer prose max-w-none break-words prose-headings:mt-4 prose-headings:mb-1.5 prose-headings:font-semibold prose-p:my-2 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5 prose-hr:my-4 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+        SIZES[size],
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={COMPONENTS} urlTransform={urlTransform}>
+      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={copyQuotes ? REHYPE_ANSWER : REHYPE} components={copyQuotes ? COMPONENTS_ANSWER : COMPONENTS} urlTransform={urlTransform}>
         {prepareMarkdown(text, streaming)}
       </ReactMarkdown>
     </div>

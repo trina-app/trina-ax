@@ -22,6 +22,7 @@ export interface TarEntryInput {
   /** in-memory content for small generated files (exports, metadata) */
   data?: Uint8Array
   mode?: number
+  /** the entry's time; a file from `source` without one keeps its own */
   mtimeMs?: number
 }
 
@@ -119,7 +120,7 @@ export async function* tarStream(entries: AsyncIterable<TarEntryInput> | Iterabl
       const st = await fh.stat()
       if (!st.isFile()) continue
       const size = st.size
-      for (const b of entryHeaders(name, size, e.mode ?? (st.mode & 0o777), st.mtimeMs, 'file')) yield b
+      for (const b of entryHeaders(name, size, e.mode ?? (st.mode & 0o777), e.mtimeMs ?? st.mtimeMs, 'file')) yield b
       let done = 0
       let short = false
       while (done < size) {

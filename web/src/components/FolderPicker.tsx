@@ -122,7 +122,7 @@ export default function FolderPicker({
             <li key={f.path}>
               <button
                 type="button"
-                className={clsx('flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-sm last:border-0 hover:bg-hover')}
+                className={clsx('flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-sm last:border-0 hover:bg-hover focus-visible:-outline-offset-2')}
                 onClick={() => setPath(f.path)}
               >
                 <Folder size={15} className="text-accent-text" aria-hidden />

@@ -1,6 +1,7 @@
 // The chat store against a fake REST server (global fetch) and hand-made WebSocket events.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { Chat, uuidv7, type TurnStarted } from '@mycel/shared/api'
+import { CARD_NEWS_ARTIFACT_KEY, Chat, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type TurnStarted } from '@mycel/shared/api'
+import { typingOnPhone } from '../../src/lib/sidePanel'
 import { PENDING_EVENTS_MAX, SEND_RETRY_MS, useChats } from '../../src/store/chats'
 import { CHAT, msg } from './fixtures'
 
@@ -191,6 +192,71 @@ describe('events', () => {
     h({ type: 'artifact.updated', seq: 3, at: 0, data: { ...base, status: 'done', artifact: null } })
     expect(useChats.getState().artifactsRev[CHAT]).toBe(1)
     expect(useChats.getState().liveArtifacts[CHAT]!.k!.status).toBe('done')
+  })
+
+  test('a saved card news opens the panel by itself (no "writing" first, as from the team server); other saved artifacts do not', () => {
+    const h = useChats.getState().handleEvent
+    const saved = (key: string, version: number, seq: number) => h({ type: 'artifact.updated', seq, at: 0, data: { chatId: CHAT, messageId: null, key, type: 'html', title: 'Acme 카드뉴스', status: 'done', artifact: { id: uuidv7(), chatId: CHAT, messageId: null, key, version, type: 'html', title: 'Acme 카드뉴스', language: null, createdAt: '2026-11-05T00:00:00.000Z', size: 10 } } })
+    saved('report', 1, 1)
+    expect(useChats.getState().autoOpen).toBeNull()
+    saved(CARD_NEWS_ARTIFACT_KEY, 1, 2)
+    expect(useChats.getState().autoOpen).toMatchObject({ chatId: CHAT, key: 'card-news' })
+    // used once (Layout clears it); the next version in the same session does not open it again over the person
+    useChats.setState({ autoOpen: null })
+    saved(CARD_NEWS_ARTIFACT_KEY, 2, 3)
+    expect(useChats.getState().autoOpen).toBeNull()
+  })
+
+  test('a saved promo video (the welcome steps\' first result, docs/DECISIONS.md "V") opens the panel by itself too, once', () => {
+    const h = useChats.getState().handleEvent
+    const saved = (version: number, seq: number) => h({ type: 'artifact.updated', seq, at: 0, data: { chatId: CHAT, messageId: null, key: PROMO_ARTIFACT_KEY, type: 'html', title: 'Acme 홍보 영상', status: 'done', artifact: { id: uuidv7(), chatId: CHAT, messageId: null, key: PROMO_ARTIFACT_KEY, version, type: 'html', title: 'Acme 홍보 영상', language: null, createdAt: '2026-11-05T00:00:00.000Z', size: 10 } } })
+    saved(1, 1)
+    expect(useChats.getState().autoOpen).toMatchObject({ chatId: CHAT, key: 'promo-video' })
+    useChats.setState({ autoOpen: null })
+    saved(2, 2)
+    expect(useChats.getState().autoOpen).toBeNull()
+  })
+
+  test('a saved intro deck (the welcome steps\' first result, docs/DECISIONS.md "D2") opens the panel by itself too, once', () => {
+    const h = useChats.getState().handleEvent
+    const saved = (version: number, seq: number) => h({ type: 'artifact.updated', seq, at: 0, data: { chatId: CHAT, messageId: null, key: DECK_ARTIFACT_KEY, type: 'html', title: 'Acme 회사 소개서', status: 'done', artifact: { id: uuidv7(), chatId: CHAT, messageId: null, key: DECK_ARTIFACT_KEY, version, type: 'html', title: 'Acme 회사 소개서', language: null, createdAt: '2026-11-06T00:00:00.000Z', size: 10 } } })
+    saved(1, 1)
+    expect(useChats.getState().autoOpen).toMatchObject({ chatId: CHAT, key: 'intro-deck' })
+    useChats.setState({ autoOpen: null })
+    saved(2, 2)
+    expect(useChats.getState().autoOpen).toBeNull()
+  })
+
+  test('on a phone the sheet never opens over someone writing (focus alone is not writing)', () => {
+    const g = globalThis as Record<string, unknown>
+    const saved = { window: g.window, document: g.document }
+    const set = (width: number, active: Record<string, unknown> | null) => {
+      g.window = { matchMedia: (q: string) => ({ matches: q.includes('max-width: 767.98px') && width < 768 }) }
+      g.document = { activeElement: active }
+    }
+    try {
+      set(390, { tagName: 'TEXTAREA', value: '2장 사진 바꿔', isContentEditable: false })
+      expect(typingOnPhone()).toBe(true)
+      set(390, { tagName: 'INPUT', type: 'text', value: 'x', isContentEditable: false })
+      expect(typingOnPhone()).toBe(true)
+      set(390, { tagName: 'DIV', isContentEditable: true, textContent: 'x' })
+      expect(typingOnPhone()).toBe(true)
+      // the composer focused by itself, empty: the cards open
+      set(390, { tagName: 'TEXTAREA', value: '  ', isContentEditable: false })
+      expect(typingOnPhone()).toBe(false)
+      set(390, { tagName: 'INPUT', type: 'checkbox', value: 'on', isContentEditable: false })
+      expect(typingOnPhone()).toBe(false)
+      set(390, { tagName: 'BODY', isContentEditable: false })
+      expect(typingOnPhone()).toBe(false)
+      set(390, null)
+      expect(typingOnPhone()).toBe(false)
+      // a computer: the panel opens beside the chat, writing or not
+      set(1280, { tagName: 'TEXTAREA', value: 'x', isContentEditable: false })
+      expect(typingOnPhone()).toBe(false)
+    } finally {
+      g.window = saved.window
+      g.document = saved.document
+    }
   })
 
   test('chat.updated keeps the list sorted and drops deleted chats', () => {

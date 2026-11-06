@@ -6,10 +6,12 @@ const url = (version: string) => `https://source.example.test/releases/${version
 const offer = (version: string) => ({ ok: true, time: new Date().toISOString(), version, sourceCode: { requestEmail: 'source@example.test', download: { version, url: url(version) } } })
 const about = async (page: Page) => {
   await page.getByTestId('account-menu').click()
-  await page.locator('a[href="/settings"]').first().click()
+  await page.getByTestId('account-settings').click()
   await page.locator('a[href="/settings/about"]').click()
 }
 const logout = async (page: Page) => {
+  // Settings is a dialog over the page: close it to reach the account menu
+  if (await page.getByTestId('settings-dialog').count()) await page.keyboard.press('Escape')
   await page.getByTestId('account-menu').click()
   await page.getByTestId('logout').click()
   await expect(page.getByTestId('login-submit')).toBeVisible()
@@ -29,6 +31,8 @@ test('login-hidden metadata is refetched after sign-in without a page reload and
   await expect(page.getByTestId('source-code-download')).toHaveAttribute('rel', 'noopener noreferrer')
   await expect(page.getByTestId('source-code-link')).toHaveAttribute('href', /^mailto:source@example\.test\?subject=/)
   await expect(page.getByTestId('about-version')).toContainText('0.3.1')
+  // Hancom's attribution for the HWP 5.0 document, asked for on screen too (NOTICE)
+  await expect(page.getByTestId('about-hwp')).toContainText('(.hwp)')
   await logout(page)
   await expect(page.getByTestId('source-code-download')).toHaveCount(0)
   await expect(page.getByTestId('source-code-link')).not.toHaveAttribute('href', /source@example/)

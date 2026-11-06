@@ -2,9 +2,11 @@
 // The server stores a label in the language of the person who ran the answer (older readers show it as is); the web
 // app redraws it in the language on screen from these same words, so an old chat follows a later language switch
 // (docs/DECISIONS.md "언어"). A label is always "<words> + what the AI touched" (a path, a query, a remembered text),
-// and only the words are translated.
+// and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
+import { BRAND_IMAGES_FOLDER, NOTES_FOLDER, PACK_FOLDERS } from './api/onboarding-packs'
 import { mediaKind, type MediaKind } from './media'
+import { maskSecrets } from './secrets'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -19,12 +21,14 @@ export const FILE_STEP_VERB: Record<string, T> = {
   edit: t('파일 수정', 'Edit', 'Ubah berkas', "編集", "Editar"),
   edit_files: t('여러 파일 수정', 'Edit files', 'Ubah beberapa berkas', "複数のファイルを編集", "Editar archivos"),
   make_file: t('파일 만들기', 'Make file', 'Buat berkas', "ファイルを作成", "Crear archivo"),
+  edit_hwp: t('한글 문서 고치기', 'Edit Hangul document', 'Ubah dokumen Hangul', "ハングル文書を編集", "Editar documento Hangul"),
   share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace"),
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos"),
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos"),
   rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre"),
   artifact: t('아티팩트', 'Artifact', 'Artefak', "アーティファクト", "Artefacto"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página"),
+  save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo"),
   hwp_render: t('한글 문서 쪽 보기', 'View HWP page', 'Lihat halaman HWP', "HWPのページを表示", "Ver página HWP"),
   search: t('뜻으로 찾기', 'Search by meaning', 'Cari berdasarkan makna', "意味で検索", "Buscar por significado"),
   schedule_create: t('예약 작업 만들기', 'Create scheduled task', 'Buat tugas terjadwal', "定期タスクを作成", "Crear tarea programada"),
@@ -34,9 +38,16 @@ export const FILE_STEP_VERB: Record<string, T> = {
   drive_list: t('Google Drive 폴더 보기', 'List Google Drive folder', 'Lihat folder Google Drive', "Google ドライブのフォルダを表示", "Listar carpeta de Google Drive"),
   drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive"),
   generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video"),
+  promo_video: t('홍보 영상 만들기', 'Make promo video', 'Buat video promosi', "プロモーション動画を作成", "Crear vídeo promocional"),
+  intro_deck: t('회사 소개서 만들기', 'Make company profile', 'Buat profil perusahaan', "会社紹介資料を作成", "Crear presentación corporativa"),
+  box_shell: t('개발 환경 명령', 'Dev environment command', 'Perintah lingkungan pengembangan', "開発環境のコマンド", "Comando del entorno de desarrollo"),
   ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta"),
+  skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad"),
+  find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades"),
+  find_tools: t('도구 찾기', 'Find tools', 'Cari alat', "ツールを探す", "Buscar herramientas"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
+  connect_service: t('서비스 연결', 'Connect service', 'Hubungkan layanan', "サービスを接続", "Conectar servicio"),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */
@@ -80,6 +91,9 @@ export const STEP_TEXT = {
   notRemembered: t('기억하지 않음: {text}', 'Not remembered: {text}', 'Tidak diingat: {text}', "記憶しませんでした：{text}", "No se recordó: {text}"),
   forgot: t('기억 지움', 'Forgot a memory', 'Ingatan dihapus', "メモリを削除しました", "Se olvidó una memoria"),
   notAnswered: t('답하지 않음', 'Not answered', 'Tidak dijawab', "未回答", "Sin respuesta"),
+  /** detail of a connect_service step: the person finished the card (or it was connected already), or did not */
+  connectConnected: t('연결됨', 'Connected', 'Terhubung', "接続済み", "Conectado"),
+  connectNotConnected: t('연결 안 됨', 'Not connected', 'Tidak terhubung', "未接続", "No conectado"),
   webSearch: t('웹 검색: {q}', 'Web search: {q}', 'Cari di web: {q}', "Web検索：{q}", "Búsqueda web: {q}"),
   /** a search still running whose query is not known yet (Codex names it only at the end) */
   webSearchRunning: t('웹 검색 중…', 'Searching the web…', 'Mencari di web…', "Web検索中…", "Buscando en la web…"),
@@ -99,7 +113,12 @@ export const STEP_TEXT = {
   attachUnavailable: t('첨부한 팀 파일을 더 이상 쓸 수 없음', 'An attached team file is no longer available', 'Berkas tim yang dilampirkan tidak tersedia lagi', "添付したチームのファイルは利用できなくなりました", "Un archivo adjunto del equipo ya no está disponible"),
   refusedRetry: t('AI가 답하지 않아 다른 모델({model})로 다시 답해요', 'The AI declined; answering again with another model ({model})', 'AI menolak; menjawab ulang dengan model lain ({model})', "AIが拒否したため、別のモデル（{model}）で再回答します", "La IA rechazó la solicitud; se responde de nuevo con otro modelo ({model})"),
   /** the chat's engine was switched off by an admin: this answer uses the team default */
+  /** demo mode (server/src/demo/replay.ts): the answer is a recorded real run played again */
+  demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración"),
   engineOffDefault: t('{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답해요', '{from} is switched off; answering with the team default ({to})', '{from} dimatikan; menjawab dengan mesin bawaan tim ({to})', "{from}が無効のため、チームの既定（{to}）で回答します", "{from} está desactivado; se responde con el predeterminado del equipo ({to})"),
+  /** a server with the hosting service's trial credit: the chat's engine has no AI connection for the person, the other
+   * one has (server/src/credentials/access.ts connectionRoute) */
+  engineNoConnection: t('{from}에 쓸 AI 연결이 없어 연결된 {to}로 답해요', 'No AI connection for {from}; answering with {to}, which is connected', 'Tidak ada koneksi AI untuk {from}; menjawab dengan {to} yang terhubung', "{from}用のAI接続がないため、接続済みの{to}で回答します", "No hay conexión de IA para {from}; se responde con {to}, que sí está conectado"),
   /** "Claude 한도에 닿으면 Codex로 넘기기": the subscription limit was hit and the admin allowed the fallback */
   limitFallback: t('{from} 사용 한도에 닿아 {to} 엔진으로 이어서 답해요', '{from} usage limit reached; continuing with {to}', 'Batas pemakaian {from} tercapai; dilanjutkan dengan {to}', "{from}の使用量上限に達したため、{to}で続けます", "Se alcanzó el límite de uso de {from}; se continúa con {to}"),
   credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 연결로 이어서 답해요', 'Usage limit reached; continuing with another AI connection', 'Batas pemakaian tercapai; dilanjutkan dengan koneksi AI lain', "使用量の上限に達したため、別のAI接続で続けます", "Se alcanzó el límite de uso; se continúa con otra conexión de IA"),
@@ -141,11 +160,13 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       return files.length ? `${verb} · ${clip(files[0], 80)}${files.length > 1 ? ` +${files.length - 1}` : ''}` : verb!
     }
     case 'make_file': return `${verb} · ${clip(a.output, 90)}`
+    case 'edit_hwp': return `${verb} · ${clip(a.output ?? a.file_path, 90)}`
     case 'share_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
+    case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
     case 'hwp_render': return `${verb} · ${clip(a.source, 80)}${typeof a.page === 'number' ? ` #${a.page}` : ''}`
     case 'search': case 'drive_search': return `${verb} "${clip(a.query, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'schedule_create': return `${verb} · ${clip(a.title, 80)}`
@@ -153,15 +174,86 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'drive_list': return a.folderId && a.folderId !== 'root' ? `${verb} · ${clip(a.folderId, 60)}` : verb!
     case 'drive_read': return `${verb} · ${clip(a.fileId, 60)}`
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
+    case 'promo_video': case 'intro_deck': return `${verb} · ${clip(a.title, 80)}`
+    case 'skill': return `${verb} · ${clip(a.name, 80)}`
+    case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
+    case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ' (job)' : a.background ? ' (background)' : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
     case 'forget': return stepText('forgot', locale)
+    // the service's name as the AI wrote it, with anything that looks like a key and characters that show nothing left
+    // out (emoji joiners and selectors stay; the label is shown and saved); without a name, the verb alone
+    case 'connect_service': {
+      const name = a.target === 'google_drive' ? 'Google Drive' : typeof a.name === 'string' ? clip(maskSecrets(a.name.replace(/(?![\t\n\r\u200d\ufe0e\ufe0f])[\p{Cc}\p{Cf}\p{DI}\p{Co}]/gu, '')), 60) : ''
+      return name ? `${verb} · ${name}` : verb!
+    }
     default: return verb ?? tool
   }
 }
 
 const LOCALES: Locale[] = ['en', 'ko', 'id', 'ja', 'es']
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** The team's well-known folders by name in a step line (docs/DECISIONS.md "W2"): "파일 읽기 · 브랜드 이미지 폴더 ›
+ * 홈페이지-6.jpg", not "groups/<team>/브랜드/이미지/홈페이지-6.jpg", which a phone cut before the file's name. */
+export const STEP_PLACE = {
+  /** groups/<team>/브랜드/이미지/ (the brand folder's images folder, named in the team's language) */
+  brandImages: t('브랜드 이미지 폴더', 'Brand images folder', 'Folder gambar merek', "ブランド画像フォルダー", "Carpeta de imágenes de marca"),
+  /** groups/<team>/브랜드/ */
+  brand: t('브랜드 폴더', 'Brand folder', 'Folder merek', "ブランドフォルダー", "Carpeta de marca"),
+  /** groups/<team>/회의록/ */
+  notes: t('회의록 폴더', 'Meeting notes folder', 'Folder notulen rapat', "議事録フォルダー", "Carpeta de actas"),
+  /** groups/<team>/: the team's folder, by the team's name */
+  team: t('{team} 폴더', '{team} folder', 'Folder {team}', "{team}フォルダー", "Carpeta {team}"),
+  /** users/<id>/.attachments/<chat>/: what the person attached to the chat */
+  attachments: t('첨부한 파일', 'Attachments', 'Lampiran', "添付ファイル", "Adjuntos"),
+  /** users/<id>/: an answer only ever reaches the person's own */
+  own: t('내 폴더', 'My folder', 'Folder saya', "自分のフォルダー", "Mi carpeta"),
+  /** shared/: the whole team's */
+  shared: t('공유 폴더', 'Shared folder', 'Folder bersama', "共有フォルダー", "Carpeta compartida"),
+} satisfies Record<string, T>
+
+const nfcSet = (names: Record<Locale, string>) => new Set(Object.values(names).map((n) => n.normalize('NFC')))
+const BRAND_NAMES = nfcSet(PACK_FOLDERS.brand)
+const IMAGES_NAMES = nfcSet(BRAND_IMAGES_FOLDER)
+const NOTES_NAMES = nfcSet(NOTES_FOLDER)
+
+/** A team path with its well-known folder in words ("브랜드 이미지 폴더 › 홈페이지-6.jpg"), or null for any other path
+ * (a web address, a folder these words do not name). The folder names match in any language, as a team's folders are
+ * named in the team's language and the screen may be in another. */
+export function placeName(path: string, locale: Locale): string | null {
+  const segs = path.normalize('NFC').replace(/^\/+|\/+$/g, '').split('/')
+  if (segs.some((s) => !s)) return null
+  const say = (key: keyof typeof STEP_PLACE, from: number, vars: Record<string, string> = {}) =>
+    [fill(STEP_PLACE[key][locale] ?? STEP_PLACE[key].en, vars), ...segs.slice(from)].join(' › ')
+  const [top, a, b, c] = segs
+  if (top === 'groups' && a) {
+    if (b && BRAND_NAMES.has(b)) return c && IMAGES_NAMES.has(c) ? say('brandImages', 4) : say('brand', 3)
+    if (b && NOTES_NAMES.has(b)) return say('notes', 3)
+    return say('team', 2, { team: a })
+  }
+  if (top === 'users' && a) return b === '.attachments' && c ? say('attachments', 4) : say('own', 2)
+  if (top === 'shared') return say('shared', 1)
+  return null
+}
+
+/** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'share_file', 'move_files', 'copy_files', 'rename_file', 'save_url', 'hwp_render'])
+
+/**
+ * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a
+ * tooltip: { label: "파일 읽기 · 브랜드 이미지 폴더 › 홈페이지-6.jpg", path: "groups/Acme/브랜드/이미지/홈페이지-6.jpg" }.
+ * Any other line comes back as it is, without `path`.
+ */
+export function stepPlace(step: { tool?: string }, label: string, locale: Locale): { label: string; path?: string } {
+  if (!PATH_STEP_TOOLS.has(step.tool ?? '')) return { label }
+  const at = label.lastIndexOf(' · ')
+  if (at < 0) return { label }
+  const tail = label.slice(at + 3)
+  const [, path = tail, suffix = ''] = /^(.*?)( \+\d+| #\d+)?$/s.exec(tail) ?? []
+  const named = placeName(path, locale)
+  return named ? { label: `${label.slice(0, at + 3)}${named}${suffix}`, path } : { label }
+}
 
 /** "Remembered: {text}" -> /^Remembered: ([\s\S]*)$/ with the names of the captured parts. */
 function templateMatch(template: string, label: string): Record<string, string> | null {
@@ -215,7 +307,8 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   if (step.kind === 'thinking') label = retemplate(['thinking'], step.label, locale)
   else if (step.kind === 'web_search') label = retemplate(['webSearch', 'webSearchRunning', 'webSearchOpen', 'webSearchPlain'], step.label, locale)
   else if (tool === 'refusal') label = retemplate(['refusedRetry'], step.label, locale)
-  else if (tool === 'engine') label = retemplate(['engineOffDefault', 'limitFallback', 'credentialSwitchLimit', 'credentialSwitchInvalid'], step.label, locale)
+  else if (tool === 'demo_replay') label = retemplate(['demoReplay'], step.label, locale)
+  else if (tool === 'engine') label = retemplate(['engineOffDefault', 'engineNoConnection', 'limitFallback', 'credentialSwitchLimit', 'credentialSwitchInvalid'], step.label, locale)
   else if (tool === 'attachment') label = retemplate(['attachChanged', 'attachMoved', 'attachUnavailable'], step.label, locale)
   else if (tool === 'agent') label = retemplate(['subtask'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
@@ -224,6 +317,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (BROWSER_STEP_VERB[tool] || step.kind === 'browser' || browserTools?.has(tool)) label = reverb(BROWSER_STEP_VERB[tool] ?? BROWSER_STEP_FALLBACK, step.label, locale)
   else if (tool === 'read') label = reverb(READ_MEDIA_VERB.video, step.label, locale) ?? reverb(READ_MEDIA_VERB.audio, step.label, locale) ?? reverb(FILE_STEP_VERB.read!, step.label, locale)
   else if (FILE_STEP_VERB[tool]) label = reverb(FILE_STEP_VERB[tool]!, step.label, locale)
-  const detail = step.detail !== undefined ? (retemplate(['notAnswered', 'webSearchRefused'], step.detail, locale) ?? step.detail) : undefined
+  const details: StepTextKey[] = tool === 'connect_service' ? ['connectConnected', 'connectNotConnected'] : ['notAnswered', 'webSearchRefused']
+  const detail = step.detail !== undefined ? (retemplate(details, step.detail, locale) ?? step.detail) : undefined
   return { label: label ?? step.label, ...(detail !== undefined ? { detail } : {}) }
 }

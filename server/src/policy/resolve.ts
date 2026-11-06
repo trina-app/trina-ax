@@ -41,15 +41,21 @@ const nfc = (s: string) => s.normalize('NFC')
 /** Walk the input segments one by one, matching each to the entry that actually exists in that folder.
  * Exact name first; then the same name in another Unicode normalization form; on case-insensitive file
  * systems also a case-only difference. More than one candidate = ambiguous = refused. Every step is lstat'ed
- * and symbolic links are refused. */
-export function walk(root: string, segs: string[], caseInsensitive: boolean): Walk {
+ * and symbolic links are refused. `dirs`: folder listings already read in the same synchronous scan (absolute path ->
+ * names), so a scan of a folder with many entries reads it once instead of once per entry (skills.ts); the lstat of
+ * every step and the caller's realpath check still run each time. */
+export function walk(root: string, segs: string[], caseInsensitive: boolean, dirs?: Map<string, string[]>): Walk {
   const actual: string[] = []
   let cur = root
   let st = fs.lstatSync(root)
   for (let i = 0; i < segs.length; i++) {
     const seg = segs[i]
     let names: string[]
-    try { names = fs.readdirSync(cur) } catch (e: any) { return { actual, missing: segs.slice(i), st, problem: `cannot open folder (${e.code})` } }
+    try {
+      const known = dirs?.get(cur)
+      names = known ?? fs.readdirSync(cur)
+      if (!known) dirs?.set(cur, names)
+    } catch (e: any) { return { actual, missing: segs.slice(i), st, problem: `cannot open folder (${e.code})` } }
     let match: string | undefined
     if (names.includes(seg)) match = seg
     else {

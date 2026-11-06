@@ -63,6 +63,18 @@ describe('versions and signatures', () => {
     expect(compareVersions('1.0.0', '1.0.0')).toBe(0)
   })
 
+  test('version order is the one root/mycel-ctl update uses (the same table as its Go test)', () => {
+    // native/cmd/mycel-ctl/update.go compareVersions decides whether the update timer installs the channel's release
+    // (never one older than the app that runs); TestCompareVersionsMatchesServer checks this table there
+    const t = JSON.parse(fs.readFileSync(path.resolve(import.meta.dir, '..', '..', 'native', 'cmd', 'mycel-ctl', 'testdata', 'version-order.json'), 'utf8')) as {
+      ascending: string[]; same: [string, string][]; pairs: [string, string, number][]
+    }
+    expect(t.ascending.length).toBeGreaterThan(6)
+    for (const [i, a] of t.ascending.entries()) for (const [j, b] of t.ascending.entries()) expect([a, b, compareVersions(a, b)]).toEqual([a, b, Math.sign(i - j)])
+    for (const [a, b] of t.same) expect([compareVersions(a, b), compareVersions(b, a)]).toEqual([0, 0])
+    for (const [a, b, want] of t.pairs) expect([a, b, compareVersions(a, b), compareVersions(b, a)]).toEqual([a, b, want, -want || 0])
+  })
+
   test('manifest check catches changed, extra, missing files and symlinks; signatures need a known key', async () => {
     const app = path.join(W, 'verify')
     const dir = await fakeVersion(app, '1.0.0', 'ok')

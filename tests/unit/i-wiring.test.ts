@@ -10,6 +10,8 @@ import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harne
 import { waitFor } from '../lib/wait'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
+import { hwpPluginOn, setHwpPlugin } from '../lib/hwp-plugin'
+import { employmentForm } from '../lib/hwpx'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -18,6 +20,8 @@ let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
   h = await startHarness({ name: 'i-wiring', askUserTimeoutMs: 3000, turnTimeoutMs: 60_000 })
+  // edit_hwp and make_file .hwpx come with the HWP plugin (tools/hwp-writing.ts): on, but where a test turns it off
+  hwpPluginOn(h.ctx)
   alice = await h.ws('alice', { windowId: 'win-i-main' })
   await alice.next('hello')
 })
@@ -27,7 +31,93 @@ describe('B turns use C tools', () => {
   test('a web turn is offered the file tools, B tools and every C tool (set_title: a new chat\'s first message)', async () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }))
-    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'copy_files', 'edit', 'edit_files', 'forget', 'glob', 'grep', 'list', 'make_file', 'move_files', 'read', 'remember', 'rename_file', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'web_fetch', 'write'])
+    expect(r.done.content.split(',')).toEqual(['artifact', 'ask_user', 'connect_service', 'copy_files', 'edit', 'edit_files', 'edit_hwp', 'find_skills', 'forget', 'glob', 'grep', 'intro_deck', 'list', 'make_file', 'move_files', 'promo_video', 'read', 'remember', 'rename_file', 'save_url', 'schedule_create', 'schedule_delete', 'schedule_list', 'set_title', 'share_file', 'skill', 'web_fetch', 'write'])
+  })
+
+  test('Hangul writing follows the HWP plugin in a turn: off, no edit_hwp and no .hwpx in the instructions, make_file .hwpx refused before any card; on again, both back', async () => {
+    fs.mkdirSync(path.join(h.team, 'users', 'alice'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'users', 'alice', 'hwp-memo.md'), 'words only alice may read\n')
+    setHwpPlugin(h.ctx, false)
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      // after reading a personal file, a save to shared/ would ask the person first (a wider audience): refused before that
+      const r = await ask(h, alice, 'alice', chat.id, fake(
+        { echo: 'tools' }, { say: ' | ' }, { echo: 'system' }, { say: ' | ' },
+        { tool: 'read', args: { file_path: 'users/alice/hwp-memo.md' } },
+        { tool: 'make_file', args: { content: '# 보고서\n\n본문\n', format: 'hwpx', output: 'shared/hwp-report' }, sayResult: true },
+      ))
+      const [tools, system, made] = r.done.content.split(' | ')
+      expect(tools!.split(',')).toContain('make_file')
+      expect(tools!.split(',')).not.toContain('edit_hwp')
+      expect(system).toContain('To produce Word / PowerPoint / Excel / PDF files')
+      expect(system).not.toContain('hwpx')
+      expect(system).not.toContain('edit_hwp')
+      expect(made).toContain('Making or filling Hangul documents (HWP, HWPX) needs the HWP plugin')
+      expect(alice.frames.some((f) => f.type === 'turn.request' && f.data.turnId === r.started.turnId)).toBe(false)
+      expect(fs.existsSync(path.join(h.team, 'shared', 'hwp-report.hwpx'))).toBe(false)
+      const audit = h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'make_file'").all(r.started.turnId) as { summary: string; ok: number }[]
+      expect(audit).toEqual([{ summary: 'make_file -> refused: Hangul writing is off (HWP plugin)', ok: 0 }])
+    } finally { setHwpPlugin(h.ctx, true) }
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const on = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { echo: 'system' }))
+    const [tools, system] = on.done.content.split(' | ')
+    expect(tools!.split(',')).toContain('edit_hwp')
+    expect(system).toContain('Hangul (.hwpx)')
+    expect(system).toContain('use edit_hwp')
+  })
+
+  test('turned off during a turn: the next edit_hwp is refused before any card, nothing written', async () => {
+    const form = 'users/alice/forms/hwp-form.hwpx'
+    fs.mkdirSync(path.join(h.team, 'users', 'alice', 'forms'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, ...form.split('/')), employmentForm())
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    // on when the turn starts (edit_hwp is in its list); after reading a personal file, a new file in shared/ would ask
+    // the person first (a wider audience)
+    const sent = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake(
+      { tool: 'read', args: { file_path: form } },
+      { tool: 'ask_user', args: { question: 'Go on?', options: [{ label: 'Yes', value: 'yes' }] } },
+      { tool: 'edit_hwp', args: { file_path: form, changes: [{ find: '{{발급일}}', replace: '2026년 11월 4일' }], output: 'shared/hwp-filled' }, sayResult: true },
+    ), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    const card = await alice.next('turn.request', (f) => f.data.turnId === sent.turnId)
+    setHwpPlugin(h.ctx, false)
+    try {
+      await h.api('alice').call(API.answerTurn, { params: { id: sent.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'yes' } })
+      const done = await alice.next('message.done', (f) => f.data.messageId === sent.assistantMessage.id, 20_000)
+      expect(done.data.message.content).toContain('Making or filling Hangul documents (HWP, HWPX) needs the HWP plugin')
+      expect(alice.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === sent.turnId)).toHaveLength(1)
+      expect(fs.existsSync(path.join(h.team, 'shared', 'hwp-filled.hwpx'))).toBe(false)
+      const audit = h.ctx.db.query("SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = 'edit_hwp'").all(sent.turnId) as { summary: string; ok: number }[]
+      expect(audit).toEqual([{ summary: 'edit_hwp -> refused: Hangul writing is off (HWP plugin)', ok: 0 }])
+    } finally { setHwpPlugin(h.ctx, true) }
+  })
+
+  test('a chat that goes on (a resumed session) is told when Hangul writing was turned on, and loses edit_hwp when it is turned off', async () => {
+    const SEP = { say: ' | ' }
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    setHwpPlugin(h.ctx, false)
+    try {
+      const first = await ask(h, alice, 'alice', chat.id, fake({ echo: 'resume' }, SEP, { echo: 'system' }))
+      const [resumed1, system] = first.done.content.split(' | ')
+      expect(resumed1).toBe('resumed=false')
+      expect(system).not.toContain('hwpx')
+      setHwpPlugin(h.ctx, true)
+      // the message last: it holds this very text, separators included
+      const second = await ask(h, alice, 'alice', chat.id, fake({ echo: 'resume' }, SEP, { echo: 'tools' }, SEP, { echo: 'message' }))
+      const [resumed2, tools2, ...rest2] = second.done.content.split(' | ')
+      const message2 = rest2.join(' | ')
+      expect(resumed2).toBe('resumed=true')
+      expect(message2).toContain('## Hangul documents')
+      expect(message2).toContain('Hangul (.hwpx)')
+      expect(message2).toContain('use edit_hwp')
+      expect(tools2!.split(',')).toContain('edit_hwp')
+      setHwpPlugin(h.ctx, false)
+      const third = await ask(h, alice, 'alice', chat.id, fake({ echo: 'resume' }, SEP, { echo: 'tools' }, SEP, { echo: 'message' }))
+      const [resumed3, tools3, ...rest3] = third.done.content.split(' | ')
+      const message3 = rest3.join(' | ')
+      expect(resumed3).toBe('resumed=true')
+      expect(message3).not.toContain('## Hangul documents')
+      expect(tools3!.split(',')).not.toContain('edit_hwp')
+    } finally { setHwpPlugin(h.ctx, true) }
   })
 
   test('artifact from a turn: saved for the answer, artifact.updated, listed over REST, audited with C\'s summary', async () => {
@@ -175,7 +265,7 @@ describe('external-service connections in a turn', () => {
       expect(result).toContain('created task "Quarterly plan"')
       expect(result).toContain('<external_data source="Tasks">')
       expect(services.calls.at(-1)).toMatchObject({ name: 'create_task', args: { title: 'Quarterly plan' } })
-      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · create_task')
+      expect(done.data.message.steps.map((s) => s.label)).toContain('Tasks · create_task (title: "Quarterly plan")')
       const audit = h.ctx.db.query('SELECT summary, ok FROM tool_events WHERE turn_id = ? AND tool = ?').get(sent.turnId, 'my_tasks__create_task') as { summary: string; ok: number }
       expect(audit).toEqual({ summary: 'my_tasks__create_task -> ok (29 chars) (confirmed by the user)', ok: 1 })
       expect(JSON.stringify(done.data.message)).not.toContain(MCP_KEY)

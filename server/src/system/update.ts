@@ -28,6 +28,7 @@ import type { Logger } from '../log'
 import { readFileChunks, writeAtomic, zstdDecompress } from './streams'
 import { extractTar } from './tar'
 import { RELEASE_KEYS } from './release-keys'
+import { FeedRollout } from './rollout'
 
 /** Ed25519 release public keys (base64, raw 32 bytes): system/release-keys.ts. */
 export const RELEASE_PUBLIC_KEYS: readonly string[] = RELEASE_KEYS
@@ -142,17 +143,36 @@ export const ReleaseFeed = z.object({
   publishedAt: z.string(),
   bundles: z.array(z.object({ os: z.string(), arch: z.string(), url: z.url(), sha256: z.string(), size: z.number().int() })),
   /** staged roll-out for self-installed servers (absent = everyone): an install takes the release automatically when
-   * sha256(salt + install id)'s first two bytes % 100 < percent. the hosted cloud ignores it (the control plane picks). */
-  rollout: z.object({ percent: z.number().min(0).max(100), salt: z.string().max(100) }).optional(),
+   * sha256(salt + install id)'s first two bytes % 100 < percent, the percent moving over time with `ramp`
+   * (system/rollout.ts). Read leniently: one that does not read is none, never a reason to refuse the feed. the hosted
+   * cloud ignores it (the control plane picks). */
+  rollout: FeedRollout,
+  /** the oldest release with this release's root files (scripts/release/publish-server.ts, feeds from 0.2.19 on):
+   * root/VERSION older than it needs the root update, one at it or newer does not, whatever needsRoot says (that is
+   * for the updaters of 0.2.18 and older then; releaseNeedsRoot) */
+  rootSince: z.string().optional(),
 })
 export type ReleaseFeed = z.infer<typeof ReleaseFeed>
 
-/** Is this install in the release's roll-out? */
-export function inRollout(feed: Pick<ReleaseFeed, 'rollout'>, installId: string): boolean {
-  if (!feed.rollout) return true
-  const b = crypto.createHash('sha256').update(feed.rollout.salt + installId).digest().readUInt16BE(0) % 100
-  return b < feed.rollout.percent
+const VERSION_NAME = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,49}$/
+
+/**
+ * Does this server need root for the release (`sudo mycel-ctl update`, the root update timer)? rootSince names the
+ * oldest release with this release's root files, so root/VERSION (`rootVersion`, null when unknown) older than it
+ * needs root and one at it or newer has them. needsRoot only compared with the channel heads it was published over,
+ * which a server that skipped a release can miss (update audit 2026-11-01 P4: root files of 0.2.17, a 0.2.18 that
+ * changed them, a 0.2.19 that did not), and in a feed with rootSince it is kept true for the updaters of 0.2.18 and
+ * older, which read nothing else (scripts/release/publish-server.ts, 0.2.19 review S3): it is not read then. A feed
+ * without rootSince keeps the old meaning. The same rule as native/cmd/mycel-ctl/update.go rootNeeded.
+ */
+export function releaseNeedsRoot(feed: Pick<ReleaseFeed, 'needsRoot' | 'rootSince'>, rootVersion: string | null): boolean {
+  if (!feed.rootSince) return feed.needsRoot
+  if (!VERSION_NAME.test(feed.rootSince) || !rootVersion || !VERSION_NAME.test(rootVersion)) return true
+  return compareVersions(rootVersion, feed.rootSince) < 0
 }
+
+/** Is this install in the release's roll-out? (system/rollout.ts, the rule every updater shares) */
+export { inRollout } from './rollout'
 
 export interface UpdateManagerOptions {
   appDir: string | null
@@ -167,6 +187,10 @@ export interface UpdateManagerOptions {
   allowUnsigned?: boolean
   env?: Record<string, string | undefined>
   fetch?: typeof fetch
+  /** how long one feed request may take (default 10 s); a host that drops packets must not hang the check */
+  feedTimeoutMs?: number
+  /** the root-owned folder of the install (root/VERSION: the root files' version, releaseNeedsRoot); null in dev */
+  rootDir?: string | null
 }
 
 interface CheckRecord { at: string; feed: ReleaseFeed | null; error: string | null }
@@ -190,6 +214,13 @@ export class UpdateManager {
     return fs.existsSync(path.join(this.versionsDir(), cur, 'manifest.sig'))
   }
   private versionsDir() { return path.join(this.o.appDir!, 'versions') }
+  /** root/VERSION (the version the root files came from), null when there is none or it cannot be read */
+  rootVersion(): string | null {
+    if (!this.o.rootDir) return null
+    try { const v = fs.readFileSync(path.join(this.o.rootDir, 'VERSION'), 'utf8').trim(); return VERSION_NAME.test(v) ? v : null } catch { return null }
+  }
+  /** the release needs root on this server (releaseNeedsRoot with this install's root/VERSION) */
+  needsRoot(feed: Pick<ReleaseFeed, 'needsRoot' | 'rootSince'>): boolean { return releaseNeedsRoot(feed, this.rootVersion()) }
   private stateFile() { return path.join(this.o.appDir!, 'state.json') }
   private checkFile() { return path.join(this.o.dataDir, 'update-check.json') }
 
@@ -236,7 +267,7 @@ export class UpdateManager {
       available = { version: chk.feed.version, notes: chk.feed.notes, publishedAt: chk.feed.publishedAt, needsBackupRestoreToRollBack: false }
     }
     const prev = st.previous && st.previous !== this.o.version && this.stagedVersions().includes(st.previous) ? st.previous : null
-    const needsRoot = !!(available && chk?.feed && chk.feed.version === available.version && chk.feed.needsRoot)
+    const needsRoot = !!(available && chk?.feed && chk.feed.version === available.version && this.needsRoot(chk.feed))
     return { current: this.o.version, channel: this.o.channel, available, lastCheckedAt: chk?.at ?? null, previous: prev, feed: this.feedUsable, needsRoot }
   }
 
@@ -312,19 +343,22 @@ export class UpdateManager {
       if (!this.o.feedUrl) throw new UpdateError('no release feed configured')
       if (!this.keys.length) throw new UpdateError('no release signing key in this build; remote updates are disabled')
       const f = this.o.fetch ?? fetch
+      const signal = AbortSignal.timeout(this.o.feedTimeoutMs ?? 10_000)
       const [body, sig] = await Promise.all([
-        f(this.o.feedUrl, { redirect: 'error' }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()) }),
-        f(this.o.feedUrl + '.sig', { redirect: 'error' }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed signature: HTTP ${r.status}`); return r.text() }),
+        f(this.o.feedUrl, { redirect: 'error', signal }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()) }),
+        f(this.o.feedUrl + '.sig', { redirect: 'error', signal }).then(async (r) => { if (!r.ok) throw new UpdateError(`feed signature: HTTP ${r.status}`); return r.text() }),
       ])
       if (!verifySignature(body, sig, this.keys)) throw new UpdateError('release feed signature does not verify')
       rec.feed = ReleaseFeed.parse(JSON.parse(Buffer.from(body).toString('utf8')))
     } catch (e) {
       rec.error = (e as Error).message
+      // a failed look is not news that the release is gone: the record keeps the last verified feed (the return value stays null)
+      rec.feed = this.lastCheck()?.feed ?? null
     }
     fs.mkdirSync(this.o.dataDir, { recursive: true, mode: 0o700 })
     fs.writeFileSync(this.checkFile(), JSON.stringify(rec), { mode: 0o600 })
     if (rec.error) this.o.log.warn('update check failed', { error: rec.error })
-    return rec.feed
+    return rec.error ? null : rec.feed
   }
 
   /** Download the bundle of a verified feed entry for this machine and stage it. */

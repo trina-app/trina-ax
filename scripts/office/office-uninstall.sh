@@ -40,9 +40,16 @@ launchctl bootout "gui/$(id -u)/$LABEL.tunnel" >/dev/null 2>&1 || true
 launchctl bootout "gui/$(id -u)/$LABEL.update" >/dev/null 2>&1 || true
 rm -f "$AGENTS/$LABEL.plist" "$AGENTS/$LABEL.tunnel.plist" "$AGENTS/$LABEL.update.plist"
 
+# copies of the MCP settings the server removed from this Mac account's ~/.claude.json (local-login, docs/OFFICE.md 8)
+MCP_COPIES=$( (ls "$PREFIX/config/claude-mcp-backups" 2>/dev/null || true) | grep -c '^claude-mcp-.*\.json$' || true)
+MCP_NOTE=
+if [ "${MCP_COPIES:-0}" -gt 0 ]; then
+  MCP_NOTE=" and the $MCP_COPIES copies of MCP settings removed from ~/.claude.json (config/claude-mcp-backups)"
+  echo "office-uninstall: $PREFIX/config/claude-mcp-backups keeps $MCP_COPIES copies of MCP settings the server removed from ~/.claude.json (plain JSON; how to put them back: docs/OFFICE.md 8)"
+fi
 if [ "$DELETE" = 1 ]; then
   if [ "$YES" != 1 ]; then
-    echo "This deletes $PREFIX: the database, every backup in it, the team folder and the office certificate."
+    echo "This deletes $PREFIX: the database, every backup in it, the team folder, the office certificate$MCP_NOTE."
     read -r -p 'Type "delete" to continue: ' a
     [ "$a" = delete ] || die "nothing deleted (the program was removed, the data kept)"
   fi

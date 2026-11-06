@@ -13,7 +13,7 @@ import { M as SYSTEM_TEXT } from '../../server/src/system/messages'
 import { ML as LINUX_TEXT } from '../../server/src/system/messages-linux'
 import { MSG as FILE_TEXT } from '../../server/src/team-files/errors'
 import { pageMessage, type PageKind } from '../../relay/src/pages'
-import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_TEXT } from '@mycel/shared'
+import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_PLACE, STEP_TEXT } from '@mycel/shared'
 import { PERIOD } from '../../server/src/admin/budgets'
 import { T as ENGINE_TEXT } from '../../server/src/admin/engines'
 import { ARCHIVE_DIR } from '../../server/src/admin/users'
@@ -26,9 +26,11 @@ import { MD_WORDS } from '../../server/src/system/export'
 import { RESTORED } from '../../server/src/team-files/place'
 import { TEXT as URL_GATE_TEXT } from '../../server/src/tools/url-gate'
 import { TEXT as FILE_MOVE_TEXT } from '../../server/src/tools/file-moves'
+import { TEXT as SAVE_URL_TEXT } from '../../server/src/tools/save-url'
 import { TEXT as SCHEDULE_CARD_TEXT } from '../../server/src/tools/schedules'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
 import { TEXT as TEAM_ICON_TEXT } from '../../server/src/admin/team-icon'
+import { AVATAR_TEXT } from '../../server/src/auth/profiles'
 import { TEXT as PUSH_TEXT } from '../../server/src/notifications/text'
 import { PRUNE_TEXT } from '../../server/src/system/prune'
 
@@ -63,12 +65,15 @@ describe('server and relay texts', () => {
     checkTable('steps', STEP_TEXT)
     checkTable('file step verbs', FILE_STEP_VERB)
     checkTable('browser step verbs', BROWSER_STEP_VERB)
+    checkTable('step places', STEP_PLACE)
     checkTable('engines', ENGINE_TEXT)
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
+    checkTable('save_url cards and refusals', SAVE_URL_TEXT, 6)
     checkTable('scheduled task card', SCHEDULE_CARD_TEXT, 10)
     checkTable('external-service connections', INTEGRATION_TEXT)
     checkTable('team logo', TEAM_ICON_TEXT)
+    checkTable('profile photo', AVATAR_TEXT)
     checkTable('push notifications', PUSH_TEXT)
     checkTable('system routes', SYSTEM_ROUTE_TEXT)
     checkTable('relay notices', NOTICES, 2)
@@ -100,8 +105,11 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/safe-ops/strings.ts': { why: 'safe image/PowerPoint workflow messages (ko next to en/id/ja/es)' },
   'server/src/files/vision-text.ts': { why: 'notes the AI gets instead of an image (ko next to en/id/ja/es)' },
   'server/src/files/media-text.ts': { why: 'notes the AI gets about a video or audio read (ko next to en/id/ja/es)' },
+  'server/src/files/locations.ts': { why: 'the words of the place labels the AI sees, "시트 \'매출\'", "슬라이드 3" (ko next to en/id/ja/es)' },
   'server/src/files/media.ts': { why: 'a whisper marker dropped from transcripts, and its video-outro inventions a retry may not be (not screen text)', also: /MUSIC\|음악|^const OUTRO = \// },
   'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en/id/ja/es)' },
+  'server/src/chat/schedule-templates.ts': { why: 'template schedule names and the instruction the AI is given (ko next to en/id/ja/es)' },
+  'server/src/devenv/jobs.ts': { why: 'dev environment job and box stop notices (ko next to en/id/ja/es)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },
   'desktop/src/common/locales.ts': { why: 'the name 한국어 in the language picker', also: /label: '한국어'/ },
   'desktop/src/main/pane/page-script.js': { why: 'Korean synonyms the AI\'s "find" understands on Korean pages (not screen text)', also: /./ },
@@ -110,13 +118,18 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$/ },
   'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$/ },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
+  'shared/src/honorific.ts': { why: 'the honorifics a name may already end with (님, 씨) and the Korean particles after them (grammar, not screen text)', also: /^const (HONORIFICS|RO|PARTICLES)\b/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
   'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
+  'server/src/files/hwp-edit.ts': { why: 'the HWP terms 배포용, 개인 정보 보안, 변경 추적 and 문서 연결 in notes to the AI about a document it will not change (not screen text)', also: /\((배포용|개인 정보 보안|변경 추적|문서 연결)\)/ },
+  'server/src/files/hwpx-template.ts': { why: 'the style and font names Hangul documents use (바탕글, 개요 1, 함초롬바탕) in the built-in .hwpx template (document content, not screen text)', also: /^\s*(const FACES = |style\(\d+, '(PARA|CHAR)', '|\.\.\.OUTLINE\.map\(\(_, i\) => style\()/ },
+  'server/src/files/hwpx-write.ts': { why: 'the name of Hangul\'s outline styles (개요 N) looked for in a template (document content, not screen text)', also: /s\.name === `개요 \$\{l \+ 1\}`/ },
   'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en/id/ja/es)' },
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en/id/ja/es)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
   'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
+  'server/src/credentials/hosted-speech.ts': { why: 'hosted transcription failures: free hours used up, hosting key refused (ko next to en/id/ja/es)' },
   'server/src/credentials/migrate.ts': { why: 'names of connections moved from the older setup (ko next to en/id/ja/es)' },
   'server/src/skills/text.ts': { why: 'team skills texts: the confirmation card, notices, errors (ko next to en/id/ja/es)' },
   'server/src/chat/prompt.ts': { why: 'the language name given to the model', also: /ko: 'Korean \(한국어\)'/ },
@@ -133,6 +146,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/routes/system.ts': { why: 'system screen texts (ko next to en/id/ja/es)' },
   'server/src/system/export.ts': { why: 'export headings (ko next to en/id/ja/es)' },
   'server/src/system/prune.ts': { why: 'the kept-versions line in diagnostics (ko next to en/id/ja/es)' },
+  'server/src/system/windows-app.ts': { why: 'the Windows app line in diagnostics (ko next to en/id/ja/es)' },
   'server/src/system/messages.ts': { why: 'diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/team-files/errors.ts': { why: 'file errors (ko next to en/id/ja/es)' },
   'server/src/team-files/place.ts': { why: 'restored names (ko next to en/id/ja/es)', also: /복원됨\|/ },
@@ -141,14 +155,35 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en/id/ja/es)' },
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
+  'server/src/integrations/slack/text.ts': { why: 'what the Slack connector says in Slack and its screens\' refusals (ko next to en/id/ja/es)' },
   'server/src/admin/team-icon.ts': { why: 'team logo upload refusals (ko next to en/id/ja/es)' },
+  'server/src/auth/profiles.ts': { why: 'profile photo upload refusals (ko next to en/id/ja/es)' },
   'server/src/tools/higgsfield.ts': { why: 'the video confirmation card (ko next to en/id/ja/es)' },
+  'server/src/tools/save-url.ts': { why: 'the large-download card and the disk refusal (ko next to en/id/ja/es)' },
   'server/src/chat/runtime.ts': { why: 'queue-full messages (ko next to en/id/ja/es)' },
   'server/src/system/limits.ts': { why: 'plan limit messages: seats, concurrency (ko next to en/id/ja/es)' },
   'server/src/system/storage.ts': { why: 'the storage notice (ko next to en/id/ja/es)' },
   'server/src/system/egress.ts': { why: 'the cloud API address refusal (ko next to en/id/ja/es)' },
   'server/src/system/messages-linux.ts': { why: 'Linux and cloud diagnostics texts (ko next to en/id/ja/es)' },
   'server/src/system/update-job.ts': { why: 'update progress lines (ko next to en/id/ja/es)' },
+  'server/src/onboarding/profile.ts': { why: 'company profile save refusals (ko next to en/id/ja/es)' },
+  'server/src/onboarding/draft.ts': { why: 'company profile draft: the request message, chat title and refusals (ko next to en/id/ja/es)' },
+  'server/src/onboarding/skill-draft.ts': { why: 'team skill draft: the request and rewrite messages, chat title, refusals, the skill file\'s headings and fixed lines, the examples the model gets (ko next to en/id/ja/es)', also: /^\s*(ko: \{ title1:|files: \{ ko:|how: \{ ko:|rules: \{ ko:|ko: \(folder: string, like: string\) =>)/ },
+  'server/src/onboarding/specifics.ts': { why: 'the Korean job titles, words that are no one\'s name, day and money words looked for in a run so they do not stay in a team skill (not screen text)', also: /./ },
+  'server/src/onboarding/brand-assets.ts': { why: 'the Korean word for logo (로고) looked for in a page\'s picture names and labels (not screen text)', also: /^const LOGO_WORD = / },
+  'server/src/onboarding/welcome-result.ts': { why: 'the first result\'s chat title, messages, file names and the company intro file\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ head: \(n\) => / },
+  'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
+  'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^const AI_OWN_NAMES = \['트리나', / },
+  'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
+  'server/src/promo-video/tool.ts': { why: 'the promo video\'s style names and player words (ko next to en/id/ja/es)', also: /^\s*ko: \{ (ink|play): / },
+  'server/src/promo-video/spec.ts': { why: 'the Korean brand folder names (브랜드/이미지) named in the problems the AI gets back (not screen text)', also: /…\/브랜드\/이미지\// },
+  'server/src/promo-video/layout.ts': { why: 'the Hangul range that picks a Korean line\'s measure (not screen text)', also: /^export const hasHangul = / },
+  'server/src/promo-video/metrics.ts': { why: 'the characters whose widths are measured from the bundled font (not screen text)', also: /^const EXTRA_CHARS = / },
+  'shared/src/api/promo-video.ts': { why: 'Korean examples in the promo_video tool\'s slot descriptions the AI reads (not screen text)', also: /\.describe\(|\b(Text|Line)\(\d+, '/ },
+  'shared/src/api/intro-deck.ts': { why: 'Korean examples in the intro_deck tool\'s slot descriptions the AI reads (not screen text)', also: /\.describe\(|\b(Text|Opt)\(\d+, '/ },
+  'server/src/intro-deck/tool.ts': { why: 'the intro deck\'s theme names (ko next to en/id/ja/es)', also: /^\s*ko: \{ paper: / },
+  'server/src/intro-deck/html.ts': { why: 'the deck pager\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ slide: / },
+  'server/src/intro-deck/spec.ts': { why: 'the Korean superlatives a deck may use only when its sources do (a word list the check matches, not screen text), and the notes\' source label', also: /^export const SUPERLATIVES = / },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

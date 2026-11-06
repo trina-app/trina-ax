@@ -90,7 +90,7 @@ func (tb *testBase) ctl(stdin string, args ...string) (int, string, string) {
 	e.stdout, e.stderr, e.stdin = &out, &errb, strings.NewReader(stdin)
 	e.nft, e.systemctl = filepath.Join(tb.fakeBin, "nft"), filepath.Join(tb.fakeBin, "systemctl")
 	full := append([]string{args[0], "--base", tb.base, "--nft", e.nft, "--systemctl", e.systemctl}, args[1:]...)
-	if args[0] == "firewall" || args[0] == "safe-ops" {
+	if args[0] == "firewall" || args[0] == "safe-ops" || args[0] == "auto-update" || args[0] == "allow-unsigned" {
 		full = append([]string{args[0], args[1], "--base", tb.base, "--nft", e.nft, "--systemctl", e.systemctl}, args[2:]...)
 	}
 	cmd, rest := full[0], full[1:]
@@ -107,6 +107,10 @@ func (tb *testBase) ctl(stdin string, args ...string) (int, string, string) {
 		code, err = cmdStatus(e, rest)
 	case "safe-ops":
 		code, err = cmdSafeOps(e, rest)
+	case "auto-update":
+		code, err = cmdAutoUpdate(e, rest)
+	case "allow-unsigned":
+		code, err = cmdAllowUnsigned(e, rest)
 	}
 	if err != nil {
 		fmt.Fprintln(&errb, err)
@@ -414,7 +418,8 @@ func TestUpdateRefusals(t *testing.T) {
 	mkArchive(t, signedBundle(t, "0.2.0", priv, "older launcher"), newer, nil)
 	code, out, _ = tb.ctl("", "update", "--bundle", newer, "--pubkey", k, "--json")
 	json.Unmarshal([]byte(out), &r)
-	if r.RootUpdated || len(r.Notes) != 1 || !strings.Contains(r.Notes[0], "newer") {
+	// (the second note: the roll-back holds 0.2.0 from the update timer, root/update-failed.json)
+	if r.RootUpdated || len(r.Notes) != 2 || !strings.Contains(r.Notes[0], "newer") || !strings.Contains(r.Notes[1], "2 time(s) in a row") {
 		t.Fatalf("newer root files: %d %s", code, out)
 	}
 }

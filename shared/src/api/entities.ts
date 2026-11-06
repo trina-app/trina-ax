@@ -103,6 +103,17 @@ export const Folder = z.object({
   exists: z.boolean(),
   rules: z.array(FolderRule),
   createdAt: IsoTime,
+  /** the group whose folder this is (groups.folder_id). null: none; absent: an older server */
+  groupId: z.string().nullable().optional(),
+  /** why the admin API keeps this row (its rules can still change): 'team' for shared/ and skills/, which keep at least
+   * one rule; 'group' for a group's folder while the group exists. null: it may be removed; absent: an older server */
+  keep: z.enum(['team', 'group']).nullable().optional(),
+  /** the folder answers never show this path (inside users/, .system/ in any case, a temp name, a name the team folder
+   * refuses): Admin › Folder permissions lists such a row apart, to edit or remove. Absent: an older server */
+  hidden: z.boolean().optional(),
+  /** a hash of the folder's rules as they are now (the same rules in any order give the same hash): a save sends it
+   * back as `expectedHash`, and the server answers 409 when another admin changed them first. Absent: an older server */
+  rulesHash: z.string().optional(),
 })
 export type Folder = z.infer<typeof Folder>
 
@@ -117,6 +128,10 @@ export const Project = z.object({
   createdAt: IsoTime,
   /** the caller may edit/delete the project (write access to folderPath) */
   canEdit: z.boolean(),
+  /** its folder is in the trash (or was purged from there): only admins and the owner see such a project, and its chats
+   * get none of it; restoring the folder, or pointing the project at a folder (PATCH folderPath, also the same path),
+   * ends that. Absent from older servers: false. */
+  inTrash: z.boolean().optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -203,6 +218,19 @@ export const Step = z.object({
   /** a sub-task step (tool 'agent'): the sub-agent's tool calls and working time so far, and how many of its earliest
    * steps were not kept with the answer (`hidden`; the most recent ones are) */
   subtask: z.object({ toolUses: z.number().int().min(0).optional(), ms: z.number().int().min(0).optional(), hidden: z.number().int().min(0).optional() }).optional(),
+  /** how much of the answer text (characters of Message.content) was written when the step started: an artifact's
+   * card shows at that point of the answer. Absent on steps from before this field */
+  textAt: z.number().int().min(0).optional(),
+  /** box_shell on the srt runner (docs/DECISIONS.md "Dev environment: one queue"): the command or job waits in the team
+   * queue. id: the queued run (POST /api/dev-env/runs/:id/stop cancels it); position: its place in line when the step
+   * was written (the app reads the live place from GET /api/dev-env/runs); state: waiting, started, expired (the
+   * command waited too long: the dev environment is full) or cancelled. Absent on every other step */
+  devEnvRun: z.object({
+    id: z.string().max(64),
+    kind: z.enum(['command', 'job']),
+    state: z.enum(['waiting', 'started', 'expired', 'cancelled']),
+    position: z.number().int().min(1).nullable(),
+  }).optional(),
 })
 export type Step = z.infer<typeof Step>
 
@@ -213,6 +241,39 @@ export const FileChangeSummary = z.object({
   rejected: z.array(z.object({ path: z.string(), reason: z.string() })),
 })
 export type FileChangeSummary = z.infer<typeof FileChangeSummary>
+
+/**
+ * Where in a file a passage is (docs/DECISIONS.md "Sources under each answer"): a PDF page (1-based, as a PDF viewer
+ * counts), a spreadsheet sheet with the A1 range of the rows, a slide (its number in the show order, hidden slides
+ * counted, as PowerPoint numbers them), or the heading of a Word / Hangul section. Absent when it is not known.
+ */
+export const SourceLoc = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('page'), page: z.number().int().positive() }),
+  z.object({ kind: z.literal('sheet'), sheet: z.string().max(200), range: z.string().regex(/^[A-Z]{1,3}\d{1,7}(?::[A-Z]{1,3}\d{1,7})?$/).optional() }),
+  z.object({ kind: z.literal('slide'), slide: z.number().int().positive() }),
+  z.object({ kind: z.literal('heading'), heading: z.string().max(200) }),
+])
+export type SourceLoc = z.infer<typeof SourceLoc>
+
+/** One file of an answer's "참고한 파일" list (GET /api/chats/:id/messages/:messageId/sources), as the viewer may see it
+ * now: the AI read it, or saw passages of it in search / grep results, while it wrote the answer. */
+export const MessageSourceFile = z.object({
+  path: RelPath,
+  name: z.string(),
+  /** places the AI looked at (pages, sheets, slides, sections), at most 20; empty: the file as a whole */
+  locs: z.array(SourceLoc).max(20),
+  /** how: 'read' (the read tool), 'search' (passages of search by meaning), 'grep' (matching lines) */
+  via: z.array(z.enum(['read', 'search', 'grep'])).min(1),
+  /** a sub-agent of the answer (not the main AI) opened it; absent: the main AI did */
+  subagent: z.literal(true).optional(),
+})
+export type MessageSourceFile = z.infer<typeof MessageSourceFile>
+export const MessageSources = z.object({
+  files: z.array(MessageSourceFile),
+  /** files the viewer may not open now (access taken away, deleted, moved): counted only, no name or path */
+  unavailable: z.number().int().nonnegative(),
+})
+export type MessageSources = z.infer<typeof MessageSources>
 
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
@@ -253,6 +314,15 @@ export const Message = z.object({
   /** answers only: the AI got only the recent part of this conversation (the history a fresh engine session gets is
    * cut at 40,000 characters, and a session resumed from such a start keeps that); absent: all of it */
   historyTrimmed: z.boolean().optional(),
+  /** finished answers only: how many team files the AI read or saw passages of while writing it ("참고한 파일 N개");
+   * the list itself, checked against the viewer's access, comes from GET .../messages/:messageId/sources. Absent: none */
+  sourceCount: z.number().int().positive().optional(),
+  /** finished answers that ran a team skill ("/name", a form or the skill tool): the skill as recorded, and how many
+   * team files went into it (team-file references of the question and files read, outside personal folders and
+   * skills/). The step summary then reads "팀 스킬 '할 일 정리' · 팀 파일 2개". Absent: no team skill ran. `by`: who made the
+   * skill (its file's first version), when that is someone else than the person who asked and not a starter pack's
+   * text: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개" */
+  receipt: z.object({ skill: z.object({ path: z.string(), name: z.string(), by: z.string().optional() }), teamFiles: z.number().int().nonnegative() }).optional(),
 })
 export type Message = z.infer<typeof Message>
 
@@ -409,8 +479,8 @@ export const UploadTarget = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('path'), path: RelPath, onExists: z.enum(['fail', 'replace', 'rename']).default('rename') }),
   /** a chat attachment, stored in users/<me>/.attachments/<chatId>/ */
   z.object({ kind: z.literal('attachment'), chatId: Uuid7, name: z.string().min(1).max(255) }),
-  /** audio for transcription (not kept in the team folder) */
-  z.object({ kind: z.literal('transcribe'), name: z.string().min(1).max(255) }),
+  /** audio for transcription (not kept in the team folder); chatId as in TranscribeFields */
+  z.object({ kind: z.literal('transcribe'), name: z.string().min(1).max(255), chatId: Uuid7.optional() }),
 ])
 export type UploadTarget = z.infer<typeof UploadTarget>
 export const UploadSession = z.object({
@@ -476,15 +546,19 @@ export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
 export const SMALL_SERVER_CORES = 2
 /** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen: on when the speech
  * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one
- * (too slow; frames still go) and off for OpenRouter (team files' sound would go to a third party). `cpuCores`: the
- * server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice always
- * wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
-export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && cpuCores > SMALL_SERVER_CORES
+ * (too slow; frames still go), off for OpenRouter with the team's own key (team files' sound would go to a third party
+ * the team did not pick for it) and on for OpenRouter with the hosting service's key (`hostedKey`: the hosted plan's
+ * speech-to-text, zero data retention, 10 free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
+ * the server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice
+ * always wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
+export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number, hostedKey = false): boolean =>
+  provider === 'local' ? cpuCores > SMALL_SERVER_CORES : provider === 'openrouter' && hostedKey
 /** whether the default is off only because this server is small (the read and the settings switch say so) */
 export const mediaTranscriptsOffSmall = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && !mediaTranscriptsDefault(provider, cpuCores)
-/** whether AI reads of video and audio files transcribe their sound: never with voice input off */
-export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, cpuCores: number): boolean =>
-  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, cpuCores))
+/** whether AI reads of video and audio files transcribe their sound: never with voice input off. `hostedKey`: OpenRouter
+ * goes with the hosting service's key (mediaTranscriptsDefault) */
+export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, cpuCores: number, hostedKey = false): boolean =>
+  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, cpuCores, hostedKey))
 /** an OpenRouter model id: "<vendor>/<model>" */
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
@@ -530,12 +604,14 @@ export const TeamSettings = z.object({
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),
-  /** voice input: 'off' (default) | 'openrouter' (needs the OpenRouter key, Admin > Team settings) | 'local' */
+  /** voice input: 'off' (default; 'openrouter' on a hosted server with the hosting service's key) | 'openrouter' (the
+   * team's OpenRouter key, Admin > Team settings, else the hosting service's) | 'local' */
   speechProvider: SpeechProvider,
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,
   /** "Turn video sound into text": AI reads of video and audio files transcribe the sound with the speech provider.
-   * null = not chosen: mediaTranscriptsDefault (on for this server unless it is small, off for OpenRouter). A change of speechProvider
+   * null = not chosen: mediaTranscriptsDefault (on for this server unless it is small, off for OpenRouter with the
+   * team's key, on with the hosting service's key). A change of speechProvider
    * puts it back to null, so a choice made for one provider never sends sound to another. */
   aiMediaTranscripts: z.boolean().nullable(),
 })

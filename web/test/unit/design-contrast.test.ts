@@ -62,10 +62,15 @@ describe('components use the pairs', () => {
     expect(variant('ghost-danger')).not.toContain('text-muted')
     // quiet destructive actions (Delete a project, turn off a skill-manager grant) use the variant, not
     // className="text-danger" over ghost (.text-muted is emitted after .text-danger, so the override rendered grey)
-    for (const file of ['pages/admin/SkillManagers.tsx', 'pages/Projects.tsx']) {
+    for (const file of ['pages/admin/SkillManagers.tsx']) {
       const lines = src(file).split('\n')
       expect(lines.some((l) => l.includes('variant="ghost-danger"')), file).toBe(true)
     }
+    // Delete of a project or a chat is an item of the menu on its name (TitleMenu): red through its own class, with no
+    // grey class over it
+    const projectItem = src('components/TitleMenu.tsx').split('\n').find((l) => l.includes("it.danger && 'text-danger'"))
+    expect(projectItem).toBeDefined()
+    expect(projectItem).not.toContain('text-muted')
     // a plain "no" is neutral, like Claude Code's "No": Deny on the site card, Reject of a skill suggestion
     const ask = src('components/chat/AskCard.tsx').split('\n')
     expect(ask.some((l) => l.includes('variant="ghost"') && l.includes("decision: 'deny'"))).toBe(true)

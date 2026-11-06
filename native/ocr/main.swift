@@ -3,7 +3,8 @@
 //   mycel-ocr [--max-pages N]  < file
 //       text of a scanned PDF for the search index (grep text cache, semantic search; server/src/files/extract.ts):
 //       Apple's Vision text recognizer (Korean + English). PDF pages that have a text layer keep it; only pages
-//       without one are rendered and recognized. Output: UTF-8 text, pages separated by an empty line. An AI read
+//       without one are rendered and recognized. Output: UTF-8 text, each page after the first starting with a form
+//       feed like pdftotext's (files/locations.ts tells the page of a line by them). An AI read
 //       shows images and scanned pages as images instead (server/src/files/vision.ts); this text is its fallback
 //       only when a team turned image viewing off.
 //   mycel-ocr --jpeg N  < image   (a JPEG of the image, longest side at most N px, rotated as the file asks; the
@@ -148,13 +149,17 @@ if layerOnly { layer(data) }
 var out: [String] = []
 if data.starts(with: Array("%PDF".utf8)), let doc = PDFDocument(data: data) {
   if doc.isLocked { fail("the PDF is password-protected", 1) }
+  // one entry per page, also for a page that could not be drawn: the form feeds keep the page numbers right
+  var pages: [String] = []
   for i in 0..<min(doc.pageCount, maxPages) {
-    guard let page = doc.page(at: i) else { continue }
+    guard let page = doc.page(at: i) else { pages.append(""); continue }
     let layer = page.string ?? ""
-    if layer.filter({ !$0.isWhitespace }).count >= 20 { out.append(layer); continue }
-    if let img = render(page) { out.append(recognize(img)) }
+    if layer.filter({ !$0.isWhitespace }).count >= 20 { pages.append(layer); continue }
+    pages.append(render(page).map { recognize($0) } ?? "")
   }
-  if doc.pageCount > maxPages { out.append("[… \(doc.pageCount - maxPages) more pages not read]") }
+  var text = pages.joined(separator: "\n\u{0C}")
+  if doc.pageCount > maxPages { text += "\n\n[… \(doc.pageCount - maxPages) more pages not read]" }
+  out.append(text)
 } else if let src = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(src) > 0,
           let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
   let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]

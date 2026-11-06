@@ -1,26 +1,39 @@
 import { confidentialChat, localTool } from "../safe-ops/confidential"
-// The tools of one turn besides the six file tools: B's remember / forget / ask_user / set_title and the browser pane tools
+// The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import path from 'node:path'
 import { z } from 'zod'
-import { AskUserInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, ForgetInput, RememberInput, SetTitleInput, uuidv7 } from '@mycel/shared'
-import type { BrowserToolName, Locale, TurnRequest } from '@mycel/shared/api'
+import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
+import type { BrowserToolName, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
-import { MEMORY_ITEM_MAX } from './prompt'
+import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
+import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
+import { frequentSkills, matchSkills, resolveSkill, shortDescription, usageScores } from './skill-list'
+import { addSources, sourceOf } from './read-scope'
+import { authorize } from '../policy/authorize'
+import type { Principal } from '../policy/access'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
 import { visionText } from '../files/vision-text'
-import { recordSkillRead } from '../admin/skill-usage'
+import { hwpOutputPath } from '../files/hwpx-check'
+import { hwpWritingOffText, hwpWritingOn, writesHangul } from '../tools/hwp-writing'
+import { recordSkillRead, recordSkillUse } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
+import { recordSent } from '../tools/connection-urls'
+import { BOX_SHELL_TOOL, boxShellTool } from '../devenv/tool'
+import { connectService } from './connect-service'
+import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
+import { ROOM_TOOLS } from '../rooms/ai-tools'
+import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 
 interface Tool {
   name: string
@@ -38,15 +51,42 @@ export const B_TOOL_DESCRIPTIONS = {
   remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
   ask_user: 'Ask the user a question and wait for the answer. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
+  connect_service: 'Connect a service for the user (an MCP server or an HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). Its tools are offered from the user\'s next message, not in this answer.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
+  skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
+  find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
 } as const
 
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
 export interface ChatToolSet extends TurnToolSet {
   /** sections for the AI's instructions from per-person tools (connected services) */
   prompt: string[]
+  /** the same for a resumed session's turn context (shorter where a provider says so) */
+  context: string[]
   /** the step label a per-person tool gives its call, or null for the shared labels */
   stepLabel(name: string, input: unknown, locale: Locale): string | null
+}
+
+/** box_shell's waiting state on its step (Step.devEnvRun). The first write of a call finds the call's step through
+ * patchToolStep (it may not exist yet); later writes of the same run go to that step by its id. */
+function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>) => void {
+  const stepOf = new Map<string, string>()
+  /** the newest state of a run whose step was not found yet: one patch per run, so a second write before the step
+   * exists does not land on the step of the next box_shell call (patchToolStep's FIFO) */
+  const pending = new Map<string, NonNullable<Step['devEnvRun']>>()
+  return (run) => {
+    const id = stepOf.get(run.id)
+    if (id) { exec.updateStep(id, { devEnvRun: run }); return }
+    const first = !pending.has(run.id)
+    pending.set(run.id, run)
+    if (!first) return
+    exec.patchToolStep(BOX_SHELL_TOOL, (s) => {
+      stepOf.set(run.id, s.id)
+      const latest = pending.get(run.id) ?? run
+      pending.delete(run.id)
+      return { devEnvRun: latest }
+    })
+  }
 }
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
@@ -54,12 +94,20 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const tools = new Map<string, Tool>()
   const templateWrites = new Set<string>()
   const add = (t: Tool): boolean => {
+    // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
+    // draft from pasted text has none
+    if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
+    // a team skill draft (onboarding/skill-draft.ts): no tool at all besides the refused file tools
+    if (exec.skillDraft) return false
     if(confidential && !localTool(t.name)) return false
+    // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
+    if (exec.room && !ROOM_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     return true
   }
   for (const t of bTools(exec)) add(t)
+  for (const t of skillTools(exec)) add(t)
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -69,29 +117,68 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     try { if (t.available && !t.available({ userId: exec.spec.userId, chatId: exec.spec.chatId, browser: exec.browser })) continue } catch { continue }
     add(wrapRegistered(exec, t))
   }
+  if (exec.devEnv) {
+    const person = turnPerson(exec)
+    add(boxShellTool({
+      queueStep: boxShellQueueStep(exec),
+      ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
+      redact: (s) => exec.redact(s),
+      unattended: person.unattended,
+      confirm: async (question, options, details) => (person.choose
+        ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
+        : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
+      // the site card: a server card for the person who owns the turn, in each of her windows (not only the one that
+      // sent the turn); a scheduled run gets no card (waitForPerson answers null = not allowed)
+      askSite: async (host, command) => {
+        const answer = await exec.waitForPerson({ kind: 'dev_env_site', requestId: uuidv7(), host, command, expiresAt: new Date(Date.now() + exec.rt.askUserTimeoutMs()).toISOString() }, { timeoutMs: exec.rt.askUserTimeoutMs() })
+        return answer === 'once' || answer === 'always' || answer === 'deny' ? answer : null
+      },
+    }))
+  }
   if (exec.browser) for (const t of PANE_TOOLS) add(browserTool(exec, t.name as BrowserToolName, t.description, t.inputSchema as unknown as Record<string, unknown>))
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
+  const context: string[] = []
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
-  for (const p of confidential ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
+  // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
+  for (const p of confidential || exec.restricted || exec.room ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) if (add(wrapRegistered(exec, t)) && t.label) labels.set(t.name, t.label.bind(t))
     if (built.prompt) prompt.push(built.prompt)
+    const ctxText = built.context === undefined ? built.prompt : built.context
+    if (ctxText) context.push(ctxText)
   }
   return {
     prompt,
+    context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args, caller) {
       const files = caller?.files ?? exec.files
+      // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
+      if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
+      const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
+      if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
+      if (writesHangul(name, args) && !hwpWritingOn(exec.rt.ctx)) {
+        // Hangul writing comes with the HWP plugin (tools/hwp-writing.ts): make_file .hwpx while it is off, or edit_hwp
+        // after it was turned off during this turn, is refused before anyone is asked anything (the tool refuses it too)
+        return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
+      }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
-      if (name === 'make_file') {
+      exec.noteRoomTool(name, args)
+      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
+      const roomNo = await exec.confirmRoomChange(name, args)
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (room)` }
+      // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
+      // (tools/connection-urls.ts; before the call: its own answer is checked against them)
+      recordSent(exec.rt.db, exec.spec.chatId, args)
+      if (name === 'make_file' || name === 'edit_hwp') {
         // under skills/: the person confirms first (the file layer refuses the save otherwise)
         const no = await exec.confirmSkillWrite(name, args, files)
         if (no) return { content: [{ type: 'text', text: no.refusal }], isError: true, summary: no.summary }
@@ -104,20 +191,45 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const refusal = typeof a.output === 'string' ? await exec.confirmWidening(a.output, typeof a.source === 'string' ? [a.source] : []) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'make_file -> not allowed by the user (wider audience)' }
       }
+      if (name === 'edit_hwp' && args && typeof args === 'object') {
+        // like write and edit: what the chat read may go where more people see it (asked before the worker runs); a new
+        // file also carries the document it is made from
+        const a = args as { output?: unknown; file_path?: unknown }
+        const target = typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
+        const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []) : null
+        if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwp -> not allowed by the user (wider audience)' }
+      }
       const out = await t.call(args, files)
+      // a room session: a link share_file made says the path exists; the path as the server resolved it (actual case and
+      // Unicode form) counts like a name read (turn.ts noteReads), besides the path as given (noteRoomTool)
+      if (exec.room && name === 'share_file' && !out.isError) {
+        const p = (args as { path?: unknown } | null)?.path
+        try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
+      }
       exec.afterTool()
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts)
       return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
     },
     afterFileTool: (name, isError, args) => {
-      exec.noteTaint(name, args); exec.noteReads(); exec.afterTool()
+      exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
     },
+    // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
+    beforeBatch: async (name, args) => {
+      const no = await exec.confirmRoomChange(name, args)
+      return no ? { refusal: no, summary: `${name} -> not allowed by the user (room)` } : null
+    },
     beforeFileTool: async (name, args, caller) => {
+      if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
+      if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
+      recordSent(exec.rt.db, exec.spec.chatId, args)
+      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
+      const roomNo = await exec.confirmRoomChange(name, args)
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (room)` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
@@ -147,8 +259,10 @@ export function turnPerson(exec: TurnExec): TurnPerson {
       return (await choose(question, [{ label: allow, value: 'allow' }, { label: deny, value: 'deny' }], extra)) === 'allow'
     },
     *turnUrls() { for (const s of exec.steps) for (const src of s.sources ?? []) yield src.url },
-    // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined"
-    unattended: exec.spec.clientKind === 'schedule',
+    // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
+    // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open
+    unattended: exec.spec.clientKind === 'schedule' || exec.restricted,
+    ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }
 
@@ -175,7 +289,85 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
   }
 }
 
-// ---------------- remember / forget / ask_user / set_title ----------------
+// ---------------- skill / find_skills ----------------
+// Like Claude Code's Skill tool, for every engine and sub-agent (docs/DECISIONS.md "Skills: the whole list, the skill
+// tool"): the instructions list every skill by name (chat/skill-list.ts) and the AI loads the one it needs. Each call
+// walks the skills of the person as they are now (team skills they can read, their own personal skills), so a skill in
+// a folder they cannot read is never named, found or loaded. A loaded skill counts like a read of its file: usage
+// (team skills only), the chat's read scope and outside content.
+const clipName = (s: string, n = 120) => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t }
+
+function skillTools(exec: TurnExec): Tool[] {
+  const { rt, spec } = exec
+  const person = (): Principal | null => { try { return exec.livePrincipal() } catch { return null } }
+  return [
+    {
+      name: 'skill', description: B_TOOL_DESCRIPTIONS.skill, inputSchema: schema(SkillInput),
+      async call(args) {
+        const a = SkillInput.safeParse(args)
+        if (!a.success) return text(zodText(a.error), true)
+        const user = person()
+        if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'skill -> denied: account disabled' }
+        const skills = listSkills(rt.files, user)
+        // in a room the names it offers back are only of skills everyone there may read (they may reach the room), and
+        // the answer is as if the others did not exist; a skill named exactly that only the person may read still loads
+        // (its folder then joins the read scope), but never one of several of the same name
+        const shown = exec.roomReadable ? skills.filter((s) => exec.roomReadable!(s.path)) : skills
+        let hit = resolveSkill(shown, a.data.name)
+        if (!hit && exec.roomReadable) { const any = resolveSkill(skills, a.data.name); if (any && !('ambiguous' in any)) hit = any }
+        if (hit && 'ambiguous' in hit) {
+          return { ...text(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.name))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call skill again with the path of the one you mean.`, true), summary: `skill -> ambiguous (${hit.ambiguous.length})` }
+        }
+        // read again through the file checks (the same answer for a missing file and one the person cannot read)
+        const skill = hit ? readSkill(rt.files, user, hit.skill.path) : null
+        if (!skill) {
+          const near = matchSkills(shown, a.data.name, { limit: 5 }).map((m) => `"${neutralizeTags(clipName(m.skill.name, 64))}"`)
+          return {
+            ...text(`No skill called "${neutralizeTags(clipName(a.data.name))}" that this user can use.${near.length ? ` Similar: ${near.join(', ')}.` : ''} Use a name from the skill list in your instructions, or look with find_skills.`, true),
+            summary: 'skill -> not found',
+          }
+        }
+        exec.noteTaint('read', { file_path: skill.path })
+        // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
+        addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(skill.path))])
+        // reporting is auxiliary (admin/skill-usage.ts: team skills only, never a personal one); a loaded skill is a
+        // run (the onboarding goal counts it), unlike a plain read of the file
+        try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'tool' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
+        return { ...text(skillBlock(skill, '', 'loaded')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
+      },
+    },
+    {
+      name: 'find_skills', description: B_TOOL_DESCRIPTIONS.find_skills, inputSchema: schema(FindSkillsInput),
+      async call(args) {
+        const a = FindSkillsInput.safeParse(args)
+        if (!a.success) return text(zodText(a.error), true)
+        const user = person()
+        if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'find_skills -> denied: account disabled' }
+        // in a room only the skills everyone there may read (their names and descriptions may reach the room)
+        const skills = listSkills(rt.files, user).filter((s) => !exec.roomReadable || exec.roomReadable(s.path))
+        const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
+        const hits = matchSkills(skills, a.data.query, { scores, projectFolder: exec.projectFolder })
+        const q = neutralizeTags(clipName(a.data.query, 80))
+        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
+        const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
+        if (!hits.length) {
+          if (!skills.length) return { ...text(`No skill this user can use matches "${q}" (${searched}).`), summary: 'find_skills -> 0 found' }
+          // no word in common (Korean words against English descriptions, other words for the same thing): the skills
+          // the person uses most, so the AI can still judge from their descriptions, instead of nothing
+          const top = frequentSkills(skills, scores)
+          const head = top.used
+            ? `No skill matches "${q}" by its words (${searched}). These are the skills this user uses most; their descriptions may be in another language than the request. Load one with skill if it fits; otherwise try other words or go on without a skill:`
+            : `No skill matches "${q}" by its words (${searched}). These are skills this user can use; their descriptions may be in another language than the request. Load one with skill if it fits; otherwise try other words or go on without a skill:`
+          return { ...text([head, ...top.skills.map(line)].join('\n')), summary: `find_skills -> 0 found, ${top.skills.length} frequent` }
+        }
+        const lines = hits.map(({ skill: s }) => line(s))
+        return { ...text([`${hits.length} skill${hits.length === 1 ? '' : 's'} matching "${q}", best first. Load the one that fits with skill (its name) before you follow it:`, ...lines].join('\n')), summary: `find_skills -> ${hits.length} found` }
+      },
+    },
+  ]
+}
+
+// ---------------- remember / forget / ask_user / connect_service / set_title ----------------
 function bTools(exec: TurnExec): Tool[] {
   const { rt, spec } = exec
   const L = spec.locale
@@ -185,9 +377,9 @@ function bTools(exec: TurnExec): Tool[] {
       async call(args) {
         const a = RememberInput.safeParse(args)
         if (!a.success) return text(zodText(a.error), true)
-        const value = a.data.text.replace(/\s+/g, ' ').trim()
-        if (!value) return text('Invalid input: text is empty', true)
-        if (value.length > MEMORY_ITEM_MAX) return text(`Too long (${value.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
+        const clean = cleanMemoryText(a.data.text)
+        if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
+        const value = clean.text
         let source: 'ai' | 'user' = 'ai'
         if (exec.tainted) {
           // this conversation has seen outside content: the person confirms before anything is kept (tab 3)
@@ -240,6 +432,12 @@ function bTools(exec: TurnExec): Tool[] {
         exec.patchToolStep('ask_user', () => ({ detail: (Array.isArray(answer) ? answer.join(', ') : String(answer)).slice(0, 4000) }))
         return { ...text(JSON.stringify({ answer })), summary: 'ask_user -> answered' }
       },
+    },
+    {
+      // the AI fills in the connection, the person finishes it on the card: the key goes from the card to the server and
+      // never through this call (chat/connect-service.ts, docs/INTEGRATIONS.md "Connecting from a chat")
+      name: 'connect_service', description: B_TOOL_DESCRIPTIONS.connect_service, inputSchema: schema(ConnectServiceInput),
+      call: (args) => connectService(exec, args),
     },
   ]
   // the answering AI names a new chat (title.ts): no extra model call. The title shows in the sidebar and the header

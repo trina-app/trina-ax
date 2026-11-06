@@ -6,7 +6,7 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { Credential, CredentialKind, CredentialState, Locale, ServerEventInput } from '@mycel/shared/api'
 import { sharedSubscriptionsAllowed } from './policy'
-import { allowedCredentialKinds, modelUpstreams, type AppConfig, type ModelUpstreams } from '../app-config'
+import { allowedCredentialKinds, modelUpstreams, type AllowedKinds, type AppConfig, type ModelUpstreams } from '../app-config'
 import { audit } from '../admin/audit'
 import type { AppContext } from '../context'
 import type { Logger } from '../log'
@@ -24,7 +24,12 @@ export interface CredRow {
 }
 export const ROW_COLS = 'id, kind, label, owner_user_id, priority, disabled, status, status_code, secret_enc, key_version, fingerprint, hint, meta, expires_at, limited_until, spend_limit_usd, spend_limit_tokens, spend_limit_action, last_used_at, checked_at, created_by, created_at, updated_at'
 
-export interface CredMeta { issuedAt?: string; planType?: string | null; accountRef?: string; emailMasked?: string | null; accessExpiresAt?: string | null; lastRefreshAt?: string | null; fedramp?: boolean; from?: string }
+export interface CredMeta {
+  issuedAt?: string; planType?: string | null; accountRef?: string; emailMasked?: string | null; accessExpiresAt?: string | null; lastRefreshAt?: string | null; fedramp?: boolean; from?: string
+  /** anthropic-api-key: the host of the Anthropic-compatible gateway (engine.anthropicGateway) the key was made for;
+   * absent = an Anthropic key. A key is only ever sent where it was made for (unusable: kind_off elsewhere). */
+  gateway?: string
+}
 
 /** the secret JSON of each kind (never leaves the server) */
 export interface Secrets {
@@ -35,6 +40,10 @@ export interface Secrets {
 }
 
 export const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
+/** 429 codes (proxy/codex-path.ts, kept as the connection's status_code with its limited_until) that mean the account is
+ * out of credit or over its own spend limit: waiting does not help, someone has to add credit or raise the limit */
+const CREDIT_CODES = new Set(['insufficient_quota', 'credit_balance_exhausted', 'organization_usage_limit_exceeded'])
+export const isCreditLimit = (code: string | null | undefined) => !!code && (CREDIT_CODES.has(code) || /_spend_limit_exceeded$/.test(code))
 export const EXPIRING_MS = 14 * 24 * 3600_000
 export const CLAUDE_TOKEN_LIFETIME_MS = 365 * 24 * 3600_000
 
@@ -46,7 +55,8 @@ export interface CredCtx {
   vault: Vault
   sealer: Sealer
   config: Pick<AppConfig, 'engine' | 'mode' | 'dataDir'>
-  allowedKinds: Set<CredentialKind>
+  /** the kinds this server allows, and its Anthropic-compatible gateway (app-config allowedCredentialKinds) */
+  allowedKinds: Set<CredentialKind> & { gateway: string | null }
   upstreams: ModelUpstreams
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   /** send a notice to these people (default: the active owner and admins) */
@@ -181,8 +191,8 @@ export function overMonthLimit(db: Database, r: CredRow, now: Date): boolean {
 
 /** Why a connection cannot be used now, or null. (Order: the reason the owner can do something about first.) */
 export type Unusable = 'disabled' | 'invalid' | 'needs_reconnect' | 'expired' | 'limited' | 'over_limit' | 'kind_off' | 'sharing_off'
-export function unusable(db: Database, r: CredRow, now: Date, allowed: ReadonlySet<CredentialKind>): { why: Unusable; retryAt: string | null } | null {
-  if (!allowed.has(r.kind)) return { why: 'kind_off', retryAt: null }
+export function unusable(db: Database, r: CredRow, now: Date, allowed: AllowedKinds): { why: Unusable; retryAt: string | null } | null {
+  if (!allowed.has(r.kind) || otherGateway(r, allowed)) return { why: 'kind_off', retryAt: null }
   if (r.disabled) return { why: 'disabled', retryAt: null }
   if (r.owner_user_id === null && SUBSCRIPTION.has(r.kind) && !sharedSubscriptionsAllowed(db)) return { why: 'sharing_off', retryAt: null }
   if (r.status === 'needs_reconnect') return { why: 'needs_reconnect', retryAt: null }
@@ -193,7 +203,13 @@ export function unusable(db: Database, r: CredRow, now: Date, allowed: ReadonlyS
   return null
 }
 
-export function stateOf(db: Database, r: CredRow, now: Date, allowed: ReadonlySet<CredentialKind>): CredentialState {
+/** An Anthropic API key connection made for another address than the one Claude requests go to now (an Anthropic key
+ * while engine.anthropicGateway is on, a gateway's key without it or for another gateway): never sent there. */
+export function otherGateway(r: Pick<CredRow, 'kind' | 'meta'>, allowed: AllowedKinds): boolean {
+  return r.kind === 'anthropic-api-key' && (metaOf(r).gateway ?? null) !== (allowed.gateway ?? null)
+}
+
+export function stateOf(db: Database, r: CredRow, now: Date, allowed: AllowedKinds): CredentialState {
   const u = unusable(db, r, now, allowed)
   if (u) return u.why
   if (r.kind === 'anthropic-oauth' && r.expires_at && Date.parse(r.expires_at) - now.getTime() <= EXPIRING_MS) return 'expiring'
@@ -201,11 +217,12 @@ export function stateOf(db: Database, r: CredRow, now: Date, allowed: ReadonlySe
   return 'ok'
 }
 
-function detailOf(r: CredRow, state: CredentialState, locale: Locale): string | null {
+function detailOf(r: CredRow, state: CredentialState, locale: Locale, allowed: AllowedKinds): string | null {
   const key: Partial<Record<CredentialState, keyof typeof CT>> = {
     unverified: 'unverified', expired: 'expired', invalid: r.status_code === 'usage_not_included' ? 'invalidPlan' : 'invalid',
     needs_reconnect: r.status_code === 'decrypt_failed' ? 'decryptFailed' : 'needsReconnect', over_limit: 'overLimit', disabled: 'disabled', kind_off: 'kindOff', sharing_off: 'sharedSubscriptionsOff',
   }
+  if (state === 'kind_off' && allowed.has(r.kind) && otherGateway(r, allowed)) return ct('otherGateway', locale)
   if (state === 'expiring' && r.expires_at) return ct('expiring', locale, { date: fmtDate(r.expires_at, locale) })
   if (state === 'limited' && r.limited_until) return ct('limited', locale, { time: fmtTime(r.limited_until, locale) })
   const k = key[state]
@@ -224,7 +241,7 @@ export function toCredential(cc: CredCtx, r: CredRow, locale: Locale): Credentia
   const m = monthUsage(cc.db, r.id, now)
   return {
     id: r.id, kind: r.kind, label: r.label, scope: r.owner_user_id ? 'personal' : 'team', owner, assignments: asg,
-    priority: r.priority, disabled: !!r.disabled, state, detail: detailOf(r, state, locale), hint: r.hint, planType: meta.planType ?? null,
+    priority: r.priority, disabled: !!r.disabled, state, detail: detailOf(r, state, locale, cc.allowedKinds), hint: r.hint, planType: meta.planType ?? null,
     expiresAt: r.expires_at, limitedUntil: r.limited_until && Date.parse(r.limited_until) > now.getTime() ? r.limited_until : null,
     checkedAt: r.checked_at, lastUsedAt: r.last_used_at,
     spendLimit: { usd: r.spend_limit_usd, tokens: r.spend_limit_tokens, action: r.spend_limit_action },

@@ -1,0 +1,105 @@
+Remotion 4.0.539 in a stand-in box, 2026-11-01. NOT a real box: Docker 29 (runc, root in the container), not rootless
+podman; bind volumes, not the loop volume; Docker's bridge, not pasta. Same as a box: image from scripts/dev-env/
+Containerfile, read-only root, /tmp 256 MiB, no capabilities, no-new-privileges, the box seccomp profile, --cpus,
+--memory = --memory-swap, 512 processes, /work/node_modules on a volume. Probe: scripts/dev-env/in-box/remotion.sh.
+Host: Linux 7.0, cgroup v2, 16 cores (one core of quota for each run).
+
+##### a1: mem=1536 cpus=1 conc=1 frames=150
+remotion: install_seconds 14.7 (exit 0)
+remotion: browser_seconds 6.0 (exit 0)
+remotion: chrome_missing_libraries none
+remotion: fonts_with_hangul 15 (fc-list: /usr/bin/fc-list)
+remotion: render_seconds 25.1 (exit 0, concurrency 1)
+remotion: install_peak_unreclaimable_mib 350
+remotion: render_peak_unreclaimable_mib 1249
+remotion: render_peak_charged_mib 1535
+remotion: render_peak_tmp_mib 37
+remotion: render_peak_pids 192
+remotion: oom_kills 0
+remotion: disk_mib node_modules 790, cache 181, output 2
+remotion: video h264,1280,720,150 5.000000 
+remotion: result ok
+[exit 0] docker: memory.events: low 0 high 0 max 1931 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 
+##### a2: mem=1536 cpus=1 conc=1 frames=150
+remotion: install_seconds 13.8 (exit 0)
+remotion: browser_seconds 5.4 (exit 0)
+remotion: chrome_missing_libraries none
+remotion: fonts_with_hangul 15 (fc-list: /usr/bin/fc-list)
+remotion: render_seconds 25.0 (exit 0, concurrency 1)
+remotion: install_peak_unreclaimable_mib 358
+remotion: render_peak_unreclaimable_mib 1246
+remotion: render_peak_charged_mib 1535
+remotion: render_peak_tmp_mib 36
+remotion: render_peak_pids 193
+remotion: oom_kills 0
+remotion: disk_mib node_modules 790, cache 181, output 2
+remotion: video h264,1280,720,150 5.000000 
+remotion: result ok
+[exit 0] docker: memory.events: low 0 high 0 max 1864 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 
+##### d1: mem=1536 cpus=1 conc=0 frames=150
+remotion: install_seconds 15.1 (exit 0)
+remotion: browser_seconds 5.6 (exit 0)
+remotion: chrome_missing_libraries none
+remotion: fonts_with_hangul 15 (fc-list: /usr/bin/fc-list)
+remotion: render_seconds 26.8 (exit 0, concurrency default)
+remotion: install_peak_unreclaimable_mib 354
+remotion: render_peak_unreclaimable_mib 1241
+remotion: render_peak_charged_mib 1535
+remotion: render_peak_tmp_mib 37
+remotion: render_peak_pids 192
+remotion: oom_kills 0
+remotion: disk_mib node_modules 790, cache 181, output 2
+remotion: video h264,1280,720,150 5.000000 
+remotion: result ok
+[exit 0] docker: memory.events: low 0 high 0 max 1921 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 
+##### d2: mem=1536 cpus=1 conc=0 frames=150
+remotion: render_seconds 27.0 (exit 0, concurrency default)
+remotion: chrome_tabs Concurrency = 1x
+remotion: install_peak_unreclaimable_mib 357
+remotion: render_peak_unreclaimable_mib 977
+remotion: render_peak_charged_mib 1535
+remotion: render_peak_tmp_mib 37
+remotion: render_peak_pids 190
+remotion: oom_kills 0
+remotion: video h264,1280,720,150 5.000000 
+remotion: result ok
+[exit 0] docker: memory.events: low 0 high 0 max 1492 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 
+##### m1: mem=1024 cpus=1 conc=1 frames=150
+remotion: render_seconds 30.6 (exit 0, concurrency 1)
+remotion: chrome_tabs Concurrency = 1x
+remotion: install_peak_unreclaimable_mib 351
+remotion: render_peak_unreclaimable_mib 992
+remotion: render_peak_charged_mib 1023
+remotion: render_peak_tmp_mib 36
+remotion: render_peak_pids 192
+remotion: oom_kills 0
+remotion: video h264,1280,720,150 5.000000 
+remotion: result ok
+[exit 0] docker: memory.events: low 0 high 0 max 20451 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 
+##### m2: mem=768 cpus=1 conc=1 frames=150
+remotion: render_seconds 14.4 (exit 137, concurrency 1)
+Killed
+remotion: chrome_tabs 
+remotion: install_peak_unreclaimable_mib 346
+remotion: render_peak_unreclaimable_mib 696
+remotion: render_peak_charged_mib 767
+remotion: render_peak_tmp_mib 35
+remotion: render_peak_pids 114
+remotion: oom_kills 1
+remotion: video 
+remotion: result failed
+[exit 1] docker: memory.events: low 0 high 0 max 3515 oom 1 oom_kill 1 oom_group_kill 0 sock_throttled 0 
+Killed
+##### l1: mem=1536 cpus=1 conc=1 frames=1800
+remotion: render_seconds 117.4 (exit 0, concurrency 1)
+remotion: chrome_tabs Concurrency = 1x
+remotion: install_peak_unreclaimable_mib 355
+remotion: render_peak_unreclaimable_mib 1239
+remotion: render_peak_charged_mib 1535
+remotion: render_peak_tmp_mib 45
+remotion: render_peak_pids 198
+remotion: oom_kills 0
+remotion: video h264,1280,720,1800 60.000000 
+remotion: result ok
+[exit 0] docker: memory.events: low 0 high 0 max 1849 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 
+

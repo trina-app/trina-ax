@@ -1,6 +1,8 @@
-// Admin > AI connections against the mock server (docs/DECISIONS.md "AI 연결" 3.13): a Claude subscription token (the
-// steps, the plan notice that must be confirmed, the password again), an API key, a ChatGPT sign-in with its address
-// and code, the order, a member's own connections in Settings, and the https-only note where the browser cannot seal.
+// Admin > AI connections against the mock server (docs/DECISIONS.md "AI 연결" 3.13): a Claude subscription signed in
+// from the browser (one button, the approval link in a new tab, the code pasted back; the plan notice that must be
+// confirmed, the password again) with the terminal paste folded underneath, an API key, a ChatGPT sign-in with its
+// address and code, the order, a member's own connections in Settings (a Claude token pasted through the terminal
+// fallback), and the https-only note where the browser cannot seal.
 // The mock opens the sealed values with the server's real sealing code, so a value sealed wrongly fails here.
 import { expect, test } from '@playwright/test'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
@@ -12,20 +14,28 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
+  // the old address opens Providers, at Claude Code: each provider row lists its own accounts (none yet)
   await page.goto('/admin/credentials')
-  await expect(page.getByRole('heading', { name: 'AI 연결' }).first()).toBeVisible()
+  await expect(page).toHaveURL(/\/admin\/providers\?engine=claude-code$/)
+  await expect(page.getByRole('heading', { level: 2, name: '제공자', exact: true })).toBeVisible()
   await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
-  // other providers are the API engine's, not a Claude or Codex connection: the page says where they go
-  await expect(page.getByTestId('credentials-api-engine-hint')).toHaveText('OpenRouter·Gemini·로컬 모델은 AI 엔진 › API 엔진에서 연결해요. AI 엔진으로 가기')
-  await expect(page.getByTestId('credentials-api-engine-hint').getByRole('link', { name: 'AI 엔진으로 가기' })).toHaveAttribute('href', '/admin/engines')
+  await expect(page.getByTestId('provider-none-claude')).toBeVisible()
+  await expect(page.getByTestId('provider-none-codex')).toBeVisible()
+  // the API engine (OpenRouter, Gemini, local models) is a provider in the same list, with its own form
+  await expect(page.locator('[data-engine="api"]')).toBeVisible()
+  await expect(page.getByTestId('provider-accounts-claude')).toBeVisible()
 
-  // Sharing is off until the owner reads and confirms the warning. Cancelling does not opt in.
-  const sharing = page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')
-  await expect(sharing).not.toBeChecked()
-  await page.getByTestId('credential-add').click()
+  // Sharing (Team settings › Members' own accounts) is off until the owner reads and confirms the warning.
+  // Cancelling does not opt in.
+  await page.getByTestId('provider-add-claude').click()
   await expect(page.getByTestId('kind-anthropic-oauth')).toBeDisabled()
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await page.getByTestId('provider-add-codex').click()
   await expect(page.getByTestId('kind-chatgpt')).toBeDisabled()
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await page.goto('/admin/settings#ai')
+  const sharing = page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')
+  await expect(sharing).not.toBeChecked()
   await sharing.press('Space')
   await expect(page.getByRole('dialog')).toContainText('공유')
   await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
@@ -35,32 +45,61 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await page.getByRole('dialog').getByRole('button').last().click()
   expect((await optIn).postDataJSON()).toEqual({ sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })
   await expect(sharing).toBeChecked()
+  await page.goto('/admin/providers')
 
-  // Claude subscription: steps with copyable commands, the plan notice must be ticked, the password again
-  await page.getByTestId('credential-add').click()
+  // Claude subscription: one button signs in from the browser; the plan notice must be ticked, the password again
+  await page.getByTestId('provider-add-claude').click()
   const dialog = page.getByRole('dialog')
-  // API keys come first for each engine
+  // Claude Code's Add account offers only Claude's kinds, API key first
   const kinds = await dialog.locator('input[name="kind"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
-  expect(kinds).toEqual(['kind-anthropic-api-key', 'kind-anthropic-oauth', 'kind-openai-api-key', 'kind-chatgpt'])
+  expect(kinds).toEqual(['kind-anthropic-api-key', 'kind-anthropic-oauth'])
   await page.getByTestId('kind-anthropic-oauth').check()
-  await expect(page.getByTestId('setup-token-steps')).toContainText('claude setup-token')
+  await expect(page.getByTestId('claude-login-how')).toContainText('Claude가 보여 주는 코드')
+  // the terminal way is there, folded (not a second card, not a second button)
+  await expect(page.getByTestId('claude-manual')).not.toHaveAttribute('open', '')
+  await expect(page.getByTestId('setup-token-steps')).toBeHidden()
+  await expect(page.getByTestId('credential-secret')).toBeHidden()
   await page.getByTestId('credential-label').fill('대표 Max')
-  await page.getByTestId('credential-secret').fill('not-a-token')
-  await expect(dialog).toContainText('sk-ant-oat01-로 시작하는 토큰 전체')
-  await page.getByTestId('credential-secret').fill(TOKEN)
   await page.getByTestId('credential-password').fill(OWNER.password)
+  await expect(page.getByTestId('credential-submit')).toHaveText('Claude 구독 연결')
   await expect(page.getByTestId('credential-submit')).toBeDisabled()
   await expect(page.getByTestId('plan-notice')).toContainText('제공사 약관에 따라 목적에 맞는 사용을 허용하는지 확인하세요. 트리나가 그 허가를 줄 수는 없어요.')
   await page.getByTestId('plan-notice-ack').check()
+  const started = page.waitForRequest((r) => r.url().endsWith('/api/admin/credential-logins') && r.method() === 'POST')
   await page.getByTestId('credential-submit').click()
+  expect((await started).postDataJSON()).toMatchObject({ kind: 'anthropic-oauth', label: '대표 Max', acknowledgedPlanNotice: true })
+  // the approval link opens Claude in a new tab; the code field waits for what Claude shows after approval
+  const open = page.getByTestId('claude-open')
+  await expect(open).toHaveText('Claude 열어서 승인하기')
+  await expect(open).toHaveAttribute('target', '_blank')
+  expect(new URL((await open.getAttribute('href'))!).host).toBe('claude.com')
+  await expect(page.getByTestId('claude-code-submit')).toBeDisabled()
+  await page.getByTestId('claude-code-input').fill('not a code')
+  await expect(dialog).toContainText('중간에 #가 있어요')
+  await page.getByTestId('claude-code-input').fill('good-code#good-state')
+  const codeRequests: string[] = []
+  page.on('request', (r) => { if (/\/api\/admin\/credential-logins\/[^/]+\/code$/.test(r.url())) codeRequests.push(r.postData() ?? '') })
+  // Enter twice in a row: one request, no "not waiting for a code" error
+  await page.getByTestId('claude-code-input').press('Enter')
+  await page.getByTestId('claude-code-input').press('Enter')
+  await expect(page.getByTestId('claude-code-submit')).toHaveText('확인 중…')
+  expect(codeRequests).toHaveLength(1)
+  // sealed in the browser: the request carries no plain code
+  expect(codeRequests[0]).not.toContain('good-code')
+  expect(JSON.parse(codeRequests[0]!)).toHaveProperty('sealed.ct')
+  // cancelling while the new token is saved: the dialog stays, says so, and then shows the result
+  await dialog.getByRole('button', { name: '취소' }).click()
+  await expect(dialog).toContainText('저장하는 중')
+  await expect(page.getByTestId('claude-done')).toHaveText('연결했어요 · Claude 구독')
+  expect(codeRequests).toHaveLength(1)
+  await expect(dialog.getByTestId('dialog-error')).toHaveCount(0)
+  await dialog.getByRole('button', { name: '완료' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByTestId('credentials-claude')).toContainText('대표 Max')
   await expect(page.getByTestId('credentials-claude')).toContainText('정상')
-  // the token is never shown again
-  await expect(page.locator('body')).not.toContainText(TOKEN)
 
   // an API key: no plan notice, the last four characters as a hint
-  await page.getByTestId('credential-add').click()
+  await page.getByTestId('provider-add-claude').click()
   await page.getByTestId('kind-anthropic-api-key').check()
   await expect(page.getByTestId('plan-notice')).toHaveCount(0)
   await page.getByTestId('credential-label').fill('회사 키')
@@ -76,8 +115,8 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await page.getByTestId('credentials-claude').getByRole('button', { name: '위로' }).click()
   await expect.poll(labels).toEqual(['회사 키', '대표 Max'])
 
-  // ChatGPT: the address and the one-time code, then connected
-  await page.getByTestId('credential-add').click()
+  // ChatGPT: Codex's Add account; the address and the one-time code, then connected
+  await page.getByTestId('provider-add-codex').click()
   await page.getByTestId('kind-chatgpt').check()
   await page.getByTestId('credential-label').fill('팀 ChatGPT')
   await page.getByTestId('plan-notice-ack').check()
@@ -88,25 +127,32 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await expect(page.getByTestId('chatgpt-done')).toContainText('ChatGPT pro')
   await page.getByRole('dialog').getByRole('button', { name: '완료' }).click()
   await expect(page.getByTestId('credentials-codex')).toContainText('팀 ChatGPT')
+  await page.goto('/admin/settings#ai')
   await sharing.press('Space')
   await expect(sharing).not.toBeChecked()
+  await page.goto('/admin/providers')
   await expect(page.getByTestId('credentials-claude')).toContainText('공유 꺼짐')
   await expect(page.getByTestId('credentials-codex')).toContainText('공유 꺼짐')
-  expect(realErrors(errors)).toEqual([])
+  // the one 409 is the cancel while the token was saved (above), which the dialog shows
+  expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])
 })
 
 test('personal connections are available by default, prefer subscriptions, and preserve an owner opt-out', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await page.goto('/admin/credentials')
+  await page.goto('/admin/settings#ai')
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).toBeChecked()
   await page.goto('/settings')
-  await page.getByRole('link', { name: 'AI 연결' }).click()
-  await page.getByTestId('my-credential-add').click()
-  const kinds = await page.getByRole('dialog').locator('input[name="kind"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
-  expect(kinds).toEqual(['kind-anthropic-oauth', 'kind-anthropic-api-key', 'kind-chatgpt', 'kind-openai-api-key'])
-  await expect(page.getByTestId('kind-anthropic-oauth')).toBeEnabled()
+  // Settings › Connections: Providers (one's own accounts, by provider), first in the group
+  await expect(page.getByTestId('settings-group-connections').getByRole('link').first()).toHaveText('제공자')
+  await page.getByTestId('settings-group-connections').getByRole('link', { name: '제공자', exact: true }).click()
+  await page.getByTestId('my-credential-add-codex').click()
   await expect(page.getByTestId('kind-chatgpt')).toBeEnabled()
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await page.getByTestId('my-credential-add-claude').click()
+  const kinds = await page.getByRole('dialog').locator('input[name="kind"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
+  expect(kinds).toEqual(['kind-anthropic-oauth', 'kind-anthropic-api-key'])
+  await expect(page.getByTestId('kind-anthropic-oauth')).toBeEnabled()
   await page.getByTestId('kind-anthropic-api-key').check()
   await expect(page.getByTestId('credential-password')).toHaveCount(0) // one's own: no password again
   await page.getByTestId('credential-label').fill('내 키')
@@ -116,20 +162,55 @@ test('personal connections are available by default, prefer subscriptions, and p
   await page.getByTestId('my-credential-delete').click()
   await page.getByRole('dialog').getByRole('button', { name: '삭제' }).click()
   await expect(page.getByTestId('my-credentials')).toHaveCount(0)
-  await page.goto('/admin/credentials')
+  // a sign-in whose result the server could not read: said in words, with the way out
+  await page.getByTestId('my-credential-add-claude').click()
+  await page.getByTestId('kind-anthropic-oauth').check()
+  await page.getByTestId('credential-label').fill('내 Claude')
+  await page.getByTestId('plan-notice-ack').check()
+  await page.getByTestId('credential-submit').click()
+  await page.getByTestId('claude-code-input').fill('odd-code#good-state')
+  await page.getByTestId('claude-code-submit').click()
+  await expect(page.getByTestId('claude-failed')).toHaveText('Claude가 보여 준 결과를 트리나가 읽지 못했어요(새 토큰이 만들어졌을 수 있어요). 다시 시작하거나 터미널로 직접 만들어 주세요.')
+  await page.getByRole('dialog', { name: '계정 추가' }).getByRole('button', { name: '닫기' }).click()
+  await expect(page.getByRole('dialog', { name: '계정 추가' })).toHaveCount(0)
+  // a Claude token made in a terminal: the folded fallback (steps with copyable commands, the token field), then the
+  // same button connects the pasted token instead of starting a sign-in
+  await page.getByTestId('my-credential-add-claude').click()
+  await page.getByTestId('kind-anthropic-oauth').check()
+  await page.getByTestId('credential-label').fill('내 Max')
+  await page.getByTestId('plan-notice-ack').check()
+  await page.getByTestId('claude-manual').locator('summary').click()
+  await expect(page.getByTestId('setup-token-steps')).toContainText('claude setup-token')
+  await expect(page.getByTestId('claude-login-how')).toHaveCount(0)
+  await page.getByTestId('credential-secret').fill('not-a-token')
+  await expect(page.getByRole('dialog')).toContainText('sk-ant-oat01-로 시작하는 토큰 전체')
+  await expect(page.getByTestId('credential-submit')).toHaveText('연결')
+  await expect(page.getByTestId('credential-submit')).toBeDisabled()
+  await page.getByTestId('credential-secret').fill(TOKEN)
+  await page.getByTestId('credential-submit').click()
+  await expect(page.getByTestId('my-credentials')).toContainText('내 Max')
+  // the token is never shown again
+  await expect(page.locator('body')).not.toContainText(TOKEN)
+  await page.getByTestId('my-credential-delete').click()
+  await page.getByRole('dialog').getByRole('button', { name: '삭제' }).click()
+  await expect(page.getByTestId('my-credentials')).toHaveCount(0)
+  await page.goto('/admin/settings#ai')
   await page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' }).press('Space')
   await page.reload()
   await expect(page.getByRole('checkbox', { name: '팀원이 자기 AI 연결을 추가할 수 있게 하기' })).not.toBeChecked()
   await page.goto('/settings')
-  await expect(page.getByRole('link', { name: 'AI 연결' })).toHaveCount(0)
+  await expect(page.getByTestId('settings-menu').getByRole('link', { name: '제공자', exact: true })).toHaveCount(0)
+  // the old address goes to the profile, like any section not shown
+  await page.goto('/settings/credentials')
+  await expect(page).toHaveURL(/\/settings$/)
 })
 
 test('where the browser cannot seal (no crypto.subtle: http on a LAN address), adding says to use https', async ({ page }) => {
   await reset(page)
   await page.addInitScript(() => { Object.defineProperty(window.crypto, 'subtle', { value: undefined, configurable: true }) })
   await signIn(page)
-  await page.goto('/admin/credentials')
-  await page.getByTestId('credential-add').click()
+  await page.goto('/admin/providers')
+  await page.getByTestId('provider-add-claude').click()
   await expect(page.getByTestId('credential-https-only')).toContainText('https')
   await expect(page.getByTestId('credential-submit')).toBeDisabled()
 })

@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned toolchain and engine versions. The engine lockdown regression tests must pass before any of these move (claude-code: tests/engine/lockdown-claude.ts and tests/engine/lockdown-claude-subagents.ts, the latter with and without --oauth).",
+  "_comment": "Pinned toolchain and engine versions. The engine lockdown regression tests must pass before any of these move (claude-code: tests/engine/lockdown-claude.ts and tests/engine/lockdown-claude-subagents.ts, the latter with and without --oauth). claude-code also: re-check the setup-token success screen the Claude sign-in reads (native/cmd/mycel-launcher/claudelogin.go claudeTokenFrom: the token between the \"Your OAuth token\" heading and the \"Store this token securely\" row; bun tests/engine/claude-login-real.ts up to the paste prompt, and one real sign-in), then scripts/linux/lock-engines.ts.",
   "bun": "1.3.12",
   "go": "1.27.3",
   "ripgrep": "15.2.0",
@@ -41,5 +41,7 @@
   "web:react-router-dom": "7.18.4",
   "vendor (artifact frames, /vendor/)": "react 19.3.0, lucide-react 1.54.0, recharts 3.10.1, mermaid 11.17.2, @tailwindcss/browser 4.3.3",
   "playwright (web e2e)": "1.64.1 (chromium 1248)",
+  "hyperframes": "0.9.15 (promo video MP4 on a development Mac; not a dependency: scripts/promo-video/hyperframes/package-lock.json, installed by scripts/promo-video/install-hyperframes.ts)",
+  "pretendard": "1.3.9 (PretendardVariable.woff2, promo video templates, resources/promo-video/fonts/)",
   "@types/node (root typecheck; desktop pins its own for Electron)": "26.6.5"
 }

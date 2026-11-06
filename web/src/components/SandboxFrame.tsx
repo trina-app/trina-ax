@@ -14,14 +14,16 @@
 import { AlertTriangle, ShieldCheck } from 'lucide-react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { cleanStatic, SANDBOX, SANDBOX_FRAME_URL, staticShell } from '../lib/artifacts'
+import { pageKey } from '../lib/frame-files'
 import { useT } from '../i18n'
 
 /** Loads of a frame that stayed put: the receiver, then the document written over it. */
 export const EXPECTED_LOADS = 2
 
 export default function SandboxFrame(props: { html: string; title: string; onError?: (message: string) => void; className?: string }) {
-  // a new document = a new frame (the receiver takes exactly one document)
-  return <Frame key={props.html} {...props} />
+  // a new document = a new frame (the receiver takes exactly one document); keyed by a hash, not the page itself (with
+  // its images inlined a page can be tens of MB)
+  return <Frame key={pageKey(props.html)} {...props} />
 }
 
 function Frame({ html, title, onError, className }: { html: string; title: string; onError?: (message: string) => void; className?: string }) {
@@ -102,7 +104,7 @@ export function StaticFrame({ html, title, gutter, className }: { html: string; 
         <ShieldCheck size={14} className="mt-px shrink-0" aria-hidden />
         {t('artifact.staticNotice')}
       </p>
-      <StaticDocument key={html} html={html} title={title} gutter={gutter} className={className} />
+      <StaticDocument key={pageKey(html)} html={html} title={title} gutter={gutter} className={className} />
     </div>
   )
 }

@@ -52,18 +52,20 @@ test('sub-tasks: the sub-agent\'s steps under its row, its latest step while it 
   const live = a.getByTestId('subtask')
   await expect(live).toContainText('하위 작업: 계약서 비교')
   await expect(live.getByTestId('subtask-stats')).toHaveText('도구 2번 · 2초')
-  await expect(live.getByTestId('subtask-latest')).toContainText('내용 검색 "수수료" · shared/')
-  await expect(live).not.toContainText('shared/contract-1.md')
+  await expect(live.getByTestId('subtask-latest')).toContainText('내용 검색 "수수료" · 공유 폴더')
+  await expect(live).not.toContainText('contract-1.md')
   await expect(a).toHaveAttribute('data-status', 'done')
   // folded: the answer's own steps are counted (the read before it and the sub-task)
   await a.getByText('작업 2단계').click()
   const row = a.getByTestId('subtask')
   await expect(row.getByTestId('subtask-stats')).toHaveText('도구 2번 · 1분 20초')
-  await expect(a.getByText('shared/contract-1.md')).toHaveCount(0)
+  await expect(a.getByText('contract-1.md')).toHaveCount(0)
   await row.getByRole('button', { name: /하위 작업 단계 보기/ }).click()
   const kids = row.getByTestId('subtask-steps')
-  await expect(kids).toContainText('파일 읽기 · shared/contract-1.md')
-  await expect(kids).toContainText('내용 검색 "수수료" · shared/')
+  // the team's folders in words, the path in the tooltip
+  await expect(kids).toContainText('파일 읽기 · 공유 폴더 › contract-1.md')
+  await expect(kids.getByTitle('shared/contract-1.md')).toHaveText('파일 읽기 · 공유 폴더 › contract-1.md')
+  await expect(kids).toContainText('내용 검색 "수수료" · 공유 폴더')
   await expect(kids).toContainText('이 하위 작업의 앞선 단계 3개는 남기지 않았어요')
   expect(realErrors(errors)).toEqual([])
 })
@@ -75,14 +77,56 @@ test('copy answer, regenerate makes a branch, ‹ › switches back', async ({ p
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await lastAnswer(page).hover()
   await lastAnswer(page).getByRole('button', { name: '답변 복사' }).click()
+  // "Copied" shows once the clipboard has it
+  await expect(lastAnswer(page).getByRole('button', { name: '복사됨' })).toBeVisible()
   const clip = await page.evaluate(() => navigator.clipboard.readText())
   expect(clip).toContain('Here is **the answer** for: first question')
+  // like Claude's copy: formatted text too (text/html), for Gmail, Outlook, Word and Google Docs (lib/richCopy.tsx)
+  const flavours = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read()
+    const out: Record<string, string> = {}
+    for (const type of item!.types) out[type] = await (await item!.getType(type)).text()
+    return out
+  })
+  expect(Object.keys(flavours).sort()).toEqual(['text/html', 'text/plain'])
+  expect(flavours['text/plain']).toContain('| alpha | 1 |')
+  const html = flavours['text/html']!
+  expect(html).toContain('<strong>the answer</strong>')
+  expect(html).toMatch(/<table[^>]*border-collapse: collapse/)
+  expect(html).toMatch(/<th[^>]*>name<\/th>/)
+  expect(html).toMatch(/<td[^>]*>alpha<\/td>/)
+  expect(html).toMatch(/<pre[^>]*><code>print\("hi"\)<\/code><\/pre>/)
+  // the external image is a link, never an image that loads where it is pasted
+  expect(html).not.toMatch(/<img[^>]*evil\.example/)
+  expect(html).toContain('href="https://evil.example/collect?d=secret"')
+  expect(html).toContain('/files/view?path=marketing%2Fplan.md"')
   void context
   await lastAnswer(page).getByTestId('regenerate').click()
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await expect(lastAnswer(page).getByTestId('branch-label')).toHaveText('2 / 2')
   await lastAnswer(page).getByRole('button', { name: '이전 버전' }).click()
   await expect(lastAnswer(page).getByTestId('branch-label')).toHaveText('1 / 2')
+})
+
+test('copy answer without the async clipboard (plain http on an office network): the copy command carries both flavours', async ({ page }) => {
+  // like http://192.168.x.x: no navigator.clipboard.write for the page; the clipboard itself is read by the test
+  await page.addInitScript(() => { Object.defineProperty(Clipboard.prototype, 'write', { value: () => Promise.reject(new DOMException('insecure', 'NotAllowedError')) }) })
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'second question')
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
+  await lastAnswer(page).hover()
+  await lastAnswer(page).getByRole('button', { name: '답변 복사' }).click()
+  await expect(lastAnswer(page).getByRole('button', { name: '복사됨' })).toBeVisible()
+  const flavours = await page.evaluate(async () => {
+    const [item] = await navigator.clipboard.read()
+    const out: Record<string, string> = {}
+    for (const type of item!.types) out[type] = await (await item!.getType(type)).text()
+    return out
+  })
+  expect(flavours['text/plain']).toContain('Here is **the answer** for: second question')
+  expect(flavours['text/html']).toMatch(/<table[^>]*>/)
+  expect(flavours['text/html']).toContain('<strong>the answer</strong>')
 })
 
 test('edit the question makes a new branch; files changed in the turn are summarized', async ({ page }) => {
@@ -163,8 +207,7 @@ test('a safety check the server raised has its own header, never the "AI asks" o
   await expect(card).toHaveAttribute('data-origin', 'server')
   await expect(card).toContainText('팀 서버의 안전 확인')
   await expect(card).not.toContainText('AI가 확인하고 싶어 해요')
-  await card.getByLabel('열지 않기').check()
-  await card.getByRole('button', { name: '답하기' }).click()
+  await card.getByRole('button', { name: '열지 않기', exact: true }).click()
   await expect(card).toHaveCount(0)
 })
 
@@ -210,7 +253,7 @@ test('search (⌘K) finds chats by content', async ({ page }) => {
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await page.getByTestId('new-chat').click()
   await page.keyboard.press('ControlOrMeta+k')
-  await page.getByPlaceholder('채팅 제목이나 내용으로 찾기').fill('banana')
+  await page.getByPlaceholder('채팅 제목·내용, 파일 이름, 프로젝트 등 검색').fill('banana')
   await expect(page.getByRole('option', { name: /banana bread recipe/ })).toBeVisible()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('user-text')).toHaveText('banana bread recipe')

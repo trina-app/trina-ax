@@ -20,13 +20,26 @@ import { NOTIFICATIONS } from './notifications'
 import { PUSH } from './push'
 import { REMOTE_MCP } from './remote-mcp'
 import { PLUGINS } from './plugins'
+import { DEV_ENV } from './dev-env'
+import { ONBOARDING_PACKS } from './onboarding-packs'
+import { ONBOARDING } from './onboarding'
+import { TEAM_LINKS } from './team-links'
+import { WELCOME } from './onboarding-welcome'
+import { ONBOARDING_GOAL } from './onboarding-goal'
+import { DEMO } from './demo'
+import { PEOPLE } from './people'
+import { ROOMS } from './rooms'
+import { ACCOUNT_DELETION } from './account-deletion'
+import { SLACK } from './slack'
+import { PROMO_VIDEO } from './promo-video'
+import { INTRO_DECK } from './intro-deck'
 import type { Endpoint } from './endpoint'
 
-export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS } as const
+export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK } as const
 export type Api = typeof API
 export type ApiName = keyof Api
 
-export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS } as const
+export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK } as const
 
 /** All endpoints with their registry key. */
 export function listEndpoints(): { name: ApiName; ep: Endpoint }[] {
@@ -58,5 +71,20 @@ export * from './remote-mcp'
 export * from './system'
 export * from './office-update'
 export * from './plugins'
+export * from './dev-env'
+export * from './onboarding-packs'
+export * from './skill-inputs'
+export * from './onboarding'
+export * from './onboarding-skill'
+export * from './team-links'
+export * from './onboarding-welcome'
+export * from './onboarding-goal'
+export * from './demo'
+export * from './people'
+export * from './rooms'
+export * from './account-deletion'
+export * from './slack'
+export * from './promo-video'
+export * from './intro-deck'
 export * from './ws'
 export * from './client'

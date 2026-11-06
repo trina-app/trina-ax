@@ -3,17 +3,18 @@
 // connections (adding and replacing ask for the password again); admins see and re-check; a member manages only
 // their own connections, and only while the team allows them. Secrets arrive sealed (seal.ts) and are checked
 // without spending tokens (validate.ts). Audit details hold kinds, labels, hints (last 4) and plans, never a secret.
-import type { Credential, CredentialAssignment, CredentialKind, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'
+import type { Credential, CredentialAssignment, CredentialKind, DuplicateCredentialParams, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'
+import { anthropicGateway, gatewayHost } from '../app-config'
 import { audit } from '../admin/audit'
 import { setSetting } from '../admin/settings'
 import { newId } from '../db'
 import { fail } from '../http/errors'
-import { ct } from './i18n'
-import { MEMBER_OWN_KEY, memberOwnAllowed } from './resolve'
+import { ct, ctAll } from './i18n'
+import { candidates, familyOfKind, MEMBER_OWN_KEY, memberOwnAllowed } from './resolve'
 import { SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
 import {
-  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, secretOf, SUBSCRIPTION, toCredential, writeSecret,
+  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
   type CredCtx, type CredMeta, type CredRow, type Secrets,
 } from './store'
 import { formatProblem, verifySecret } from './validate'
@@ -22,6 +23,9 @@ import { ensureFresh } from './chatgpt-tokens'
 type ApiKind = Exclude<CredentialKind, 'chatgpt'>
 const secretOfKind = (kind: ApiKind, s: string): Secrets[ApiKind] => (kind === 'anthropic-oauth' ? { token: s } : { key: s })
 const hintOf = (kind: CredentialKind, s: string) => (kind === 'anthropic-api-key' || kind === 'openai-api-key' ? s.slice(-4) : null)
+/** the gateway (engine.anthropicGateway) an Anthropic API key added now is for: it is only ever sent there (store.ts
+ * otherGateway); undefined = Anthropic */
+const gatewayOf = (cc: CredCtx) => { const g = anthropicGateway(cc.config); return g ? gatewayHost(g) : undefined }
 
 /** open a sealed secret for this purpose, or answer 400 (never says what it was) */
 export async function unsealOrFail(cc: CredCtx, sealed: Parameters<CredCtx['sealer']['unseal']>[0], purpose: SealPurpose, locale: Locale): Promise<string> {
@@ -46,8 +50,33 @@ const assignmentsOf = (cc: CredCtx, id: string) => cc.db.query('SELECT subject_t
 
 /** a connection with the same token / key (or the same ChatGPT account) already exists */
 export function duplicateOf(cc: CredCtx, kind: CredentialKind, fp: string, except?: string): CredRow | null {
-  const r = cc.db.query('SELECT id FROM engine_credentials WHERE kind = ? AND fingerprint = ? AND id != ?').get(kind, fp, except ?? '') as { id: string } | null
+  // the oldest first: the same answer every time, should an older version have left two copies
+  const r = cc.db.query('SELECT id FROM engine_credentials WHERE kind = ? AND fingerprint = ? AND id != ? ORDER BY created_at, id').get(kind, fp, except ?? '') as { id: string } | null
   return r ? getRow(cc.db, r.id) : null
+}
+
+/**
+ * 409: the token / key is already connected (one subscription limit must not be counted twice, and a copy would be
+ * left behind when the token rotates). It says where: the owner and admins hold the secret they pasted, so they hear
+ * the team connection's label or whose personal connection it is; a member hears where only when it is their own,
+ * otherwise only that it is connected on this team. `movable`: adding a team connection over a personal copy (the owner
+ * can send it again with moveFrom). Never any part of the secret (not even the last 4).
+ */
+export function duplicateConflict(cc: CredCtx, dup: CredRow, actor: string, locale: Locale, o: { movable?: boolean } = {}): never {
+  const role = (cc.db.query('SELECT role FROM users WHERE id = ?').get(actor) as { role: string } | null)?.role
+  const admin = role === 'owner' || role === 'admin'
+  const label = dup.label
+  if (dup.owner_user_id === actor) {
+    const params: DuplicateCredentialParams = { reason: 'duplicate_credential', where: 'own', credentialId: dup.id, label, ...(o.movable ? { movable: true } : {}) }
+    return fail('conflict', ct('duplicateOwn', locale, { label }), { params })
+  }
+  if (!admin) return fail('conflict', ct('duplicate', locale), { params: { reason: 'duplicate_credential', where: 'elsewhere' } satisfies DuplicateCredentialParams })
+  if (dup.owner_user_id === null) {
+    return fail('conflict', ct('duplicateTeam', locale, { label }), { params: { reason: 'duplicate_credential', where: 'team', credentialId: dup.id, label } satisfies DuplicateCredentialParams })
+  }
+  const name = (cc.db.query('SELECT name FROM users WHERE id = ?').get(dup.owner_user_id) as { name: string } | null)?.name ?? dup.owner_user_id
+  const params: DuplicateCredentialParams = { reason: 'duplicate_credential', where: 'personal', credentialId: dup.id, label, ownerId: dup.owner_user_id, ownerName: name, ...(o.movable ? { movable: true } : {}) }
+  return fail('conflict', ct('duplicatePersonal', locale, { label, name }), { params })
 }
 
 export interface NewRow {
@@ -74,6 +103,8 @@ export function insertRow(cc: CredCtx, n: NewRow): string {
 export interface CreateInput {
   kind: ApiKind; label: string; secret: string; assignments: CredentialAssignment[]; priority: number
   ownerUserId: string | null; actor: string; acknowledgedPlanNotice?: boolean
+  /** a team connection only: the member's personal connection with this same token / key to move to the team */
+  moveFrom?: string
 }
 
 function checkCreatePolicy(cc: CredCtx, i: CreateInput, locale: Locale) {
@@ -81,29 +112,69 @@ function checkCreatePolicy(cc: CredCtx, i: CreateInput, locale: Locale) {
   if (i.ownerUserId && (!memberOwnAllowed(cc.db) || i.ownerUserId !== i.actor)) fail('forbidden', ct('memberOwnOff', locale))
 }
 
-/** POST /api/admin/credentials, POST /api/me/credentials (the secret already unsealed) */
+/** POST /api/admin/credentials, POST /api/me/credentials (the secret already unsealed). With moveFrom (a team connection
+ * only, "Move it to the team"): the member's personal connection holding this same token / key is removed and the team
+ * connection made in one transaction (never two copies, never none), its owner is told, and Activity log says so. */
 export async function createCredential(cc: CredCtx, i: CreateInput, locale: Locale): Promise<Credential> {
   if (!cc.allowedKinds.has(i.kind)) fail('validation', ct('kindNotAllowed', locale), { fields: { 'body.kind': 'not allowed on this server' } })
-  const bad = formatProblem(i.kind, i.secret)
+  if (i.moveFrom !== undefined && i.ownerUserId) fail('validation', undefined, { fields: { 'body.moveFrom': 'only a team connection takes a personal one over' } })
+  const gateway = gatewayOf(cc)
+  const bad = formatProblem(i.kind, i.secret, !!gateway)
   if (bad) fail('validation', ct(bad, locale), { fields: { 'body.sealed': bad === 'badClaudeToken' ? 'not a Claude subscription token' : 'not an API key of this kind' } })
   if (SUBSCRIPTION.has(i.kind) && i.acknowledgedPlanNotice !== true) fail('validation', ct('planNotice', locale), { fields: { 'body.acknowledgedPlanNotice': 'required for a subscription' } })
   checkCreatePolicy(cc, i, locale)
-  if (duplicateOf(cc, i.kind, fingerprintOf(i.secret))) fail('conflict', ct('duplicate', locale))
+  const fp = fingerprintOf(i.secret)
+  // the copy this request may take over: a personal connection, named by moveFrom (anything else stays a 409)
+  const takeOver = (d: CredRow | null) => !!d && !i.ownerUserId && d.owner_user_id !== null && d.id === i.moveFrom
+  const dup = duplicateOf(cc, i.kind, fp)
+  if (dup && !takeOver(dup)) duplicateConflict(cc, dup, i.actor, locale, { movable: !i.ownerUserId && dup.owner_user_id !== null })
   if (!i.ownerUserId) checkAssignments(cc, i.assignments, locale)
   const check = await verifySecret(cc, i.kind, i.secret)
   checkCreatePolicy(cc, i, locale)
   if (check.result === 'refused') fail('validation', ct(i.kind === 'anthropic-oauth' ? 'refusedClaude' : 'refusedKey', locale), { fields: { 'body.sealed': 'refused by the provider' } })
   const now = cc.now()
-  const id = insertRow(cc, {
-    kind: i.kind, label: i.label, secret: secretOfKind(i.kind, i.secret), ownerUserId: i.ownerUserId, priority: i.priority, assignments: i.assignments,
-    createdBy: i.actor, meta: i.kind === 'anthropic-oauth' ? { issuedAt: new Date(now).toISOString() } : {},
-    expiresAt: i.kind === 'anthropic-oauth' ? new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString() : null,
-    checkedAt: check.result === 'ok' ? new Date(now).toISOString() : null,
-  })
-  const row = getRow(cc.db, id)!
-  audit(cc.db, { actor: i.actor, action: 'credential.create', target: id, detail: {
-    kind: i.kind, label: i.label, scope: i.ownerUserId ? 'personal' : 'team', assignments: i.ownerUserId ? [] : uniq(i.assignments), priority: i.priority,
-    ...(row.hint ? { hint: row.hint } : {}), verified: check.result === 'ok' } })
+  // one transaction: the copy taken over (its use carried over), the new connection and its Activity log entry, or none
+  const { row, from } = cc.db.transaction(() => {
+    // again, inside the write: the provider check took a while, and a copy may have come or gone meanwhile
+    const d = duplicateOf(cc, i.kind, fp)
+    if (d && !takeOver(d)) duplicateConflict(cc, d, i.actor, locale, { movable: !i.ownerUserId && d.owner_user_id !== null })
+    // never two copies, should an older version have left one more
+    const more = d ? duplicateOf(cc, i.kind, fp, d.id) : null
+    if (more) duplicateConflict(cc, more, i.actor, locale)
+    const id = insertRow(cc, {
+      kind: i.kind, label: i.label, secret: secretOfKind(i.kind, i.secret), ownerUserId: i.ownerUserId, priority: i.priority, assignments: i.assignments,
+      createdBy: i.actor, meta: i.kind === 'anthropic-oauth' ? { issuedAt: new Date(now).toISOString() } : i.kind === 'anthropic-api-key' && gateway ? { gateway } : {},
+      expiresAt: i.kind === 'anthropic-oauth' ? new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString() : null,
+      checkedAt: check.result === 'ok' ? new Date(now).toISOString() : null,
+    })
+    if (d) {
+      // the same token, so the same subscription: this month's use, when it was last used and a provider's limit it is
+      // waiting out carry over (one count, as the duplicate rule wants). The personal connection's own monthly-limit
+      // notices do not: the team connection has its own limit, and its first 80% / 100% notices should still go out.
+      cc.db.query('UPDATE credential_usage_daily SET credential_id = ? WHERE credential_id = ?').run(id, d.id)
+      const limited = d.limited_until && Date.parse(d.limited_until) > now
+      cc.db.query('UPDATE engine_credentials SET last_used_at = ?, limited_until = ?, status_code = ? WHERE id = ?')
+        .run(d.last_used_at, limited ? d.limited_until : null, limited ? d.status_code : null, id)
+      cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(d.id)
+    }
+    const r = getRow(cc.db, id)!
+    const detail = {
+      kind: i.kind, label: i.label, scope: i.ownerUserId ? 'personal' : 'team', assignments: i.ownerUserId ? [] : uniq(i.assignments), priority: i.priority,
+      ...(r.hint ? { hint: r.hint } : {}), verified: check.result === 'ok',
+    }
+    if (!d) audit(cc.db, { actor: i.actor, action: 'credential.create', target: id, detail })
+    else audit(cc.db, { actor: i.actor, action: 'credential.move_to_team', target: id, detail: { ...detail, from: { id: d.id, label: d.label, owner: d.owner_user_id } } })
+    return { row: r, from: d }
+  })()
+  if (from) {
+    cc.cache.delete(from.id)
+    const member = from.owner_user_id!
+    if (member !== i.actor) {
+      // the new team connection may be for other people only (the owner picked them): then say so
+      const theirs = candidates(cc.db, member, familyOfKind(i.kind) === 'anthropic' ? 'claude-code' : 'codex').some((c) => c.row.id === row.id)
+      cc.notify({ level: 'info', code: 'credential_moved_to_team', message: ctAll(theirs ? 'nMovedToTeam' : 'nMovedToTeamNotYours', { label: from.label, team: i.label }), link: '/settings/credentials' }, [member])
+    }
+  }
   return toCredential(cc, row, locale)
 }
 
@@ -113,9 +184,11 @@ export async function replaceSecret(cc: CredCtx, id: string, secret: string, act
   if (!row) return fail('not_found')
   if (row.kind === 'chatgpt') return fail('conflict', ct('sameKind', locale))
   const kind = row.kind as ApiKind
-  const bad = formatProblem(kind, secret)
+  const gateway = gatewayOf(cc)
+  const bad = formatProblem(kind, secret, !!gateway)
   if (bad) fail('validation', ct(bad, locale), { fields: { 'body.sealed': 'not a token or key of this kind' } })
-  if (duplicateOf(cc, kind, fingerprintOf(secret), id)) fail('conflict', ct('duplicate', locale))
+  const dup = duplicateOf(cc, kind, fingerprintOf(secret), id)
+  if (dup) duplicateConflict(cc, dup, actor, locale)
   const check = await verifySecret(cc, kind, secret)
   if (check.result === 'refused') fail('validation', ct(kind === 'anthropic-oauth' ? 'refusedClaude' : 'refusedKey', locale), { fields: { 'body.sealed': 'refused by the provider' } })
   const now = cc.now()
@@ -124,6 +197,8 @@ export async function replaceSecret(cc: CredCtx, id: string, secret: string, act
     fingerprint: fingerprintOf(secret), hint: hintOf(kind, secret), status: 'ok', status_code: null, limited_until: null,
     checked_at: check.result === 'ok' ? new Date(now).toISOString() : null,
     ...(kind === 'anthropic-oauth' ? { expires_at: new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString(), meta: JSON.stringify({ ...meta, issuedAt: new Date(now).toISOString() }) } : {}),
+    // the new key is for where Claude requests go now (an Anthropic key's connection can take a gateway's key, and back)
+    ...(kind === 'anthropic-api-key' ? { meta: JSON.stringify({ ...meta, gateway }) } : {}),
   }))()
   const r = getRow(cc.db, id)!
   audit(cc.db, { actor, action: 'credential.secret_replaced', target: id, detail: { kind, ...(r.hint ? { hint: r.hint } : {}), verified: check.result === 'ok' } })
@@ -178,6 +253,8 @@ export async function checkCredential(cc: CredCtx, id: string, actor: string, lo
     const f = await ensureFresh(cc, id, { force: true })
     result = f.ok ? 'ok' : f.permanent ? 'invalid' : 'unverified'
     if (f.ok) cc.db.query('UPDATE engine_credentials SET checked_at = ? WHERE id = ?').run(now, id)
+  } else if (!cc.allowedKinds.has(row.kind) || otherGateway(row, cc.allowedKinds)) {
+    // off on this server (a Claude subscription token or an Anthropic key while the gateway is on): nothing is sent
   } else {
     const s = secretOf(cc, row as CredRow & { kind: ApiKind })
     if (s) {

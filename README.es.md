@@ -10,11 +10,11 @@ Claude Code y Codex en un servidor de tu empresa, con tus archivos, las skills d
 
 [Sitio web](https://ax.trina.app) · [Pruébalo en 10 minutos](#pruébalo-en-10-minutos) · [Autoalojamiento](docs/for-admins.md) · [Documentación](docs/README.md)
 
-[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español
+[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/hero-day-one.gif" width="100%" alt="Una persona recién incorporada al equipo escribe una sola línea: “Write a proposal for Trina Logistics”. La IA lee la skill de propuestas del CEO y los archivos de ventas del equipo, y después guarda una presentación de 7 diapositivas que se abre junto al chat.">
+https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
-<sub><b>Primer día, una sola línea:</b> “Write a proposal for Trina Logistics”. La IA leyó los archivos de ventas del equipo, siguió la skill <code>proposal</code> del CEO y guardó una presentación de 7 diapositivas.<br>App real (pantalla en inglés), empresa ficticia. La generación tardó 81 segundos; el clip está acelerado.</sub>
+<sub><b>97 segundos, con sonido (en inglés).</b> Un líder de equipo configura Claude una vez y, en su primer día, la propuesta de una nueva integrante sale como la suya.<br>Historia animada con la app real en el 1:15. Empresa ficticia.</sub>
 
 </div>
 
@@ -27,11 +27,11 @@ Claude Code y Codex en un servidor de tu empresa, con tus archivos, las skills d
 </tr>
 <tr>
 <td><img src="docs/images/readme/before-empty-claude.png" alt="Claude Code, en una carpeta vacía, responde a “Write a proposal for Trina Logistics” con seis preguntas sobre la empresa, el cliente y el formato."></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX responde a la misma petición con una propuesta de 7 diapositivas cuya portada dice “Lead time from 2.1 to 1.4 days”."></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX responde a la misma petición con una propuesta de 7 diapositivas cuya portada dice “Lead time from 2.1 to 1.4 days, within your budget”."></td>
 </tr>
 </table>
 
-<sub>Resultados reales del 31 de octubre de 2026 con una empresa ficticia, Dawnroute. Claude Code hace bien en preguntar: en una carpeta vacía no hay nada que le diga quién eres. Trina le da la carpeta.</sub>
+<sub>Resultados reales del 31 de octubre y el 1 de noviembre de 2026 con una empresa ficticia, Dawnroute; las fotos de la presentación se hicieron con Higgsfield. Claude Code hace bien en preguntar: en una carpeta vacía no hay nada que le diga quién eres. Trina le da la carpeta.</sub>
 
 ## Cómo funciona
 
@@ -61,7 +61,7 @@ Un equipo ficticio con seis skills iniciales. La IA está desactivada, así que 
 | **El conocimiento está en las carpetas de la empresa** | `shared/`, `groups/`, `projects/` y carpetas personales, con historial de versiones. Extracción de texto de archivos PDF, Office y HWP/HWPX. |
 | **Skills del equipo, gestionadas como archivos** | Una skill es un archivo `SKILL.md`. Las reglas de la carpeta deciden quién puede usarla, y la IA pide confirmación a una persona antes de modificar alguna. |
 | **Permisos en cada llamada a archivos** | Los archivos a los que no tienes acceso no aparecen en Archivos, las respuestas de la IA, la búsqueda, las vistas previas, el historial de versiones ni la papelera. |
-| **Tu conexión de IA** | Claude u OpenAI, con suscripción o clave de API, para una persona, un grupo o todo el equipo. Uso por persona, con límites. |
+| **Tu conexión de IA** | Conecta una vez la cuenta de Claude u OpenAI de la empresa, o deja que cada persona conecte la suya. Uso por persona, con límites. Si lo alojas tú, Claude Code también puede usar otros modelos, como DeepSeek, Kimi o GLM, a través de una [pasarela compatible con Anthropic](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
 | **Autoalojado o con el hosting de Trina** | Un servidor Linux, un Mac de la oficina o el hosting de Trina en AWS (Seúl). En el navegador de escritorio y del teléfono, además de un instalador para Windows. |
 
 ## Por dentro
@@ -104,10 +104,10 @@ Una skill es un conjunto reutilizable de instrucciones: no entrena el modelo ni 
 | Ideal para | Equipos sin personal de TI | Equipos con un responsable de TI | Una oficina pequeña con un Mac dedicado | Echar un vistazo |
 | Quién lo gestiona | Trina, en AWS (Seúl) | Tu equipo de TI | Quien se encarga de la oficina | Tú |
 | IA | Tu conexión autorizada de Claude u OpenAI | Igual | Claude (sin Codex) | Desactivada |
-| Precio | Desde 39 USD/mes + uso de IA | Software gratuito + tu servidor | Software gratuito | Gratis |
-| Cómo empezar | [Contactar](https://ax.trina.app/#contact) | [Guía de Linux](docs/INSTALL-LINUX.en.md) | [Guía de Mac de oficina](docs/OFFICE.en.md) | [Inicio rápido](docs/QUICKSTART.md) |
+| Precio | Gratis hasta 3 personas, luego desde 39 USD/mes + uso de IA | Software gratuito + tu servidor | Software gratuito | Gratis |
+| Cómo empezar | [Ver los planes](https://ax.trina.app/#pricing) | [Guía de Linux](docs/INSTALL-LINUX.en.md) | [Guía de Mac de oficina](docs/OFFICE.en.md) | [Inicio rápido](docs/QUICKSTART.md) |
 
-Trina ofrece el espacio de trabajo, no la IA: usa solo cuentas y planes de Claude y OpenAI cuyo uso tengas autorizado. Planes de hosting (consultados el 30 de octubre de 2026; precios en USD sin impuestos): **Starter 39 USD/mes (hasta 5 personas), Team 69 (15), Business 129 (40)**. El uso de IA va aparte. El hosting empieza con una consulta, no con una prueba gratuita inmediata. [Precios actuales](https://ax.trina.app/#pricing)
+Trina ofrece el espacio de trabajo, no la IA: usa solo cuentas y planes de Claude y OpenAI cuyo uso tengas autorizado. Planes de hosting (consultados el 2 de noviembre de 2026; precios en USD sin impuestos): **Gratis (hasta 3 personas, plazas limitadas), Starter 39 USD/mes (hasta 5 personas), Team 69 (15), Business 129 (40)**, y presupuesto a partir de 40 personas. El uso de IA va aparte. [Precios actuales](https://ax.trina.app/#pricing)
 
 El autoalojamiento en Linux requiere Debian 12/13 o Ubuntu 24.04, systemd con cgroup v2, amd64 o arm64, 4 GB de RAM (recomendado) y al menos 20 GB de disco. Tu equipo de TI se encarga de la instalación, las actualizaciones y la restauración de copias de seguridad.
 
@@ -126,8 +126,8 @@ Autoalojar no significa funcionar sin conexión: el contexto que necesita cada p
 - No ofrecemos certificaciones de seguridad, respuestas perfectas, ahorros garantizados ni decisiones automáticas en materia legal, financiera o de RR. HH. Revisa los resultados y los límites de tu despliegue.
 - La IA ve las fotos y las páginas escaneadas de PDF como imágenes (un administrador puede desactivarlo), pero los servidores Linux no hacen OCR: en ellos, los documentos escaneados y las fotos no se pueden buscar como texto.
 - En los servidores Linux, la IA también lee archivos de video y audio: los fotogramas, repartidos a intervalos regulares, se envían al proveedor de IA como imágenes, y el sonido lo convierte en texto el proveedor de voz del equipo solo si un administrador lo permite ("Convertir el sonido de los videos en texto"). Si el proveedor de voz es OpenRouter, el sonido de los archivos del equipo va a OpenRouter y a su proveedor; los chats confidenciales nunca lo envían. Los Mac de oficina todavía no leen video.
-- Se puede extraer el texto de archivos HWP/HWPX. Las [vistas previas visuales](resources/hwp/README.md) se ofrecen con el plugin opcional HWP Preview, que requiere macOS o Linux con glibc 2.39 o posterior, así que Debian 12 **no** las admite.
-- En las instalaciones gestionadas, tienen prioridad las conexiones personales elegibles; después, las asignadas a una persona, a un grupo y, por último, a todo el equipo. Los equipos de Trina recién creados permiten suscripciones compartidas por defecto; las opciones ya guardadas se conservan. El consentimiento a nivel de cada conexión se sigue aplicando. **Este ajuste del software no concede ningún permiso conforme a los términos de Anthropic u OpenAI.** La demo local desactiva la IA; los modos de desarrollo y de inicio de sesión local de Mac de oficina gestionan las conexiones de otra manera. [Detalles de conexión](docs/FAQ.md)
+- Cualquier equipo puede extraer el texto de archivos HWP/HWPX. Las [vistas previas visuales](resources/hwp/README.md), y que la IA cree y rellene documentos Hangul, se ofrecen con el plugin opcional HWP Preview, que requiere macOS o Linux con glibc 2.39 o posterior, así que Debian 12 **no** las admite.
+- En las instalaciones gestionadas, tienen prioridad las conexiones personales elegibles; después, las asignadas a una persona, a un grupo y, por último, a todo el equipo. En los equipos de Trina recién creados, una conexión de la empresa puede servir a todo el equipo por defecto; las opciones ya guardadas se conservan. El consentimiento a nivel de cada conexión se sigue aplicando. **Este ajuste del software no concede ningún permiso conforme a los términos de Anthropic u OpenAI.** La demo local desactiva la IA; los modos de desarrollo y de inicio de sesión local de Mac de oficina gestionan las conexiones de otra manera. [Detalles de conexión](docs/FAQ.md)
 
 </details>
 
@@ -157,7 +157,7 @@ Autoalojar no significa funcionar sin conexión: el contexto que necesita cada p
 <details>
 <summary><b>¿Funciona con archivos HWP coreanos?</b></summary>
 
-<br>Con el texto, sí: la IA puede leer el texto de archivos HWP/HWPX. Las vistas previas visuales requieren el plugin opcional, que no funciona en Debian 12. Más información en las [preguntas frecuentes](docs/FAQ.md).
+<br>Sí. La IA lee el texto de archivos HWP/HWPX en cualquier servidor. Con el plugin opcional HWP Preview activado, también crea documentos .hwpx nuevos (títulos, párrafos, listas y tablas sencillas), rellena un formulario .hwp o .hwpx existente (marcadores, celdas vacías, filas de tabla) y lo guarda en el mismo formato sin tocar el resto del archivo, y muestra vistas previas visuales. El plugin no funciona en Debian 12. Más información en las [preguntas frecuentes](docs/FAQ.md).
 
 </details>
 

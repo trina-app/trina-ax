@@ -11,6 +11,21 @@ export function makePdf(lines: string[]): Uint8Array {
   ])
 }
 
+/** A text PDF of several pages (Helvetica, ASCII), one list of lines per page. */
+export function makePagedPdf(pages: string[][]): Uint8Array {
+  const esc = (s: string) => s.replace(/[\\()]/g, (c) => '\\' + c).replace(/[^\x20-\x7e]/g, '?')
+  const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
+  const kids: string[] = []
+  for (const lines of pages) {
+    const stream = 'BT /F1 12 Tf 72 780 Td 16 TL\n' + lines.map((l) => `(${esc(l)}) Tj T*`).join('\n') + '\nET'
+    kids.push(`${objs.length + 1} 0 R`)
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${objs.length + 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`)
+    objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`)
+  }
+  objs[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${pages.length} >>`
+  return writePdf(objs)
+}
+
 /**
  * Korean text in a CID font the file does not embed (HYGoThic-Medium, predefined CMap UniKS-UCS2-H), as ReportLab's
  * UnicodeCIDFont and many Korean form generators write it: a viewer can only draw it with the Adobe CMap files.

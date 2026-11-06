@@ -9,9 +9,10 @@
 // personal connection is never a candidate, whatever the settings say.
 import type { Database } from 'bun:sqlite'
 import type { CredentialKind } from '@mycel/shared/api'
+import type { AllowedKinds } from '../app-config'
 import { memberOwnAllowed } from './policy'
 export { MEMBER_OWN_KEY, memberOwnAllowed } from './policy'
-import { ROW_COLS, SUBSCRIPTION, unusable, type CredRow, type Unusable } from './store'
+import { isCreditLimit, ROW_COLS, SUBSCRIPTION, unusable, type CredRow, type Unusable } from './store'
 
 export type Family = 'anthropic' | 'openai'
 export type CredEngine = 'claude-code' | 'codex'
@@ -58,7 +59,7 @@ export function candidates(db: Database, userId: string, engine: CredEngine, exc
     || a.row.created_at.localeCompare(b.row.created_at) || a.row.id.localeCompare(b.row.id))
 }
 
-export function resolveCredential(db: Database, q: { userId: string; engine: CredEngine; now?: Date; exclude?: ReadonlySet<string>; allowedKinds: ReadonlySet<CredentialKind> }): Resolution {
+export function resolveCredential(db: Database, q: { userId: string; engine: CredEngine; now?: Date; exclude?: ReadonlySet<string>; allowedKinds: AllowedKinds }): Resolution {
   const now = q.now ?? new Date()
   const list = candidates(db, q.userId, q.engine, q.exclude)
   const skipped: { id: string; why: Unusable }[] = []
@@ -76,11 +77,32 @@ export function resolveCredential(db: Database, q: { userId: string; engine: Cre
 }
 
 /** Does this person have a usable connection for the engine now? (composer engine list, Admin > AI engines) */
-export const hasCredentialFor = (db: Database, userId: string, engine: CredEngine, allowedKinds: ReadonlySet<CredentialKind>, now?: Date) =>
+export const hasCredentialFor = (db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now?: Date) =>
   resolveCredential(db, { userId, engine, allowedKinds, now }).ok
 
+/** How near the end of a provider's limit (`limited`) must be for the person to "only wait" ("No AI" does not show).
+ * An hour: the proxy's own wait for a 429 that names no reset time (proxy/model-proxy.ts, proxy/codex-path.ts), a burst,
+ * or the last part of a 5-hour window. Longer (most of a 5-hour window, a weekly cap, a Codex plan limit until its
+ * reset days later) leaves the person without AI for a working session, which an admin can fix with another
+ * connection, so it shows. */
+export const SOON_MS = 60 * 60_000
+
+/** Does this person have a connection for the engine that works now, or soon (a provider's limit, D14, that ends within
+ * SOON_MS and is not "out of credit", which no wait fixes)? The same candidates and checks as resolveCredential and the
+ * proxy (broker.ts): the person's own connection only while the team allows them, assignments, subscription sharing,
+ * the kinds this server allows, switched off, refused, expired, the monthly block limit. Admin › Members "No AI". */
+export function hasCredentialSoonFor(db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now = new Date()): boolean {
+  return candidates(db, userId, engine).some(({ row }) => {
+    const u = unusable(db, row, now, allowedKinds)
+    if (!u) return true
+    if (u.why !== 'limited' || isCreditLimit(row.status_code) || Date.parse(u.retryAt!) - now.getTime() > SOON_MS) return false
+    // `limited` is checked after every lasting reason; the one after it (the monthly block limit) is checked again
+    return !unusable(db, { ...row, limited_until: null }, now, allowedKinds)
+  })
+}
+
 /** usable team (not personal) connections of a family: Admin > AI engines and the diagnostics */
-export function teamCredentialSummary(db: Database, family: Family, allowedKinds: ReadonlySet<CredentialKind>, now = new Date()): { total: number; usable: number; expiring: number; reasons: Unusable[] } {
+export function teamCredentialSummary(db: Database, family: Family, allowedKinds: AllowedKinds, now = new Date()): { total: number; usable: number; expiring: number; reasons: Unusable[] } {
   const kinds = KINDS_OF[family]
   const rows = db.query(`SELECT ${ROW_COLS} FROM engine_credentials WHERE owner_user_id IS NULL AND kind IN (${kinds.map(() => '?').join(',')})`).all(...kinds) as CredRow[]
   let usable = 0, expiring = 0

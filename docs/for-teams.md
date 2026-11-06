@@ -10,12 +10,14 @@ Use the [example catalog](../examples/README.md): weekly report for leadership, 
 
 A skill is a reusable procedure. A skill manager creates `skills/<name>/SKILL.md` in Files, or reviews a member's suggestion for that folder. Select it from the chat skill menu. Registering it does not train the model. The folder rules decide who sees a team skill (for example, `skills/finance/` only for the finance group). You can also keep personal skills in `users/<you>/skills/`: only you see them, and you can suggest one to the team.
 
+A project is a folder of the team folder with instructions, for work that keeps coming back to the same files (a launch, a client, a quarter's report). In Files, open the menu of a folder you can write and choose "Make it a project"; a chat started in the project, or moved into it from the chat title's menu, gives the AI that folder and those instructions. There is no member list: whoever can read the folder sees the project, and a folder holds one project. Once a folder is a project, only an admin moves, renames or deletes it. Instructions you did not write all by yourself count as outside content, so the AI asks before it remembers anything after reading them.
+
 ## Your first week
 
 Choose an owner and a server operator, then create the owner account.
 
 1. **Permissions:** verify allowed and blocked files with two fictional accounts.
-2. **AI connection:** select an authorized provider account and plan. New teams enable subscription sharing by default, but provider permission is separate.
+2. **AI connection:** select an authorized provider account and plan. On new teams one company connection can serve the whole team by default, but provider permission is separate.
 3. **Invite the team:** invite a small pilot group and confirm roles and folder access.
 4. **First skill:** compare figures, dates and owners against source files; a person decides whether to share. Usage costs can be estimates, not invoices.
 5. **First backup:** perform a [restore drill](BACKUP-RESTORE.md) with IT. A backup file alone does not prove recoverability.

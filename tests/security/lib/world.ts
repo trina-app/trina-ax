@@ -58,6 +58,11 @@ export const C = {
   teamSecret: ('sk-ant-oat01-' + 'SECCANARYTEAMTOKEN0a1b2c3d4e5f60718293a4b5c6d'),
   aliceSecret: ('sk-ant-api03-' + 'SECCANARYALICEKEY0a1b2c3d4e5f60718293a4b5c6d'),
   aliceOwnName: 'ALICE-OWN-CANARY',
+  // the DM of alice and erin (team chat rooms): only the two of them, never the owner or an admin
+  dmMsg: 'SEC-DM-MSG-5b1',
+  dmFileName: 'SEC-DM-FILE-8d2',
+  // the AI's answer to alice in that DM, from her own folder: a private preview for alice only
+  dmAiPreview: 'SEC-DM-AIPREVIEW-3e7',
 } as const
 
 export type Who = 'owner' | 'admin' | 'memberIn' | 'other' | 'memberOut' | 'pwchange' | 'anon'
@@ -73,11 +78,17 @@ export interface World {
   folders: Record<string, string>
   ids: {
     chatA: string; chatB: string; userMsg: string; assistantMsg: string; turnB: string; requestB: string
+    /** an open connect_service card of alice (buildWorld's connectCard option; '' without it) */
+    turnConnect: string; requestConnect: string
     artifact: string; memory: string; attachment: string; projAlice: string; projFalcon: string; projMkt: string; projShared: string
     uploadAlice: string; jobAlice: string; jobSystem: string; aliceVersion: string; finVersion: string
     trashAlice: string; trashFin: string; aliceSession: string; invite: string; inviteToken: string; resetToken: string
     budget: string; bobChat: string; suggestion: string
     teamCredential: string; aliceOwnCredential: string
+    /** the DM of alice and erin, alice's message in it, a second one of hers to delete, and an image she sent */
+    dmRoom: string; dmMsg: string; dmMsgDel: string; dmFile: string
+    /** alice's question to the AI in the DM (its turn) and the private preview it gave her */
+    dmAiTurn: string; dmAiPreview: string
   }
   sockets: Record<'alice' | 'bob' | 'carol' | 'dana' | 'erin', Socket>
 }
@@ -110,7 +121,7 @@ async function save(c: Client, p: string, content: string) {
   return c.ok('PUT', '/api/files/content', { path: p, content, baseSha256: base })
 }
 
-export async function buildWorld(inst: Instance, options: { sharedSubscriptions?: boolean } = {}): Promise<World> {
+export async function buildWorld(inst: Instance, options: { sharedSubscriptions?: boolean; connectCard?: boolean } = {}): Promise<World> {
   const as = Object.fromEntries(WHO.map((w) => [w, inst.client(w)])) as Record<Who, Client>
   const owner = as.owner
   // first owner (setup token), then everyone else through the admin API
@@ -204,6 +215,17 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   const chatB = (await alice.ok('POST', '/api/chats', { title: 'second' })).id
   const sentB = await alice.ok('POST', `/api/chats/${chatB}/messages`, { clientMessageId: cm(), attachmentIds: [], content: fake({ tool: 'ask_user', args: { question: `${C.aliceQuestion}?` } }) })
   const card = await sockets.alice.next('turn.request', (f) => f.data.turnId === sentB.turnId, 30_000)
+  // chat C (opt-in: the permission matrix): an open connect_service card, so POST /api/turns/:id/connect meets a real
+  // card and only alice may finish it. Its turn waits like chat B's (one more running answer); nothing is contacted
+  // until a card is finished.
+  let turnConnect = '', requestConnect = ''
+  if (options.connectCard === true) {
+    const chatC = (await alice.ok('POST', '/api/chats', { title: 'connect' })).id
+    const sentC = await alice.ok('POST', `/api/chats/${chatC}/messages`, { clientMessageId: cm(), attachmentIds: [], content: fake({ tool: 'connect_service', args: { name: 'Board', kind: 'mcp', url: 'https://mcp.board.example/mcp', auth: 'none' } }) })
+    const c = await sockets.alice.next('turn.request', (f) => f.data.turnId === sentC.turnId && f.data.request.kind === 'connect_service', 30_000)
+    turnConnect = sentC.turnId
+    requestConnect = c.data.request.requestId
+  }
   const bobChat = (await bob.ok('POST', '/api/chats', { title: 'bob chat' })).id
 
   // ---------------- uploads, jobs, sessions, invites ----------------
@@ -221,6 +243,18 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
   // a skill alice suggested from her own file ("스킬로 제안"): only alice and the managers of skills/ may see it
   const suggestion = (await alice.ok('POST', '/api/skills/suggestions', { source: { kind: 'file', path: 'users/alice/todo.md' }, targetFolder: 'skills', name: 'alice skill', content: `${C.aliceSuggestion}\n` })).id
 
+  // ---------------- team chat rooms: a DM of alice and erin ----------------
+  const dmRoom = (await alice.ok('POST', '/api/rooms', { kind: 'dm', userId: 'erin' })).id
+  const dmMsg = (await alice.ok('POST', `/api/rooms/${dmRoom}/messages`, { body: `${C.dmMsg} plan`, clientMessageId: cm() })).id
+  const dmMsgDel = (await alice.ok('POST', `/api/rooms/${dmRoom}/messages`, { body: 'to delete', clientMessageId: cm() })).id
+  const dmFile = (await alice.ok('POST', `/api/rooms/${dmRoom}/files`, undefined, { form: pngForm({}, `${C.dmFileName}.png`) })).id
+  await alice.ok('POST', `/api/rooms/${dmRoom}/messages`, { body: '', fileIds: [dmFile], clientMessageId: cm() })
+  // the AI in the DM (docs/DECISIONS.md "대화방의 트리나"): alice's question reads her own folder, so the answer is a
+  // private preview that only she may see, post or stop
+  const dmAsk = await alice.ok('POST', `/api/rooms/${dmRoom}/messages`, { body: `@트리나 my todo\n${fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: C.dmAiPreview })}`, clientMessageId: cm() })
+  const dmAiRun = await sockets.alice.next('room.ai.run', (f) => f.data.run.questionId === dmAsk.id && f.data.run.state === 'done', 30_000)
+  const dmAiPreview = (await alice.ok('GET', `/api/rooms/${dmRoom}/messages`)).items.find((m: any) => m.authorKind === 'ai' && m.replyTo?.id === dmAsk.id).id
+
   const desktop = { alice: inst.client('alice-desktop', { client: 'desktop', window: 'win-alice-desk' }), bob: inst.client('bob-desktop', { client: 'desktop', window: 'win-bob-desk' }) }
   await desktop.alice.login('alice', PW.alice, 'desktop')
   await desktop.bob.login('bob', PW.bob, 'desktop')
@@ -229,10 +263,11 @@ export async function buildWorld(inst: Instance, options: { sharedSubscriptions?
     inst, as, desktop, folders, sockets,
     groups: { marketing: mk.id, finance: fin.id, mktFolder, finFolder },
     ids: {
-      chatA, chatB, userMsg: sent.userMessage.id, assistantMsg: sent.assistantMessage.id, turnB: sentB.turnId, requestB: card.data.request.requestId,
+      chatA, chatB, userMsg: sent.userMessage.id, assistantMsg: sent.assistantMessage.id, turnB: sentB.turnId, requestB: card.data.request.requestId, turnConnect, requestConnect,
       artifact, memory, attachment: att.id, projAlice, projFalcon, projMkt, projShared, uploadAlice, jobAlice, jobSystem,
       aliceVersion, finVersion, trashAlice, trashFin, aliceSession, invite: inv.invite.id, inviteToken: inv.token,
-      resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential,
+      resetToken: reset.token, budget, bobChat, suggestion, teamCredential, aliceOwnCredential, dmRoom, dmMsg, dmMsgDel, dmFile,
+      dmAiTurn: dmAiRun.data.run.turnId, dmAiPreview,
     },
   }
 }

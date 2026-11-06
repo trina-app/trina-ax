@@ -15,6 +15,7 @@ import { readOutput, runIsolated } from '../tools/isolate'
 import { JobFailure } from './service'
 import { whisperThreads } from '../system/limits'
 import { dictationTurn } from './whisper-turns'
+import type { SpeechMeter } from '../credentials/hosted-speech'
 
 export const WHISPER_MODELS = {
   tiny: { file: 'ggml-tiny.bin', size: 77_691_713, sha256: 'be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21' },
@@ -52,6 +53,9 @@ export interface TranscribeConfig {
   threads: number
   /** OpenRouter's speech-to-text endpoint (fixed; tests point it at a local fake) */
   openRouterUrl: string
+  /** every OpenRouter speech request goes through it: the hosting service's free hours (credentials/hosted-speech.ts;
+   * set by component C, which has the credentials vault). Absent: nothing is counted. */
+  meter?: SpeechMeter
 }
 export const OPENROUTER_STT_URL = 'https://openrouter.ai/api/v1/audio/transcriptions'
 
@@ -77,7 +81,7 @@ export const LABELS = {
   run: { ko: '받아쓰는 중', en: 'Transcribing', id: 'Mentranskripsi', ja: "文字起こし中", es: "Transcribiendo" },
 }
 
-export const fail = (ko: string, en: string, id: string, ja: string, es: string, code: 'unavailable' | 'bad_request' | 'internal' | 'rate_limited' | 'payload_too_large' = 'unavailable', reason?: string) => new JobFailure(code, { ko, en, id, ja, es }, reason)
+export const fail = (ko: string, en: string, id: string, ja: string, es: string, code: 'unavailable' | 'bad_request' | 'internal' | 'rate_limited' | 'payload_too_large' | 'forbidden' = 'unavailable', reason?: string) => new JobFailure(code, { ko, en, id, ja, es }, reason)
 
 export const MISSING_WHISPER = () => fail(
   '받아쓰기 도구(whisper.cpp)가 서버에 없어요. 서버 맥에서 `brew install whisper-cpp`를 실행한 뒤 다시 해 주세요.',
@@ -230,11 +234,12 @@ export async function whisperFile(cfg: TranscribeConfig, model: string, work: st
   return parseWhisperJson(out.bytes.toString('utf8'))
 }
 
-/** ffmpeg (isolated) in `work`: `audio` -> work/audio.wav, 16 kHz mono 16-bit PCM. Returns "audio.wav". */
+/** ffmpeg (isolated) in `work`: `audio` -> work/audio.wav, 16 kHz mono 16-bit PCM, without the recording's tags (ffmpeg
+ * copies a title or comment into the WAV by default, and the WAV may go to OpenRouter). Returns "audio.wav". */
 export async function convertToWav(ffmpeg: string, work: string, audio: string, h: JobHandle, loc: Locale, at: number): Promise<string> {
   h.progress(at, LABELS.convert[loc])
   const r = await runIsolated({ cmd: ffmpeg, workDir: work, timeoutMs: 10 * 60_000, signal: h.signal,
-    args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', audio, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', 'audio.wav'] })
+    args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', audio, '-vn', '-map_metadata', '-1', '-fflags', '+bitexact', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', 'audio.wav'] })
   if (h.signal.aborted) throw new Error('aborted')
   if (r.code !== 0) throw UNREADABLE()
   return 'audio.wav'

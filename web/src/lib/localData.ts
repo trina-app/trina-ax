@@ -7,6 +7,10 @@ const DRAFT_PREFIX = 'mycel.draft:'
 const QUEUE_PREFIX = 'mycel.queue:'
 export const UPLOADS_KEY = 'mycel.uploads'
 
+/** Why an upload stops when the person signs out or the session ends, as opposed to a cancel: nothing is dropped on the
+ * server (a request would be refused), and the same person can go on from the chunks that are there. */
+export const SIGNED_OUT = new DOMException('signed out', 'AbortError')
+
 export const draftKey = (userId: string, id: string) => `${DRAFT_PREFIX}${userId}:${id}`
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>

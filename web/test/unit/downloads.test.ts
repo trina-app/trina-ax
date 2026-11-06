@@ -3,11 +3,11 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { DESKTOP_BRIDGE_GLOBAL, type DesktopBridge } from '@mycel/shared'
+import { DESKTOP_BRIDGE_GLOBAL, RELEASE_CHANNEL, type DesktopBridge } from '@mycel/shared'
 import { currentLocale, DICTS, translate } from '../../src/i18n'
 import { storeApp } from '../../src/lib/desktop'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps } from '../../src/lib/downloads'
-import { DesktopDownloads } from '../../src/pages/Settings'
+import { DesktopDownloads, downloadsSourceOf } from '../../src/pages/Settings'
 
 const win = { platform: 'windows' as const, file: 'Team-AX-Setup-0.1.0-x64.exe', version: '0.1.0', size: 114304798, signed: false }
 const mac = { platform: 'mac' as const, file: 'Team-AX-0.1.0-mac-universal.dmg', version: '0.1.0', signed: false }
@@ -79,6 +79,41 @@ describe('desktop downloads', () => {
     expect(list).toContain('More info → Run anyway') // apps.winSmartScreen
     expect(list).not.toContain(translate(currentLocale(), 'apps.macStore'))
     expect(view({ downloads: 'none' })).toContain('office-install.sh') // apps.noDownloadsOwner
+  })
+  test("the owner's empty state names what this server does: an office Mac's command, a Linux server's feed or folder, nothing to run on the hosted service (Diagnostics when its feed should have brought it)", () => {
+    type Props = Parameters<typeof DesktopDownloads>[0]
+    const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: 'none', store: false, owner: true, here: 'windows', ...o }))
+    const host = new URL(RELEASE_CHANNEL.feed).host
+    expect(view({})).toContain('teamax desktop add')
+    const feed = view({ server: 'feed' })
+    expect(feed).toContain(translate(currentLocale(), 'apps.noDownloadsFeed'))
+    expect(feed).toContain(host)
+    expect(feed).toContain('INSTALL-LINUX')
+    expect(feed).not.toMatch(/teamax|office-install/)
+    const folder = view({ server: 'folder' })
+    expect(folder).toContain('desktop-refresh --from')
+    expect(folder).not.toMatch(/teamax|office-install/)
+    const hosted = view({ server: 'hosted' })
+    expect(hosted).toContain('You haven&#x27;t put a desktop app') // apps.noDownloadsYet, without the owner's second line
+    expect(hosted).not.toContain('mt-2')
+    // a hosted tenant that takes it from the feed: "appears by itself", and Diagnostics, not a command
+    const hostedFeed = view({ server: 'hosted-feed' })
+    expect(hostedFeed).toContain(translate(currentLocale(), 'apps.noDownloadsFeed'))
+    expect(hostedFeed).toContain('Diagnostics')
+    expect(hostedFeed).not.toMatch(/teamax|desktop-refresh|INSTALL-LINUX|office-install/)
+    for (const server of ['office', 'feed', 'folder', 'hosted', 'hosted-feed'] as const) expect(view({ server, owner: false })).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.noDownloads')}</p>`)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(DICTS[l]['apps.noDownloadsOwnerHosted']).not.toMatch(/trina_admin|desktop-refresh|INSTALL-LINUX/)
+    // what /api/me says picks the hint: a hosted tenant never gets a self-installed server's hint
+    expect(downloadsSourceOf({ deployment: 'hosted', windowsApp: 'feed' })).toBe('hosted-feed')
+    expect(downloadsSourceOf({ deployment: 'hosted' })).toBe('hosted')
+    expect(downloadsSourceOf({ deployment: 'hosted', windowsApp: 'folder' })).toBe('hosted')
+    expect(downloadsSourceOf({ deployment: 'self', windowsApp: 'feed' })).toBe('feed')
+    expect(downloadsSourceOf({ deployment: 'self', windowsApp: 'folder' })).toBe('folder')
+    expect(downloadsSourceOf({})).toBe('office') // an office Mac, or an older server
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(translate(l, 'apps.noDownloadsOwnerFeed', { feed: host })).toContain(host)
+      expect(DICTS[l]['apps.noDownloadsOwnerLinux']).toContain('desktop-refresh --from')
+    }
   })
   test('a store build is what the desktop bridge says; a web browser or an older desktop app (no flag) is not one', () => {
     expect(storeApp()).toBe(false)

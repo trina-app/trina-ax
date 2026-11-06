@@ -1,23 +1,39 @@
 // Voice input through OpenRouter's speech-to-text API (docs/DECISIONS.md "Voice input through OpenRouter"): the
 // speech provider 'openrouter'. Browsers record webm/opus, which the API does not take, so ffmpeg (isolated,
-// tools/isolate.ts) converts to 16 kHz mono WAV first; without ffmpeg only wav/mp3/flac/ogg/m4a/aac go as they are.
-// The audio goes base64 in a JSON body to one fixed address (OPENROUTER_STT_URL), with zero data retention and no
-// data collection requested from the provider. The key is never in an error, a log line or a progress message.
+// tools/isolate.ts) converts to 16 kHz mono WAV first, then raises quiet sound and packs it losslessly as FLAC
+// (openRouterAudio); without ffmpeg only wav/mp3/flac/ogg/m4a/aac go as they are. The audio goes base64 in a JSON body
+// to one fixed address (OPENROUTER_STT_URL), with zero data retention and no data collection requested, and only the
+// providers in OPENROUTER_STT_PROVIDERS. The key is never in an error, a log line or a progress message.
 // Egress: the server account may reach public https hosts (native/cmd/mycel-ctl/firewall.go server_out blocks only
 // private and link-local ranges), the same as the whisper model download from huggingface.co.
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { DEFAULT_LOCALE, type Locale, type TranscribeResult } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import type { JobHandle } from '../services'
-import { readOutput, type OutputRead } from '../tools/isolate'
+import { readOutput, runIsolated, type OutputRead } from '../tools/isolate'
 import { converterInputName, convertToWav, fail, LABELS, UNREADABLE, type TranscribeConfig } from './transcribe'
+import { keepLongRetry, languageCode, LONG_PIECE_SEC, longRetryLanguage, scoreSegments, type ScoredAnswer } from './speech-language'
+import { meterSeconds } from '../credentials/hosted-speech'
 
 /** formats the API takes as they are (when there is no ffmpeg) */
 const DIRECT = new Set(['wav', 'mp3', 'flac', 'ogg', 'm4a', 'aac'])
 /** audio larger than this (after conversion) is refused before it is sent */
 export const OPENROUTER_MAX_BYTES = 25 * 1024 * 1024
 export const OPENROUTER_TIMEOUT_MS = 60_000
+/** The providers OpenRouter may send the sound to, in the order it should try them: DeepInfra (US; $0.012 an hour of
+ * sound, zero data retention, no training; plans stt-hosted-2026-11-01), then Groq when DeepInfra is down (the
+ * founder; the hosted key's guardrail allows these two). OpenRouter's transcription endpoint does not apply `order` /
+ * `only` / `allow_fallbacks` yet (its STT guide; measured: a provider that does not exist was answered by DeepInfra,
+ * and 9 of 54 parallel requests went to Groq), so the key's own provider guardrail is what limits it today; the
+ * request asks for it anyway, and is routed so the day the endpoint honours it. */
+export const OPENROUTER_STT_PROVIDERS: readonly string[] = ['deepinfra', 'groq']
+/** the request's `provider` object: the listed providers in their order, the next one when one is down (fallbacks on),
+ * and none outside the list (`only`) */
+export const openRouterRouting = () => ({
+  zdr: true, data_collection: 'deny', order: [...OPENROUTER_STT_PROVIDERS], only: [...OPENROUTER_STT_PROVIDERS], allow_fallbacks: true,
+})
 
 export const SPEECH_OFF = () => fail(
   '음성 입력이 꺼져 있어요. 관리자가 관리 › 팀 설정에서 켤 수 있어요.',
@@ -27,6 +43,15 @@ export const SPEECH_NO_KEY = () => fail(
   '음성 입력에 쓸 OpenRouter 키가 없어요. 관리자가 관리 › 팀 설정에서 키를 넣어야 해요.',
   'There is no OpenRouter key for voice input. An admin must add it in Admin › Team settings.',
   'Belum ada kunci OpenRouter untuk input suara. Admin harus menambahkannya di Admin › Pengaturan tim.', "音声入力用のOpenRouterキーがありません。管理者が「管理 › チーム設定」で追加してください。", "No hay clave de OpenRouter para la entrada de voz. Un administrador debe añadirla en Administración › Configuración del equipo.")
+/** voice input in a confidential chat while the provider is OpenRouter: the recording stays on the server (a
+ * provider on this server still transcribes it) */
+export const SPEECH_CONFIDENTIAL = () => fail(
+  '기밀 대화라서 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않았어요. 글로 입력해 주세요. 관리자가 음성 입력을 "이 서버에서"로 바꾸면 기밀 대화에서도 쓸 수 있어요.',
+  'This is a confidential chat, so the recording was not sent to the outside speech service (OpenRouter). Please type instead. Voice input works in confidential chats when an admin sets it to "On this server".',
+  'Ini percakapan rahasia, jadi rekaman tidak dikirim ke layanan suara luar (OpenRouter). Silakan ketik saja. Input suara bisa dipakai di percakapan rahasia jika admin mengaturnya ke "Di server ini".',
+  'これは機密チャットのため、録音を外部の音声サービス（OpenRouter）に送りませんでした。文字で入力してください。管理者が音声入力を「このサーバー上」に変更すると、機密チャットでも使えます。',
+  'Este es un chat confidencial, así que la grabación no se envió al servicio de voz externo (OpenRouter). Escriba el mensaje. La entrada de voz funciona en chats confidenciales si un administrador la configura como "En este servidor".',
+  'forbidden', 'confidential')
 export const TOO_LARGE = () => fail(
   '녹음이 너무 길어요(최대 25 MB, 약 13분). 짧게 나눠서 다시 해 주세요.',
   'The recording is too long (max 25 MB, about 13 minutes). Split it into shorter parts and try again.',
@@ -47,6 +72,11 @@ const PROVIDER_DOWN = () => fail(
   '음성 인식 서비스(OpenRouter)에 연결할 수 없어요. 잠시 뒤 다시 해 주세요.',
   'The speech service (OpenRouter) is not reachable. Please try again later.',
   'Layanan suara (OpenRouter) tidak dapat dihubungi. Coba lagi nanti.', "音声サービス（OpenRouter）に接続できません。後で再試行してください。", "No se puede conectar con el servicio de voz (OpenRouter). Vuelva a intentarlo más tarde.")
+/** a provider failed or did not answer in time twice (the second time OpenRouter may have sent it to the other one) */
+const PROVIDER_DOWN_TWICE = () => fail(
+  '음성 인식 서비스(OpenRouter)가 두 번 보내도 답하지 않았어요. 잠시 뒤 다시 해 주세요.',
+  'The speech service (OpenRouter) did not answer, twice. Please try again later.',
+  'Layanan suara (OpenRouter) tidak menjawab, dua kali. Coba lagi nanti.', "音声サービス（OpenRouter）が2回とも応答しませんでした。後で再試行してください。", "El servicio de voz (OpenRouter) no respondió, dos veces. Vuelva a intentarlo más tarde.")
 const REFUSED = (status: number) => fail(
   `OpenRouter가 요청을 거절했어요(HTTP ${status}).`,
   `OpenRouter refused the request (HTTP ${status}).`,
@@ -62,27 +92,123 @@ export function openRouterFailure(status: number) {
 }
 
 interface OrAnswer { text?: unknown; language?: unknown; duration?: unknown; segments?: unknown }
+/** an OpenRouter answer: how sure whisper was of it (speech-language.ts), the request's generation id
+ * (`X-Generation-Id`, for OpenRouter's own record of which provider served it) and that provider when the answer
+ * names it */
+export type OpenRouterAnswer = ScoredAnswer & { generation?: string; served?: string }
 
-/** OpenRouter's JSON -> TranscribeResult (language, duration, segments are optional there) */
-export function parseOpenRouter(j: OrAnswer, fallback: { language: string | null; durationSec: number | null }): TranscribeResult {
+/** OpenRouter's JSON -> TranscribeResult (language, duration, segments are optional there). The language as whisper's
+ * code: Groq answers "Korean" where DeepInfra answers "ko". */
+export function parseOpenRouter(j: OrAnswer, fallback: { language: string | null; durationSec: number | null }): ScoredAnswer {
   const text = typeof j.text === 'string' ? j.text.replace(/\s+/g, ' ').trim() : ''
   const duration = typeof j.duration === 'number' && Number.isFinite(j.duration) && j.duration >= 0 ? j.duration : fallback.durationSec
-  const raw = Array.isArray(j.segments) ? j.segments as { start?: unknown; end?: unknown; text?: unknown }[] : []
+  const raw = Array.isArray(j.segments) ? j.segments as { start?: unknown; end?: unknown; text?: unknown; avg_logprob?: unknown }[] : []
   let segments = raw
     .map((s) => ({ start: typeof s?.start === 'number' ? s.start : 0, end: typeof s?.end === 'number' ? s.end : 0, text: typeof s?.text === 'string' ? s.text.trim() : '' }))
     .filter((s) => s.text)
   if (!segments.length && text) segments = [{ start: 0, end: duration ?? 0, text }]
+  const scored = scoreSegments(raw)
   return {
     text,
-    language: typeof j.language === 'string' && j.language ? j.language : fallback.language,
+    language: languageCode(j.language) ?? fallback.language,
     durationSec: duration,
     segments,
+    ...(scored ? { scored } : {}),
   }
 }
+/** what a voice input job gives back (nothing of how sure whisper was, or which request it was) */
+const plain = (r: TranscribeResult): TranscribeResult => ({ text: r.text, language: r.language, durationSec: r.durationSec, segments: r.segments })
 
-/** Send one server-owned audio file to OpenRouter. `input` is not modified. */
+// ---------------- the sound OpenRouter gets ----------------
+/** The samples of a WAV's data chunk (any other chunk, such as ffmpeg's LIST, is skipped); null when it is not one. */
+export function wavData(wav: Uint8Array): Buffer | null {
+  const b = Buffer.from(wav.buffer, wav.byteOffset, wav.byteLength)
+  if (b.length < 12 || b.toString('latin1', 0, 4) !== 'RIFF' || b.toString('latin1', 8, 12) !== 'WAVE') return null
+  for (let pos = 12; pos + 8 <= b.length;) {
+    const id = b.toString('latin1', pos, pos + 4), size = b.readUInt32LE(pos + 4)
+    if (id === 'data') return b.subarray(pos + 8, Math.min(b.length, pos + 8 + size))
+    pos += 8 + size + (size & 1)
+  }
+  return null
+}
+/** quiet sound is raised until its speech level reaches this (dBFS), never further */
+const LEVEL_FLOOR_DB = -40
+/** and by at most this much */
+const GAIN_MAX_DB = 20
+/**
+ * The gain (dB) for a server-made 16 kHz mono 16-bit WAV: sound whose speech level (the 95th percentile of the RMS of
+ * its 100 ms frames that have sound) is under LEVEL_FLOOR_DB is raised to it, by at most GAIN_MAX_DB, and never so far
+ * that the loudest samples (the 99.9th percentile) pass -1 dBFS; anything louder is left as it is (0). Measured
+ * (plans stt-hosted-2026-11-01) on a room microphone peaking at -45 dBFS: 10.2% CER as WAV, 19.3% as MP3, 0.0-0.6%
+ * raised by 10-40 dB (0.6% as FLAC at +15.7 dB, this rule's gain for it); room tone with no speech stayed without words
+ * up to +20 dB and became "Thank you." from +30 dB (ffmpeg's loudnorm too), so nothing is raised past -40 dBFS or by
+ * more than 20 dB. ffmpeg's loudnorm was not used: it took 14 s for 10 minutes on one thread (it works at 192 kHz).
+ */
+export function quietGainDb(wav: Uint8Array): number {
+  const data = wavData(wav)
+  if (!data || data.length < 3200) return 0
+  const per = 1600, frames: number[] = [], hist = new Uint32Array(32769)
+  const n = Math.floor(data.length / 2)
+  for (let f = 0; (f + 1) * per <= n; f++) {
+    let sum = 0
+    for (let i = f * per; i < (f + 1) * per; i++) { const x = data.readInt16LE(i * 2); sum += x * x; hist[Math.abs(x)]!++ }
+    const rms = Math.sqrt(sum / per)
+    if (rms > 32768 * 10 ** (-70 / 20)) frames.push(rms)
+  }
+  if (!frames.length) return 0
+  frames.sort((a, b) => a - b)
+  const db = (v: number) => 20 * Math.log10(Math.max(v, 1) / 32768)
+  const speech = db(frames[Math.min(frames.length - 1, Math.floor(frames.length * 0.95))]!)
+  let peak = 0
+  for (let v = 32768, seen = 0, total = Math.floor(n / per) * per; v >= 0; v--) { seen += hist[v]!; if (seen > total * 0.001) { peak = v; break } }
+  const gain = Math.min(GAIN_MAX_DB, LEVEL_FLOOR_DB - speech, -1 - db(peak))
+  return gain >= 1 ? Math.round(gain * 10) / 10 : 0
+}
+const ENCODE_TIMEOUT_MS = 60_000
+const ENCODE_RSS_MIB = 256
+/** OpenRouter's audio as FLAC: lossless, so the answer is the WAV's (the same words and avg_logprob on every clip
+ * measured), at 38-49% of its size (10 minutes: 7.1-9.5 MB instead of 19.2 MB), from ffmpeg's own encoder (no library
+ * to install). Not MP3: 48, 64 and 96 kbps MP3 and 32 kbps Opus all changed what whisper wrote on a two-minute
+ * Korean-English meeting (an English line came back translated into Korean: 5.4% CER as WAV or FLAC, 13.6-22.6%
+ * lossy), though 10 minutes of Korean alone was the same (3.2% against 3.4%) */
+export type OpenRouterAudio = { ok: true; bytes: Buffer; format: 'flac'; gainDb: number } | { ok: false; why: 'failed' | 'damaged' }
+/**
+ * `wav` (`name` in the work folder `work`, made by the server) as OpenRouter gets it: raised when quiet (quietGainDb)
+ * and packed as 16 kHz mono FLAC without tags, by ffmpeg in the converter isolation (only the WAV demuxer and PCM
+ * decoder), read back without following a link. 'failed': ffmpeg could not make it (send the WAV); 'damaged': the run
+ * replaced its work folder or left something other than a plain file (a converter taken over: nothing is sent).
+ * `workBytes`: what the work folder holds already.
+ */
+export async function openRouterAudio(ffmpeg: string, work: string, name: string, wav: Uint8Array,
+  o: { signal?: AbortSignal; timeoutMs?: number; workBytes: number }): Promise<OpenRouterAudio> {
+  const gainDb = quietGainDb(wav)
+  // a name of its own: ffmpeg (8.1 measured) does not replace an existing file without -y and still exits 0, so a
+  // fixed name would send the piece before again
+  const out = `send-${crypto.randomUUID()}.flac`
+  const r = await runIsolated({
+    cmd: ffmpeg, workDir: work, signal: o.signal, timeoutMs: Math.max(1, Math.min(ENCODE_TIMEOUT_MS, o.timeoutMs ?? ENCODE_TIMEOUT_MS)), maxRssMiB: ENCODE_RSS_MIB,
+    maxStdout: 1024 * 1024, maxWorkBytes: o.workBytes + OPENROUTER_MAX_BYTES + 16 * 1024 ** 2,
+    args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '1', '-protocol_whitelist', 'file', '-format_whitelist', 'wav', '-codec_whitelist', 'pcm_s16le',
+      '-i', name, '-map', '0:a:0', '-vn', '-sn', '-dn', ...(gainDb ? ['-af', `volume=${gainDb}dB`] : []),
+      '-map_metadata', '-1', '-fflags', '+bitexact', '-y', '-ac', '1', '-ar', '16000', '-sample_fmt', 's16', '-c:a', 'flac', '-f', 'flac', out],
+  })
+  o.signal?.throwIfAborted()
+  if (r.killed === 'workdir') return { ok: false, why: 'damaged' }
+  if (r.killed || r.code !== 0) return { ok: false, why: 'failed' }
+  const got = readOutput(work, out, OPENROUTER_MAX_BYTES)
+  if (!got.ok) return { ok: false, why: got.why === 'not_regular' ? 'damaged' : 'failed' }
+  // the run ended in the folder the server made (runIsolated checked it), so the name is removed there
+  fs.rmSync(path.join(work, out), { force: true })
+  return { ok: true, bytes: got.bytes, format: 'flac', gainDb }
+}
+
+/** Send one server-owned audio file to OpenRouter. `input` is not modified. `team`: the team's language; a recording of
+ * LONG_PIECE_SEC or more that whisper heard in an unlikely language is sent once more told it, and the answer whisper
+ * is surer of is kept (speech-language.ts; the told language is then not reported as heard). `again`: whether the sound
+ * may go once more now (voice input still on OpenRouter), asked before that retry and before a provider failure's
+ * second try (sendToOpenRouter). */
 export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, model: string, input: string, name: string,
-  o: { language?: string; locale?: Locale }, h: JobHandle): Promise<TranscribeResult> {
+  o: { language?: string; locale?: Locale; team?: string; again?: () => boolean }, h: JobHandle): Promise<TranscribeResult> {
   const loc = o.locale ?? DEFAULT_LOCALE
   const x = (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? '').toLowerCase()
   if (!cfg.ffmpegBin && !DIRECT.has(x)) {
@@ -93,62 +219,172 @@ export async function transcribeOpenRouter(cfg: TranscribeConfig, key: string, m
   fs.mkdirSync(cfg.workBase, { recursive: true, mode: 0o700 })
   const work = fs.realpathSync(fs.mkdtempSync(path.join(cfg.workBase, 'stt-')))
   try {
-    let audio: OutputRead, format: string
+    let audio: OutputRead, format: string, seconds: number | null = null
     if (cfg.ffmpegBin) {
       // the input's name keeps only a known audio / video extension (see transcribe.ts)
       const src = path.join(work, converterInputName(name))
       fs.copyFileSync(input, src, fs.constants.COPYFILE_FICLONE)
       // what ffmpeg wrote is read without following a link: a converter taken over by the file could leave a link to
       // any file the server can read in place of audio.wav, and that file would go to OpenRouter (tools/isolate.ts)
-      audio = readOutput(work, await convertToWav(cfg.ffmpegBin, work, path.basename(src), h, loc, 0.1), OPENROUTER_MAX_BYTES)
+      const wavName = await convertToWav(cfg.ffmpegBin, work, path.basename(src), h, loc, 0.1)
+      audio = readOutput(work, wavName, OPENROUTER_MAX_BYTES)
       format = 'wav'
+      if (audio.ok) {
+        // 16 kHz mono 16-bit PCM: 32 000 bytes a second
+        seconds = (wavData(audio.bytes)?.length ?? Math.max(0, audio.bytes.length - 44)) / 32_000
+        const packed = await openRouterAudio(cfg.ffmpegBin, work, wavName, audio.bytes, { signal: h.signal, workBytes: fs.statSync(src).size + audio.bytes.length })
+        if (packed.ok) { audio = { ok: true, bytes: packed.bytes }; format = packed.format }
+        else if (packed.why === 'damaged') throw UNREADABLE()
+      }
     } else { audio = readOutput(path.dirname(input), path.basename(input), OPENROUTER_MAX_BYTES); format = x }
     if (!audio.ok && audio.why === 'too_large') throw TOO_LARGE()
     if (!audio.ok) throw UNREADABLE()
     h.progress(0.4, LABELS.run[loc])
-    const r = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: o.language, signal: h.signal, wavSeconds: format === 'wav' && !!cfg.ffmpegBin })
+    let r = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: o.language, signal: h.signal, seconds, again: o.again })
+    const told = !o.language && o.team && (seconds ?? r.durationSec ?? 0) >= LONG_PIECE_SEC ? longRetryLanguage(r, { team: o.team }) : undefined
+    if (told && (!o.again || o.again())) {
+      h.progress(0.7, LABELS.run[loc])
+      // a retry that fails keeps the first answer (Stop still ends the job)
+      const again = await sendToOpenRouter(cfg, key, model, audio.bytes, format, { language: told, signal: h.signal, seconds, again: o.again }).catch(() => { h.signal.throwIfAborted(); return null })
+      if (again && keepLongRetry(r, again, told)) r = { ...again, language: null }
+    }
     h.progress(1, LABELS.run[loc])
-    return r
+    return plain(r)
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }
 
 /**
  * One request to OpenRouter's speech-to-text API: `audio` (at most OPENROUTER_MAX_BYTES) in `format`, zero data
- * retention and no data collection requested, no redirects, OPENROUTER_TIMEOUT_MS (or `timeoutMs`, if shorter) plus
- * `signal`. Failures are JobFailures that never hold the key. `wavSeconds`: the audio is 16 kHz mono 16-bit WAV made by
- * the server, so its length is known from its size when the answer has none.
+ * retention and no data collection requested, only OPENROUTER_STT_PROVIDERS, no redirects, OPENROUTER_TIMEOUT_MS (or
+ * `timeoutMs`, if shorter) plus `signal`; through the free-hours meter and once more after a provider failure
+ * (postAudio). Failures are JobFailures that never hold the key. `seconds`: the length of the sound when the server
+ * knows it (the WAV it made), for an answer without one and for the meter. `again`: whether the sound may go once more
+ * now (the caller's checks for new sound), asked before that second try; false keeps the first failure.
  */
 export async function sendToOpenRouter(cfg: TranscribeConfig, key: string, model: string, audio: Uint8Array, format: string,
-  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; wavSeconds?: boolean }): Promise<TranscribeResult> {
+  o: { language?: string; signal?: AbortSignal; timeoutMs?: number; seconds?: number | null; again?: () => boolean }): Promise<OpenRouterAnswer> {
   if (audio.byteLength > OPENROUTER_MAX_BYTES) throw TOO_LARGE()
-  // 16 kHz mono 16-bit PCM: 32 000 bytes a second after the 44-byte header
-  const wavSec = o.wavSeconds ? Math.max(0, audio.byteLength - 44) / 32_000 : null
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : undefined
   const body = JSON.stringify({
     model,
     input_audio: { data: Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength).toString('base64'), format },
     ...(lang ? { language: lang } : {}),
     response_format: 'verbose_json',
-    provider: { zdr: true, data_collection: 'deny' },
+    provider: openRouterRouting(),
   })
-  const signals = [AbortSignal.timeout(Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, o.timeoutMs ?? OPENROUTER_TIMEOUT_MS)))]
-  if (o.signal) signals.push(o.signal)
-  let res: Response
-  try {
-    res = await fetch(cfg.openRouterUrl, {
-      method: 'POST', body, redirect: 'error',
-      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': PRODUCT.displayName },
-      signal: AbortSignal.any(signals),
-    })
-  } catch (e) {
-    if (o.signal?.aborted) throw e
-    throw PROVIDER_DOWN()
-  }
+  const res = await postAudio(cfg, key, body, { signal: o.signal, timeoutMs: o.timeoutMs, seconds: o.seconds ?? null, again: o.again })
   if (!res.ok) { await res.body?.cancel().catch(() => {}); throw openRouterFailure(res.status) }
   let j: OrAnswer
   try { j = await res.json() as OrAnswer } catch (e) {
     if (o.signal?.aborted) throw e
     throw PROVIDER_DOWN()
   }
-  return parseOpenRouter(j ?? {}, { language: lang ?? null, durationSec: wavSec })
+  return { ...parseOpenRouter(j ?? {}, { language: lang ?? null, durationSec: o.seconds ?? null }), ...requestOf(res.headers) }
+}
+
+// ---------------- which provider served a request ----------------
+/** An answer's generation id and the provider that served it, from its headers (`X-Generation-Id`; the provider only
+ * when the answer names it): only the fields found. */
+export function requestOf(headers: Headers): { generation?: string; served?: string } {
+  const generation = generationId(headers.get('x-generation-id'))
+  const served = providerSlug(headers.get('x-provider-name'))
+  return { ...(generation ? { generation } : {}), ...(served ? { served } : {}) }
+}
+/** OpenRouter's generation id ("gen-stt-1793497549-g9WWurhY5bOSKVBoplrc"), or undefined for anything else */
+export const generationId = (v: unknown): string | undefined => (typeof v === 'string' && /^gen-[A-Za-z0-9_-]{1,120}$/.test(v) ? v : undefined)
+/** a provider's name as a slug ("DeepInfra" -> "deepinfra"), or undefined */
+export const providerSlug = (v: unknown): string | undefined => {
+  const s = typeof v === 'string' ? v.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) : ''
+  return s || undefined
+}
+/** OpenRouter has a generation's record a few seconds after the answer (measured 5.5-7.5 s) */
+let servedDelayMs = 8_000
+const SERVED_TRIES = 3
+const SERVED_EVERY_MS = 8_000
+const SERVED_TIMEOUT_MS = 10_000
+/** tests: how long the lookup waits before it starts (null: the default) */
+export function setServedDelayForTests(ms: number | null) { servedDelayMs = ms ?? 8_000 }
+/**
+ * The provider that served each generation id, from OpenRouter's record of it (`GET /api/v1/generation?id=`, on the
+ * same host as the transcription address; the key only in the header, no sound or text sent, no redirects). The
+ * transcription answer does not name it. Best effort: a few tries, then whatever was found.
+ */
+export async function openRouterServed(cfg: TranscribeConfig, key: string, ids: string[]): Promise<Record<string, string>> {
+  const found: Record<string, string> = {}
+  let left = [...new Set(ids.filter((id) => generationId(id)))].slice(0, 50)
+  for (let t = 0; t < SERVED_TRIES && left.length; t++) {
+    // a wait that never holds the process open (a server stopping, a test run ending)
+    await new Promise((r) => { (setTimeout(r, t ? SERVED_EVERY_MS : servedDelayMs) as { unref?: () => void }).unref?.() })
+    for (const id of left) {
+      const url = new URL('/api/v1/generation', cfg.openRouterUrl)
+      url.searchParams.set('id', id)
+      try {
+        const res = await fetch(url, { headers: { authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(SERVED_TIMEOUT_MS) })
+        if (!res.ok) { await res.body?.cancel().catch(() => {}); continue }
+        const name = providerSlug(((await res.json()) as { data?: { provider_name?: unknown } } | null)?.data?.provider_name)
+        if (name) found[id] = name
+      } catch { /* not this time */ }
+    }
+    left = left.filter((id) => !(id in found))
+  }
+  return found
+}
+
+// ---------------- one request, a second try, the free-hours meter ----------------
+/** OpenRouter's answers when the provider failed or did not answer in time: the request goes once more (OpenRouter may
+ * then send it to the other allowed provider: DeepInfra or Groq for the hosting key) */
+const RETRY_STATUS = new Set([408, 500, 502, 503, 504, 524, 529])
+/** a second try starts only with at least this much of the caller's time left */
+export const RETRY_MIN_MS = 5_000
+
+/**
+ * POST one speech request, and once more when the provider failed (RETRY_STATUS) or did not answer in time, if the
+ * caller's time allows and `again` (the caller's checks for new sound: a read's switch, provider, confidential lock and
+ * the person's access) still says yes. Both failing says so (PROVIDER_DOWN_TWICE); the first failure alone is shown
+ * only when no second try went. Every request goes through the meter (cfg.meter: the hosting key's free hours): checked
+ * and held before it is sent, then counted once with the length of what was sent (`seconds`, else what OpenRouter says
+ * it heard) when it is answered, or given back when it is not. Stop (`signal`) ends it at once. The answer of a
+ * successful or refused request is returned as it is; OpenRouter's refusal of the hosting key is the meter's failure.
+ * The key is only in the header.
+ */
+async function postAudio(cfg: TranscribeConfig, key: string, body: string, o: { signal?: AbortSignal; timeoutMs?: number; seconds: number | null; again?: () => boolean }): Promise<Response> {
+  const started = Date.now()
+  const left = () => (o.timeoutMs === undefined ? OPENROUTER_TIMEOUT_MS : o.timeoutMs - (Date.now() - started))
+  for (let attempt = 0; ; attempt++) {
+    // a second try is a request of its own: checked again (the month may be used up meanwhile) and held
+    const hold = cfg.meter?.before(key, o.seconds) ?? null
+    let res: Response | null = null
+    try {
+      // each try gets OPENROUTER_TIMEOUT_MS, never more than the caller has left
+      const signals = [AbortSignal.timeout(Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, left())))]
+      if (o.signal) signals.push(o.signal)
+      res = await fetch(cfg.openRouterUrl, {
+        method: 'POST', body, redirect: 'error',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', 'x-title': PRODUCT.displayName },
+        signal: AbortSignal.any(signals),
+      })
+    } catch (e) {
+      cfg.meter?.release(hold)
+      if (o.signal?.aborted) throw e
+    }
+    if (res && !RETRY_STATUS.has(res.status)) {
+      if (res.ok) {
+        // the length of what was sent (the WAV the server made); without one, what OpenRouter says it heard
+        let sec = o.seconds
+        if (sec === null && hold) sec = meterSeconds((await res.clone().json().catch(() => null) as { duration?: unknown } | null)?.duration)
+        cfg.meter?.after(hold, sec ?? 0)
+      } else {
+        cfg.meter?.release(hold)
+        const f = cfg.meter?.refused(key, res.status)
+        if (f) { await res.body?.cancel().catch(() => {}); throw f }
+      }
+      return res
+    }
+    if (res) { cfg.meter?.release(hold); await res.body?.cancel().catch(() => {}) }
+    if (attempt > 0) throw PROVIDER_DOWN_TWICE()
+    const first = () => (res ? openRouterFailure(res.status) : PROVIDER_DOWN())
+    if (left() < RETRY_MIN_MS) throw first()
+    // the sound goes again only after the same checks as new sound (the first try can take a minute)
+    if (o.again && !o.again()) throw first()
+  }
 }

@@ -12,6 +12,7 @@ type turnEnv struct {
 	chat   string
 	once   sync.Once
 	bridge string // the real path of --bridge for this turn (see sandbox_linux.go)
+	sb     sbOpts // a sign-in's terminal and no own login (claudelogin.go); zero for turns
 }
 
 func setupLinux() error { return nil }
@@ -24,8 +25,11 @@ func beginTurn(req *request, chat string) (*turnEnv, error) {
 
 func beginLogin(dir string) (*turnEnv, error) { return beginTurn(&request{}, dir) }
 
+// beginLoginAs: a sign-in in its own folder (the cgroup name only matters on Linux)
+func beginLoginAs(dir, cgName string) (*turnEnv, error) { return beginLogin(dir) }
+
 func (t *turnEnv) command(cmdPath string, args []string, chat, sessDir string) (*exec.Cmd, func(), error) {
-	return engineCommand(cmdPath, args, chat, sessDir)
+	return engineCommandWith(cmdPath, args, chat, sessDir, t.sb)
 }
 
 func (t *turnEnv) procAttr() *syscall.SysProcAttr { return &syscall.SysProcAttr{Setsid: true} }

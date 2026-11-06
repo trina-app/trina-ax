@@ -10,11 +10,11 @@ Claude Code and Codex on one company server, with your files, your team's skills
 
 [Website](https://ax.trina.app) · [Try it in 10 minutes](#try-it-in-10-minutes) · [Self-host](docs/for-admins.md) · [Docs](docs/README.md)
 
-English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md)
+English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/hero-day-one.gif" width="100%" alt="A new team member types one line, 'Write a proposal for Trina Logistics.' The AI reads the CEO's proposal skill and the team's sales files, then saves a 7-page deck that opens next to the chat.">
+https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
-<sub><b>Day one, one line:</b> “Write a proposal for Trina Logistics.” The AI read the team's sales files, followed the CEO's <code>proposal</code> skill and saved a 7-page deck.<br>Real app, fictional company. Generation took 81 seconds; the clip is sped up.</sub>
+<sub><b>97 seconds, sound on.</b> A team lead sets up Claude once, and on her first day a new hire’s proposal comes out like his.<br>Animated story with the real app at 1:15. Fictional company.</sub>
 
 </div>
 
@@ -27,11 +27,11 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 </tr>
 <tr>
 <td><img src="docs/images/readme/before-empty-claude.png" alt="Claude Code in an empty folder answers 'Write a proposal for Trina Logistics' with six questions about the company, the client and the format."></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX answers the same request with a 7-page proposal deck whose cover reads 'Lead time from 2.1 to 1.4 days'."></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX answers the same request with a 7-page proposal deck with photos; the cover reads 'Lead time from 2.1 to 1.4 days, within your budget'."></td>
 </tr>
 </table>
 
-<sub>Real outputs from 2026-10-31 with a fictional company, Dawnroute. Claude Code is right to ask: nothing in an empty folder tells it who you are. Trina gives it the folder.</sub>
+<sub>Real outputs from 2026-10-31 and 11-01 with a fictional company, Dawnroute; the deck photos were made with Higgsfield. Claude Code is right to ask: nothing in an empty folder tells it who you are. Trina gives it the folder.</sub>
 
 ## How it works
 
@@ -61,7 +61,7 @@ A fictional team with six starter skills. AI is off, so no AI account is needed.
 | **Company folders are the knowledge** | `shared/`, `groups/`, `projects/` and personal folders, with version history. Text from PDF, Office and HWP/HWPX files. |
 | **Team skills, governed like files** | A skill is a `SKILL.md` file. Folder rules decide who can use it, and the AI asks a person before it changes one. |
 | **Permissions on every file call** | Files you can't access stay invisible in Files, AI answers, search, previews, version history and trash. |
-| **Your AI connection** | Claude or OpenAI, by subscription or API key, for a person, a group or the whole team. Usage per person, with limits. |
+| **Your AI connection** | Connect the company's Claude or OpenAI account once, or let people connect their own. Usage per person, with limits. Self-hosted, Claude Code can also run on other models such as DeepSeek, Kimi or GLM through an [Anthropic-compatible gateway](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
 | **Self-host or hosted** | A Linux server, an office Mac, or Trina hosting in AWS Seoul. Browser on desktop and phone, plus a Windows installer. |
 
 ## Under the hood
@@ -104,10 +104,10 @@ A skill is a reusable set of instructions, not model training or extra access. P
 | Best for | Teams without IT | Teams with an IT owner | A small office with a dedicated Mac | Looking around |
 | Who runs it | Trina, in AWS Seoul | Your IT | Your office operator | You |
 | AI | Your authorized Claude or OpenAI connection | Same | Claude (no Codex) | Off |
-| Cost | From $39/month + AI usage | Free software + your server | Free software | Free |
-| Start | [Contact Trina](https://ax.trina.app/#contact) | [Linux guide](docs/INSTALL-LINUX.en.md) | [Office guide](docs/OFFICE.en.md) | [Quickstart](docs/QUICKSTART.md) |
+| Cost | Free up to 3 people, then from $39/month + AI usage | Free software + your server | Free software | Free |
+| Start | [See the plans](https://ax.trina.app/#pricing) | [Linux guide](docs/INSTALL-LINUX.en.md) | [Office guide](docs/OFFICE.en.md) | [Quickstart](docs/QUICKSTART.md) |
 
-Trina provides the workspace, not the AI: use only Claude and OpenAI accounts and plans authorized for your use. Hosted plans, checked 2026-10-30, USD before tax: **Starter $39/month (up to 5 people), Team $69 (15), Business $129 (40)**. AI usage is separate. Hosting is contact-led, not an instant free trial. [Current pricing](https://ax.trina.app/#pricing)
+Trina provides the workspace, not the AI: use only Claude and OpenAI accounts and plans authorized for your use. Hosted plans, checked 2026-11-02, USD before tax: **Free (up to 3 people, limited spots), Starter $39/month (up to 5 people), Team $69 (15), Business $129 (40)**, and a quote above 40 people. AI usage is separate. [Current pricing](https://ax.trina.app/#pricing)
 
 Linux self-hosting needs Debian 12/13 or Ubuntu 24.04, systemd with cgroup v2, amd64 or arm64, 4 GB RAM recommended and 20 GB disk minimum. Your IT team installs, updates and restores backups.
 
@@ -126,8 +126,8 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 - No security certification, perfect answers, guaranteed savings or automatic legal, financial or HR decisions. Review outputs and deployment boundaries.
 - The AI sees photos and scanned PDF pages as images (an admin can turn this off), but Linux servers run no OCR: scanned documents and photos are not text-searchable there.
 - On Linux servers the AI also reads video and audio files: evenly spaced frames go to the AI provider like images, and the sound is turned into text by the team's speech provider only when an admin allows it ("Turn video sound into text"). With OpenRouter as the provider, the sound of team files goes to OpenRouter and its provider; confidential chats never send it. Office Macs cannot read video yet.
-- HWP/HWPX text extraction is available. [Visual previews](resources/hwp/README.md) come as the optional HWP Preview plugin, which needs macOS or Linux with glibc 2.39 or newer, so Debian 12 does **not** support them.
-- In managed installations, eligible personal connections take priority, followed by connections assigned to a person, a group, then the whole team. Fresh Trina teams allow shared subscriptions by default; existing saved choices persist. Connection-level consent still applies. **This software setting does not grant permission under Anthropic's or OpenAI's terms.** The local demo disables AI; development and office local-login modes have different connection behavior. [Connection details](docs/FAQ.md)
+- HWP/HWPX text extraction is available to every team. [Visual previews](resources/hwp/README.md), and the AI making and filling in Hangul documents, come with the optional HWP Preview plugin, which needs macOS or Linux with glibc 2.39 or newer, so Debian 12 does **not** support them.
+- In managed installations, eligible personal connections take priority, followed by connections assigned to a person, a group, then the whole team. On fresh Trina teams, one company connection can serve the whole team by default; existing saved choices persist. Connection-level consent still applies. **This software setting does not grant permission under Anthropic's or OpenAI's terms.** The local demo disables AI; development and office local-login modes have different connection behavior. [Connection details](docs/FAQ.md)
 
 </details>
 
@@ -157,7 +157,7 @@ Self-hosting is not offline: the context a request needs goes to the AI provider
 <details>
 <summary><b>Does it work with Korean HWP files?</b></summary>
 
-<br>Yes for text: the AI can read text from HWP/HWPX files. Visual previews need the optional plugin, which does not run on Debian 12. More in the [FAQ](docs/FAQ.md).
+<br>Yes. The AI reads the text of HWP/HWPX files on every server. With the optional HWP Preview plugin turned on, it also makes new .hwpx documents (headings, paragraphs, lists, simple tables), fills in an existing .hwp or .hwpx form (placeholders, empty cells, table rows) and saves it in the same format, keeping the rest of the file as it was, and shows visual previews. The plugin does not run on Debian 12. More in the [FAQ](docs/FAQ.md).
 
 </details>
 

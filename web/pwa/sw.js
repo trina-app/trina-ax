@@ -2,7 +2,11 @@
 // and the WebSocket always go to the network. The offline document is self-contained, with table text and the
 // same bounded recovery-language policy as the app (injected at build). It reads origin storage in the page,
 // never stores account content in this worker or its cache, and also works with an empty static cache.
-const CACHE = 'mycel-static-v1'
+// One cache per build: its name carries a hash of the build's file names (product-pages.ts), so a new build is a new
+// worker, and activating it deletes every other cache: only the current build's files stay (one cache never pruned
+// grew by about 15 MB a release). A tab still on the old build that asks for one of its files then gets the server's
+// 404 and reloads once (web/src/lib/chunk-reload.ts).
+const CACHE = 'mycel-static-__STATIC_BUILD__'
 const OFFLINE_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="mycel-offline" content="navigation-v1"><title>__PRODUCT_NAME_HTML__</title>
 <style>body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",system-ui,sans-serif;background:#fcfbf8;color:#14110f;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;text-align:center}
 @media (prefers-color-scheme:dark){body{background:#0e0c0b;color:#f6f2ea}}button{margin-top:16px;padding:8px 16px;border-radius:8px;border:0;background:#e8521a;color:#14110f;font-size:15px}</style></head>
@@ -53,7 +57,8 @@ self.addEventListener('fetch', (event) => {
 // delivery, revoked permission, logged-out browser or offline server fails closed.
 let pushEpoch = 0
 const pushPending = new Set()
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect' }
+// room.dm / room.mention: a DM message or an @mention in a team chat room (one preference for both)
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'room.dm': 'roomMessages', 'room.mention': 'roomMessages' }
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
 
 // Store opaque deduplication receipts, never notification text, prompts, file names or tokens.
@@ -106,7 +111,9 @@ self.addEventListener('push', event => {
       // The authenticated server selects generic table text in the recipient's current account/team language.
       const title = settings.messages?.title, body = settings.messages?.bodies?.[payload.code]
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return
-      await self.registration.showNotification(title, { body, tag, renotify: false, data: { notificationId: payload.notificationId } })
+      // a room notice opens its room: the id comes from the signed-in fetch of the notice, never from the payload
+      const roomId = item.link === 'room' && opaqueId(item.room?.id) ? item.room.id : undefined
+      await self.registration.showNotification(title, { body, tag, renotify: false, data: roomId ? { notificationId: payload.notificationId, roomId } : { notificationId: payload.notificationId } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -120,8 +127,10 @@ self.addEventListener('push', event => {
 self.addEventListener('notificationclick', event => {
   event.notification.close()
   event.waitUntil((async () => {
-    // The payload cannot choose a URL or open a chat whose access has since changed.
-    const target = new URL('/settings/notifications', self.location.origin).href
+    // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
+    // id stored at show time from the authenticated notice; the room page checks membership again).
+    const roomId = event.notification.data?.roomId
+    const target = new URL(opaqueId(roomId) ? `/rooms/${roomId}` : '/settings/notifications', self.location.origin).href
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     const existing = clients.find(client => new URL(client.url).origin === self.location.origin)
     if (existing) { await existing.navigate(target); await existing.focus() }

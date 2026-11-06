@@ -13,6 +13,7 @@ import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { badSegment } from '../policy/names'
+import { assertStorageRoom } from '../system/storage'
 import { fileError } from '../team-files/errors'
 import { hashFile } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -25,8 +26,9 @@ export const DISK_MARGIN = 1024 * 1024 * 1024
 
 interface Row { id: string; user_id: string; target: string; size: number; sha256: string; chunk_size: number; received: string; expires_at: string; result: string | null }
 
-/** What happens with a finished transcribe upload (component C jobs, installed by routes/jobs.ts). */
-export type TranscribeStarter = (userId: string, file: string, name: string) => string
+/** What happens with a finished transcribe upload (component C jobs, installed by routes/jobs.ts). `chatId`: the chat
+ * the voice input is for (absent: a chat not created yet). */
+export type TranscribeStarter = (userId: string, file: string, name: string, chatId?: string) => string
 
 export class UploadSessions {
   /** running sha256 over the contiguous prefix of chunks (only kept in memory; a restart re-hashes at complete) */
@@ -34,6 +36,8 @@ export class UploadSessions {
   /** complete() in progress: a retried complete (client timed out during the hash of a big file) joins it */
   private completing = new Map<string, Promise<UploadComplete>>()
   transcribe: TranscribeStarter | null = null
+  /** refuses a transcribe upload before it starts (a confidential chat's recording that would go out) */
+  transcribeCheck: ((userId: string, chatId?: string) => void) | null = null
 
   constructor(private ctx: AppContext, private files: TeamFiles, private attachments: Attachments) {
     fs.mkdirSync(this.dir(), { recursive: true, mode: 0o700 })
@@ -60,6 +64,9 @@ export class UploadSessions {
     try { const s = fs.statfsSync(this.dir()); free = s.bavail * s.bsize } catch (e) { this.ctx.log.warn('statfs failed', { err: e }) }
     // part files are sparse: what unfinished sessions will still write counts as used
     const reserved = (db.query('SELECT COALESCE(SUM(size), 0) AS n FROM upload_sessions WHERE result IS NULL AND expires_at > ?').get(new Date().toISOString()) as { n: number }).n
+    // the team disk near full or over the plan's limit (system/storage.ts): 507 storage_full before anything is written.
+    // The hard cap counts the open sessions too, or several at once could pass it.
+    assertStorageRoom(size, reserved)
     if (free < size + reserved + DISK_MARGIN) fileError('payload_too_large', 'diskFull')
     const id = newId()
     const fd = fs.openSync(this.part(id), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600)
@@ -82,6 +89,9 @@ export class UploadSessions {
       if (bad) fileError('validation', 'badName', { name: bad })
     } else if (!this.transcribe) {
       throw new HttpError('unavailable')
+    } else {
+      if (t.chatId) this.attachments.assertOwnChat(userId, t.chatId)
+      this.transcribeCheck?.(userId, t.chatId)
     }
   }
 
@@ -166,7 +176,12 @@ export class UploadSessions {
       result = { kind: 'attachment', attachment: await this.attachments.create(userId, target.chatId, target.name, this.part(id), sha) }
     } else {
       if (!this.transcribe) throw new HttpError('unavailable')
-      result = { kind: 'transcribe', jobId: this.transcribe(userId, this.part(id), target.name) }
+      // checked again here: the chat may be gone or locked confidential during a long upload; refused, nothing of the
+      // recording is kept
+      try {
+        if (target.chatId) this.attachments.assertOwnChat(userId, target.chatId)
+        result = { kind: 'transcribe', jobId: this.transcribe(userId, this.part(id), target.name, target.chatId) }
+      } catch (e) { this.drop(id); throw e }
     }
     fs.rmSync(this.part(id), { force: true })
     this.ctx.db.query('UPDATE upload_sessions SET result = ? WHERE id = ?').run(JSON.stringify(result), id)

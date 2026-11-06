@@ -1,5 +1,6 @@
 // Scheduled tasks: a person's prompt that the server sends for them on a schedule ("every weekday at 9:00, summarize
-// what changed in shared/회의록"). Each run is a new chat of theirs ("⏰ <title> · <date>") with their own access, as if
+// what changed in shared/회의록"). Each run is a new chat of theirs ("<title> · <date>", no emoji; title_source
+// 'schedule' and the turn's client_kind mark it as a run, not the title) with their own access, as if
 // they had typed it, so the folder rules, budgets and audit apply unchanged — except web addresses: the text is the
 // AI's (tools/schedules.ts), so the message is marked auto_sent and only the addresses the person saw on the schedule's
 // card open without asking (tools/url-gate.ts). A run is unattended: its turn has
@@ -10,7 +11,9 @@
 // run, cannot be resumed with the switch, and resumes when its owner confirms the same card again
 // (chat/schedule-review.ts, docs/DECISIONS.md "Scheduled tasks nobody confirmed").
 // The office Mac may be off at the time: a run that was missed happens once when the server is back, then the
-// schedule continues from now.
+// schedule continues from now. Its owner can also run it once now (runNow, "지금 실행") with the same rules, and edit
+// it through the same card (chat/schedule-edit.ts). Runs of one task never overlap: "run now" is refused while one is
+// queued or running, and a run at its time waits for one (runDue), then runs.
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { budgetBlock } from '../admin/budgets'
@@ -26,8 +29,9 @@ import type { ChatRuntime } from './runtime'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { rememberUrls } from '../tools/url-gate'
 import { audit } from '../admin/audit'
+import { missingTemplateKey } from '../integrations/connections/schedule-needs'
 
-type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable'
+type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key'
 
 export const SCHEDULES_PER_PERSON = 20
 /** a run refused because the queue was full is tried again this much later */
@@ -180,8 +184,40 @@ export class Schedules {
     const reason = enabled ? this.resumeBlockedReason(s, now) : null
     if (reason) throw new HttpError('conflict', tr(reason === 'completed' ? 'scheduleCompleted' : 'scheduleExpired', locale), { params: { reason: `schedule_${reason}` } })
     const next = enabled ? nextRun(s, now, this.rt.timeZone) : null
-    this.db.query('UPDATE schedules SET enabled = ?, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ?').run(enabled && next ? 1 : 0, next?.toISOString() ?? null, id)
+    this.db.transaction(() => {
+      this.db.query('UPDATE schedules SET enabled = ?, next_run_at = ?, pending_due_at = NULL, retry_at = NULL WHERE id = ?').run(enabled && next ? 1 : 0, next?.toISOString() ?? null, id)
+      audit(this.db, { actor: userId, action: enabled ? 'schedule.resumed' : 'schedule.paused', target: id, detail: { nextRunAt: next?.toISOString() ?? null } })
+    })()
     return this.get(userId, id)
+  }
+
+  /** "지금 실행" (Settings): one run now with the rules of a scheduled run, as its person: unattended (nothing waits
+   * for anyone), only the addresses and connections its card allowed, the budgets, the person's access and, for a
+   * template, its folders. It is outside the schedule: the next run, on/off and a pending occurrence stay as they are;
+   * a paused task runs too (the person asked). Refused: a task nobody confirmed (it never runs), one that is running
+   * now, a used-up budget; a full queue is refused like a message (429). Audited. */
+  runNow(userId: string, id: string, now = new Date(), locale: Locale = this.rt.userLocale(userId)): { row: ScheduleRow; chatId: string } {
+    const s = this.get(userId, id)
+    if (!s) throw new HttpError('not_found')
+    if (needsReview(s)) throw new HttpError('conflict', tr('scheduleReview', locale), { params: { reason: 'schedule_review' } })
+    if (this.db.query("SELECT 1 FROM turns WHERE schedule_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(s.id, userId))
+      throw new HttpError('conflict', tr('scheduleRunning', locale), { params: { reason: 'schedule_running' } })
+    // it needs the person's own key for an admin's template that they have not connected (or that stopped working):
+    // said now, not run without the service (integrations/connections/schedule-needs.ts)
+    const need = missingTemplateKey(this.db, s)
+    if (need) throw new HttpError('conflict', tr('scheduleNeedsKey', locale, { name: need.name }), { params: { reason: 'schedule_needs_key', templateId: need.templateId } })
+    const blocked = budgetBlock(this.db, userId, locale, now)
+    if (blocked) throw new HttpError('budget_exceeded', blocked.message)
+    // its own occurrence key: never a whole minute, so never the key of a scheduled occurrence (turns_schedule_occurrence)
+    const t = now.getTime()
+    const dueAt = new Date(t % 60_000 === 0 ? t + 1 : t).toISOString()
+    const chatId = this.start(s, now, dueAt, (chat) => { if (chat) this.db.query('UPDATE schedules SET last_chat_id = ? WHERE id = ?').run(chat, s.id) }, 'manual')
+    if (!chatId) {
+      const again = budgetBlock(this.db, userId, locale, now)
+      throw again ? new HttpError('budget_exceeded', again.message) : new HttpError('forbidden')
+    }
+    audit(this.db, { actor: userId, action: 'schedule.run_now', target: s.id, detail: { scheduledFor: dueAt, template: s.template_id ?? undefined } })
+    return { row: this.get(userId, id)!, chatId }
   }
 
   delete(userId: string, id: string): boolean {
@@ -194,11 +230,18 @@ export class Schedules {
     const row = this.db.query(`SELECT code, run_outcome FROM (
       SELECT status code, run_outcome, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
       UNION ALL SELECT code, NULL run_outcome, created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
-    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
+      UNION ALL SELECT 'needs_key' code, NULL run_outcome, created_at at FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
     if (!row) return null
     if (row.code !== 'done') return row.code
     const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
     return outcome === 'succeeded' ? 'done' : outcome === 'problems' ? 'problems' : 'error'
+  }
+
+  /** lastOutcome 'needs_key': the template the last skipped run needed, by the name it had then. */
+  lastNeed(userId: string, id: string): { templateId: string; name: string } | null {
+    const r = this.db.query('SELECT template_id, template_name FROM schedule_template_skips WHERE schedule_id=? AND user_id=? ORDER BY created_at DESC LIMIT 1').get(id, userId) as { template_id: string; template_name: string } | null
+    return r ? { templateId: r.template_id, name: r.template_name } : null
   }
 
   /** One pending occurrence per schedule. A retry never changes its original due key. */
@@ -213,6 +256,11 @@ export class Schedules {
       // a free-text task nobody confirmed never runs (made before the card, or by an older build): paused for review
       if (needsReview(s)) { this.pauseForReview(s, now); continue }
       const originalDue = s.pending_due_at ?? s.next_run_at!
+      // a run of the same task is still queued or running ("지금 실행" just before its time, or a slow earlier run):
+      // this occurrence waits for it and starts at a tick after it ends, never next to it (two runs would write the
+      // same output). Nothing is written meanwhile: next_run_at / pending_due_at keep its key, so a restart still runs it.
+      const running = this.runningChat(s)
+      if (running) { this.noteWaiting(s, originalDue, running, now); continue }
       // Durable before admission: crash here leaves this exact occurrence pending for the next process.
       this.db.query('UPDATE schedules SET pending_due_at=COALESCE(pending_due_at,?) WHERE id=?').run(originalDue, s.id)
       const next = s.repeat === 'once' ? null : nextRun(s, now, this.rt.timeZone)
@@ -224,14 +272,24 @@ export class Schedules {
             .run(s.id, JSON.stringify({ originalDue, acceptedAt: now.toISOString() }))
       }
       try {
-        const chatId = this.start(s, now, originalDue, commit)
+        // the owner's own key for a template the task needs is missing or stopped working: this occurrence does not
+        // start, and its result and the owner's inbox say which template to connect (never anyone else's key)
+        const ownerActive = !!this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
+        const need = ownerActive ? missingTemplateKey(this.db, s) : null
+        const chatId = need ? null : this.start(s, now, originalDue, commit)
         if (chatId) started.push(s.id)
         else this.db.transaction(() => {
           commit(null)
           const active = this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
           if (!active) this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
-          this.db.query('INSERT INTO schedule_outcomes(id,user_id,schedule_id,scheduled_for,code,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
-            .run(newId(), s.user_id, s.id, originalDue, active ? 'budget_exceeded' : 'user_unavailable', now.toISOString())
+          if (need) {
+            this.db.query('INSERT INTO schedule_template_skips(id,user_id,schedule_id,scheduled_for,template_id,template_name,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
+              .run(newId(), s.user_id, s.id, originalDue, need.templateId, need.name, now.toISOString())
+            this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.needs_key',?,?)").run(s.id, JSON.stringify({ originalDue, template: need.templateId }))
+          } else {
+            this.db.query('INSERT INTO schedule_outcomes(id,user_id,schedule_id,scheduled_for,code,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
+              .run(newId(), s.user_id, s.id, originalDue, active ? 'budget_exceeded' : 'user_unavailable', now.toISOString())
+          }
         })()
         if (!chatId) { try { notificationsOf(this.rt.ctx).reconcile(s.user_id) } catch { this.rt.log.warn('schedule notification deferred') } }
       } catch (e) {
@@ -246,7 +304,21 @@ export class Schedules {
     return started
   }
 
-  private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void): string | null {
+  /** The chat of a run of this task that is queued or running now, or null. */
+  private runningChat(s: ScheduleRow): string | null {
+    return (this.db.query("SELECT chat_id FROM turns WHERE schedule_id = ? AND user_id = ? AND status IN ('queued','running') LIMIT 1").get(s.id, s.user_id) as { chat_id: string } | null)?.chat_id ?? null
+  }
+
+  /** An occurrence waits for the run before it: logged once (audit `schedule.waited`), not at every tick. */
+  private noteWaiting(s: ScheduleRow, originalDue: string, runningChatId: string, now: Date) {
+    const seen = this.db.query("SELECT 1 FROM audit_log WHERE action = 'schedule.waited' AND target = ? AND json_extract(detail, '$.originalDue') = ? LIMIT 1").get(s.id, originalDue)
+    if (seen) return
+    this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.waited',?,?)")
+      .run(s.id, JSON.stringify({ originalDue, runningChatId, at: now.toISOString() }))
+    this.rt.log.info('scheduled run waits for the run of the same task before it', { schedule: s.id, originalDue })
+  }
+
+  private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void, how: 'scheduled' | 'manual' = 'scheduled'): string | null {
     const user = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id)
     if (!user) return null
     const locale = this.rt.userLocale(s.user_id)
@@ -259,7 +331,7 @@ export class Schedules {
     const turn = this.rt.createTurn({
       chat: () => {
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
-          .run(id, s.user_id, project ? s.project_id : null, `⏰ ${s.title} · ${date}`, engine, model, ts, ts)
+          .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, engine, model, ts, ts)
         // the run's message is the AI's text (auto_sent): only the addresses the person saw on the schedule's card open
         // without asking (docs/DECISIONS.md "Outbound web channels")
         rememberUrls(this.db, id, scheduleList(s.allowed_urls), 'allowed')
@@ -272,7 +344,7 @@ export class Schedules {
           .run(s.template_source_path, s.template_output_path, s.id, originalDue)
       } },
       // Keep the client contract <=64 chars; uniqueness is the durable two-column occurrence key.
-      user: { parentId: null, content: s.prompt, attachments: [], clientMessageId: `s-${s.id}-${Date.parse(originalDue)}` },
+      user: { parentId: null, content: s.prompt, attachments: [], clientMessageId: `${how === 'manual' ? 'n' : 's'}-${s.id}-${Date.parse(originalDue)}` },
     })
     return turn.assistantMessage.chatId
   }

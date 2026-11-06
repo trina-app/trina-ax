@@ -2,11 +2,15 @@
 // "save to the team folder", and when it fails at runtime or cannot be built (unsupported import, compile error)
 // "ask the AI to fix it". While the AI is still writing it,
 // the code shows as it arrives. Ported from Saram / chat-proto ArtifactPanel.
+// A promo video (key "promo-video", docs/DECISIONS.md "V") plays in the frame; its header offers [영상 파일로 받기]
+// where the server can make the MP4, instead of copying or downloading the page's code. An intro deck (key
+// "intro-deck", "D2") pages through its slides in the frame; its header offers one [받기 ▾] (PowerPoint, and PDF where
+// the server can make it) and no "save to the team folder": the deck never becomes team material by accident.
 import clsx from 'clsx'
-import { AlertTriangle, ChevronLeft, ChevronRight, Download, FolderInput, Loader2, Shapes, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import type { ArtifactType } from '@mycel/shared/api'
-import { api, API, errorText, saveBlob } from '../lib/api'
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download, FileText, FolderInput, Loader2, Presentation, Shapes, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, type ArtifactType, type IntroDeckInfo, type PromoVideoInfo } from '@mycel/shared/api'
+import { api, API, errorText, saveBlob, startDownload } from '../lib/api'
 import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, fixPromptWords, FRAME_TYPES, staticSource, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
 import { useFrameScripts } from '../lib/confidential'
 import { joinPath } from '../lib/paths'
@@ -19,7 +23,10 @@ import { TYPE_LABEL } from './artifactLabels'
 import FolderPicker from './FolderPicker'
 import { CodeBlock, Markdown, MermaidBlock } from './Markdown'
 import SandboxFrame, { StaticFrame } from './SandboxFrame'
-import { CopyButton, IconButton, Spinner } from './ui'
+import ExternalImagesNote from './ExternalImagesNote'
+import { useFrameFiles } from '../lib/useFrameFiles'
+import type { FrameFiles } from '../lib/frame-files'
+import { Button, CopyButton, IconButton, Spinner } from './ui'
 
 let compiler: Promise<CompileFn> | null = null
 
@@ -54,12 +61,17 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const type: ArtifactType | undefined = writing ? live!.type : artifact?.type ?? summary?.type ?? live?.type
   const title = (writing ? live!.title : summary?.title ?? live?.title) || artifactKey
 
+  // an HTML or SVG artifact's team images and clips as data: URLs (lib/frame-files.ts; an artifact has no folder: paths
+  // are from the team root). A React artifact makes its images while it runs: not covered (they stay blocked).
+  const inlines = !writing && !!artifact && (artifact.type === 'html' || artifact.type === 'svg')
+  const files = useFrameFiles(inlines ? artifact!.content : null, { folder: '' })
   const [frameDoc, setFrameDoc] = useState<FrameDoc | null>(null)
   useEffect(() => {
     let alive = true
     setFrameDoc(null)
     setRuntimeError(null)
     if (writing || !artifact || !FRAME_TYPES.includes(artifact.type)) return
+    if (inlines && !files) return
     const msgs = {
       unsupportedImports: (list: string) => t('artifact.unsupportedImports', { list }),
       compileError: (m: string) => t('artifact.compileError', { message: m }),
@@ -67,14 +79,14 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     }
     const run = async () => {
       const compile = artifact.type === 'react' ? await (compiler ??= sucraseCompile()) : null
-      if (alive) setFrameDoc(buildArtifactDocument(artifact.type, artifact.content, location.origin, compile, msgs))
+      if (alive) setFrameDoc(buildArtifactDocument(artifact.type, inlines && files ? files.html : artifact.content, location.origin, compile, msgs))
     }
     void run()
     return () => {
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifact, writing])
+  }, [artifact, writing, files])
 
   const saveTo = async (folder: string) => {
     if (!artifact) return
@@ -108,7 +120,12 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     }
   }
 
-  const showCode = writing || tab === 'code' || type === 'code'
+  // a promo video or an intro deck: the page is ours (server-built), so no code tab, no copy, no page download; the MP4
+  // or the deck's files instead. The deck is never saved into team files from here either (it must not become a source)
+  const promo = artifactKey === PROMO_ARTIFACT_KEY && type === 'html'
+  const deck = artifactKey === DECK_ARTIFACT_KEY && type === 'html'
+  const ours = promo || deck
+  const showCode = writing || (!ours && tab === 'code') || type === 'code'
   return (
     <aside aria-label={t('artifact.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="artifact-panel">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
@@ -116,7 +133,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
         <h2 className="min-w-0 truncate text-sm font-semibold" title={title}>
           {title}
         </h2>
-        {type && <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 text-[11px] text-muted">{t(TYPE_LABEL[type])}</span>}
+        {type && !ours && <span className="shrink-0 rounded bg-subtle px-1.5 py-0.5 text-micro text-muted">{t(TYPE_LABEL[type])}</span>}
         {writing && (
           <span className="flex shrink-0 items-center gap-1 text-xs text-accent-text">
             <Loader2 size={12} className="animate-spin" aria-hidden /> {t('artifact.writing')}
@@ -136,12 +153,16 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
               </IconButton>
             </span>
           )}
-          {content !== null && <CopyButton text={content} />}
-          {artifact && (
+          {content !== null && !ours && <CopyButton text={content} />}
+          {artifact && promo && <PromoMp4Button key={artifact.id} id={artifact.id} />}
+          {artifact && deck && <DeckGetButton key={artifact.id} id={artifact.id} />}
+          {artifact && !deck && (
             <>
-              <IconButton label={t('common.download')} onClick={() => saveBlob(new Blob([artifact.content], { type: 'text/plain;charset=utf-8' }), artifactFileName(artifact))}>
-                <Download size={16} />
-              </IconButton>
+              {!promo && (
+                <IconButton label={t('common.download')} onClick={() => saveBlob(new Blob([artifact.content], { type: 'text/plain;charset=utf-8' }), artifactFileName(artifact))}>
+                  <Download size={16} />
+                </IconButton>
+              )}
               <IconButton label={t('artifact.saveToTeam')} disabled={saving} onClick={() => setPickFolder(true)}>
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <FolderInput size={16} />}
               </IconButton>
@@ -152,7 +173,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
           </IconButton>
         </div>
       </header>
-      {type && type !== 'code' && !writing && (
+      {type && type !== 'code' && !writing && !ours && (
         <div className="flex gap-1 border-b border-line px-3 py-1.5" role="tablist" aria-label={t('artifact.view')}>
           {(['preview', 'code'] as const).map((x) => (
             <button key={x} role="tab" type="button" aria-selected={tab === x} onClick={() => setTab(x)} className={clsx('rounded-md px-2.5 py-1 text-xs', tab === x ? 'bg-ink text-canvas' : 'text-muted hover:bg-hover')}>
@@ -193,8 +214,13 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
         ) : frameDoc && !frameDoc.ok ? (
           // the error and "ask the AI to fix it" are in the bar above
           <p className="p-6 text-sm text-muted">{t('artifact.buildFailed')}</p>
-        ) : scripts === false && artifact && type ? (
-          <StaticArtifact key={artifact.id} type={type} content={artifact.content} title={title} />
+        ) : scripts === false && artifact && type && (!inlines || files) ? (
+          <StaticArtifact key={artifact.id} type={type} content={artifact.content} title={title} files={inlines ? files : null} />
+        ) : frameDoc && scripts && files?.external ? (
+          <div className="flex h-full min-h-0 flex-col">
+            <ExternalImagesNote count={files.external} />
+            <SandboxFrame key={artifact?.id} html={frameDoc.html} title={title} onError={setRuntimeError} className="min-h-0 w-full flex-1 border-0 bg-white" />
+          </div>
         ) : frameDoc && scripts ? (
           <SandboxFrame key={artifact?.id} html={frameDoc.html} title={title} onError={setRuntimeError} />
         ) : (
@@ -207,7 +233,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
 }
 
 /** An artifact in a confidential chat outside the desktop app: nothing of it runs (lib/artifacts.ts frameRunsScripts). */
-function StaticArtifact({ type, content, title }: { type: ArtifactType; content: string; title: string }) {
+function StaticArtifact({ type, content, title, files }: { type: ArtifactType; content: string; title: string; files: FrameFiles | null }) {
   const t = useT()
   if (type === 'mermaid')
     return (
@@ -215,12 +241,142 @@ function StaticArtifact({ type, content, title }: { type: ArtifactType; content:
         <MermaidBlock code={content} />
       </div>
     )
-  const html = staticSource(type, content)
+  const html = staticSource(type, files ? files.html : content)
   if (html === null)
     return (
       <p className="p-6 text-sm text-muted" data-testid="static-notice">
         {t('artifact.needsScripts')}
       </p>
     )
-  return <StaticFrame html={html} title={title} gutter={type === 'html'} />
+  if (!files?.external) return <StaticFrame html={html} title={title} gutter={type === 'html'} />
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <ExternalImagesNote count={files.external} />
+      <StaticFrame html={html} title={title} gutter={type === 'html'} />
+    </div>
+  )
+}
+
+/**
+ * [영상 파일로 받기] on a promo video: shown only where this server can make the MP4 (GET /api/promo-videos/:id says
+ * so; never a button that cannot work). The first press makes it (about half a minute; the button says so meanwhile)
+ * and the download starts when it is ready; a later press downloads the one made before.
+ */
+export function PromoMp4Button({ id }: { id: string }) {
+  const t = useT()
+  const locale = useLocale()
+  const [info, setInfo] = useState<PromoVideoInfo | null>(null)
+  const [wanted, setWanted] = useState(false)
+  useEffect(() => {
+    let live = true
+    api.call(API.getPromoVideo, { params: { id } }).then((r) => live && setInfo(r), () => live && setInfo(null))
+    return () => { live = false }
+  }, [id])
+  const rendering = info?.mp4.state === 'rendering'
+  // while it is made: ask again every two seconds
+  useEffect(() => {
+    if (!rendering) return
+    const timer = setInterval(() => {
+      api.call(API.getPromoVideo, { params: { id } }).then(setInfo, () => {})
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [rendering, id])
+  const download = (i: PromoVideoInfo) => startDownload(api.url(API.downloadPromoVideo, { params: { id } }), `${i.title}.mp4`)
+  // made after a press: the download starts by itself; failed: say so once
+  useEffect(() => {
+    if (!wanted || !info) return
+    if (info.mp4.state === 'done') { setWanted(false); download(info) }
+    else if (info.mp4.state === 'failed') { setWanted(false); toast({ level: 'error', text: t('promo.mp4.failed') }) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info, wanted])
+  if (!info?.mp4.available) return null
+  const press = async () => {
+    if (info.mp4.state === 'done') return download(info)
+    setWanted(true)
+    try { setInfo(await api.call(API.renderPromoVideo, { params: { id } })) } catch (e) {
+      setWanted(false)
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
+  return (
+    <Button size="sm" variant="secondary" className="mr-1" busy={rendering} disabled={rendering} onClick={() => void press()} data-testid="promo-mp4">
+      {!rendering && <Download size={14} aria-hidden />} {rendering ? t('promo.mp4.making') : t('promo.mp4.get')}
+    </Button>
+  )
+}
+
+/**
+ * [받기 ▾] on an intro deck (docs/DECISIONS.md "D2"): one button with a small menu of the files this server can make,
+ * PowerPoint always and PDF only where it has typst (GET /api/intro-decks/:id says so; never a line that cannot work).
+ * No button when that cannot be read. The server builds the file when it is asked for, so a line starts the download.
+ */
+export function DeckGetButton({ id }: { id: string }) {
+  const t = useT()
+  const [info, setInfo] = useState<IntroDeckInfo | null>(null)
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    let live = true
+    api.call(API.getIntroDeck, { params: { id } }).then((r) => live && setInfo(r), () => live && setInfo(null))
+    return () => { live = false }
+  }, [id])
+  const items = () => [...(box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  const close = () => {
+    setOpen(false)
+    box.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus()
+  }
+  useEffect(() => {
+    if (!open) return
+    items()[0]?.focus()
+    // not on losing focus: Safari moves focus off a button when it is pressed, and the click would find the menu gone
+    const outside = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [open])
+  const files = info ? ([
+    info.pptx && { ext: 'pptx', label: t('deck.pptx'), icon: <Presentation size={14} aria-hidden />, endpoint: API.downloadIntroDeckPptx },
+    info.pdf && { ext: 'pdf', label: t('deck.pdf'), icon: <FileText size={14} aria-hidden />, endpoint: API.downloadIntroDeckPdf },
+  ] as const).filter((f) => !!f) : []
+  if (!info || files.length === 0) return null
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (!open) return
+    if (e.key === 'Escape') {
+      e.stopPropagation() // only the menu: not the artifact panel too (Layout)
+      close()
+    } else if (e.key === 'Tab') {
+      setOpen(false)
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      const all = items()
+      const at = all.indexOf(document.activeElement as HTMLElement)
+      const next = e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : (at + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length
+      all[next]?.focus()
+    }
+  }
+  return (
+    <div ref={box} className="relative mr-1" onKeyDown={onKeyDown}>
+      <Button size="sm" variant="secondary" aria-haspopup="menu" aria-expanded={open} aria-label={t('deck.menu')} onClick={() => setOpen((v) => !v)} data-testid="deck-get">
+        <Download size={14} aria-hidden /> {t('deck.get')} <ChevronDown size={14} className="text-faint" aria-hidden />
+      </Button>
+      {open && (
+        <div role="menu" aria-label={t('deck.menu')} className="absolute top-full right-0 z-30 mt-1 w-48 rounded-lg border border-line bg-surface p-1 shadow-lg" data-testid="deck-menu">
+          {files.map((f) => (
+            <button
+              key={f.ext}
+              role="menuitem"
+              type="button"
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover"
+              onClick={() => {
+                close()
+                startDownload(api.url(f.endpoint, { params: { id } }), `${info.title}.${f.ext}`)
+              }}
+              data-testid={`deck-get-${f.ext}`}
+            >
+              {f.icon} {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }

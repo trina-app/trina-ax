@@ -13,13 +13,16 @@
 //	mycel-ctl verify-bundle DIR|FILE [--allow-unsigned] [--pubkey K]...
 //	mycel-ctl status [--json]
 //	mycel-ctl apply-plan < plan.json
-//	mycel-ctl update [--version V | --bundle FILE] [--only-if-needs-root] [--json] [--max-wait 600]
+//	mycel-ctl update [--version V | --bundle FILE] [--only-if-needs-root] [--scheduled] [--json] [--max-wait 600]
 //	mycel-ctl render-units [--templates DIR] [--out DIR]
 //	mycel-ctl safe-ops on|off|status [--json] [--no-restart] [--max-wait S]
+//	mycel-ctl auto-update on|off|status [--json] [--no-restart] [--max-wait S]
+//	mycel-ctl allow-unsigned on|off|status [--json] [--no-restart] [--max-wait S]
 //	mycel-ctl codex-login
 //	mycel-ctl supervise
 //	mycel-ctl notices-set | set-server-config | relay-registration-set | relay-key-proof | idle-wait | prepare-stop |
-//	          backup-prepare | backup-upload | export | reset-link | setup-token-rotate | credentials-escrow-out
+//	          backup-prepare | backup-upload | export | reset-link | setup-token-rotate | credentials-escrow-out |
+//	          hosted-speech-key-set | hosted-chat-key-set
 //	          (the hosted service's tenant commands, tenant.go)
 package main
 
@@ -74,15 +77,18 @@ const usage = `usage: mycel-ctl <command> [--base /var/lib/mycel]
   verify-bundle DIR|FILE                 check a release (manifest + signature); FILE = <v>-linux-<arch>.tar.zst
   status [--json]                        versions, units, firewall, plan, disk, health, update history
   apply-plan < plan.json                 install a resource plan and apply it to the units
-  update [--version V|--bundle FILE]     update root files and the app (--only-if-needs-root, --json, --max-wait 600)
+  update [--version V|--bundle FILE]     update root files and the app (--only-if-needs-root, --scheduled, --json, --max-wait 600)
   render-units [--templates D] [--out D] write the systemd units from root/systemd/*.in
   safe-ops on|off|status                 safe operations 1A: flag, root-owned programs, bounded <id>.slice, restart
+  auto-update on|off|status              automatic updates: the update timer, the app's own updates (install.json, server.json)
+  allow-unsigned on|off|status           accept unsigned versions (development builds) or signed releases only; units, restart
   codex-login                            sign the engine account in to Codex (device code)
   supervise                              run firewall, launcher and server without systemd (tests, not supported)
 tenant commands of the hosted service (ax-hostd, control-plane 3.5.3; every one takes --json and prints one JSON object):
   status --json | apply-plan | update --version V | notices-set | set-server-config | relay-registration-set
   relay-key-proof --team-id T | idle-wait --max S | prepare-stop --grace S | backup-prepare --kind K [--local-id ID]
-  backup-upload | export | reset-link --owner|--username U | setup-token-rotate | credentials-escrow-out --recipient R`
+  backup-upload | export | reset-link --owner|--username U | setup-token-rotate | credentials-escrow-out --recipient R
+  hosted-speech-key-set | hosted-chat-key-set (the key on stdin only)`
 
 // run is the whole program; main() (Linux) exits with its result.
 func run(args []string) int { return runEnv(newEnv(), args) }
@@ -113,6 +119,12 @@ func runEnv(e *env, args []string) int {
 		code, err = cmdRenderUnits(e, rest)
 	case "safe-ops":
 		code, err = cmdSafeOps(e, rest)
+	case "auto-update":
+		code, err = cmdAutoUpdate(e, rest)
+	case "allow-unsigned":
+		code, err = cmdAllowUnsigned(e, rest)
+	case "server-update-auto": // internal: re-executed as the server account (updatecfg.go)
+		code, err = cmdServerUpdateAuto(e, rest)
 	case "codex-login":
 		code, err = cmdCodexLogin(e, rest)
 	case "supervise":
@@ -144,6 +156,10 @@ func runEnv(e *env, args []string) int {
 		code, err = cmdSetupTokenRotate(e, rest)
 	case "credentials-escrow-out":
 		code, err = cmdCredentialsEscrowOut(e, rest)
+	case "hosted-speech-key-set":
+		code, err = cmdHostedSpeechKeySet(e, rest)
+	case "hosted-chat-key-set":
+		code, err = cmdHostedChatKeySet(e, rest)
 	case "server-write": // internal: re-executed as the server account (tenant.go asServer)
 		code, err = cmdServerWrite(e, rest)
 	case "server-config-merge": // internal: re-executed as the server account

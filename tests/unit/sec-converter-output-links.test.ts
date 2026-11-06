@@ -19,6 +19,7 @@ import { which } from '../../server/src/config'
 import { HwpError, NativeHwpEngine } from '../../server/src/files/hwp-engine'
 import * as media from '../../server/src/files/media'
 import { ToolError } from '../../server/src/policy/errors'
+import { openRouterAudio } from '../../server/src/jobs/openrouter-stt'
 import { makeCApp, type CApp } from '../lib/c-app'
 
 const TRUE = fs.existsSync('/usr/bin/true') ? '/usr/bin/true' : '/bin/true'
@@ -164,6 +165,24 @@ describe('speech: a planted link is never sent or used as the transcript', () =>
     noCanary(j)
   })
 
+  test('OpenRouter: the FLAC run leaves its output as a link to bob\'s recording -> nothing is sent', async () => {
+    updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter' })
+    writeSpeechKey(credentialsOf(A.ctx), 'sk-or-v1-FAKE-TEST-KEY')
+    C().transcribe.ffmpegBin = TRUE
+    // run 1 (to WAV) leaves a real WAV; run 2 (to FLAC) leaves a link under the name it was given
+    let last: string[] = []
+    match = (argv) => { if (!argv.includes(TRUE)) return false; last = argv; return true }
+    const wav = Buffer.concat([Buffer.from('RIFF'), Buffer.from([36, 0, 0, 0]), Buffer.from('WAVEdata'), Buffer.from([0, 0, 0, 0])])
+    plant = (dir, n) => { if (n === 1) fs.writeFileSync(path.join(dir, 'audio.wav'), wav); else link(secret.wav, dir, last[last.length - 1]!) }
+    const j = await job('voice.webm')
+    expect(runs).toBe(2)
+    expect(last[last.length - 1]).toMatch(/^send-[0-9a-f-]{36}\.flac$/)
+    expect(j.status).toBe('failed')
+    expect(j.error!.message).toContain('could not be read')
+    expect(hits).toEqual([])
+    noCanary(j)
+  })
+
   test('local whisper: the work folder left as a link to a folder of bob\'s -> the job fails, nothing is read there', async () => {
     updateTeamSettings(A.ctx.db, { speechProvider: 'local' })
     const t = C().transcribe
@@ -234,6 +253,8 @@ describe('video and audio reads: a converter that replaces its work folder ends 
       ['length scan', (w) => media.scanDuration(tools, w, 'in.mp4')],
       ['frame', (w) => media.framePng(tools, w, 'in.mp4', 0, 1, 768)],
       ['sound', (w) => media.audioWav(tools, w, 'in.mp4', 1, 0, 60, 'audio-0.wav', { inputBytes: 16 })],
+      // the FLAC for OpenRouter: 'damaged' is what makes a read or a voice job end without sending anything
+      ['flac', (w) => openRouterAudio(TRUE, w, 'in.mp4', Buffer.alloc(64), { workBytes: 16 }).then((r) => { if (!r.ok && r.why === 'damaged') throw new ToolError('damaged', 'media_damaged'); return r })],
     ]
     for (const [what, run] of runsOf) {
       const other = bobsFolder()
@@ -264,6 +285,22 @@ describe('video and audio reads: a converter that replaces its work folder ends 
     noCanary(out)
     untouched(other)
     expect(vidFolders()).toEqual(before)
+  })
+
+  test('an OpenRouter read whose FLAC run left a link to bob\'s recording: the transcript fails as damaged, nothing is sent', async () => {
+    updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true })
+    writeSpeechKey(credentialsOf(A.ctx), 'sk-or-v1-FAKE-TEST-KEY')
+    F().speech.openRouterUrl = `http://127.0.0.1:${fakeOr.port}/api/v1/audio/transcriptions`
+    const wav = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(64)])
+    spies.push(spyOn(F(), 'mediaAudio').mockImplementation(async (_t, work: string, _n, _s, _st, _sec, out: string) => { fs.writeFileSync(path.join(work, out), wav); return wav }))
+    let last: string[] = []
+    match = (argv) => { if (!argv.includes(TRUE)) return false; last = argv; return true }
+    plant = (dir) => link(secret.wav, dir, last[last.length - 1]!)
+    const out = await readVideo({ frames: 0 })
+    expect(runs).toBe(1)
+    expect(out.text).toContain('The transcript failed (The file is damaged or unreadable')
+    expect(hits).toEqual([])
+    noCanary(out)
   })
 
   test('a read whose whisper.cpp run replaced the folder: the damaged note, no frames after it, the piece\'s WAV not removed through the link', async () => {

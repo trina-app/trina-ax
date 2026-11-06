@@ -24,6 +24,7 @@ export function registerHwpRender(ctx: AppContext, reg: ToolRegistry) {
       if (before) return { text: instead(before), summary: `hwp_render ${a.source} page ${a.page} -> image not shown` }
       const r = await componentC(ctx).hwp.page(t.user.id, source, a.page, t.signal)
       t.files.readPaths.add(source); t.files.readHashes.set(source, r.meta.sourceHash)
+      t.files.sources.note(source, 'read', { agent: t.files.agent, sha256: r.meta.sourceHash, locs: [{ kind: 'page', page: a.page }] })
       const over = ctx.files.toolImage(t, r.bytes.length)
       if (over) return { text: `${JSON.stringify(r.meta)}\n\n${instead(over)}`, structured: r.meta, summary: `hwp_render ${a.source} page ${a.page}/${r.meta.pageCount} -> image not shown (turn image limit)` }
       return { text: JSON.stringify(r.meta), structured: r.meta, images: [{ type: 'image' as const, mimeType: 'image/png' as const, data: r.bytes.toString('base64') }], summary: `hwp_render ${a.source} page ${a.page}/${r.meta.pageCount}` }

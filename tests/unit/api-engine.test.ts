@@ -12,6 +12,8 @@ import { errorOf, readApiEngine, redact, runApiAgent, usageEvent, writeApiEngine
 import { checkEngine, modelListed, type EngineEnv } from '../../server/src/admin/engines'
 import { usage as usageReport } from '../../server/src/admin/budgets'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
+import { credentialsOf } from '../../server/src/credentials/store'
+import { hostedChatHeldUsd, hostedChatUsedUsd, writeHostedChatKey } from '../../server/src/credentials/hosted-chat'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 
@@ -33,6 +35,14 @@ function sse(o: { text?: string[]; calls?: { id: string; name: string; args: str
 }
 
 const conf: ApiEngineConf = { baseUrl: 'https://api.example/v1', model: 'm-1', label: 'M1', key: 'sk-test' }
+
+/** a completion cut off at the output limit: text, a tool call whose arguments stop half way, finish_reason length */
+const cutOff = () => new Response([
+  { choices: [{ delta: { content: 'Here is the file: ' } }] },
+  { choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'make_file', arguments: '{"name":"plan.docx","content":"## Wee' } }] } }] },
+  { choices: [{ delta: {}, finish_reason: 'length' }] },
+  { choices: [], usage: { prompt_tokens: 10, completion_tokens: 500 } },
+].map((l) => `data: ${JSON.stringify(l)}\n\n`).join('') + 'data: [DONE]\n\n')
 
 describe('agent loop', () => {
   test('stream text, call a tool (prefix stripped, arguments in pieces), answer with the result', async () => {
@@ -68,6 +78,29 @@ describe('agent loop', () => {
     expect(events.filter((e) => e.type === 'error')).toEqual([])
     expect(events.slice(-2)).toEqual([{ type: 'limit', kind: 'turns' }, { type: 'done' }])
     expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Working. Working. Working. ')
+  })
+  test('cut off at the output limit (finish_reason length): an output_limit error, the cut tool call neither run nor sent again', async () => {
+    const bodies: any[] = []
+    const f = (async (_u: string, init: RequestInit) => { bodies.push(JSON.parse(String(init.body))); return cutOff() }) as unknown as typeof fetch
+    const calls: any[] = []
+    const rpc = async (m: any) => { calls.push(m); return m.method === 'tools/list' ? { result: { tools: [{ name: 'make_file', description: 'Make a file', inputSchema: { type: 'object' } }] } } : { result: { content: [] } } }
+    const events: EngineEvent[] = []
+    await runApiAgent({ conf, systemPrompt: 's', message: 'm', rpc, emit: (e) => events.push(e), signal: new AbortController().signal, fetchFn: f })
+    expect(bodies).toHaveLength(1)
+    expect(calls.filter((c) => c.method === 'tools/call')).toEqual([])
+    expect(events.filter((e) => e.type === 'tool_start')).toEqual([])
+    expect(events.find((e) => e.type === 'error')).toMatchObject({ type: 'error', code: 'output_limit' })
+    expect(events.some((e) => e.type === 'usage')).toBe(true) // what it cost still counts
+    expect(events.some((e) => e.type === 'done')).toBe(false)
+    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Here is the file: ')
+  })
+  test('max_tokens is sent only when the caller sets it (the trial credit\'s meter does); a team\'s own engine sends none', async () => {
+    const bodies: any[] = []
+    const f = (async (_u: string, init: RequestInit) => { bodies.push(JSON.parse(String(init.body))); return new Response(sse({ text: ['ok'] })) }) as unknown as typeof fetch
+    const run = (maxTokens?: number) => runApiAgent({ conf, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: () => {}, signal: new AbortController().signal, fetchFn: f, ...(maxTokens ? { maxTokens } : {}) })
+    await run()
+    await run(500)
+    expect(bodies.map((b) => b.max_tokens)).toEqual([undefined, 500])
   })
   const runErr = async (f: typeof fetch, o: { headersTimeoutMs?: number; c?: ApiEngineConf } = {}) => {
     const events: EngineEvent[] = []
@@ -298,6 +331,34 @@ describe('a chat turn with the api engine', () => {
     const b = await send(chat.id, 'two', 'api' as EngineId)
     expect(b.m.error).toMatchObject({ params: { reason: 'provider_error', status: 502 } })
     expect(b.m.error.message).toBe(`${CHAT_ERROR_MESSAGES.provider_error.en} (HTTP 502)`)
+  })
+
+  test('the team\'s own API engine never touches a trial credit: no max_tokens, no hold, nothing counted against it', async () => {
+    const cc = credentialsOf(h.ctx)
+    writeHostedChatKey(cc, { key: 'sk-or-v1-TRIAL-API-' + 'z'.repeat(40), capUsd: 1, endsAt: new Date(Date.now() + 86400_000).toISOString(), enabled: true })
+    try {
+      const before = seen.length
+      script.push(sse({ text: ['Own key.'], usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0.002 } }))
+      const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' as EngineId } })
+      const { m, t } = await send(chat.id, 'own key', 'api' as EngineId)
+      expect(m).toMatchObject({ status: 'done', content: 'Own key.', engine: 'api' })
+      expect(t).toMatchObject({ engine: 'api', model: 'm-1', cost_usd: 0.002 })
+      expect(seen[before].max_tokens).toBeUndefined()
+      expect(JSON.stringify(seen[before])).not.toContain('TRIAL-API')
+      expect(hostedChatUsedUsd(h.ctx.db)).toBe(0)
+      expect(hostedChatHeldUsd(h.ctx.db)).toBe(0)
+      expect(h.ctx.db.query("SELECT credential_id FROM turns WHERE chat_id = ?").get(chat.id)).toEqual({ credential_id: null })
+    } finally { writeHostedChatKey(cc, null) }
+  })
+
+  test('an answer cut off at its output limit is the localized output_limit error in the chat', async () => {
+    script.push(() => cutOff())
+    const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' as EngineId } })
+    const { m } = await send(chat.id, 'a very long plan', 'api' as EngineId)
+    expect(m.status).toBe('error')
+    expect(m.error).toMatchObject({ code: 'payload_too_large', params: { reason: 'output_limit' } })
+    expect(m.error.message).toBe(CHAT_ERROR_MESSAGES.output_limit.en)
+    expect(m.content).toContain('Here is the file:')
   })
 
   test('API-24: one chat goes from the API engine to Codex and back; each answer carries the conversation so far', async () => {
