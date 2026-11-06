@@ -1,5 +1,6 @@
 // One room (/rooms/:roomId; the mobile app links here from a notice): a 48px header with the room's name (its mark
-// beside it on computers), its member count (opens the member list) and the bell (mute, its only setting); the messages (components/rooms/RoomMessages.tsx),
+// beside it on computers) and member count, which open the room's info (components/rooms/MembersDialog.tsx: the name,
+// 초대하기, the members, 나가기), and the bell (mute, its only setting); the messages (components/rooms/RoomMessages.tsx),
 // older ones loaded on scrolling up; the message box at the bottom. What I see is marked read (POST
 // /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
@@ -16,6 +17,7 @@ import { useRooms, type PendingSend } from '../store/rooms'
 import { useMe } from '../store/session'
 import { toast } from '../store/ui'
 import { MembersDialog } from '../components/rooms/MembersDialog'
+import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
 import { RoomComposer } from '../components/rooms/RoomComposer'
 import { RoomMessages } from '../components/rooms/RoomMessages'
 import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
@@ -60,6 +62,8 @@ function RoomView({ roomId }: { roomId: string }) {
   const [missing, setMissing] = useState(false)
   const [reply, setReply] = useState<RoomQuote | null>(null)
   const [showMembers, setShowMembers] = useState(false)
+  // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
+  const [picker, setPicker] = useState<PickerMode | null>(null)
   usePeopleList()
 
   useEffect(() => {
@@ -163,10 +167,21 @@ function RoomView({ roomId }: { roomId: string }) {
             <RoomIcon room={room} size={24} />
           </span>
         )}
-        {/* a DM: the other person's title (직함) small under their name, as the people list shows it */}
+        {/* the name opens the room's info (its name, 초대하기, the members, 나가기); beside it how many are in it, and
+            for a DM the other person's title (직함) small under their name, as the people list shows it */}
         <div className="min-w-0">
-          <h1 className="truncate text-base font-medium text-ink" data-testid="room-title">
-            {room ? title(room) : ''}
+          <h1 className="flex min-w-0 text-base font-medium text-ink">
+            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-1.5 rounded-md px-1 text-left hover:bg-hover" data-testid="room-members-button">
+              <span className="truncate" data-testid="room-title">
+                {room ? title(room) : ''}
+              </span>
+              {room && room.kind !== 'dm' && (
+                <span className="shrink-0 text-xs font-normal text-faint tabular-nums" data-testid="room-member-count">
+                  {room.memberCount}
+                  <span className="sr-only">, {t('rooms.members', { n: room.memberCount })}</span>
+                </span>
+              )}
+            </button>
           </h1>
           {peerTitle && (
             <p className="truncate text-xs text-muted" data-testid="room-peer-title">
@@ -174,11 +189,6 @@ function RoomView({ roomId }: { roomId: string }) {
             </p>
           )}
         </div>
-        {room && room.kind !== 'dm' && (
-          <button type="button" onClick={() => setShowMembers(true)} className="touch-hit shrink-0 rounded px-1 py-1 text-xs text-faint hover:text-ink max-sm:py-2" data-testid="room-members-button">
-            {t('rooms.members', { n: room.memberCount })}
-          </button>
-        )}
         {/* the room's one setting, right here (a menu of one item is one tap too many): the bell shows how it is now */}
         {room && (
           <IconButton label={room.muted ? t('rooms.unmute') : t('rooms.mute')} className="touch-hit ml-auto" onClick={() => void toggleMute()} data-testid="room-mute">
@@ -213,7 +223,18 @@ function RoomView({ roomId }: { roomId: string }) {
         }}
         gone={t('rooms.goneUser')}
       />
-      <MembersDialog open={showMembers} onClose={() => setShowMembers(false)} members={roomMembers} meId={meId} />
+      <MembersDialog
+        open={showMembers}
+        onClose={() => setShowMembers(false)}
+        room={room}
+        members={roomMembers}
+        meId={meId}
+        onInvite={() => {
+          setShowMembers(false)
+          setPicker(room?.kind === 'dm' ? { kind: 'new', preselect: room.peers.map((p) => p.id) } : { kind: 'invite', roomId })
+        }}
+      />
+      <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
     </div>
   )
 }

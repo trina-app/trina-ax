@@ -81,11 +81,13 @@ export function quoteOf(m: RoomMessage): RoomQuote {
  * message after the room's last position that is not mine and arrives while the room is not on screen counts as unread
  * (and "mentions me" when it does); a message seen before (a replay, my own send's answer) counts nothing again. My
  * own message moves my read position to it (the server does the same), so the room has nothing unread for me then.
+ * An event line (a rename, people invited, someone left) only takes its place: no unread, no last line, no move.
  */
 export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: string | null): RoomsData {
   const thread = d.thread && d.thread.roomId === roomId ? { ...d.thread, messages: mergeMessages(d.thread.messages, [m]) } : d.thread
   const room = d.rooms.find((r) => r.id === roomId)
   if (!room) return { ...d, thread }
+  if (m.event) return { ...d, thread, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
   const fresh = m.seq > room.lastSeq
   const mine = !!meId && m.author?.id === meId
   const counts = fresh && !mine && m.visibility === 'room' && !m.deletedAt && d.openRoomId !== roomId
@@ -190,6 +192,14 @@ interface RoomsState extends RoomsData {
   setMuted: (roomId: string, muted: boolean) => Promise<void>
   /** the DM with this person (the existing one when there is one) */
   openDm: (userId: string) => Promise<Room>
+  /** a new group chat of me and these people (docs/DECISIONS.md "그룹 대화와 방 이름") */
+  createGroup: (userIds: string[], name: string | null) => Promise<Room>
+  /** the room's own name ('' or null: the server's name) */
+  rename: (roomId: string, name: string | null) => Promise<void>
+  invite: (roomId: string, userIds: string[]) => Promise<void>
+  /** leave a group chat: it goes from the list (and every window) */
+  leave: (roomId: string) => Promise<void>
+  removeMember: (roomId: string, userId: string) => Promise<void>
   /** the AI's count and my own questions in a room (GET /api/rooms/:id/ai) */
   loadAi: (roomId: string) => Promise<void>
   stopAi: (roomId: string, turnId: string) => Promise<void>
@@ -212,6 +222,8 @@ export const roomDrafts = new Map<string, string>()
 
 /** read positions already asked for, per room (a scroll fires many times; one request per new position) */
 const asked = new Map<string, number>()
+/** rooms I am leaving from this window: their "removed" event is no news here */
+const leaving = new Set<string>()
 /** a newer read of the same room's messages wins over an older one still on its way */
 let threadGen = 0
 
@@ -383,6 +395,40 @@ export const useRooms = create<RoomsState>((set, get) => {
       return room
     },
 
+    async createGroup(userIds, name) {
+      const room = await api.call(API.createRoom, { body: { kind: 'group', userIds, ...(name?.trim() ? { name: name.trim() } : {}) } })
+      set((s) => withRoom(s, room))
+      return room
+    },
+
+    async rename(roomId, name) {
+      const room = await api.call(API.updateRoom, { params: { id: roomId }, body: { name: name?.trim() || null } })
+      set((s) => withRoom(s, room))
+    },
+
+    async invite(roomId, userIds) {
+      const room = await api.call(API.inviteRoomMembers, { params: { id: roomId }, body: { userIds } })
+      set((s) => ({ ...withRoom(s, room), members: omit(s.members, roomId) }))
+      void get().loadMembers(roomId, true)
+    },
+
+    async leave(roomId) {
+      // my own windows get room.updated "removed" too: this one says nothing about it
+      leaving.add(roomId)
+      try {
+        await api.call(API.leaveRoom, { params: { id: roomId } })
+        if (get().openRoomId === roomId) navigateTo('/rooms')
+        set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
+      } finally {
+        setTimeout(() => leaving.delete(roomId), 5000)
+      }
+    },
+
+    async removeMember(roomId, userId) {
+      await api.call(API.removeRoomMember, { params: { id: roomId, userId } })
+      set((s) => (s.members[roomId] ? { members: { ...s.members, [roomId]: s.members[roomId]!.filter((m) => m.user.id !== userId) } } : {}))
+    },
+
     async loadAi(roomId) {
       try {
         const r = await api.call(API.getRoomAi, { params: { id: roomId } })
@@ -465,7 +511,7 @@ export const useRooms = create<RoomsState>((set, get) => {
             const wasOpen = get().openRoomId === roomId
             set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
             if (wasOpen) {
-              toast({ level: 'info', text: t('rooms.removed') })
+              if (!leaving.has(roomId)) toast({ level: 'info', text: t('rooms.removed') })
               navigateTo('/rooms')
             }
             return
@@ -486,6 +532,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     reset() {
       asked.clear()
+      leaving.clear()
       roomDrafts.clear()
       threadGen++
       set({ ...EMPTY })

@@ -2,7 +2,8 @@
 // of a sent text.
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
-import { aiMatches, aiMentionNames, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, plainLine, roomBadge, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
+import { translate } from '../../src/i18n'
+import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, plainLine, roomBadge, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -127,4 +128,47 @@ test('what my question is doing, in plain words: no search pattern or path, a do
   expect(s('web_fetch', 'Fetch page · https://example.com/a')).toEqual({ kind: 'web' })
   expect(s('', 'Web search: q', 'web_search')).toEqual({ kind: 'web' })
   expect(s('make_file', 'Make file · users/a/x.docx')).toEqual({ kind: 'work' })
+})
+
+// ---------------- group chats and room names (docs/DECISIONS.md "그룹 대화와 방 이름") ----------------
+describe('group chats and event lines', () => {
+  const words = (loc: 'ko' | 'en' | 'ja') => ({
+    all: translate(loc, 'rooms.all'), gone: translate(loc, 'rooms.goneUser'), alone: translate(loc, 'rooms.groupAlone'), sep: translate(loc, 'rooms.nameSep'),
+    names: (names: string, n: number) => (n > 0 ? translate(loc, 'rooms.groupNamesMore', { names, n }) : names),
+  })
+  const p = (name: string) => ({ id: name.toLowerCase().replace(/[^a-z]/g, '') || 'x', name })
+  test("an unnamed group chat is its other members' names, the first three and then how many more", () => {
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [p('가나님'), p('Ben')], memberCount: 3 }), words('ko'))).toBe('가나님, Ben')
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [p('A'), p('B'), p('C'), p('D')], memberCount: 9 }), words('ko'))).toBe('A, B, C 외 5명')
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [p('A'), p('B'), p('C'), p('D')], memberCount: 9 }), words('en'))).toBe('A, B, C and 5 more')
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [p('A'), p('B')], memberCount: 3 }), words('ja'))).toBe('A、B')
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [], memberCount: 1 }), words('ko'))).toBe('대화 상대 없음')
+    // its own name wins; a team room's own name too; a DM is always the other person
+    expect(roomTitle(room({ kind: 'group', name: '주간 회의', peers: [p('A'), p('B')] }), words('ko'))).toBe('주간 회의')
+    expect(roomTitle(room({ kind: 'dm', name: null, peers: [BEN] }), words('ko'))).toBe('Ben')
+  })
+
+  test('event lines read as a sentence: one honorific per name, the particle fitting the last name, a quoted name', () => {
+    const w = (loc: 'ko' | 'en' | 'ja') => ({ t: (k: any, params?: any) => translate(loc, k, params), nameOf: (u: { name: string } | null) => u?.name ?? '?' })
+    const boss = { id: 'boss', name: '대표님' }
+    const kim = { id: 'kim', name: '김민지 씨' }
+    expect(eventText({ type: 'added', users: [BEN, CY] }, boss, w('ko'))).toBe('대표님이 Ben님, Cy Park님을 초대했어요')
+    expect(eventText({ type: 'added', users: [BEN, boss] }, ME, w('ko'))).toBe('Ada님이 Ben님, 대표님을 초대했어요')
+    expect(eventText({ type: 'added', users: [kim] }, ME, w('ko'))).toBe('Ada님이 김민지 씨를 초대했어요')
+    expect(eventText({ type: 'created', users: [p('A'), p('B'), p('C'), p('D'), p('E')] }, ME, w('ko'))).toBe('Ada님이 A님, B님, C님 외 2명을 초대했어요')
+    expect(eventText({ type: 'added', users: [BEN, CY] }, ME, w('en'))).toBe('Ada invited Ben, Cy Park')
+    expect(eventText({ type: 'added', users: [BEN] }, ME, w('ja'))).toBe('AdaさんがBenさんを招待しました')
+    expect(eventText({ type: 'renamed', name: '주간 회의' }, boss, w('ko'))).toBe("대표님이 방 이름을 '주간 회의'로 바꿨어요")
+    expect(eventText({ type: 'renamed', name: '디자인팀' }, ME, w('ko'))).toBe("Ada님이 방 이름을 '디자인팀'으로 바꿨어요")
+    expect(eventText({ type: 'renamed', name: 'Plan' }, ME, w('en'))).toBe('Ada renamed the chat to “Plan”')
+    expect(eventText({ type: 'renamed', name: null }, ME, w('ko'))).toBe('Ada님이 방 이름을 원래대로 바꿨어요')
+    expect(eventText({ type: 'left' }, boss, w('ko'))).toBe('대표님이 나갔어요')
+    expect(eventText({ type: 'removed', user: kim }, boss, w('ko'))).toBe('대표님이 김민지 씨를 내보냈어요')
+    expect(eventText({ type: 'removed', user: null }, ME, w('en'))).toBe('Ada removed ?')
+  })
+
+  test('an event line is a run of its own and ends the run before it', () => {
+    const ms = [message({ roomId: R, seq: 1 }), message({ roomId: R, seq: 2, author: BEN, body: '', event: { type: 'left' } }), message({ roomId: R, seq: 3 })]
+    expect(groupRuns(ms, day).map((r) => r.messages.map((m) => m.seq))).toEqual([[1], [2], [3]])
+  })
 })
