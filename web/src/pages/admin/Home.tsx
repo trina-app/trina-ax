@@ -10,7 +10,7 @@ import type { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { CredentialState, EngineStatus, Locale, UpdateStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { formatRelative, formatUsd, intlTag, localDay, localDayRange } from '../../lib/format'
+import { formatRelative, formatShortDateTime, formatUsd, intlTag, localDay, localDayRange } from '../../lib/format'
 import { turnWhen } from '../../lib/updateTurn'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
@@ -105,7 +105,11 @@ export default function Home() {
 
   const item = (name: string, state: string) => t('adminHome.item', { name, state })
   const active = users.data?.items.filter((u) => u.status === 'active') ?? []
-  const noAi = users.data ? users.data.items.filter((u) => users.data?.noAi?.includes(u.id)).map((u) => u.name) : []
+  const noAiPeople = users.data ? users.data.items.filter((u) => users.data?.noAi?.includes(u.id)) : []
+  const noAi = noAiPeople.map((u) => u.name)
+  // every one of them only waits for a limit to end (noAiUntil): the line says until when (the last end: all have AI then)
+  const noAiEnds = noAiPeople.map((u) => users.data?.noAiUntil?.[u.id])
+  const noAiEnd = noAiEnds.length && noAiEnds.every(Boolean) ? (noAiEnds as string[]).sort().at(-1) : undefined
   const openInvites = invites.data?.filter((i) => !i.usedAt && Date.parse(i.expiresAt) > Date.now()).length ?? 0
   // An engine that is on but never set up (notSetUp) is not a problem while another engine answers: a team on Claude
   // alone has nothing to fix. It is when it is the team default or when no engine works; a broken engine (error,
@@ -129,7 +133,9 @@ export default function Home() {
 
   const attention: { key: string; text: string; to: string; actions?: ReactNode; job?: string | null }[] = [
     ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/providers' })),
-    ...(noAi.length ? [{ key: 'no-ai', text: t('adminHome.noAi', { count: noAi.length, names: names(noAi) }), to: '/admin/providers' }] : []),
+    ...(noAi.length ? [{ key: 'no-ai', to: '/admin/providers', text: noAiEnd
+      ? t('adminHome.noAiLimit', { count: noAi.length, names: names(noAi), time: formatShortDateTime(noAiEnd, locale) })
+      : t('adminHome.noAi', { count: noAi.length, names: names(noAi) }) }] : []),
     ...badCredentials.map((c) => ({ key: `credential-${c.id}`, text: item(c.label, t(`credentials.state.${c.state}`)), to: '/admin/providers?engine=claude-code' })),
     ...badServices.map((s) => ({ key: `service-${s.id}`, text: item(s.name, t(`integrations.status.${s.status}`)), to: '/admin/connectors' })),
     ...(storageBad && storage.data ? [{ key: 'storage', text: t('adminHome.storage', { percent: Math.round(storage.data.percent) }), to: '/admin/system' }] : []),
