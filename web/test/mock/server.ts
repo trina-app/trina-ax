@@ -389,7 +389,7 @@ export class MockServer {
     for (const u of this.users) u.locale = u.localeChoice ?? this.settings.defaultLocale
   }
 
-  addUser(u: Pick<User, 'id' | 'username' | 'name' | 'role' | 'groupIds'> & { mustChangePassword?: boolean; localeChoice?: Locale | null }, password: string) {
+  addUser(u: Pick<User, 'id' | 'username' | 'name' | 'role' | 'groupIds'> & { mustChangePassword?: boolean; localeChoice?: Locale | null; email?: string | null }, password: string) {
     const user: User = { email: null, status: 'active', mustChangePassword: false, locale: 'ko', localeChoice: null, createdAt: now(), lastSeenAt: null, ...u }
     user.locale = user.localeChoice ?? this.settings.defaultLocale
     this.users.push(user)
@@ -1694,7 +1694,7 @@ export class MockServer {
     createUser: (c) => {
       checkTemp(c.body.temporaryPassword)
       if (this.users.some((x) => x.username.toLowerCase() === c.body.username.toLowerCase())) fail('conflict', 409, '이미 쓰고 있는 아이디예요.')
-      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null }, c.body.temporaryPassword ?? 'tiger4271')
+      const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: c.body.role, groupIds: c.body.groupIds ?? [], mustChangePassword: true, localeChoice: c.body.locale ?? null, email: c.body.email ?? null }, c.body.temporaryPassword ?? 'tiger4271')
       return { status: 201, body: { user: u, temporaryPassword: c.body.temporaryPassword ?? 'tiger4271', expiresAt: tempUntil(), signInUrl: 'https://team.example.com' } }
     },
     updateUser: (c) => {

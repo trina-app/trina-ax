@@ -227,7 +227,8 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
 
   const ready = preview.ready && !!data
   const impact = ready ? saveImpact(data) : null
-  const saveLabel = !impact ? t('common.save')
+  // nothing edited: plain "Save" (disabled); the impact is said once there is something to save
+  const saveLabel = !impact || !saveable ? t('common.save')
     : impact.kind === 'less' ? t('accessEdit.saveLess', { n: impact.n })
       : impact.kind === 'more' ? t('accessEdit.saveMore', { n: impact.n })
         : impact.kind === 'both' ? t('accessEdit.saveBoth', { less: impact.less, more: impact.more })
@@ -292,12 +293,14 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
           </IconButton>
         )}
         <div className={clsx('min-w-0 flex-1', narrow && 'pt-1')}>
-          <h3 id={headingId} ref={heading} tabIndex={-1} data-autofocus className="text-base font-semibold text-ink outline-none">
+          {/* one line: what the panel does and for which folder */}
+          <h3 id={headingId} ref={heading} tabIndex={-1} data-autofocus className="text-base font-semibold [overflow-wrap:anywhere] text-ink outline-none">
             {hadRules ? t('accessEdit.title') : t('accessTree.addRules')}
+            <span aria-hidden className="mx-1.5 font-normal text-faint">·</span>
+            <span className="font-normal text-muted" data-testid="edit-path">
+              {name}
+            </span>
           </h3>
-          <p className="mt-0.5 text-xs [overflow-wrap:anywhere] text-muted" data-testid="edit-path">
-            {name}
-          </p>
         </div>
         {!narrow && (
           <IconButton label={t('common.close')} onClick={() => void requestClose()} className="-mt-1 -mr-1 shrink-0 focus-visible:-outline-offset-2" data-testid="edit-close">
@@ -306,7 +309,8 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
         )}
       </header>
 
-      <div className={clsx('space-y-5', narrow ? 'scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4' : 'pt-3')}>
+      <div className={clsx('space-y-5', narrow ? 'scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4' : 'pt-2')}>
+        <HowRules />
         {stale && (
           <div role="status" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="edit-stale">
             <p className="flex items-start gap-1.5">
@@ -331,7 +335,7 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
           </div>
         )}
         {(converted.member || converted.admin) && (
-          <p role="note" className="flex items-start gap-1.5 rounded-lg bg-subtle px-3 py-2 text-xs text-muted" data-testid="edit-converted">
+          <p role="note" className="flex items-start gap-1.5 rounded-lg bg-subtle px-2.5 py-1.5 text-xs text-muted" data-testid="edit-converted">
             <Info size={13} className="mt-px shrink-0" aria-hidden />
             <span>{t(converted.member && converted.admin ? 'accessEdit.convertedBoth' : converted.member ? 'accessEdit.convertedMember' : 'accessEdit.convertedAdmin')}</span>
           </p>
@@ -368,8 +372,9 @@ export default function AccessEdit({ path, folder, users, groups, onClose, onSav
       </div>
 
       <footer className={clsx('flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface', narrow ? 'px-4 py-3 pb-[max(0.75rem,var(--safe-bottom))]' : 'sticky bottom-0 z-10 mt-5 py-3')}>
+        {/* nothing changed: a disabled Save says so to a screen reader only; the other reasons show */}
         {why && why !== 'keep' && (
-          <p id={whyId} className="mr-auto min-w-0 text-xs text-faint" data-testid="edit-save-why">
+          <p id={whyId} className={clsx('mr-auto min-w-0 text-xs text-faint', why === 'same' && 'sr-only')} data-testid="edit-save-why">
             {t(why === 'same' ? 'accessEdit.why.same' : why === 'failed' ? 'accessEdit.why.failed' : 'accessEdit.why.waits')}
           </p>
         )}
@@ -399,7 +404,7 @@ function followText(t: ReturnType<typeof useT>, above: FolderEditPreview['above'
 
 const BASIC_LABEL: Record<Basic, MessageKey> = { follow: 'accessEdit.basic.follow', named: 'accessEdit.basic.named', read: 'accessEdit.basic.read', write: 'accessEdit.basic.write' }
 
-function BasicAccess({ value, choices, root, followText: follow, connected, keepsOne, keepsOneId, onChange }: {
+function BasicAccess({ value, choices, followText: follow, connected, keepsOne, keepsOneId, onChange }: {
   value: Basic
   choices: Basic[]
   root: boolean
@@ -411,46 +416,67 @@ function BasicAccess({ value, choices, root, followText: follow, connected, keep
 }) {
   const t = useT()
   const name = useId()
-  const hintId = useId()
-  const desc = (b: Basic): ReactNode => {
-    if (b === 'follow') return follow ?? <span className="inline-block h-3 w-40 animate-pulse rounded bg-subtle align-middle" aria-hidden />
-    if (b === 'named') return t(root ? 'accessEdit.basic.namedRootDesc' : 'accessEdit.basic.namedDesc')
-    return t(b === 'read' ? 'accessEdit.basic.readDesc' : 'accessEdit.basic.writeDesc')
-  }
+  // the choices say what they do; only "same as the folder above" adds what that gives now
   return (
-    <fieldset aria-describedby={hintId} data-testid="edit-basic">
+    <fieldset data-testid="edit-basic">
       <legend className="text-sm font-semibold text-ink">{t('accessEdit.basic')}</legend>
-      <p id={hintId} className="mt-0.5 text-xs text-muted">
-        {t('accessEdit.basicHint')}
-      </p>
-      <div className="mt-2 grid gap-1.5">
+      <div className="mt-1.5 grid gap-0.5">
         {choices.map((b) => (
           <label
             key={b}
-            className={clsx('flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 text-sm transition-[background-color,border-color]', value === b ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover')}
+            className={clsx('flex cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors', value === b ? 'bg-accent-soft' : 'hover:bg-hover')}
             data-testid={`edit-basic-${b}`}
           >
-            <input type="radio" name={name} value={b} checked={value === b} onChange={() => onChange(b)} className="mt-0.5 shrink-0 accent-[var(--c-accent)]" />
+            <input type="radio" name={name} value={b} checked={value === b} onChange={() => onChange(b)} className="mt-[3px] shrink-0 accent-[var(--c-accent)]" />
             <span className="min-w-0">
-              <span className="block font-medium text-ink">{t(BASIC_LABEL[b])}</span>
-              <span className="mt-0.5 block text-xs [overflow-wrap:anywhere] text-muted" data-testid={b === 'follow' ? 'edit-follow-now' : undefined}>
-                {desc(b)}
-              </span>
+              <span className="block text-ink">{t(BASIC_LABEL[b])}</span>
+              {b === 'follow' && (
+                <span className="block text-xs [overflow-wrap:anywhere] text-muted" data-testid="edit-follow-now">
+                  {follow ?? <span className="inline-block h-3 w-40 animate-pulse rounded bg-subtle align-middle" aria-hidden />}
+                </span>
+              )}
             </span>
           </label>
         ))}
       </div>
       {connected && (
-        <p className="mt-1.5 text-xs text-muted" data-testid="edit-connected">
+        <p className="mt-1 px-2.5 text-xs text-muted" data-testid="edit-connected">
           {t('accessEdit.connectedNoWrite')}
         </p>
       )}
       {keepsOne && (
-        <p id={keepsOneId} role="note" className="mt-1.5 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="edit-keep-one">
-          {t('accessEdit.keepTeam')}
+        <p id={keepsOneId} role="note" className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-warn-soft px-2.5 py-1.5 text-xs text-warn" data-testid="edit-keep-one">
+          <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden />
+          <span>{t('accessEdit.keepTeam')}</span>
         </p>
       )}
     </fieldset>
+  )
+}
+
+/** "How rules work": the three rules behind the editor, folded away (they used to repeat as paragraphs). */
+function HowRules() {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  return (
+    <div data-testid="edit-how">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className="-mx-1 inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 text-xs text-muted transition hover:text-ink"
+        data-testid="edit-how-toggle"
+      >
+        <Info size={13} aria-hidden /> {t('accessEdit.howTitle')}
+      </button>
+      <ul id={id} hidden={!open} className="mt-1.5 list-disc space-y-1 pl-5 text-xs text-muted marker:text-faint">
+        <li>{t('accessEdit.basicHint')}</li>
+        <li>{t('accessEdit.namedHint')}</li>
+        <li>{t('accessEdit.howFollow')}</li>
+      </ul>
+    </div>
   )
 }
 
@@ -489,7 +515,6 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
       <h4 id={titleId} className="text-sm font-semibold text-ink">
         {t('accessEdit.named')}
       </h4>
-      <p className="mt-0.5 text-xs text-muted">{t('accessEdit.namedHint')}</p>
       <AddNamed
         inputRef={search}
         users={allUsers}
@@ -518,7 +543,7 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
                       <Badge>{t('accessEdit.disabled')}</Badge>
                     </span>
                   )}
-                  {always && <span className="basis-full text-xs text-faint">{t('accessEdit.always')}</span>}
+                  {always && <span className="text-xs text-faint">· {t('accessEdit.always')}</span>}
                 </span>
                 <div className="flex shrink-0 items-center gap-x-2 max-sm:basis-full max-sm:pl-[23px]">
                   <AccessChoice
@@ -715,6 +740,9 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
   const locked = inSkills && exact && top.data && here.data ? skillsLockedText(t, skillManagersOf(top.data.values()), (id) => after.get(id) ?? here.data!.get(id)?.access) : null
   const less = data?.changes.filter((c) => c.direction === 'less') ?? []
   const more = data?.changes.filter((c) => c.direction === 'more') ?? []
+  // the counts show; who exactly (and the folders below) opens on request
+  const [showPeople, setShowPeople] = useState(false)
+  const peopleId = useId()
   let body: ReactNode
   if (!data) body = preview.error ? <ErrorNote onRetry={onRetry}>{preview.error}</ErrorNote> : <Skeleton lines={3} className="mt-2" />
   else {
@@ -734,7 +762,7 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
           </p>
         )}
         {data.warnings.map((w) => (
-          <p key={w.kind} role="note" className="mt-2 flex items-start gap-1.5 rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="edit-warning" data-kind={w.kind}>
+          <p key={w.kind} role="note" className="mt-2 flex items-start gap-1.5 rounded-lg bg-warn-soft px-2.5 py-1.5 text-xs text-warn" data-testid="edit-warning" data-kind={w.kind}>
             <TriangleAlert size={13} className="mt-px shrink-0" aria-hidden />
             <span>{warningText(t, w)}</span>
           </p>
@@ -746,9 +774,26 @@ function Result({ path, preview, data, ready, rulesHash, onRetry }: { path: stri
           </p>
         ) : (
           <>
-            {less.length > 0 && <Changes title={t('accessEdit.lessTitle', { n: data.less })} changes={less} testId="edit-less" />}
-            {more.length > 0 && <Changes title={t('accessEdit.moreTitle', { n: data.more })} changes={more} testId="edit-more" />}
-            {data.below.length > 0 && <Below data={data} path={path} />}
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-testid="edit-summary">
+              {less.length > 0 && <span className="font-medium text-warn">{t('accessEdit.lessTitle', { n: data.less })}</span>}
+              {more.length > 0 && <span className="font-medium text-ink">{t('accessEdit.moreTitle', { n: data.more })}</span>}
+              {data.below.length > 0 && <span className="text-muted">{t('accessEdit.below')}</span>}
+              <button
+                type="button"
+                aria-expanded={showPeople}
+                aria-controls={peopleId}
+                onClick={() => setShowPeople((s) => !s)}
+                className="font-medium text-accent-text underline-offset-2 hover:underline"
+                data-testid="edit-show-people"
+              >
+                {t(showPeople ? 'accessEdit.hidePeople' : 'accessEdit.showPeople')}
+              </button>
+            </p>
+            <div id={peopleId} hidden={!showPeople} data-testid="edit-people-detail">
+              {less.length > 0 && <Changes title={t('accessEdit.lessTitle', { n: data.less })} changes={less} testId="edit-less" />}
+              {more.length > 0 && <Changes title={t('accessEdit.moreTitle', { n: data.more })} changes={more} testId="edit-more" />}
+              {data.below.length > 0 && <Below data={data} path={path} />}
+            </div>
           </>
         )}
         {preview.error && (
