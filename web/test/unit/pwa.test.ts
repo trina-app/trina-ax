@@ -73,7 +73,8 @@ test("a computer's browser picks its install steps: Chrome and Edge from the add
   expect(browserOf(macSafari)).toBe('safari')
   expect(browserOf(winEdge)).toBe('edge')
   expect(browserOf(macFirefox)).toBe('firefox')
-  expect(browserOf(winOpera)).toBe('other')
+  expect(browserOf(winOpera)).toBe('chrome')
+  expect(browserOf('Opera/9.80 (Windows NT 6.1) Presto/2.12.388 Version/12.18')).toBe('other')
   expect(browserOf('')).toBe('other')
   // Safari's steps only for Safari on a Mac; everything else that can install uses Chrome's and Edge's
   expect(computerFlow('mac', 'safari')).toBe('safari')

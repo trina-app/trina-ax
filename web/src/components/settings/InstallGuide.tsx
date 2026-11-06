@@ -7,7 +7,7 @@
 import { ChevronDown } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { browser, guideOrder, isStandalone, platform, useInstallPrompt, type Browser, type GuidePlatform, type Platform } from '../../lib/pwa'
+import { browser, canInstallIn, guideOrder, isStandalone, platform, useInstallPrompt, type Browser, type GuidePlatform, type Platform } from '../../lib/pwa'
 import { useT, type MessageKey } from '../../i18n'
 import { Badge, Button, useMediaQuery } from '../ui'
 import { ComputerPictures, InstallPictures, type ComputerFlow, type ComputerOs } from './InstallPictures'
@@ -66,13 +66,17 @@ export function InstallGuide() {
     // this computer's browser decides the steps; seen from a phone, Chrome's and Edge's
     const flow = mine ? computerFlow(p, b) : 'chromium'
     const os: ComputerOs = mine && (p === 'mac' || p === 'windows') ? p : 'other'
-    const cannot = mine && (b === 'firefox' || b === 'other')
+    // a browser that cannot install (Firefox): the one line naming those that can, and no steps that would not work
+    if (mine && !canInstallIn(b)) return (
+      <div key={g} data-testid={`install-guide-${g}`}>
+        {title('apps.guideDesktop', mine)}
+        <p className="mt-1 break-keep text-sm" data-testid="install-browser-cannot">{t(p === 'mac' ? 'apps.browserCannotMac' : 'apps.browserCannot')}</p>
+      </div>
+    )
     return (
       <div key={g} data-testid={`install-guide-${g}`} data-flow={flow}>
         {title(flow === 'safari' ? 'apps.guideSafari' : 'apps.guideDesktop', mine)}
-        {cannot ? (
-          <p className="mt-1 break-keep text-sm" data-testid="install-browser-cannot">{t(p === 'mac' ? 'apps.browserCannotMac' : 'apps.browserCannot')}</p>
-        ) : !mine && <p className="mt-1 break-keep text-sm text-muted">{t('apps.desktopStep1')}</p>}
+        {!mine && <p className="mt-1 break-keep text-sm text-muted">{t('apps.desktopStep1')}</p>}
         <ComputerPictures flow={flow} os={os} />
         {push}
         <p className="mt-1 break-keep text-xs text-muted">

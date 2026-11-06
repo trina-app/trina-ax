@@ -16,7 +16,7 @@ import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { deviceLabel } from '../lib/userAgent'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, splitDownloads, type DownloadItem } from '../lib/downloads'
-import { installGuideShown, isStandalone, platform, type Platform } from '../lib/pwa'
+import { browser, canInstallIn, installGuideShown, isStandalone, platform, type Platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
@@ -593,7 +593,7 @@ function Apps() {
       )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
         <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p}
-          server={downloadsSourceOf(me.server)} installHere={installGuideShown() && !isStandalone()} />
+          server={downloadsSourceOf(me.server)} installHere={installGuideShown() && !isStandalone() && canInstallIn(browser())} />
       </Section>
     </>
   )

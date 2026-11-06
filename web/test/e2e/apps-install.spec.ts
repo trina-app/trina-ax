@@ -93,6 +93,13 @@ test.describe('a Mac in Firefox', () => {
   test('says this browser cannot install it and names the ones that can', async ({ page }) => {
     const dialog = await open(page)
     await expect(dialog.getByTestId('install-browser-cannot')).toHaveText('이 브라우저에서는 앱으로 설치할 수 없어요. Chrome, Edge 또는 Safari에서 이 페이지를 여세요.')
+    // only that line: no steps, pictures or install-icon note that would not work here
+    await expect(dialog.getByTestId('install-steps-chromium')).toHaveCount(0)
+    await expect(dialog.getByTestId('install-steps-safari')).toHaveCount(0)
+    await expect(dialog.getByTestId('install-guide-desktop')).not.toContainText('설치 아이콘')
+    // and no Mac app: the line does not send it to steps it cannot follow
+    await expect(dialog.getByTestId('desktop-none-here')).toContainText('이 서버에는 아직 Mac 앱이 없어요')
+    await expect(dialog.getByTestId('desktop-none-here')).not.toContainText('앱으로 설치')
   })
 })
 

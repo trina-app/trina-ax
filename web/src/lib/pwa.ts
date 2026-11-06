@@ -60,18 +60,21 @@ export function platform(): Platform {
 export const isIos = () => platform() === 'ios'
 
 /** The computer's browser, for the install steps: Chrome and Edge install from the address bar, Safari (macOS 14+)
- * from File → Add to Dock, Firefox cannot install a web app. Other Chromium browsers (Brave, Whale, Arc…) say
- * "Chrome" and are shown Chrome's steps; Opera is "other". */
+ * from File → Add to Dock, Firefox cannot install a web app. Other Chromium browsers (Brave, Whale, Arc, Opera…) are
+ * shown Chrome's steps; only the old Presto Opera is "other". */
 export type Browser = 'chrome' | 'edge' | 'safari' | 'firefox' | 'other'
 export function browserOf(ua: string): Browser {
   if (/Edg\//.test(ua)) return 'edge'
-  if (/OPR\/|Opera/.test(ua)) return 'other'
+  if (/OPR\//.test(ua)) return 'chrome'
+  if (/Opera/.test(ua)) return 'other'
   if (/Firefox\/|FxiOS/.test(ua)) return 'firefox'
   if (/Chrome\/|Chromium\/|CriOS/.test(ua)) return 'chrome'
   if (/Safari\//.test(ua) && /Version\//.test(ua)) return 'safari'
   return 'other'
 }
 export const browser = (): Browser => (typeof navigator === 'undefined' ? 'other' : browserOf(navigator.userAgent))
+/** Whether this browser can install the page as an app (the guide's steps work in it) */
+export const canInstallIn = (b: Browser) => b !== 'firefox' && b !== 'other'
 
 /** The step groups of the install guide. A Mac, Windows or Linux computer uses the desktop steps. */
 export type GuidePlatform = 'ios' | 'android' | 'desktop'
