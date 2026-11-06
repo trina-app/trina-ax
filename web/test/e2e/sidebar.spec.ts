@@ -18,7 +18,7 @@ function rooms(n: number) {
   return Array.from({ length: n }, (_, i) => {
     const at = new Date(now - i * 60_000).toISOString()
     return {
-      id: uuidv7(), kind: 'team', name: i === 0 ? '신제품 출시 태스크포스 (마케팅·디자인·영업·콘텐츠전략파트 합동) 2026 상반기' : `팀 ${i}`, groupId: uuidv7(), memberCount: 3,
+      id: uuidv7(), kind: 'team', canRename: false, managerId: null, name: i === 0 ? '신제품 출시 태스크포스 (마케팅·디자인·영업·콘텐츠전략파트 합동) 2026 상반기' : `팀 ${i}`, groupId: uuidv7(), memberCount: 3,
       peers: [{ id: 'bob', name: 'Bob' }], unreadCount: i % 7 === 0 ? 2 : 0, mentioned: false, lastReadSeq: 0, lastSeq: 2, muted: false, createdAt: at, activityAt: at,
       lastMessage: { id: uuidv7(), seq: 2, author: { id: 'bob', name: 'Bob' }, excerpt: '안녕하세요', fileCount: 0, deleted: false, createdAt: at },
     }
@@ -133,10 +133,23 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }])
     await expect(s.getByTestId('recents-toggle')).toHaveAttribute('aria-expanded', 'true')
     await expect(s.getByTestId('ai-chats-latest').getByRole('link')).toHaveCount(5)
     await expect(s.getByTestId('ai-chats-all')).toBeVisible()
-    // folded while stuck: a click there opens them as it brings them up
+    // folded (a click where they are), then pinned again: a click there opens them as it brings them up
+    await s.getByTestId('recents-toggle').click()
+    await expect(s.getByTestId('recents-toggle')).toHaveAttribute('aria-expanded', 'false')
     await scroll.evaluate((e) => { e.scrollTop = 0 })
     await expect(head).toHaveAttribute('data-stuck', 'true')
+    await s.getByTestId('recents-toggle').click()
+    await expect(s.getByTestId('recents-toggle')).toHaveAttribute('aria-expanded', 'true')
+    await expect(s.getByTestId('ai-chats-latest')).toBeInViewport()
     expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0)
+    // the filter menu opens upward from the pinned heading and stays inside the window
+    await scroll.evaluate((e) => { e.scrollTop = 0 })
+    await expect(head).toHaveAttribute('data-stuck', 'true')
+    await s.getByTestId('recents-filter').click()
+    const menu = (await page.getByTestId('recents-filter-menu').boundingBox())!
+    expect(menu.y + menu.height).toBeLessThanOrEqual(size.height)
+    expect(menu.y).toBeGreaterThanOrEqual(0)
+    await page.keyboard.press('Escape')
   })
 }
 

@@ -15,7 +15,7 @@ export interface ChatRow {
   title_source: string
   /** migration 242: the AI session of this person in a team chat room (rooms/ai.ts); never one of their chats on screen */
   room_id: string | null
-  /** migration 251: when the person last had the chat on screen (POST /api/chats/:id/seen); null: never since made */
+  /** migration 252: when the person last had the chat on screen (POST /api/chats/:id/seen); null: never since made */
   seen_at: string | null
 }
 export interface MessageRow {
@@ -132,9 +132,9 @@ export class ChatStore {
     const row = this.db.query("SELECT MAX(COALESCE(updated_at, created_at)) AS t FROM messages WHERE chat_id = ? AND role = 'assistant' AND status <> 'streaming'").get(r.id) as { t: string | null } | null
     return !!row?.t && iso(row.t) > iso(r.seen_at ?? r.created_at)
   }
-  /** The person has the chat on screen now: everything finished so far is seen. Returns false when nothing changed. */
-  markSeen(id: string, at = new Date().toISOString()): boolean {
-    return this.db.query('UPDATE chats SET seen_at = ? WHERE id = ? AND (seen_at IS NULL OR seen_at < ?)').run(at, id, at).changes > 0
+  /** The person has the chat on screen now: everything finished so far is seen. */
+  markSeen(id: string, at = new Date().toISOString()) {
+    this.db.query('UPDATE chats SET seen_at = ? WHERE id = ? AND (seen_at IS NULL OR seen_at < ?)').run(at, id, at)
   }
   touchChat(id: string, at = new Date().toISOString()) { this.db.query('UPDATE chats SET updated_at = ? WHERE id = ?').run(at, id) }
 

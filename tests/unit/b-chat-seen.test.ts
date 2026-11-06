@@ -1,6 +1,6 @@
 // Component B: what the chat list says about each chat for the sidebar (docs/DECISIONS.md "Desktop sidebar: rooms
 // first"), so no screen asks per chat:
-// - Chat.unseen: an answer finished after the person last had the chat on screen (migration 251, chats.seen_at).
+// - Chat.unseen: an answer finished after the person last had the chat on screen (migration 252, chats.seen_at).
 //   POST /api/chats/:id/seen clears it, for the owner only, and every window hears it (chat.updated); a reload keeps it.
 // - Chat.waiting: the AI asked the person something and waits (an open ask card every window shows); chat.updated says
 //   when the card opens and when it closes.
@@ -23,6 +23,8 @@ beforeAll(async () => {
 })
 afterAll(async () => { alice?.close(); await h.close() })
 
+/** a frame sent after the socket's newest seq at `s0` */
+const newer = (f: unknown, s0: number) => ((f as { seq?: number }).seq ?? 0) > s0
 const listed = async (user: string, id: string) => (await h.api(user).call(API.listChats, { query: {} })).items.find((c) => c.id === id)
 
 describe('Chat.unseen', () => {
@@ -42,12 +44,15 @@ describe('Chat.unseen', () => {
     expect(bobTry.status).toBe(404)
     expect((await listed('alice', chat.id))?.unseen).toBe(true)
     // on screen: seen, everywhere
+    const s1 = other.lastSeq()
     const seen = await h.api('alice').call(API.markChatSeen, { params: { id: chat.id } })
     expect(seen.unseen).toBeUndefined()
-    await other.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.chat !== null && f.data.chat.unseen === undefined)
+    await other.next('chat.updated', (f) => f.data.chatId === chat.id && newer(f, s1) && f.data.chat !== null && f.data.chat.unseen === undefined)
     expect((await listed('alice', chat.id))?.unseen).toBeUndefined()
-    // a second mark changes nothing and says nothing
+    // a second mark changes nothing and says nothing (frames stay in the socket's list: only newer ones count)
+    const s0 = other.lastSeq()
     expect((await h.api('alice').call(API.markChatSeen, { params: { id: chat.id } })).unseen).toBeUndefined()
+    await expect(other.next('chat.updated', (f) => f.data.chatId === chat.id && newer(f, s0), 400)).rejects.toThrow()
     // the next answer makes it unseen again
     await ask(h, alice, 'alice', chat.id, fake({ say: 'again' }))
     expect((await listed('alice', chat.id))?.unseen).toBe(true)
@@ -56,7 +61,7 @@ describe('Chat.unseen', () => {
 
   test('chats from before the column count as seen: the migration marks every existing chat', () => {
     expect(h.ctx.db.query("SELECT name FROM pragma_table_info('chats') WHERE name = 'seen_at'").all()).toEqual([{ name: 'seen_at' }])
-    const sql = fs.readFileSync(path.join(import.meta.dir, '..', '..', 'server', 'migrations', '251_b_chat_seen.sql'), 'utf8')
+    const sql = fs.readFileSync(path.join(import.meta.dir, '..', '..', 'server', 'migrations', '252_b_chat_seen.sql'), 'utf8')
     expect(sql).toMatch(/^UPDATE chats SET seen_at = strftime/m)
   })
   test('a chat with no mark (an older build made it) counts its answers after it was made', async () => {
@@ -65,6 +70,17 @@ describe('Chat.unseen', () => {
     await h.api('alice').call(API.markChatSeen, { params: { id: chat.id } })
     h.ctx.db.query('UPDATE chats SET seen_at = NULL WHERE id = ?').run(chat.id)
     expect((await listed('alice', chat.id))?.unseen).toBe(true)
+  })
+
+  test('a chat in the trash is marked quietly: no chat.updated (it would come back into every sidebar)', async () => {
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    await ask(h, alice, 'alice', chat.id, fake({ say: 'answered, then deleted' }))
+    await h.api('alice').call(API.deleteChat, { params: { id: chat.id } })
+    await alice.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'deleted')
+    const s0 = alice.lastSeq()
+    const seen = await h.api('alice').call(API.markChatSeen, { params: { id: chat.id } })
+    expect(seen.unseen).toBeUndefined()
+    await expect(alice.next('chat.updated', (f) => f.data.chatId === chat.id && newer(f, s0), 400)).rejects.toThrow()
   })
 })
 

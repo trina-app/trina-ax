@@ -155,7 +155,7 @@ export const Chat = z.object({
   /** the AI asked me something in this chat and waits (an open ask_user / connect_service card shown in every window;
    * a card for one desktop window only is not counted). Absent = no. */
   waiting: z.literal(true).optional(),
-  /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 251). Absent = no. */
+  /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
   unseen: z.literal(true).optional(),
 })
 export type Chat = z.infer<typeof Chat>

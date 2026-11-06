@@ -10421,7 +10421,7 @@ page, so the phone's back opened the chat again). The owner approved four tabs. 
 ## Desktop sidebar: rooms first (feat/phone-nav, 2026-11-06)
 
 넣을 곳: Team AX core (`web/src/components/Sidebar.tsx`, `rooms/SidebarRooms.tsx`, `chat/ChatState.tsx`; the chat list's
-`waiting` / `unseen` and `POST /api/chats/:id/seen` in `server/src/chat/` and `routes/chats.ts`, migration 251), 이유:
+`waiting` / `unseen` and `POST /api/chats/:id/seen` in `server/src/chat/` and `routes/chats.ts`, migration 252), 이유:
 the owner's principle that chat rooms matter more than the AI's session history ("follow Slack almost entirely")
 applies to the computer's sidebar too. Approved by the owner after the prototype's screenshots ("ㄱㄱ").
 
@@ -10448,7 +10448,7 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   API returns, and `chat.updated` is published when a card opens or closes and after `POST /api/chats/:id/seen`, so every
   window and device follows. The chat page marks the chat seen while it is on screen and the window visible; the dot
   never shows on the chat on screen.
-- **Seen state: there was none on the server, so it is new and additive.** Migration 251 adds `chats.seen_at` (chats
+- **Seen state: there was none on the server, so it is new and additive.** Migration 252 adds `chats.seen_at` (chats
   belong to one person, so one column is that person's mark) and sets it to the migration time on every existing chat,
   so no old chat gets a dot after the update; a chat with no mark counts its answers after it was made. `unseen` is the
   newest finished assistant message (done, error or stopped) later than the mark. Older builds ignore the column.

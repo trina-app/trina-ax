@@ -1218,7 +1218,7 @@ export class MockServer {
     const chat = this.chats.find((c) => c.id === chatId)!
     chat.runState = 'idle'
     chat.updatedAt = now()
-    // like the server (migration 251): an answer that finished is unseen until the person has the chat on screen
+    // like the server (migration 252): an answer that finished is unseen until the person has the chat on screen
     chat.unseen = true
     if (!chat.title) chat.title = prompt.slice(0, 30)
     this.queueRevision++

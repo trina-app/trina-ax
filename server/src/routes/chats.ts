@@ -194,7 +194,10 @@ export const chatsRoutes: RouteModule = {
     // the person has the chat on screen: its finished answers are seen; every window and device hears it (chat.updated)
     kit.handle(API.markChatSeen, ({ params, auth }) => {
       const chat = ownChat(rt, auth, params.id, { deleted: true })
-      if (rt.store.markSeen(chat.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
+      const was = rt.store.unseen(chat)
+      rt.store.markSeen(chat.id)
+      // only a change is told; a chat in the trash is not in any sidebar (an 'updated' would put it back there)
+      if (was && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
       return chatOut(rt, rt.store.chatRow(chat.id)!)
     })
     kit.handle(API.getChatQueue, ({ params, auth }) => rt.queueSnapshot(ownChat(rt, auth, params.id, { deleted: true }).id))

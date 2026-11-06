@@ -143,7 +143,7 @@ test('a room\'s ‹ goes back to the list; from a notice it replaces the room wi
   const id = uuidv7()
   const now = new Date().toISOString()
   const room = {
-    id, kind: 'dm', name: null, groupId: null, memberCount: 2, peers: [{ id: 'bob', name: '박서준 마케팅본부 콘텐츠전략파트 시니어 매니저님' }],
+    id, kind: 'dm', name: null, canRename: false, managerId: null, groupId: null, memberCount: 2, peers: [{ id: 'bob', name: '박서준 마케팅본부 콘텐츠전략파트 시니어 매니저님' }],
     unreadCount: 5, mentioned: false, lastReadSeq: 0, lastSeq: 5, muted: false, createdAt: now, activityAt: now,
     lastMessage: { id: uuidv7(), seq: 5, author: { id: 'bob', name: '박서준님' }, excerpt: '내일 회의 자료 올렸어요', fileCount: 0, deleted: false, createdAt: now },
   }

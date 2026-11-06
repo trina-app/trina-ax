@@ -12,7 +12,7 @@
 import clsx from 'clsx'
 import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
@@ -89,6 +89,8 @@ const remember = (key: string, v: string) => {
 const OPEN_KEY = 'mycel.sidebar.recents'
 /** a computer: AI chats shown before "모두 보기" */
 const LATEST = 5
+/** the AI chats' heading (36 px with its hairline when pinned): how far up its marker counts as pinned */
+const HEAD_H = 36
 
 export default function Sidebar() {
   const t = useT()
@@ -143,6 +145,8 @@ export default function Sidebar() {
   const peek = useChatPeek()
   // a computer: the five latest AI chats unless the whole history is open (or filtered)
   const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
+  // the five latest, and any older one that waits for me or has an answer I have not seen (like unread rooms)
+  const latest = useMemo(() => used.filter((c, i) => i < LATEST || c.waiting || c.unseen), [used])
   const full = !wide || allChats || changed.length > 0
   // a computer: the AI chats' heading stays at the bottom edge while they are below the fold (many rooms); `stuck` is
   // when it does (a hairline above it then), and a click on it brings them up instead of folding them
@@ -151,13 +155,15 @@ export default function Sidebar() {
   const [stuck, setStuck] = useState(false)
   useEffect(() => {
     if (!wide || !scroller.current || !aiTop.current || typeof IntersectionObserver === 'undefined') return setStuck(false)
-    const io = new IntersectionObserver(([e]) => setStuck(!!e && !e.isIntersecting && e.boundingClientRect.top >= (e.rootBounds?.bottom ?? Infinity) - 1), { root: scroller.current })
+    // the heading is pinned once its own place (the marker above it) is less than its height from the bottom edge
+    const io = new IntersectionObserver(([e]) => setStuck(!!e && !e.isIntersecting && e.boundingClientRect.top >= (e.rootBounds?.bottom ?? Infinity) - 1), { root: scroller.current, rootMargin: `0px 0px -${HEAD_H}px 0px` })
     io.observe(aiTop.current)
     return () => io.disconnect()
   }, [wide])
   const toggleRecents = () => {
     if (stuck) {
-      if (!recentsOpen) setRecentsOpen((remember(OPEN_KEY, 'open'), true))
+      // folded: shown first, so the scroll knows how far down they are
+      if (!recentsOpen) flushSync(() => setRecentsOpen((remember(OPEN_KEY, 'open'), true)))
       aiTop.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
       return
     }
@@ -200,7 +206,8 @@ export default function Sidebar() {
         </div>
       )}
 
-      <div ref={scroller} className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide} data-testid="sidebar-scroll">
+      {/* scroll-pb: a row reached by Tab is never under the AI chats' heading pinned at the bottom (a computer) */}
+      <div ref={scroller} className={clsx('scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2', wide && 'scroll-pb-10')} onScroll={peek.hide} data-testid="sidebar-scroll">
         {/* the team chat rooms (people with people), above the AI chats; not in the phone drawer: the 대화 tab is
             where they are there */}
         {wide && <SidebarRooms onNavigate={close} all />}
@@ -233,12 +240,12 @@ export default function Sidebar() {
           )}
           {!full && (
             <ul data-testid="ai-chats-latest">
-              {used.slice(0, LATEST).map((c) => (
+              {latest.map((c) => (
                 <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
               ))}
             </ul>
           )}
-          {!full && (used.length > LATEST || cursor) && (
+          {!full && (used.length > latest.length || cursor) && (
             <button type="button" onClick={() => setAllChats(true)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-all">
               {t('rooms.showAll')}
             </button>
@@ -305,7 +312,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
     { to: '/settings/notifications', label: t('inbox.title'), icon: <Bell size={17} aria-hidden />, testId: 'nav-inbox', badge: unread, onClick: (e) => settingsOpenedFrom(e.currentTarget) },
     ...(isAdmin(me) ? [{ to: '/admin', label: t('sidebar.admin'), icon: <Shield size={17} aria-hidden />, testId: 'nav-admin' }] : []),
   ]
-  const search = `${t('sidebar.search')} (${onMac() ? '⌘K' : 'Ctrl+K'})`
+  const keys = onMac() ? '⌘K' : 'Ctrl+K'
   return (
     <div className="space-y-1 px-2">
       <div className="flex items-center gap-1">
@@ -313,9 +320,9 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
           <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.newChat')}</span>
           <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
         </button>
-        <button type="button" aria-label={search} onClick={onSearch} className="group/tip relative flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink" data-testid="nav-search">
+        <button type="button" aria-label={t('sidebar.search')} aria-keyshortcuts={onMac() ? 'Meta+K' : 'Control+K'} onClick={onSearch} className="group/tip relative flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink" data-testid="nav-search">
           <Search size={16} aria-hidden />
-          <Tip text={search} end />
+          <Tip text={`${t('sidebar.search')} (${keys})`} end />
         </button>
       </div>
       <div className="flex items-center gap-0.5" data-testid="nav-icons">
@@ -561,11 +568,13 @@ function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange:
   const t = useT()
   const [open, setOpen] = useState(false)
   const [sub, setSub] = useState<ViewKey | null>(null)
-  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number }>({ top: 0, left: 0 })
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const subMenu = useRef<HTMLDivElement>(null)
   const W = 224
+  /** the menu's height: four rows of 32 px, a line and its padding */
+  const MENU_H = 4 * 32 + 9 + 10
   const sideBySide = typeof window !== 'undefined' && pos.left + 2 * W + 8 < window.innerWidth
   const close = (focus: boolean) => {
     setOpen(false)
@@ -588,7 +597,9 @@ function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange:
   }, [sub])
   const openMenu = () => {
     const r = button.current!.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, left: Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8)) })
+    const left = Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8))
+    // four rows and a line (about 160 px): above the button when they do not fit under it (its heading at the bottom)
+    setPos(r.bottom + 4 + MENU_H > window.innerHeight ? { bottom: window.innerHeight - r.top + 4, left } : { top: r.bottom + 4, left })
     setOpen(true)
   }
   const back = () => {
@@ -623,7 +634,9 @@ function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange:
   }
   const row = 'flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm hover:bg-hover focus-visible:-outline-offset-2'
   const panel = 'fixed z-50 w-56 rounded-xl border border-line bg-surface p-1 shadow-lg'
-  const subTop = sub ? (menu.current?.querySelector<HTMLElement>(`[data-view="${sub}"]`)?.getBoundingClientRect().top ?? pos.top) - 4 : 0
+  // the submenu beside its row, kept inside the window (up to five choices and a back row)
+  const subH = sub ? 8 + 32 * (Object.keys(VIEW[sub].options).length + (sideBySide ? 0 : 1)) : 0
+  const subTop = sub ? Math.max(8, Math.min((menu.current?.querySelector<HTMLElement>(`[data-view="${sub}"]`)?.getBoundingClientRect().top ?? pos.top ?? 8) - 4, window.innerHeight - subH - 8)) : 0
   return (
     <div className="ml-auto" onKeyDown={onKey}>
       <button
@@ -645,7 +658,7 @@ function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange:
           // its keys reach onKey through React (a portal's events bubble to the button's box)
           <div>
             {(sideBySide || !sub) && (
-              <div ref={menu} role="menu" aria-label={t('sidebar.filter')} className={panel} style={{ top: pos.top, left: pos.left }} data-testid="recents-filter-menu">
+              <div ref={menu} role="menu" aria-label={t('sidebar.filter')} className={panel} style={pos} data-testid="recents-filter-menu">
                 {(Object.keys(VIEW) as ViewKey[]).map((k, i) => (
                   <div key={k}>
                     {i === 2 && <div role="separator" className="mx-1 my-1 border-t border-line" />}
@@ -668,7 +681,7 @@ function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange:
               </div>
             )}
             {sub && (
-              <div ref={subMenu} role="menu" aria-label={t(VIEW[sub].label)} className={panel} style={sideBySide ? { top: subTop, left: pos.left + W + 4 } : { top: pos.top, left: pos.left }} data-testid="recents-submenu">
+              <div ref={subMenu} role="menu" aria-label={t(VIEW[sub].label)} className={panel} style={sideBySide ? { top: subTop, left: pos.left + W + 4 } : pos} data-testid="recents-submenu">
                 {!sideBySide && (
                   <button type="button" role="menuitem" onClick={back} className={clsx(row, 'text-faint')}>
                     <ChevronRight size={14} className="rotate-180" aria-hidden /> {t(VIEW[sub].label)}

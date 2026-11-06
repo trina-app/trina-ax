@@ -157,6 +157,18 @@ describe('a computer', () => {
     }
   })
 
+  test('an older chat that waits for me or has an unseen answer stays in sight beyond the five', async () => {
+    useChats.setState({ chats: [chat(1, { unseen: true }), chat(2, { waiting: true, runState: 'running' }), ...Array.from({ length: 6 }, (_, i) => chat(i + 3))] })
+    const m = await render()
+    try {
+      const titles = m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').map((a) => a.textContent?.replace(ko('chat.needsAnswer'), ''))
+      expect(titles).toEqual(['채팅 8', '채팅 7', '채팅 6', '채팅 5', '채팅 4', '채팅 2', '채팅 1'])
+      expect(m.find('ai-chats-all')).not.toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
   test('no "모두 보기" while all of them fit', async () => {
     useChats.setState({ chats: [chat(1), chat(2)] })
     const m = await render()
