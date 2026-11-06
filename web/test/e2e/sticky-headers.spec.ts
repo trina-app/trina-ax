@@ -56,9 +56,10 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await expect(first).toBeFocused()
       await expect.poll(async () => (await first.boundingBox())!.y - ((await header.boundingBox())!.y + (await header.boundingBox())!.height)).toBeGreaterThanOrEqual(0)
     }
-    // Settings is a dialog: its title stays where it is; only the section beside the list scrolls
+    // Settings is a dialog: its top bar stays where it is; only the section beside the list scrolls. On a phone the bar
+    // names the section and the dialog's title is for screen readers only (SettingsDialog)
     const dialog = page.getByRole('dialog', { name: t['settings.title'] })
-    await expect(dialog.getByRole('heading', { name: t['settings.title'] })).toBeInViewport()
+    await expect(name === 'phone' ? dialog.getByTestId('settings-section-title') : dialog.getByRole('heading', { name: t['settings.title'] })).toBeInViewport()
   })
 }
 
