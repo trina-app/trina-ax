@@ -6,7 +6,7 @@
 // the state changes (test/unit/rooms-store.test.ts), handleEvent adds the requests they need. A reconnect the server
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
-import { uuidv7, type Room, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { uuidv7, type Room, type RoomAlertSettings, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { withRun, withRunPosition, withRunStep } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
@@ -231,6 +231,9 @@ interface RoomsState extends RoomsData {
   loaded: boolean
   /** the list could not be read (an older server without rooms: the sidebar group stays away) */
   failed: unknown
+  /** what decides the room sound besides each room's level (GET /api/rooms alerts; null: not read yet or an older
+   * server); read again with the list when my notification settings change (store/live.ts room_alerts_changed) */
+  alerts: RoomAlertSettings | null
   members: Record<string, RoomMember[]>
   /** per room: its timeline's sends and its threads' (PendingSend.threadRootId) */
   pending: Record<string, PendingSend[]>
@@ -262,6 +265,8 @@ interface RoomsState extends RoomsData {
   react: (roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean) => Promise<void>
   markRead: (roomId: string, seq: number) => Promise<void>
   setMuted: (roomId: string, muted: boolean) => Promise<void>
+  /** my level for a room (null: my default; docs/DECISIONS.md "대화방 알림 설정") */
+  setNotifyLevel: (roomId: string, level: RoomNotifyLevel | null) => Promise<void>
   /** the DM with this person (the existing one when there is one) */
   openDm: (userId: string) => Promise<Room>
   /** a new group chat of me and these people (docs/DECISIONS.md "그룹 대화와 방 이름") */
@@ -286,7 +291,7 @@ interface RoomsState extends RoomsData {
   reset: () => void
 }
 
-const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadView' | 'loaded' | 'failed' | 'members' | 'pending' | 'returned' | 'ai'> = { rooms: [], openRoomId: null, timeline: null, threadView: null, loaded: false, failed: null, members: {}, pending: {}, returned: {}, ai: {} }
+const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadView' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'ai'> = { rooms: [], openRoomId: null, timeline: null, threadView: null, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, ai: {} }
 
 /** what was typed in a room (or one of its threads: placeKey) and not sent yet, while this page is open
  * (components/rooms/RoomComposer.tsx); gone at sign-out with the rest */
@@ -349,7 +354,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     async loadRooms() {
       try {
         const r = await api.call(API.listRooms)
-        set({ rooms: sortRooms(r.items), loaded: true, failed: null })
+        set({ rooms: sortRooms(r.items), loaded: true, failed: null, alerts: r.alerts ?? null })
       } catch (e) {
         set({ loaded: true, failed: e })
       }
@@ -548,6 +553,11 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     async setMuted(roomId, muted) {
       const room = await api.call(API.updateRoom, { params: { id: roomId }, body: { muted } })
+      set((s) => withRoom(s, room))
+    },
+
+    async setNotifyLevel(roomId, level) {
+      const room = await api.call(API.updateRoom, { params: { id: roomId }, body: { notifyLevel: level } })
       set((s) => withRoom(s, room))
     },
 

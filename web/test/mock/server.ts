@@ -211,6 +211,11 @@ export class MockServer {
   memories: Memory[] = []
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
   schedules: (Schedule & { userId: string })[] = []
+  /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
+  notifyPrefs = MockServer.notifyPrefsDefault()
+  static notifyPrefsDefault() {
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+  }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
@@ -335,6 +340,7 @@ export class MockServer {
     this.popular = []
     this.devEnv = null
     this.devEnvTeam = MockServer.devEnvTeamDefault()
+    this.notifyPrefs = MockServer.notifyPrefsDefault()
     this.devEnvSites = new Map()
     this.epoch = uuidv7()
     this.seq = 0
@@ -1270,7 +1276,7 @@ export class MockServer {
     me: (c) => this.me(c.user, ''),
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
-    listRooms: () => ({ items: [] }),
+    listRooms: () => ({ items: [], alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul' } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
     mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
@@ -2826,7 +2832,14 @@ export class MockServer {
     })) }),
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
-    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }),
+    getNotificationPreferences: () => this.notifyPrefs,
+    // the server's rule for the older apps' roomMessages (server/src/notifications/preferences.ts savePreferences)
+    updateNotificationPreferences: (c) => {
+      const b = c.body
+      const level = b.roomLevel ?? (b.roomMessages === false ? 'none' : b.roomMessages === true && this.notifyPrefs.roomLevel === 'none' ? 'direct' : this.notifyPrefs.roomLevel)
+      this.notifyPrefs = { ...this.notifyPrefs, ...b, roomLevel: level, roomMessages: level !== 'none', quietHours: b.quietHours ?? this.notifyPrefs.quietHours, roomThreadReplies: b.roomThreadReplies ?? this.notifyPrefs.roomThreadReplies }
+      return this.notifyPrefs
+    },
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
     listRemoteConnectors: () => ({ configured: false, resource: null, items: [] }),
     connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),

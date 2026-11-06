@@ -12,6 +12,7 @@ import { teamDefaultLocale } from '../admin/settings'
 import { pushMessages } from './text'
 import { eventEnabled, getPreferences } from './preferences'
 import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
+import { noticeWanted } from '../rooms/alerts'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { createNativeTransport, nativeConfigKey, readNativePushConfig, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
@@ -24,8 +25,12 @@ const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
 const services=new WeakMap<AppContext,PushService>()
 /** Where push notices come from: an inbox table and its deliveries table. notification_inbox (migration 208) and room
  * notices (a DM message or an @mention, migration 241: notification_inbox has a fixed event_type list), checked and sent
- * the same way. */
-const SOURCES=[{inbox:'notification_inbox',deliveries:'push_deliveries'},{inbox:'room_notices',deliveries:'room_push_deliveries'}] as const
+ * the same way. `only`: what else a notice of that table needs to be pushed (a room notice made inside the person's
+ * quiet hours never is, migration 255); `wanted`: asked before and after each send (a room's level may have changed). */
+const SOURCES=[
+  {inbox:'notification_inbox',deliveries:'push_deliveries',only:'',wanted:null},
+  {inbox:'room_notices',deliveries:'room_push_deliveries',only:'AND quiet=0',wanted:noticeWanted},
+] as const
 type Source=typeof SOURCES[number]
 export class PushService {
   private readonly o:PushOptions
@@ -145,9 +150,10 @@ export class PushService {
     if(!this.ctx.db.query(`SELECT 1 FROM ${src.deliveries} WHERE subscription_id=? AND notification_id=? AND state IN ('pending','sending')`).get(id,notificationId))return null
     const sub=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE id=? AND config_key=?').get(id,configKey) as Subscription|null
     if(!sub||!this.session(sub.user_id,sub.session_id)||!this.enabled(sub.user_id))return null
-    const row=this.ctx.db.query(`SELECT event_type,created_at FROM ${src.inbox} WHERE id=? AND user_id=? AND suppressed=0 AND read_at IS NULL`).get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
+    const row=this.ctx.db.query(`SELECT event_type,created_at FROM ${src.inbox} WHERE id=? AND user_id=? AND suppressed=0 AND read_at IS NULL ${src.only}`).get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
     const prefs=this.ctx.db.query('SELECT enabled_at FROM push_preferences WHERE user_id=?').get(sub.user_id) as {enabled_at:string}|null
     if(!row||row.created_at<sub.created_at||row.created_at<(prefs?.enabled_at??this.iso())||Date.parse(row.created_at)+TTL_MS<=this.o.now()||!eventEnabled(getPreferences(this.ctx.db,sub.user_id),row.event_type))return null
+    if(src.wanted&&!src.wanted(this.ctx.db,notificationId))return null
     return{sub,event:row.event_type}
   }
   private enqueue(keys:string[]){
@@ -160,7 +166,7 @@ export class PushService {
     db.query(`INSERT INTO ${src.deliveries}(notification_id,subscription_id,next_at,expires_at)
       SELECT n.id,s.id,?,strftime('%Y-%m-%dT%H:%M:%fZ',n.created_at,'+1 day') FROM ${src.inbox} n JOIN push_subscriptions s ON s.user_id=n.user_id
       JOIN push_preferences p ON p.user_id=n.user_id AND p.enabled=1
-      WHERE n.suppressed=0 AND n.read_at IS NULL AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
+      WHERE n.suppressed=0 AND n.read_at IS NULL ${src.only.replace('quiet','n.quiet')} AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
       AND NOT EXISTS(SELECT 1 FROM ${src.deliveries} d WHERE d.notification_id=n.id AND d.subscription_id=s.id)
       ORDER BY n.created_at,n.id LIMIT 500 ON CONFLICT(notification_id,subscription_id) DO NOTHING`).run(now,this.iso(this.o.now()-TTL_MS),keys[0]??'',keys[1]??'')
     }

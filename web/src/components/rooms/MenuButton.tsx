@@ -2,9 +2,10 @@
 // keyboard back, a click or a touch outside closes. Opens upward when it would run off the bottom. On a touch screen
 // the button is hidden and a long press on the message opens the same menu (`openSignal`, useLongPress). Below 768px the
 // menu is a bottom sheet with 48px rows. `header`: something above the rows where there is no hover row to hold it (a
-// message's reactions on a touch screen); hidden where a mouse points.
+// message's reactions on a touch screen); hidden where a mouse points. A menu of choices (a room's notifications): items
+// with `checked` are radio items (the chosen one ticked), `heading` names the menu above them and `icon` replaces the "…".
 import clsx from 'clsx'
-import { MoreHorizontal } from 'lucide-react'
+import { Check, MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 
 export interface MenuItem {
@@ -13,6 +14,10 @@ export interface MenuItem {
   onSelect: () => void
   danger?: boolean
   testId?: string
+  /** a choice: true for the chosen one (a radio item with a tick), false for the others */
+  checked?: boolean
+  /** quieter words after the label (what a default stands for now) */
+  hint?: string
 }
 
 /** A long press with a finger (not a mouse): `onLong` after `ms` without moving; scrolling or lifting cancels it. The
@@ -50,7 +55,7 @@ export function useLongPress(onLong: () => void, ms = 500) {
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, muted, header }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; muted?: boolean; header?: (close: () => void) => ReactNode }) {
+export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, muted, header, heading, icon }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode }) {
   const [open, setOpen] = useState<null | 'down' | 'up'>(null)
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -60,7 +65,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
   useEffect(() => {
     if (!open) return
     // the keyboard goes into the menu; a finger that opened it does not need a focus ring on the first item
-    if (Date.now() - pressedAt.current > 1000) menu.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true })
+    if (Date.now() - pressedAt.current > 1000) (menu.current?.querySelector<HTMLElement>('[aria-checked="true"]') ?? menu.current?.querySelector<HTMLElement>('[role^="menuitem"]'))?.focus({ preventScroll: true })
     const h = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(null)
     document.addEventListener('pointerdown', h)
     return () => document.removeEventListener('pointerdown', h)
@@ -87,7 +92,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
       return
     }
     if (e.key === 'Tab') return setOpen(null)
-    const list = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+    const list = [...(menu.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])]
     const i = list.indexOf(document.activeElement as HTMLElement)
     const go = (n: number) => {
       e.preventDefault()
@@ -111,7 +116,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
         className={clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', muted ? 'text-muted' : 'text-faint', buttonClassName)}
         data-testid={testId}
       >
-        <MoreHorizontal size={16} aria-hidden />
+        {icon ?? <MoreHorizontal size={16} aria-hidden />}
       </button>
       {/* phones: a sheet from the bottom with 48px rows over a scrim (a tap on it closes), not a small menu by the finger */}
       {/* (a finger held on it must not reach the message's own long press, which would open the sheet again) */}
@@ -123,16 +128,18 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           aria-label={label}
           className={clsx(
             'z-30 border border-line bg-surface shadow-lg md:absolute md:right-0 md:rounded-lg md:p-1',
-            header ? 'md:w-max md:min-w-44' : 'md:w-44',
+            header || heading ? 'md:w-max md:min-w-44' : 'md:w-44',
             'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
             open === 'up' ? 'md:bottom-full md:mb-1' : 'md:top-full md:mt-1',
           )}
         >
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(null))}</div>}
+          {heading && <p className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
           {items.map((it) => (
             <button
               key={it.label}
-              role="menuitem"
+              role={it.checked === undefined ? 'menuitem' : 'menuitemradio'}
+              aria-checked={it.checked === undefined ? undefined : it.checked}
               type="button"
               onClick={() => {
                 if (Date.now() - pressedAt.current < 400) return
@@ -143,7 +150,11 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
               data-testid={it.testId}
             >
               {it.icon}
-              {it.label}
+              <span className="min-w-0 flex-1">
+                {it.label}
+                {it.hint && <span className="ml-1.5 text-muted">{it.hint}</span>}
+              </span>
+              {it.checked !== undefined && <Check size={16} aria-hidden className={clsx('shrink-0 text-accent-text', !it.checked && 'invisible')} />}
             </button>
           ))}
         </div>

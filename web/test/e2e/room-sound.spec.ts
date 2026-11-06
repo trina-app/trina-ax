@@ -31,7 +31,8 @@ test('the sound switch is on by default, stays on this device, and plays the chi
   await expect(sound).toBeChecked()
   expect(await page.evaluate(() => localStorage.getItem('mycel.roomSound'))).toBeNull()
 
-  await sound.uncheck()
+  // the switch's track sits over its hidden checkbox (ui.tsx Switch): a click there is what a person does
+  await sound.uncheck({ force: true })
   expect(await page.evaluate(() => localStorage.getItem('mycel.roomSound'))).toBe('off')
   // nothing went to the server: it is this device's setting
   expect(writes).toEqual([])
@@ -39,7 +40,7 @@ test('the sound switch is on by default, stays on this device, and plays the chi
   await expect(page.getByTestId('notification-sound')).not.toBeChecked()
   expect(await page.evaluate(() => (window as any).__notes.length)).toBe(0)
 
-  await page.getByTestId('notification-sound').check()
+  await page.getByTestId('notification-sound').check({ force: true })
   await expect.poll(() => page.evaluate(() => (window as any).__notes.length)).toBe(4)
   expect(await page.evaluate(() => localStorage.getItem('mycel.roomSound'))).toBeNull()
 })

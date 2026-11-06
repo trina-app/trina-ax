@@ -112,6 +112,12 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         notificationsChanged.emit()
         return
       }
+      if (ev.data.code === 'room_alerts_changed') {
+        // my notification settings changed (here or on another device): every room's level and my quiet hours come with
+        // the rooms list (the bell, the sound, the muted marks follow)
+        void useRooms.getState().loadRooms()
+        return
+      }
       if (ev.data.code === 'engine_choice_changed') {
         // the admin changed who may pick the engine or which engines are on: show / hide the picker without a reload
         void useSession.getState().refreshMe()
