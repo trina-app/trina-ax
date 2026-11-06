@@ -34,6 +34,7 @@ export const WELCOME_SETTING = 'onboarding.welcome'
 type Raw = Record<string, unknown>
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v)
 const PackShape = WelcomeProgress.shape.pack.unwrap()
+const SharedShape = WelcomeProgress.shape.shared.unwrap().unwrap()
 const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable(), cardNewsPath: z.string().nullable().optional(), promoVideoPath: z.string().nullable().optional(), introDeckPath: z.string().nullable().optional() })
 
 /** The stored row: none, an object, or something that is not an object (`raw` null with `row` true). */
@@ -83,12 +84,14 @@ function view(raw: Raw, now: string): WelcomeProgress {
     // until then, so rows from before read exactly as they did
     ...(raw.general === null || raw.general === undefined ? {} : { general: pick(GeneralShape, raw.general, { at: '', tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL }) }),
     ...(() => { const g = pick(TeamGroupRef.nullable(), raw.teamGroup ?? null, null); return g ? { teamGroup: g } : {} })(),
+    ...(raw.skillsLater === true ? { skillsLater: true } : {}),
+    ...(() => { const sh = pick(SharedShape.nullable(), raw.shared ?? null, null); return sh ? { shared: sh } : {} })(),
   }
 }
 
 const fresh = (now: string): Raw => ({
   startedAt: now, updatedAt: now, teamType: null,
-  steps: { profile: null, result: null, invite: null },
+  steps: { profile: null, result: null, skills: null, files: null, invite: null },
   pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
 })
 
@@ -106,8 +109,8 @@ export function readWelcome(ctx: Pick<AppContext, 'db'>): WelcomeProgress | null
   return s.raw ? view(s.raw, new Date().toISOString()) : null
 }
 
-/** profile and result done, and the invite either way */
-export const welcomeFinished = (p: WelcomeProgress) => p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite !== null
+/** profile and result done, and the invite either way; not while 내 스킬 가져오기 waits for a computer (skillsLater) */
+export const welcomeFinished = (p: WelcomeProgress) => p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite !== null && !p.skillsLater
 
 function save(ctx: Pick<AppContext, 'db'>, raw: Raw, now: string): WelcomeProgress {
   if (!view(raw, now).finishedAt && welcomeFinished(view(raw, now))) raw.finishedAt = now
@@ -135,6 +138,17 @@ export function updateWelcome(ctx: Pick<AppContext, 'db'>, userId: string, u: We
     if (u.step.state === 'done' || p.steps[u.step.id] !== 'done') steps[u.step.id] = u.step.state
     // the invite put off before there was a result comes back once there is one (the bar on the result chat)
     if (u.step.id === 'result' && u.step.state === 'done' && p.steps.invite === 'skipped') steps.invite = null
+    // 내 스킬 가져오기 done or put off on a computer: no longer waiting for one
+    if (u.step.id === 'skills') delete raw.skillsLater
+  }
+  if (u.skillsLater && !u.step) {
+    // put off on a phone: skipped there, open again on a computer (never undoes a share that was done)
+    if (p.steps.skills !== 'done') { steps.skills = 'skipped'; raw.skillsLater = true }
+  }
+  if (u.landing !== undefined) {
+    // the invite opens one of the shared skills (바꾸기): nothing else
+    if (!p.shared?.skills.some((x) => x.path === u.landing)) fail('validation', undefined, { fields: { 'body.landing': 'not a shared skill' } })
+    raw.shared = { ...p.shared!, landing: u.landing }
   }
   if (u.inviteShown && !p.inviteShownAt) raw.inviteShownAt = now
   if (u.site !== undefined) {
@@ -145,6 +159,7 @@ export function updateWelcome(ctx: Pick<AppContext, 'db'>, userId: string, u: We
   if (u.finish) {
     // "자료 없이 해 볼게요" without the marketing pack: what is still open is put off, and the steps are over
     for (const s of WELCOME_STEPS) if (s !== 'ai' && p.steps[s] === null) steps[s] = 'skipped'
+    delete raw.skillsLater
     if (!p.finishedAt) raw.finishedAt = now
   }
   return save(ctx, raw, now)
@@ -304,4 +319,30 @@ export function introDeckSkill(ctx: AppContext, userId: string, install: () => {
   raw.general = { ...general, introDeckPath: path }
   save(ctx, raw, now)
   return path
+}
+
+/**
+ * The skills an owner just shared from 내 스킬 가져오기 (docs/DECISIONS.md "K"; server/src/skills/share.ts apply): added
+ * to `shared` in order (each path once), and the invite's skill set once (`landing`: the first recommended one added,
+ * else the first added; the owner changes it on the invite). Only while the steps' row exists and only for the owner
+ * who walks them (an admin's share, or a share after the steps, changes nothing here). Never throws: the share is
+ * done either way.
+ */
+export function recordShared(ctx: Pick<AppContext, 'db' | 'log'>, userId: string, added: { path: string; title: string; recommended: boolean }[]): void {
+  if (!added.length) return
+  try {
+    const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner'").get(userId)
+    const s = stored(ctx)
+    if (!owner || !s.raw) return
+    const now = new Date().toISOString()
+    const raw: Raw = { ...s.raw, steps: isObj(s.raw.steps) ? { ...s.raw.steps } : {} }
+    const p = view(raw, now)
+    const skills = [...(p.shared?.skills ?? [])]
+    for (const a of added) if (!skills.some((x) => x.path === a.path)) skills.push({ path: a.path, title: a.title })
+    const landing = p.shared?.landing ?? added.find((a) => a.recommended)?.path ?? added[0]!.path
+    raw.shared = { at: p.shared?.at ?? now, skills, landing }
+    save(ctx, raw, now)
+  } catch (err) {
+    ctx.log.warn('welcome shared skills not recorded', { err })
+  }
 }

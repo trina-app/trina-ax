@@ -3510,4 +3510,8 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.drive.share_stopped": "Google Driveの共有を停止",
   "audit.act.drive.share_owner_gone": "共有Google Driveが停止: 管理者がいなくなった",
   "audit.act.drive.members_switch": "メンバー自身のGoogle Drive接続の可否を変更",
+  // ── K: 내 스킬 가져오기 step (welcome.skills.*, skillShare.*) ──
+  // ── K end: 내 스킬 가져오기 step ──
+  // ── K: welcome order, team files, deck status, invite ──
+  // ── K end: welcome order ──
 }

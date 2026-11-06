@@ -11,16 +11,19 @@ import { empty, endpoint } from './endpoint'
 import { SkillPackId, SkillPackInstallResult } from './onboarding-packs'
 
 /** In order. `ai` (connect an AI) opens the steps only while the owner has no AI that answers them (docs/DECISIONS.md
- * "W2 — AI connection first"), in front of profile and result, never in front of the invite; it is recorded once it
- * was shown, so the progress keeps showing it. `invite` comes after the counted steps (the progress bar shows ai when
- * it was needed, profile, result). A row written before may still hold a `team` step: it is kept as it is and no
- * longer read. */
-export const WELCOME_STEPS = ['ai', 'profile', 'result', 'invite'] as const
+ * "W2 — AI connection first"), in front of the steps that need it, never in front of the invite; it is recorded once
+ * it was shown, so the progress keeps showing it. `result` starts the intro deck, which builds on the server while the
+ * steps go on (docs/DECISIONS.md "K — 내 스킬 가져오기"): `skills` (내 스킬 가져오기) and `files` (팀 파일 가져오기)
+ * follow at once, then the finished deck (its chat, with [팀에 공유] under it) and the invite. `invite` comes after the
+ * counted steps (the progress bar shows ai when it was needed, profile, result, skills, files). A row written before
+ * may still hold a `team` step: it is kept as it is and no longer read; a row from before `skills` and `files` reads
+ * them as open. */
+export const WELCOME_STEPS = ['ai', 'profile', 'result', 'skills', 'files', 'invite'] as const
 export const WelcomeStep = z.enum(WELCOME_STEPS)
 export type WelcomeStep = z.infer<typeof WelcomeStep>
-/** the steps the progress bar always counts ("1/2"); `ai` is counted too while it is needed or once it was shown
+/** the steps the progress bar always counts ("1/4"); `ai` is counted too while it is needed or once it was shown
  * (web/src/lib/welcome.ts countedSteps) */
-export const WELCOME_COUNTED = ['profile', 'result'] as const satisfies readonly WelcomeStep[]
+export const WELCOME_COUNTED = ['profile', 'result', 'skills', 'files'] as const satisfies readonly WelcomeStep[]
 
 export const WelcomeStepState = z.enum(['done', 'skipped'])
 export type WelcomeStepState = z.infer<typeof WelcomeStepState>
@@ -54,7 +57,11 @@ export const WelcomeProgress = z.object({
     /** absent on rows from before the AI step, and for an owner whose AI answered from the start; `skipped` once it was
      * shown (no AI answered), `done` when AI answered after that */
     ai: WelcomeStepState.nullable().optional(),
-    profile: WelcomeStepState.nullable(), result: WelcomeStepState.nullable(), invite: WelcomeStepState.nullable(),
+    profile: WelcomeStepState.nullable(), result: WelcomeStepState.nullable(),
+    /** 내 스킬 가져오기 and 팀 파일 가져오기 (docs/DECISIONS.md "K"): the server sends null for rows from before them;
+     * absent (an older server) reads as null */
+    skills: WelcomeStepState.nullable().optional(), files: WelcomeStepState.nullable().optional(),
+    invite: WelcomeStepState.nullable(),
   }),
   /** the pack these steps installed, once (never again by themselves), and the path of its first-result skill */
   pack: z.object({ id: SkillPackId, at: z.string(), skillPath: z.string() }).nullable(),
@@ -86,6 +93,14 @@ export const WelcomeProgress = z.object({
      * result for a row recorded before the skill existed; absent: not tried yet, null: blocked */
     introDeckPath: z.string().nullable().optional(),
   }).nullable().optional(),
+  /** 내 스킬 가져오기 was put off on a phone ("다음": skills live on a computer): the step reads as skipped there and as
+   * open on a computer, so Home's row says "남은 일: 내 스킬 가져오기" and the steps resume on it there; the steps are
+   * not finished while it is set. Absent = no */
+  skillsLater: z.boolean().optional(),
+  /** the skills the owner shared to the team from 내 스킬 가져오기 (docs/DECISIONS.md "K"), in the order they were
+   * added, and the one the invite opens (`landing`: the first recommended one, which the owner may change on the
+   * invite; the 7-day goal names it). Absent or null: none */
+  shared: z.object({ at: z.string(), skills: z.array(z.object({ path: z.string(), title: z.string() })), landing: z.string().nullable() }).nullable().optional(),
   /** the team's own group (named after the team), its folder groups/<name>/ (its members read and write) and the
    * meeting notes folder in it; made once by these steps, the owner in it, the team link's default group. Absent or
    * null: not yet */
@@ -109,6 +124,10 @@ export const WelcomeUpdate = z.object({
   /** "자료 없이 해 볼게요" without the marketing pack: the steps end here (the result and the invite are put off, and the
    * steps count as finished); Home says where meeting notes go */
   finish: z.literal(true).optional(),
+  /** 내 스킬 가져오기 put off on a phone (`skillsLater`): resumed on a computer */
+  skillsLater: z.literal(true).optional(),
+  /** the shared skill the invite opens (바꾸기 on the invite): one of `shared.skills` */
+  landing: z.string().min(1).max(1000).optional(),
 }).strict()
 export type WelcomeUpdate = z.infer<typeof WelcomeUpdate>
 

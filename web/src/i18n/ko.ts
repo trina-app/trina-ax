@@ -3550,6 +3550,10 @@ export const ko = {
   "audit.act.drive.share_stopped": "Google Drive 공유 중지",
   "audit.act.drive.share_owner_gone": "공유 Google Drive 중지: 연결한 관리자가 떠남",
   "audit.act.drive.members_switch": "멤버의 개인 Google Drive 연결 허용 변경",
+  // ── K: 내 스킬 가져오기 step (welcome.skills.*, skillShare.*) ──
+  // ── K end: 내 스킬 가져오기 step ──
+  // ── K: welcome order, team files, deck status, invite ──
+  // ── K end: welcome order ──
 } as const
 
 export type MessageKey = keyof typeof ko

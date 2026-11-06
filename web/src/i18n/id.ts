@@ -3550,4 +3550,8 @@ export const id: Record<MessageKey, string> = {
   "audit.act.drive.share_stopped": "Berhenti membagikan Google Drive",
   "audit.act.drive.share_owner_gone": "Google Drive bersama berhenti: admin-nya keluar",
   "audit.act.drive.members_switch": "Mengubah apakah anggota menghubungkan Google Drive sendiri",
+  // ── K: 내 스킬 가져오기 step (welcome.skills.*, skillShare.*) ──
+  // ── K end: 내 스킬 가져오기 step ──
+  // ── K: welcome order, team files, deck status, invite ──
+  // ── K end: welcome order ──
 }
