@@ -127,10 +127,12 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
   return narrower.length ? { narrower, targetViewers: target.length } : null
 }
 
-/** Where a source is, for the confirmation card. */
-export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string }): string {
+/** Where a source is, for the confirmation card. `ownNames`: a room by the name its members gave it (the card, shown to
+ * the person as text); without it by the server's name only (anything the AI reads back: any member of a group chat may
+ * set its own name). */
+export function sourceLabel(db: Database, s: ReadSource, me: string, text: { mine: string; root: string; room?: string }, o: { ownNames?: boolean } = {}): string {
   if (s.type === 'root') return text.root
-  if (s.type === 'room') return (text.room ?? 'room {name}').replace('{name}', roomName(db, s.id))
+  if (s.type === 'room') return (text.room ?? 'room {name}').replace('{name}', roomName(db, s.id, !!o.ownNames))
   if (s.type === 'user') return s.id === me ? text.mine : `users/${s.id}/`
   if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? segs.join('/') : text.root }
   if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'
@@ -139,12 +141,12 @@ export function sourceLabel(db: Database, s: ReadSource, me: string, text: { min
   return row ? (row.path === '' ? text.root : row.path + '/') : '?'
 }
 
-/** A room as a card names it (to the person, shown as text): its own name when it has one, the group's name for a team
- * room, the other members' names otherwise. */
-export function roomName(db: Database, roomId: string): string {
+/** A room as a card names it: its own name when it has one and `own` (to the person, shown as text; never for the AI),
+ * the group's name for a team room, the other members' names otherwise. */
+export function roomName(db: Database, roomId: string, own = false): string {
   const r = db.query('SELECT r.kind, r.name own, g.name FROM rooms r LEFT JOIN groups g ON g.id = r.group_id WHERE r.id = ?').get(roomId) as { kind: string; own: string | null; name: string | null } | null
   if (!r) return '?'
-  if (r.kind !== 'dm' && r.own) return r.own
+  if (own && r.kind !== 'dm' && r.own) return r.own
   if (r.kind === 'team' && r.name) return r.name
   const names = (db.query('SELECT u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY u.name LIMIT 4').all(roomId) as { name: string }[]).map((x) => x.name)
   return names.join(', ') || '?'

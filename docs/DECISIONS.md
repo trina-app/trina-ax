@@ -9894,8 +9894,8 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
   the last one out archives the room (rows kept, nobody can read them). A DM's 초대하기 opens the picker with the other
   person ticked and makes a new group chat; the DM stays, nothing of it is carried over. Team rooms, the everyone room
   and DMs refuse invite and leave (403): they follow groups and accounts, a DM keeps its two.
-- **The manager (방장) is computed, never stored**: `rooms.created_by` while they are in the chat, else the member who
-  joined first (`joined_at`, then the user id). The manager, and an owner or admin who is a member of the chat, may take
+- **The manager (방장) is computed, never stored**: `rooms.created_by` while they are in the chat (cleared when they leave,
+  are taken out or their account goes), else the member who joined first (`joined_at`, then the user id). The manager, and an owner or admin who is a member of the chat, may take
   someone out (`DELETE /api/rooms/:id/members/:userId`); never themselves (400: that is leaving), so the manager cannot
   be taken out by a plain member, and an owner or admin in the chat may take out anyone else, the manager included.
   Anyone else in it: 403; outside it: 404 as for every room (an admin who is not in it has no way in). The person taken
@@ -9906,8 +9906,9 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
   account leaves group chats as it leaves the other rooms (its unread count would never go down otherwise), with a
   "left" line, and the last one out archives the chat. Enabled again, it is not put back (a group chat has no rule to
   put it back by; someone invites them).
-- **Room names.** `rooms.name` (migration 249), plain text: trimmed, 1–80 characters (`ROOM_NAME_MAX`), no control
-  characters, line or paragraph separators, bidirectional overrides or isolates (`RoomName`); joiners stay for emoji.
+- **Room names.** `rooms.name` (migration 250), plain text: trimmed, 1–80 characters (`ROOM_NAME_MAX`, UTF-16 units), no
+  control characters, line or paragraph separators, bidirectional marks, overrides or isolates, or invisible
+  characters (`RoomName`); the zero-width joiners stay for emoji.
   A group chat: any member renames it. A team room and the everyone room: only a member who is an owner or admin
   (`Room.canRename` tells the app; the request is checked again, 403 otherwise, and a mute in the same request is not
   applied). A DM is the other person: never (403). '' or null goes back to the server's name (the group's name, the
@@ -9918,7 +9919,7 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
 - **Not audited, like DMs.** Making a group chat, inviting, leaving, removing and renaming one write nothing to the audit
   log (admins read it and must not learn who talks to whom). Since the AI started a new conversation when a room's
   members changed by reading `room.members` audit rows, it now also reads the group chat's added / left / removed lines.
-- **Event lines are room messages with `room_messages.event`** (migration 249, a JSON object: created, renamed, added,
+- **Event lines are room messages with `room_messages.event`** (migration 250, a JSON object: created, renamed, added,
   left, removed, with user ids; names are read when it is shown). `author_kind` is 'user' and `author_id` who did it:
   240's CHECK allows only 'user' and 'ai', and tables are never rebuilt. A line takes a seq, so it sits in order and
   `visible_from_seq` applies to it like any message. It counts nowhere: body '', unread 0, never in a badge or the rooms
@@ -9953,11 +9954,22 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
 - **Rollback: reader level 5.** An older build would list a group chat as a room of a kind its contract does not know
   (`RoomKind` without 'group': the response check fails, and without it the chat shows under the everyone room's word)
   and an event line as an empty message from the person who did it, which they could edit into words and which counts
-  as unread. So 249 declares `min_compatible_reader: 5` and `SCHEMA_READER_LEVEL` is 5: a build before this one
+  as unread. So 250 declares `min_compatible_reader: 5` and `SCHEMA_READER_LEVEL` is 5: a build before this one
   refuses the database, and going back means restoring the backup taken before the update (the update screen says so,
   `needsBackupRestoreToRollBack`; hosted servers roll back by snapshot, `onlySnapshotRollback`). Rejected: making old
   builds live with it (a plain-text body for lines and a group chat named like a team room): the strict contract still
   refuses the kind in development and the lines stay editable.
+- **Independent review (2026-11-06) fixes.** A room's own name reached the AI through the refusal text of the "save
+  where more people can see" card (`sourceLabel`): the card still names the room by its own name, the AI reads the
+  server's name only (`roomName(…, own)`). Someone invited while the AI answers a question from before they joined:
+  `decide` now counts the question itself (its seq), not only the earlier messages given to the AI, so that answer
+  stays private ("○○ 님이 들어오기 전 대화"). `room.ai_share` and `room.ai_delete` audit rows name a DM or group chat
+  by its kind only (`roomAuditRef`), never its id (two people's rows with one id would say they talk). Making a group
+  chat, inviting and renaming take from the sending budget (a script cannot fill 99 people's lists or the room with
+  lines). The maker who leaves, is taken out or whose account goes gives up the manager role for good
+  (`rooms.created_by` cleared); invited back, they are a member like the others. Names also refuse the bidi marks
+  (U+200E, U+200F, U+061C), the zero-width space, the byte order mark and the tag characters. The migration is 250:
+  248 is taken by the intro deck branch and 249 by a skill-sharing branch.
 - **Tests.** `tests/unit/b-rooms-group.test.ts` (making one, the cap, invite and what a later member cannot see, leave
   and archive, remove and the computed manager, rename rules for every kind and person, event lines counting nowhere,
   sync, the reader level), `b-rooms-ai.test.ts` "the AI in a group chat" (the share rule, a member invited later, no

@@ -42,7 +42,7 @@ import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/
 import { authorize, visiblePath } from '../policy/authorize'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { canSee, memberRow, members, messageRow, messagesOut, MSG_COLS, roomRow, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, memberRow, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
 
 /** room messages before the question that go in front of it, at most */
@@ -250,9 +250,9 @@ export class RoomAi implements RoomTurns {
     // what this question used: the session's scope now (it started empty with the question, chat/turn.ts), kept on the
     // row for when a private preview is posted
     const scope = this.scopeOf(t.chat_id)
-    const d = this.decide(t.room_id, t.chat_id, scope)
-    const body = msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content
     const q = messageRow(db, t.room_id, t.question_id)
+    const d = this.decide(t.room_id, t.chat_id, scope, q?.seq)
+    const body = msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content
     const id = newId(), now = nowIso()
     db.transaction(() => {
       const seq = (db.query('UPDATE rooms SET last_seq = last_seq + 1, activity_at = ? WHERE id = ? RETURNING last_seq').get(now, t.room_id) as { last_seq: number }).last_seq
@@ -299,7 +299,7 @@ export class RoomAi implements RoomTurns {
    * Paths the person could not open themselves are not in the scope (chat/turn.ts noteRoomTool: such a call answered
    * as it would for anyone). A member added later counts from then on: the next answer is decided with them.
    */
-  decide(roomId: string, chatId: string, scope?: TurnScope): Decision {
+  decide(roomId: string, chatId: string, scope?: TurnScope, questionSeq?: number): Decision {
     const db = this.db, rules = this.ctx.files.rules()
     // an account that cannot be loaded (disabled, deleted, still listed) reads nothing: it fails every check
     const readers = this.readers(roomId)
@@ -335,6 +335,9 @@ export class RoomAi implements RoomTurns {
       const segs = path === '' ? [] : path.split('/')
       if (!people.every((p) => !!p && atLeast(rules.access(p, segs), 'read'))) folders.add(path)
     }
+    // the question itself is the room's too: someone who joined after it was asked (invited into a group chat while the
+    // AI was answering) never saw it, and the answer may repeat it, even when no earlier message went to the AI
+    if (questionSeq !== undefined) for (const r of readers) if (r.member.visible_from_seq >= questionSeq) joined.add(r.member.user_id)
     const joinedLater = [...this.names([...joined]).values()].sort()
     // the preview names to the person who asked only the folders they may open themselves (a name on the way to their
     // folders, or a rule changed since, can be in one they cannot): the others are "folders some people cannot open",
@@ -349,7 +352,7 @@ export class RoomAi implements RoomTurns {
   /** Post my private preview to the room (POST /api/rooms/:id/messages/:messageId/share). */
   share(userId: string, roomId: string, messageId: string): RoomMessage {
     const db = this.db, rooms = roomsOf(this.ctx)
-    const { me } = rooms.mine(userId, roomId)
+    const { room, me } = rooms.mine(userId, roomId)
     const m = messageRow(db, roomId, messageId)
     // only the person who asked; someone else's preview is never theirs to see (canSee): the same 404 as a message that
     // does not exist, also once it is in the room
@@ -360,7 +363,7 @@ export class RoomAi implements RoomTurns {
     const t = db.query('SELECT * FROM room_ai_turns WHERE answer_id = ?').get(m.id) as TurnRow | null
     const scope = t ? storedScope(t.scope) : undefined
     if (t && scope) {
-      const d = this.decide(roomId, t.chat_id, scope)
+      const d = this.decide(roomId, t.chat_id, scope, messageRow(db, roomId, t.question_id)?.seq)
       const now = d.post ? null : decisionJson(d)
       if (now && now !== t.decision) {
         db.query('UPDATE room_ai_turns SET decision = ? WHERE turn_id = ?').run(now, t.turn_id)
@@ -388,7 +391,8 @@ export class RoomAi implements RoomTurns {
       fromSeq = Math.max(me.last_read_seq, me.visible_from_seq)
       db.query('UPDATE room_members SET last_read_seq = ? WHERE room_id = ? AND user_id = ?').run(seq, roomId, userId)
       db.query("UPDATE room_ai_turns SET status = 'posted' WHERE answer_id = ?").run(m.id)
-      audit(db, { actor: userId, action: 'room.ai_share', target: m.id, detail: { roomId, sourcesLeftOut: drop.length } })
+      // a DM's or group chat's id would let admins see who talks to whom: only the kind
+      audit(db, { actor: userId, action: 'room.ai_share', target: m.id, detail: { ...roomAuditRef(room), sourcesLeftOut: drop.length } })
     })()
     if (fromSeq < seq - 1) rooms.readEvent(roomId, userId, fromSeq, seq - 1)
     rooms.markNoticesRead(userId, roomId, seq)

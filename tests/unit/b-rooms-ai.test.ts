@@ -540,7 +540,18 @@ describe('what the instructions and the tools may carry into the room', () => {
 
 // ---------------- group chats (docs/DECISIONS.md "그룹 대화와 방 이름") ----------------
 describe('the AI in a group chat', () => {
-  const group = async (by: string, userIds: string[], name?: string) => (await h.api(by).call(API.createRoom, { body: { kind: 'group', userIds, ...(name ? { name } : {}) } })).id
+  // making a group chat takes from the sending budget (a burst, then one a second): a 429 waits as send() does
+  const group = async (by: string, userIds: string[], name?: string): Promise<string> => {
+    for (let i = 0; ; i++) {
+      try {
+        return (await h.api(by).call(API.createRoom, { body: { kind: 'group', userIds, ...(name ? { name } : {}) } })).id
+      } catch (e) {
+        const err = e as { status?: number; body?: { retryAfter?: number } }
+        if (err.status !== 429 || i >= 5) throw e
+        await Bun.sleep(1000 * (err.body?.retryAfter ?? 1))
+      }
+    }
+  }
   test('an answer goes to the group chat only when every member may read what it used, as in a team room', async () => {
     // alice and erin read the marketing folder; with bob in the chat, the brief keeps the answer private
     const withBob = await group('alice', ['erin', 'bob'])
@@ -558,6 +569,16 @@ describe('the AI in a group chat', () => {
     const c = await ask('alice', without, `@트리나 recap\n${fake({ say: 'recap' })}`)
     expect(await answerTo('bob', without, c.q)).toBeUndefined()
     expect(await answerTo('alice', without, c.q)).toMatchObject({ visibility: 'private', preview: { joinedLater: ['Bob Lee'] } })
+  })
+
+  test('someone invited while the AI answers a question from before they joined keeps that answer private', async () => {
+    const roomId = await group('alice', ['erin', 'dana'])
+    // the room's first message: nothing earlier goes to the AI, the question alone is from before bob
+    const q = await send('alice', roomId, `@트리나 translate this\n${fake({ sleep: 1500 }, { say: 'GROUP-MIDINVITE translated' })}`)
+    await h.api('erin').call(API.inviteRoomMembers, { params: { id: roomId }, body: { userIds: ['bob'] } })
+    await ws.alice!.next('room.ai.run', (x) => x.data.run.questionId === q.id && ['done', 'stopped', 'error'].includes(x.data.run.state), 30_000)
+    expect(await answerTo('bob', roomId, q)).toBeUndefined()
+    expect(await answerTo('alice', roomId, q)).toMatchObject({ visibility: 'private', preview: { joinedLater: ['Bob Lee'] } })
   })
 
   test("event lines and the room's own name never reach the AI", async () => {

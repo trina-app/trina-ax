@@ -68,9 +68,10 @@ export type RoomKind = z.infer<typeof RoomKind>
 export const ROOM_GROUP_MAX = 100
 /** A room's own name: at most this many characters (after trimming). */
 export const ROOM_NAME_MAX = 80
-/** Control characters, line and paragraph separators and the bidirectional overrides and isolates (a name that reads
- * backwards or breaks a line is not a name). Joiners stay: emoji sequences need them. */
-const NAME_FORBIDDEN = /[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]/u
+/** Control characters, line and paragraph separators, the bidirectional marks, overrides and isolates (a name that
+ * reads backwards or breaks a line is not a name), and invisible characters: the zero-width space, the byte order mark
+ * and the tag characters. The zero-width joiners stay: emoji sequences need them. */
+const NAME_FORBIDDEN = /[\p{Cc}\u061c\u200b\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff\u{e0000}-\u{e007f}]/u
 /** A room's own name as typed: trimmed, at most ROOM_NAME_MAX characters, no control characters. '' (or null) takes it
  * back to the server's name (the group's name, the app's word for everyone, a group chat's members). Always shown as
  * plain text. */

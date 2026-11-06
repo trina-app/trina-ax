@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import nodeNet from 'node:net'
-import { checkReadable, readMigrations } from '../../server/src/db'
+import { checkReadable, openDb, readMigrations } from '../../server/src/db'
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import { ToolError } from '../../server/src/policy/errors'
 import { putMedia } from '../../server/src/integrations/connections/media'
@@ -569,6 +569,11 @@ describe('database', () => {
     expect(m.name).toBe('325_c_connection_urls.sql')
     expect(m.minCompatibleReader).toBe(1)
     expect(m.sql).not.toMatch(/DROP|RENAME|ALTER TABLE chat_seen_urls/i)
-    expect(() => checkReadable(A.ctx.db, 4)).not.toThrow()
+    // the database 0.2.16 would meet: every migration but those that need a newer reader for reasons of their own
+    // (250_b_group_rooms: reader 5)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-reader4-'))
+    for (const x of readMigrations()) if (x.minCompatibleReader <= 4) fs.writeFileSync(path.join(dir, x.name), x.sql)
+    const db = openDb(':memory:', { migrationsDir: dir })
+    try { expect(() => checkReadable(db, 4)).not.toThrow() } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }) }
   })
 })

@@ -277,7 +277,7 @@ describe('robustness', () => {
     expect(m.minCompatibleReader).toBe(1)
     const dir = path.join(app.data, 'old-migrations')
     fs.mkdirSync(dir, { recursive: true })
-    // migrations that need a reader above 4 came after that build, whatever their number (249_b_group_rooms: reader 5)
+    // migrations that need a reader above 4 came after that build, whatever their number (250_b_group_rooms: reader 5)
     for (const x of readMigrations()) if (x.version < 321 && x.minCompatibleReader <= 4) fs.writeFileSync(path.join(dir, x.name), x.sql)
     // the newer database with 321 applied, without those
     const newer = path.join(app.data, 'newer-migrations')

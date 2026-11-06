@@ -220,6 +220,10 @@ test('remove: the manager, or an owner or admin in it, takes someone out (never 
   const other = manager === nora ? pia : nora
   expect((await del(other.client, manager.id)).status).toBe(403)
   expect((await del(manager.client, other.id)).status).toBe(204)
+  // the maker invited back is a member like the others: the manager stays who it is
+  await manager.client.call('POST', `/api/rooms/${g.id}/members`, { userIds: [mia.id] })
+  expect((await mia.client.call('GET', `/api/rooms/${g.id}`)).managerId).toBe(manager.id)
+  expect((await del(mia.client, manager.id)).status).toBe(403)
   // only in group chats
   const dm = await nora.client.call('POST', '/api/rooms', { kind: 'dm', userId: pia.id })
   expect((await nora.client.try('DELETE', `/api/rooms/${dm.id}/members/${pia.id}`)).status).toBe(403)
@@ -344,12 +348,12 @@ test('sync keeps group chats as they are; a disabled or deleted account still le
 test('reader level: a database with group chats is refused by an older build (restore the backup to go back)', async () => {
   const { readMigrations, SCHEMA_READER_LEVEL, openDb, migrate, SchemaTooNewError } = await import('../../server/src/db')
   h = await harness('b-rooms-group-reader')
-  const m = readMigrations().find((x) => x.name === '249_b_group_rooms.sql')!
+  const m = readMigrations().find((x) => x.name === '250_b_group_rooms.sql')!
   expect(m.minCompatibleReader).toBe(5)
   expect(SCHEMA_READER_LEVEL).toBeGreaterThanOrEqual(5)
   const dir = path.join(h.ctx.config.dataDir, 'old-migrations')
   fs.mkdirSync(dir, { recursive: true })
-  for (const x of readMigrations()) if (x.version < 249) fs.writeFileSync(path.join(dir, x.name), x.sql)
+  for (const x of readMigrations()) if (x.version < 250) fs.writeFileSync(path.join(dir, x.name), x.sql)
   const file = path.join(h.ctx.config.dataDir, 'newer.db')
   for (const f of [file, `${file}-wal`, `${file}-shm`]) fs.rmSync(f, { force: true })
   const db = openDb(file)

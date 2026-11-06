@@ -22,7 +22,7 @@ import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
 import { notificationsOf } from '../notifications/service'
 import {
-  canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, roomOut, roomRow, SEE_SQL, setRoomPathCheck, unreadCount,
+  canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, roomOut, roomRow, SEE_SQL, setRoomPathCheck, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
@@ -132,6 +132,8 @@ export class Rooms {
     if (others.length < 2) fail('validation', undefined, { fields: { 'body.userIds': 'at least two other people' } })
     if (others.length + 1 > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
     this.assertActive(others)
+    // it lands in up to 99 people's lists: the same budget as sending (a script cannot flood them)
+    this.takeSendToken(userId)
     const id = newId(), now = nowIso()
     this.db.transaction(() => {
       this.db.query("INSERT INTO rooms (id, kind, created_by, created_at, activity_at, name) VALUES (?, 'group', ?, ?, ?, ?)").run(id, userId, now, now, name?.trim() || null)
@@ -166,6 +168,8 @@ export class Rooms {
     let name = raw?.trim() || null
     if (name && room.kind === 'team' && name === groupName(this.db, room)) name = null
     if ((room.name ?? null) === name) return
+    // each rename is a line in the room: the same budget as sending
+    this.takeSendToken(userId)
     const now = nowIso()
     const line = this.db.transaction(() => {
       this.db.query('UPDATE rooms SET name = ? WHERE id = ?').run(name, room.id)
@@ -190,6 +194,7 @@ export class Rooms {
     const fresh = ids.filter((id) => !inRoom.has(id))
     if (!fresh.length) return this.get(userId, roomId)
     if (inRoom.size + fresh.length > ROOM_GROUP_MAX) fail('validation', undefined, { fields: { 'body.userIds': `at most ${ROOM_GROUP_MAX} people` } })
+    this.takeSendToken(userId)
     const now = nowIso()
     const line = this.db.transaction(() => {
       const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
@@ -232,6 +237,9 @@ export class Rooms {
       for (const o of out) {
         this.db.query('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(roomId, o.userId)
         this.db.query('DELETE FROM room_notices WHERE room_id = ? AND user_id = ?').run(roomId, o.userId)
+        // the maker who leaves (or is taken out, or whose account goes) gives up the manager role for good: invited
+        // back, they are a member like the others (store.ts managerOf)
+        this.db.query("UPDATE rooms SET created_by = NULL WHERE id = ? AND kind = 'group' AND created_by = ?").run(roomId, o.userId)
       }
       const left = (this.db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(roomId) as { n: number }).n
       if (!left) {
@@ -352,7 +360,7 @@ export class Rooms {
       this.db.query("UPDATE room_messages SET body = '', mentions = '[]', deleted_at = ? WHERE id = ?").run(now, m.id)
       // an AI answer's "참고한 파일" go with it
       this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
-      if (m.author_kind === 'ai' && m.asked_by !== userId) audit(this.db, { actor: userId, action: 'room.ai_delete', target: m.id, detail: { roomId } })
+      if (m.author_kind === 'ai' && m.asked_by !== userId) audit(this.db, { actor: userId, action: 'room.ai_delete', target: m.id, detail: roomAuditRef(roomRow(this.db, roomId)!) })
       return (this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ? RETURNING user_id').all(m.id, roomId) as { user_id: string }[]).map((r) => r.user_id)
     })()
     roomFilesOf(this.ctx).removeForMessage(m.id)

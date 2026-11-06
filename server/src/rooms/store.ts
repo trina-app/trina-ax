@@ -211,6 +211,11 @@ export function unreadCount(db: Database, roomId: string, viewer: MemberRow): { 
   return { n: Math.min(MAX_UNREAD, r.n), mentioned: !!r.men }
 }
 
+/** How an audit row names a room: a team room or the everyone room by id; a DM or a group chat by its kind only (admins
+ * read the audit log and must not learn who talks to whom, which the same room id on two people's rows would tell). */
+export const roomAuditRef = (room: Pick<RoomRow, 'id' | 'kind'>): { roomId: string } | { kind: 'dm' | 'group' } =>
+  room.kind === 'dm' || room.kind === 'group' ? { kind: room.kind } : { roomId: room.id }
+
 /** The group's name of a team room (null for the other kinds, or when the group is gone). */
 export const groupName = (db: Database, room: Pick<RoomRow, 'kind' | 'group_id'>): string | null =>
   room.kind === 'team' && room.group_id ? (db.query('SELECT name FROM groups WHERE id = ?').get(room.group_id) as { name: string } | null)?.name ?? null : null
@@ -226,8 +231,9 @@ export function mayRename(db: Database, room: Pick<RoomRow, 'kind'>, userId: str
 export const isOwnerOrAdmin = (db: Database, userId: string): boolean =>
   !!db.query("SELECT 1 FROM users WHERE id = ? AND role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL").get(userId)
 
-/** A group chat's manager (방장), computed, never stored: its maker while they are still in it, else the member who
- * joined first (then by id). null for the other kinds or a room with nobody in it. */
+/** A group chat's manager (방장), computed, never stored: its maker while they are still in it (rooms.created_by, cleared
+ * when they leave, are taken out or their account goes), else the member who joined first (then by id). null for the
+ * other kinds or a room with nobody in it. */
 export function managerOf(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'created_by'>): string | null {
   if (room.kind !== 'group') return null
   if (room.created_by && db.query('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(room.id, room.created_by)) return room.created_by
