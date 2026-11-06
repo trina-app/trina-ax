@@ -11,15 +11,6 @@
 - GitHub 이름 변경·생성·공개, 기록 재작성·force push, 코어 main 병합·푸시, 고객 서버 접속, 결제·AWS·Cloudflare 계정 변경은 대표 승인 뒤에 한다.
 - 코어에서 받아 올 때 다음 경로는 가져오지 않는다(비공개 코어에만 둔다): 코어의 `CLAUDE.md`, `docs/OWNER-TODO.md`, `docs/TODO.md`, `docs/TEST-ENV.md`, `docs/PUBLIC-MIRROR.md`, `docs/SECURITY-AUDIT.md`, `scripts/public-mirror/`, `scripts/check-public-mirror.sh`, `scripts/sync-public-mirror.sh`, `tests/public-mirror/`, `ee/`, `editions/trina/`(단 `branding/` 제외).
 
-## 브랜치와 CI / Branches and CI
-
-- PR은 `dev`로 연다. CI를 기다리지 않고 머지한다(PR마다 CI가 돌지 않는다).
-- 매일 03:00(KST)에 Nightly(`.github/workflows/nightly.yml`)가 그 순간의 `dev` 커밋에서 전체 CI를 한 번 돌린다. 모두 통과하면 main을 그 커밋으로 fast-forward한다.
-- 실패하면 main은 그대로 둔다. 고침은 `dev`로 올리고 다음 밤에 다시 돈다. 급하면 Actions › Nightly › Run workflow로 바로 돌린다.
-- main에는 직접 커밋하지 않는다. main은 Nightly가 따라오게 하고, 릴리스 태그는 main에 단다(태그 시 release.yml이 테스트를 다시 돈다).
-- `.github/workflows`를 바꾼 밤에는 GITHUB_TOKEN이 main에 밀어 넣지 못한다. 그때는 유지보수자가 `git push origin <sha>:refs/heads/main`으로 옮긴다.
-- Pull requests target `dev` and merge without waiting for CI. Nightly runs the full CI on dev's head at 03:00 KST and fast-forwards main when it passes; a failure leaves main as it was and the fix goes to dev.
-
 ## 공개 기여 / Public contributions
 
 외부 기여자는 이 공개 저장소에 이슈·PR을 제출하면 됩니다. 비공개 코어 접근은 필요하지 않으며 유지보수자가 코어 반영 경로를 처리합니다. External contributors submit here; maintainers handle upstream routing. [개발·검증](DEVELOPMENT.md).

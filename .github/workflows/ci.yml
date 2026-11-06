@@ -5,9 +5,10 @@
 # passes. No secret is used here: a call never passes any (no `secrets: inherit`).
 name: CI
 
-# No run per pull request or push: pull requests go to `dev`, and Nightly (nightly.yml) runs this once a day on dev's
-# head and fast-forwards main when it passes (docs/REPOSITORY-RULES.md "브랜치와 CI"). "Run workflow" runs it by hand.
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
   workflow_call:
     inputs:
