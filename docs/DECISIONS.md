@@ -9868,3 +9868,58 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   invite, `?next`) or a later click on Home. Home shows nothing until the progress is read on such a landing, so it
   does not flash first; a failed read stays on Home.
 
+## 대화방 알림 소리 (feat/room-sound, 2026-11-06)
+
+The owner: "내가 봐야 하는 메시지가 있으면 소리 알림도 울려야 할 것 같아". Nothing in the web app made a sound, and an open
+phone app is silent on purpose (`quietForeground()`: the web app shows new things live). Placement: Team AX core (the
+web app's rooms and settings); no server change.
+
+- **What rings** (`shouldRing`, `web/src/lib/roomSound.ts`): every message in a DM, a group chat and any room kind other
+  than `team` and `all`; in a team room or the everyone room only a message that mentions me (`mentions` holds my id);
+  an AI answer to my own question (my private preview, or the answer that went to the room). Never: my own messages
+  (any window or device), a muted room (mentions too, as the server's notices), a message with an `event` (the room
+  lines of a later branch), a deleted message, an edit, a delete, a read, a replay after a reconnect, a message this
+  window had already, nor the room this device shows in a visible, focused window. When I post my preview, its copy
+  in the room keeps the preview's id, whose UUIDv7 time is older than the copy's time: more than 5 s apart, it is
+  taken as my own action and does not ring (the others hear it as a new message, by their own rules).
+- **Replays.** `RealtimeClient` now marks events up to a resumed hello's seq as `replay` (they happened while the
+  window was away); a `reset`/`resync` reloads over REST and sends no events. Nothing rings for either.
+- **One sound a device, at most one every 3 s.** Every tab gets every event. A tab whose audio is unlocked takes the
+  device's Web Lock (`navigator.locks`, `ifAvailable`) and, when it rings, keeps it for 3 s: every other tab finds it
+  taken, whatever localStorage has passed on between tabs yet (browsers pass it on later). The last sound's time is
+  also in localStorage; where there is no Web Lock (plain http, older browsers) that time alone decides, which can let
+  two tabs ring in a rare race. The focused tab writes which room it shows (`mycel.roomSound.view`, renewed every
+  10 s, ignored after 30 s, taken back on blur, hide and pagehide), so a tab in the background stays quiet about that
+  room. Inside the phone app the page counts as focused while it is on screen.
+- **Phones: one sound, the phone's in the background.** In the phone app and in a browser whose only pointer is a
+  finger, the page makes no sound while hidden and for 1.5 s after it comes back (messages that waited arrive then,
+  and the phone's notification already sounded for them). `quietForeground()` stays silent, so the open app has one
+  sound.
+- **The sound** is made at run time with Web Audio (two sine notes, G5 then C6, each with a quiet octave, about
+  0.7 s, peak gain 0.12): no sound file, no licence question. Browsers start audio only in a gesture: the first
+  pointer, touch end, click or key on the page makes and starts the AudioContext (plus one silent sample for WebKit);
+  afterwards it is suspended 1.5 s after each sound so the audio output is not held open, and started again without a
+  gesture (allowed once the page was used). A start that takes longer than 1 s (a phone giving the audio back late)
+  plays nothing, and sounds asked for meanwhile do not pile up. A sound that cannot play is dropped silently. The
+  page leaves its audio session alone: WebKit plays Web Audio alone as ambient sound (mixed with music, quiet on the
+  iPhone's silent switch), and setting `navigator.audioSession` for the page would change voice input and file
+  previews too. Android's web view plays on the media volume, which the phone's silent mode does not mute; "알림 소리"
+  turns it off.
+- **Web Push in a browser.** The service worker asks the open pages (`room-sound.ask` over a MessageChannel, 400 ms)
+  before it shows a room notice, and shows it with `silent: true` when one answers that it takes care of the sound
+  (connected, unlocked and not a phone's hidden page, or this device's sound off). No page or no answer: the system's
+  sound as before. Other notices are not asked about; every port is closed afterwards.
+- **Desktop app.** It runs the web app and has no Web Push; its `bridge:notify` OS notification is not used for rooms,
+  so there is nothing to silence. Electron allows audio without a gesture, so the page unlocks the sound as it starts
+  (after a login start or an update's relaunch it rings before the first click).
+- **Phones need no new build.** The web view already plays Web Audio after a tap (`mediaPlaybackRequiresUserAction`
+  applies to it as to a browser), and the page does the rest. Checked in desktop Chromium and with unit tests; not yet
+  on an iPhone or an Android phone.
+- **The switch**: Settings › Notifications, one row "알림 소리 · 이 기기에서만" under a hairline below the server's event
+  choices (it is this device's, in localStorage `mycel.roomSound`, on by default, kept at sign-out like the theme).
+  It is not disabled while a server choice saves and shows even when those could not be read. Turning it on plays
+  the chime once; searching Settings for 소리 / sound finds it. In all five languages.
+- **Not in this step.** The personal Inbox (scheduled results, skill suggestions, approvals) has no event that says "a
+  new notice for me" (`notifications.changed` only says that something changed), so it does not ring; rooms only.
+  The desktop app's focus is its web view's: with the in-app browser pane focused, the open room still rings.
+  A tab opened after my preview arrived, when I post it from another device, may ring once for it.

@@ -7,10 +7,12 @@ import { pushMessages } from '../../../server/src/notifications/text'
 
 const source = readFileSync(new URL('../../pwa/sw.js', import.meta.url), 'utf8')
 const payload = { notificationId: 'event-1', subscriptionId: 'subscription-1', code: 'schedule.success' }
-function worker(database = new IDBFactory()) {
+/** an open page of the app: answers the worker's room-sound question (lib/roomSound.ts), or never (an older page) */
+type Page = { handled?: boolean | 'never'; url?: string }
+function worker(database = new IDBFactory(), pages: Page[] = [{}]) {
   const listeners = new Map<string, (event: any) => void>()
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
-  const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = []
+  const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = [], asked: unknown[] = [], closed = { n: 0 }
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
   let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }
   let item: any = { id: 'event-1', code: 'schedule.success', readAt: null }
@@ -23,11 +25,22 @@ function worker(database = new IDBFactory()) {
       getNotifications: async (options?: { tag: string }) => shown.filter(item => !item.closed && (!options || options.tag === item.options.tag)),
     },
     clients: {
-      matchAll: async () => [{ url: 'https://team.example/', navigate: async (url: string) => { navigated.push(url) }, focus: async () => {} }],
+      matchAll: async () => pages.map((page) => ({
+        url: page.url ?? 'https://team.example/', navigate: async (url: string) => { navigated.push(url) }, focus: async () => {},
+        ...(page.handled === undefined ? {} : { postMessage: (data: any, [port]: MessagePort[]) => { asked.push(data); if (page.handled !== 'never') port!.postMessage({ type: 'room-sound.answer', handled: page.handled }) } }),
+      })),
       openWindow: async (url: string) => { navigated.push(url) },
     },
   }
-  vm.runInNewContext(source, { self, indexedDB: database, URL, AbortController, setTimeout, clearTimeout,
+  // MessageChannel that counts the worker's own ports it closes
+  class CountedChannel extends MessageChannel {
+    constructor() {
+      super()
+      const close = this.port1.close.bind(this.port1)
+      this.port1.close = () => { closed.n++; close() }
+    }
+  }
+  vm.runInNewContext(source, { self, indexedDB: database, URL, AbortController, setTimeout, clearTimeout, MessageChannel: CountedChannel,
     fetch: async (path: string, options: RequestInit) => {
       requests.push({ path, options })
       if (gate) await gate
@@ -41,7 +54,7 @@ function worker(database = new IDBFactory()) {
     await promise
   }
   return {
-    shown, requests, navigated,
+    shown, requests, navigated, asked, closed,
     push: (data: unknown = payload) => event('push', { data: { json: () => data } }),
     invalidate: () => event('message', { data: { type: 'push.invalidate' }, source: { url: 'https://team.example/' } }),
     click: () => event('notificationclick', { notification: { close() {}, data: { url: 'https://attacker.invalid/secret' } } }),
@@ -165,4 +178,34 @@ test('a room notice opens its room; the room id comes from the signed-in notice,
   off.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben' } })
   await off.push({ ...payload, code: 'room.dm' })
   expect(off.shown).toHaveLength(0)
+})
+
+test('a room notice is silent when an open page takes care of the sound; otherwise, and for other notices, it is not', async () => {
+  const roomId = '0190f5a0-0000-7000-8000-000000000001'
+  const messages = { title: 'Team', bodies: { ...pushMessages('en').bodies, 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }
+  const roomItem = { id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben' } }
+  const shown = async (pages: Page[], code = 'room.dm') => {
+    const w = worker(new IDBFactory(), pages)
+    w.configure({ messages: messages as any })
+    w.item(code === 'room.dm' ? roomItem : { id: 'event-1', code, readAt: null })
+    await w.push({ ...payload, code })
+    expect(w.shown).toHaveLength(1)
+    // every port the worker opened is closed again, answered or not
+    expect(w.closed.n).toBe(w.asked.length)
+    return { silent: w.shown[0]!.options.silent, asked: w.asked }
+  }
+  // one page plays the chime (or this device turned the sound off): the system's own sound stays out
+  expect(await shown([{ handled: false }, { handled: true }])).toEqual({ silent: true, asked: [{ type: 'room-sound.ask' }, { type: 'room-sound.ask' }] })
+  // pages that cannot play (audio not unlocked yet, offline), no page, or a page of another site: the system's sound
+  expect((await shown([{ handled: false }])).silent).toBe(false)
+  expect((await shown([])).silent).toBe(false)
+  expect((await shown([{ handled: true, url: 'https://other.example/' }])).silent).toBe(false)
+  // a page from before this (no answer) or a frozen tab: shown after a short wait, with the system's sound
+  expect((await shown([{}])).silent).toBe(false)
+  const started = Date.now()
+  expect((await shown([{ handled: 'never' }])).silent).toBe(false)
+  expect(Date.now() - started).toBeGreaterThanOrEqual(350)
+  expect(Date.now() - started).toBeLessThan(2000)
+  // other notices never ask
+  expect(await shown([{ handled: true }], 'schedule.success')).toEqual({ silent: false, asked: [] })
 })
