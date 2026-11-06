@@ -21,10 +21,10 @@ export type Lookup = (host: string) => Promise<{ address: string; family: number
 const sysLookup: Lookup = (h) => dns.lookup(h, { all: true, verbatim: true })
 
 /** Throws EgressError unless `raw` is an https URL whose host resolves only to public internet addresses. */
-export async function assertPublicHttps(raw: string, o: { lookup?: Lookup } = {}): Promise<URL> {
+export async function assertPublicHttps(raw: string, o: { lookup?: Lookup; allowHttp?: boolean } = {}): Promise<URL> {
   let u: URL
   try { u = new URL(raw) } catch { throw new EgressError('not a valid address') }
-  if (u.protocol !== 'https:') throw new EgressError('only https addresses are allowed')
+  if (u.protocol !== 'https:' && !(o.allowHttp && u.protocol === 'http:')) throw new EgressError('only https addresses are allowed')
   if (u.username || u.password) throw new EgressError('addresses with a user name or password are not allowed')
   const host = u.hostname.replace(/^\[|\]$/g, '')
   let addrs: { address: string; family: number }[]
@@ -53,6 +53,16 @@ export async function checkApiEngineUrl(cfg: Pick<AppConfig, 'mode'> & Partial<P
   try { await assertPublicHttps(url, o) } catch (e) {
     if (!(e instanceof EgressError)) throw e
     fail('validation', (T[locale] ?? T.en)(e.message), { fields: { 'body.baseUrl': 'not_public_https' } })
+  }
+}
+
+/** PUT /api/admin/engines/api-config by an admin (not the owner) on an install that allows any address: the address must
+ * be a public one (same classification as the cloud's and web_fetch's: no private, loopback, link-local, CGNAT or
+ * reserved address), http or https. A private address (a local Ollama) stays the owner's to set (403). */
+export async function checkApiEngineUrlForAdmin(url: string, message: string, o: { lookup?: Lookup } = {}): Promise<void> {
+  try { await assertPublicHttps(url, { ...o, allowHttp: true }) } catch (e) {
+    if (!(e instanceof EgressError)) throw e
+    fail('forbidden', message, { fields: { 'body.baseUrl': 'owner_only_address' } })
   }
 }
 

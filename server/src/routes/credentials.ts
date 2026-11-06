@@ -60,7 +60,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     changed()
     return r
   })
-  kit.handle(API.deleteCredential, ({ params, auth }) => { deleteCredential(cc(), params.id, auth.user.id); changed() })
+  kit.handle(API.deleteCredential, ({ c, params, auth }) => { deleteCredential(cc(), params.id, auth.user.id, undefined, loc(c)); changed() })
   kit.handle(API.checkCredential, async ({ c, params, auth }) => {
     const r = await checkCredential(cc(), params.id, auth.user.id, loc(c))
     changed()
@@ -79,15 +79,15 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // ChatGPT and Claude sign-ins (the team's: owner or admin + their password; one's own: while the team allows personal connections).
   // The Claude code: only from the person who started that sign-in (404 for anyone else, before it is opened), sealed
   // like a token (its own purpose)
-  const submitCode = async (id: string, userId: string, sealed: Parameters<typeof unsealOrFail>[1], locale: Locale) => {
-    logins().get(id, userId)
+  const submitCode = async (id: string, userId: string, sealed: Parameters<typeof unsealOrFail>[1], locale: Locale, personal: boolean) => {
+    logins().get(id, userId, personal)
     const code = await unsealOrFail(cc(), sealed, 'credential.login-code', locale)
-    return logins().submitCode(id, userId, code, locale)
+    return logins().submitCode(id, userId, code, locale, personal)
   }
   kit.handle(API.startCredentialLogin, ({ c, body, auth }) => logins().start({ userId: auth.user.id, locale: loc(c), personal: false, kind: body.kind, label: body.label, assignments: body.assignments, priority: body.priority, reconnectId: body.reconnectId }))
-  kit.handle(API.getCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id))
-  kit.handle(API.cancelCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c)))
-  kit.handle(API.submitCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c)))
+  kit.handle(API.getCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id, false))
+  kit.handle(API.cancelCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c), false, true))
+  kit.handle(API.submitCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c), false))
 
   // ---------------- one's own connections ----------------
   const ownAllowed = (locale: Locale) => { if (!memberOwnAllowed(ctx.db)) fail('forbidden', ct('memberOwnOff', locale)) }
@@ -122,7 +122,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     ownAllowed(loc(c))
     return logins().start({ userId: auth.user.id, locale: loc(c), personal: true, kind: body.kind, label: body.label, assignments: [], priority: 100, reconnectId: body.reconnectId })
   })
-  kit.handle(API.getMyCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id))
-  kit.handle(API.cancelMyCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c)))
-  kit.handle(API.submitMyCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c)))
+  kit.handle(API.getMyCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id, true))
+  kit.handle(API.cancelMyCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c), true))
+  kit.handle(API.submitMyCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c), true))
 }

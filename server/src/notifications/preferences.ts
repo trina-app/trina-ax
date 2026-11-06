@@ -31,5 +31,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'account.deletion_request': return true
     // a Drive shared with the team stopped and needs an admin's new sign-in (shown always, Notifications.driveShareReconnect)
     case 'drive.share_reconnect': return true
+    // an admin changed the team's AI (told to the owners), or switched off / removed a member's own connection (told to them)
+    case 'credential.change': return true
   }
 }

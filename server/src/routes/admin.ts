@@ -34,14 +34,17 @@ import { ENGINE_CHOICE_CHANGED, codexOffHere, engineOn, limitFallbackAvailable, 
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 import { listSkillManagers, setSkillManager } from '../skills/managers'
 import { listSkillChanges } from '../skills/changes'
-import { readApiEngine, writeApiEngine } from '../engine/api-agent'
+import fs from 'node:fs'
+import { apiEngineKeyPath, readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
 import { registerCredentialRoutes } from './credentials'
 import { registerTeamLinkRoutes } from './team-links'
 import { assertConcurrencyAllowed, concurrencyMax } from '../system/limits'
-import { checkApiEngineUrl } from '../system/egress'
+import { checkApiEngineUrl, checkApiEngineUrlForAdmin } from '../system/egress'
 import { feature } from '../system/deployment'
 import { readTeamIcon, removeTeamIcon, saveTeamIcon, TEAM_ICON_CHANGED, teamIconInfo } from '../admin/team-icon'
+
+const hostOf = (u: string) => { try { return new URL(u).host } catch { return '' } }
 
 async function enginesResponse(ctx: AppContext, cache: EngineStatusCache, locale: Locale) {
   const enabled = enginesEnabled(ctx.db)
@@ -231,12 +234,24 @@ export const adminRoutes: RouteModule = {
     }
     kit.handle(API.getApiEngine, () => apiConfigOut())
     kit.handle(API.putApiEngine, async ({ c, body, auth }) => {
-      await checkApiEngineUrl(ctx.config, body.baseUrl, c.get('locale')) // the hosted cloud: https to public addresses only
+      const locale = c.get('locale')
+      await checkApiEngineUrl(ctx.config, body.baseUrl, locale) // the hosted cloud: https to public addresses only
+      const old = readApiEngine(ctx.config.dataDir)
+      const origin = (u: string) => { try { return new URL(u).origin } catch { return u } }
+      const sameAddress = !!old && origin(old.baseUrl) === origin(body.baseUrl)
+      // an admin (not the owner) does not set an address on a private network, on this server or link-local; an address
+      // that was already set stays as it is (a model change)
+      if (auth.user.role !== 'owner' && !(old && old.baseUrl === body.baseUrl.replace(/\/+$/, ''))) await checkApiEngineUrlForAdmin(body.baseUrl, msg('apiAddressOwnerOnly', locale))
+      // the stored key belongs to the address it was made for: a new address never inherits it (an admin could point it
+      // at their own server and collect it). The caller sends a key for the new address, or null.
+      if (!sameAddress && body.key === undefined && fs.existsSync(apiEngineKeyPath(ctx.config.dataDir))) {
+        fail('validation', msg('apiKeyForNewAddress', locale), { fields: { 'body.key': 'a key for the new address is required' } })
+      }
       writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, ...(body.key !== undefined ? { key: body.key } : {}) })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.api', target: 'api', detail: { baseUrl: body.baseUrl, model: body.model, key: body.key === undefined ? 'kept' : body.key ? 'set' : 'removed' } })
       engineCache.forget('api')
       // an admin's change is told to the owner(s): who and the model, never the key (credentials/store.ts noticeOwners)
-      noticeOwners(credentialsOf(ctx), auth.user.id, 'nAdminEngine', { model: body.model })
+      noticeOwners(credentialsOf(ctx), auth.user.id, 'engine', `${hostOf(body.baseUrl)}, ${body.model}`, { model: body.model, host: hostOf(body.baseUrl) })
       try { (getChatRuntime(ctx).engines as { reset?: () => void }).reset?.() } catch {}
       return apiConfigOut()
     })

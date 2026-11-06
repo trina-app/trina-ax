@@ -17,6 +17,8 @@ import { authOf } from '../auth/service'
 import { assertSeatFree } from '../system/limits'
 import { USER_COLS, deriveUserId, ensurePersonalFolder, existingGroups, getUser, insertUser, setUserLocale, toUser, usernameTaken, type UserRow } from '../auth/users'
 import { audit } from './audit'
+import { cancelLoginsOf } from '../credentials/login'
+import { existingCredentialsOf } from '../credentials/store'
 import { afterAccessChange, captureState, resetEngineSessions } from './folders'
 import { stopTurnsOf } from '../chat/runtime'
 import { getTeamSettings, LOCALE_CHANGED } from './settings'
@@ -139,6 +141,8 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     stopTurnsOf(ctx, id)
     resetEngineSessions(ctx, id)
   }
+  // their running AI sign-ins: disabled, all of them; made a member, the team's (their own personal ones are theirs to keep)
+  if (changed.status === 'disabled' || changed.role === 'member') { const cc = existingCredentialsOf(ctx); if (cc) cancelLoginsOf(cc, id, { teamOnly: changed.status !== 'disabled' }) }
   if (changed.status === 'disabled' || changed.role === 'member') { revokeInvitesBy(ctx, id); revokeResetLinksBy(ctx, id); revokeTeamLinksBy(ctx, id) }
   // their AI apps' group management (connector scope mcp:admin) ends for good, like their invites
   if (changed.status === 'disabled' || changed.role === 'member') dropAdminScope(ctx.db, id, changed.role === 'member' ? 'role' : 'status', auth.user.id)

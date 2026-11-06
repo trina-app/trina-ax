@@ -21,8 +21,9 @@ export type PushEventType = z.infer<typeof PushEventType>
  * to be deleted (account_deletion_notices; shared/src/api/account-deletion.ts), and a connection template an admin
  * shared with the person or whose address or sign-in changed (integration_template_notices; docs/INTEGRATIONS.md
  * "Templates"), and for admins a Drive shared with the team that stopped working and needs a new sign-in
- * (drive_share_notices; docs/GOOGLE-DRIVE.md "Sharing a Drive with the team"). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect'])
+ * (drive_share_notices; docs/GOOGLE-DRIVE.md "Sharing a Drive with the team"), and a change to the team's AI an admin made
+ * (told to the owners) or to a member's own connection (told to that member; credential_change_notices). */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'credential.change'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -52,6 +53,11 @@ export const InboxNotification = z.object({
   /** 'drive.share_reconnect' only (admins), while the share is there: its name (link 'admin_connectors' opens Google
    * Drive's page in Admin › Connectors); older servers omit it */
   driveShare: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** 'credential.change' only: who did what to the team's AI (the connection's name, or the engine's address and model;
+   * never a token or key); older servers omit it */
+  credentialChange: z.object({
+    who: z.string(), action: z.enum(['added', 'replaced', 'removed', 'disabled', 'reassigned', 'zero_limit', 'shared_on', 'engine', 'personal_disabled', 'personal_removed']), subject: z.string(),
+  }).optional(),
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),

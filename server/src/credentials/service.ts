@@ -14,7 +14,7 @@ import { candidates, familyOfKind, MEMBER_OWN_KEY, memberOwnAllowed } from './re
 import { SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
 import {
-  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
+  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, noticeMember, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
   type CredCtx, type CredMeta, type CredRow, type Secrets,
 } from './store'
 import { formatProblem, verifySecret } from './validate'
@@ -175,14 +175,28 @@ export async function createCredential(cc: CredCtx, i: CreateInput, locale: Loca
       cc.notify({ level: 'info', code: 'credential_moved_to_team', message: ctAll(theirs ? 'nMovedToTeam' : 'nMovedToTeamNotYours', { label: from.label, team: i.label }), link: '/settings/credentials' }, [member])
     }
   }
-  if (!i.ownerUserId) noticeOwners(cc, i.actor, 'nAdminAdded', { label: i.label })
+  if (!i.ownerUserId) noticeOwners(cc, i.actor, 'added', i.label)
   return toCredential(cc, row, locale)
+}
+
+/**
+ * Who may change a member's own connection through the admin endpoints. Its holder (their own path, /api/me) always;
+ * the owner as before; an admin only switches off or removes a member's (never the owner's or another admin's, and never
+ * the key, name, order or limit: those are the holder's), and the member is told (noticeMember).
+ */
+function personalGuard(cc: CredCtx, row: CredRow, actor: string, op: 'disable' | 'delete' | 'other', locale: Locale) {
+  if (!row.owner_user_id || row.owner_user_id === actor) return
+  const role = (id: string) => (cc.db.query('SELECT role FROM users WHERE id = ?').get(id) as { role: string } | null)?.role
+  if (role(actor) === 'owner') return
+  if (role(actor) === 'admin' && role(row.owner_user_id) === 'member' && (op === 'disable' || op === 'delete')) return
+  fail('forbidden', ct('personalNotYours', locale))
 }
 
 /** POST /api/admin/credentials/:id/secret: a new token / key on the same connection (same kind). */
 export async function replaceSecret(cc: CredCtx, id: string, secret: string, actor: string, locale: Locale): Promise<Credential> {
   const row = getRow(cc.db, id)
   if (!row) return fail('not_found')
+  personalGuard(cc, row, actor, 'other', locale)
   if (row.kind === 'chatgpt') return fail('conflict', ct('sameKind', locale))
   const kind = row.kind as ApiKind
   const gateway = gatewayOf(cc)
@@ -203,7 +217,7 @@ export async function replaceSecret(cc: CredCtx, id: string, secret: string, act
   }))()
   const r = getRow(cc.db, id)!
   audit(cc.db, { actor, action: 'credential.secret_replaced', target: id, detail: { kind, ...(r.hint ? { hint: r.hint } : {}), verified: check.result === 'ok' } })
-  if (!r.owner_user_id) noticeOwners(cc, actor, 'nAdminReplaced', { label: r.label })
+  if (!r.owner_user_id) noticeOwners(cc, actor, 'replaced', r.label)
   return toCredential(cc, r, locale)
 }
 
@@ -213,6 +227,7 @@ export interface UpdateInput { label?: string; priority?: number; disabled?: boo
 export function updateCredential(cc: CredCtx, id: string, b: UpdateInput, actor: string, locale: Locale): Credential {
   const row = getRow(cc.db, id)
   if (!row) return fail('not_found')
+  personalGuard(cc, row, actor, b.disabled === true && Object.keys(b).every((k) => k === 'disabled') ? 'disable' : 'other', locale)
   if (b.assignments && row.owner_user_id && b.assignments.length) fail('validation', undefined, { fields: { 'body.assignments': 'a personal connection is only its owner\'s' } })
   if (b.assignments) checkAssignments(cc, b.assignments, locale)
   const changed: string[] = []
@@ -229,20 +244,27 @@ export function updateCredential(cc: CredCtx, id: string, b: UpdateInput, actor:
     if (sets.length) cc.db.query(`UPDATE engine_credentials SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...args, new Date(cc.now()).toISOString(), id)
     if (b.assignments) { setAssignments(cc, id, b.assignments); changed.push('assignments') }
   })()
-  if (changed.includes('disabled') && b.disabled && !row.owner_user_id) noticeOwners(cc, actor, 'nAdminDisabled', { label: b.label ?? row.label })
+  const label = b.label ?? row.label
+  if (!row.owner_user_id) {
+    if (changed.includes('disabled') && b.disabled) noticeOwners(cc, actor, 'disabled', label)
+    if (changed.includes('assignments')) noticeOwners(cc, actor, 'reassigned', label)
+    if (changed.includes('spendLimit') && (b.spendLimit?.usd === 0 || b.spendLimit?.tokens === 0)) noticeOwners(cc, actor, 'zero_limit', label)
+  } else if (changed.includes('disabled') && b.disabled) noticeMember(cc, row.owner_user_id, actor, 'personal_disabled', row.label)
   if (changed.length) audit(cc.db, { actor, action: 'credential.update', target: id, detail: {
     changed, ...(b.assignments ? { assignmentsBefore: before, assignmentsAfter: assignmentsOf(cc, id) } : {}), ...(b.spendLimit ? { spendLimit: b.spendLimit } : {}) } })
   return toCredential(cc, getRow(cc.db, id)!, locale)
 }
 
 /** DELETE: the row goes (assignments, per-day use and notices with it); turns keep their credential_id. */
-export function deleteCredential(cc: CredCtx, id: string, actor: string, onlyOwnerId?: string): void {
+export function deleteCredential(cc: CredCtx, id: string, actor: string, onlyOwnerId?: string, locale: Locale = 'en'): void {
   const row = getRow(cc.db, id)
   if (!row || (onlyOwnerId !== undefined && row.owner_user_id !== onlyOwnerId)) return fail('not_found')
+  personalGuard(cc, row, actor, 'delete', locale)
   cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(id)
   cc.cache.delete(id)
   audit(cc.db, { actor, action: 'credential.delete', target: id, detail: { kind: row.kind, label: row.label, scope: row.owner_user_id ? 'personal' : 'team' } })
-  if (!row.owner_user_id) noticeOwners(cc, actor, 'nAdminRemoved', { label: row.label })
+  if (!row.owner_user_id) noticeOwners(cc, actor, 'removed', row.label)
+  else noticeMember(cc, row.owner_user_id, actor, 'personal_removed', row.label)
 }
 
 /** POST /api/admin/credentials/:id/check: ask the provider again (no tokens spent). */
@@ -283,13 +305,17 @@ export function setCredentialSettings(cc: CredCtx, b: { memberOwn?: boolean; sha
   if (b.sharedSubscriptions === true && !sharedSubscriptionsAllowed(cc.db) && b.acknowledgedSharedSubscriptionRisk !== true) {
     fail('validation', ct('sharedRiskAcknowledgement', locale), { fields: { 'body.acknowledgedSharedSubscriptionRisk': 'required to enable shared subscriptions' } })
   }
+  let turnedOn = false
   cc.db.transaction(() => {
     if (b.memberOwn !== undefined) setMemberOwn(cc, b.memberOwn, actor)
     if (b.sharedSubscriptions !== undefined) {
+      turnedOn = b.sharedSubscriptions && !sharedSubscriptionsAllowed(cc.db)
       setSetting(cc.db, SHARED_SUBSCRIPTIONS_KEY, b.sharedSubscriptions)
       audit(cc.db, { actor, action: 'credential.settings', target: null, detail: { sharedSubscriptions: b.sharedSubscriptions, acknowledgedSharedSubscriptionRisk: b.sharedSubscriptions && b.acknowledgedSharedSubscriptionRisk === true } })
     }
   })()
+  // a terms-of-use risk the owner answers for: an admin who turns it on is told to them
+  if (turnedOn) noticeOwners(cc, actor, 'shared_on', '')
   return { memberOwn: memberOwnAllowed(cc.db), sharedSubscriptions: sharedSubscriptionsAllowed(cc.db) }
 }
 

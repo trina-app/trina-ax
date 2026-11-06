@@ -2252,7 +2252,7 @@ export class MockServer {
     checkEngine: (c) => this.enginesResponse().engines.find((e) => e.id === c.params.id) ?? fail('not_found', 404),
     // the team's API engine: not set up (like a fresh server)
     getApiEngine: () => ({ baseUrl: null, model: null, label: null, hasKey: false }),
-    putApiEngine: (c) => ({ baseUrl: c.body.baseUrl, model: c.body.model, label: c.body.label ?? null, hasKey: !!c.body.key }),
+    putApiEngine: (c) => c.body.password !== this.passwords.get(c.user.username) ? fail('forbidden', 403, '비밀번호가 맞지 않아요.', { 'body.password': 'wrong password' }) : ({ baseUrl: c.body.baseUrl, model: c.body.model, label: c.body.label ?? null, hasKey: !!c.body.key }),
     listBudgets: () => ({ items: this.budgets }),
     createBudget: (c) => {
       const b: Budget = { id: uuidv7(), subjectType: c.body.subjectType, subjectId: c.body.subjectId, period: c.body.period, limitUsd: c.body.limitUsd, limitTokens: c.body.limitTokens ?? null, action: c.body.action, usedUsd: 0, usedTokens: 1234 }

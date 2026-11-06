@@ -10569,3 +10569,36 @@ fix. "Tell the owner" was a dead end when the owner is not around, and the produ
 - **Rejected:** a lighter re-auth for admins, or none (a connection is the team's money and access; the password
   again stays); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
   to other admins too (the owner is the one who answers for the team, and admins see the change in Activity log).
+
+### Review round 1 of "Admins connect the team's AI too" (2026-11-06)
+
+An independent review found one hole and several gaps. What changed, and why:
+
+- **The team API engine's key cannot be sent to a new address** (the hole: an admin could save a new address without a
+  key, which kept the stored key, and "check again" then sent it there; every API-engine turn after that went there
+  too). Now: a changed address (scheme, host or port) never keeps the stored key: the caller sends a key for it, or
+  `null` (400 otherwise; for the owner too). `putApiEngine` is `admin-reauth` (the caller's own password). An admin
+  (not the owner) cannot set a private, loopback or link-local address on a self-hosted or office install (403): the
+  address rules are web_fetch's own (`isPublicAddress` / `isLocalAddress` / `checkHostName` through
+  `assertPublicHttps`, now with `allowHttp`), not new ones. A private address already set stays as it is when only
+  the model changes. The owner's notice names the host and the model.
+- **The notice reaches an owner who is away.** Next to the live notice (the channel of the connection notices) it is
+  an inbox row (`credential.change`, table `credential_change_notices`, migration 116, additive, reader level 1;
+  who, action, the connection's name or the engine's host and model, never a key), in all five languages. It is sent
+  whenever the actor is **not an owner** (so a person demoted a moment ago is still reported). Also told, after
+  consideration: giving a connection to other people (`reassigned`), a zero limit (`zero_limit`), turning shared
+  subscriptions on (`shared_on`: a provider-terms risk the owner answers for). Not told, with a reason: turning
+  shared subscriptions off or the members' own connections on or off (no new risk; Activity log), renames, order and
+  normal limits (noise).
+- **A sign-in belongs to its starter and to the right door.** A team sign-in can be reached only through
+  `/api/admin/credential-logins`, a personal one only through `/api/me/...` (404 through the other). At store time a
+  team sign-in (Claude and ChatGPT) checks that its starter is still an active owner or admin
+  (`policy_changed` otherwise). Making someone a member ends their running team sign-ins; disabling them ends all
+  (`credentials/login.ts cancelLoginsOf`, called from `updateUser`). The owner or any admin can stop any **team**
+  sign-in (only one runs at a time, and a forgotten one blocked everybody for up to 16 minutes); the Activity log
+  says who (`credential.login_cancel`). Reading the address and sending the code stay the starter's alone.
+- **A member's own connection through the admin endpoints.** The owner keeps what the owner had. An admin may only
+  switch off or remove a **member's** (not the owner's, not another admin's), never rename, reorder, limit or
+  replace its key, and the member is told (live and in the inbox). Reversing it (switching it on again) is the
+  member's. This replaces the earlier "admins get the owner's powers here" line.
+- **Copy.** Texts for members who are told to ask now say owner or admin (all five languages).

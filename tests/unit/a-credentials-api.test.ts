@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { SealingKey } from '@mycel/shared/api'
 import { PRODUCT } from '../../shared/src/product'
 import { createLogger } from '../../server/src/log'
-import { credentialsOf, markInvalid, markNeedsReconnect } from '../../server/src/credentials/store'
+import { credentialsOf, markInvalid, markNeedsReconnect, noticeOwners } from '../../server/src/credentials/store'
 import { sealSecret } from '../../web/src/lib/seal'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 
@@ -294,28 +294,178 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     }
     await owner.try('DELETE', `/api/admin/credentials/${cid}`)
   })
+  const inbox = async (c: Client) => ((await c.call('GET', '/api/notifications')).items as any[]).filter((i) => i.eventType === 'credential.change')
+  test('the notice is also in the owner\'s inbox for when they are away: who, what, the name, never a key; the owner\'s own changes add none', async () => {
+    const before = (await inbox(owner)).length
+    const secret = AKEY('inboxkey')
+    const r = await adminCreate('anthropic-api-key', secret, { label: 'Inbox key' })
+    expect(r.status).toBe(201)
+    const items = await inbox(owner)
+    expect(items.length).toBe(before + 1)
+    expect(items[0]).toMatchObject({ code: 'credential.change', link: 'admin_credentials', readAt: null, credentialChange: { who: 'ADAM', action: 'added', subject: 'Inbox key' } })
+    expect(JSON.stringify(items)).not.toContain(secret)
+    // an admin sees nothing of it, and the owner's own changes add nothing
+    expect(await inbox(admin)).toEqual([])
+    await owner.call('PATCH', `/api/admin/credentials/${r.body.id}`, { label: 'Owner renamed it', disabled: true })
+    expect((await owner.try('DELETE', `/api/admin/credentials/${r.body.id}`)).status).toBe(204)
+    expect((await inbox(owner)).length).toBe(before + 1)
+  })
+  test('also told: giving a connection to other people, a zero limit, and turning shared subscriptions on', async () => {
+    const cid = (await adminCreate('anthropic-api-key', AKEY('also1'), { label: 'Also' })).body.id
+    const g = await owner.call('POST', '/api/admin/groups', { name: 'nobody-here', memberIds: [] })
+    told.length = 0
+    await admin.call('PATCH', `/api/admin/credentials/${cid}`, { assignments: [{ subjectType: 'group', subjectId: g.id }] })
+    expect(mine().map((m) => m.message.en)).toEqual(["ADAM changed who may use the team AI connection 'Also'."])
+    await admin.call('PATCH', `/api/admin/credentials/${cid}`, { spendLimit: { usd: 0, tokens: null, action: 'block' } })
+    expect(mine()[1]!.message.en).toBe("ADAM set the monthly limit of the team AI connection 'Also' to zero.")
+    // a normal limit, a rename and an order tell nobody
+    await admin.call('PATCH', `/api/admin/credentials/${cid}`, { spendLimit: { usd: 5, tokens: null, action: 'warn' }, label: 'Also 2', priority: 9 })
+    expect(mine()).toHaveLength(2)
+    // shared subscriptions: only turning them on (it answers for the provider terms), not off, not again
+    await owner.call('PATCH', '/api/admin/credential-settings', { sharedSubscriptions: false })
+    await admin.call('PATCH', '/api/admin/credential-settings', { memberOwn: false })
+    expect(mine()).toHaveLength(2)
+    await admin.call('PATCH', '/api/admin/credential-settings', { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })
+    expect(mine()).toHaveLength(3)
+    expect(mine()[2]!.message.en).toContain('turned on shared subscriptions')
+    await admin.call('PATCH', '/api/admin/credential-settings', { sharedSubscriptions: true, memberOwn: true })
+    expect(mine()).toHaveLength(3)
+    expect((await inbox(owner)).slice(0, 3).map((i) => i.credentialChange.action).sort()).toEqual(['reassigned', 'shared_on', 'zero_limit']) // same-millisecond rows come in any order
+    await owner.try('DELETE', `/api/admin/credentials/${cid}`)
+  })
+  test('a person who is no longer an admin (demoted a moment ago) is still reported to the owner', async () => {
+    told.length = 0
+    h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = ?").run(adminId)
+    try { noticeOwners(credentialsOf(h.ctx), adminId, 'added', 'Late one') } finally { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ?").run(adminId) }
+    expect(mine()).toHaveLength(1)
+    noticeOwners(credentialsOf(h.ctx), ownerId, 'added', 'Owner one')
+    expect(mine()).toHaveLength(1)
+  })
+  describe('connections members made for themselves', () => {
+    let ann: { client: Client; id: string; password: string }
+    let ownerMine = '', memberMine = '', adamMine = '', annMine = ''
+    const own = async (c: Client, secret: string) => (await c.call('POST', '/api/me/credentials', { kind: 'anthropic-api-key', label: 'own-' + secret.slice(13, 18), sealed: await sealed(secret) })).id as string
+    beforeAll(async () => {
+      ann = await addMember(h, owner, { username: 'ann', role: 'admin' })
+      await owner.call('PATCH', '/api/admin/credential-settings', { memberOwn: true })
+      memberMine = await own(member.client, AKEY('pmember'))
+      ownerMine = await own(owner, AKEY('powner'))
+      adamMine = await own(admin, AKEY('padam'))
+      annMine = await own(ann.client, AKEY('pann'))
+    })
+    test('an admin may only switch off or remove a member\'s, and the member is told; never the key, the name, the order or the limit', async () => {
+      told.length = 0
+      expect((await admin.try('PATCH', `/api/admin/credentials/${memberMine}`, { label: 'x' })).status).toBe(403)
+      expect((await admin.try('PATCH', `/api/admin/credentials/${memberMine}`, { priority: 1 })).status).toBe(403)
+      expect((await admin.try('PATCH', `/api/admin/credentials/${memberMine}`, { spendLimit: { usd: 1, tokens: null, action: 'block' } })).status).toBe(403)
+      expect((await admin.try('PATCH', `/api/admin/credentials/${memberMine}`, { disabled: true, label: 'x' })).status).toBe(403)
+      expect((await admin.try('POST', `/api/admin/credentials/${memberMine}/secret`, { sealed: await sealed(AKEY('swap'), 'credential.replace'), password: adminPw })).status).toBe(403)
+      expect(told).toEqual([])
+      expect((await admin.call('PATCH', `/api/admin/credentials/${memberMine}`, { disabled: true })).state).toBe('disabled')
+      expect(told.map((t) => [t.to, t.message.en])).toEqual([[[member.id], "ADAM turned off your AI connection 'own-pmemb'."]])
+      const mi = ((await member.client.call('GET', '/api/notifications')).items as any[]).filter((i) => i.eventType === 'credential.change')
+      expect(mi[0]).toMatchObject({ link: null, credentialChange: { who: 'ADAM', action: 'personal_disabled', subject: 'own-pmemb' } })
+      // switching it back on is the member\'s
+      expect((await admin.try('PATCH', `/api/admin/credentials/${memberMine}`, { disabled: false })).status).toBe(403)
+      expect((await admin.try('DELETE', `/api/admin/credentials/${memberMine}`)).status).toBe(204)
+      expect(told.at(-1)!.message.en).toBe("ADAM removed your AI connection 'own-pmemb'.")
+      expect((await member.client.try('DELETE', `/api/me/credentials/${memberMine}`)).status).toBe(404)
+    })
+    test('an admin may not touch the owner\'s or another admin\'s own connection, in any way', async () => {
+      told.length = 0
+      for (const id of [ownerMine, annMine]) {
+        expect((await admin.try('PATCH', `/api/admin/credentials/${id}`, { disabled: true })).status).toBe(403)
+        expect((await admin.try('DELETE', `/api/admin/credentials/${id}`)).status).toBe(403)
+        expect((await admin.try('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(AKEY('swap2'), 'credential.replace'), password: adminPw })).status).toBe(403)
+      }
+      expect((await ann.client.try('DELETE', `/api/admin/credentials/${adamMine}`)).status).toBe(403)
+      expect(told).toEqual([])
+      expect((await owner.call('GET', '/api/admin/credentials')).items.filter((x: any) => x.scope === 'personal').map((x: any) => x.id).sort()).toEqual([adamMine, annMine, ownerMine].sort())
+    })
+    test('the owner keeps what the owner had: switch off, remove (and the member is told); the holder removes their own without a notice', async () => {
+      told.length = 0
+      expect((await owner.call('PATCH', `/api/admin/credentials/${annMine}`, { disabled: true })).state).toBe('disabled')
+      expect(told.map((t) => t.to)).toEqual([[ann.id]])
+      expect((await owner.try('DELETE', `/api/admin/credentials/${annMine}`)).status).toBe(204)
+      told.length = 0
+      expect((await admin.try('DELETE', `/api/me/credentials/${adamMine}`)).status).toBe(204)
+      expect((await owner.try('DELETE', `/api/me/credentials/${ownerMine}`)).status).toBe(204)
+      expect(told).toEqual([])
+    })
+  })
   test('an admin changes the settings of the team\'s connections (members\' own)', async () => {
     expect(await admin.call('PATCH', '/api/admin/credential-settings', { memberOwn: true })).toMatchObject({ memberOwn: true })
   })
-  test('an admin edits the API engine settings; the owner is told (never the key); the owner\'s own edit tells nobody', async () => {
+  const PUBLIC = 'https://93.184.216.34/v1' // a literal public address: no DNS lookup in the test
+  test('an admin edits the API engine settings with their own password; the owner is told (host and model, never the key); the owner\'s own edit tells nobody', async () => {
     told.length = 0
     const keyText = 'engine-key-' + 'q'.repeat(24)
-    const body = { baseUrl: 'http://127.0.0.1:9/v1', model: 'team-model', label: 'Team API', key: keyText }
-    const r = await admin.call('PUT', '/api/admin/engines/api-config', body)
+    const body = { baseUrl: PUBLIC, model: 'team-model', label: 'Team API', key: keyText }
+    // the password again: none = 400, the owner's typed by the admin = 403
+    expect((await admin.try('PUT', '/api/admin/engines/api-config', body)).status).toBe(400)
+    expect((await admin.try('PUT', '/api/admin/engines/api-config', { ...body, password: OWNER_PW })).status).toBe(403)
+    expect(mine()).toHaveLength(0)
+    const r = await admin.call('PUT', '/api/admin/engines/api-config', { ...body, password: adminPw })
     expect(r).toEqual({ baseUrl: body.baseUrl, model: 'team-model', label: 'Team API', hasKey: true })
     expect(await admin.call('GET', '/api/admin/engines/api-config')).toEqual(r)
     expect(mine()).toHaveLength(1)
     expect(mine()[0]!.to).toEqual([ownerId])
-    expect(mine()[0]!.message.en).toBe('ADAM changed the team API engine settings (team-model).')
+    expect(mine()[0]!.message.en).toBe('ADAM changed the team API engine settings (93.184.216.34, team-model).')
     expect(JSON.stringify(told)).not.toContain(keyText)
     expect(h.ctx.db.query("SELECT actor_id AS actor FROM audit_log WHERE action = 'engines.api' ORDER BY rowid DESC").get()).toEqual({ actor: adminId })
     expect(JSON.stringify(h.ctx.db.query('SELECT detail FROM audit_log WHERE action = ?').all('engines.api'))).not.toContain(keyText)
     told.length = 0
-    expect(await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'owner-model', label: 'Team API' })).toMatchObject({ model: 'owner-model', hasKey: true })
+    expect(await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'owner-model', label: 'Team API', password: OWNER_PW })).toMatchObject({ model: 'owner-model', hasKey: true })
     expect(mine()).toHaveLength(0)
-    // and the other way round: the admin may change what the owner set
-    expect(await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'back', label: 'Team API', key: null })).toMatchObject({ model: 'back', hasKey: false })
-    expect(mine()).toHaveLength(1)
+    // and the other way round: the admin may change what the owner set (same address: the key stays)
+    expect(await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'again', label: 'Team API', password: adminPw })).toMatchObject({ model: 'again', hasKey: true })
+    expect(await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'back', label: 'Team API', key: null, password: adminPw })).toMatchObject({ model: 'back', hasKey: false })
+    expect(mine()).toHaveLength(2)
+  })
+  test('the stored key never goes to a new address: a changed address needs a key of its own (or null), the check sends nothing old', async () => {
+    const seen: { auth: string | null; path: string }[] = []
+    const sink = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) { seen.push({ auth: req.headers.get('authorization'), path: new URL(req.url).pathname }); return Response.json({ data: [{ id: 'm' }] }) } })
+    try {
+      const A = `http://127.0.0.1:${fake.port}/v1`
+      const B = `http://127.0.0.1:${sink.port}/v1`
+      const OLD = 'owners-engine-key-' + 'z'.repeat(20)
+      // the owner sets a local address with a key (a private address is the owner's to set)
+      await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: A, model: 'm', label: 'x', key: OLD, password: OWNER_PW })
+      // an admin cannot point it at a private address, with or without a key, and the owner's key stays where it was
+      for (const key of [undefined, 'attacker-' + 'k'.repeat(20), null]) {
+        const r = await admin.try('PUT', '/api/admin/engines/api-config', { baseUrl: B, model: 'm', label: 'x', password: adminPw, ...(key !== undefined ? { key } : {}) })
+        expect(r.status).toBe(403)
+        expect(r.body.error.fields['body.baseUrl']).toBe('owner_only_address')
+      }
+      expect(await owner.call('GET', '/api/admin/engines/api-config')).toMatchObject({ baseUrl: A, hasKey: true })
+      // an admin may still change the model at the address that is set (a private address already there is left alone)
+      expect(await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: A, model: 'm2', label: 'x', password: adminPw })).toMatchObject({ baseUrl: A, model: 'm2', hasKey: true })
+      // a changed address without a key: refused for everybody, nothing written
+      for (const c of [owner, admin]) {
+        const r = await c.try('PUT', '/api/admin/engines/api-config', { baseUrl: B, model: 'm', label: 'x', password: c === owner ? OWNER_PW : adminPw })
+        expect(r.status).toBe(c === owner ? 400 : 403) // the admin is stopped by the address rule first
+      }
+      const refused = await owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: B, model: 'm', label: 'x', password: OWNER_PW })
+      expect(refused.status).toBe(400)
+      expect(refused.body.error.fields['body.key']).toBeDefined()
+      expect(await owner.call('GET', '/api/admin/engines/api-config')).toMatchObject({ baseUrl: A, hasKey: true })
+      // the same host on another port is another address too; the path alone is not
+      expect((await owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: B, model: 'm', label: 'x', password: OWNER_PW })).status).toBe(400)
+      expect(await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: A + '/', model: 'm', label: 'x', password: OWNER_PW })).toMatchObject({ hasKey: true })
+      // the owner moves it with a key for the new address; the check sends that key, never the old one
+      await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: B, model: 'm', label: 'x', key: 'new-key-' + 'n'.repeat(20), password: OWNER_PW })
+      await admin.call('POST', '/api/admin/engines/api/check')
+      expect(seen.length).toBeGreaterThan(0)
+      expect(seen.every((x) => x.auth === 'Bearer new-key-' + 'n'.repeat(20))).toBe(true)
+      expect(JSON.stringify(seen)).not.toContain(OLD)
+      // or with the key removed: nothing is sent
+      seen.length = 0
+      await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: A, model: 'm', label: 'x', key: null, password: OWNER_PW })
+      await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: B, model: 'm', label: 'x', password: OWNER_PW }) // no key stored: nothing to protect
+      await admin.call('POST', '/api/admin/engines/api/check')
+      expect(seen.length).toBeGreaterThan(0)
+      expect(seen.every((x) => x.auth === null)).toBe(true)
+    } finally { sink.stop(true) }
   })
 })
 

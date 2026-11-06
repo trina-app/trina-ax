@@ -213,7 +213,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/admin/access/edit-preview` | Admin | What saving these rules on one folder would change: who loses and gains access there and below, what "follow the folder above" gives now, warnings, and the hash of the rules now. Nothing is saved. |
 | `GET` | `/api/admin/engines` | Admin | Engine install/login/lockdown status, models, defaults, concurrency. |
 | `GET` | `/api/admin/engines/api-config` | Admin | The team API engine settings (the key is never returned, only whether one is set). |
-| `PUT` | `/api/admin/engines/api-config` | Admin | Set the team API engine: OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep. |
+| `PUT` | `/api/admin/engines/api-config` | Admin + password | Set the team API engine (the caller's own password again): OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep it. A changed address (scheme, host or port) never keeps the old key: send a key for it, or null (400 otherwise). An admin cannot set a private, loopback or link-local address (403; the owner can). |
 | `PATCH` | `/api/admin/engines` | Admin | Defaults, concurrency, enable/disable, who else may pick the engine, Claude-limit fallback to Codex. |
 | `POST` | `/api/admin/engines/:id/check` | Admin | Re-check one engine now (bounded, no model call unless needed). |
 | `GET` | `/api/admin/budgets` | Admin | Budgets with current spend. |

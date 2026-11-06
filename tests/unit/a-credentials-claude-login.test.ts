@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { API, type CredentialLogin, type SealingKey } from '@mycel/shared/api'
-import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { startHarness, testSessions, type Harness, type TestSocket } from '../lib/b-harness'
 import { FAKE_CLAUDE_GOOD_CODE, FAKE_CLAUDE_TOKEN, FAKE_CLAUDE_URL } from '../lib/fake-claude-login'
 import { credentialLogins, type LoginDeps } from '../../server/src/credentials/login'
 import { credentialsOf, getRow, listRows, secretOf } from '../../server/src/credentials/store'
@@ -66,7 +66,11 @@ const deps: LoginDeps = {
   },
 }
 const logins = () => credentialLogins(credentialsOf(h.ctx), deps)
+const realVerify = testSessions.verifyPassword
+const PW = (user: string) => `pw-${user}`
 beforeAll(async () => {
+  // the harness's sessions check no password; here each person's own is `pw-<id>` (the team's AI steps ask for it again)
+  testSessions.verifyPassword = async (userId: string, pw: string) => pw === PW(userId)
   h = await startHarness({ name: 'a-cred-claude-login', allowCmds: [claudeBin], proxyDial: dial, credentials: [], upstreams: { anthropic: `http://127.0.0.1:${anthropic.port}` },
     log: createLogger({ level: 'debug', name: 'test', sink: (l) => logLines.push(l) }) })
   logins() // the sign-ins of this server use the stand-in above
@@ -77,7 +81,7 @@ beforeAll(async () => {
   bob = await h.ws('bob', { windowId: 'win-bob-cl' }); await bob.next('hello')
   key = await h.api('dana').call(API.sealingKey)
 })
-afterAll(async () => { dana?.close(); alice?.close(); bob?.close(); await h?.close(); echo.close(); anthropic.stop(true); fs.rmSync(R, { recursive: true, force: true }) })
+afterAll(async () => { testSessions.verifyPassword = realVerify; dana?.close(); alice?.close(); bob?.close(); await h?.close(); echo.close(); anthropic.stop(true); fs.rmSync(R, { recursive: true, force: true }) })
 
 const loginDir = () => path.join(h.ctx.engineConfig.agentRoot, '.claude-login')
 const leftovers = () => (fs.existsSync(loginDir()) ? fs.readdirSync(loginDir()) : [])
@@ -361,22 +365,32 @@ describe('Claude sign-in started by an admin', () => {
   beforeAll(async () => { carol = await h.ws('carol', { windowId: 'win-carol-cl' }); await carol.next('hello') })
   afterAll(() => carol?.close())
   const adminToken = 'sk-ant-oat01-' + 'carolAdminToken'.repeat(6)
+  const json = { 'content-type': 'application/json' }
+  const startOver = (user: string, password: string, label = 'Carol Claude') => h.req(user, '/api/admin/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label, assignments: [], priority: 100, acknowledgedPlanNotice: true, password }) })
+  const setRole = (id: string, role: string) => h.ctx.db.query('UPDATE users SET role = ? WHERE id = ?').run(role, id)
 
-  test('end to end over HTTP: the address and the state go to the admin who started it, not to the owner; the owner is told', async () => {
+  test('end to end over HTTP with the admin\'s own password: the address and the state go to the admin who started it, not to the owner; the owner is told', async () => {
     setFake({ FAKE_CLAUDE_TOKEN: adminToken })
     try {
       const ownerFramesBefore = dana.frames.length
-      // the password again is the admin's own: the owner's is refused for her
-      const wrong = await h.req('carol', '/api/admin/credential-logins', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'anthropic-oauth', label: 'Carol Claude', assignments: [], priority: 100, acknowledgedPlanNotice: true, password: 'not-her-password' }) })
-      expect(wrong.status).toBe(403)
-      const started = logins().start({ userId: 'carol', locale: 'en', personal: false, kind: 'anthropic-oauth', label: 'Carol Claude', assignments: [], priority: 100 })
-      const s = await started
+      // the password again is the admin's own: none, a wrong one and the owner's typed by her are refused; a member is refused anyway
+      expect((await startOver('carol', 'not-her-password')).status).toBe(403)
+      expect((await startOver('carol', PW('dana'))).status).toBe(403)
+      expect((await startOver('alice', PW('alice'))).status).toBe(403)
+      const none = await h.req('carol', '/api/admin/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 100, acknowledgedPlanNotice: true }) })
+      expect(none.status).toBe(400)
+      expect(leftovers()).toEqual([])
+      const started = await startOver('carol', PW('carol'))
+      expect(started.status).toBe(202)
+      const s = (await started.json()) as CredentialLogin
       const w = await waiting(carol, s.loginId)
       expect(w).toMatchObject({ kind: 'anthropic-oauth', url: FAKE_CLAUDE_URL })
-      // the owner cannot read, answer or cancel an admin's sign-in, and does not see its frames
+      // the owner cannot read or answer an admin's sign-in, and does not see its frames
       expect((await h.req('dana', `/api/admin/credential-logins/${s.loginId}`)).status).toBe(404)
       expect((await postCode('dana', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(404)
-      expect((await h.req('dana', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })).status).toBe(404)
+      // a team sign-in is not reachable through the members' door, not even by its starter
+      expect((await h.req('carol', `/api/me/credential-logins/${s.loginId}`)).status).toBe(404)
+      expect((await postCode('carol', 'me', s.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(404)
       // the admin reads it (GET), pastes the code (sealed), and the connection is stored for the team
       expect((await h.req('carol', `/api/admin/credential-logins/${s.loginId}`)).status).toBe(200)
       const r = await postCode('carol', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)
@@ -386,14 +400,74 @@ describe('Claude sign-in started by an admin', () => {
       expect(done.credential).toMatchObject({ kind: 'anthropic-oauth', label: 'Carol Claude', scope: 'team', state: 'ok' })
       expect(getRow(h.ctx.db, done.credential!.id)!.created_by).toBe('carol')
       expect(dana.frames.slice(ownerFramesBefore).some((f) => f.type === 'credential.login')).toBe(false)
-      // the owner got a short notice: who and what, never the token
+      // the owner got a short notice, live and in the inbox: who and what, never the token
       const notice = await dana.next('notice', (f) => f.data.code === 'credential_admin_change', 10_000)
       expect(notice.data.message).toContain('Carol Park')
       expect(notice.data.message).toContain('Carol Claude')
+      const inbox = ((await (await h.req('dana', '/api/notifications')).json()) as { items: { eventType: string; credentialChange?: { who: string; action: string; subject: string } }[] }).items
+      expect(inbox.find((i) => i.eventType === 'credential.change')?.credentialChange).toEqual({ who: 'Carol Park', action: 'added', subject: 'Carol Claude' })
       expect(JSON.stringify(dana.frames)).not.toContain(adminToken)
+      expect(JSON.stringify(inbox)).not.toContain(adminToken)
       expect(everything()).not.toContain(adminToken)
       expect(leftovers()).toEqual([])
     } finally { setFake({}) }
+  })
+
+  test('the owner (or an admin) stops any team sign-in, so a forgotten one does not block for 16 minutes; a member\'s own stays theirs', async () => {
+    const s = await team('Forgotten', { userId: 'carol' })
+    await waiting(carol, s.loginId)
+    expect(logins().all.get(s.loginId)?.userId).toBe('carol')
+    // a second one cannot start meanwhile (one at a time)
+    expect((await startOver('dana', PW('dana'), 'Owner wants it')).status).toBe(409)
+    expect((await h.req('alice', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })).status).toBe(403)
+    expect((await h.req('dana', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })).status).toBe(204)
+    expect((await final(carol, s.loginId)).state).toBe('cancelled')
+    const a = h.ctx.db.query("SELECT actor_id FROM audit_log WHERE action = 'credential.login_cancel' AND target = ?").get(s.loginId) as { actor_id: string }
+    expect(a.actor_id).toBe('dana')
+    expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+    // a member's own sign-in: the owner's admin door does not reach it
+    const own = await h.api('alice').call(API.startMyCredentialLogin, { body: { kind: 'anthropic-oauth', label: 'mine', acknowledgedPlanNotice: true } })
+    await waiting(alice, own.loginId)
+    expect((await h.req('dana', `/api/admin/credential-logins/${own.loginId}`, { method: 'DELETE' })).status).toBe(404)
+    expect((await h.req('alice', `/api/me/credential-logins/${own.loginId}`, { method: 'DELETE' })).status).toBe(204)
+    await final(alice, own.loginId)
+  })
+
+  test('an admin made a member (or disabled) while signing in: the sign-in is stopped, and one already past the code stores nothing', async () => {
+    try {
+      // demoted by the owner (the real route) while it waits for the code: stopped now
+      const s = await team('Demoted', { userId: 'carol' })
+      await waiting(carol, s.loginId)
+      expect((await h.req('dana', '/api/admin/users/carol', { method: 'PATCH', headers: json, body: JSON.stringify({ role: 'member' }) })).status).toBe(200)
+      expect(logins().all.get(s.loginId)!.state).toBe('cancelled')
+      expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+      setRole('carol', 'admin')
+      // the code was already sent when the role went: the store step looks again and keeps nothing
+      setFake({ FAKE_CLAUDE_TOKEN: 'sk-ant-oat01-' + 'demotedLate'.repeat(8) })
+      const before = listRows(h.ctx.db).length
+      const late = await team('Demoted late', { userId: 'carol' })
+      await waiting(carol, late.loginId)
+      expect((await postCode('carol', 'admin', late.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(200)
+      setRole('carol', 'member')
+      expect(await final(carol, late.loginId)).toMatchObject({ state: 'failed', reason: 'policy_changed' })
+      expect(listRows(h.ctx.db).length).toBe(before)
+      setRole('carol', 'admin')
+      // disabled: every running sign-in of theirs ends, their own personal one too
+      const again = await team('Disabled', { userId: 'carol' })
+      await waiting(carol, again.loginId)
+      expect((await h.req('dana', '/api/admin/users/carol', { method: 'PATCH', headers: json, body: JSON.stringify({ status: 'disabled' }) })).status).toBe(200)
+      expect(logins().all.get(again.loginId)!.state).toBe('cancelled')
+      expect((await h.req('dana', '/api/admin/users/carol', { method: 'PATCH', headers: json, body: JSON.stringify({ status: 'active' }) })).status).toBe(200)
+    } finally { setRole('carol', 'admin'); setFake({}) }
+  })
+
+  test('a ChatGPT team sign-in also looks at its starter\'s role when it stores (a member, a disabled admin: refused)', () => {
+    const store = (userId: string) => (logins() as unknown as { storeChatgpt(l: unknown, json: string): { ok: boolean; reason?: string } }).storeChatgpt({ userId, personal: false, label: 'x', assignments: [], priority: 100, reconnectId: null }, '{}')
+    expect(store('alice')).toEqual({ ok: false, reason: 'policy_changed' })
+    h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'carol'").run()
+    try { expect(store('carol')).toEqual({ ok: false, reason: 'policy_changed' }) } finally { h.ctx.db.query("UPDATE users SET status = 'active' WHERE id = 'carol'").run() }
+    // an active admin gets past the role check (this empty file is then refused for what it is)
+    expect(store('carol')).toEqual({ ok: false, reason: 'incomplete' })
   })
 })
 

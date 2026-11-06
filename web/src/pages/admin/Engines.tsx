@@ -177,16 +177,16 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   const t = useT()
   const act = useAction()
   const state = useLoad(() => api.call(API.getApiEngine))
-  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string } | null>(null)
+  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string; password: string } | null>(null)
   useEffect(() => {
-    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '' })
+    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '', password: '' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.data])
   const preset = API_PRESETS.find((p) => p.baseUrl === form?.baseUrl)?.id ?? 'custom'
   const save = async (key?: string | null) => {
     if (!form) return
-    const r = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}) } }), t('common.saved'))
-    if (r) { state.setData(r); setForm({ ...form, key: '' }); onSaved() }
+    const r = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}), password: form.password } }), t('common.saved'))
+    if (r) { state.setData(r); setForm({ ...form, key: '', password: '' }); onSaved() }
   }
   return (
     <div className="rounded-xl border border-line p-4">
@@ -215,9 +215,12 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
           <Field label={t('engines.api.key')}>
             <input type="password" autoComplete="off" className={inputCls} value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder={state.data?.hasKey ? t('engines.api.keyKeep') : 'sk-…'} />
           </Field>
+          <Field label={t('credentials.reauth')}>
+            <input type="password" autoComplete="current-password" className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="api-engine-password" />
+          </Field>
           <div className="flex items-end gap-2">
-            <Button disabled={!form.baseUrl.trim() || !form.model.trim()} onClick={() => void save(form.key.trim() ? form.key.trim() : undefined)}>{t('engines.api.save')}</Button>
-            {state.data?.hasKey && <Button variant="ghost" onClick={() => void save(null)}>{t('engines.api.keyRemove')}</Button>}
+            <Button disabled={!form.baseUrl.trim() || !form.model.trim() || !form.password} onClick={() => void save(form.key.trim() ? form.key.trim() : undefined)}>{t('engines.api.save')}</Button>
+            {state.data?.hasKey && <Button variant="ghost" disabled={!form.password} onClick={() => void save(null)}>{t('engines.api.keyRemove')}</Button>}
           </div>
         </div>
       )}

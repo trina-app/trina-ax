@@ -12,6 +12,7 @@ import { ConfigError, loadAppConfig, readDemoFile } from '../../server/src/app-c
 import { featuresOf } from '../../server/src/system/deployment'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 
+const SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'A'.repeat(16), ct: 'A'.repeat(40) } // well-formed, never opened
 const PW = 'demo public words 42'
 const DEMO: DemoFile = {
   company: 'Acme',
@@ -187,6 +188,21 @@ describe('with MYCEL_DEMO on a development server', () => {
     expect(featuresOf({ mode: 'dev' })).toMatchObject({ connectedFolders: true, pluginFileInstall: true, apiEngineAnyUrl: true })
     // the owner is still the owner (transfer refused)
     expect((await owner.call('GET', API.me.path)).user.role).toBe('owner')
+  })
+
+  test('the password re-checks of the team\'s AI (admin-reauth: an admin\'s or the owner\'s own) are off in a demo too, before the password is looked at', async () => {
+    const admin = await addMember(h, owner, { username: 'demoadmin', role: 'admin', password: 'admin demo words 77' })
+    const probes: [string, string, object][] = [
+      ['POST', API.createCredential.path, { kind: 'anthropic-api-key', label: 'x', sealed: SEALED, password: 'admin demo words 77' }],
+      ['POST', API.startCredentialLogin.path, { kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 1, acknowledgedPlanNotice: true, password: 'admin demo words 77' }],
+      ['POST', API.replaceCredentialSecret.path.replace(':id', '00000000-0000-7000-8000-000000000000'), { sealed: SEALED, password: 'admin demo words 77' }],
+      ['PUT', API.putApiEngine.path, { baseUrl: 'https://93.184.216.34/v1', model: 'm', password: 'admin demo words 77' }],
+    ]
+    for (const [m, path, body] of probes) {
+      const r = await admin.client.try(m, path, body)
+      expect(r.status, path).toBe(403)
+      expect(r.body.error.message, path).toContain('데모')
+    }
   })
 
   test('the routes check the mode again: a non-development config never answers', async () => {
