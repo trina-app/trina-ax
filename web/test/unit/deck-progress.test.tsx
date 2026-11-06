@@ -2,7 +2,7 @@
 // components/chat/DeckProgress.tsx): the builds a chat keeps from deck.progress events and the list (an older picture
 // never replaces a newer one), the live line in the screen's language with Korean particles by the last syllable, the
 // four steps and their times, the chat's block in each state (reading, slides, review, done folded, stopped), the
-// panel opening by itself on a computer only, and the "done" toast only when the chat is not on screen.
+// panel opening by itself on a computer only, and no "done" toast of its own (session markers tell it like any answer).
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import type { ReactNode } from 'react'
 import { DECK_ARTIFACT_KEY, DeckBuild as DeckBuildSchema, uuidv7, type DeckBuild, type DeckBuildSlide, type Locale, type Step } from '@mycel/shared/api'
@@ -10,7 +10,7 @@ import { format, koEul, translate, useLocaleStore, type MessageKey, type Params 
 import { deckRows, mergeBuild, nowLine, readCounts, readLine, readsForDeck, runsDeckSkill, showsBuild, tierMinutes, tileState, BUILDS_KEPT } from '../../src/lib/deckProgress'
 import DeckProgress from '../../src/components/chat/DeckProgress'
 import { Toaster } from '../../src/components/ui'
-import { useDeckBuilds } from '../../src/store/deckBuilds'
+import { openDeckChat, useDeckBuilds } from '../../src/store/deckBuilds'
 import { useChats } from '../../src/store/chats'
 import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom } from './dom-host'
@@ -324,41 +324,22 @@ describe('the store', () => {
     expect(useChats.getState().buildOpened).toEqual({})
   })
 
-  test('done while the chat is not on screen: a toast with the cover, the slides and the time, [열기]; a dot until opened', () => {
-    elsewhere('/files')
-    ev(build({ done: 8 }))
-    ev(build({ phase: 'done' }))
-    const toasts = useUi.getState().toasts
-    expect(toasts).toHaveLength(1)
-    expect(toasts[0]).toMatchObject({ level: 'info', text: '회사 소개서가 다 됐어요', detail: '9장 · 2분 34초', action: { label: '열기', primary: true } })
-    expect(toasts[0]!.image).toBe('/api/intro-decks/builds/b1/slides/0?v=1')
-    expect(useDeckBuilds.getState().unseen).toEqual({ [CHAT]: true })
-    // the same end again (a reconnect, the list): said once
-    ev(build({ phase: 'done' }))
-    expect(useUi.getState().toasts).toHaveLength(1)
-    // the window has the focus: no system notification
-    expect(notified).toEqual([])
-    useDeckBuilds.getState().seen(CHAT)
-    expect(useDeckBuilds.getState().unseen).toEqual({})
+  test('done: no toast, dot or notification of its own (the chat\'s session marker and the one rule tell it)', () => {
+    for (const [path, focused] of [['/files', true], [`/c/${CHAT}`, false], ['/files', false]] as const) {
+      useDeckBuilds.getState().reset()
+      elsewhere(path, focused)
+      ev(build({ done: 8 }))
+      ev(build({ phase: 'done' }))
+      expect(useUi.getState().toasts).toEqual([])
+      expect(notified).toEqual([])
+      expect('unseen' in useDeckBuilds.getState()).toBe(false)
+    }
   })
 
-  test('done in the chat on screen: no toast and no dot (the chat shows it); a system notification while the window is not focused', () => {
-    elsewhere(`/c/${CHAT}`, false)
-    ev(build({ done: 8 }))
-    ev(build({ phase: 'done' }))
-    expect(useUi.getState().toasts).toEqual([])
-    expect(useDeckBuilds.getState().unseen).toEqual({})
-    expect(notified).toEqual([{ title: '회사 소개서가 다 됐어요', body: 'Acme 회사 소개서 · 9장 · 2분 34초', tag: 'deck-b1' } as never])
-  })
-
-  test('[열기] goes to that chat and asks for the deck beside it', () => {
-    elsewhere('/files')
+  test('[열기] (a toast or a notification of the deck\'s chat) goes to that chat and asks for the deck beside it', () => {
     const went: string[] = []
     stub('location', { pathname: '/files', assign: (to: string) => went.push(to) })
-    ev(build({ done: 8 }))
-    ev(build({ phase: 'done' }))
-    useChats.setState({ autoOpen: null })
-    useUi.getState().toasts[0]!.action!.run()
+    openDeckChat(CHAT)
     expect(went).toEqual([`/c/${CHAT}`])
     expect(useChats.getState().autoOpen).toMatchObject({ chatId: CHAT, key: DECK_ARTIFACT_KEY })
   })

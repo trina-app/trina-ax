@@ -230,6 +230,10 @@ export class TurnExec {
    * (integrations/connections/redact.ts); read again after each tool call (a call may refresh a token) */
   private redactorNow: Redactor | null = null
   private readonly answerText = new RedactingText(() => this.redactor())
+  /** when the turn left the queue: how long its answer ran (ChatRuntime.longAnswerMs) */
+  private readonly startedAt = performance.now()
+  /** finish() runs: the cards it closes send nothing on their own (the turn's end sends the chat once) */
+  private finishing = false
 
   constructor(readonly rt: ChatRuntime, readonly spec: TurnSpec) {
     this.done = new Promise((r) => (this.resolveDone = r))
@@ -1579,12 +1583,28 @@ export class TurnExec {
       this.humanWaits++
       const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request } }
       if (o.window) this.rt.hub.publishTo(this.spec.userId, o.window, ev)
-      else {
-        this.rt.hub.publish(this.spec.userId, ev)
-        // the chat list says it waits (Chat.waiting), in every window and on every device
-        this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated')
-      }
+      else this.rt.hub.publish(this.spec.userId, ev)
+      this.cardsChanged(o.window ?? null, true)
     })
+  }
+
+  /** A live change of this turn is worth telling the person about (docs/DECISIONS.md "Session markers"): never a
+   * scheduled run (it has the Inbox and push) or a question asked from Slack (the answer goes back there, and Slack is
+   * told when a card waits in the app). */
+  private get tells(): boolean { return this.spec.clientKind !== 'schedule' && this.spec.clientKind !== 'slack' }
+
+  /** A card opened or closed. The chat list says the AI waits (Chat.waiting) for a card every window shows, in every
+   * window and on every device; a card one desktop window shows alone changes no list, but that window hears that it
+   * opened (it tells the person like any card). In a room: the room's "?" of the person who asked (Room.aiWaits).
+   * The cards finish() closes send nothing: the end of the turn sends the chat once. */
+  private cardsChanged(window: string | null, opened: boolean) {
+    try {
+      if (this.room) { this.rt.rooms?.waiting?.({ roomId: this.room.roomId, userId: this.spec.userId }); return }
+      if (this.finishing) return
+      const notify = opened && this.tells ? { notify: 'card' as const } : {}
+      if (!window) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', notify)
+      else if (opened && this.tells) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', { ...notify, window })
+    } catch (e) { this.rt.log.warn('session marker event failed', { err: e, turn: this.id }) }
   }
 
   /** POST /api/turns/:id/answer. 'closed' = no such open request (already answered / expired); 'not_an_option' = a
@@ -1617,10 +1637,8 @@ export class TurnExec {
     this.humanWaits = Math.max(0, this.humanWaits - 1)
     const ev = { type: 'turn.request.closed' as const, data: { turnId: this.id, requestId, reason } }
     if (r.window) this.rt.hub.publishTo(this.spec.userId, r.window, ev)
-    else {
-      this.rt.hub.publish(this.spec.userId, ev)
-      this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated')
-    }
+    else this.rt.hub.publish(this.spec.userId, ev)
+    this.cardsChanged(r.window, false)
     r.resolve(value)
   }
 
@@ -1689,6 +1707,8 @@ export class TurnExec {
   }
 
   private async finish() {
+    // the cards it closes below change nothing on their own: the end of the turn sends the chat once
+    this.finishing = true
     if (this.saver) clearInterval(this.saver)
     this.flushText()
     // a room session: every read of this turn is in the read scope before the room decides where the answer goes
@@ -1778,7 +1798,14 @@ export class TurnExec {
     const row = this.rt.store.messageRow(this.spec.assistantId)
     if (this.room) this.rt.roomEnded(this.id)
     else if (row) this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message: this.rt.store.toMessage(row) } })
-    this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated')
+    // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
+    // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
+    // run or a question from Slack (this.tells)
+    const long = status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && performance.now() - this.startedAt >= this.rt.longAnswerMs
+    // a question asked from Slack got its answer there: the chat is not left unseen (no dot, nothing in the count for
+    // every Slack thread); a card it raised still shows its "?" (Chat.waiting) until it is answered in the app
+    if (this.spec.clientKind === 'slack') { try { this.rt.store.markSeen(this.spec.chatId) } catch (e) { this.rt.log.warn('marking a Slack chat seen failed', { err: e, turn: this.id }) } }
+    this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
     this.resolveDone()
   }
 }

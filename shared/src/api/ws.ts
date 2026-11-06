@@ -193,7 +193,10 @@ export const ServerEvent = z.discriminatedUnion('type', [
     chatId: Uuid7, messageId: Uuid7.nullable(), key: z.string(), type: ArtifactType, title: z.string().nullable(),
     status: z.enum(['writing', 'done']), content: z.string().optional(), artifact: ArtifactSummary.nullable(),
   })),
-  ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable() })),
+  /** `notify`: a live change worth telling the person about (docs/DECISIONS.md "Session markers"): 'card', a card of the
+   * AI opened (to the windows that show it); 'answer', an answer that ran about a minute or longer ended. Never for an
+   * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing. */
+  ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional() })),
   /** only paths this person can read (file screen refresh) */
   ev('files.changed', z.object({ changes: z.array(FileChange) })),
   /** someone's save met a newer version: theirs became `copyPath` next to `path` (sent to the saver and to whoever
@@ -221,7 +224,12 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('credential.login', CredentialLogin),
   /** room events go to the room's members only (shared/src/api/rooms.ts). A new message (also to the sender's other
    * windows; dedupe by message id) */
-  ev('room.message', z.object({ roomId: Uuid7, message: RoomMessage })),
+  ev('room.message', z.object({ roomId: Uuid7, message: RoomMessage,
+    /** this recipient got a notice of it (rooms/service.ts notify: an @mention, a DM or group chat message, a reply in a
+     * thread they follow; not muted, their "room messages" notification setting on, the first of an unread run): what
+     * the Inbox and push show, so the desktop app may tell it too. Absent: no notice for them (docs/DECISIONS.md
+     * "Session markers"). */
+    notice: z.enum(['room.mention', 'room.dm']).optional() })),
   /** a message was edited or deleted (deleted: body '' and deletedAt set, files gone) */
   ev('room.message.updated', z.object({ roomId: Uuid7, message: RoomMessage })),
   /** I read the room in another window or on another device: my position and my badge for it. Only to me (nobody is

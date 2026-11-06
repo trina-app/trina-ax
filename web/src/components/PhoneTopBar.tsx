@@ -6,11 +6,13 @@
 //                    readers only, so the name is not said twice)
 // Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
 // the tab's list in place of this entry (lib/back.ts), so the phone's own back never loops. Every button is 44 px.
+import clsx from 'clsx'
 import { ChevronLeft, Menu, MessageCirclePlus } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useT } from '../i18n'
 import { useGoBack } from '../lib/back'
 import { aiName, hidesTabs, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../lib/tabs'
+import { useAttention } from '../store/sessionMarkers'
 import { useUi } from '../store/ui'
 import { IconButton } from './ui'
 
@@ -21,6 +23,7 @@ export function PhoneTopBar() {
   const navigate = useNavigate()
   const { pathname: path, search } = useLocation()
   const setDrawer = useUi((s) => s.setDrawer)
+  const attention = useAttention()
   const tab = tabOf(path)
   const back = useGoBack(TAB_ROOT[tab ?? START_TAB])
   if (hidesTabs(path) || tab === 'files') return null
@@ -32,8 +35,11 @@ export function PhoneTopBar() {
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
       {home ? (
-        <IconButton label={t('sidebar.open')} onClick={() => setDrawer(true)} className={icon} data-testid="menu-open">
+        // a dot when an AI chat in the drawer wants me (session markers: a "?" or a new answer), amber when one is a "?";
+        // the rooms' part of the count is the 대화 tab's own
+        <IconButton label={attention.chats > 0 ? `${t('sidebar.open')} · ${t('marker.chats', { n: attention.chats })}` : t('sidebar.open')} onClick={() => setDrawer(true)} className={clsx(icon, 'relative')} data-testid="menu-open">
           <Menu size={20} />
+          {attention.chats > 0 && <span className={clsx('absolute top-2 right-2 size-2.5 rounded-full ring-2 ring-canvas', attention.chatAsk ? 'bg-warn' : 'bg-accent')} aria-hidden data-testid="menu-dot" data-ask={attention.chatAsk ? '' : undefined} />}
         </IconButton>
       ) : rooms ? (
         <span className={icon} aria-hidden />

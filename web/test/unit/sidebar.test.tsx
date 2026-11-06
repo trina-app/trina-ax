@@ -18,6 +18,7 @@ import { useChats } from '../../src/store/chats'
 import { useInbox } from '../../src/store/inbox'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
+import { useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useWelcome } from '../../src/store/welcome'
 import { installDom, mount, removeDom } from './dom-host'
 import { room } from './rooms-fixtures'
@@ -256,7 +257,8 @@ describe('a computer', () => {
 
   test('strictly the five latest AI chats and the chat on screen; "모두 보기" says how many hidden ones need me', async () => {
     useChats.setState({ chats: [chat(1, { unseen: true }), chat(2), chat(3), ...Array.from({ length: 5 }, (_, i) => chat(i + 4))] })
-    const titles = (m: Awaited<ReturnType<typeof render>>) => m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').map((a) => a.textContent?.replace(ko('chat.needsAnswer'), ''))
+    // a row's link is its title and its marker (a "?" pill's mark is hidden from screen readers: its label says it)
+    const titles = (m: Awaited<ReturnType<typeof render>>) => m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').map((a) => a.textContent?.replace(/\?$/, ''))
     // an unseen answer behind it: the accent dot, "답 필요 1"
     let m = await render()
     try {
@@ -324,15 +326,37 @@ describe('a computer', () => {
     }
   })
 
-  test('"답변 필요" and the new-answer dot come from the list, with no request per chat', async () => {
-    useChats.setState({ chats: [chat(1, { runState: 'running', waiting: true }), chat(2, { unseen: true }), chat(3)] })
+  test('one session marker per row, from the list, with no request per chat: "?" > spinner > dot, nothing when idle', async () => {
+    useChats.setState({
+      chats: [
+        chat(1, { runState: 'running', waiting: true }),
+        chat(2, { unseen: true }),
+        chat(3),
+        chat(4, { runState: 'queued', unseen: true }),
+        chat(5, { unseen: true, lastOutcome: 'error' }),
+      ],
+    })
     const m = await render()
     try {
       const rows = m.get('ai-chats-latest').querySelectorAll('li')
       const row = (title: string) => rows.find((r) => r.textContent?.includes(title))!
-      expect(row('채팅 1').querySelector('[data-testid="needs-answer"]')?.textContent).toBe(ko('chat.needsAnswer'))
-      expect(row('채팅 2').querySelector('[data-testid="new-answer-dot"]')?.getAttribute('aria-label')).toBe(ko('sidebar.newAnswer'))
-      expect(row('채팅 3').querySelector('[data-testid="new-answer-dot"]')).toBeNull()
+      const marks = (title: string) => ['marker-ask', 'marker-running', 'marker-new'].flatMap((id) => [...row(title).querySelectorAll(`[data-testid="${id}"]`)])
+      // one marker at most per row; its reason names it (and so the link)
+      for (const n of [1, 2, 3, 4, 5]) expect(marks(`채팅 ${n}`).length).toBeLessThanOrEqual(1)
+      expect(marks('채팅 1')[0]!.getAttribute('data-testid')).toBe('marker-ask')
+      expect(marks('채팅 1')[0]!.getAttribute('aria-label')).toBe(ko('marker.card'))
+      expect(marks('채팅 2')[0]!.getAttribute('data-testid')).toBe('marker-new')
+      expect(marks('채팅 2')[0]!.getAttribute('aria-label')).toBe(ko('marker.new'))
+      // a row that needs me ("?" or the dot) reads in ink; a running or idle one stays muted
+      expect(row('채팅 2').querySelector('a')!.className).toContain('text-ink')
+      expect(row('채팅 5').querySelector('a')!.className).toContain('text-ink')
+      expect(row('채팅 4').querySelector('a')!.className).toContain('text-muted')
+      expect(row('채팅 3').querySelector('a')!.className).toContain('text-muted')
+      expect(marks('채팅 3').length).toBe(0)
+      expect(marks('채팅 4')[0]!.getAttribute('data-testid')).toBe('marker-running')
+      expect(marks('채팅 4')[0]!.getAttribute('aria-label')).toBe(ko('marker.queued'))
+      expect(marks('채팅 5')[0]!.getAttribute('data-reason')).toBe('error')
+      expect(marks('채팅 5')[0]!.getAttribute('aria-label')).toBe(ko('marker.error'))
       await m.settle(30)
       expect(calls.filter((c) => /\/api\/chats\/[^/]+\/requests/.test(c))).toEqual([])
     } finally {
@@ -340,14 +364,16 @@ describe('a computer', () => {
     }
   })
 
-  test('the chat on screen has no new-answer dot (it is being seen)', async () => {
+  test('the chat on screen in a visible window has no new-answer dot (it is being seen)', async () => {
     const c = chat(2, { unseen: true })
     useChats.setState({ chats: [c] })
+    useSessionMarkers.setState({ onScreen: c.id, visible: true })
     const m = await render(`/c/${c.id}`)
     try {
-      expect(m.find('new-answer-dot')).toBeNull()
+      expect(m.find('marker-new')).toBeNull()
     } finally {
       await m.unmount()
+      useSessionMarkers.setState({ onScreen: null })
     }
   })
 })

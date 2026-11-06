@@ -181,6 +181,25 @@ describe('the tab bar', () => {
     }
   })
 
+  test('a room whose @트리나 waits on me: 대화\'s pill is an amber "?" (its count unchanged, said to a screen reader), the count again after', async () => {
+    useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 0, aiWaits: true })] })
+    const m = await mount(<MemoryRouter initialEntries={['/']}><BottomTabs /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('tab-chats-unread'), 'the 대화 pill')
+      const pill = m.get('tab-chats-unread')
+      expect(pill.getAttribute('data-ai-waits')).toBe('')
+      expect(pill.className).toContain('bg-warn')
+      expect(pill.textContent).toBe(`?${ko('rooms.aiWaits')}, ${ko('rooms.unread', { n: 3 })}`)
+      // the wait ends: the same count as before
+      useRooms.setState({ rooms: [room({ unreadCount: 3 }), room({ unreadCount: 0 })] })
+      await m.until(() => m.find('tab-chats-unread')?.getAttribute('data-ai-waits') === null, 'the count back')
+      expect(m.get('tab-chats-unread').textContent).toBe(`3${ko('rooms.unread', { n: 3 })}`)
+    } finally {
+      await m.unmount()
+      useRooms.setState({ rooms: [] })
+    }
+  })
+
   test('no count at 0', async () => {
     const m = await mount(<MemoryRouter initialEntries={['/']}><BottomTabs /></MemoryRouter>)
     try {
@@ -408,9 +427,11 @@ describe('Home\'s latest AI chats on a phone', () => {
     expect([...(await render()).matchAll(/data-testid="home-recent"/g)].length).toBe(1)
   })
 
-  test('a chat whose AI waits for me says so', async () => {
+  test('a chat whose AI waits for me says so: its "?" at the row\'s end, named by the reason (session markers)', async () => {
     const c = chat(2)
     useChats.setState({ chats: [c], requests: { r1: { turnId: 't', chatId: c.id, messageId: 'm', request: {} } } as never })
-    expect(await render()).toContain(`data-testid="needs-answer">${ko('chat.needsAnswer')}<`)
+    const html = await render()
+    expect(html).toContain(`aria-label="${ko('marker.card')}"`)
+    expect(html).toContain('data-testid="marker-ask"')
   })
 })

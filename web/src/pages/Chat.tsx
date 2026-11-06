@@ -22,7 +22,7 @@ import { stickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
-import { useDeckBuilds } from '../store/deckBuilds'
+import { useSessionMarkers } from '../store/sessionMarkers'
 import { useEngines } from '../store/engines'
 import { canChooseEngine, useMeStrict } from '../store/session'
 import { emptyThread, runningMessage, type ViewMessage } from '../store/thread'
@@ -48,11 +48,15 @@ function ChatView({ chatId }: { chatId: string }) {
   const me = useMeStrict()
   // "Add to current chat" on the file screen goes here
   useEffect(() => rememberChat(me.user.id, chatId), [me.user.id, chatId])
-  // an intro deck that finished while the person was elsewhere: seen now (its dot in the sidebar goes)
-  const deckReady = useDeckBuilds((s) => !!s.unseen[chatId])
+  // session markers: this chat is on screen in this window (store/sessionMarkers.ts marks it seen while the window is
+  // visible and the list says an answer came since: Chat.unseen; the sidebar's dot and "?" go, in every window and on
+  // every device)
   useEffect(() => {
-    if (deckReady) useDeckBuilds.getState().seen(chatId)
-  }, [deckReady, chatId])
+    useSessionMarkers.getState().setOnScreen(chatId)
+    return () => {
+      if (useSessionMarkers.getState().onScreen === chatId) useSessionMarkers.getState().setOnScreen(null)
+    }
+  }, [chatId])
   const announce = useAnnounce()
   const navigate = useNavigate()
   const backLink = useBackLink()
@@ -73,22 +77,6 @@ function ChatView({ chatId }: { chatId: string }) {
   const choose = canChooseEngine(me)
   const actions = useChatActions()
   const title = chat?.title || t('chat.untitled')
-  // an answer finished here since I last had it on screen (Chat.unseen; the sidebar's dot): on screen now, so seen, in
-  // every window and on every device. The server's chat.updated says so on the socket, in order with the other events;
-  // the reply is not used (it could arrive after a newer state). Again when the window comes back while it is unseen.
-  const unseen = !!(chatFromList ?? chat)?.unseen
-  useEffect(() => {
-    if (!unseen) return
-    let sent = false
-    const seen = () => {
-      if (sent || document.hidden) return
-      sent = true
-      api.call(API.markChatSeen, { params: { id: chatId } }).then(() => {}, () => { sent = false })
-    }
-    seen()
-    document.addEventListener('visibilitychange', seen)
-    return () => document.removeEventListener('visibilitychange', seen)
-  }, [unseen, chatId])
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
   }, [chatFromList])

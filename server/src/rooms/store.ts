@@ -63,6 +63,11 @@ const pathChecks = new WeakMap<Database, (userId: string) => (rel: string) => bo
 /** `check(userId)` gives one viewer's test for a list of messages (their access loaded once, each path once). */
 export function setRoomPathCheck(db: Database, check: (userId: string) => (rel: string) => boolean) { pathChecks.set(db, check) }
 
+/** Does the AI wait on this member in this room: a question of theirs shows a card for their answer (rooms/ai.ts sets it
+ * for the server's database; Room.aiWaits, docs/DECISIONS.md "Session markers"). Without one, never. */
+const aiWaiting = new WeakMap<Database, (roomId: string, userId: string) => boolean>()
+export function setRoomAiWaiting(db: Database, check: (roomId: string, userId: string) => boolean) { aiWaiting.set(db, check) }
+
 /** The seq that decides who sees a message: its own, or for a thread reply its root's (a thread follows its root). */
 export const seenSeq = (m: Pick<MessageRow, 'seq'> & { thread_root_seq?: number | null }) => m.thread_root_seq ?? m.seq
 /** May this member see this message? */
@@ -356,6 +361,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     lastReadSeq: Math.max(viewer.last_read_seq, viewer.visible_from_seq), lastSeq: Math.max(lastSeqFor(db, room.id, viewer), viewer.visible_from_seq),
     lastMessage: last, muted: !!viewer.muted, notify: roomNotifyOut(room.kind, viewer, prefs), createdAt: room.created_at,
     activityAt: last && last.createdAt > since ? last.createdAt : since,
+    ...(aiWaiting.get(db)?.(room.id, viewer.user_id) ? { aiWaits: true as const } : {}),
   }
 }
 

@@ -25,6 +25,7 @@ import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
 import { partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { answersFileChoosers } from '../common/file-chooser'
+import { badgeCountOf } from '../common/notify'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
@@ -220,7 +221,13 @@ function registerIpc() {
   })
   ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? (win!.pane?.state() ?? null) : null))
   ipcMain.handle('bridge:connection', (e) => (fromApp(e) ? win!.connection() : null))
-  ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? '') }))
+  ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string; tag?: unknown; open?: unknown }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open }))
+  // session markers (docs/DECISIONS.md): the dock shows how many chats and rooms want the person (macOS; Windows has
+  // no count)
+  ipcMain.on('bridge:badge', (e, n: unknown) => {
+    if (fromApp(e) && process.platform === 'darwin') app.setBadgeCount(badgeCountOf(n))
+  })
+  ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? !win!.win.isDestroyed() && win!.win.isFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
   ipcMain.on('bridge:set-locale', (e, l: unknown) => fromApp(e) && setUiLocale(asUiLocale(l)))
 

@@ -2,28 +2,21 @@
 // and, when a chat's messages load with intro_deck steps (only then: no request per chat that never made a deck), from
 // GET /api/intro-decks/builds. An older picture of a build never replaces a newer one (lib/deckProgress.ts mergeBuild).
 // When a build's outline comes on a computer the deck panel opens by itself, like a saved deck (store/chats.ts
-// OPENS_BY_ITSELF); on a phone the chat's strip is enough and the finished deck opens as it always has. When a build is
-// done while its chat is not on screen (another chat, another page): a toast with the cover and [열기], a dot on the
-// chat in the sidebar until it is opened, and in the desktop app a system notification while its window is not focused.
+// OPENS_BY_ITSELF); on a phone the chat's strip is enough and the finished deck opens as it always has. The end of a
+// build is told like any answer's (docs/DECISIONS.md "Session markers": the chat's row marker, and a notification or a
+// toast with the cover when its answer ran long: store/sessionMarkers.ts); the deck has no toast or dot of its own.
 import { create } from 'zustand'
 import { DECK_ARTIFACT_KEY, DECK_TOOL, type DeckBuild } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { desktop } from '../lib/desktop'
-import { doneDetail, mergeBuild, slideUrl } from '../lib/deckProgress'
+import { mergeBuild } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
-import { t } from '../i18n'
 import { useChats } from './chats'
-import { toast } from './ui'
 
 interface DeckBuildsState {
   /** chatId -> its builds, newest first */
   builds: Record<string, readonly DeckBuild[]>
-  /** chats whose deck was finished while they were not on screen: a dot in the sidebar until opened */
-  unseen: Record<string, true>
   handleEvent: (chatId: string, build: DeckBuild) => void
   load: (chatId: string) => Promise<void>
-  /** the chat is on screen: its dot goes */
-  seen: (chatId: string) => void
   /** after a reconnect the server could not resume: the builds of the chats asked for before, again */
   reloadAll: () => Promise<void>
   reset: () => void
@@ -31,9 +24,8 @@ interface DeckBuildsState {
 
 /** chats whose builds were asked for (once per chat; a reconnect asks again) */
 const asked = new Set<string>()
-/** builds that opened the panel by themselves, and builds whose end was announced: each happens once */
+/** builds that opened the panel by themselves: once each */
 const opened = new Set<string>()
-const announced = new Set<string>()
 const remember = (set: Set<string>, id: string) => {
   set.add(id)
   if (set.size > 200) set.delete(set.values().next().value!)
@@ -41,36 +33,16 @@ const remember = (set: Set<string>, id: string) => {
 let generation = 0
 
 const phone = () => typeof window !== 'undefined' && !!window.matchMedia?.('(max-width: 767.98px)').matches
-const onScreen = (chatId: string) => typeof location !== 'undefined' && location.pathname === `/c/${chatId}`
 const finished = (b: DeckBuild) => b.phase === 'done' || b.phase === 'failed'
 
-/** [열기] on the toast: that chat, with the deck beside it (Layout opens it once the chat is on screen). */
+/** [열기] on the toast and a notification's click (store/sessionMarkers.ts): that chat, with the deck beside it (Layout
+ * opens it once the chat is on screen). */
 export function openDeckChat(chatId: string) {
   useChats.setState({ autoOpen: { chatId, key: DECK_ARTIFACT_KEY, at: Date.now() } })
   navigateTo(`/c/${chatId}`)
 }
 
 export const useDeckBuilds = create<DeckBuildsState>((set, get) => {
-  /** The deck is done: say so where the person is (not in the chat on screen, which shows it), and in the desktop app's
-   * notifications while its window is not focused (the desktop app shows them only then). */
-  const announce = (chatId: string, b: DeckBuild) => {
-    if (announced.has(b.id)) return
-    remember(announced, b.id)
-    const detail = doneDetail(b, t)
-    if (!onScreen(chatId)) {
-      set((s) => ({ unseen: { ...s.unseen, [chatId]: true } }))
-      toast({
-        level: 'info',
-        text: t('deck.progress.ready'),
-        detail,
-        image: b.thumbs && b.slides[0]?.status === 'done' ? slideUrl(b, 0) : undefined,
-        ms: 10_000,
-        action: { label: t('deck.progress.open'), primary: true, run: () => openDeckChat(chatId) },
-      })
-    }
-    if (typeof document !== 'undefined' && !document.hasFocus?.()) desktop()?.notify({ title: t('deck.progress.ready'), body: `${b.title} · ${detail}`, tag: `deck-${b.id}` })
-  }
-
   const put = (chatId: string, b: DeckBuild) => {
     const list = get().builds[chatId] ?? []
     const next = mergeBuild(list, b)
@@ -81,7 +53,6 @@ export const useDeckBuilds = create<DeckBuildsState>((set, get) => {
 
   return {
     builds: {},
-    unseen: {},
 
     handleEvent(chatId, build) {
       const known = get().builds[chatId]?.some((x) => x.id === build.id) ?? false
@@ -94,7 +65,6 @@ export const useDeckBuilds = create<DeckBuildsState>((set, get) => {
         remember(opened, build.id)
         if (!phone()) useChats.setState((s) => ({ autoOpen: { chatId, key: DECK_ARTIFACT_KEY, at: Date.now() }, buildOpened: { ...s.buildOpened, [chatId]: build.messageId ?? build.id } }))
       }
-      if (build.phase === 'done' && before?.phase !== 'done') announce(chatId, build)
     },
 
     async load(chatId) {
@@ -110,15 +80,6 @@ export const useDeckBuilds = create<DeckBuildsState>((set, get) => {
       }
     },
 
-    seen(chatId) {
-      if (!get().unseen[chatId]) return
-      set((s) => {
-        const unseen = { ...s.unseen }
-        delete unseen[chatId]
-        return { unseen }
-      })
-    },
-
     async reloadAll() {
       await Promise.allSettled([...asked].map((id) => get().load(id)))
     },
@@ -127,8 +88,7 @@ export const useDeckBuilds = create<DeckBuildsState>((set, get) => {
       generation++
       asked.clear()
       opened.clear()
-      announced.clear()
-      set({ builds: {}, unseen: {} })
+      set({ builds: {} })
     },
   }
 })

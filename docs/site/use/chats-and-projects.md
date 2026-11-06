@@ -35,6 +35,20 @@ Open **N steps** under an answer to see each tool the AI used and each file it r
 Selected context goes to the AI provider you connected. Self-hosting is not offline processing. [Read the data flows](../operate/security.md).
 :::
 
+## Several chats at once
+
+Each chat in **Trina history** (the sidebar on a computer, the ☰ menu on a phone) shows at most one mark, at the right end of its row:
+
+| Mark | What it means |
+|---|---|
+| **?** in amber | The AI waits for you: a question or confirmation card, or an answer that failed or paused at a limit. A card's **?** stays until you answer it. |
+| Grey ring | The AI is answering, or the answer waits its turn. |
+| Dot, title in bold | A new answer you have not opened yet. |
+
+Opening a chat clears its dot, and the **?** of a failed or paused answer, on every device. **Show all** says how many hidden chats need you, and its filter can show only the chats that are answering or wait for you. A room shows **?** in place of its count while the AI waits for your answer there.
+
+While the browser tab is in the background, its title counts the chats and rooms that want you, for example "(2) Trina". The desktop app shows the same number on the Dock on a Mac, and a notification when a card opens or an answer that ran over a minute ends while you look elsewhere; clicking it opens that chat. Scheduled tasks get the mark only; a question asked from Slack is answered there, so its chat gets no dot. On a phone, the ☰ button gets a dot when a chat in it wants you, the **대화** tab shows **?** while the AI waits for your answer in a room, and a short message with **Open** appears in the app.
+
 ## Projects
 
 A project is a folder of the team folder, plus instructions. Use it for work that keeps coming back to the same files: a launch, a client, a quarter's report.

@@ -218,6 +218,75 @@ test('realtime: room events reach the room\'s members only, and a read goes to t
   expect(hub.to('room.message.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
 })
 
+test('session markers: each room.message says the notice its recipient got, as the Inbox and push decided it (docs/DECISIONS.md "Session markers")', async () => {
+  const { mia, nora, otto, teamRoom, send, hub } = await setup()
+  const n = notificationsOf(h.ctx)
+  /** the notice on the room.message each person got for this message */
+  const marks = (messageId: string) => Object.fromEntries(hub.to('room.message').filter((e) => (e.data as any).data.message.id === messageId).map((e) => [e.target, (e.data as any).data.notice ?? null]))
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  hub.clear()
+  // a DM message: nora gets room.dm, mia (its author) nothing
+  const m1 = await send(mia.client, dm.id, 'hello')
+  expect(marks(m1.id)).toEqual({ [mia.id]: null, [nora.id]: 'room.dm' })
+  // a second one while the first is unread: no new notice (one per unread run, like the push), so no mark
+  const m2 = await send(mia.client, dm.id, 'are you there')
+  expect(marks(m2.id)[nora.id]).toBeNull()
+  // read: the next one is a notice again
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  const m3 = await send(mia.client, dm.id, 'ping')
+  expect(marks(m3.id)[nora.id]).toBe('room.dm')
+  // the person's own setting off: the notice is kept quiet (suppressed), and the room.message carries none
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  n.setPreferences(nora.id, { roomMessages: false })
+  const m4 = await send(mia.client, dm.id, 'while notices are off')
+  expect(marks(m4.id)[nora.id]).toBeNull()
+  n.setPreferences(nora.id, { roomMessages: true })
+  // muted: none
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: true })
+  const m5 = await send(mia.client, dm.id, 'muted')
+  expect(marks(m5.id)[nora.id]).toBeNull()
+  await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: false })
+  // a team room: a plain message notifies nobody; a mention, the one mentioned
+  const team = await teamRoom(mia.client)
+  const t1 = await send(mia.client, team.id, 'for everyone')
+  expect(marks(t1.id)[nora.id]).toBeNull()
+  const t2 = await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
+  expect(marks(t2.id)[nora.id]).toBe('room.mention')
+  // a reply in a thread: its followers (the root's author) get room.dm, nobody else
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  const root = await send(nora.client, team.id, 'a thread starts')
+  const r1 = await send(mia.client, team.id, 'a reply', { threadRootId: root.id })
+  expect(marks(r1.id)[nora.id]).toBe('room.dm')
+  expect(marks(r1.id)[otto.id]).toBeUndefined() // not in the room
+  // a team room at 모든 메시지 (the room's own level): every message is a notice, so a mark
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { notifyLevel: 'all' })
+  const t3 = await send(mia.client, team.id, 'every message now')
+  expect(marks(t3.id)[nora.id]).toBe('room.dm')
+  // quiet hours (all day but the minute 23:59–24:00, weekends whole): the notice is kept but never rings, so no mark
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  n.setPreferences(nora.id, { quietHours: { on: true, start: '00:00', end: '23:59', weekends: true } })
+  const t4 = await send(mia.client, team.id, '@NORA at night', { mentions: [nora.id] })
+  expect(marks(t4.id)[nora.id]).toBeNull()
+})
+
+test('a failure while recording notices never holds a new message back from anyone (it goes out unmarked)', async () => {
+  const { mia, nora, hub, send } = await setup()
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  hub.clear()
+  // the notices' settings cannot be read: notify() fails inside, before the room.message is sent
+  h.ctx.db.exec('ALTER TABLE notification_preferences RENAME TO notification_preferences_gone')
+  try {
+    const m = await send(mia.client, dm.id, 'still delivered')
+    const got = hub.to('room.message').filter((e) => (e.data as any).data.message.id === m.id)
+    expect(got.map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
+    expect(got.every((e) => (e.data as any).data.notice === undefined)).toBe(true)
+  } finally {
+    h.ctx.db.exec('ALTER TABLE notification_preferences_gone RENAME TO notification_preferences')
+  }
+})
+
 test('notices: a DM or an @mention, one unread notice of each per room (pushed, never listed in the Inbox); muted rooms are quiet; reading clears them; no text', async () => {
   const { mia, nora, teamRoom, send } = await setup()
   const n = notificationsOf(h.ctx)

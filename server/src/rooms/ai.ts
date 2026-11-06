@@ -48,7 +48,7 @@ import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/
 import { authorize, visiblePath } from '../policy/authorize'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { canSee, memberRow, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, seeArgs, seenSeq, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, memberRow, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, setRoomAiWaiting, seeArgs, seenSeq, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
 
 /** room messages before the question that go in front of it, at most */
@@ -268,6 +268,18 @@ export class RoomAi implements RoomTurns {
     this.ctx.services.realtime.publish(o.userId, { type: 'room.ai.step', data: { roomId: o.roomId, turnId: o.turnId, step } })
   }
 
+  /** Does my question in this room wait on me: its turn shows a card the room shows (the AI's question, a
+   * confirmation; a connect card is not shown in a room). Room.aiWaits: the room's "?" (docs/DECISIONS.md "Session
+   * markers"). */
+  waitsFor(roomId: string, userId: string): boolean {
+    try { return this.rt().roomCardOpen(roomId, userId) } catch { return false }
+  }
+
+  /** A card of my question opened or closed: my rooms list follows (room.updated with the room as I see it, to me only). */
+  waiting(o: { roomId: string; userId: string }) {
+    roomsOf(this.ctx).roomEvent(o.roomId, 'updated', new Set([o.userId]))
+  }
+
   /** The turn ended: an answer goes to the room or stays a private preview; anything else tells the person. */
   ended(turnId: string) {
     const db = this.db, rt = this.rt()
@@ -303,9 +315,8 @@ export class RoomAi implements RoomTurns {
     })()
     const row = messageRow(db, t.room_id, id)!
     const rooms = roomsOf(this.ctx)
-    rooms.messageEvent('room.message', row)
+    rooms.messageEvent('room.message', row, d.post ? rooms.notify(row) : undefined)
     if (root) rooms.afterReply(root)
-    if (d.post) rooms.notify(row)
     this.publishRun(this.turnRow(turnId)!)
     this.publishCount(t.room_id)
     // a private preview: the others who see the question learn that it was answered to the asker only (the question
@@ -448,9 +459,8 @@ export class RoomAi implements RoomTurns {
       rooms.markNoticesRead(userId, roomId, seq)
     }
     const row = messageRow(db, roomId, m.id)!
-    rooms.messageEvent('room.message', row)
+    rooms.messageEvent('room.message', row, rooms.notify(row))
     if (root) rooms.afterReply(root)
-    rooms.notify(row)
     // the question no longer says "answered to … only": the answer is there
     const q = t ? messageRow(db, roomId, t.question_id) : null
     if (q && !q.deleted_at) rooms.messageEvent('room.message.updated', q)
@@ -584,6 +594,10 @@ const decisionJson = (d: Decision) => JSON.stringify({ folders: d.folders, other
 
 export function roomAiOf(ctx: AppContext): RoomAi {
   let s = services.get(ctx)
-  if (!s) { s = new RoomAi(ctx); services.set(ctx, s) }
+  if (!s) {
+    const ai = (s = new RoomAi(ctx))
+    services.set(ctx, s)
+    setRoomAiWaiting(ctx.db, (roomId, userId) => ai.waitsFor(roomId, userId))
+  }
   return s
 }

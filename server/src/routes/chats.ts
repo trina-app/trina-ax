@@ -198,9 +198,12 @@ export const chatsRoutes: RouteModule = {
       const chat = ownChat(rt, auth, params.id, { deleted: true })
       const was = rt.store.unseen(chat)
       rt.store.markSeen(chat.id)
-      // only a change is told; a chat in the trash is not in any sidebar (an 'updated' would put it back there)
-      if (was && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
-      return chatOut(rt, rt.store.chatRow(chat.id)!)
+      const after = rt.store.chatRow(chat.id)!
+      // only a change is told (an answer the mark cannot reach, one dated after the server's clock, is no change: the
+      // windows would ask again and again); a chat in the trash is not in any sidebar (an 'updated' would put it back
+      // there). Session markers: docs/DECISIONS.md.
+      if (was && !rt.store.unseen(after) && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
+      return chatOut(rt, after)
     })
     kit.handle(API.getChatQueue, ({ params, auth }) => rt.queueSnapshot(ownChat(rt, auth, params.id, { deleted: true }).id))
 

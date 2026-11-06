@@ -1,8 +1,9 @@
 // The "대화" group in the computer's sidebar, above 트리나 기록: my rooms (a group's rooms, 전체, group chats, DMs) by
-// latest activity, one count pill each for what I have not read ("@" instead when one of them mentions me; grey in a
-// muted room), and "+" for a new conversation. Strictly the five latest show, and the room on screen if it is not one
-// of them (six at most); "더 보기 (N)" opens the rest in place ("접기" closes it), remembered in this browser like the
-// fold, and carries what the hidden rooms hold unread ("안 읽음 M", "@" when one mentions me), so no count the 대화
+// latest activity, one pill each: "?" while the room's AI waits on me (session markers), else the count of what I have
+// not read ("@" instead when one of them mentions me; grey in a muted room), and "+" for a new conversation. Strictly
+// the five latest show, and the room on screen if it is not one of them (six at most); "더 보기 (N)" opens the rest in
+// place ("접기" closes it), remembered in this browser like the fold, and carries what the hidden rooms hold for me
+// ("?" when one's AI waits on me, "안 읽음 M", "@" when one mentions me), so no count the 대화
 // tab shows is lost (a muted room's count only when nothing else is unread there, as its own badge is grey).
 // Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
@@ -74,6 +75,8 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   const shown = all ? rooms : capped
   const more = rooms.length - capped.length
   const hidden = all ? null : hiddenUnread(rooms.filter((r) => !capped.includes(r)))
+  // a hidden room whose AI waits on me: "?" leads the pill (session markers, docs/DECISIONS.md), amber like the room's
+  const hiddenAsk = !all && rooms.some((r) => r.aiWaits && !capped.includes(r))
   return (
     <div className="mb-3" data-testid="sidebar-rooms">
       <div className="flex items-center gap-1 pr-1 pl-3">
@@ -96,15 +99,15 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
           <li>
             <button type="button" aria-expanded={all} onClick={() => showAll(!all)} className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-more">
               <span className="truncate">{all ? t('common.less') : t('sidebar.showMore', { n: more })}</span>
-              {hidden && (
-                <span className={clsx('ml-auto shrink-0 rounded-full px-1.5 text-micro font-medium', hidden.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink')} data-testid="rooms-more-unread" data-muted={hidden.muted ? '' : undefined}>
+              {(hidden || hiddenAsk) && (
+                <span className={clsx('ml-auto shrink-0 rounded-full px-1.5 text-micro font-medium', hiddenAsk ? 'bg-warn font-bold text-canvas' : hidden!.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink')} data-testid="rooms-more-unread" data-muted={!hiddenAsk && hidden?.muted ? '' : undefined} data-ai-waits={hiddenAsk ? '' : undefined}>
                   <span aria-hidden>
-                    {hidden.mentioned && '@ '}
-                    {t('sidebar.moreUnread', { n: badgeText(hidden.n) })}
+                    {hiddenAsk && (hidden ? '? ' : '?')}
+                    {hidden?.mentioned && '@ '}
+                    {hidden && t('sidebar.moreUnread', { n: badgeText(hidden.n) })}
                   </span>
                   <span className="sr-only">
-                    {t('rooms.unread', { n: hidden.n })}
-                    {hidden.mentioned && `, ${t('rooms.mentionedYou')}`}
+                    {[hiddenAsk && t('rooms.aiWaits'), hidden && t('rooms.unread', { n: hidden.n }), hidden?.mentioned && t('rooms.mentionedYou')].filter(Boolean).join(', ')}
                   </span>
                 </span>
               )}
@@ -117,11 +120,19 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   )
 }
 
-/** A room's unread badge: the count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab
- * does not count). */
+/** A room's one badge: "?" in amber while its AI waits on me (a card of my own question; docs/DECISIONS.md "Session
+ * markers"), else the unread count, or "@" when one of them mentions me; grey for a muted room (which the 대화 tab does
+ * not count). The same pill, only its mark and colour differ. */
 export function UnreadBadge({ room, className, testId }: { room: Room; className?: string; testId: string }) {
   const t = useT()
   const n = roomUnread(room)
+  if (room.aiWaits)
+    return (
+      <span className={clsx('shrink-0 rounded-full bg-warn px-1.5 text-micro font-bold text-canvas', className)} data-testid={testId} data-ai-waits="">
+        <span aria-hidden>?</span>
+        <span className="sr-only">{[t('rooms.aiWaits'), n > 0 && t('rooms.unread', { n })].filter(Boolean).join(', ')}</span>
+      </span>
+    )
   if (n <= 0) return null
   return (
     <span className={clsx('shrink-0 rounded-full px-1.5 text-micro font-medium', room.muted ? 'bg-hover text-muted' : 'bg-accent text-accent-ink', className)} data-testid={testId} data-muted={room.muted ? '' : undefined}>

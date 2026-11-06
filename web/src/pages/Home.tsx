@@ -26,7 +26,7 @@ import { ArrowUpLeft, ChevronRight, Folder, Lock, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
-import type { FileEntry, JoinStarter, Project } from '@mycel/shared/api'
+import type { Chat, FileEntry, JoinStarter, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { clearStarter, heldStarter, markStarterAttached, starterAttached } from '../lib/starter'
 import { sendToComposer } from '../lib/teamAttach'
@@ -40,7 +40,8 @@ import { useWelcome } from '../store/welcome'
 import { isLanding, LANDING_STATE, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
 import { aiName, landingPath } from '../lib/tabs'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { ChatStateDot, isUnused, NeedsAnswerLabel } from '../components/chat/ChatState'
+import { isUnused, SessionMarker, useChatMarker } from '../components/chat/ChatState'
+import { needsMe } from '../lib/sessionMarkers'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
@@ -165,17 +166,26 @@ export function RecentChats() {
       </h2>
       <ul>
         {recent.map((c) => (
-          <li key={c.id}>
-            <Link to={`/c/${c.id}`} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink hover:bg-hover" data-testid="home-recent">
-              <ChatStateDot chat={c} />
-              <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
-              <NeedsAnswerLabel chat={c} />
-              <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
-            </Link>
-          </li>
+          <RecentChat key={c.id} chat={c} />
         ))}
       </ul>
     </section>
+  )
+}
+
+/** One of them: its session marker (docs/DECISIONS.md "Session markers": "?", a spinner or a dot) at the right end,
+ * before the arrow, and its reason in the link's name. */
+function RecentChat({ chat }: { chat: Chat }) {
+  const t = useT()
+  const { marker, reason } = useChatMarker(chat)
+  return (
+    <li data-marker={marker?.kind}>
+      <Link to={`/c/${chat.id}`} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink hover:bg-hover" data-testid="home-recent">
+        <span className={clsx('min-w-0 flex-1 truncate', needsMe(marker) && 'font-medium')}>{chat.title || t('chat.untitled')}</span>
+        {marker && <SessionMarker marker={marker} label={reason} />}
+        <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+      </Link>
+    </li>
   )
 }
 

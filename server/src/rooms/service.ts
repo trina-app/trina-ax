@@ -27,7 +27,7 @@ import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { notificationsOf } from '../notifications/service'
+import { notificationsOf, type RoomNoticeEvent } from '../notifications/service'
 import { getPreferences, getPreferencesOf } from '../notifications/preferences'
 import { cancelPushUser } from '../notifications/push-events'
 import { teamTimeZone } from '../admin/settings'
@@ -86,8 +86,15 @@ export class Rooms {
       return m ? build(m) : null
     })
   }
-  messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow) {
-    this.fanout(row.room_id, (m) => canSee(row, m) ? { type, data: { roomId: row.room_id, message: messagesOut(this.db, [row], m)[0]! } } : null)
+  /** `notices`: a new message's notices by recipient (notify()): each one's room.message says theirs (the desktop app
+   * tells what the Inbox and push tell, docs/DECISIONS.md "Session markers"). */
+  messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow, notices?: ReadonlyMap<string, RoomNoticeEvent>) {
+    this.fanout(row.room_id, (m) => {
+      if (!canSee(row, m)) return null
+      const message = messagesOut(this.db, [row], m)[0]!
+      const notice = type === 'room.message' ? notices?.get(m.user_id) : undefined
+      return type === 'room.message' ? { type, data: { roomId: row.room_id, message, ...(notice ? { notice } : {}) } } : { type, data: { roomId: row.room_id, message } }
+    })
   }
   /** room.thread: the root's summary to each member who sees the root. It differs from one person to the next only for
    * those who follow it (new replies) or have a private reply in it (an AI answer's preview): the others get one copy. */
@@ -419,9 +426,8 @@ export class Rooms {
       this.markNoticesRead(userId, roomId, seq)
     }
     const row = messageRow(this.db, roomId, id)!
-    this.messageEvent('room.message', row)
+    this.messageEvent('room.message', row, this.notify(row))
     if (root) this.afterReply(root)
-    this.notify(row)
     if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
   }
@@ -635,13 +641,23 @@ export class Rooms {
    * default of 받지 않음) nothing. Only people who see it. One unread notice of each kind per room (and thread) and person
    * (Notifications.roomNotice). Inside a person's quiet hours the notice is kept but marked quiet: never pushed.
    * Private messages (the AI's previews) and event lines notify nobody; an AI answer not the person who asked. The
-   * notice is the message id only. */
-  notify(row: MessageRow) {
-    if (row.visibility !== 'room' || row.deleted_at || row.event) return
+   * notice is the message id only. Returns who got a notice that may ring, and which (Notifications.roomNotice): the
+   * room.message to each of them says so (docs/DECISIONS.md "Session markers"). Never throws: it runs before the
+   * room.message goes out, and a failure here must not hold the message back from anyone (it is logged, nobody is
+   * marked). */
+  notify(row: MessageRow): Map<string, RoomNoticeEvent> {
+    try { return this.recordNotices(row) } catch (e) {
+      this.ctx.log.warn('room notices not recorded', { err: e })
+      return new Map()
+    }
+  }
+  private recordNotices(row: MessageRow): Map<string, RoomNoticeEvent> {
+    const out = new Map<string, RoomNoticeEvent>()
+    if (row.visibility !== 'room' || row.deleted_at || row.event) return out
     const room = roomRow(this.db, row.room_id)
-    if (!room) return
+    if (!room) return out
     const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m))
-    if (!ms.length) return
+    if (!ms.length) return out
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
     const followers = row.thread_root_id ? new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(row.thread_root_id) as { user_id: string }[]).map((r) => r.user_id)) : null
     const prefs = getPreferencesOf(this.db, ms.map((m) => m.user_id))
@@ -654,9 +670,11 @@ export class Rooms {
         alsoInRoom: !!row.also_in_room, following: !!followers?.has(m.user_id), threadReplies: p.roomThreadReplies,
       })
       if (!alert) continue
-      try { n.roomNotice(m.user_id, alert === 'mention' ? 'room.mention' : 'room.dm', row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at)) }
+      const event: RoomNoticeEvent = alert === 'mention' ? 'room.mention' : 'room.dm'
+      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at))) out.set(m.user_id, event) }
       catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
+    return out
   }
 
   // ---------------- team rooms and the everyone room ----------------

@@ -379,7 +379,7 @@
 실제 dev 서버(local-login)와 목 서버에서 ko/en/id, 390px·1280px로 모든 화면을 돌려 보며 고친 것.
 
 - **개발 모드 배너**(5번 탭): `/api/me`의 `server.dev`면 모든 화면 위에 닫을 수 없는 "개발 모드: OS 격리 없음" 배너. hello에 mode가 없어서 Me를 쓴다. 엔진의 샌드박스 여부("· 샌드박스 꺼짐")는 계약에 없어 넣지 않았다(dev에서는 늘 꺼짐이라 배너 문구가 이미 그 뜻).
-- **주의가 필요한 채팅**: AI가 ask_user·사이트 카드로 답을 기다리는 채팅은 사이드바에 "답변 필요", 창이 숨어 있으면 탭 제목에 "(N) "(기다리는 질문 + 그사이 끝난 답변). 데이터는 웹이 WebSocket으로 받은 열린 요청이다(`GET /api/chats`에 pendingRequest·unread가 아직 없어 새로 고친 뒤에는 그 채팅을 열기 전까지 표시되지 않음, 후속).
+- **주의가 필요한 채팅**: AI가 ask_user·사이트 카드로 답을 기다리는 채팅은 사이드바에 "답변 필요", 창이 숨어 있으면 탭 제목에 "(N) "(기다리는 질문 + 그사이 끝난 답변). 데이터는 웹이 WebSocket으로 받은 열린 요청이다(`GET /api/chats`에 pendingRequest·unread가 아직 없어 새로 고친 뒤에는 그 채팅을 열기 전까지 표시되지 않음, 후속). 후속은 "Desktop sidebar: rooms first"(Chat.waiting·Chat.unseen)와 "Session markers"(행마다 표시 하나, 한 숫자, 알림 규칙)가 닫았다.
 - **사용 한도는 모든 모드에서 집행한다**(A의 "proxy 모드에서만" 결정을 바꿈): 관리자 화면이 구독 모드에서도 토큰 한도와 "사용 막기"를 보여 주는데 아무것도 막지 않았다. 다 쓴 block 한도는 보내기·수정·다시 생성을 대기열에 넣기 전에 `budget_exceeded`(429)로 막고, 다시 쓸 수 있는 시각을 그 사람의 언어로 말한다. USD 한도 0은 "금액 한도 없음"(전에는 0 ≥ 0이라 늘 초과였다). 설계 1번 탭의 5시간·주 단위와 턴 수 한도, 80% 안내, 설정 > 사용량은 아직 없다(후속).
 - **복원은 로그인을 모두 끝낸다**: DB 복원이 백업 당시의 sessions를 되살려, 그 뒤 로그아웃·기기 해제·비활성화된 사람이 다시 로그인된 상태가 됐다. 바꿔 넣기 전에 준비된 사본의 sessions를 지운다. 복원 확인 문구는 DB만 되돌린다는 것(파일은 그대로, 버전 기록·휴지통에서)을 말한다.
 - **서버가 데이터로 보내는 것은 웹이 문장으로 만든다**: access_changed 알림(폴더 목록), 감사 기록의 action id(`auth.login_failed` → "로그인 실패", 서버가 쓰는 action마다 문구가 있는지 단위 시험이 확인), 시스템 작업 진행 단계(`team folder` → "팀 폴더 보관 중", 서버 `stepText`).
@@ -11034,6 +11034,104 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
   case for the new route.
 - Version impact: **minor** (a new endpoint, two optional fields, one additive migration).
+## Session markers (feat/session-status-v2, 2026-11-07)
+
+넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,
+the sidebar, the rooms list, the phone's top bar; `server/src/chat/store.ts`, `turn.ts`, `runtime.ts`, `rooms/`; the
+desktop app's `common/notify.ts`), 이유: people run several AI chats at once (FLOW-v5 Part A, the owner: "멈추거나 권한
+필요하면 ? 띄우고, 끝나고 아직 확인 안 했으면 그 세션 옆에 뭔가 띄우면"), and the intro deck is found the same way. Built on
+"Desktop sidebar: rooms first": its `seen_at` (migration 252), `Chat.unseen`, `Chat.waiting`, `POST /api/chats/:id/seen`
+and `runState` are the state; this adds no column, no migration and no `attention` field. A first build on its own
+seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's state; the review's items are below.
+
+- **One marker per AI chat row, at its right end** (트리나 기록, 모두 보기, the phone's drawer and Home's latest chats):
+  **"?"** in a 16 px amber pill (the rooms' "@" shape) = `waiting`, a card open in this window, or `unseen` with
+  `lastOutcome`; a **12 px grey ring** = `runState` running or queued (a still ring with reduced motion); an **8 px
+  accent dot** with the title in ink = `unseen` and it ended well. Priority ? > ring > dot; a chat that runs again shows
+  the ring (its older answer is behind the new one). Idle rows show nothing. On a computer the marker sits in the "···"
+  spot, its right edge in line with the rooms' pills, and gives way to "···" on hover and focus; on a phone, where "···"
+  always shows, it sits left of it. The reason ("답을 기다려요" or the AI's own question when this window has the card,
+  "멈췄어요: 오류", "한도에서 멈췄어요", "답하는 중", "차례를 기다리는 중", "새 답") is the marker's label (so the link's
+  name) and the first line of the hover peek. phone-nav's warn dot + "답변 필요", the pulsing running dot and the
+  intro deck's own dot are gone: one system, one marker.
+- **`Chat.lastOutcome`** (`'error' | 'paused'`, absent = ended normally or stopped by the person): read in
+  `ChatStore.answerState` from the same newest finished answer as `unseen`, in one query. Paused = `stop_reason`
+  `tool_limit` or `time_limit`; a server stop is an error. Seen, the outcome alone shows nothing. An answer the person
+  stopped is never `unseen` (they stopped it; nothing waits there), and an answer to a question asked from Slack is
+  marked seen when it ends (it was delivered in Slack: every Slack thread would otherwise add a dot and one to n until
+  it was opened in the app); a card such a turn raises still shows its "?" until it is answered in the app.
+- **"모두 보기 · 답 필요 K"** counts the hidden rows that show "?" or a dot: phone-nav's set (waiting, or unseen while not
+  running again), now with one rule; amber when one of them is a "?", which now includes a failed or paused answer (it
+  was amber for a card only). The filter "답변 중이거나 내 답을 기다림" shows ring and "?" rows, failed and paused
+  included, never a new answer. The list is not re-sorted by state.
+- **Clearing.** A card's "?" stays until the card closes (opening the chat does not clear it). The dot and a failed or
+  paused "?" clear when the chat is on screen in a visible window: the tab is visible, and in the desktop app its
+  window is focused (the main process's `focus`; the in-app browser takes the page's focus). That window sends `/seen`
+  while the list says `unseen`, **once per state of the chat** (its `updatedAt` and run state): seeing never loops,
+  whatever the server answers (review MUST 1: phone-nav's `waiting` already leaves window-only cards out, and a card
+  never asks for `/seen`; `test/unit/session-markers.test.tsx` replays the server's events, including a server that
+  keeps saying unseen). `/seen` tells the windows only a real change (an answer dated after the server's clock stays
+  unseen and is not told again); a chat in the trash stays quiet (phone-nav; review SHOULD 4). This replaces the chat
+  page's own effect.
+- **One count n** = AI chats showing "?" or a dot, plus rooms that want me, each once: the room's AI waits on me
+  (`Room.aiWaits`), or something unread there is for me by my level for the room ("대화방 알림 설정": by default a DM or
+  group chat message, a mention, a reply in a thread I follow; nothing from a room at 끄기). It is the tab title "(n)"
+  while the tab is hidden and the desktop app's Dock badge (macOS only: Windows shows no count; cleared when the team
+  page closes). On a phone ☰ (Home only) gets a dot for the drawer's part of it, the AI chats (amber with a "?"): rooms
+  are not in the drawer, and the 대화 tab beside it keeps **its own count, unchanged** (every unread message of rooms not
+  muted; review item 7: the owner has not approved a change, so the first build's "rooms that want me" there is not
+  taken). While @트리나 waits on me in a room, 대화's pill is an amber "?" in place of that number (one pill, as the
+  room's own: ? > count; a screen reader hears both, and the number comes back when the wait ends), so a phone shows
+  the room's "?" outside the rooms list too.
+- **Rooms.** A room's one pill is "?" (amber) while its @트리나 waits on me (a card of my question shown in the room; not
+  a connect card), else "@", else the count. `Room.aiWaits` comes from memory (`ChatRuntime.roomCardOpen`, no read per
+  room); `room.updated` goes to the asker when a card opens or closes. "더 보기" leads its pill with "?" when a hidden
+  room waits (phone-nav's strict caps stay: nothing is pinned).
+- **Telling: one rule for every chat.** The server marks a live change worth telling on `chat.updated`: `notify:
+  'card'` when a card opens (to the windows that show it; a card one desktop window shows alone tells that window and
+  changes no list), `'answer'` when an answer that ran `LONG_ANSWER_MS` (60 s) or more ends. Never a person's stop, a
+  server stop (a restart would tell once per chat), a scheduled run (it has the Inbox and push) or a question asked
+  from Slack (review SHOULD 5: the answer goes back to Slack, which already says when a card waits in the app). The page
+  never tells a replay after a reconnect, a reload or a resync, never the chat on screen in a visible window, and waits
+  ~3 s: it tells only if it still holds (the answer still unseen, so no window had it on screen; the card still open).
+  The desktop app's notification shows only while its window is not focused, one per chat (tag), and its click opens
+  that chat (with the deck beside it when it made one); a toast with [열기] shows only below 768 px with the drawer
+  closed. A confidential chat's notification and toast say "기밀 대화" and the reason, never its title or the AI's
+  question (review SHOULD 10). The intro deck's own `announce()` (toast, notification, dot) is gone: its answer runs
+  minutes, so it is told by this rule, its toast with the cover.
+- **Rooms in the desktop app follow the server's notice, not a copy of it** (review MUST 3). `room.message` carries
+  `notice` (`room.mention` | `room.dm`) for each recipient whose notice was recorded and may ring: the room's level for
+  them, mentions, thread followers, quiet hours (a quiet notice is not marked) and one per unread run are decided once,
+  on the server (`Notifications.roomNotice` returns it). Recording them runs before the `room.message` goes out, so a
+  failure there is logged and the message still goes to everyone, unmarked. The page tells only marked messages, after
+  the same wait and only while the room still wants me; plus the room's "?". One notification per room (tag
+  `room-<id>`), its click opens the room; a toast only for the room's "?" (a message has the room sound and the
+  phone's push).
+- **A team switch closes the desktop notifications** the team page made (review SHOULD 8): they name that team's chats,
+  and a click must not open an address in the next team's page (`makeNotifier().closeAll`, and a click on a stale one
+  only brings the window up).
+- **Engines.** Claude, Codex and the API engine give the same states: the cards are our own `TurnRequest` (ask_user,
+  confirmations, connect), the outcome is the stored message's status and stop reason
+  (`tests/unit/b-session-markers.test.ts` runs all three).
+- **Noted, not changed** (review SHOULD 9): n and the markers count the chats the list has loaded (the first 50; "더
+  보기" in the full list loads more), so a very old unseen chat beyond them is counted once it loads. Each scheduled run
+  is a new chat whose answer ends unseen: an hourly task adds a dot (and one to n) every hour until those chats are
+  opened; it gets no notification (the Inbox and push have it). A card never sends `/seen` (it is answered, not seen),
+  so a card can be told on a second device (the desktop app unfocused, a phone toast) while I look at it on the first;
+  answering it on either ends both. Slack: a card of a Slack turn is not told anywhere (Slack says a card waits in the
+  app), only its row's "?". Phone push for a "?" is later.
+- **Setup row.** Onboarding's setup row (PR #100) sits between 대화 and 트리나 기록 in the one scroll (phone-nav's
+  placement), and the steps name the AI's list by the sidebar's own heading (`historyName`: `sidebar.aiChats`).
+- Rejected: an `attention` field computed per window and a second seen column (the first build; it duplicated
+  phone-nav's state and needed a per-window copy that looped); re-deriving room notices in the page (it missed the
+  person's setting and the thread rules); the first build's change of the 대화 tab's count (not approved); pinning a
+  waiting room past the cap (phone-nav's strict caps).
+- Tests: `tests/unit/b-session-markers.test.ts`, `b-rooms.test.ts` (notices per recipient, levels, quiet hours),
+  `b-rooms-ai.test.ts` (Room.aiWaits), `e-notify.test.ts`; `web/test/unit/session-markers.test.tsx`, sidebar,
+  phone-nav, deck-progress; `web/test/e2e/session-markers.spec.ts`, `sidebar.spec.ts`, `states.spec.ts`.
+- Version impact: **minor** (optional Chat, Room and event fields, optional desktop bridge parts; no endpoint, no
+  migration).
+
 ## DS2 — Natural writing as a default, Korean HR documents as an optional pack (2026-11-06)
 
 넣을 곳: trina-ax `resources/skill-packs/work/{ko,en}/humanizer`, `resources/skill-packs/hr` and

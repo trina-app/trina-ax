@@ -204,8 +204,5 @@ export function showsBuild(b: DeckBuild, run: DeckRunState, versions: readonly {
   return !newest || newest.createdAt < b.startedAt
 }
 
-/** "9장 · 2분 34초" (the toast's second line, the notification's text) */
-export const doneDetail = (b: DeckBuild, t: T) => t('deck.progress.readyDetail', { n: b.slides.length, time: duration(buildMs(b), t) })
-
 /** The answer whose question ran the deck skill, before the server has made the build (reading the material). */
 export const readsForDeck = (m: Pick<Message, 'role' | 'status'>, question: string | null | undefined) => m.role === 'assistant' && m.status === 'streaming' && runsDeckSkill(question)

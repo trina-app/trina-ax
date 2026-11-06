@@ -83,14 +83,17 @@ export class Notifications {
    * notice and one push); reading the room, or the thread, marks them read. Whether there is a notice at all is the
    * room's level for the person (Rooms.notify). `quiet`: made inside their quiet hours (docs/DECISIONS.md "대화방 알림
    * 설정"): kept, never pushed (room_notices.quiet), and it does not hold back the room's next notice once the quiet
-   * hours are over (that one pushes); while they last, any unread notice of the run holds the next one back. */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false) {
-    if (!this.active(userId) || at < this.cutoff()) return
+   * hours are over (that one pushes); while they last, any unread notice of the run holds the next one back. True when
+   * a notice that may ring was recorded now (not a quiet one): the room.message to the person says so, and the desktop
+   * app tells the same ones (docs/DECISIONS.md "Session markers"). */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false): boolean {
+    if (!this.active(userId) || at < this.cutoff()) return false
     if (this.ctx.db.query(`SELECT 1 FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1)`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0)) return
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1)`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0)) return false
     const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed,quiet) VALUES(?,?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
       .run(newId(), userId, event, messageId, roomId, at, quiet ? 1 : 0)
     if (r.changes) this.signal(userId)
+    return r.changes > 0 && !quiet
   }
   /** A dev environment job ended, or boxd stopped a box. The source is the id of the job or the stop row only. */
   devEnvNotice(userId: string, event: DevEnvNoticeEvent, sourceId: string, createdAt = new Date().toISOString()) {

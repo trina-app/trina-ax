@@ -18,6 +18,7 @@ import { browserOwnerChange, type MeResult } from '../common/browser-owner'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { isTrustedAppSender, UI_ORIGIN } from '../common/trust'
 import { openDialogChoice } from '../common/file-chooser'
+import { makeNotifier, type NotifyInput } from '../common/notify'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
@@ -84,7 +85,19 @@ export class AppWindow {
   private recheckTimer?: NodeJS.Timeout
   private lastCheck = 0
   private configuredSessions = new WeakSet<Session>()
-  private notifyTimes: number[] = []
+  /** system notifications for the team page (common/notify.ts): unfocused only, one per tag, a click opens its
+   * address; a team switch closes them all */
+  private notifier = makeNotifier({
+    create: (n) => new Notification(n),
+    supported: () => Notification.isSupported(),
+    focused: () => this.win.isDestroyed() || this.win.isFocused(),
+    reveal: () => {
+      if (this.win.isDestroyed()) return
+      this.win.show()
+      this.win.focus()
+    },
+    open: (path) => this.send(this.app, 'bridge:open', path),
+  })
   /** team id + code -> last LAN failure report (at most one an hour; the server counts once per session per hour) */
   private lanReported = new Map<string, number>()
   /** GET /api/me in flight (team name and browser policy), and when the last one started */
@@ -117,7 +130,12 @@ export class AppWindow {
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
     this.win.on('resize', () => this.layout())
-    this.win.on('focus', () => void this.recheck(false))
+    this.win.on('focus', () => {
+      void this.recheck(false)
+      // "visible" for the team page's session markers is this window's focus (the in-app browser may hold the keys)
+      this.send(this.app, 'bridge:focus', true)
+    })
+    this.win.on('blur', () => this.send(this.app, 'bridge:focus', false))
     this.win.on('close', () => {
       const [width, height] = this.win.getSize()
       o.store.saveWindow({ width, height, paneFraction: this.paneFraction })
@@ -411,6 +429,10 @@ export class AppWindow {
 
   private disposeTeam() {
     clearInterval(this.recheckTimer)
+    // the team's notifications name its chats and open its addresses: none outlives the team page (session markers),
+    // and the dock's count was this team's (the next team page sets its own)
+    this.notifier.closeAll()
+    if (process.platform === 'darwin') electronApp.setBadgeCount(0)
     this.pane?.dispose()
     this.pane = undefined
     if (this.app) {
@@ -778,18 +800,10 @@ export class AppWindow {
     this.layout()
   }
 
-  notify(n: { title: string; body: string }) {
-    if (this.win.isDestroyed() || this.win.isFocused() || !Notification.isSupported()) return
-    const now = Date.now()
-    this.notifyTimes = this.notifyTimes.filter((x) => x > now - 60_000)
-    if (this.notifyTimes.length >= 10) return
-    this.notifyTimes.push(now)
-    const note = new Notification({ title: n.title.slice(0, 200), body: n.body.slice(0, 1000) })
-    note.on('click', () => {
-      this.win.show()
-      this.win.focus()
-    })
-    note.show()
+  /** The team page's notification: only while the window is not focused; a click shows the window and opens the
+   * address it named (a chat, a room), one per tag (common/notify.ts). */
+  notify(n: NotifyInput) {
+    this.notifier.notify(n)
   }
 }
 

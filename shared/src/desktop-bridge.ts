@@ -104,8 +104,23 @@ export interface DesktopBridge {
     get(): Promise<DesktopConnection>
     onChange(cb: (c: DesktopConnection) => void): () => void
   }
-  /** Native notification (admin alerts, finished jobs). Shown only while the window is not focused. */
-  notify(n: { title: string; body: string; tag?: string }): void
+  /** Native notification (a chat or a room that wants the person, admin alerts). Shown only while the window is not
+   * focused, at most 10 a minute. `tag`: one notification per tag (a newer one replaces it; "chat-<id>": one per chat).
+   * `open`: an address of the team page ("/c/<chatId>", "/rooms/<id>") the page goes to when the person clicks it
+   * (onOpen); desktop apps before this addition only focus the window. A team switch closes them. */
+  notify(n: { title: string; body: string; tag?: string; open?: string }): void
+  /** A notification's click asks the page to go to its address (an app path, checked by the desktop app). Optional:
+   * desktop apps before session markers do not have it. */
+  onOpen?(cb: (path: string) => void): () => void
+  /** The dock badge (macOS only; Windows shows no count): how many chats and rooms want the person (docs/DECISIONS.md
+   * "Session markers"); 0 clears it. Optional: older desktop apps do not have it. */
+  setBadgeCount?(n: number): void
+  /** Whether this window is focused, as the desktop app sees it. The page's own document.hasFocus() is false while the
+   * in-app browser pane holds the keyboard, which is still the person looking at the window. Optional (older apps). */
+  focus?: {
+    get(): Promise<boolean>
+    onChange(cb: (focused: boolean) => void): () => void
+  }
   /** Open the desktop app's team list (switch team / add a team). */
   openTeams(): void
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own
