@@ -8,6 +8,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { deleteUser } from '../../server/src/admin/users'
+import { integrationsOf } from '../../server/src/integrations/connections/service'
+import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { HttpError } from '../../server/src/http/errors'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -53,8 +55,15 @@ describe('account deletion by role', () => {
     expect(a).toHaveLength(1)
     expect(a[0]!.actor_id).toBe(admin.id)
     expect(JSON.parse(a[0]!.detail)).toMatchObject({ personalFolder: 'transfer' })
-    // the archive is in the owner's personal folder, not the admin's
-    expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users', ownerId))).toBe(true)
+    // the archive is in the owner's personal folder (users/<ownerId>/<archive>/<target>/...), not the admin's
+    const movedTo = JSON.parse(a[0]!.detail).movedTo as string
+    expect(movedTo.startsWith(`users/${ownerId}/`)).toBe(true)
+    expect(movedTo.split('/').at(-1)).toBe(erin.id)
+    expect(fs.readFileSync(path.join(h.ctx.files.fx.root, movedTo, 'notes.md'), 'utf8')).toBe('erin keeps this')
+    const adminFolder = path.join(h.ctx.files.fx.root, 'users', admin.id)
+    const inAdmin = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => [e.name, ...(e.isDirectory() ? inAdmin(path.join(dir, e.name)) : [])])
+    expect(inAdmin(adminFolder)).not.toContain(erin.id)
+    expect(inAdmin(adminFolder)).not.toContain('notes.md')
   })
 
   test('an admin may choose to delete the personal folder too, as the owner may', async () => {
@@ -80,6 +89,19 @@ describe('account deletion by role', () => {
     expect((await hal.client.try('GET', '/api/me')).status).toBe(200)
     expect(fs.readFileSync(path.join(folder, 'notes.md'), 'utf8')).toBe('hal keeps this')
     expect(deleteAudits()).toBe(before)
+  })
+
+  test('a wrong admin password is audited (auth.reauth_failed) and counts toward the per-person limit', async () => {
+    h.advance(DEFAULT_LIMITS.windowMs + 1000)
+    const ned = await addMember(h, owner, { username: 'ned' })
+    const failed = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'auth.reauth_failed' AND actor_id = ?").get(admin2.id) as { n: number }).n
+    const before = failed()
+    for (let i = 0; i < DEFAULT_LIMITS.perReauth; i++) expect((await del(admin2.client, ned.id, { password: 'wrong wrong 1' })).status).toBe(403)
+    expect(failed()).toBe(before + DEFAULT_LIMITS.perReauth)
+    // the limit is reached: even the right password waits (429), and nothing was deleted
+    expect((await del(admin2.client, ned.id, { password: admin2.password })).status).toBe(429)
+    expect(row(ned.id).deleted_at).toBeNull()
+    h.advance(DEFAULT_LIMITS.windowMs + 1000)
   })
 
   test('an admin cannot delete the owner, another admin or themselves, even with the right password', async () => {
@@ -119,15 +141,64 @@ describe('account deletion by role', () => {
     expect(row(jon.id)).toMatchObject({ role: 'admin', deleted_at: null })
   })
 
+  test('an admin demoted while the password is checked is refused (the actor is read again inside the delete)', async () => {
+    const ora = await addMember(h, owner, { username: 'ora', role: 'admin' })
+    const pat = await addMember(h, owner, { username: 'pat' })
+    const sessions = h.ctx.services.sessions as unknown as { verifyPassword: (...a: unknown[]) => Promise<boolean> }
+    const real = sessions.verifyPassword
+    sessions.verifyPassword = async (...a: unknown[]) => {
+      const ok = await real.apply(sessions, a)
+      h.ctx.db.query("UPDATE users SET role = 'member' WHERE id = ?").run(ora.id)
+      return ok
+    }
+    try {
+      expect((await del(ora.client, pat.id, { password: ora.password })).status).toBe(403)
+    } finally { sessions.verifyPassword = real }
+    expect(row(pat.id).deleted_at).toBeNull()
+    // disabled while the password is checked: the same
+    const qui = await addMember(h, owner, { username: 'qui', role: 'admin' })
+    const rex = await addMember(h, owner, { username: 'rex' })
+    sessions.verifyPassword = async (...a: unknown[]) => {
+      const ok = await real.apply(sessions, a)
+      h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ?").run(qui.id)
+      return ok
+    }
+    try {
+      expect((await del(qui.client, rex.id, { password: qui.password })).status).toBe(403)
+    } finally { sessions.verifyPassword = real }
+    expect(row(rex.id).deleted_at).toBeNull()
+  })
+
+  test('the check inside the delete itself: a promotion that lands after the first checks, before the delete runs', async () => {
+    const sam = await addMember(h, owner, { username: 'sam' })
+    const ctxFor = (userId: string, role: string) => {
+      const vars: Record<string, unknown> = { auth: { user: { id: userId, role } }, locale: 'en', info: { ip: '10.0.0.7', userAgent: 'test' }, log: { warn() {}, error() {} } }
+      return { get: (k: string) => vars[k] } as any
+    }
+    // the owner has no password step; the only thing between the first guard and the transaction is this read of the
+    // person's sign-ins, which here promotes them: only the check inside the transaction can still stop the delete
+    const integ = integrationsOf(h.ctx)
+    const real = integ.signInsToRevoke.bind(integ)
+    integ.signInsToRevoke = (id: string) => { h.ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ?").run(id); return real(id) }
+    let err: unknown
+    try { await deleteUser(ctxFor(admin.id, 'admin'), h.ctx, sam.id, 'delete', admin.password) } catch (e) { err = e }
+    finally { integ.signInsToRevoke = real }
+    expect(err).toBeInstanceOf(HttpError)
+    expect((err as HttpError).code).toBe('forbidden')
+    expect(row(sam.id)).toMatchObject({ role: 'admin', deleted_at: null })
+  })
+
   test('the server function itself refuses a plain member, and an admin without the password', async () => {
     const kim = await addMember(h, owner, { username: 'kim' })
     const ctxFor = (userId: string, role: string) => {
       const vars: Record<string, unknown> = { auth: { user: { id: userId, role } }, locale: 'en', info: { ip: '10.0.0.7', userAgent: 'test' } }
       return { get: (k: string) => vars[k] } as any
     }
-    for (const [c, pw] of [[ctxFor(kim.id, 'member'), undefined], [ctxFor(admin.id, 'admin'), undefined]] as const) {
+    const lou = await addMember(h, owner, { username: 'lou' })
+    // a plain member aims at another member; an admin aims at a member without the password
+    for (const [c, target, pw] of [[ctxFor(lou.id, 'member'), kim.id, undefined], [ctxFor(admin.id, 'admin'), kim.id, undefined]] as const) {
       let err: unknown
-      try { await deleteUser(c, h.ctx, kim.id === c.get('auth').user.id ? admin.id : kim.id, 'delete', pw) } catch (e) { err = e }
+      try { await deleteUser(c, h.ctx, target, 'delete', pw) } catch (e) { err = e }
       expect(err).toBeInstanceOf(HttpError)
       expect((err as HttpError).code).toBe('forbidden')
     }
@@ -139,6 +210,7 @@ describe('account deletion by role', () => {
     const mo = await addMember(h, owner, { username: 'mo' })
     expect((await del(lee.client, mo.id, { password: lee.password })).status).toBe(403)
     expect(row(mo.id).deleted_at).toBeNull()
+    expect((await del(lee.client, admin.id, { password: lee.password })).status).toBe(403)
   })
 
   test('the owner is unchanged: deletes a member and an admin without a password, never themselves; the audit names the owner', async () => {

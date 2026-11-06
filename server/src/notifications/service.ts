@@ -137,6 +137,16 @@ export class Notifications {
     if (again.changes) { if (this.active(ownerId)) this.signal(ownerId); return }
     this.record(ownerId, 'account.deletion_request', requesterId, createdAt, true)
   }
+  /** A role changed: what an owner or admin no longer handles leaves their inbox. A person who became a member is no
+   * longer told of anyone's request; a member who became an admin is now the owner's business only, so the admins'
+   * entries for that person go (the owners keep theirs). */
+  forgetDeletionNotices(o: { userId: string } | { requesterId: string }) {
+    const db = this.ctx.db
+    const rows = 'userId' in o
+      ? db.query('DELETE FROM account_deletion_notices WHERE user_id=? RETURNING user_id').all(o.userId)
+      : db.query("DELETE FROM account_deletion_notices WHERE source_id=? AND user_id IN (SELECT id FROM users WHERE role='admin') RETURNING user_id").all(o.requesterId)
+    for (const u of new Set((rows as { user_id: string }[]).map((r) => r.user_id))) if (this.active(u)) this.signal(u)
+  }
   /** A request that no longer waits (taken back, or the account was deleted): its entries count as read, so no owner is
    * left with something to do that is gone. The entry stays and says what happened. */
   settleDeletionRequests(requesterId: string) {

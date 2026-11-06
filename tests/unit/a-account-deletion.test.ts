@@ -75,6 +75,11 @@ describe('asking', () => {
     expect((await admin.client.call('POST', PATH, { confirm: true })).state).toBe('pending')
     expect((await entries(owner)).some((x: any) => x.sourceId === admin.id && x.deletionRequest?.state === 'open')).toBe(true)
     expect((await entries(admin.client)).some((x: any) => x.sourceId === admin.id)).toBe(false)
+    // another admin gets no notice either, and does not see the request in Admin › Members (members' requests only)
+    const other = await addMember(h, owner, { username: 'alma', role: 'admin' })
+    expect((await entries(other.client)).some((x: any) => x.sourceId === admin.id)).toBe(false)
+    expect((await other.client.call('GET', '/api/admin/users')).deletionRequested ?? []).not.toContain(admin.id)
+    expect((await owner.call('GET', '/api/admin/users')).deletionRequested).toContain(admin.id)
     expect((await admin.client.call('DELETE', PATH)).state).toBe('none')
   })
 
@@ -178,5 +183,28 @@ describe('the owner handles it', () => {
       expect(fks.length, table).toBeGreaterThan(0)
       for (const fk of fks) expect(fk, table).toMatchObject({ table: 'users', on_delete: 'CASCADE' })
     }
+  })
+})
+
+describe('a role change moves the notices', () => {
+  test('a demoted admin loses the notices of requests they no longer handle; a member who asked and is made an admin is the owner\'s business only', async () => {
+    const boss = await addMember(h, owner, { username: 'bram', role: 'admin' })
+    const peer = await addMember(h, owner, { username: 'pia', role: 'admin' })
+    const m = await addMember(h, owner, { username: 'moe' })
+    await m.client.call('POST', PATH, { confirm: true })
+    expect((await entries(boss.client)).some((x: any) => x.sourceId === m.id)).toBe(true)
+    expect((await entries(peer.client)).some((x: any) => x.sourceId === m.id)).toBe(true)
+    // demoted: the admin's notices (and the unread count) go
+    await owner.call('PATCH', `/api/admin/users/${boss.id}`, { role: 'member' })
+    expect(await entries(boss.client)).toEqual([])
+    expect((await boss.client.try('GET', '/api/admin/users')).status).toBe(403)
+    // promoted: the other admins' entries for that person go, the owner's stay
+    await owner.call('PATCH', `/api/admin/users/${m.id}`, { role: 'admin' })
+    expect((await entries(peer.client)).some((x: any) => x.sourceId === m.id)).toBe(false)
+    expect((await entries(owner)).some((x: any) => x.sourceId === m.id && x.deletionRequest?.state === 'open')).toBe(true)
+    // and the 30-day refresh does not bring them back
+    notificationsOf(h.ctx).reconcile()
+    expect((await entries(peer.client)).some((x: any) => x.sourceId === m.id)).toBe(false)
+    expect((await entries(boss.client))).toEqual([])
   })
 })

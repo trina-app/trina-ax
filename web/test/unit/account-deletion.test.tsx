@@ -11,7 +11,7 @@ import { installDom, mount, removeDom } from './dom-host'
 
 const ko = (k: MessageKey, p?: Params) => translate('ko', k, p)
 const en = (k: MessageKey, p?: Params) => translate('en', k, p)
-const me = (role: 'owner' | 'member'): Me => ({
+const me = (role: 'owner' | 'admin' | 'member'): Me => ({
   user: { id: 'mina', username: 'mina', name: '김민아', email: null, role, locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} },
   groups: [], team: { name: 'Acme', defaultLocale: 'ko', chatTrashRetentionDays: 14 }, session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' },
   server: { version: '0', dev: false, deployment: 'hosted' },
@@ -66,6 +66,22 @@ describe('the page', () => {
       await m.click('account-deletion-cancel')
       await m.until(() => m.find('account-deletion-none'), 'the button again')
       expect(calls.some((c) => c.key === 'DELETE /api/me/deletion-request')).toBe(true)
+    } finally { await m.unmount() }
+  })
+
+  test('an admin\'s own request goes to the team owner only, and the words say so', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: me('admin') } } as never)
+    state = { state: 'none', requestedAt: null }
+    const m = await mount(<MemoryRouter><AccountDeletion /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('account-deletion-none'), 'the page')
+      const page = m.get('account-deletion').textContent ?? ''
+      expect(page).toContain('팀장에게 앱 안에서 알림이 가고, 팀장이 계정을 삭제해요')
+      expect(page).not.toContain('관리자')
+      await m.click('account-deletion-request')
+      await m.until(() => m.find('account-deletion-pending'), 'the pending state')
+      expect(m.get('account-deletion').textContent).toContain('팀장이 처리하면')
+      expect(m.get('account-deletion').textContent).not.toContain('관리자')
     } finally { await m.unmount() }
   })
 

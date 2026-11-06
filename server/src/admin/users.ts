@@ -25,7 +25,7 @@ import { dropAdminScope } from '../connectors/remote-mcp/oauth'
 import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
-import { notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -43,8 +43,9 @@ function liveUser(ctx: AppContext, id: string): UserRow {
  * Who may act on whom: nobody acts on the owner through these endpoints (owner transfer is separate), only the
  * owner acts on admins or makes someone admin, and nobody changes their own role / status / account here.
  */
-function guard(c: Context<AppEnv>, target: UserRow, o: { self?: boolean; newRole?: Role } = {}): void {
-  const auth = c.get('auth')!
+function guard(c: Context<AppEnv>, target: UserRow, o: { self?: boolean; newRole?: Role; actor?: { id: string; role: Role } } = {}): void {
+  // `actor`: who acts, read again from the database (the session's copy may be older)
+  const auth = o.actor ? { user: o.actor } : c.get('auth')!
   const locale = c.get('locale')
   if (target.role === 'owner') fail('forbidden', msg('notOnOwner', locale))
   if (!o.self && target.id === auth.user.id) fail('forbidden', msg('notOnSelf', locale))
@@ -129,6 +130,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
     }
     if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'user.update', target: id, detail: changed })
   })()
+  // asked-for deletions they no longer handle (demoted), or that are now only the owner's (a member made an admin)
+  if (changed.role === 'member') try { notificationsOf(ctx).forgetDeletionNotices({ userId: id }) } catch { /* the inbox row ages out */ }
+  if (changed.role === 'admin') try { notificationsOf(ctx).forgetDeletionNotices({ requesterId: id }) } catch { /* the inbox row ages out */ }
   // the person's open windows ask for their language again (GET /api/me) and switch without a reload
   if (changed.locale !== undefined) ctx.services.realtime.publish(id, LOCALE_CHANGED)
   // disabled or enabled again: nothing buffered under the earlier state is replayed (group / rule changes made while
@@ -211,10 +215,12 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   if (auth.user.role !== 'owner' && auth.user.role !== 'admin') fail('forbidden')
   const first = liveUser(ctx, id)
   guard(c, first)
+  let passwordChecked = false
   if (auth.user.role === 'admin') {
     if (typeof password !== 'string' || !(await ctx.services.sessions.verifyPassword(auth.user.id, password, c.get('info')))) {
       fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
     }
+    passwordChecked = true
   }
   // the password check above waited: read the person again, and once more inside the transaction below, so what
   // decides is what they are at the moment of the delete (a member promoted to admin meanwhile is refused)
@@ -227,7 +233,13 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   try { revokeSignIns = integrationsOf(ctx).signInsToRevoke(id) } catch (e) { c.get('log').warn('sign-ins of a deleted member could not be read for revoking', { err: e, userId: id }) }
   let requested = false
   ctx.db.transaction(() => {
-    guard(c, liveUser(ctx, id))
+    // who acts is read again too: an admin demoted (or disabled, or deleted) while the password was checked is nobody
+    const row = ctx.db.query('SELECT id, role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
+    if (!row) return fail('forbidden')
+    if (row.deleted_at || row.status !== 'active' || (row.role !== 'owner' && row.role !== 'admin')) fail('forbidden')
+    // an admin by now who was not asked for the password (they were the owner at the start) is refused too
+    if (row.role === 'admin' && !passwordChecked) fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
+    guard(c, liveUser(ctx, id), { actor: { id: row.id, role: row.role } })
     // tombstone: the username is freed for reuse, the id (personal folder name, usage, audit) is never reused
     ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ?, username = ?, password_hash = NULL, email = NULL WHERE id = ?")
       .run(now, `${target.username}#deleted-${Date.parse(now).toString(36)}`, id)

@@ -27,9 +27,11 @@ export function deletionNoticeText(t: T, item: Pick<InboxNotification, 'deletion
 }
 
 /** The page's content for one state (no requests of its own: AccountDeletion loads and sends). */
-export function AccountDeletionView({ value, days, busy, onRequest, onCancel }: { value: AccountDeletionRequest; days: number; busy: boolean; onRequest: () => void; onCancel: () => void }) {
+export function AccountDeletionView({ value, days, busy, onRequest, onCancel, viewerIsAdmin = false }: { value: AccountDeletionRequest; days: number; viewerIsAdmin?: boolean; busy: boolean; onRequest: () => void; onCancel: () => void }) {
   const t = useT()
   const locale = useLocale()
+  // an admin's own request goes to the team owner only (an admin cannot delete an admin): the words say so
+  const k = (key: 'body' | 'pending') => (key === 'body' ? (viewerIsAdmin ? 'accountDeletion.bodyAdmin' : 'accountDeletion.body') : viewerIsAdmin ? 'accountDeletion.pendingAdmin' : 'accountDeletion.pending')
   return (
     <div className="space-y-4" data-testid={`account-deletion-${value.state}`}>
       {value.state === 'owner' ? (
@@ -41,14 +43,14 @@ export function AccountDeletionView({ value, days, busy, onRequest, onCancel }: 
         </>
       ) : value.state === 'pending' ? (
         <>
-          <p className="text-sm text-muted">{t('accountDeletion.pending', { date: value.requestedAt ? formatDateTime(value.requestedAt, locale) : '' })}</p>
+          <p className="text-sm text-muted">{t(k('pending'), { date: value.requestedAt ? formatDateTime(value.requestedAt, locale) : '' })}</p>
           <Button busy={busy} onClick={onCancel} data-testid="account-deletion-cancel">
             {t('accountDeletion.cancel')}
           </Button>
         </>
       ) : (
         <>
-          <p className="text-sm text-muted">{t('accountDeletion.body', { days })}</p>
+          <p className="text-sm text-muted">{t(k('body'), { days })}</p>
           <Button variant="danger" busy={busy} onClick={onRequest} data-testid="account-deletion-request">
             {t('accountDeletion.request')}
           </Button>
@@ -82,7 +84,7 @@ export function AccountDeletion() {
     setBusy(true)
     try {
       setValue(cancel ? await api.call(API.cancelAccountDeletion) : await api.call(API.requestAccountDeletion, { body: { confirm: true } }))
-      toast({ level: 'success', text: t(cancel ? 'accountDeletion.cancelled' : 'accountDeletion.sent') })
+      toast({ level: 'success', text: t(cancel ? 'accountDeletion.cancelled' : me.user.role === 'admin' ? 'accountDeletion.sentAdmin' : 'accountDeletion.sent') })
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     } finally {
@@ -95,7 +97,7 @@ export function AccountDeletion() {
       <h2 className="mb-3 text-base font-semibold">{t('accountDeletion.title')}</h2>
       {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
       {!value && !error && <Skeleton lines={2} />}
-      {value && <AccountDeletionView value={value} days={chatTrashDays(me)} busy={busy} onRequest={() => void send(false)} onCancel={() => void send(true)} />}
+      {value && <AccountDeletionView value={value} days={chatTrashDays(me)} busy={busy} onRequest={() => void send(false)} onCancel={() => void send(true)} viewerIsAdmin={me.user.role === 'admin'} />}
     </section>
   )
 }
