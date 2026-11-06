@@ -8,6 +8,7 @@ import { useLocale, useT } from '../../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
 import { Button, ErrorNote, Skeleton } from '../ui'
 import { mobilePushApp } from '../../lib/mobile-push'
+import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { deletionNoticeText } from './AccountDeletion'
 
@@ -47,6 +48,7 @@ const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
 export function Notifications() {
   const t = useT(), locale = useLocale()
   const app = mobilePushApp()
+  const sound = useRoomSoundOn()
   const [items, setItems] = useState<InboxNotification[] | null>(null)
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
@@ -124,10 +126,15 @@ export function Notifications() {
       </li>)}</ul>
       {cursor && <Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button>}
     </div>}
-    {preferences && <fieldset disabled={busy} className="space-y-3 md:rounded-xl md:border md:border-line md:p-4"><legend className="text-sm font-medium md:px-1 max-md:mb-3">{t('notifications.preferences')}</legend>
+    {/* the server's choices are disabled while one saves; this device's sound switch never waits for the server, and
+        shows even when the server's choices could not be read */}
+    {(preferences || error) && <fieldset className="space-y-3 md:rounded-xl md:border md:border-line md:p-4"><legend className="text-sm font-medium md:px-1 max-md:mb-3">{t('notifications.preferences')}</legend>
       {/* a server from before a preference existed leaves it out: no box for it */}
-      {preferenceKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
-      <p className="text-xs text-muted max-md:text-sm">{t('notifications.preferenceHint')}</p>
+      {preferences && preferenceKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy} checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
+      {preferences && <p className="text-xs text-muted max-md:text-sm">{t('notifications.preferenceHint')}</p>}
+      {/* this device's chime for new room messages meant for me (store/roomSound.ts): kept in this browser, not on the
+          server, so it sits under a hairline apart from the events above */}
+      <label className={`flex items-center gap-2 text-sm${preferences ? ' border-t border-line pt-3' : ''}`}><input type="checkbox" checked={sound} onChange={e => changeRoomSound(e.target.checked)} data-testid="notification-sound" /><span>{t('notifications.sound')} <span className="text-muted">· {t('notifications.soundDevice')}</span></span></label>
     </fieldset>}
     <div className={app ? 'max-md:-order-1' : undefined}><PushNotifications /></div>
   </section>

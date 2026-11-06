@@ -2,7 +2,9 @@
 //
 // - One socket per window. Resume after a drop with ?epoch=E&after=N; the server replays what was missed, or says
 //   `reset` (server restarted) / `resync` (we fell out of its buffer) and the app reloads from REST.
-// - Events carry a per-user seq; anything at or below the last applied seq is a duplicate and is dropped.
+// - Events carry a per-user seq; anything at or below the last applied seq is a duplicate and is dropped. A resumed
+//   hello says the user's seq at that moment: the events up to it are the replay of what was missed (`replay: true`),
+//   so nothing that reacts to new things (the room sound, lib/roomSound.ts) takes them for new.
 // - Reconnect: 0–1 s random, then 1, 2, 4 … s up to 10 s. After 30 s without a connection the state becomes
 //   'offline' (the banner then says "can't reach the team server"); a dropped link alone is 'reconnecting'.
 // - Close 4401 = signed out (no reconnect), 4409 = the same window id connected elsewhere (duplicated tab): take a
@@ -33,7 +35,8 @@ export interface RealtimeOptions {
   windowId: () => string
   renewWindowId: () => string
   createSocket: (url: string, protocols: string[]) => WsLike
-  onEvent: (ev: ServerEvent) => void
+  /** replay: sent again after a reconnect (it happened while this window was away), not just now */
+  onEvent: (ev: ServerEvent, meta: { replay: boolean }) => void
   /** server restarted / we missed too much: reload chats and messages from REST */
   onReload: (reason: 'reset' | 'resync') => void
   onState?: (s: ConnState) => void
@@ -66,6 +69,8 @@ export class RealtimeClient {
   private ws: WsLike | null = null
   private epoch: string | null = null
   private lastSeq = 0
+  /** a resumed hello's seq: events up to it are the server's replay */
+  private replayUpTo = 0
   private attempt = 0
   private state: ConnState = 'idle'
   private stopped = true
@@ -179,6 +184,7 @@ export class RealtimeClient {
       case 'hello': {
         const restarted = this.epoch !== null && f.epoch !== this.epoch
         this.epoch = f.epoch
+        this.replayUpTo = f.resumed ? f.seq : 0
         if (!f.resumed) {
           // fresh window, or the server could not resume us: anything we had may be stale
           if ((restarted || this.lastSeq > 0) && !this.reloadedThisConn) {
@@ -213,7 +219,7 @@ export class RealtimeClient {
       default: {
         if (f.seq <= this.lastSeq) return // replayed twice
         this.lastSeq = f.seq
-        this.o.onEvent(f)
+        this.o.onEvent(f, { replay: f.seq <= this.replayUpTo })
         if (f.type === 'session.ended') this.signedOut()
       }
     }
