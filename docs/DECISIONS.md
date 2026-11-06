@@ -5604,7 +5604,13 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   untrusted input: the server parses it (`siteFromInput`) and checks it (`userSiteProblem` = `extraDomainProblem` plus
   no local or metadata names: `localhost`, `.local`, `.internal`, `.lan`, `.corp`, `.home.arpa`, `.test` and more; no
   IP address in any spelling, `0x7f.1` and `2852039166` too; not a team host name or a pattern that covers one).
-  A refused host gets no card, and the command does not run.
+  A refused host gets no card, and the command does not run. The AI asks for one exact host only: a `*.` pattern gets
+  no card (one click would cover every name under a domain, for example every bucket of a storage service). Only an
+  admin's Extra sites can have a pattern.
+- **No second card.** A host that the person did not allow in a turn (no, or no answer) is refused at once when the AI
+  asks for it again in the same turn, with no card. A web page or a file can tell the AI to ask again; it cannot make
+  the person see the card again. In a turn where nobody can answer (a scheduled task) no card is raised: the AI is told
+  that nobody can allow a site there, and that the person's "always" sites work.
 - **The card.** A new server-raised `TurnRequest` kind `dev_env_site` (host, the command with secrets hidden). The AI's
   `ask_user` cannot make one. It goes to every window of the person who owns the turn, not only the sending window
   (unlike `browser_site`). `/api/turns/:id/answer` takes `{kind: 'dev_env_site', decision: once|always|deny}`; only the
@@ -5625,7 +5631,9 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   Full run has `strictAllowlist: false` and runs `full.mjs` (installed next to srt's `cli.js` by `install-srt.sh`):
   srt's own CLI, with an ask callback. srt asks it only for a host that is on no list, after its deny list. srt's
   resolved-address guard judges host names only, never an IP literal or `localhost`, so the callback allows a host
-  name only and refuses every IP literal and loopback name itself. Checked on macOS with the pinned srt: without that
+  name only and refuses every IP literal, loopback name and local name (the same list as `userSiteProblem`) itself.
+  It also checks the settings' `deniedDomains` again on its own form of the host: srt compares its canonical form,
+  which keeps one of two trailing dots (`team.example.com..`). Checked on macOS with the pinned srt: without that
   rule, `127.0.0.1` and `169.254.169.254` went through the proxy. With it, these are refused: IP literals in every
   spelling, `localhost` names, names that resolve to loopback, 10/8, 192.168/16, 169.254/16 or the VM's IP, the team
   host and `metadata.google.internal`. `install-srt.sh` runs `full.mjs --self-test`. If `full.mjs` is missing, Full

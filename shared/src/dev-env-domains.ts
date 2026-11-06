@@ -64,7 +64,7 @@ export const DEV_ENV_FULL_WARNING_VERSION = 1
 
 /** Names of the local network and of metadata services. A person may not allow them (the browser's office-network
  * names, chat/browser-gate.ts, use the same idea). */
-const LOCAL_SUFFIXES = ['localhost', 'local', 'internal', 'lan', 'corp', 'home', 'home.arpa', 'intranet', 'private', 'localdomain', 'test', 'invalid', 'example']
+export const LOCAL_SUFFIXES = ['localhost', 'local', 'internal', 'lan', 'corp', 'home', 'home.arpa', 'intranet', 'private', 'localdomain', 'test', 'invalid', 'example']
 
 /** The host of what the AI asked for: "https://Api.Example.com:443/x" -> "api.example.com". Null when nothing is left. */
 export function siteFromInput(raw: string): string | null {

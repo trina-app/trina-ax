@@ -124,6 +124,8 @@ export interface BoxShellHost {
   confirm(question: string, options: { label: string; value: string }[], details: string[]): Promise<string | null>
   /** the site card (dev_env_site): may the AI reach this host? null: no answer (a scheduled run, timeout, turn ended) */
   askSite?(host: string, command: string): Promise<'once' | 'always' | 'deny' | null>
+  /** nobody can answer a card in this turn (a scheduled run): no site card is raised */
+  unattended?: boolean
   redact(s: string): string
 }
 
@@ -202,7 +204,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
 }
 
 /** One box_shell call on the srt runner. */
-async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, firstCall: boolean, once: Set<string>) {
+async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, firstCall: boolean, once: Set<string>, denied: Set<string>) {
   const { ctx, project } = h
   // never trust the start of the turn alone: the admin may have turned it off, the person may be out of scope now
   if (!mayUseDevEnv(ctx.db, ctx.files, h.userId)) return { ...text('The dev environment is off for you now. Do not try again.', true), summary: `${what} -> off` }
@@ -249,7 +251,7 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     }
   }
   if (data.request_sites?.length) {
-    const asked = await askSites(h, data, once)
+    const asked = await askSites(h, data, once, denied)
     if (asked.refusal) return { ...text(h.redact([...notes, ...asked.notes, asked.refusal].join('\n')), true), summary: `${what} -> ${asked.summary}` }
     notes.push(...asked.notes)
   }
@@ -259,20 +261,30 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
 /** The sites the AI asked for (request_sites): each host is checked; one that is allowed already needs no card; for the
  * others the person who owns the turn answers a server card. A refusal stops the command. Nothing is asked when the
  * team (or the plan) set No network. */
-async function askSites(h: BoxShellHost, data: BoxShellInput, once: Set<string>): Promise<{ notes: string[]; refusal?: string; summary?: string }> {
+async function askSites(h: BoxShellHost, data: BoxShellInput, once: Set<string>, denied: Set<string>): Promise<{ notes: string[]; refusal?: string; summary?: string }> {
   const { ctx } = h
   if (networkNow(ctx) === 'offline') return { notes: [], refusal: 'The team set the dev environment to No network: no site can be allowed, and commands have no network. Do not ask for sites again; tell the person that the command needs the network.', summary: 'sites refused (No network)' }
   const hosts = teamHosts(ctx)
   const notes: string[] = []
   for (const raw of data.request_sites ?? []) {
     const host = siteFromInput(raw)
-    const why = host ? userSiteProblem(host, hosts) : 'not a host name'
+    // the AI asks for one exact host name: a "*." pattern from a card would cover every name under a domain (every
+    // bucket of a storage service, for example) with one click. A person cannot allow a pattern; an admin can.
+    const why = !host ? 'not a host name' : host.includes('*') ? 'ask for one exact host name, not a pattern with "*"' : userSiteProblem(host, hosts)
     if (!host || why) {
       audit(ctx.db, { actor: h.userId, action: 'dev_env.site_refused', target: null, detail: { host: (host ?? raw).slice(0, 253), why, turnId: h.turnId, chatId: h.chatId ?? null } })
       return { notes, refusal: `${(host ?? raw).slice(0, 253)} cannot be allowed: ${why}. The command did not run. Do not ask for it again.`, summary: `site ${(host ?? raw).slice(0, 100)} refused (${why})` }
     }
     const person = personNetNow(ctx, h.userId)
     if (siteAllowed(host, { teamSites: teamSetting(ctx.db).extraDomains, person, once })) { notes.push(`${host} is allowed already.`); continue }
+    // a host that the person did not allow in this turn is not asked again: no second card (the AI may try again
+    // because a web page or a file tells it to; the person said no once)
+    if (denied.has(host)) return { notes, refusal: `The person did not allow ${host} in this answer, so the command did not run. Do not ask for it again; tell the person what does not work without it.`, summary: `site ${host} not allowed (asked again)` }
+    if (h.unattended) {
+      audit(ctx.db, { actor: h.userId, action: 'dev_env.site_denied', target: null, detail: { host, answer: 'none', turnId: h.turnId, chatId: h.chatId ?? null } })
+      denied.add(host)
+      return { notes, refusal: `Nobody can answer a site card in this run (a scheduled task, for example): ${host} is not on the allowed list, so the command did not run. Sites that the person allowed with "Always allow" work here; tell the person to allow ${host} in a chat first.`, summary: `site ${host} not allowed (no person to ask)` }
+    }
     const decision = h.askSite ? await h.askSite(host, h.redact(data.command.slice(0, 300))) : null
     if (decision === 'always') {
       if (grantUserSite(ctx.db, h.userId, host) === 'full') {
@@ -286,6 +298,7 @@ async function askSites(h: BoxShellHost, data: BoxShellInput, once: Set<string>)
       audit(ctx.db, { actor: h.userId, action: 'dev_env.site_allowed', target: null, detail: { host, scope: 'once', turnId: h.turnId, chatId: h.chatId ?? null } })
     } else {
       audit(ctx.db, { actor: h.userId, action: 'dev_env.site_denied', target: null, detail: { host, answer: decision === null ? 'none' : 'deny', turnId: h.turnId, chatId: h.chatId ?? null } })
+      denied.add(host)
       return { notes, refusal: `The person did not allow ${host}, so the command did not run. Do not ask for ${host} again in this answer; tell the person what does not work without it.`, summary: `site ${host} not allowed` }
     }
   }
@@ -304,6 +317,8 @@ export function boxShellTool(h: BoxShellHost) {
   let firstCall = true
   /** the sites the person allowed once in this turn (foreground commands; a job or dev server keeps its own copy) */
   const once = new Set<string>()
+  /** the sites the person did not allow in this turn (or nobody could answer): no second card for them */
+  const denied = new Set<string>()
   return {
     name: BOX_SHELL_TOOL,
     description: devEnvRunner() === 'srt' ? SRT_SHELL_DESCRIPTION : BOX_SHELL_DESCRIPTION,
@@ -312,7 +327,7 @@ export function boxShellTool(h: BoxShellHost) {
       const a = BoxShellInput.safeParse(args)
       if (!a.success) return { ...text('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), true), summary: 'box_shell -> invalid input' }
       const what = h.redact(`box_shell ${a.data.command.slice(0, 200)}`)
-      if (devEnvRunner() === 'srt') { const first = firstCall; firstCall = false; return srtCall(h, a.data, what, first, once) }
+      if (devEnvRunner() === 'srt') { const first = firstCall; firstCall = false; return srtCall(h, a.data, what, first, once, denied) }
       const { ctx } = h
       const project = h.project
       // the box runner is offered in project chats only (chat/turn.ts)

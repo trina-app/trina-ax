@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
-import { DEV_ENV_DEFAULT_DOMAINS, extraDomainProblem } from '@mycel/shared'
+import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
@@ -301,8 +301,11 @@ describe('the srt settings file', () => {
     expect(sh).toContain('"$SRT_DIR/full.mjs" --self-test')
     const w = fs.readFileSync(path.join(REPO, 'scripts/dev-env/srt/srt-full.mjs'), 'utf8')
     // the callback allows only with strictAllowlist false, and never an address or a loopback name
-    expect(w).toContain("config?.network?.strictAllowlist === false ? ask : undefined")
+    expect(w).toContain("config?.network?.strictAllowlist === false ? ask([...(config.network.deniedDomains ?? [])]) : undefined")
     expect(w).toContain('isIP(h)')
+    // the local names it refuses are the ones a person cannot allow (shared LOCAL_SUFFIXES): the copies agree
+    const copy = /export const LOCAL_SUFFIXES = (\[[^\]]*\])/.exec(w)?.[1]
+    expect(copy && JSON.parse(copy.replace(/'/g, '"'))).toEqual([...LOCAL_SUFFIXES])
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
@@ -989,6 +992,40 @@ describe('sites a person allows (no admin step)', () => {
     }
     expect(runs.size).toBe(0)
     expect(userSites(h.ctx.db, 'alice')).toEqual([])
+  })
+  test('the AI asks for one exact host: a "*." pattern gets no card', async () => {
+    for (const bad of ['*.example.com', '*.s3.amazonaws.com', 'https://*.example.com/']) {
+      const a = asking('alice', falcon(), chatFalcon, 'always')
+      const r = await a.tool.call({ command: 'echo hi', request_sites: [bad] })
+      expect(out(r)).toContain('not a pattern')
+      expect(a.asked).toEqual([])
+    }
+    expect(userSites(h.ctx.db, 'alice')).toEqual([])
+  })
+  test('a host the person did not allow in this turn gets no second card', async () => {
+    const a = asking('alice', falcon(), chatFalcon, 'deny')
+    expect(out(await a.tool.call({ command: 'echo hi', request_sites: ['api.example.com'] }))).toContain('did not allow')
+    // a web page or a file tells the AI to try again: no card, the command does not run
+    const r = await a.tool.call({ command: 'echo again', request_sites: ['API.example.com.'] })
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain('did not allow api.example.com in this answer')
+    expect(a.asked).toHaveLength(1)
+    expect(runs.size).toBe(0)
+    // another host still gets its card
+    await a.tool.call({ command: 'echo x', request_sites: ['other.example.com'] })
+    expect(a.asked.map((x) => x.host)).toEqual(['api.example.com', 'other.example.com'])
+  })
+  test('nobody to ask (a scheduled run): no card, the AI is told why; her "always" sites still work', async () => {
+    const asked: string[] = []
+    const tool = boxShellTool({ ctx: h.ctx, project: falcon(), userId: 'alice', turnId: 'turn-s', chatId: chatFalcon, signal: new AbortController().signal, confirm: async () => null, redact: (x) => x,
+      unattended: true, askSite: async (host) => { asked.push(host); return 'always' } })
+    const r = await tool.call({ command: 'echo hi', request_sites: ['api.example.com'] })
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain('Nobody can answer a site card in this run')
+    expect(asked).toEqual([])
+    grantUserSite(h.ctx.db, 'alice', 'api.example.com')
+    expect(out(await tool.call({ command: 'echo hi', request_sites: ['api.example.com'] }))).toContain('Exit code 0.')
+    expect(asked).toEqual([])
   })
   test('the team\'s No network wins: no card, nothing allowed, and her sites and Full internet do not reach the run', async () => {
     grantUserSite(h.ctx.db, 'alice', 'api.example.com')
