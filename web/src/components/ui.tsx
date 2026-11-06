@@ -419,12 +419,31 @@ export function Toaster() {
           key={x.id}
           role={x.level === 'error' ? 'alert' : 'status'}
           className={clsx(
-            'pointer-events-auto flex w-full items-start gap-2 rounded-xl border px-3 py-2.5 text-sm shadow-lg',
+            'pointer-events-auto flex w-full gap-2 rounded-xl border px-3 py-2.5 text-sm shadow-lg',
+            x.image || x.action?.primary ? 'items-center' : 'items-start',
             x.level === 'error' ? 'border-danger/30 bg-danger-soft text-danger' : x.level === 'warn' ? 'border-warn/30 bg-warn-soft text-warn' : x.level === 'success' ? 'border-ok/30 bg-ok-soft text-ok' : 'border-line bg-surface text-ink',
           )}
+          data-testid="toast"
         >
-          <span className="min-w-0 flex-1 break-words">{x.text}</span>
-          {x.action && (
+          {x.image && <img src={x.image} alt="" className="mr-1 aspect-video w-[72px] shrink-0 rounded border border-line object-cover" data-testid="toast-image" />}
+          <span className="min-w-0 flex-1 break-words">
+            {x.text}
+            {x.detail && <span className="block text-xs text-faint">{x.detail}</span>}
+          </span>
+          {x.action?.primary ? (
+            <Button
+              size="sm"
+              variant="primary"
+              className="shrink-0"
+              onClick={() => {
+                x.action!.run()
+                dismiss(x.id)
+              }}
+              data-testid="toast-action"
+            >
+              {x.action.label}
+            </Button>
+          ) : x.action && (
             <button
               type="button"
               className="shrink-0 rounded-md px-2 py-0.5 font-medium underline underline-offset-2"

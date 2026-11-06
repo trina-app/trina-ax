@@ -79,6 +79,8 @@ const save = (ctx: AppContext, id: string, st: State, extra: Partial<Pick<Row, '
   ctx.db.query(`UPDATE intro_deck_builds SET ${sets.join(', ')} WHERE id = ?`).run(JSON.stringify(st), ...Object.values(extra) as string[], id)
 }
 
+/** The plan indexes the progress shows, in order (the slides not left out). */
+const visibleOf = (st: { slides: unknown[]; skipped: number[] }, n = st.slides.length) => Array.from({ length: n }, (_, i) => i).filter((i) => !st.skipped.includes(i))
 /** The build as the progress block and the panel see it. */
 export function buildView(r: Row): DeckBuild {
   const plan = JSON.parse(r.plan) as Plan, st = JSON.parse(r.state) as State
@@ -87,11 +89,13 @@ export function buildView(r: Row): DeckBuild {
     phase: r.status === 'done' ? 'done' : r.status === 'failed' ? 'failed' : r.status === 'review' ? 'review' : r.status === 'reading' ? 'reading' : 'slides',
     tier: plan.tier ?? 'quick',
     read: { pages: (plan.web ?? []).filter((w) => w.kind === 'page').length, articles: (plan.web ?? []).filter((w) => w.kind === 'article').length },
+    // positions in this list (a slide left out after failed tries is not in it): `current` and the slide pictures
+    // (GET …/slides/:n) count the same way
     slides: (plan.stubs ?? []).map((s, i) => ({
       kind: s.kind, section: s.section, figure: s.figure ?? null, picture: !!s.picture && (s.kind === 'cover' || s.kind === 'opening'),
       status: (st.slides[i] ? 'done' : st.current === i && r.status === 'building' ? 'working' : 'planned') as DeckBuild['slides'][number]['status'], rev: st.rev[i] ?? 0,
     })).filter((_, i) => !st.skipped.includes(i)),
-    current: r.status === 'building' ? st.current : null,
+    current: r.status === 'building' && st.current !== null ? visibleOf(st).indexOf(st.current) : null,
     startedAt: r.started_at, outlineAt: r.outline_at, slidesAt: r.slides_at, finishedAt: r.finished_at, artifactId: r.artifact_id,
     thumbs: thumbsOn(),
   }
@@ -110,9 +114,14 @@ export function listBuilds(ctx: AppContext, userId: string, chatId: string): Dec
 }
 /** A finished slide's picture of the caller's build (null: none). */
 export function buildSlideFile(ctx: AppContext, userId: string, id: string, n: number): string | null {
-  const r = ctx.db.query('SELECT b.id FROM intro_deck_builds b JOIN chats c ON c.id = b.chat_id WHERE b.id = ? AND c.user_id = ? AND c.deleted_at IS NULL').get(id, userId) as { id: string } | null
+  const r = ctx.db.query('SELECT b.id, b.state FROM intro_deck_builds b JOIN chats c ON c.id = b.chat_id WHERE b.id = ? AND c.user_id = ? AND c.deleted_at IS NULL').get(id, userId) as { id: string; state: string } | null
   if (!r || !Number.isInteger(n) || n < 0 || n > 20) return null
-  const f = slidePng(ctx, id, n)
+  // n is the slide's position in the progress list (DeckBuild.slides), not its index in the outline
+  let st: { slides: unknown[]; skipped: number[] }
+  try { st = JSON.parse(r.state) } catch { return null }
+  const at = visibleOf({ slides: st.slides ?? [], skipped: st.skipped ?? [] })[n]
+  if (at === undefined) return null
+  const f = slidePng(ctx, id, at)
   return fs.existsSync(f) ? f : null
 }
 

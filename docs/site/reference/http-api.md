@@ -510,5 +510,5 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/intro-decks/:id` | Signed in | An intro deck of one of the caller's chats, by its artifact id: its title, theme, slide count and which files this server can make (PowerPoint always, PDF where typst is). |
 | `GET` | `/api/intro-decks/:id/pptx` | Signed in | Download an intro deck as a PowerPoint file (built from the checked slides, with the pictures the chat's owner can read now). |
 | `GET` | `/api/intro-decks/builds` | Signed in | The intro decks being built or built in round 2 in one of the caller's chats (newest first, at most 10): the planned slides, which are done, the step times and the finished artifact. |
-| `GET` | `/api/intro-decks/builds/:id/slides/:n` | Signed in | A picture (PNG, 960 × 540) of one finished slide of a deck being built, for the progress block and the panel (404 until it is drawn, or where this server has no typst). |
+| `GET` | `/api/intro-decks/builds/:id/slides/:n` | Signed in | A picture (PNG, 960 × 540) of one finished slide of a deck being built (n: its position in the build's `slides`), for the progress block and the panel (404 until it is drawn, or where this server has no typst). |
 | `GET` | `/api/intro-decks/:id/pdf` | Signed in | Download an intro deck as a PDF (404 where this server has no typst). |

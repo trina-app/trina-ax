@@ -449,7 +449,7 @@ export const DeckBuild = z.object({
   /** what the longer budgets read before the outline: pages of the company's site and outside articles */
   read: z.object({ pages: z.number().int().nonnegative(), articles: z.number().int().nonnegative() }).optional(),
   slides: z.array(DeckBuildSlide),
-  /** the slide being made now (0-based), or null */
+  /** the slide being made now (its position in `slides`), or null */
   current: z.number().int().nullable(),
   /** the click (the turn's start), the outline, the last slide, the end */
   startedAt: z.string(),
@@ -485,7 +485,7 @@ export const INTRO_DECK = {
   listDeckBuilds: endpoint({ method: 'GET', path: '/api/intro-decks/builds', auth: 'user', owner: 'B', query: z.object({ chatId: z.string().min(1).max(64) }), response: DeckBuildList,
     summary: 'The intro decks being built or built in round 2 in one of the caller\'s chats (newest first, at most 10): the planned slides, which are done, the step times and the finished artifact.' }),
   deckBuildSlide: endpoint({ method: 'GET', path: '/api/intro-decks/builds/:id/slides/:n', auth: 'user', owner: 'B', response: stream(false),
-    summary: 'A picture (PNG, 960 × 540) of one finished slide of a deck being built, for the progress block and the panel (404 until it is drawn, or where this server has no typst).' }),
+    summary: 'A picture (PNG, 960 × 540) of one finished slide of a deck being built (n: its position in the build\'s `slides`), for the progress block and the panel (404 until it is drawn, or where this server has no typst).' }),
   downloadIntroDeckPdf: endpoint({ method: 'GET', path: '/api/intro-decks/:id/pdf', auth: 'user', owner: 'B', response: stream(false),
     summary: 'Download an intro deck as a PDF (404 where this server has no typst).' }),
 } as const

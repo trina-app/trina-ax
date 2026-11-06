@@ -20,6 +20,8 @@ import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
 import { useLocale, useT } from '../../i18n'
 import { useChats, useQueuePosition } from '../../store/chats'
+import { useMessageBuild } from '../../store/deckBuilds'
+import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
 import { useMe } from '../../store/session'
 import type { ViewMessage } from '../../store/thread'
@@ -35,6 +37,7 @@ import SuggestSkillDialog from '../SuggestSkillDialog'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import Steps from './Steps'
+import DeckProgress from './DeckProgress'
 import { SkillChip } from './SkillChip'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 
@@ -454,7 +457,12 @@ export function AssistantMessage({
   const requests = useChats(useShallow((s) => Object.values(s.requests).filter((r) => r.messageId === m.id)))
   // while a card asks the person (a question or a connection), the AI is not thinking: it waits for them
   const waitingForYou = streaming && requests.length > 0
-  const thinking = streaming && !m.content && !waitingForYou
+  // an intro deck being made (docs/DECISIONS.md "D2", round 2): one block in place of its steps, from the click (the
+  // question ran the deck skill) or once the server has its build
+  const build = useMessageBuild(chatId, m.id)
+  const question = useChats((s) => (streaming && m.parentId ? s.threads[chatId]?.messages.find((x) => x.id === m.parentId)?.content : undefined))
+  const deck = !!build || readsForDeck(m, question)
+  const thinking = streaming && !m.content && !waitingForYou && !deck
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
   // "no AI": the owner hears what they can do, next to the button (lib/aiAccess.ts noAiErrorKey), only while no AI
@@ -482,7 +490,7 @@ export function AssistantMessage({
             {t('chat.queued', { n: queuePos })} <span className="text-faint">{t('chat.queueHint')}</span>
           </p>
         )}
-        <Steps steps={m.steps} streaming={streaming} receipt={m.receipt} />
+        {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : <Steps steps={m.steps} streaming={streaming} receipt={m.receipt} />}
         {thinking && (queuePos === undefined || queuePos === 0) && (
           <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
             <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />

@@ -49,6 +49,9 @@ interface ChatsState {
   /** artifact the panel should open by itself (the AI started writing one, or an intro deck, a promo video or a card news
    * was saved) */
   autoOpen: { chatId: string; key: string; at: number } | null
+  /** chatId -> the answer whose intro deck build already opened the panel by itself (store/deckBuilds.ts): its saved
+   * deck does not open it again (the person may have closed it meanwhile) */
+  buildOpened: Record<string, string>
 
   loadChats: (reset?: boolean) => Promise<void>
   upsertChat: (c: Chat) => void
@@ -146,6 +149,7 @@ const initial = () => ({
   liveArtifacts: {} as Record<string, Record<string, LiveArtifact>>,
   artifactsRev: {} as Record<string, number>,
   autoOpen: null as ChatsState['autoOpen'],
+  buildOpened: {} as Record<string, string>,
 })
 
 const sortChats = (list: Chat[]) => list.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
@@ -552,7 +556,8 @@ export const useChats = create<ChatsState>((set, get) => {
             // previews yet, only the saved artifact: an intro deck, a promo video or a card news opens when it is saved,
             // since it is the whole answer (the welcome steps' first result and every later run, docs/DECISIONS.md "W2",
             // "V", "D2")
-            autoOpen: !prev && (d.status === 'writing' || OPENS_BY_ITSELF.has(d.key)) ? { chatId: d.chatId, key: d.key, at: Date.now() } : s.autoOpen,
+            // ("D2" round 2: an intro deck whose build opened the panel already does not open it again when it is saved)
+            autoOpen: !prev && (d.status === 'writing' || (OPENS_BY_ITSELF.has(d.key) && !(d.key === DECK_ARTIFACT_KEY && d.messageId && s.buildOpened[d.chatId] === d.messageId))) ? { chatId: d.chatId, key: d.key, at: Date.now() } : s.autoOpen,
           }))
           return
         }

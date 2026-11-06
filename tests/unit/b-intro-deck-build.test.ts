@@ -278,6 +278,10 @@ describe('the intro deck built slide by slide (a real app, the fake engine)', ()
     // the progress after the second failed try: the left-out slide is gone from the plan the chat shows
     const ev = progress(chat)
     expect(ev.at(-1)!.slides.map((s) => s.kind)).toEqual(['cover', 'about', 'process', 'proof', 'history', 'contact'])
+    // after the skip, `current` counts positions in that list: the process slide (outline index 3) is position 2
+    const working = ev.find((e) => e.slides.some((x) => x.kind === 'process' && x.status === 'working') && e.slides.length === 6)!
+    expect(working.current).toBe(2)
+    expect(working.slides[working.current!]!.kind).toBe('process')
   })
 
   test('three failed covers end the build; nothing is made', async () => {

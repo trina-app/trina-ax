@@ -9866,6 +9866,26 @@ no numbers slide when the material has no numbers; about twice the AI usage per 
   a second review round when the first found more than two problems. deep ≈ 10 min: about 15 pages, 6–8 searches, the
   chat made with the strongest model the engine offers (Claude Code's "opus"), two review rounds and a headline pass.
 
+- **The gate (2026-11-06, real AI on this Mac's Claude Code login, dev servers from code snapshots):** a large
+  manufacturer's site, a café with photos, a Korean B2B SaaS, an English SaaS, ax.trina.app, a small AI agency site and a
+  20-page company PDF without a website. From the click to the cover on screen 33–56 s, to the finished deck 81–145 s
+  (round 1: the whole deck at 31–85 s with nothing before it). 6–10 slides; 0–3 slide retries per deck (mostly a line
+  too long, a superlative or a quote not word for word), every deck with the review round. AI usage $0.72–1.06 per deck
+  against round 1's $0.35–0.44 on the same sites (about 2.2×; most of it is cached context sent again with each slide
+  call). Every slide looked at full size as HTML, PDF and the PowerPoint file through LibreOffice next to the mockups.
+  Found and fixed during the gate: the tool's union schema dropped every team tool (above); "/api/intro-decks/builds"
+  was read as a deck id (route order); a picture a slide used without an outline note was kept only in memory (an empty
+  card); a 6-item hub put a label on the footer; a 4-up figures row could not hold "1,286,781+" (two to a row now); the
+  length hints for the cover, the opening and the closing did not match their boxes (retries); the AI left the accents
+  out (now asked for on the closing and a drawn cover); a skipped slide shifted the progress positions.
+  Time budgets on three sites: 5 minutes $1.21–1.69, 2:14–2:44, 10 pages, 1–2 searches, 0–2 cited articles; 10 minutes
+  $1.96–3.03, 2:32–4:31, 15 pages, 6 searches, 0–5 cited articles, Opus. The extra reading paid off on the large site
+  (a numbers slide and a dated history appeared, with press articles cited) and little on the small one.
+- **Still short of the mockups:** a hueless brand whose pictures have no strong colour stays monochrome (the café's rust
+  accent in the mockup was picked by hand; k-means on its pictures finds no colour above the chroma bar); the AI's
+  accents are simpler than the mockups' wafer and growth rings; duotone (T3) is not built (it needs a pixel decoder);
+  the about slide without a figure (statement and facts) reads sparser than the mockups' hub versions.
+
 ## W4 — The owner's walk: setup in two groups, the AI ways at once, coming back resumes (fix/setup-form-sections, 2026-11-06)
 - **Setup form.** "어디까지가 팀이고, 어디부터가 팀장 계정인지 모르겠어": the fields sit in two fieldsets under quiet headings
   with a hairline, 팀 (team name, team language) and 내 계정 · 팀장 (내 이름, username, password). The password is asked once
