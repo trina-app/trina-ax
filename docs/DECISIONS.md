@@ -9225,3 +9225,329 @@ same kind of thing.
 - Rejected: keeping the 트리나 content here behind a flag (the brand content would still be public); a content folder
   with a `company.ts` (code from another repository running in this checkout); copying the private content into
   `editions/trina/` of this repository (only `branding/` belongs here).
+
+## W2 — AI connection first (feat/onboarding-ai-first, 2026-11-05)
+
+The owner: "온보딩을 할때는, AI연결부터 해야하는거 아니야?". Every demo had run on one Mac's Claude Code login, which hid
+the wall a real new team hits: the hosting side that issues the trial key ("Z") is not built yet, so a real new team
+has no AI, and the website reading and the first result fail without it. Placement: Team AX core (onboarding and AI
+connection). Taken from feat/onboarding-motion (its "V") without the promo video, whose quality is being reworked:
+the first result stays the card news of "N" (no `promo_video` tool, no HyperFrames, no fonts, no migration).
+
+- **Order**: AI 연결 → 회사 소개 → 첫 결과 → invite. The AI step shows only while no AI answers the owner: `GET
+  /api/me/ai-access`, the same state as the chat's connect line and Admin › Home; a hosted trial credit, a managed
+  engine or any working connection skips it. `ai` is in `WELCOME_STEPS` but is a gate, not a place in the order:
+  `nextStep(p, 'ai')` goes to the first open later step, `prevStep` never returns it. The page is the owner's, as
+  before (admins and members are sent Home), so members never see the step.
+- **Resume** (`web/src/lib/welcome.ts resumeStep(p, aiReady)`): the step the owner would resume at with AI; without AI,
+  the AI step in front of 회사 소개 and 첫 결과 (both are AI answers), never in front of the invite: with only the invite
+  left (AI gone after the first result, a trial credit used up) the steps open on the invite. The source branch returned
+  the AI step whatever was open, including that case (found in review; tested in lib and on the page). AI going away
+  while a step is on screen shows the AI step in its place, except on the invite.
+- **Progress**: "1/3 AI 연결 · 2/3 회사 소개 · 3/3 첫 결과" when the steps would open on the AI step or it was shown
+  before, else "1/2 회사 소개 · 2/2 첫 결과" (`countedSteps`; Home's "시작 설정 이어하기 (0/3)" counts the same). Shown,
+  the step is recorded `skipped`; once AI answers (the dialog, another tab, Home's connect line, a trial credit) the
+  page records `done` and goes on by itself, so the bar does not jump from 3 to 2. The server reads `ai` like any step
+  (done stays done), leaves it absent until it is recorded (rows from before read as they did) and never puts it off
+  when the steps finish.
+- **The step**: one reason line ("{product}의 AI가 팀 파일을 읽고 일하려면 AI 연결이 필요해요"), one primary button
+  "Claude 구독 연결" that opens Admin › AI connections' own `AddCredential` dialog with Claude chosen (`initialKind`,
+  `initialLabel`; the browser sign-in of PR #70: approval link and the code), shown when the team allows a shared Claude
+  subscription; "다른 방법" folded (open when there is no Claude button): the same dialog with every way and a link to
+  the AI engines page. No new connection logic. "나중에 하기" leaves the steps; Home then shows its connect card (below).
+  The first result's own no-AI state (A's button and "첫 결과를 만들려면 AI가 필요해요") is gone: the gate shows instead.
+- **Reading screen** of 회사 소개: "대화로 보기" and "직접 쓸게요" are gone, "나중에 하기" stays (Admin › Team settings,
+  the same component, keeps its "취소"). A reading that fails still opens the pasted text and the three questions by
+  itself, and "홈페이지가 없어요" still leads there.
+
+### After the UX walk (same day)
+An independent walk of the whole flow (no AI, then real AI, an owner and a member, 390 px and a computer) found dead
+ends and weight before the first result. Fixed here, each in its own commit:
+- **The first result shares our skill as it is.** Under the first result: "마음에 드시나요? 팀원도 같은 방식으로 바로
+  만들 수 있어요" [팀에 공유], which opens the invite with the skill that ran (the answer's receipt, the path the 7-day goal
+  counts; else the first "/name"). Before, "팀 스킬로 저장" (S) drafted a near-copy under another path, the invite carried
+  the copy, and a member's run never counted with the owner's (the goal stayed 1/3). No files go with the link: the pack
+  skills read the team's folders themselves, and the link puts people in the team's group. The welcome step's own
+  invite carries the card news too (no longer the ad copy). Tested on the real server: the owner's first result plus a
+  member who joins through the invite and runs it from its form give one skill with two people (2/3,
+  `tests/unit/b-welcome-share-goal.test.ts`). The S card and its endpoints stay, but this bar was its only entry: nothing
+  on screen opens it now (open: where to offer it in the lead's later chats).
+- **The invite opens ready.** For the owner walking the steps the link is made as the invite opens, only when no link
+  could let anyone in (none, expired or used up) and a seat is left; an active link is reused or pointed at the skill at
+  the same address; a stopped link, or one whose address the server cannot show, is never replaced by itself; the
+  link is read again right before one is made, so two screens of the owner do not end each other's link, and when that
+  read fails nothing is made (the form with its button stays) (review fixes). The
+  message and one "메시지 복사" show at once, "링크 관리" (link, QR, uses, expiry, replace) is folded. The goal card and
+  Admin › Members keep their button.
+- **One simple connect dialog** (`components/onboarding/ConnectAi.tsx`) from every "AI 연결하기": the welcome step, the
+  chat's error, the connect line above the composer and Home's card, in place (no trip to Admin › AI connections); "내 AI
+  연결하기" opens the person's own dialog. It is `AddCredential` with `simple`: the whole team (no target field), named
+  after the kind (no name field), the provider's terms as one checkbox line (the server needs that yes:
+  `acknowledgedPlanNotice`, D23; the line keeps that {product} cannot grant the permission), "다른 방법" shows every way.
+  The password is asked again exactly as before: team connections are owner-reauth, checked on every call
+  (`http/route.ts`), and there is no "recently signed in" rule to reuse (the `recent` map in `auth/service.ts` only
+  throttles audit rows), so nothing was weakened. Admin › AI connections keeps the full dialog.
+- **Home without AI**: one card instead of the top row, the suggested questions (they would all fail) and the connect
+  line. The owner gets the welcome step's heading with "Claude 구독 연결" and "다른 방법"; everyone else (admins too: only
+  the owner adds team connections) "팀장이 AI를 연결하면 바로 쓸 수 있어요" with [팀장에게 알리기], and a quiet "내 AI
+  연결하기" only where the team allows personal connections. No loop: the card stands in place of "시작 설정 이어하기";
+  once AI answers the row comes back and Home records the put-off AI step done, so it reads 1/3 and opens 회사 소개.
+  Connecting on the AI step goes where the steps resume with AI (an open step, else a counted step put off), not only
+  to an open one, so an owner who came back for a put-off 회사 소개 is not sent Home (review fix).
+- **A failed answer without AI** tells the owner "아직 연결된 AI가 없어요. AI를 연결하면 바로 답할 수 있어요." with "AI
+  연결하기" (and owner words for the trial credit's two texts), an admin "팀장에게 알려 주세요", members the server's words
+  (`lib/aiAccess.ts noAiErrorKey`; `shared/src/api/errors.ts` unchanged), only while no AI answers the person: the
+  server says "no connection" per engine, so with another engine connected the server's words stay (review fix). The
+  connect line above the composer hides while the newest answer shows that error (one button on screen).
+- **The result in front.** The artifact panel was meant to open by itself, but only on a "writing" preview the team
+  server never sends (only the e2e mock did). A saved artifact under the card news key (`CARD_NEWS_ARTIFACT_KEY`,
+  "card-news") now opens it, in every run of the skill (the owner's first result and a member's run alike); other
+  artifacts are unchanged. On a phone it is the full-screen sheet (✕, Esc) and it does not open over a draft in the
+  composer. The skill answers in one line ("(회사 이름) 카드뉴스 5장을 만들었어요. 바꾸고 싶은 장이 있으면 말해 주세요.",
+  plus the brand images hint when a card has no photo): no skill name, path, per-card line or photo list. Chat answers
+  do not render `<details>`, so the number's source moved into the artifact, one muted line under the cards.
+- **Folders by name in the step lines** (`stepPlace`, `shared/src/step-labels.ts`): "파일 읽기 · 브랜드 이미지 폴더 ›
+  홈페이지-6.jpg", not `groups/<team>/브랜드/이미지/…`, which a phone cut before the file's name. The brand images, brand,
+  meeting notes, team ("{team} 폴더"), own ("내 폴더": a personal folder is its owner's alone), attachments and shared
+  folders, matched in any language (NFC); the path stays in the row's tooltip; stored labels are unchanged.
+- **회사 소개 without the form first.** In the welcome steps a website reading whose draft has a one-line intro is saved
+  as it came, by the owner's own PUT with the form's body and rules (`tidyProfile`, the brand colours found; nothing the
+  pages did not say), and the steps go on to 첫 결과, which opens with one quiet line "이렇게 이해했어요: {한 줄 소개} ·
+  고치기" (고치기: the review form in a dialog; saving there updates the line). It sits on the result step because the card
+  news without files is made from that profile. A draft without a one-line intro, a failed reading, the pasted text, the
+  three questions and Admin › Team settings keep the review. The company name is saved as the draft found it (empty
+  reads as the team's name everywhere). Only the team's first profile is saved this way (asked again right before
+  saving): a re-read of a saved one ("홈페이지 다시 읽기" from its review) or one saved meanwhile in another tab shows the
+  review and is never overwritten unseen (review fix). Since a profile may now be unchecked, the AI's <company_profile>
+  block no longer says the owner checked it: it says it may come from the website unchecked, that the person is right
+  when they say otherwise, and that tone and words to avoid are preferences, not rules (`chat/prompt.ts`).
+- **No team line above step 1.** "팀 스킬을 넣어 둘게요 · 마케팅팀이에요" is gone with the team-type choice; leaving step 1
+  still sets up every team's start. The marketing pack is one quiet button under Team skills ("마케팅 스킬 7개 넣기",
+  owners and admins, while no team skill is under `skills/marketing/`); before, it was offered only on an empty page.
+  Stored team types stay readable; a dev row with `teamType: marketing` and no pack no longer installs it by itself.
+- **Draft chats are not conversations.** The website reading's chat and the team skill draft's chat stay out of the
+  chat list, its search, its realtime updates and Home's frequent questions (`server/src/chat/internal-chats.ts`), marked
+  by their existing tables (`onboarding_profile_drafts`, `onboarding_skill_drafts`; no migration). Their flows read them
+  by id as before and they still open by address. The reading hint no longer says the chat stays in the list.
+
+## W3 — Fixes from a walk with a large company's website (fix/onboarding-walk, 2026-11-06)
+
+A walk of the whole onboarding on a dev server (Claude Code login, 390 px and a computer) with a large company's real
+website, an owner and a member, found what the smaller sites of the earlier gate runs did not.
+Placement: Team AX core (onboarding, web reading, skills, chat). Each fix is its own commit with its tests.
+
+- **The brand colour was a blend.** The site has no theme-color and its style sheets only UI blues; its logo is a wide
+  JPEG of thin deep-blue letters on white. `logoColors` squeezed the logo into 32 × 32 pixels, which averaged every
+  letter with the white around it: a muted indigo came out as the logo's colour (150) and won over the brand's own
+  deep blue. The logo is now point-sampled (nearest neighbour, at most 128 px on its long side, its shape kept), so a
+  pixel is the logo's own colour; close buckets are merged after averaging (one colour on a bucket edge counts once);
+  the share a colour needs stays about 1 % of the picture. Nothing else in the ranking changed. Test: a generated
+  logo of the same shape (a made-up blue) gives exactly its blue, and the page's UI blues do not beat it.
+- **회사 소개.md quoted only the site menu.** Its "홈페이지에서 읽은 글" held the menu and hundreds of empty `>` lines,
+  the same for every page, and none of the page's words: the page row kept web_fetch's text cut at 4,000 characters,
+  the site's markup is CRLF (htmlToText only collapsed `\n`, so every `\r` line stayed and became an empty quote line)
+  and its first 4,000 characters were the menu. Now: htmlToText reads `\r\n` and `\r` as line breaks (the AI's
+  web_fetch too); the page row keeps `introText`, htmlToText's new `prose` mode (no nav, footer, aside, button or
+  dialog, no header outside main or article (a form stays: ASP.NET Web Forms put the whole page in one), no element whose role, class or id names a menu, breadcrumb, skip link or
+  cookie bar; markup line breaks and `<br>` are spaces), as lines (`pageLines`: links reduced to their words, a line of
+  only links dropped, a phrase repeated in a row once (a heading's phone, tablet and computer versions), a line said
+  already or inside one of the last three dropped, no line without two letters or digits). 회사 소개.md quotes each line
+  as its own quote (a blank line between, never an empty `> `), at most 2,000 characters per page and 12,000 in all, and
+  leaves out a line another page said already. A row kept before this (only on dev servers: N is unreleased) is
+  tidied by the same lines. All of it in one pass: the review found the first link patterns tried at every "[" (a
+  page of endless "[" took 2.9 s, of "[!](" 1.5 s), so links are now read by `unlink` (each "](" once, the "[" before it
+  remembered, the next ")" and space kept from the last search) and the marks by a loop, at most 8,000 characters a
+  line (test: those pages and the N review's, each well under its bound).
+- **The photo line under cards that had photos.** The card news answer said "브랜드 폴더의 이미지 폴더에 사진을 넣고 다시
+  만들어 달라고 하시면 사진을 넣어 드려요" under cards whose photos were plain to see: the rule was "a card made without a
+  photo", and cards 4 (the number) and 5 (the next step) never have one. The skill (ko, en) now adds the line only when
+  one of cards 1–3 used its type-only version (`type-cover`, `type-statement`, `type-points`), names that card ("2장은
+  어울리는 사진이 없어 글자로만 만들었어요.") so the reader knows which one, says that 4 and 5 never count, and says
+  nothing about photos when 1–3 all have one. It stays a rule the AI follows (no server check of the answer's words).
+- **Copy.** Step 2's line read "여기 올린 파일은 {팀} 1명만 봐요" for an owner still alone; with one viewer it now reads
+  "여기 올린 파일은 지금은 나만 봐요 · 팀원을 초대하면 {팀} 모두가 봐요" (`welcome.files.whoAlone`, five languages; the
+  chat clause is left out to keep it short: the chat's own line under the box says it). The invite message names the
+  team it leads to: "{이름}님이 {product}에서 {팀}에 함께하자고 초대했어요. …" (and with a skill), and S's "우리 팀
+  '{스킬}' 스킬을 …" became "{팀}에 '{스킬}' 스킬을 만들어 뒀어요. …" (`teamLinkMessage` takes `team`, the team's name
+  from the session; the goal card's copy too). The starter messages of old links (meeting notes, team files) are
+  unchanged.
+- **The member's side.** Team skills showed a member "skills/general/ · 회사 소개서나 …": the folder is now only for
+  owners and admins, who manage the folders (a member reads the title and the line; the row's tooltip is the
+  description). A form run appeared as the member's own message ("어디에 올릴까요: 인스타그램" in their bubble, under the
+  chip), as if typed. The chat now reads such a message back (`formAnswers`: every line after the command is one of
+  the skill's form labels, "label: value", a multi-line value under "label:"; anything else is typed text and keeps
+  its bubble) and shows the run without a bubble: the skill's chip and one quiet line of the answers ("신제품 출시 ·
+  인스타그램"; each label is the answer's tooltip and is read out). Short answers show in full; from 140 characters, or
+  with a value of several lines, two lines and "전체 보기" (the chat's own key for long messages, five languages), which
+  lists each answer under its label as sent ("접기" folds them; review fix). The message sent is unchanged (the AI and the
+  transcript get the same lines; copy and edit keep them).
+- **"팀 스킬로 만들기" is back (S).** Since W2's first result shares the pack's own skill (PR #80), nothing opened S's
+  card (W2 left "where to offer it in the lead's later chats" open). It is now the one suggestion under an answer
+  (`ResultSuggestion` kind `team-skill`, key `team-skill`; `skill-draft.ts teamSkillOffer`): "이 방식대로 팀 스킬로
+  만들까요?" [팀 스킬로 만들기] ×, only for an owner's or admin's own finished answer whose conversation used team files
+  and ran no team skill anywhere (its way is a team skill already; that also leaves out every card news run), not the
+  welcome steps' first result, not a draft chat, not an answer a skill was already shared from, and only when the draft
+  would start: S's own refusals (`conversationUse` and `sourceRefusal`: confidential, web or outside content, unverified
+  reads, a file the team's stand-in cannot open). The button opens the card in a dialog (a bottom sheet on a phone):
+  the draft, [팀에 공유], then the invite with that skill (`InviteStep made`), as before; the card's draft of this page
+  load is kept per answer (`answerId`), not per chat, so a later answer of the same chat gets its own. Order in the slot: the weekly
+  schedule (needs a skill run, so never together with this), then this, then the PPT (both can apply to a long answer
+  from team files; making it the team's way is the landing's promise, and it is the rarer one). Closing it is for good
+  for that person, like the others. The check runs on every such answer the person reads, cheap checks first.
+- Not done: a member's improvement still goes through "스킬로 제안"; the photo line is a rule the AI follows; the
+  welcome step's AI still reads web_fetch's text (only CR was fixed there), the prose mode is used for 회사 소개.md alone.
+- Tests: `b-onboarding-cardnews` (the wordmark's colour, the prose text of a menu-heavy CRLF page, page lines, 회사
+  소개.md without empty quote lines, hostile pages, the skill's photo rule), `c-webfetch` and `c-review` (unchanged,
+  pass), `b-skill-share` (the suggestion: who, which answers, every refusal, closed for good), `b-result-suggestions`,
+  web `welcome.test.tsx` (the owner alone), `team-link`, `onboarding-polish`, `skill-share-member` (the team in every
+  message), `available-skills` (no folder for a member), `steps-receipt` (a form run read back and shown quietly),
+  `result-suggestion` (the line, the card, the invite, closed for good).
+
+## V — The first result is the company's promo video (feat/onboarding-video, 2026-11-06)
+
+The owner, after the card news: "왜 아직도 카드 뉴스 만드는거야? 너가 hyperframe쓴다매?", "퀄리티 개 좋아야해". A first set of
+templates (beige slides, a circle, fades, no camera, no music; branch feat/onboarding-motion) was rejected. Two
+reference videos made by hand with HyperFrames' product-launch workflow (about 55 minutes and ten AI workers each) were
+approved as the bar: "괜찮네 ㄱㄱ 저렇게 가자". This version reaches that look from a template the server fills in about a
+minute. Placement: Team AX core (onboarding, the chat tool, the artifact panel); the Linux render belongs to the srt dev
+environment image (another developer; handoff below).
+
+### What the reference taught (and the template now does)
+- **One camera idea per beat** (push-in, pull-back, a pan or scroll inside a window, a push-through between two
+  numbers), finishing before the beat's last third and then holding.
+- **Three or more depth planes every beat**: a dark brand ground with a vignette and a radial glow in the brand colour →
+  a picture full bleed or the company's own picture in a floating window (3D tilt that flattens, a deep soft shadow) →
+  type → light (bloom on hits, a light leak, a horizon line, light threads) and a 6 % film grain over everything.
+- **Type is the motion**: per-word cuts out of a mask, an in-place swap or a strike-through then an inverse-zoom slam,
+  counts that decelerate into the written value, a typed footnote; Korean display at weight 800–900, tight tracking,
+  numbers 140–330 px.
+- **Seams matched to velocity, never a plain fade**: zoom-through (hook → promise, proof → end card), push-slide
+  (promise → work), blur crossfade (work → proof).
+- **A 120 BPM grid**: one beat 0.5 s; scenes start at 0, 3.5, 7, 10.5 and 14 s; every reveal and hit lands on the grid;
+  the end card's last motion ends at 16.4 s and it holds to 18.5 s; the first frame is already a thumbnail (the label and the "before" words).
+- **The story order**: the customer's outcome first (before → after), the promise over a brand picture, what the
+  company does on its own picture, proof (a number written in the material, or the most concrete fact), the end card
+  with the logo, the site's real offer and its address.
+- What was not taken: logos assembled from their parts (needs a per-logo path split; the whole logo is revealed by scale
+  and blur), text typed into a measured UI, lines traced from a hero image, a website screenshot (below).
+
+### Slots, not HTML
+- `promo_video` (C's registry, offered in every chat; the pack skill "홍보 영상" uses it), input `PromoVideoInput`
+  (`shared/src/api/promo-video.ts`, strict): company, website, brand colour, logo, style, music, `sources`, and the five
+  beats `hook` (label, before, after, line, strike or swap), `promise` (headline, sub, picture), `work` (kicker,
+  headline, up to three points, picture), `proof` (up to two stats as written, or a statement), `cta` (line, offer).
+  One key phrase per headline line may be marked with *stars* (the accent colour).
+- **Checks** (`promo-video/spec.ts`, every problem at once): every line measured with the bundled font's real advance
+  widths (`metrics.ts`) against its place (`layout.ts fitDoc`); every number on screen written in the sources as a whole
+  number, each stat exactly as written with its sign and unit; pictures and the logo readable by the person, inside a
+  brand folder, PNG/JPEG/WebP by their bytes, ≥ 600 px on the short side (logo ≥ 64), each once; the website written in
+  the sources or the saved profile. First failure: fix every problem and call once more; second: stop and say why in one
+  sentence; a third call is refused.
+- **Style families, chosen from the brand colour** (`palette.ts`): `ink` (near-black warmed by the brand, the brand as a
+  fire-bright accent and glow; first for a vivid colour), `deep` (a ground of the brand's own hue at night depth, a soft
+  tint of it as the accent; first for a deep or muted colour), `mono` (graphite and white; the only one without a usable
+  brand colour — grey, near-black or near-white). The AI may pick among the families that fit; another pick is replaced,
+  not refused; without a colour from the AI, the saved profile's first brand colour decides (the website reading's,
+  point-sampled from the logo since W3). Accents reach 4.5:1 on their ground (the card news' contrast rule). Light grounds were left out: no
+  light family looked premium next to the references.
+- **Missing pictures**: the promise and the work beat each have a type-and-light version (light threads rising behind
+  the words; glass rows for the points and a light sweep); never an empty frame or a made-up picture.
+- **The logo** is revealed whole (scale 0.62 → 1 and blur 26 → 0, locking on the grid with a bloom and a flare). How it
+  sits on the dark ground comes from its pixels (`logo.ts`, 64×64 point-sampled RGBA by the isolated ffmpeg, like the
+  website reading's logo colour since W3): a filled shape (at least 80 % opaque, an app icon with rounded corners) → a rounded tile; transparent and readable on the dark → as it is; dark and
+  without colour → drawn white; dark and in colour → on a light card. A logo wider than 2.2:1 is the wordmark and
+  replaces the name.
+
+### Motion runtime: CSS animations seeked through the Web Animations API, not GSAP
+- The references used GSAP 3.15 from jsDelivr. GSAP's licence (the "Standard 'No Charge' GSAP License", Webflow,
+  effective 2025-04-30, read at https://gsap.com/standard-license on 2026-11-06) grants use, reproduction, display and
+  implementation "solely for Permitted Uses", forbids "Prohibited Uses" — use "in tools that allow users to build visual
+  animations without code" that compete with Webflow — keeps termination and one-sided amendment, and grants no right
+  to distribute or sublicense. AGPL-3.0 does not allow further restrictions on the people we pass the code to (§7, §10),
+  so GSAP cannot be bundled in this repository or in customers' self-hosted servers; and this very feature is a tool
+  that makes animations without code. Loading it from a CDN is out anyway (the artifact frame and hosted servers make no
+  network calls).
+- So every motion is a CSS keyframe animation with an absolute delay on one clock (`template.ts` compiles a few
+  timeline stops per element into keyframes with an easing per segment; the root is the only `data-start`). HyperFrames'
+  CSS adapter seeks them for the MP4; the chat's player seeks the same animations with `document.getAnimations()`. Counts
+  are a registered integer property (`@property --pvn`) shown through CSS counters, so every frame shows whole digits;
+  when the count lands, the number exactly as written ("1,200곳") takes over. A count runs toward the new state (down
+  for "반나절 → 14초", up for "3.7회 → 81회"); a year rolls up from 30 years before it, never from 0.
+
+### Sound
+- Three music beds (bright, calm, pulse), cut to 18.5 s on the 120 BPM grid with a downbeat on frame 0, and six effects
+  (whoosh into a zoom-through, short whoosh on a push, click on the swap, hit on the slam, impact and chime on the logo
+  lock). Licences: CC0 or public domain only, each file's source and licence in `resources/promo-video/audio/SOURCES.md`
+  and the third-party notices; the test checks the folder against that list. Not used: MusicGen outputs (the reference's music; its weights are
+  CC-BY-NC), Pixabay files (no standalone redistribution), anything CC-BY (credit inside customers' videos).
+- The style picks the bed (ink → bright, deep → calm, mono → pulse) unless the AI names one. The MP4 mixes them
+  (HyperFrames `<audio>` with `data-start` and `data-volume`). In the chat the video plays muted (browsers allow muted
+  autoplay); the sound button loads the bed and the effects from `/vendor/promo-video/*.js` (each sound as a data:
+  address in a script, the only way a sound reaches the frame, whose CSP allows media from data: only and scripts from
+  /vendor/) and keeps them on the player's clock.
+
+### The chat
+- The composition is the chat's artifact "promo-video" (a new version per call), the checked slots in `promo_videos`
+  (migration 234). The page plays it in a 4:5 stage with a slim bar (play/pause, progress, time, sound) on a loop,
+  starting once the font is in (at most 1.5 s); with `prefers-reduced-motion` it shows the five settled beats as stills.
+  The font comes from `/vendor/fonts/promo-video.css`, pictures by team path (inlined by the panel). The panel shows no
+  code tab, copy or page download for it; the message card says "영상".
+- The first result (welcome step 3) runs the pack skill "/promo-video" with 회사 소개.md (or the owner's files) and the
+  brand images folder with the website's pictures and logo; the video opens beside the chat by itself; the answer is one
+  line, plus one sentence naming scene 2 or 3 only when that scene had no fitting picture (the card news' W3 rule; the
+  hook, the proof and the end card have no picture by design); [팀에 공유] invites with that pack skill, so the 7-day goal counts it. The card news skill stays installed.
+
+### The MP4
+- [영상 파일로 받기] in the panel header, only when `GET /api/promo-videos/:id` says `available` (a development server on
+  macOS with the pinned CLI; never a button that cannot work). One render at a time per server,
+  `<data>/promo-videos/<artifact>.mp4`, kept and given again; removed with its chat. The CLI runs in a process group of
+  its own and the whole group is ended on the time limit and on shutdown (Chrome children included), by process id.
+- **Vendored, not a dependency**: HyperFrames 0.9.15 (Apache-2.0) with its own lock file in `scripts/promo-video/
+  hyperframes/`, installed by `bun scripts/promo-video/install-hyperframes.ts` into `~/.cache/mycel/hyperframes-0.9.15`
+  (or `MYCEL_HYPERFRAMES_DIR`); run with Node 22+ and an environment of PATH and HOME only, telemetry, update checks and
+  skill installs off. The render page is built from the stored slots (never the artifact's HTML): pictures copied out
+  with the chat owner's permissions at render time, the font and the sounds from the repository, no script.
+- **Linux team server: not in this round.** Handoff for the srt dev environment image (scripts/image): bake
+  chrome-headless-shell (x86_64 and arm64) and the pinned CLI tree (`npm ci` from the lock file) into the image; set
+  `HYPERFRAMES_BROWSER_PATH`; drop Debian `chromium` (it cannot start under srt: seccomp blocks AF_UNIX); then offer the
+  MP4 when the dev environment's runner reports a usable headless shell and submit the render as a queued srt job (the
+  same work folder: index.html, fonts/, img/, audio/), reading the MP4 back from the job's folder.
+- **Next step: a website screenshot as the "real product screen"** of the work beat. Not this round: a headless browser
+  opening arbitrary pages needs its own SSRF design (the same rules as web_fetch for every request the page makes, no
+  private addresses, no downloads, a time and memory limit). Until then the work beat uses the pictures the website
+  reading collected.
+
+### Measured
+- **Final gate round** (2026-11-06, this Mac, real AI from its Claude Code login, development servers with their local
+  relays, four teams at once and then two): the product's own site, a Korean AI studio, a café roastery, a Korean B2B
+  SaaS, a large manufacturer and a fictional 20-page PDF deck without a website. Reading the website: 33–39
+  s. From "자료 없이 만들게요" (or the deck) to the video artifact: 18–24 s; the answer done at the same time or 3 s later
+  (target 3 minutes). The MP4: 31–94 s (up to four renders at once on this Mac), 13–20 MB, H.264 + AAC, 18.5 s. Styles
+  the server chose: ink twice (orange, violet), deep twice (green, navy), mono twice (a grey brand, no brand colour). Every
+  number on screen was in the material; one site had no number worth a stat (a statement proof), one deck hook was
+  "3–6개월 → 2주".
+- **After merging W3** (2026-11-06): the large manufacturer's site again. Its logo, point-sampled now, gave its own
+  dark blue instead of a washed-out blend; the video came out in the deep family on the brand's own navy with a light blue
+  accent (artifact 24 s after the button, MP4 32 s). The new team-skill card skips the welcome's result chat
+  (`resultChatId`), so it never shows under the video. The same run showed a founding year counting up from 0
+  ("1083년"); a year now rolls up from 30 years before it.
+- **A browser walk at 390 px** (a fresh team, AI on): setup → the website → "자료 없이 만들게요" → the video playing in the
+  sheet 21 s later; the sound button loaded the bed and the effects from /vendor/promo-video/ (all 200); close →
+  [팀에 공유] → the invite message for the "홍보 영상" skill.
+- **Found by looking at the sheets next to the references, fixed**: an app-icon logo (a dark rounded square) was read as
+  a dark logo and drawn as a white square (a filled shape is now a tile); the logo card shared a class with the work
+  beat's chips; a stat with a comma ("252,475") touched the frame's edges (measured with proportional figures; the count
+  is set in tabular figures, 0.6816 em); a statement split "*성과*로" into "성과 로"; a hook from 3.7 to 81 counted down.
+- **Tests**: `tests/unit/b-promo-video.test.ts` (widths, families and contrast, numbers, brand folders, fitting, logo
+  treatment, the 120 BPM grid and the 2 s hold, type-and-light beats, counts, the sound cues on the grid, the sound
+  licence list against the folder, escaping and the muted player, the tool's problems and second failure, the style
+  replaced when it does not fit, the MP4 with a stand-in CLI, the purge, the time limit and shutdown ending the browser's
+  process group), `b-onboarding-cardnews`, `b-onboarding-team-space`, `b-welcome-share-goal` (the goal counts runs of the
+  promo skill), `web/test/unit/promo-mp4.test.tsx` (no MP4 button where the server says it cannot), the permission
+  matrix's promo cases, `web/test/e2e/welcome-notes.spec.ts`.
+- **Still weaker than the references**: no real product screen of the company's own software (the website screenshot
+  is the next step above; today the work beat shows what the website reading collected, sometimes a banner with text);
+  the logo is revealed whole, on a light card when its colours do not read on the dark (the references assembled theirs
+  from its parts); a proof without a picture is type and light (the references had a real chart and real customer
+  messages); one AI pass writes the copy (the references' copy was edited by hand); the beds are library music cut to
+  the grid, not scored to the edit, and no person has listened to the nine sounds in the videos yet.

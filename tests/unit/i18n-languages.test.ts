@@ -13,7 +13,7 @@ import { M as SYSTEM_TEXT } from '../../server/src/system/messages'
 import { ML as LINUX_TEXT } from '../../server/src/system/messages-linux'
 import { MSG as FILE_TEXT } from '../../server/src/team-files/errors'
 import { pageMessage, type PageKind } from '../../relay/src/pages'
-import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_TEXT } from '@mycel/shared'
+import { BROWSER_STEP_VERB, FILE_STEP_VERB, STEP_PLACE, STEP_TEXT } from '@mycel/shared'
 import { PERIOD } from '../../server/src/admin/budgets'
 import { T as ENGINE_TEXT } from '../../server/src/admin/engines'
 import { ARCHIVE_DIR } from '../../server/src/admin/users'
@@ -65,6 +65,7 @@ describe('server and relay texts', () => {
     checkTable('steps', STEP_TEXT)
     checkTable('file step verbs', FILE_STEP_VERB)
     checkTable('browser step verbs', BROWSER_STEP_VERB)
+    checkTable('step places', STEP_PLACE)
     checkTable('engines', ENGINE_TEXT)
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
@@ -173,6 +174,11 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/onboarding-packs.ts': { why: 'the marketing pack\'s team folder names (ko next to en/id/ja/es)' },
   'shared/src/api/rooms.ts': { why: 'the AI\'s Korean name that calls it in a room ("@트리나"; matched in messages, not screen text)', also: /^const AI_OWN_NAMES = \['트리나', / },
   'server/src/demo/guard.ts': { why: 'demo mode refusals (ko next to en/id/ja/es)' },
+  'server/src/promo-video/tool.ts': { why: 'the promo video\'s style names and player words (ko next to en/id/ja/es)', also: /^\s*ko: \{ (ink|play): / },
+  'server/src/promo-video/spec.ts': { why: 'the Korean brand folder names (브랜드/이미지) named in the problems the AI gets back (not screen text)', also: /…\/브랜드\/이미지\// },
+  'server/src/promo-video/layout.ts': { why: 'the Hangul range that picks a Korean line\'s measure (not screen text)', also: /^export const hasHangul = / },
+  'server/src/promo-video/metrics.ts': { why: 'the characters whose widths are measured from the bundled font (not screen text)', also: /^const EXTRA_CHARS = / },
+  'shared/src/api/promo-video.ts': { why: 'Korean examples in the promo_video tool\'s slot descriptions the AI reads (not screen text)', also: /\.describe\(|\b(Text|Line)\(\d+, '/ },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

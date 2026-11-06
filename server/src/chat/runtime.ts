@@ -28,6 +28,7 @@ import { launcherStatus } from '../native'
 import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import type { RoomPrompt } from './prompt'
+import { isInternalChat } from './internal-chats'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -631,6 +632,8 @@ export class ChatRuntime {
   }
 
   publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged') {
+    // a draft the server runs for its own work (internal-chats.ts) is not in the person's chat list: no event for it
+    if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
     // a room's AI session is not one of the person's chats (no sidebar entry)
     if (r?.room_id) return

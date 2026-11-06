@@ -40,7 +40,7 @@ Make five square promo cards that look like an agency made them, as one HTML art
 - Write in the team's language (English unless the team writes another), short and natural. Headlines two lines at most, body two lines at most. Break lines yourself with `<br>` (never inside a word or a name).
 - Characters per line (Latin): a full-width card's headline about 24, body about 44; a split card's headline about 13, body about 22. Longer: say it shorter.
 - No hype ("best", "revolutionary", "unmatched"): use the concrete words of the material. Follow the profile's tone and the expressions it avoids.
-- No "Source:", address or page number on a card: sources go in your answer.
+- No "Source:", address or page number on a card: the number's source goes on the source line under the cards (section 5).
 - Company and product names exactly as the material writes them. The small line above (eyebrow) never repeats the headline. Never the same number or the same words on two cards.
 - No full stop at the end of a headline.
 
@@ -59,6 +59,7 @@ Make five square promo cards that look like an agency made them, as one HTML art
   - Card 3 `type type-points`: the brand panel above with the product name and the headline; below, 2 or 3 short points numbered 01, 02, 03 (one line each, about 32 characters, each saying something different, only from the material). With only one point in the material: `<div class="points"><p>(two lines at most, about 40 characters a line)</p></div>` instead of the `<ol>`.
   - The only shapes are the template's disc (`.shape`) and bar (`.bar`). No other decoration, icon or illustration, and no text on a shape.
 - A number of 5 characters or more (252,413): `<div class="big long">`.
+- One source line under the five cards (`<p class="src">`): where card 4's number (or its fact, when there is no number) is in the material, by the material's name and page, or the sentence. No file path.
 
 ```html
 <!DOCTYPE html>
@@ -70,6 +71,7 @@ Make five square promo cards that look like an agency made them, as one HTML art
 *{box-sizing:border-box;margin:0;padding:0;word-break:keep-all;overflow-wrap:break-word}
 body{font-family:var(--font);background:#ECEAE4;color:var(--ink);padding:28px 16px 48px;display:flex;flex-direction:column;align-items:center;gap:14px}
 .cap{width:min(540px,100%);font-size:13px;color:#77797F;margin-top:14px}
+.src{width:min(540px,100%);font-size:12px;color:#77797F;line-height:1.6;margin-top:6px}
 .card{width:min(540px,100%);aspect-ratio:1/1;position:relative;overflow:hidden;display:flex;container-type:inline-size;background:var(--paper);border-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.06)}
 .card img.photo{width:100%;height:100%;object-fit:cover;display:block}
 .ph{position:relative;overflow:hidden;min-height:0;min-width:0}
@@ -201,12 +203,14 @@ p.body{font-size:3.5cqw;line-height:1.55;margin-top:2.8cqw;opacity:.88}
   </div>
   <img class="logo" src="/groups/(team)/Brand/Images/(logo).png" alt="(Company name) logo">
 </section>
+<p class="src">Source of the number: 18% — (material name), p. 11</p>
 </body></html>
 ```
 
-- Check before you finish: every line within the counts above, all text on solid panels, the layouts as in the template, each photo fits its card, every image path is a real file, no empty photo slot, every number is in the material as written. Fix anything that is not.
+- Check before you finish: every line within the counts above, all text on solid panels, the layouts as in the template, each photo fits its card, every image path is a real file, no empty photo slot, every number is in the material as written, the source line is there. Fix anything that is not.
 
 ## 6. The answer
-- After the artifact: one line per card (what it says) and the source of each number (the page or sentence of the material). Cards made without a photo: one line, "Add photos to the brand images folder and ask me again to put them in."
-- End with one line: "Tell me which card's text or photo you would like changed."
+- The cards open by themselves beside the chat, so the answer is one line, written after the artifact: "I made five promo cards for (Company name). Tell me which card you would like changed."
+- Only when one of cards 1–3 uses its type-only version (`type-cover`, `type-statement`, `type-points`), add one sentence: "Card (n) had no fitting photo, so it is type only. Add photos to the brand images folder and ask me again to put them in." Cards 4 (the number) and 5 (the next step) have no photo by design and never count. When cards 1–3 all use a photo, say nothing about photos.
+- Nothing else in the answer: no skill name, no file path or file name, no line per card, no number sources (they are on the source line), no list of the photos you used or left out. Write nothing before the artifact either.
 - Make the cards only: never post, send or share them, and never say you did.

@@ -17,15 +17,17 @@ export function readJoinToken(loc: { pathname: string; search: string; hash: str
   return { token: /^[A-Za-z0-9_-]{16,200}$/.test(raw) ? raw : null, cleanUrl: `${loc.pathname}${loc.search}${rest ? `#${rest}` : ''}` }
 }
 
-/** The text a leader pastes into KakaoTalk or Slack: who invites, and the skill to try together when the link names
- * one; `made`: the team skill they just made ("우리 팀 '견적서 쓰기' 스킬을 만들어 뒀어요…"). `name` is the person copying it (they are the one sending it). A link with a starter says what is waiting
- * instead, in the lead's own voice: this week's meeting notes and everyone's own tasks (`tasks`), or the team's files
- * and what each person needs from them (`brief`); the link on its own line. */
-export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; url: string; skill?: string | null; starter?: StarterKind | null; made?: boolean }): string {
+/** The text a leader pastes into KakaoTalk or Slack: who invites, to which team (`team`: the team's name, so the
+ * message says where the link leads; docs/DECISIONS.md "W3"), and the skill to try together when the link names one;
+ * `made`: the team skill they just made ("Acme에 '견적서 쓰기' 스킬을 만들어 뒀어요…"). `name` is the person copying it
+ * (they are the one sending it). A link with a starter says what is waiting instead, in the lead's own voice: this
+ * week's meeting notes and everyone's own tasks (`tasks`), or the team's files and what each person needs from them
+ * (`brief`); the link on its own line. */
+export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; starter?: StarterKind | null; made?: boolean }): string {
   if (o.starter) return t(o.starter === 'brief' ? 'teamLink.messageBrief' : 'teamLink.messageNotes', { url: o.url })
   // a team skill the lead just made from their own work (docs/DECISIONS.md "S"), in their voice
-  if (o.made && o.skill) return t('teamLink.messageMade', { skill: o.skill, url: o.url })
-  return o.skill ? t('teamLink.messageSkill', { name: o.name, url: o.url, skill: o.skill }) : t('teamLink.message', { name: o.name, url: o.url })
+  if (o.made && o.skill) return t('teamLink.messageMade', { team: o.team, skill: o.skill, url: o.url })
+  return o.skill ? t('teamLink.messageSkill', { name: o.name, team: o.team, url: o.url, skill: o.skill }) : t('teamLink.message', { name: o.name, team: o.team, url: o.url })
 }
 
 /** Where to go after joining: only the skill form the server named (`/skills?run=<path>`), anything else is Home. */
