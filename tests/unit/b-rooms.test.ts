@@ -1,14 +1,14 @@
 // Team chat rooms ("대화방" v1, docs/DECISIONS.md "대화방 v1"): the room model (team rooms follow their group, the
 // everyone room, one DM per pair), what a member sees (from their join on; private messages only to their person),
-// permissions (members only, admins included; the author is never taken from the request), KakaoTalk's unread count,
-// realtime fan-out to members only, notices, room files outside the team folder, and the replay check on reconnect.
+// permissions (members only, admins included; the author is never taken from the request), my own read position and
+// badge (no read receipts: nobody is told who has read what), realtime fan-out to members only, notices, room files
+// outside the team folder, and the replay check on reconnect.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { RealtimeConn } from '../../server/src/services'
 import { Hub } from '../../server/src/realtime/hub'
 import { notificationsOf } from '../../server/src/notifications/service'
-import { unreadOf } from '../../server/src/rooms/store'
 import { newId } from '../../server/src/db'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
@@ -147,32 +147,30 @@ test('one DM per pair, from either side; never with oneself or a disabled accoun
   expect(rows.filter((r) => r.target === a.id || (r.detail ?? '').includes(a.id) || (r.detail ?? '').includes('"dm"'))).toEqual([])
 })
 
-test('unread: each message counts the members who have not read it; reads move forward only', async () => {
+test('reading: my own position and badge only, forward only; no message says who has not read it', async () => {
   const { owner, mia, nora, otto, group, teamRoom, send } = await setup()
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, nora.id, otto.id] })
   const team = await teamRoom(mia.client)
   const m1 = await send(mia.client, team.id, 'one')
   const m2 = await send(mia.client, team.id, 'two @NORA', { mentions: [nora.id, 'nobody-here', mia.id] })
-  expect(m1.unread).toBe(2)
+  // no read receipts: a message carries no count of readers, before or after anyone read it
+  expect(m1).not.toHaveProperty('unread')
   expect(m2.mentions).toEqual([nora.id])
   expect(await teamRoom(nora.client)).toMatchObject({ unreadCount: 2, mentioned: true, lastReadSeq: 0, lastSeq: 2 })
   expect((await teamRoom(mia.client)).unreadCount).toBe(0)
-  expect(await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 1 })).toEqual({ lastReadSeq: 1, unreadCount: 1 })
-  let page = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
-  expect(page.map((m: any) => m.unread)).toEqual([1, 2])
+  const before = JSON.stringify((await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items)
+  expect(await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 1 })).toEqual({ lastReadSeq: 1, unreadCount: 1, mentioned: true })
+  // what mia gets is the same whoever read what
+  expect(JSON.stringify((await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items)).toBe(before)
+  expect(before).not.toContain('"unread"')
   // never back, never past the end
-  expect(await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 0 })).toEqual({ lastReadSeq: 1, unreadCount: 1 })
-  expect(await otto.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 99 })).toEqual({ lastReadSeq: 2, unreadCount: 0 })
-  page = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
-  expect(page.map((m: any) => m.unread)).toEqual([0, 1])
-  // nora answers: sending reads the room up to her message
-  const m3 = await send(nora.client, team.id, 'three')
-  expect(m3.unread).toBe(2)
-  page = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
-  expect(page.map((m: any) => m.unread)).toEqual([0, 0, 2])
-  // the count rule itself
-  expect(unreadOf({ seq: 5, visibility: 'room', deleted_at: null }, [{ last_read_seq: 4, visible_from_seq: 0 }, { last_read_seq: 5, visible_from_seq: 0 }, { last_read_seq: 5, visible_from_seq: 5 }, { last_read_seq: 0, visible_from_seq: 6 }])).toBe(1)
-  expect(unreadOf({ seq: 5, visibility: 'private', deleted_at: null }, [{ last_read_seq: 0, visible_from_seq: 0 }])).toBe(0)
+  expect(await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 0 })).toEqual({ lastReadSeq: 1, unreadCount: 1, mentioned: true })
+  expect(await otto.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 99 })).toEqual({ lastReadSeq: 2, unreadCount: 0, mentioned: false })
+  expect(JSON.stringify((await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items)).toBe(before)
+  // nora answers: sending reads the room up to her message (her own badge), and tells mia nothing about it
+  await send(nora.client, team.id, 'three')
+  expect((await teamRoom(nora.client)).unreadCount).toBe(0)
+  expect(await teamRoom(otto.client)).toMatchObject({ unreadCount: 1, lastReadSeq: 2 })
 })
 
 test('a private message (reserved for the AI step) is seen by its one person only and counts for nobody else', async () => {
@@ -188,7 +186,7 @@ test('a private message (reserved for the AI step) is seen by its one person onl
   })()
   const forMia = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
   expect(forMia.map((m: any) => m.body)).toEqual(['visible', 'PRIVATE PREVIEW'])
-  expect(forMia[1]).toMatchObject({ authorKind: 'ai', author: null, askedBy: { id: mia.id }, visibility: 'private', unread: 0 })
+  expect(forMia[1]).toMatchObject({ authorKind: 'ai', author: null, askedBy: { id: mia.id }, visibility: 'private' })
   const forNora = await nora.client.call('GET', `/api/rooms/${team.id}/messages`)
   expect(JSON.stringify(forNora)).not.toContain('PRIVATE PREVIEW')
   expect(await teamRoom(nora.client)).toMatchObject({ unreadCount: 1, mentioned: false })
@@ -196,7 +194,7 @@ test('a private message (reserved for the AI step) is seen by its one person onl
   expect(notificationsOf(h.ctx).list(nora.id, {}).items).toHaveLength(0)
 })
 
-test('realtime: room events reach the room\'s members only, and a read names nobody', async () => {
+test('realtime: room events reach the room\'s members only, and a read goes to the reader\'s own windows only', async () => {
   const { ada, mia, nora, otto, hub, send } = await setup()
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   expect(hub.to('room.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
@@ -204,14 +202,17 @@ test('realtime: room events reach the room\'s members only, and a read names nob
   const msg = await send(mia.client, dm.id, 'secret plan')
   const created = hub.to('room.message')
   expect(created.map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
-  expect((created[0]!.data as any).data.message).toMatchObject({ id: msg.id, unread: 1 })
+  expect((created[0]!.data as any).data.message).toMatchObject({ id: msg.id })
+  expect((created[0]!.data as any).data.message).not.toHaveProperty('unread')
   for (const e of hub.events) expect([mia.id, nora.id]).toContain(e.target)
   expect(hub.events.some((e) => [ada.id, otto.id, 'olga'].includes(e.target) && JSON.stringify(e.data).includes('secret plan'))).toBe(false)
   hub.clear()
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: msg.seq })
+  // no read receipts: mia is not told that nora read it; nora's own windows get her position and badge
   const reads = hub.to('room.read')
-  expect(reads.map((e) => [e.target, (e.data as any).data.mine]).sort()).toEqual([[mia.id, false], [nora.id, true]].sort())
-  expect((reads[0]!.data as any).data).toEqual({ roomId: dm.id, fromSeq: 0, toSeq: 1, mine: expect.any(Boolean) })
+  expect(reads.map((e) => e.target)).toEqual([nora.id])
+  expect((reads[0]!.data as any).data).toEqual({ roomId: dm.id, lastReadSeq: 1, unreadCount: 0, mentioned: false })
+  expect(hub.events.filter((e) => e.target === mia.id)).toEqual([])
   hub.clear()
   await mia.client.call('PATCH', `/api/rooms/${dm.id}/messages/${msg.id}`, { body: 'new plan' })
   expect(hub.to('room.message.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())

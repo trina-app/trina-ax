@@ -254,7 +254,7 @@ export class Hub implements RealtimeHub {
    */
   private stillVisible(userId: string, entries: readonly Entry[]): boolean {
     const rooms = new Set<string>()
-    for (const { ev } of entries) if (ev.type === 'room.message' || ev.type === 'room.message.updated' || ev.type === 'room.read' || ev.type === 'room.ai' || ev.type === 'room.ai.run' || ev.type === 'room.ai.step' || (ev.type === 'room.updated' && ev.data.change !== 'removed')) rooms.add(ev.data.roomId)
+    for (const { ev } of entries) if (ev.type === 'room.message' || ev.type === 'room.message.updated' || ev.type === 'room.read' || ev.type === 'room.thread' || ev.type === 'room.reactions' || ev.type === 'room.ai' || ev.type === 'room.ai.run' || ev.type === 'room.ai.step' || (ev.type === 'room.updated' && ev.data.change !== 'removed')) rooms.add(ev.data.roomId)
     try {
       for (const r of rooms) if (!isRoomMember(this.ctx.db, r, userId)) return false
     } catch (e) {

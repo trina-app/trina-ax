@@ -58,7 +58,7 @@ test('a group chat: me and two or more active people; named or not; several with
   // its first line says who made it with whom; it is no message (nothing unread, no list line)
   const lines = await messages(nora.client, g.id)
   expect(lines).toHaveLength(1)
-  expect(lines[0]).toMatchObject({ seq: 1, author: { id: mia.id }, body: '', unread: 0, event: { type: 'created' } })
+  expect(lines[0]).toMatchObject({ seq: 1, author: { id: mia.id }, body: '', event: { type: 'created' } })
   expect(lines[0].event.users.map((u: any) => u.id).sort()).toEqual([nora.id, otto.id].sort())
   expect((await rooms(nora.client)).find((r) => r.id === g.id)).toMatchObject({ unreadCount: 0, lastMessage: null })
   // a second one with the same people is a new room; a name is kept as typed (trimmed)
@@ -299,7 +299,7 @@ test('event lines count nowhere: no unread, badge, list line, notice or push; no
   expect(forNora).toMatchObject({ unreadCount: 1, lastMessage: { id: msg.id, excerpt: 'a real message' } })
   const lines = (await messages(nora.client, g.id)).filter((m) => m.event)
   expect(lines.map((m) => m.event.type)).toEqual(['created', 'renamed', 'added'])
-  expect(lines.every((m) => m.unread === 0 && m.body === '' && m.files.length === 0 && m.mentions.length === 0)).toBe(true)
+  expect(lines.every((m) => m.body === '' && m.files.length === 0 && m.mentions.length === 0 && !m.reactions && !m.thread)).toBe(true)
   // nora reads up to the end: nothing left
   await nora.client.call('POST', `/api/rooms/${g.id}/read`, { seq: 999 })
   expect((await rooms(nora.client)).find((r) => r.id === g.id).unreadCount).toBe(0)
@@ -412,7 +412,7 @@ test('an event line this build cannot read is a neutral line by nobody, never "<
   put('{"type":"removed"}')
   put('not json')
   const lines = (await messages(nora.client, g.id)).slice(-3)
-  for (const l of lines) expect(l).toMatchObject({ author: null, event: { type: 'unknown' }, body: '', unread: 0 })
+  for (const l of lines) expect(l).toMatchObject({ author: null, event: { type: 'unknown' }, body: '' })
 })
 
 test(`at most ${GROUPS_PER_HOUR} new group chats an hour per person, with a 429 that says so`, async () => {

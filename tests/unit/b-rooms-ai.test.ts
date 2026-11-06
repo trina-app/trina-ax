@@ -96,7 +96,7 @@ describe('the AI in a room', () => {
     const forBob = await answerTo('bob', roomId, b.q)
     // alice can read the marketing folder: her answer has it, and since bob cannot, it stays her private preview
     expect(forAlice?.body).toContain('Autumn Upgrade')
-    expect(forAlice).toMatchObject({ visibility: 'private', askedBy: { id: 'alice' }, author: null, unread: 0, preview: { folders: ['groups/marketing'], personal: false, outside: false } })
+    expect(forAlice).toMatchObject({ visibility: 'private', askedBy: { id: 'alice' }, author: null, preview: { folders: ['groups/marketing'], personal: false, outside: false } })
     // bob's turn ran with bob's access: the same read was refused, with the answer anyone who cannot open the folder
     // gets (the same as for a path that does not exist), so it tells the room nothing: bob's answer goes to the room
     expect(forBob?.body).not.toContain('Autumn Upgrade')
@@ -119,7 +119,7 @@ describe('the AI in a room', () => {
     expect(posted).toMatchObject({ visibility: 'room', authorKind: 'ai', askedBy: { id: 'alice' }, body: 'The Q4 brief is about upgrades.', sourceCount: 1 })
     // a posted answer: the "answering" line just goes, nobody is told it was private
     expect((await messages('erin', roomId)).find((m) => m.id === one.q.id)?.answeredPrivately).toBeUndefined()
-    expect(posted!.unread).toBeGreaterThan(0)
+    expect((await h.api('erin').call(API.listRooms)).items.find((r) => r.id === roomId)?.unreadCount).toBeGreaterThan(0)
     const src = await h.api('erin').call(API.roomMessageSources, { params: { id: roomId, messageId: posted!.id } })
     expect(src).toMatchObject({ files: [{ path: BRIEF }], unavailable: 0 })
     // a web search in the same session: from then on its answers stay private
@@ -618,6 +618,110 @@ describe('the AI in a group chat', () => {
     const fresh = await ask('alice', roomId, `@트리나 after bob\n${fake({ echo: 'system' })}`)
     expect(fresh.run.state, JSON.stringify(fresh.run.error)).toBe('done')
     expect((await answerTo('alice', roomId, fresh.q))!.body).not.toContain('<previous_conversation>')
+  })
+})
+
+// ---------------- threads (docs/DECISIONS.md "스레드와 반응") ----------------
+describe('the AI in a thread', () => {
+  const sendIn = async (user: string, roomId: string, rootId: string, body: string): Promise<RoomMessage> => {
+    const clientMessageId = cm()
+    for (let i = 0; ; i++) {
+      try {
+        return await h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId, threadRootId: rootId, mentions: [], fileIds: [] } })
+      } catch (e) {
+        const err = e as { status?: number; body?: { retryAfter?: number } }
+        if (err.status !== 429 || i >= 5) throw e
+        await Bun.sleep(1000 * (err.body?.retryAfter ?? 1))
+      }
+    }
+  }
+  const askIn = async (user: string, roomId: string, rootId: string, body: string) => {
+    const q = await sendIn(user, roomId, rootId, body)
+    const f = await ws[user]!.next('room.ai.run', (x) => x.data.run.questionId === q.id && ['done', 'stopped', 'error'].includes(x.data.run.state), 30_000)
+    return { q, run: f.data.run }
+  }
+  const threadOf = async (user: string, roomId: string, rootId: string) => (await h.api(user).call(API.listRoomThread, { params: { id: roomId, messageId: rootId }, query: {} })).items
+  const answerIn = async (user: string, roomId: string, rootId: string, q: RoomMessage) => (await threadOf(user, roomId, rootId)).find((m) => m.authorKind === 'ai' && m.replyTo?.id === q.id)
+
+  test('it answers in the thread, from the thread only (never the room\'s other messages), and the followers hear of it', async () => {
+    const roomId = await room(['alice', 'erin'])
+    await send('erin', roomId, 'ROOM-OUTSIDE unrelated chatter')
+    const root = await send('erin', roomId, 'THREAD-ROOT the launch budget')
+    await sendIn('erin', roomId, root.id, 'THREAD-REPLY we have three weeks')
+    await send('erin', roomId, 'ROOM-AFTER more chatter')
+    const { q, run } = await askIn('alice', roomId, root.id, `@트리나 sum up\n${fake({ echo: 'message' })}`)
+    expect(run.state, JSON.stringify(run.error)).toBe('done')
+    expect(run.threadRootId).toBe(root.id)
+    const answer = (await answerIn('erin', roomId, root.id, q))!
+    expect(answer).toMatchObject({ visibility: 'room', threadRootId: root.id, askedBy: { id: 'alice' } })
+    expect(answer.alsoInRoom).toBeUndefined()
+    expect(answer.body).toContain('thread="yes"')
+    expect(answer.body).toMatch(/<room_message from="Erin Yoo" who="another member" thread_start="yes"[^>]*>\nTHREAD-ROOT/)
+    expect(answer.body).toContain('THREAD-REPLY we have three weeks')
+    expect(answer.body).not.toMatch(/ROOM-OUTSIDE|ROOM-AFTER/)
+    // the answer is in the thread, not in the timeline
+    expect((await messages('erin', roomId)).some((m) => m.authorKind === 'ai')).toBe(false)
+    // erin wrote the root and replied: she follows it, so the question and its answer are new for her there (one notice
+    // for the run, the root marked, her badge for the room)
+    const forErin = () => h.ctx.db.query("SELECT source_id FROM room_notices WHERE user_id = 'erin' AND room_id = ? AND read_at IS NULL").all(roomId) as { source_id: string }[]
+    expect(forErin()).toEqual([{ source_id: q.id }])
+    expect((await h.api('erin').call(API.listRooms)).items.find((r) => r.id === roomId)).toMatchObject({ threadsUnread: 1, nextThreadId: root.id })
+    // read, the next answer there is a notice of its own
+    await h.api('erin').call(API.markRoomThreadRead, { params: { id: roomId, messageId: root.id }, body: { seq: answer.seq } })
+    expect(forErin()).toEqual([])
+    const again = await askIn('alice', roomId, root.id, `@트리나 and?\n${fake({ say: 'THREAD-AGAIN' })}`)
+    expect(forErin().map((n) => n.source_id)).toEqual([again.q.id])
+  })
+
+  test("each place keeps its own conversation: a thread's history is that thread's, the timeline's is the timeline's", async () => {
+    const roomId = await room(['alice', 'erin'])
+    const root = await send('erin', roomId, 'root for the history')
+    await ask('alice', roomId, `@트리나 TIMELINE-Q-ONE\n${fake({ say: 'timeline answer' })}`)
+    const t1 = await askIn('alice', roomId, root.id, `@트리나 THREAD-Q-ONE\n${fake({ echo: 'system' })}`)
+    const b1 = (await answerIn('alice', roomId, root.id, t1.q))!.body
+    expect(b1).not.toContain('TIMELINE-Q-ONE')
+    expect(b1).toContain('You are answering in a thread of')
+    const t2 = await askIn('alice', roomId, root.id, `@트리나 THREAD-Q-TWO\n${fake({ echo: 'system' })}`)
+    const b2 = (await answerIn('alice', roomId, root.id, t2.q))!.body
+    expect(b2).toMatch(/<previous_conversation>[\s\S]*THREAD-Q-ONE/)
+    expect(b2).not.toContain('TIMELINE-Q-ONE')
+    const tl = await ask('alice', roomId, `@트리나 TIMELINE-Q-TWO\n${fake({ echo: 'system' })}`)
+    const b3 = (await answerTo('alice', roomId, tl.q))!.body
+    expect(b3).toMatch(/<previous_conversation>[\s\S]*TIMELINE-Q-ONE/)
+    expect(b3).not.toMatch(/THREAD-Q-ONE|THREAD-Q-TWO/)
+    expect(b3).not.toContain('a thread of')
+  })
+
+  test('a member who joined after the root cannot see the thread: its answer stays private, and posted it is still not theirs', async () => {
+    const roomId = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'dana'] } })).id
+    const root = await send('erin', roomId, 'GROUP-THREAD-ROOT before bob')
+    await h.api('erin').call(API.inviteRoomMembers, { params: { id: roomId }, body: { userIds: ['bob'] } })
+    const { q } = await askIn('alice', roomId, root.id, `@트리나 recap\n${fake({ say: 'THREAD-RECAP for the three of us' })}`)
+    const mine = (await answerIn('alice', roomId, root.id, q))!
+    expect(mine).toMatchObject({ visibility: 'private', threadRootId: root.id, preview: { joinedLater: ['Bob Lee'] } })
+    expect((await threadOf('erin', roomId, root.id)).some((m) => m.authorKind === 'ai')).toBe(false)
+    // posted: in the thread for those who see it; bob sees none of it, not the thread, not the answer, not an event
+    const shared = await h.api('alice').call(API.shareRoomMessage, { params: { id: roomId, messageId: mine.id } })
+    expect(shared).toMatchObject({ visibility: 'room', threadRootId: root.id })
+    expect((await answerIn('erin', roomId, root.id, q))?.id).toBe(mine.id)
+    await expect(h.api('bob').call(API.listRoomThread, { params: { id: roomId, messageId: root.id }, query: {} })).rejects.toMatchObject({ status: 404 })
+    expect(JSON.stringify(await messages('bob', roomId))).not.toMatch(/THREAD-RECAP|GROUP-THREAD-ROOT/)
+    expect(JSON.stringify(ws.bob!.frames)).not.toMatch(/THREAD-RECAP|GROUP-THREAD-ROOT/)
+    expect(ws.bob!.frames.some((f) => f.type === 'room.thread' && f.data.rootId === root.id)).toBe(false)
+  })
+
+  test("a question in a thread bob cannot see is not counted for him: not in his room's AI count, not in its events", async () => {
+    const roomId = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'dana'] } })).id
+    const root = await send('erin', roomId, 'OLD root before bob')
+    await h.api('erin').call(API.inviteRoomMembers, { params: { id: roomId }, body: { userIds: ['bob'] } })
+    const from = ws.bob!.frames.length
+    const q = await sendIn('alice', roomId, root.id, `@트리나 slow one\n${fake({ sleep: 1500 }, { say: 'done' })}`)
+    await ws.erin!.next('room.ai', (x) => x.data.roomId === roomId && x.data.answering === 1, 10_000)
+    expect((await h.api('bob').call(API.getRoomAi, { params: { id: roomId } })).answering).toBe(0)
+    expect((await h.api('erin').call(API.getRoomAi, { params: { id: roomId } })).answering).toBe(1)
+    await ws.alice!.next('room.ai.run', (x) => x.data.run.questionId === q.id && ['done', 'stopped', 'error'].includes(x.data.run.state), 30_000)
+    const counts = ws.bob!.frames.slice(from).flatMap((f) => (f.type === 'room.ai' && f.data.roomId === roomId ? [f.data.answering] : []))
+    expect(counts.every((n) => n === 0)).toBe(true)
   })
 })
 

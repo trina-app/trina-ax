@@ -6,7 +6,7 @@ import { C, PNG } from './world'
 // message and an image only they may see (C.dmMsg, C.dmFileName): every room route aimed at it is 'room-dm', so the
 // owner and the admin are refused like everyone else outside it (admins cannot read rooms they are not in). Editing and
 // deleting are alice's own message only ('own-alice': erin, a member, is refused too). A body naming an author is
-// refused for everyone (the schema is strict), checked on the allowed send.
+// refused for everyone (the schema is strict), checked on the allowed send. Threads and reactions are 'room-dm' too.
 const cm = () => 'cm-' + crypto.randomUUID()
 const form = () => { const f = new FormData(); f.set('file', new File([PNG], 'room.png', { type: 'image/png' })); return f }
 export const ROOM_SPECS: Record<string, Spec> = {
@@ -43,6 +43,21 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (r.json.author?.id !== (who === 'memberIn' ? 'alice' : 'erin')) throw new Error(`the message's author is not the caller: ${JSON.stringify(r.json.author)}`)
       const spoof = await w.as[who].req('POST', `/api/rooms/${w.ids.dmRoom}/messages`, { body: 'spoof', authorId: 'dana', clientMessageId: cm() })
       if (spoof.status !== 400) throw new Error(`a body naming an author was not refused: ${spoof.status}`)
+    },
+  },
+  // threads and reactions (docs/DECISIONS.md "스레드와 반응"): the DM's message as a thread's root. Reading the thread
+  // and my place in it, and a reaction, are the DM's two people's only; a body naming another person is refused
+  listRoomThread: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/thread`), scope: 'room-dm' },
+  markRoomThreadRead: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/thread/read`, { seq: 1 }), scope: 'room-dm' },
+  reactRoomMessage: {
+    build: (c, w) => c.req('PUT', `/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/reactions`, { emoji: '👍', on: true }), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if (r.status !== 200) return
+      if (!r.json.reactions?.some((x: { emoji: string; mine: boolean }) => x.emoji === '👍' && x.mine)) throw new Error(`the reaction is not the caller's: ${JSON.stringify(r.json)}`)
+      const spoof = await w.as[who].req('PUT', `/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/reactions`, { emoji: '👍', on: true, userId: 'dana' })
+      if (spoof.status !== 400) throw new Error(`a body naming a person was not refused: ${spoof.status}`)
+      const odd = await w.as[who].req('PUT', `/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}/reactions`, { emoji: '💩', on: true })
+      if (odd.status !== 400) throw new Error(`an emoji outside the set was taken: ${odd.status}`)
     },
   },
   editRoomMessage: { build: (c, w) => c.patch(`/api/rooms/${w.ids.dmRoom}/messages/${w.ids.dmMsg}`, { body: `${C.dmMsg} (edited)` }), scope: 'own-alice' },

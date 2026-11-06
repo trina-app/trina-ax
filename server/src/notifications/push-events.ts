@@ -26,11 +26,12 @@ const PATH = /^\/(?:[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*)?$/
 // the existing events open the inbox, as a Web Push click does (web/pwa/sw.js)
 const pushPaths = new Map<string, PushPath>(['schedule.success', 'schedule.failure', 'connection.reconnect'].map(code => [code, () => '/settings/notifications']))
 // a room notice opens its room (the same page a Web Push click opens, web/pwa/sw.js), only while the person is still in
-// that room and it is not archived; the room page checks membership again
+// that room and it is not archived; a reply in a thread opens that thread (/rooms/<room>/t/<root>, ids only). The room
+// page checks membership and the thread's root again
 const roomPath: PushPath = (ctx, id) => {
-  const r = ctx.db.query(`SELECT n.room_id FROM room_notices n JOIN room_members m ON m.room_id=n.room_id AND m.user_id=n.user_id
-    JOIN rooms r ON r.id=n.room_id AND r.archived_at IS NULL WHERE n.id=?`).get(id) as { room_id: string } | null
-  return r ? `/rooms/${r.room_id}` : null
+  const r = ctx.db.query(`SELECT n.room_id, s.thread_root_id FROM room_notices n JOIN room_members m ON m.room_id=n.room_id AND m.user_id=n.user_id
+    JOIN rooms r ON r.id=n.room_id AND r.archived_at IS NULL LEFT JOIN room_messages s ON s.id=n.source_id WHERE n.id=?`).get(id) as { room_id: string; thread_root_id: string | null } | null
+  return r ? (r.thread_root_id ? `/rooms/${r.room_id}/t/${r.thread_root_id}` : `/rooms/${r.room_id}`) : null
 }
 for (const code of ROOM_PUSH_EVENTS) pushPaths.set(code, roomPath)
 export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }
