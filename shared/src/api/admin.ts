@@ -55,6 +55,9 @@ export const UsersResponse = z.object({
    * Only when asked for (`?noAi=1`), and absent when this server does not answer with AI connections (engine.authMode
    * other than managed). */
   noAi: z.array(UserId).optional(),
+  /** The people with an open request to have their account deleted (Settings › Profile › 계정 삭제 요청,
+   * shared/src/api/account-deletion.ts). For the owner only, who deletes accounts; absent for admins. */
+  deletionRequested: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
 /** Hand the owner role to another active member (the old owner becomes admin). */

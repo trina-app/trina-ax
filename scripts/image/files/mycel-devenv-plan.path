@@ -1,0 +1,11 @@
+# Team AX hosted team server: run mycel-devenv-boot.service again when the control plane writes a new plan.json
+# (mycel-ctl apply-plan writes a temporary file and renames it; PathChanged= sees the rename). Wanted by
+# mycel-server.service (20-devenv-boot.conf), so it only watches after the data disk is mounted.
+[Unit]
+Description=Team AX dev environment on srt: watch plan.json
+RequiresMountsFor=/var/lib/mycel
+ConditionPathExists=/usr/lib/mycel/dev-env/srt/install-srt.sh
+
+[Path]
+PathChanged=/var/lib/mycel/root/plan.json
+Unit=mycel-devenv-boot.service

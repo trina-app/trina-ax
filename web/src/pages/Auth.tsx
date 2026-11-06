@@ -7,7 +7,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { InviteInfo, Locale, PasswordResetInfo, TeamLinkInfo } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { ERROR_MESSAGES } from '@mycel/shared/api'
 import { formatDateTime } from '../lib/format'
 import { browserLocale, LOCALES, storedLocale, storeLocale, useLocale, useLocaleStore, useT, type MessageKey } from '../i18n'
 import { useMe, useSession } from '../store/session'
@@ -16,7 +15,7 @@ import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
-import { holdStarter } from '../lib/starter'
+import { holdMadeBy, holdStarter } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
@@ -89,7 +88,7 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
     <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10">
       <main className="w-full max-w-sm">
         <p className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
-          <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg" />
+          <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg dark:ring-1 dark:ring-line" />
           {PRODUCT.displayName}
         </p>
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)]">
@@ -104,7 +103,9 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
   )
 }
 
-/** An error on screen: a text key of ours, or what the server said. Drawn in the language on screen. */
+/** An error on screen: a text key of ours, or what the server said. Drawn in the language on screen: our own texts,
+ * network errors and the server's default messages follow a language switch (errorText); a server's own sentence
+ * ("Wrong username or password.") stays as it was said, so the error does not vanish. */
 type Shown = { key: MessageKey } | { e: unknown }
 
 function useSubmit() {
@@ -112,12 +113,6 @@ function useSubmit() {
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
   const [shown, setShown] = useState<Shown | null>(null)
-  // a server's own sentence can't be redrawn in another language: after a switch it goes (our own texts follow)
-  const [shownIn, setShownIn] = useState(locale)
-  if (shownIn !== locale) {
-    setShownIn(locale)
-    if (shown && 'e' in shown && !followsLocale(shown.e)) setShown(null)
-  }
   const run = async (fn: () => Promise<void>) => {
     setBusy(true)
     setShown(null)
@@ -133,9 +128,6 @@ function useSubmit() {
   return { busy, error, run, setError: (key: MessageKey) => setShown({ key }), setFailure: (e: unknown) => setShown({ e }) }
 }
 
-/** errorText() draws network errors and the server's default messages in the screen language. */
-const followsLocale = (e: unknown) => !isApiError(e) || Object.values(ERROR_MESSAGES[e.code] ?? {}).includes(e.message)
-
 export function Login() {
   const t = useT()
   const signedIn = useSession((s) => s.signedIn)
@@ -146,7 +138,7 @@ export function Login() {
   const { busy, error, run } = useSubmit()
   const { errorOf, check } = useFieldChecks({ username: requiredCheck(username), password: password ? null : 'auth.required' })
   const reason = status.kind === 'signed-out' ? status.reason : undefined
-  // a demo server (`bun run demo:trina`): one action, start as the new hire; the usual form is one link away
+  // a demo server (`bun run demo:company`): one action, start as the new hire; the usual form is one link away
   const { info: demo } = useDemoInfo()
   const [form, setForm] = useState(false)
   const submit = (e: FormEvent<HTMLFormElement>) => {
@@ -423,6 +415,9 @@ export function TeamJoin() {
       // the lead's files waiting for them (docs/DECISIONS.md "M"): Home fills the box with them and the question
       if (r.starter) holdStarter(r.me.user.id, r.starter)
       const next = r.starter ? '/' : joinNext(r.next)
+      // a team skill a person made: its form says who ("지훈님이 만든 팀 스킬이에요", docs/DECISIONS.md "S")
+      const formPath = !r.starter && r.skillBy && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
+      if (formPath) holdMadeBy(r.me.user.id, formPath, r.skillBy!)
       setAfterJoin(next)
       signedIn(r.me)
       navigate(next, { replace: true })
@@ -582,11 +577,18 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
           {error}
         </p>
       )}
-      <Button type="submit" variant="primary" busy={busy} data-testid="password-submit">
+      <Button type="submit" variant="primary" busy={busy} className={forced ? 'w-full' : undefined} data-testid="password-submit">
         {t('auth.changePassword')}
       </Button>
     </form>
   )
+}
+
+/** Where a signed-in person lands (after the sign-in page, and after the forced password change): Home, or on a phone
+ * (where the 대화 tab is) the 대화 list, with the AI chat pinned on top of it. */
+export function signedInHome(): string {
+  const phone = typeof window !== 'undefined' && !!window.matchMedia && !window.matchMedia('(min-width: 768px)').matches
+  return phone ? '/rooms' : '/'
 }
 
 export function ForcedPassword() {
@@ -610,7 +612,7 @@ export function ForcedPassword() {
         forced
         onDone={async () => {
           await load()
-          navigate('/', { replace: true })
+          navigate(signedInHome(), { replace: true })
         }}
       />
       <button type="button" onClick={() => void otherAccount()} className="mt-4 block text-sm text-accent-text underline" data-testid="forced-other-account">

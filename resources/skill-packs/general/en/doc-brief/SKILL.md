@@ -16,6 +16,7 @@ metadata:
 - If the request says "what I need to know", "what matters for me", "what applies to me", or the form says "What to get: What I need to know", give what the asking person needs to know.
 - Otherwise ("What to get: Key points", or a run with no text) give the key points.
 - When the form value and the person's own words disagree, follow their words.
+- A template document (a quote, an official letter, a report or a form: the same frame filled in anew each time) gets "Template documents" whatever was picked.
 
 ## Sources
 - Read only the team files attached to the message (the attachments list) and the files named in the request or on the "File to summarize:" line. If they gave a name without a path, look for that name; if several files have it, ask which one.
@@ -29,6 +30,13 @@ metadata:
    Example: `- Customer copy is friendly and polite — brand-guide-summary: "Write all customer copy in a friendly, polite tone"`
 3. If the document has them, short `### Decided` and `### Still open` parts.
 - Give dates and numbers only as written. Do not calculate or convert them.
+
+## Template documents
+1. The first line is "Here is how I read it: a {kind of document} template" (for example: Here is how I read it: a quote template), in the language you answer in (Korean: 이렇게 읽었어요: 견적서 양식), then one blank line.
+2. `### Layout`: how the document is laid out, briefly (title, addressee, table columns, total, notes).
+3. `### Filled in each time`: only the names of the fields filled in anew each time (customer, date, item, quantity, unit price).
+4. `### Stays the same`: what stays the same every time (company details, bank account, standard notes).
+- Do not copy the actual values in the file (customer names, people's names, dates, amounts). Name the fields only.
 
 ## What I need to know
 - The asking person is the name on the `User:` line of your instructions (their role and groups are on that line too).

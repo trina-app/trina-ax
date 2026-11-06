@@ -26,10 +26,19 @@ export function initPwa() {
   })
   if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureContext) {
     window.addEventListener('load', () => {
+      // Inside the phone app the app shows its own offline / cannot-reach screen, with "Change team address". A worker's
+      // cached offline page would hide it (Android's WebView runs workers), and a person whose team server is gone
+      // could not leave. So the app's WebView gets no worker, and one left from before is removed.
+      if (insidePhoneApp(window)) {
+        void navigator.serviceWorker.getRegistrations().then(all => Promise.all(all.map(r => r.unregister()))).catch(() => {})
+        return
+      }
       navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => { /* not fatal: the app works without it */ })
     })
   }
 }
+/** react-native-webview defines window.ReactNativeWebView before the page's own scripts run (both platforms). */
+export const insidePhoneApp = (w: object) => typeof (w as { ReactNativeWebView?: { postMessage?: unknown } }).ReactNativeWebView?.postMessage === 'function'
 
 /** Installed: the browser shows the app in its own window (display-mode: standalone), or iOS Safari opened it from
  * the Home Screen (navigator.standalone). */

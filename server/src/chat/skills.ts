@@ -14,8 +14,10 @@ import type { Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 
 /** `inputs`: the short form the skill runs from (metadata `inputs`, shared/src/api/skill-inputs.ts), only when valid.
- * `title`: the name people read (metadata `title`, "광고 문구"), only when valid; "/<name>" still runs the skill. */
-export interface SkillInfo { path: string; name: string; description: string; inputs?: SkillInput[]; title?: string }
+ * `title`: the name people read (metadata `title`, "광고 문구"), only when valid; "/<name>" still runs the skill.
+ * `recurring`: metadata `recurring` as written, only when the key is there ("weekly": the work comes back every week,
+ * docs/DECISIONS.md "S"; isRecurring). Server side only: listings (skillInfo) leave it out. */
+export interface SkillInfo { path: string; name: string; description: string; inputs?: SkillInput[]; title?: string; recurring?: string }
 export interface Skill extends SkillInfo { body: string }
 
 const SKILLS_DIR = 'skills'
@@ -115,7 +117,10 @@ function withoutInputs(header: string): string | null {
 export type SkillProblem = 'too_large' | 'header' | 'location' | 'name' | 'name_folder' | 'description' | 'compatibility'
 /** `inputs` / `badInputs`: a SKILL.md's form (metadata `inputs`), when it declares one: the list when valid, else why
  * not (the skill still loads, without a form: skillIssues reports `inputs`). */
-export type SkillCheck = { ok: true; name: string; description: string; body: string; inputs?: SkillInput[]; badInputs?: string; title?: string } | { ok: false; problem: SkillProblem }
+export type SkillCheck = { ok: true; name: string; description: string; body: string; inputs?: SkillInput[]; badInputs?: string; title?: string; recurring?: string } | { ok: false; problem: SkillProblem }
+
+/** The skill's work comes back every week (metadata `recurring: weekly`). */
+export const isRecurring = (s: Pick<SkillInfo, 'recurring'>): boolean => s.recurring?.trim().toLowerCase() === 'weekly'
 
 /** A header line that the legacy reader takes as a field. legacyHeaderOk uses the same regex for its duplicate check. */
 const LEGACY_KEY = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/
@@ -204,7 +209,8 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
     if (compatibility !== undefined && (!compatibility.trim() || [...compatibility].length > 500)) return no('compatibility')
     // the name people read: one line, at most SKILL_TITLE_MAX characters; any other value is left out (the name shows)
     const title = readSkillTitle(header.metadata.get('title'))
-    const ok = { ok: true as const, name, description: description.trim(), body: t.slice(m[0].length), ...(title ? { title } : {}) }
+    const recurring = header.metadata.get('recurring')
+    const ok = { ok: true as const, name, description: description.trim(), body: t.slice(m[0].length), ...(title ? { title } : {}), ...(recurring !== undefined ? { recurring: recurring.trim() } : {}) }
     if (oversized) return { ...ok, badInputs: `with this form the header is ${oversized} bytes, over the ${HEADER_MAX / 1024} KB limit (a Korean letter takes 3 bytes): shorten the labels and placeholders` }
     if (header.inputsNotText) return { ...ok, badInputs: INPUTS_NOT_TEXT }
     const raw = header.metadata.get('inputs')
@@ -223,9 +229,9 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
   return { ok: true, name, description: (fields.description ?? '').slice(0, LEGACY_DESCRIPTION_MAX), body: t.slice(m[0].length) }
 }
 
-export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string; inputs?: SkillInput[]; title?: string } | null {
+export function parseSkill(text: string, rel?: string): { name: string; description: string; body: string; inputs?: SkillInput[]; title?: string; recurring?: string } | null {
   const r = checkSkill(text, rel)
-  return r.ok ? { name: r.name, description: r.description, body: r.body, ...(r.inputs ? { inputs: r.inputs } : {}), ...(r.title ? { title: r.title } : {}) } : null
+  return r.ok ? { name: r.name, description: r.description, body: r.body, ...(r.inputs ? { inputs: r.inputs } : {}), ...(r.title ? { title: r.title } : {}), ...(r.recurring !== undefined ? { recurring: r.recurring } : {}) } : null
 }
 
 /** Why the form of a skill that loads does not parse (metadata `inputs`), or null: no form, or a valid one. */

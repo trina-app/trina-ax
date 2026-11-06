@@ -29,10 +29,25 @@ export function placeholdersOf(template: string): string[] {
 /** Filled in every text without the caller passing them: the product's name lives in shared/src/product.ts only. */
 export const PRODUCT_PARAMS: Params = { product: PRODUCT.displayName, productFile: PRODUCT.artifactBase }
 
+/** Korean "(으)로" after a filled-in value, when its last sound can be told: 로 after a vowel or ㄹ, 으로 after another
+ * final consonant. A number ends as it is read: 1 2 4 5 7 8 9 (일 이 사 오 칠 팔 구) take 로, 0 3 6 (영·십 삼 육) take
+ * 으로, so "v{version}(으)로" reads "v1로", "v3으로". Latin letters and signs keep "(으)로". */
+export function koRo(value: string): string {
+  const last = [...value.trim()].pop() ?? ''
+  const c = last.codePointAt(0) ?? 0
+  if (c >= 0xac00 && c <= 0xd7a3) return [0, 8].includes((c - 0xac00) % 28) ? '로' : '으로'
+  if (/[0-9]/.test(last)) return '036'.includes(last) ? '으로' : '로'
+  return '(으)로'
+}
+
 export function format(template: string, callerParams?: Params, locale: string = DEFAULT_LOCALE): string {
   const params: Params = { ...PRODUCT_PARAMS, ...callerParams }
   // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts)
-  return fillPlurals(template, params, locale).replace(/\{(\w+)\}/g, (all, k: string) => (params[k] !== undefined ? String(params[k]) : all))
+  return fillPlurals(template, params, locale).replace(/\{(\w+)\}(\(으\)로)?/g, (all, k: string, ro?: string) => {
+    if (params[k] === undefined) return all
+    const v = String(params[k])
+    return ro ? v + (locale === 'ko' ? koRo(v) : ro) : v
+  })
 }
 
 export function translate(locale: Locale, key: MessageKey, params?: Params): string {

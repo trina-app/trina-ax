@@ -1,46 +1,63 @@
 // The welcome steps (pages/Welcome.tsx; docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting
-// note, everyone's own tasks"): which step to open, what the Home entry counts, what leaving the first step installs,
-// what the invite under the first answer carries, and where the owner goes right after /setup.
-import { GENERAL_TASKS_SKILL, LOCALE_ORDER, WELCOME_COUNTED, WELCOME_STEPS, type Message, type StarterKind, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
-import { translate } from '../i18n'
+// note, everyone's own tasks", "W2 — AI connection first"): which step to open, what the Home entry counts, what
+// leaving the first step installs, which skill the invite under the first answer shares, and where the owner goes
+// right after /setup.
+import { GENERAL_TASKS_SKILL, WELCOME_COUNTED, WELCOME_STEPS, type Message, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
 
-/** Where the steps resume: the first step not yet done or put off; with none left, the first counted step that was
- * put off ("later" is now); null when everything is done (or finished). */
-export function resumeStep(p: WelcomeProgress | null): WelcomeStep | null {
-  if (!p) return WELCOME_STEPS[0]
-  if (p.finishedAt) return null
-  const open = WELCOME_STEPS.find((s) => p.steps[s] === null)
+/** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
+const AFTER_AI = WELCOME_STEPS.filter((s) => s !== 'ai')
+
+/** Where the steps resume once AI answers: the first step after the AI step not yet done or put off; with none left,
+ * the first counted step that was put off ("later" is now); null when everything is done (or finished). */
+function resumeWithAi(p: WelcomeProgress | null): WelcomeStep | null {
+  if (p?.finishedAt) return null
+  if (!p) return AFTER_AI[0]!
+  const open = AFTER_AI.find((s) => p.steps[s] === null)
   if (open) return open
   return WELCOME_COUNTED.find((s) => p.steps[s] !== 'done') ?? null
+}
+
+/** The steps the AI step holds back: 회사 소개 and 첫 결과 need AI, the invite does not. */
+const needsAi = (s: WelcomeStep | null) => s === 'profile' || s === 'result'
+
+/**
+ * Where the steps resume. Without an AI that answers the owner (`aiReady` false: GET /api/me/ai-access), the AI step
+ * in front of 회사 소개 and 첫 결과, never in front of the invite: with only the invite left it is the invite.
+ */
+export function resumeStep(p: WelcomeProgress | null, aiReady = true): WelcomeStep | null {
+  const s = resumeWithAi(p)
+  return !aiReady && needsAi(s) ? 'ai' : s
 }
 
 /** After a step: the next one in order that is still open; null (back to Home) when none is left after it, so a step
  * put off never comes straight back. */
 export function nextStep(p: WelcomeProgress, from: WelcomeStep): WelcomeStep | null {
-  return WELCOME_STEPS.slice(WELCOME_STEPS.indexOf(from) + 1).find((s) => p.steps[s] === null) ?? null
+  const order: readonly WelcomeStep[] = from === 'ai' ? AFTER_AI : AFTER_AI.slice(AFTER_AI.indexOf(from) + 1)
+  return order.find((s) => p.steps[s] === null) ?? null
 }
 
+/** The step before (the AI step is never gone back to: it is over once AI answers). */
 export function prevStep(from: WelcomeStep): WelcomeStep | null {
-  return WELCOME_STEPS[WELCOME_STEPS.indexOf(from) - 1] ?? null
+  return from === 'ai' ? null : AFTER_AI[AFTER_AI.indexOf(from) - 1] ?? null
+}
+
+/** The steps the progress counts: the AI step while it is needed (the steps would open on it) or once it was shown
+ * (recorded), then 회사 소개 and 첫 결과; an owner whose AI answered from the start never sees it (two steps). */
+export function countedSteps(p: WelcomeProgress | null, aiReady = true): WelcomeStep[] {
+  const ai = (p?.steps.ai ?? null) !== null || resumeStep(p, aiReady) === 'ai'
+  return ai ? ['ai', ...WELCOME_COUNTED] : [...WELCOME_COUNTED]
 }
 
 /** "1/2" on the Home entry: the counted steps done */
-export const doneCount = (p: WelcomeProgress | null) => (p ? WELCOME_COUNTED.filter((s) => p.steps[s] === 'done').length : 0)
+export const doneCount = (p: WelcomeProgress | null, aiReady = true) => (p ? countedSteps(p, aiReady).filter((s) => p.steps[s] === 'done').length : 0)
 
-/** How many steps the progress counts (the "/2"): read it from here, never as a number of its own. */
-export const stepTotal = () => WELCOME_COUNTED.length
+/** How many steps the progress counts (the "/2", "/3" with the AI step): read it from here, never as a number of its own. */
+export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true) => countedSteps(p, aiReady).length
 
-/** Leaving the first step installs the marketing pack only when the owner said "마케팅팀이에요" and it is not in yet.
- * No answer (null) is the general pack only; a type from before (영업, 기타 …) reads as "not marketing". */
-export const wantsPack = (p: WelcomeProgress | null) => !!p && p.teamType === 'marketing' && !p.pack
-
-/** Every team's start (POST /api/onboarding/welcome/team): the general pack and the team's own group, while either is
- * missing (the server installs and creates each once, whatever the page asks). */
-export const wantsTeam = (p: WelcomeProgress | null) => !!p && (!p.general || !p.teamGroup)
-
-/** The line above the first step goes once what it promised is recorded: the general pack, and the marketing pack when
- * the owner asked for it. */
-export const packsRecorded = (p: WelcomeProgress) => !!p.general && (p.teamType !== 'marketing' || !!p.pack)
+/** Every team's start (POST /api/onboarding/welcome/team): the general pack and the team's own group with its brand
+ * folder, while any is missing (the server installs and creates each once, whatever the page asks; a group recorded
+ * before the brand folder existed gets it then). */
+export const wantsTeam = (p: WelcomeProgress | null) => !!p && (!p.general || !p.teamGroup || !p.teamGroup.brandFolder)
 
 /** The name a skill is run by ("/meeting-tasks"): the folder of a SKILL.md, else the file name of a legacy skill. */
 export function skillNameOf(path: string | null | undefined): string {
@@ -55,34 +72,25 @@ export const showResume = (p: WelcomeProgress | null) => !!p && !p.finishedAt &&
 /** The invite bar on the first-result chat: until the invite is done or put off. */
 export const showInviteBar = (p: WelcomeProgress | null, chatId: string) => !!p && p.resultChatId === chatId && p.steps.invite === null
 
-/** Letters and digits only, lower case: the switch sentence is found whatever the punctuation, spaces or apostrophes. */
-const bare = (s: string) => s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
-
 /**
- * The meeting-tasks skill's own words when the files were not meeting notes ("회의록이 아니라서 핵심만 정리했어요", "These
- * aren't meeting notes …"): it then gave a brief instead, and the invite says so. Looked for near the start of the
- * answer (its first line by the skill's rule), in every language the skill may answer in.
+ * The skill that made the first result, to share as it is (docs/DECISIONS.md "W2 — AI connection first"): the run the
+ * server recorded for the answer (`receipt`: the path the 7-day goal counts), else the first question's "/name" among
+ * the skills these steps recorded (the intro deck, the promo video, the card news, the meeting notes skills, the ad
+ * copy); null when neither says.
  */
-export function isBriefSwitch(text: string): boolean {
-  const head = bare(text.slice(0, 300))
-  return LOCALE_ORDER.some((l) => {
-    const sentence = bare(translate(l, 'welcome.files.briefSwitch'))
-    return !!sentence && head.includes(sentence)
-  })
+export function resultSkill(messages: Pick<Message, 'role' | 'content' | 'receipt'>[], p: WelcomeProgress | null): string | null {
+  const ran = messages.find((m) => m.role === 'assistant' && m.receipt)?.receipt?.skill.path
+  if (ran) return ran
+  const name = /^\/([^\s/]+)/.exec(messages.find((m) => m.role === 'user')?.content.trim() ?? '')?.[1]
+  if (!name || !p) return null
+  const recorded = [p.general?.introDeckPath, p.general?.promoVideoPath, p.general?.cardNewsPath, p.general?.tasksPath, p.general?.briefPath, p.pack?.skillPath]
+  return recorded.find((path): path is string => !!path && skillNameOf(path) === name) ?? null
 }
 
-/**
- * What the first answer's invite carries: the team files the lead put in (the first question's team-file references
- * that are still there) and what people who join get from them: their own tasks, or a brief when the skill said the
- * files were not meeting notes. null: no team files (the ad copy, or anything else).
- */
-export function resultStarter(messages: Pick<Message, 'role' | 'content' | 'attachments'>[]): { kind: StarterKind; files: string[] } | null {
-  const question = messages.find((m) => m.role === 'user')
-  const files = [...new Set((question?.attachments ?? []).filter((a) => a.source === 'team' && !a.unavailable && a.path).map((a) => a.path))]
-  if (!files.length) return null
-  const answer = messages.filter((m) => m.role === 'assistant').at(-1)
-  return { kind: answer && isBriefSwitch(answer.content) ? 'brief' : 'tasks', files }
-}
+/** The skill the welcome steps' own invite step carries (no chat to read it from): the first result's, the intro deck
+ * (docs/DECISIONS.md "D2"), so a teammate's run counts for the 7-day goal; else the promo video or the card news (a row
+ * whose first result ran one of them), the marketing pack's ad copy, the meeting notes skill (rows from before them). */
+export const inviteSkill = (p: WelcomeProgress): string | null => p.general?.introDeckPath ?? p.general?.promoVideoPath ?? p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
 
 /** Home's one line after "자료 없이 해 볼게요" (router state): where meeting notes go. */
 export interface NotesHint { folder: string; team: string }

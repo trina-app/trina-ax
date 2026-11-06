@@ -4,7 +4,9 @@
 // '광고 문구'는 아직이에요." [다시 보내기] (copies a nudge with the skill form's link); one more person: "한 명만 더 쓰면
 // 달성이에요."; nobody joined: "아직 아무도 안 들어왔어요." — those two with [초대 문구 복사] (the team link's message), or
 // [팀원 초대] while no link works. Reached: "달성했어요 · 민지·지훈·Olga" until dismissed.
-// On phones the card has no frame of its own, only a line under it (fewer boxes; docs/DESIGN-SYSTEM.md).
+// On phones the card has no frame of its own, only a line under it (fewer boxes; docs/DESIGN-SYSTEM.md), and no
+// [다시 보내기]: an orange button above the greeting there.
+import clsx from 'clsx'
 import { Check, CheckCircle2, Copy, UserPlus, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { TeamGoal, TeamLinkResponse } from '@mycel/shared/api'
@@ -90,7 +92,7 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
       const text = resendText(t, locale, { first: next.first, more: next.more, skill: named?.name ?? null, url: skillRunUrl(base, named?.path ?? null) })
       action = <CopyAction text={text} label={t('goal.resend')} testId="team-goal-resend" />
     } else if (open) {
-      const message = teamLinkMessage(t, { name: me?.user.name ?? '', url: open.url!, skill: open.skill ? (open.skill.title ?? open.skill.name) : null })
+      const message = teamLinkMessage(t, { name: me?.user.name ?? '', team: me?.team.name ?? '', url: open.url!, skill: open.skill ? (open.skill.title ?? open.skill.name) : null })
       action = <CopyAction text={message} label={t('goal.copyInvite')} testId="team-goal-copy-invite" />
     } else {
       action = (
@@ -107,7 +109,8 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
         <span className="text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
       </h2>
       <p className="mt-1 text-sm text-muted" data-testid="team-goal-next" data-next={next.kind}>{goalNextText(t, locale, next, named?.name ?? null)}</p>
-      <div className="mt-3 min-h-8">{action}</div>
+      {/* "다시 보내기" (copy the reminder again) stays off phones: an orange button above the greeting there */}
+      <div className={clsx('mt-3 min-h-8', next.kind === 'waiting' && 'max-md:hidden')}>{action}</div>
       {inviting && (
         <Modal open onClose={closeInvite} title={t('goal.title', { days: goal.days, target: goal.target })} width={560}>
           <InviteStep onDone={closeInvite} skillPath={skill?.path ?? null} />

@@ -58,7 +58,7 @@ describe('runs through the chat runtime', () => {
     const turn = h.ctx.db.query('SELECT client_kind, user_id FROM turns WHERE chat_id = ?').get(row.last_chat_id) as { client_kind: string; user_id: string }
     expect(turn).toEqual({ client_kind: 'schedule', user_id: 'alice' })
     const chat = await h.api('alice').call(API.getChat, { params: { id: row.last_chat_id! } })
-    expect(chat.title.startsWith('⏰ Morning digest · ')).toBe(true)
+    expect(chat.title).toMatch(/^Morning digest · \d{4}-\d{2}-\d{2}$/) // no emoji in the title
     await waitFor(() => (h.ctx.db.query("SELECT status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(row.last_chat_id) as { status: string }).status !== 'streaming', { timeoutMs: 30_000 })
     const answer = h.ctx.db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'assistant'").get(row.last_chat_id) as { content: string }
     expect(answer.content).toContain('<scheduled_run title="Morning digest">')

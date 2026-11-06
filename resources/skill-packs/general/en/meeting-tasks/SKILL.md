@@ -8,6 +8,7 @@ metadata:
       {"name": "scope", "label": "Whose tasks", "type": "choice", "default": "all", "options": [{"value": "all", "label": "Everyone, by person"}, {"value": "mine", "label": "Only mine"}]},
       {"name": "files", "label": "Meeting notes file", "placeholder": "Leave empty for the newest in the team's notes folder", "advanced": true}
     ]
+  recurring: weekly
 ---
 
 # Tasks from notes
@@ -28,7 +29,8 @@ Only summarize the tasks in the meeting notes. Do not notify anyone or assign an
 
 ## First check that these are meeting notes
 Meeting notes have things like attendees, an agenda, discussion, decisions, action items and dates.
-- If they are not meeting notes, make the first line exactly this sentence, without quotes, in the language you answer in, and leave one blank line after it (the app looks for it):
+- If it is a template document (a quote, an official letter, a report or a form: the same frame filled in anew each time), make the first line "Here is how I read it: a {kind of document} template" (for example: Here is how I read it: a quote template), in the language you answer in (Korean: 이렇게 읽었어요: 견적서 양식), and leave one blank line after it. Then follow "Template documents" below.
+- If they are neither meeting notes nor a template document, make the first line exactly this sentence, without quotes, in the language you answer in, and leave one blank line after it (the app looks for it):
   - English: These aren't meeting notes, so here are the key points instead.
   - Korean: 회의록이 아니라서 핵심만 정리했어요.
   - Japanese: 議事録ではないので要点だけまとめました。
@@ -37,6 +39,12 @@ Meeting notes have things like attendees, an agenda, discussion, decisions, acti
   - Any other language: the English sentence.
   Then give three to seven key points, each with its source. If the person asked for their own tasks, give what they need to know instead (where their name or role appears, deadlines, rules for everyone).
 - If only some of several files are meeting notes, list the tasks from those and name the other files in one line.
+
+## Template documents
+- `### Layout`: how the document is laid out, briefly (title, addressee, table columns, total, notes).
+- `### Filled in each time`: only the names of the fields filled in anew each time (customer, date, item, quantity, unit price).
+- `### Stays the same`: what stays the same every time (company details, bank account, standard notes).
+- Do not copy the actual values in the file (customer names, people's names, dates, amounts). Name the fields only.
 
 ## By person (the default)
 - One heading per person (`### Minji Jung`), one line per task.
@@ -63,7 +71,7 @@ Meeting notes have things like attendees, an agenda, discussion, decisions, acti
 ## Several notes
 - Combine them.
 - When the same task is in an older and a newer note, keep the newer one and say what changed: (changed on 11-05: this week → by Thu 11/12)
-- Mark anything that contradicts itself as "to check".
+- Put anything that contradicts itself under `### To check`, saying what does not match.
 
 ## Output
 - The top line says what you used: Based on 2 meeting notes (11-03 weekly meeting, 11-05 campaign kickoff). When one of the fixed first-line sentences above applies, leave one blank line after it and put this line below.

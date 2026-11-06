@@ -11,6 +11,7 @@ image mode + the first-boot pieces (`mycel-enroll`).
 | `pve-import.sh` | Manual import on a Proxmox host as template `tmpl-ax-<version>` (what ax-hostd `installTemplate` does) |
 | `build-ami.sh` | Builds the same image as an EC2 AMI (Seoul, t3a) + a signed manifest `teamax-<templateVersion>.ami.json` (section "EC2 image (AMI)") |
 | `ami-chroot.sh` | Runs on the AMI builder instance: grows the work volume and runs `customize.sh` in a chroot on it |
+| `ami-manifest-v2.sh` | No build: copies a built AMI to more regions and/or writes the signed v2 manifest `teamax-<templateVersion>.v2.ami.json` (one AMI per AWS region) for a hostd with several regions (section "Several regions: the v2 manifest"). Also `build-ami.sh --manifest-v2 …` |
 | `test-customize.sh` | Local proof without KVM: customize twice in a privileged Debian container + `vm-smoke.sh --container` |
 | `../../tests/linux/vm-smoke.sh` | H-05 done-when checks, run inside a VM booted from the template |
 
@@ -61,7 +62,18 @@ image mode + the first-boot pieces (`mycel-enroll`).
   Oracle only on that platform; Proxmox gives the NoCloud drive), no users, no SSH keys, modules limited to what the
   first boot needs (`write_files`, `growpart`, `resizefs`, hostname, `runcmd`). `mycel-enroll` writes
   `/etc/cloud/cloud-init.disabled` after enrolling.
-- `/etc/ax-template.json` (template version, kit version, `production`), `/usr/lib/mycel/image-packages.txt`.
+- The dev environment on srt, image part (EC2 images: `build-ami.sh` stages `scripts/dev-env/srt` as `dev-env-srt/`;
+  `customize.sh --srt`): `install-srt.sh --image-mode` installs its packages (bubblewrap, socat, ripgrep, polkitd, jq,
+  python3, ffmpeg, chromium, build tools, CJK fonts), node 22 in `/opt/trina/node`, srt in `/opt/trina/srt/<version>`
+  and `/opt/trina/devenv/run-wrap`. A copy of the scripts stays in `/usr/lib/mycel/dev-env/srt`. It does **not** turn
+  the dev environment on: no polkit rule, no devenv slice, no server drop-in. `install-srt.sh` without `--image-mode` on
+  the team server does that (it needs `<base>/root/dev-env.json` on a hosted VM) and then downloads nothing.
+- With srt, also `mycel-devenv-boot` (`/usr/local/sbin`), `mycel-devenv-boot.service`, `mycel-devenv-plan.path` and the
+  server drop-in `20-devenv-boot.conf`. On a hosted server, at each server start and when `plan.json` changes, it writes
+  `dev-env.json` from the plan and runs `install-srt.sh --boot`. The team admin still turns the dev environment on.
+  Mapping, risks and roll back: `docs/research/srt-hosted-boot.md`.
+- `/etc/ax-template.json` (template version, kit version, `srt` present|none, `production`),
+  `/usr/lib/mycel/image-packages.txt`.
 - Cleanup: apt lists, ssh host keys, machine-id (empty → regenerated per clone), cloud-init state, logs.
 
 ## The kit contract (W1, `scripts/install-linux.sh`, being written on feat/cloud-linux-native)
@@ -259,3 +271,60 @@ yet, so check by hand on the first instance:
 - `resize2fs` after a data volume grow while the instance is stopped (`axdata-grow.service`).
 
 Local test without AWS: `bun test tests/unit/image-build-ami.test.ts` (stub `aws`, `ssh` and `scp` on PATH).
+
+### Several regions: the v2 manifest
+
+`build-ami.sh` builds the AMI in one region and writes a v1 manifest (one `region`, one `imageId`). An ax-hostd that
+serves more than one region refuses a v1 manifest ("manifest v1 has one region … needs a v2 manifest"). It needs a v2
+manifest with one AMI per AWS region of the host, under one signature. `ami-manifest-v2.sh` (or
+`build-ami.sh --manifest-v2 …`, the same script) makes it. It does not build, and it does not touch the v1 manifest:
+
+```json
+{"v":2,"kind":"ami","templateVersion":"0.4.0-beta.8-d13-20261105","architecture":"x86_64","images":{"ap-northeast-2":{"imageId":"ami-…","rootSnapshotId":"snap-…"},"ap-southeast-1":{"imageId":"ami-…","rootSnapshotId":"snap-…"}},"kitVersion":"0.4.0-beta.8","builtAt":"2026-11-05T…Z"}
+```
+
+- The keys of `images` are **AWS region names** (`ap-southeast-1`), not Trina region ids (`sg-singapore-1`): hostd looks
+  up each region by its `awsRegion`. The script refuses a Trina region id.
+- File name `teamax-<templateVersion>.v2.ami.json` (+ `.sha256`, `.sig`). It ends in `.ami.json`, because the CP
+  (`templateUrlProblem`) and hostd take only such a URL. A v1 file of the same version can stay beside it. Give the v2 URL
+  to the install-template form by hand.
+- Signature: the same key and the same message as v1, `ax-template-v1\n<templateVersion>\n<sha256 of the v2 file>`.
+- A hostd with one region also takes a v2 manifest (it reads only its own region).
+
+Two ways to give the AMIs:
+
+```sh
+# 1. the AMIs exist already in every region (copied by hand, or by an earlier run): read-only checks, then the manifest
+scripts/image/build-ami.sh --manifest-v2 --profile <trina profile> --account <trina account id> \
+  --template-version 0.4.0-beta.8-d13-20261105 \
+  --image ap-northeast-2=ami-…:snap-… --image ap-southeast-1=ami-…:snap-… \
+  --sign-key /secure/release-ed25519.pem
+
+# 2. copy the AMI of the first --image to more regions, then the manifest for all of them
+scripts/image/build-ami.sh --manifest-v2 --profile <trina profile> --account <trina account id> \
+  --template-version 0.4.0-beta.8-d13-20261105 \
+  --image ap-northeast-2=ami-… --copy-to ap-southeast-1 \
+  --sign-key /secure/release-ed25519.pem
+```
+
+`:snap-…` is optional: without it the script reads the root snapshot from AWS. With it the script also checks it.
+
+`--copy-to REGION`: `CopyImage --encrypted` (the default EBS key of the target region) with the client token
+`ax-<templateVersion>-<region>`, so a second run after a stop makes no second copy. The copy and its snapshot get the
+tags of the source AMI (not `aws:*`), and always `ax:managed=ami` and `ax:template=<templateVersion>`, at the copy and
+again with CreateTags once the copy is available (it waits up to 90 minutes). When the region has an AMI with
+`ax:template=<templateVersion>` already, the script uses that one and copies nothing. A copy asks for confirmation
+unless `--yes`.
+
+Before it writes, the script checks every region read-only, as hostd `installTemplate` does: the AMI is ours (owner
+self), `available`, `x86_64`, ENA on, `ax:template=<templateVersion>`, `ax:managed=ami`, and its root snapshot is the
+expected one. It also checks the snapshot: `completed`, encrypted, `ax:managed=ami`. hostd does not check the snapshot
+tag at install, but its IAM policy lets RunInstances and CreateVolume use only a snapshot with that tag, so a missing
+tag would fail later, at the first team launch in that region. Any failure: no file is written. `--dry-run` prints the
+aws commands and calls none. One v2 file per template version: the script stops when it exists.
+
+Then, as for v1: upload `teamax-<templateVersion>.v2.ami.json`, and install it on the host with its URL, the value in
+`.v2.ami.json.sha256` and the contents of `.v2.ami.json.sig`.
+
+Local test without AWS: `bun test tests/unit/image-ami-manifest-v2.test.ts` (stub `aws` on PATH, a throwaway Ed25519
+key; the signature is checked with the algorithm of hostd `verifyText`).

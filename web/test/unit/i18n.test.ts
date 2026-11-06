@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_LOCALE } from '@mycel/shared/api'
 import { localizeStep, PRODUCT } from '@mycel/shared'
-import { browserLocale, DICTS, format, LOCALES, pickLocale, placeholdersOf, translate } from '../../src/i18n'
+import { browserLocale, DICTS, format, koRo, LOCALES, pickLocale, placeholdersOf, translate } from '../../src/i18n'
 import { ko } from '../../src/i18n/ko'
 
 const placeholders = (s: string) => placeholdersOf(s)
@@ -166,12 +166,29 @@ describe('translations', () => {
       expect({ f, korean: HANGUL.test(text), lang: /<html lang="(?!en")/.test(text) }).toEqual({ f, korean: false, lang: false })
     }
   })
+  test('Korean "(으)로" after a value follows how it is read: v1로, v3으로, 마케팅으로, 서울로; Latin keeps (으)로', () => {
+    expect(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(koRo)).toEqual(['으로', '로', '로', '으로', '로', '로', '으로', '로', '로', '로'])
+    expect(translate('ko', 'files.restoreTitle', { version: 1 })).toBe('v1로 되돌릴까요?')
+    expect(translate('ko', 'files.restored', { version: 3 })).toBe('v3으로 되돌렸어요.')
+    expect(translate('ko', 'files.restored', { version: 10 })).toBe('v10으로 되돌렸어요.')
+    expect(translate('ko', 'files.moved', { path: 'shared/마케팅' })).toBe('shared/마케팅으로 옮겼어요.')
+    expect(translate('ko', 'files.moved', { path: 'shared/서울' })).toBe('shared/서울로 옮겼어요.')
+    expect(translate('ko', 'files.moved', { path: 'shared/자료' })).toBe('shared/자료로 옮겼어요.')
+    expect(translate('ko', 'files.moved', { path: 'marketing/archive' })).toBe('marketing/archive(으)로 옮겼어요.')
+    // other languages have no such marker; a value left unfilled stays as written
+    expect(translate('en', 'files.restored', { version: 1 })).toBe('Restored v1.')
+    expect(format('{x}(으)로', {}, 'ko')).toBe('{x}(으)로')
+  })
   test('no Korean screen text outside the Korean dictionary (comments aside)', () => {
     const src = path.resolve(import.meta.dir, '../../src')
     // the one place that must recognise a Korean file name: conflict copies made by a Korean team ("충돌 사본")
     // and the Korean object and topic particles after a skill's name (을 / 를, 은 / 는: grammar, not text;
-    // lib/teamGoal.ts objectParticle, topicParticle)
-    const allowed: Record<string, RegExp> = { 'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/, 'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/ }
+    // lib/teamGoal.ts objectParticle, topicParticle), and "(으)로" after a filled-in value (i18n/index.ts koRo)
+    const allowed: Record<string, RegExp> = {
+      'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/,
+      'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/,
+      'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로][^\uAC00-\uD7A3]*)+$/,
+    }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {
       const lines = stripComments(fs.readFileSync(path.join(src, f), 'utf8')).split('\n')

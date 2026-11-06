@@ -15,6 +15,7 @@ import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './
 import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, usageScores } from './skill-list'
 import { addSources, sourceOf } from './read-scope'
+import { authorize } from '../policy/authorize'
 import type { Principal } from '../policy/access'
 import { tr } from './i18n'
 import type { TurnExec } from './turn'
@@ -31,6 +32,8 @@ import { recordSent } from '../tools/connection-urls'
 import { boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
+import { ROOM_TOOLS } from '../rooms/ai-tools'
+import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 
 interface Tool {
   name: string
@@ -72,7 +75,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
+    // a team skill draft (onboarding/skill-draft.ts): no tool at all besides the refused file tools
+    if (exec.skillDraft) return false
     if(confidential && !localTool(t.name)) return false
+    // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
+    if (exec.room && !ROOM_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     return true
@@ -103,7 +110,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const prompt: string[] = []
   const context: string[] = []
   const labels = new Map<string, (args: unknown, locale: Locale) => string>()
-  for (const p of confidential || exec.profileDraft ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
+  // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
+  for (const p of confidential || exec.restricted || exec.room ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
@@ -121,6 +129,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     async call(name, args, caller) {
       const files = caller?.files ?? exec.files
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
+      if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
       const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
       if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
@@ -132,6 +141,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       }
       const t = tools.get(name)!
       exec.noteTaint(name, args)
+      exec.noteRoomTool(name, args)
+      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
+      const roomNo = await exec.confirmRoomChange(name, args)
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (room)` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -157,21 +170,36 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwp -> not allowed by the user (wider audience)' }
       }
       const out = await t.call(args, files)
+      // a room session: a link share_file made says the path exists; the path as the server resolved it (actual case and
+      // Unicode form) counts like a name read (turn.ts noteReads), besides the path as given (noteRoomTool)
+      if (exec.room && name === 'share_file' && !out.isError) {
+        const p = (args as { path?: unknown } | null)?.path
+        try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
+      }
       exec.afterTool()
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts)
       return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
     },
     afterFileTool: (name, isError, args) => {
-      exec.noteTaint(name, args); exec.noteReads(); exec.afterTool()
+      exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
     },
+    // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
+    beforeBatch: async (name, args) => {
+      const no = await exec.confirmRoomChange(name, args)
+      return no ? { refusal: no, summary: `${name} -> not allowed by the user (room)` } : null
+    },
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
+      if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
       recordSent(exec.rt.db, exec.spec.chatId, args)
+      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
+      const roomNo = await exec.confirmRoomChange(name, args)
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (room)` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
@@ -203,7 +231,7 @@ export function turnPerson(exec: TurnExec): TurnPerson {
     *turnUrls() { for (const s of exec.steps) for (const src of s.sources ?? []) yield src.url },
     // waitForPerson answers "no answer" at once in a scheduled run; tools say why instead of "declined". A company
     // profile draft raises no card either: its screen shows none, so only the typed address and links of its pages open
-    unattended: exec.spec.clientKind === 'schedule' || !!exec.profileDraft,
+    unattended: exec.spec.clientKind === 'schedule' || exec.restricted,
     ...(exec.profileDraft ? { unattendedLabel: 'company profile draft answer', scope: (url: string) => draftUrlRefusal(exec.profileDraft!.scope, url), ...(exec.profileDraft.pages ? { pages: exec.profileDraft.pages } : {}) } : {}),
   }
 }
@@ -251,14 +279,19 @@ function skillTools(exec: TurnExec): Tool[] {
         const user = person()
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'skill -> denied: account disabled' }
         const skills = listSkills(rt.files, user)
-        const hit = resolveSkill(skills, a.data.name)
+        // in a room the names it offers back are only of skills everyone there may read (they may reach the room), and
+        // the answer is as if the others did not exist; a skill named exactly that only the person may read still loads
+        // (its folder then joins the read scope), but never one of several of the same name
+        const shown = exec.roomReadable ? skills.filter((s) => exec.roomReadable!(s.path)) : skills
+        let hit = resolveSkill(shown, a.data.name)
+        if (!hit && exec.roomReadable) { const any = resolveSkill(skills, a.data.name); if (any && !('ambiguous' in any)) hit = any }
         if (hit && 'ambiguous' in hit) {
           return { ...text(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.name))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call skill again with the path of the one you mean.`, true), summary: `skill -> ambiguous (${hit.ambiguous.length})` }
         }
         // read again through the file checks (the same answer for a missing file and one the person cannot read)
         const skill = hit ? readSkill(rt.files, user, hit.skill.path) : null
         if (!skill) {
-          const near = matchSkills(skills, a.data.name, { limit: 5 }).map((m) => `"${neutralizeTags(clipName(m.skill.name, 64))}"`)
+          const near = matchSkills(shown, a.data.name, { limit: 5 }).map((m) => `"${neutralizeTags(clipName(m.skill.name, 64))}"`)
           return {
             ...text(`No skill called "${neutralizeTags(clipName(a.data.name))}" that this user can use.${near.length ? ` Similar: ${near.join(', ')}.` : ''} Use a name from the skill list in your instructions, or look with find_skills.`, true),
             summary: 'skill -> not found',
@@ -280,7 +313,8 @@ function skillTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const user = person()
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'find_skills -> denied: account disabled' }
-        const skills = listSkills(rt.files, user)
+        // in a room only the skills everyone there may read (their names and descriptions may reach the room)
+        const skills = listSkills(rt.files, user).filter((s) => !exec.roomReadable || exec.roomReadable(s.path))
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores, projectFolder: exec.projectFolder })
         const q = neutralizeTags(clipName(a.data.query, 80))
