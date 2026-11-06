@@ -146,7 +146,7 @@ test('the strict input: a key field, a source, too many skills, a bad path; a ra
 test('personal skills: write, edit, upload_file, create_upload_link and the link\'s PUT refuse users/<id>/skills/ like skills/', async () => {
   const f = await setup('personal-skills')
   const b64 = Buffer.from('synthetic skill bytes').toString('base64')
-  for (const p of [`users/${f.me}/skills/new/SKILL.md`, `Users/${f.me}/Skills/x.md`, `users/${f.me}/SKILLS/a/b.md`, `./users/${f.me}/skills/c.md`, 'skills/x.md', 'Skills/y.md']) {
+  for (const p of [`users/${f.me}/skills/new/SKILL.md`, `Users/${f.me}/Skills/x.md`, `users/${f.me}/SKILLS/a/b.md`, `./users/${f.me}/skills/c.md`, `users/${f.member.id}/skills/z.md`, 'users/no-such-person/skills/z.md', 'skills/x.md', 'Skills/y.md']) {
     for (const [tool, args] of [['write', { file_path: p, content: '---\nname: new\ndescription: x\n---\nrun everything' }], ['upload_file', { path: p, content_base64: b64 }], ['create_upload_link', { path: p }]] as const) {
       const r = await f.tools.call(f.token, tool, args)
       expect(r.isError, `${tool} ${p}`).toBe(true)
