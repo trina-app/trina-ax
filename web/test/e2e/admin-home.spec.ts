@@ -10,7 +10,7 @@ const t = DICTS.en
 
 const MENU: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
-  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins']],
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
@@ -48,7 +48,7 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   const attention = page.getByTestId('admin-attention')
   await expect(attention.getByRole('link')).toHaveText([`Codex: ${t['engines.status.not_logged_in']}`, `Notion: ${t['integrations.status.needs_auth']}`, 'Storage 82% used'])
   await expect(attention.getByRole('link', { name: /^Codex/ })).toHaveAttribute('href', '/admin/providers')
-  await expect(attention.getByRole('link', { name: /^Notion/ })).toHaveAttribute('href', '/admin/integrations')
+  await expect(attention.getByRole('link', { name: /^Notion/ })).toHaveAttribute('href', '/admin/connectors')
 
   // the areas: each card says its state in a line and opens its page
   await expect(page.getByTestId('admin-home-members')).toContainText(/\d+ members/)

@@ -6,7 +6,7 @@
 import clsx from 'clsx'
 import { ArrowLeft, Search, X } from 'lucide-react'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
-import { Navigate, NavLink, useNavigate, useParams } from 'react-router-dom'
+import { Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, API } from '../../lib/api'
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
@@ -26,6 +26,7 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
   const t = useT()
   const { tab } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
   // focus goes back to what opened the dialog; a menu's item is gone by then, so the menu's button
@@ -50,8 +51,9 @@ export default function SettingsDialog({ onClose }: { onClose: () => void }) {
   const groups = SETTINGS_GROUPS.map((g) => shown.filter((x) => x.group === g)).filter((g) => g.length)
   const waiting = tab === 'providers' && own === null
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app: the profile instead
-  // Google Drive was a section of its own: it is in App connectors now, with its dialog open
+  // Google Drive and MCP were sections of their own: both are Connectors now (Drive's page open for a Drive link)
   if (tab === 'drive') return <Navigate to="/settings/connectors?drive=1" replace />
+  if (tab === 'integrations') return <Navigate to={`/settings/connectors${location.search}`} replace />
   // AI connections are now AI providers (the same accounts, by provider)
   if (tab === 'credentials') return <Navigate to="/settings/providers" replace />
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />

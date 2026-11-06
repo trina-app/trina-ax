@@ -9,7 +9,7 @@
 // (AdminPageHeader says so). Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
 import clsx from 'clsx'
-import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, Plug, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
@@ -22,7 +22,6 @@ const Groups = lazy(() => import('./Groups'))
 const Folders = lazy(() => import('./Folders'))
 const Engines = lazy(() => import('./Engines'))
 const Integrations = lazy(() => import('./Integrations'))
-const AppConnectors = lazy(() => import('./AppConnectors'))
 const AiApps = lazy(() => import('./AiApps'))
 const Plugins = lazy(() => import('./Plugins'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
@@ -47,8 +46,7 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
     label: 'admin.group.connections',
     items: [
       { id: 'providers', label: 'admin.providers', icon: Cpu },
-      { id: 'integrations', label: 'admin.integrations', icon: Cable },
-      { id: 'app-connectors', label: 'connectors.title', icon: Plug },
+      { id: 'connectors', label: 'admin.integrations', icon: Cable },
       { id: 'ai-apps', label: 'aiApps.title', icon: Bot },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
     ],
@@ -88,6 +86,9 @@ export default function AdminLayout() {
   // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
   if (section === 'engines') return <Navigate to={`/admin/providers${search}`} replace />
   if (section === 'credentials') return <Navigate to="/admin/providers?engine=claude-code" replace />
+  // MCP and App connectors are one page now, Connectors (App connectors' old address opens it at Google Drive)
+  if (section === 'integrations') return <Navigate to={`/admin/connectors${search}`} replace />
+  if (section === 'app-connectors') return <Navigate to="/admin/connectors?drive=1" replace />
   const menu = MENU.map((g) => ({ ...g, items: g.items.filter((s) => !s.ownerOnly || isOwner(me)) })).filter((g) => g.items.length)
   if (!menu.some((g) => g.items.some((s) => s.id === section))) return <Navigate to="/admin" replace />
   return (
@@ -130,8 +131,7 @@ export default function AdminLayout() {
             {section === 'groups' && <Groups />}
             {section === 'folders' && <Folders />}
             {section === 'providers' && <Engines />}
-            {section === 'integrations' && <Integrations />}
-            {section === 'app-connectors' && <AppConnectors />}
+            {section === 'connectors' && <Integrations />}
             {section === 'ai-apps' && <AiApps />}
             {section === 'plugins' && <Plugins />}
             {section === 'usage' && <Usage />}

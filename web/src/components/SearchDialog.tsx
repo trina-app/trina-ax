@@ -185,7 +185,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     }
   }
   const mcpRow = (i: Integration, attention?: string): Row => ({
-    key: `mcp:${i.id}`, kind: 'mcp', icon: Cable, title: i.name, href: '/settings/integrations', match: true,
+    key: `mcp:${i.id}`, kind: 'mcp', icon: Cable, title: i.name, href: '/settings/connectors', match: true,
     sub: attention ?? (i.scope === 'team' ? t('search.team') : undefined), attention: !!attention,
   })
   const fileNameRow = (f: FileEntry): Row => ({
@@ -201,7 +201,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
       { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]
     const m = ok(mcp)
-    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: '/settings/integrations?add=1' })
+    if (m?.personalAllowed) list.push({ key: 'act:mcp', kind: 'action', icon: Plus, title: t('search.addMcp'), href: '/settings/connectors?add=1' })
     list.push({ key: 'act:files', kind: 'action', icon: FolderOpen, title: t('search.openFiles'), href: '/files' })
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = ok(unread) ?? 0

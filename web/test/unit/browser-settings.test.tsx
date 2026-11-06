@@ -45,12 +45,12 @@ afterEach(() => {
 describe('where Settings > Browser shows', () => {
   test('a normal browser or the PWA: no Browser tab (the value lives in the desktop app)', () => {
     expect(browserSettingsBridge()).toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'usage', 'memory', 'integrations', 'connectors', 'ai-apps', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'usage', 'memory', 'connectors', 'ai-apps', 'notifications', 'apps', 'about'])
   })
   test('inside the desktop app: the Browser tab, after Security', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(true)
     expect(browserSettingsBridge()).not.toBeNull()
-    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'integrations', 'connectors', 'ai-apps', 'notifications', 'apps', 'about'])
+    expect(settingsTabs(Boolean(browserSettingsBridge())).map((x) => x.id)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'connectors', 'ai-apps', 'notifications', 'apps', 'about'])
   })
   test('a desktop app from before this addition (no browserSettings): no tab', () => {
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = fakeBridge(false)
@@ -58,14 +58,14 @@ describe('where Settings > Browser shows', () => {
     expect(settingsTabs(false).some((x) => x.id === 'browser')).toBe(false)
   })
   test('Providers lead the Connections group, after Account ends with what the AI remembers, with or without the Browser tab', () => {
-    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 7)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'providers', 'integrations'])
-    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'usage', 'memory', 'providers', 'integrations'])
+    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 7)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'providers', 'connectors'])
+    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'usage', 'memory', 'providers', 'connectors'])
   })
   test('the groups: Account, Connections, App (no AI group), each section in one of them', () => {
     const by = (g: string) => settingsTabs(true, true).filter((x) => x.group === g).map((x) => x.id)
     expect(by('account')).toEqual(['profile', 'security', 'browser', 'usage', 'memory'])
     expect(by('ai')).toEqual([])
-    expect(by('connections')).toEqual(['providers', 'integrations', 'connectors', 'ai-apps'])
+    expect(by('connections')).toEqual(['providers', 'connectors', 'ai-apps'])
     expect(by('app')).toEqual(['notifications', 'apps', 'about'])
   })
 })

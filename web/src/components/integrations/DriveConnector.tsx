@@ -1,11 +1,12 @@
-// Google Drive as an app connector: one card in the App connectors grid (lib/connectors.ts APP_CONNECTORS).
-//  - Settings › App connectors (DriveCard): Connect goes straight to Google sign-in (the same flow as before,
-//    components/settings/DriveConnection.tsx). Google sends the person back and the card asks to confirm the account
-//    they signed in with: that confirmation is a security step (the server holds the connection until the same person
-//    confirms it, docs/GOOGLE-DRIVE.md), so it stays, inside the card. Once linked: the account, "Connected" and a ⋯ menu
-//    with Reconnect and Disconnect. No Google client on this server: "Not available yet".
-//  - Admin › App connectors (DriveAdminCard): On / Not set up, how many members are connected, and Set up (or Replace) when
-//    the page may set the client up (integrations/google-drive/admin-setup.ts), in a small dialog (DriveSetupDialog).
+// Google Drive in Connectors, Trina's own connector next to the MCP services (lib/connectors.ts APP_CONNECTORS).
+//  - Settings › Connectors: a card first in Discover; its + (or Connect on its page, DriveDetail) goes straight to Google
+//    sign-in (components/settings/DriveConnection.tsx). Back from Google, one inline line asks to confirm the account:
+//    a security step (the server holds the connection until the same person confirms it, docs/GOOGLE-DRIVE.md). Once
+//    linked it is a row in Yours (DriveCard): the account, "Connected" and ⋯ with Reconnect and Disconnect. No Google
+//    client on this server yet: "Your admin needs to turn this on".
+//  - Admin › Connectors: its page (DriveAdminDetail) says on / not set up and how many members are connected, with the
+//    one-time setup (or Replace) in a small dialog (DriveSetupDialog) when this page may do it
+//    (integrations/google-drive/admin-setup.ts). True zero setup needs a Google sign-in Trina itself runs: there is none.
 import { Check, Copy, Upload } from 'lucide-react'
 import { useRef, useState, type ChangeEvent } from 'react'
 import { API, type DriveAdminStatus, type DriveConnection } from '@mycel/shared/api'
@@ -15,7 +16,7 @@ import { mobileApp, openExternal } from '../../lib/mobile'
 import { useT } from '../../i18n'
 import { Badge, Button, Field, inputCls, Modal, useCopy } from '../ui'
 import type { DriveConnectionState } from '../settings/DriveConnection'
-import { LogoTile } from './ConnectorsView'
+import { ConnectorDetail, LogoTile } from './ConnectorsView'
 import { AppConnectorCard, CardMenu } from './AppConnectorCard'
 
 const DRIVE = APP_CONNECTORS[0]
@@ -27,8 +28,11 @@ export function DriveLogo({ className }: { className?: string }) {
   return <LogoTile src={appConnectorLogo(DRIVE)} className={className} />
 }
 
-/** The person's own Google Drive: Connect, the Google step inside the card, then the account with ⋯. */
-export function DriveCard({ s }: { s: DriveConnectionState }) {
+/** What Google Drive shows for one person, wherever it is (the row in Connectors › Yours, its page): the line under the
+ * name, the action on the right, and the steps while Google is open. Connect goes straight to Google; back from it, one
+ * inline line asks to confirm the account (a security step: the server holds the link until the same person confirms
+ * it, so a Google sign-in started by someone else can never land in this person's Drive connection). */
+export function useDriveParts(s: DriveConnectionState) {
   const t = useT()
   const c = s.connection
   const { d } = s
@@ -39,7 +43,7 @@ export function DriveCard({ s }: { s: DriveConnectionState }) {
 
   let line: string = t('drive.cardDesc')
   if (!c && s.loadFailed) line = t('drive.loadFailed')
-  else if (unavailable) line = t('drive.notAvailable')
+  else if (unavailable) line = t('connectors.adminNeeded')
   else if (reconnect) line = t('drive.status.needs_reconnect')
   else if (linked && c?.account) line = c.account.email ?? c.account.name ?? t('drive.status.connected')
 
@@ -61,9 +65,8 @@ export function DriveCard({ s }: { s: DriveConnectionState }) {
             </>
           : <Button size="sm" variant="primary" busy={d.busy} onClick={s.start} data-testid="drive-connect">{t('aiApps.connect')}</Button>
 
-  return (
-    <AppConnectorCard testId="drive-card" state={!c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : c.status}
-      logo={<DriveLogo className="size-10" />} name={DRIVE.name} line={line} lineTone={reconnect ? 'warn' : 'muted'} action={action}>
+  const steps = (
+    <>
       {flow && flow.state !== 'ready' && (
         <div className="flex flex-wrap items-center gap-2 text-sm" role="status" data-testid="drive-waiting">
           <span className="text-muted">{t('drive.waitingShort')}</span>
@@ -77,37 +80,62 @@ export function DriveCard({ s }: { s: DriveConnectionState }) {
         </div>
       )}
       {flow?.state === 'ready' && (
-        <div className="space-y-2" data-testid="drive-confirm-step">
-          <p className="text-sm" role="status">{t('drive.confirmAccount')} <span className="font-medium" data-testid="drive-account">{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></p>
-          <p className="text-xs text-faint">{t('drive.privacyShort')}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant="primary" busy={d.busy} onClick={d.complete} data-testid="drive-confirm">{t('drive.confirm')}</Button>
-            <Button size="sm" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
-          </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="drive-confirm-step">
+          <span role="status" className="min-w-0 flex-1">{t('drive.confirmAccount')} <span className="font-medium" data-testid="drive-account">{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></span>
+          <Button size="sm" variant="primary" busy={d.busy} onClick={d.complete} data-testid="drive-confirm">{t('drive.confirm')}</Button>
+          <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
         </div>
       )}
       {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid="drive-error">{t('drive.failed')}</p>}
       {s.revokeWarning && <p className="text-xs text-muted" role="status" data-testid="drive-revoke-warning">{t('drive.revokeWarning')}</p>}
+    </>
+  )
+  const state = !c ? 'loading' : unavailable ? 'disabled' : flow ? `flow-${flow.state}` : c.status
+  return { line, action, steps, state, linked, reconnect, unavailable, busy: !!flow }
+}
+
+/** The person's own Google Drive as one row (Connectors › Yours): the account, Connected and ⋯. */
+export function DriveCard({ s }: { s: DriveConnectionState }) {
+  const p = useDriveParts(s)
+  return (
+    <AppConnectorCard testId="drive-card" state={p.state} logo={<DriveLogo className="size-10" />} name={DRIVE.name} line={p.line} lineTone={p.reconnect ? 'warn' : 'muted'} action={p.action}>
+      {p.steps}
     </AppConnectorCard>
   )
 }
 
-/** Admin › App connectors: is Drive on, how many members use it, and Set up / Replace where this page may do it. */
-export function DriveAdminCard({ status, onSetUp }: { status: DriveAdminStatus; onSetUp: () => void }) {
+/** The tools the AI gets from Google Drive here (server/src/tools/drive.ts): read only. */
+export const DRIVE_TOOLS = ['drive_search', 'drive_list', 'drive_read']
+
+/** Google Drive's page in Connectors (a member's): Connect goes straight to Google. */
+export function DriveDetail({ s, onBack }: { s: DriveConnectionState; onBack: () => void }) {
+  const t = useT()
+  const p = useDriveParts(s)
+  return (
+    <ConnectorDetail testId="drive-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={p.line} official action={p.action}
+      description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
+      {p.steps}
+    </ConnectorDetail>
+  )
+}
+
+/** Google Drive's page in Admin › Connectors: on or not, how many members use it, and the one-time setup. */
+export function DriveAdminDetail({ status, onSetUp, onBack }: { status: DriveAdminStatus; onSetUp: () => void; onBack: () => void }) {
   const t = useT()
   const line = status.configured
     ? t('appConnectors.connectedMembers', { count: status.connectedMembers })
     : status.blocked === 'hosted' ? t('appConnectors.blocked.hosted')
       : status.blocked === 'public_host' ? t('appConnectors.blocked.publicHost')
-        : t('appConnectors.notSetUpLine')
+        : t('connectors.setUpOnceLine')
   return (
-    <AppConnectorCard testId="admin-drive" state={status.configured ? 'on' : 'off'} logo={<DriveLogo className="size-10" />} name={DRIVE.name} line={line}
+    <ConnectorDetail testId="drive-admin-detail" logo={appConnectorLogo(DRIVE)} name={DRIVE.name} line={line} official
       action={<>
         <Badge tone={status.configured ? 'ok' : 'neutral'} className="shrink-0">{t(status.configured ? 'appConnectors.on' : 'appConnectors.notSetUp')}</Badge>
-        {status.canSetUp && <Button size="sm" variant={status.configured ? 'secondary' : 'primary'} onClick={onSetUp} data-testid="drive-setup">{t(status.configured ? 'appConnectors.replace' : 'appConnectors.setUpAction')}</Button>}
-      </>}>
+        {status.canSetUp && <Button variant={status.configured ? 'secondary' : 'primary'} onClick={onSetUp} data-testid="drive-setup">{t(status.configured ? 'appConnectors.replace' : 'connectors.setUpOnce')}</Button>}
+      </>}
+      description={t('connectors.drive.about')} tools={DRIVE_TOOLS} onBack={onBack}>
       {status.configured && status.source === 'server' && <p className="text-xs text-faint" data-testid="drive-by-server">{t('appConnectors.byServer')}</p>}
-    </AppConnectorCard>
+    </ConnectorDetail>
   )
 }
 
