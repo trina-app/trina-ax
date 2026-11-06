@@ -27,15 +27,21 @@ export function registerKnowledgeGraphRoutes(kit: RouteKit, ctx: AppContext) {
       k.setEnabled(body.enabled)
       audit(ctx.db, { actor: auth.user.id, action: body.enabled ? 'knowledge_graph.on' : 'knowledge_graph.off' })
     }
+    if (body.documents !== undefined && body.documents !== k.docsEnabled()) {
+      k.setDocsEnabled(body.documents)
+      audit(ctx.db, { actor: auth.user.id, action: body.documents ? 'knowledge_graph.documents_on' : 'knowledge_graph.documents_off' })
+    }
     return k.status()
   })
   kit.handle(API.rebuildKnowledgeGraph, ({ auth, body }) => {
     const k = kg()
-    if (!k.enabled()) fail('conflict', undefined, { params: { reason: 'off' } })
+    const code = k.enabled() && body.part !== 'documents', docs = k.docsEnabled() && body.part !== 'code'
+    if (!code && !docs) fail('conflict', undefined, { params: { reason: 'off' } })
     // one folder: one of the indexed folders outside personal folders, as the status lists them
-    if (body.path !== undefined && !k.status().roots.some((r) => r.path === body.path)) fail('not_found')
-    k.rebuild(body.path)
-    audit(ctx.db, { actor: auth.user.id, action: 'knowledge_graph.rebuild', target: body.path ?? null })
+    const s = k.status()
+    if (body.path !== undefined && !s.roots.some((r) => r.path === body.path) && !s.documents.folders.some((r) => r.path === body.path)) fail('not_found')
+    k.rebuild(body.path, body.part)
+    audit(ctx.db, { actor: auth.user.id, action: 'knowledge_graph.rebuild', target: body.path ?? null, detail: body.part ? { part: body.part } : null })
     return k.status()
   })
 }

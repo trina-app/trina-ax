@@ -1,7 +1,8 @@
-// Knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): a code map of the team folders that hold code,
-// made by CodeGraph (an optional tool installed on the server) and kept up to date when files change. The AI asks it
-// with knowledge_explore; every answer is filtered by the person's folder access. Admins turn it on or off, see what is
-// indexed and rebuild it. Owner: C (server/src/routes/knowledge-graph.ts).
+// Knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): the team folders' documents (a built-in text
+// index with links between documents, on every server) and their code (a code map made by CodeGraph, an optional tool
+// installed on the server), kept up to date when files change. The AI asks it with knowledge_explore; every answer is
+// filtered by the person's folder access. Admins turn each part on or off, see what is indexed and rebuild it.
+// Owner: C (server/src/routes/knowledge-graph.ts). The top-level fields are the code part; `documents` the documents.
 import { z } from 'zod'
 import { endpoint } from './endpoint'
 
@@ -22,6 +23,43 @@ export const KnowledgeGraphRoot = z.object({
 })
 export type KnowledgeGraphRoot = z.infer<typeof KnowledgeGraphRoot>
 
+/** One indexed folder's documents. */
+export const KnowledgeGraphDocFolder = z.object({
+  path: z.string(),
+  source: z.enum(['auto', 'added']),
+  /** pending · indexing · ready · error (the last run failed; what was indexed stays) · too_big (not indexed) */
+  status: KnowledgeGraphRootStatus,
+  documents: z.number().int().nonnegative(),
+  /** files of a supported type that could not be read (see `failed` for which) */
+  failed: z.number().int().nonnegative(),
+  lastUpdatedAt: z.string().nullable(),
+})
+export type KnowledgeGraphDocFolder = z.infer<typeof KnowledgeGraphDocFolder>
+
+/** A document that could not be indexed, and why: too_big · timeout · unreadable · unsupported · empty · error */
+export const KnowledgeGraphFailedDoc = z.object({ path: z.string(), reason: z.string().max(40) })
+export type KnowledgeGraphFailedDoc = z.infer<typeof KnowledgeGraphFailedDoc>
+
+export const KnowledgeGraphDocuments = z.object({
+  /** on (default) or off; needs nothing installed */
+  enabled: z.boolean(),
+  /** folders with documents, outside personal folders */
+  folders: z.array(KnowledgeGraphDocFolder),
+  /** personal folders only as a total: admins do not see what is in them */
+  personal: z.object({ folders: z.number().int().nonnegative(), documents: z.number().int().nonnegative(), failed: z.number().int().nonnegative() }),
+  /** documents indexed in the folders above (personal folders not counted) */
+  documents: z.number().int().nonnegative(),
+  /** the documents that failed, outside personal folders (at most 100; failedCount has them all) */
+  failed: z.array(KnowledgeGraphFailedDoc).max(100),
+  failedCount: z.number().int().nonnegative(),
+  lastUpdatedAt: z.string().nullable(),
+  /** bytes the document index uses in the server's data folder */
+  diskBytes: z.number().int().nonnegative(),
+  /** folders waiting for or in a run */
+  busy: z.number().int().nonnegative(),
+})
+export type KnowledgeGraphDocuments = z.infer<typeof KnowledgeGraphDocuments>
+
 export const KnowledgeGraphStatus = z.object({
   /** CodeGraph was found on this server (PATH, or knowledgeGraph.codegraph in server.json) */
   available: z.boolean(),
@@ -39,11 +77,16 @@ export const KnowledgeGraphStatus = z.object({
   diskBytes: z.number().int().nonnegative(),
   /** folders waiting for or in a run */
   busy: z.number().int().nonnegative(),
+  /** the documents part (built in, on every server) */
+  documents: KnowledgeGraphDocuments,
 })
 export type KnowledgeGraphStatus = z.infer<typeof KnowledgeGraphStatus>
 
 export const UpdateKnowledgeGraphBody = z.object({
+  /** the code part (needs CodeGraph) */
   enabled: z.boolean().optional(),
+  /** the documents part; off deletes the document index */
+  documents: z.boolean().optional(),
   /** the whole list of added folders (team paths of existing folders, outside users/) */
   added: z.array(z.string().min(1).max(500)).max(50).optional(),
 }).strict()
@@ -51,10 +94,12 @@ export const UpdateKnowledgeGraphBody = z.object({
 export const RebuildKnowledgeGraphBody = z.object({
   /** one indexed folder; absent: all of them */
   path: z.string().min(1).max(500).optional(),
+  /** only the code or only the documents; absent: both */
+  part: z.enum(['code', 'documents']).optional(),
 }).strict()
 
 export const KNOWLEDGE_GRAPH = {
-  knowledgeGraphStatus: endpoint({ method: 'GET', path: '/api/admin/knowledge-graph', auth: 'admin', owner: 'C', response: KnowledgeGraphStatus, summary: 'The knowledge graph: whether CodeGraph is here, on or off, the indexed folders with file and symbol counts, disk use.' }),
-  updateKnowledgeGraph: endpoint({ method: 'PATCH', path: '/api/admin/knowledge-graph', auth: 'admin', owner: 'C', body: UpdateKnowledgeGraphBody, response: KnowledgeGraphStatus, summary: 'Turn the knowledge graph on or off (off deletes the indexes) and set the added folders; audited.' }),
-  rebuildKnowledgeGraph: endpoint({ method: 'POST', path: '/api/admin/knowledge-graph/rebuild', auth: 'admin', owner: 'C', status: 202, body: RebuildKnowledgeGraphBody, response: KnowledgeGraphStatus, summary: 'Make the index of one folder or of all again from the files, in the background; audited.' }),
+  knowledgeGraphStatus: endpoint({ method: 'GET', path: '/api/admin/knowledge-graph', auth: 'admin', owner: 'C', response: KnowledgeGraphStatus, summary: 'The knowledge graph: documents (folders, counts, failed files, last update) and code (whether CodeGraph is here, folders with file and symbol counts), on or off, disk use.' }),
+  updateKnowledgeGraph: endpoint({ method: 'PATCH', path: '/api/admin/knowledge-graph', auth: 'admin', owner: 'C', body: UpdateKnowledgeGraphBody, response: KnowledgeGraphStatus, summary: 'Turn the code or documents part on or off (off deletes that index) and set the added folders; audited.' }),
+  rebuildKnowledgeGraph: endpoint({ method: 'POST', path: '/api/admin/knowledge-graph/rebuild', auth: 'admin', owner: 'C', status: 202, body: RebuildKnowledgeGraphBody, response: KnowledgeGraphStatus, summary: 'Make the index of one folder or of all (code, documents or both) again from the files, in the background; audited.' }),
 } as const

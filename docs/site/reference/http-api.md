@@ -524,9 +524,9 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/admin/knowledge-graph` | Admin | The knowledge graph: whether CodeGraph is here, on or off, the indexed folders with file and symbol counts, disk use. |
-| `PATCH` | `/api/admin/knowledge-graph` | Admin | Turn the knowledge graph on or off (off deletes the indexes) and set the added folders; audited. |
-| `POST` | `/api/admin/knowledge-graph/rebuild` | Admin | Make the index of one folder or of all again from the files, in the background; audited. |
+| `GET` | `/api/admin/knowledge-graph` | Admin | The knowledge graph: documents (folders, counts, failed files, last update) and code (whether CodeGraph is here, folders with file and symbol counts), on or off, disk use. |
+| `PATCH` | `/api/admin/knowledge-graph` | Admin | Turn the code or documents part on or off (off deletes that index) and set the added folders; audited. |
+| `POST` | `/api/admin/knowledge-graph/rebuild` | Admin | Make the index of one folder or of all (code, documents or both) again from the files, in the background; audited. |
 
 ## Bring my skills to the team (share proposals)
 
