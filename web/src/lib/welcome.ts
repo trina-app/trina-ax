@@ -87,7 +87,7 @@ export function stepsSeen(userId: string): boolean {
   if (seenHere.has(userId)) return true
   try { return sessionStorage.getItem(`${SEEN_KEY}:${userId}`) === '1' } catch { return false }
 }
-/** For tests: a new tab session. */
+/** A new tab session: on sign-out (lib/logout.ts), so the next sign-in brings an unfinished owner back; and in tests. */
 export const forgetStepsSeen = () => {
   seenHere.clear()
   try {
@@ -100,8 +100,11 @@ export const forgetStepsSeen = () => {
 /** A landing takes the owner to the steps while they were started, are neither finished nor hidden, and have a step to
  * open (resumeStep: with only a put-off invite left there is none, and the steps would send Home again). */
 export const resumesOnLanding = (p: WelcomeProgress | null) => showResume(p) && resumeStep(p) !== null
-/** Whether a location is a landing: the first entry of the tab (react-router's "default" key) or a sign-in's. */
-export const isLanding = (l: { key: string; state: unknown }) => l.key === 'default' || (l.state as { landing?: unknown } | null)?.landing === true
+/** Whether a location is a landing: the first entry of the tab (react-router's "default" key) on Home itself, or a
+ * sign-in's. A first entry that carries a question or a project (`/?prompt=…`, `/?project=…` from a link opened in a new
+ * tab) is not a landing: it is going somewhere, and the steps would lose it. */
+export const isLanding = (l: { key: string; state: unknown; search?: string }) =>
+  (l.key === 'default' && !l.search) || (l.state as { landing?: unknown } | null)?.landing === true
 
 /** The invite bar on the first-result chat: until the invite is done or put off. */
 export const showInviteBar = (p: WelcomeProgress | null, chatId: string) => !!p && p.resultChatId === chatId && p.steps.invite === null

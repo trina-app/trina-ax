@@ -34,7 +34,7 @@ import { InviteStep } from '../../src/components/onboarding/InviteStep'
 import { forgetPatched } from '../../src/components/onboarding/TeamLinkPanel'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import ProfileStep from '../../src/components/onboarding/ProfileStep'
-import { countedSteps, doneCount, forgetStepsSeen, inviteSkill, nextStep, prevStep, readNotesHint, resultSkill, resumeStep, resumesOnLanding, showInviteBar, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
+import { countedSteps, doneCount, forgetStepsSeen, inviteSkill, isLanding, nextStep, prevStep, readNotesHint, resultSkill, resumeStep, resumesOnLanding, showInviteBar, showResume, skillNameOf, stepsSeen, stepTotal, teamReach, wantsTeam } from '../../src/lib/welcome'
 import { rememberSetupSite, setupSite } from '../../src/lib/setupLink'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { chatActivity } from '../../src/store/live'
@@ -1313,5 +1313,18 @@ describe('the company profile step without AI (stream D, also in Admin › Team 
       expect(m.html()).not.toContain(`>${translate('ko', 'onboarding.profile.paste')}<`)
       expect(m.html()).toContain(translate('ko', 'onboarding.profile.answer'))
     } finally { await m.unmount() }
+  })
+})
+
+describe('a landing on Home (the steps take an unfinished owner back only from a real landing)', () => {
+  test('the first entry of a tab on Home is a landing; one carrying a question or a project is not', () => {
+    expect(isLanding({ key: 'default', state: null, search: '' })).toBe(true)
+    expect(isLanding({ key: 'default', state: null })).toBe(true)
+    expect(isLanding({ key: 'default', state: null, search: '?prompt=%EC%95%88%EB%85%95' })).toBe(false)
+    expect(isLanding({ key: 'default', state: null, search: '?project=abc' })).toBe(false)
+  })
+  test('a sign-in lands; an ordinary move inside the app does not', () => {
+    expect(isLanding({ key: 'k1', state: { landing: true }, search: '' })).toBe(true)
+    expect(isLanding({ key: 'k2', state: null, search: '' })).toBe(false)
   })
 })
