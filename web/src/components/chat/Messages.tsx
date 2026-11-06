@@ -3,7 +3,8 @@
 // file summary, end state (error / stopped / paused at the per-answer limit with "continue"), the note that a long
 // conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, regenerate, branch switch.
 // Like Claude: an answer is plain text in the column, with no picture beside it; its actions stay under the newest
-// answer and show on older ones when the pointer or focus is on them (always on touch screens, which have no hover).
+// answer and show on older ones when the pointer or focus is on them. A phone has no hover: there a message's row of
+// actions (copy, edit, retry, the branch switch) shows once the message is tapped, the newest answer's always.
 // A file sent with a message is a small card above the bubble: its name, its type and its size.
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
@@ -42,6 +43,9 @@ export { ENGINE_LABEL }
 
 /** a message's actions on a screen with a mouse: shown while the pointer or focus is on the message */
 const ON_HOVER = 'transition [@media(hover:hover)]:opacity-0 group-focus-within:opacity-100 group-hover:opacity-100'
+/** a message's actions on a phone (a touch screen under 768px) until the message is tapped: left out, not hidden
+ * under the finger (an unseen button would take the tap) */
+const UNTIL_TAP = 'max-md:pointer-coarse:hidden'
 
 /** "notes.txt" -> "TXT": the file's type on its card (none for a name without one) */
 const typeOf = (name: string) => {
@@ -208,8 +212,10 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
   const long = m.content.length > 1200 || m.content.split('\n').length > 18
   const [open, setOpen] = useState(!long)
   const run = useFormRun(m.content)
+  // phones: the actions show once the message is tapped
+  const [tapped, setTapped] = useState(false)
   return (
-    <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id}>
+    <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)}>
       {m.attachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
           {m.attachments.map((a) => (
@@ -289,7 +295,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
         </span>
       )}
       {!m.local && !editing && (
-        <div className={clsx('flex items-center gap-1', ON_HOVER)}>
+        <div className={clsx('flex items-center gap-1', ON_HOVER, !tapped && UNTIL_TAP)} data-testid="message-actions">
           <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
           <CopyButton text={m.content} />
           <IconButton
@@ -466,9 +472,11 @@ export function AssistantMessage({
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
+  // phones: an older answer's actions show once it is tapped
+  const [tapped, setTapped] = useState(false)
 
   return (
-    <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming}>
+    <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming} onClick={() => setTapped(true)}>
       <div className="min-w-0 text-reading">
         {switchedFrom && m.engine && (
           <div className="mb-3 flex items-center gap-2 text-xs text-faint">
@@ -546,7 +554,7 @@ export function AssistantMessage({
           </p>
         )}
         {!streaming && (
-          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER)} data-testid="answer-actions">
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER, !isLast && !tapped && UNTIL_TAP)} data-testid="answer-actions">
             {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
             {/* the newest failed answer has "Try again" in its error box: one control for one action */}
             {!(m.status === 'error' && isLast) && (

@@ -167,14 +167,23 @@ test('a file sent with a message is a small card with its name, type and size', 
   await expect(card.locator('svg')).toHaveCount(0)
 })
 
-test('on a touch screen every answer shows its actions, and the chat fits a phone', async ({ browser }) => {
+test('on a phone the newest answer shows its actions, an older answer or my message after a tap, and the chat fits a phone', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, locale: 'ko-KR', baseURL: test.info().project.use.baseURL })
   const page = await ctx.newPage()
   await reset(page)
   await signIn(page)
   await chatWithTwoAnswers(page)
   expect(await page.evaluate(() => matchMedia('(hover: hover)').matches)).toBe(false)
-  await expect(page.getByTestId('assistant-message').first().getByTestId('answer-actions')).toHaveCSS('opacity', '1')
+  const answers = page.getByTestId('assistant-message')
+  await expect(answers.last().getByTestId('answer-actions')).toBeVisible()
+  // no hover on a phone: the rows of older messages are left out until the message is tapped
+  await expect(answers.first().getByTestId('answer-actions')).toBeHidden()
+  await expect(page.getByTestId('user-message').first().getByTestId('message-actions')).toBeHidden()
+  await answers.first().getByText('first question').tap()
+  await expect(answers.first().getByTestId('answer-actions')).toBeVisible()
+  await expect(answers.first().getByTestId('regenerate')).toBeVisible()
+  await page.getByTestId('user-text').first().tap()
+  await expect(page.getByTestId('user-message').first().getByTestId('edit-message')).toBeVisible()
   await expect(page.getByTestId('chat-menu')).toBeVisible()
   // on a phone the note under the message box is left out (the bottom is for the box and the keyboard); the chat's own
   // bar (back, title, new chat) is the only bar
