@@ -259,6 +259,16 @@ test('session markers: each room.message says the notice its recipient got, as t
   const r1 = await send(mia.client, team.id, 'a reply', { threadRootId: root.id })
   expect(marks(r1.id)[nora.id]).toBe('room.dm')
   expect(marks(r1.id)[otto.id]).toBeUndefined() // not in the room
+  // a team room at 모든 메시지 (the room's own level): every message is a notice, so a mark
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { notifyLevel: 'all' })
+  const t3 = await send(mia.client, team.id, 'every message now')
+  expect(marks(t3.id)[nora.id]).toBe('room.dm')
+  // quiet hours (all day but the minute 23:59–24:00, weekends whole): the notice is kept but never rings, so no mark
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  n.setPreferences(nora.id, { quietHours: { on: true, start: '00:00', end: '23:59', weekends: true } })
+  const t4 = await send(mia.client, team.id, '@NORA at night', { mentions: [nora.id] })
+  expect(marks(t4.id)[nora.id]).toBeNull()
 })
 
 test('notices: a DM or an @mention, one unread notice of each per room (pushed, never listed in the Inbox); muted rooms are quiet; reading clears them; no text', async () => {
