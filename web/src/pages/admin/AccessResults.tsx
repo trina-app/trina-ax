@@ -93,7 +93,7 @@ function Row({ f, role, names, onEdit, editCol, newPerson }: { f: PersonFolderAc
           </p>
         )}
       </div>
-      <LevelLabel level={level} className="hidden w-32 shrink-0 text-[13px] @lg/results:flex" />
+      <LevelLabel level={level} className="hidden w-32 shrink-0 text-label @lg/results:flex" />
       {canEdit ? (
         // one labelled icon per row (the folder is in its name), pulled up to the path's line
         <span className="-my-1 shrink-0 max-sm:-my-1.5">
@@ -410,7 +410,7 @@ export function NewPersonPreview({ role, groupIds, groups }: { role: MemberRole;
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((o) => !o)}
-        className="-mx-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-ink transition hover:bg-hover max-sm:min-h-10"
+        className="-mx-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-label font-medium text-ink transition hover:bg-hover max-sm:min-h-10"
         data-testid="new-person-preview-toggle"
       >
         <ChevronRight size={15} className={clsx('shrink-0 text-muted transition', open && 'rotate-90')} aria-hidden />

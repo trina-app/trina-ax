@@ -1,6 +1,6 @@
 // The chat store against a fake REST server (global fetch) and hand-made WebSocket events.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { CARD_NEWS_ARTIFACT_KEY, Chat, PROMO_ARTIFACT_KEY, uuidv7, type TurnStarted } from '@mycel/shared/api'
+import { CARD_NEWS_ARTIFACT_KEY, Chat, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type TurnStarted } from '@mycel/shared/api'
 import { typingOnPhone } from '../../src/lib/sidePanel'
 import { PENDING_EVENTS_MAX, SEND_RETRY_MS, useChats } from '../../src/store/chats'
 import { CHAT, msg } from './fixtures'
@@ -212,6 +212,16 @@ describe('events', () => {
     const saved = (version: number, seq: number) => h({ type: 'artifact.updated', seq, at: 0, data: { chatId: CHAT, messageId: null, key: PROMO_ARTIFACT_KEY, type: 'html', title: 'Acme 홍보 영상', status: 'done', artifact: { id: uuidv7(), chatId: CHAT, messageId: null, key: PROMO_ARTIFACT_KEY, version, type: 'html', title: 'Acme 홍보 영상', language: null, createdAt: '2026-11-05T00:00:00.000Z', size: 10 } } })
     saved(1, 1)
     expect(useChats.getState().autoOpen).toMatchObject({ chatId: CHAT, key: 'promo-video' })
+    useChats.setState({ autoOpen: null })
+    saved(2, 2)
+    expect(useChats.getState().autoOpen).toBeNull()
+  })
+
+  test('a saved intro deck (the welcome steps\' first result, docs/DECISIONS.md "D2") opens the panel by itself too, once', () => {
+    const h = useChats.getState().handleEvent
+    const saved = (version: number, seq: number) => h({ type: 'artifact.updated', seq, at: 0, data: { chatId: CHAT, messageId: null, key: DECK_ARTIFACT_KEY, type: 'html', title: 'Acme 회사 소개서', status: 'done', artifact: { id: uuidv7(), chatId: CHAT, messageId: null, key: DECK_ARTIFACT_KEY, version, type: 'html', title: 'Acme 회사 소개서', language: null, createdAt: '2026-11-06T00:00:00.000Z', size: 10 } } })
+    saved(1, 1)
+    expect(useChats.getState().autoOpen).toMatchObject({ chatId: CHAT, key: 'intro-deck' })
     useChats.setState({ autoOpen: null })
     saved(2, 2)
     expect(useChats.getState().autoOpen).toBeNull()

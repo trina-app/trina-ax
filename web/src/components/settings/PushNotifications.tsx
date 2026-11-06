@@ -4,9 +4,14 @@ import type { z } from 'zod'
 import type { PushSettings } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { disablePush, enablePush, pushRegistration, pushSupported } from '../../lib/push'
+import { askLater, mobilePushApp, phonePushView, refreshPhonePush, registerMobilePush, usePhonePush } from '../../lib/mobile-push'
+import { canOpenAppSettings, openAppSettings } from '../../lib/mobile'
 import { pushNeedsInstall } from '../../lib/pwa'
+import { useRealPath } from '../../lib/realPath'
 import { useT } from '../../i18n'
+import { isAdmin, useMe } from '../../store/session'
 import { notificationsChanged } from '../../store/live'
+import { hidesTabs } from '../BottomTabs'
 import { Button, ErrorNote } from '../ui'
 
 export function PushNotifications() {
@@ -18,6 +23,9 @@ export function PushNotifications() {
   const [deviceReady, setDeviceReady] = useState(false)
   const life = useRef(0), revision = useRef(0)
   const supported = pushSupported(), needsInstall = pushNeedsInstall()
+  // Inside the phone app: native push through the team's push gateway instead of Web Push.
+  const app = mobilePushApp(), me = useMe()
+  const phone = usePhonePush()
   const load = async () => {
     const generation = life.current, rev = ++revision.current
     try {
@@ -33,36 +41,94 @@ export function PushNotifications() {
   }
   useEffect(() => {
     life.current++; void load()
+    // the phone app: what the OS says now (it may have changed in the phone's Settings)
+    if (app) void refreshPhonePush().catch(() => {})
     const off = notificationsChanged.on(() => void load())
     return () => { life.current++; off() }
     // Capability and account are fixed for this mounted settings panel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  // the phone app registered or the OS answer changed (the question's button, back from the phone's Settings)
+  useEffect(() => { if (app && phone.registered) void load() }, [phone.registered]) // eslint-disable-line react-hooks/exhaustive-deps
   const change = async (enabled: boolean) => {
     if (busy || !settings) return
     const generation = life.current
     setBusy(true); setFailed(false); setDenied(false)
     try {
-      if (enabled) {
+      if (enabled && app) await registerMobilePush()
+      else if (enabled) {
         if (!registration || !settings.publicKey) return
         await enablePush(registration, settings.publicKey, settings.subscriptionId)
       } else await disablePush(registration)
       if (generation === life.current) await load()
-    } catch {
-      if (generation === life.current) { setFailed(true); setDenied(typeof Notification !== 'undefined' && Notification.permission === 'denied') }
+    } catch (error) {
+      // the phone app: a "no" from the OS is shown as the status line below, not as an error
+      if (generation === life.current && !(app && (error as Error)?.message === 'push_denied')) { setFailed(true); setDenied(!app && typeof Notification !== 'undefined' && Notification.permission === 'denied') }
     } finally { if (generation === life.current) setBusy(false) }
   }
-  return <section className="space-y-3 rounded-xl border border-line p-4" data-testid="push-notifications">
+  const view = phonePushView({ permission: phone.permission, on: !!(settings?.enabled && settings.native?.deviceId), canOpenSettings: canOpenAppSettings() })
+  // Phones: no frame inside the Settings card, and hints as large as the status line (they are read on a small screen).
+  return <section className="space-y-3 md:rounded-xl md:border md:border-line md:p-4" data-testid="push-notifications">
     <h3 className="text-sm font-semibold">{t('push.title')}</h3>
-    <p className="text-xs text-muted">{t('push.description')}</p>
-    {settings && !settings.configured && <p className="text-sm text-muted">{t('push.notConfigured')}</p>}
-    {settings?.configured && <>
+    {/* the description is about the browser's push service: the phone app's status line says what matters there */}
+    {!app && <p className="text-xs text-muted max-md:text-sm">{t('push.description')}</p>}
+    {/* the phone app: one status line and one action */}
+    {settings && app && (settings.native?.available ? <>
+      <p className="text-sm" data-testid="phone-push-status">{t(view.status)}</p>
+      {view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
+        : view.action === 'disable' ? <Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>
+          : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>}
+    </> : <p className="text-sm text-muted">{t('push.notConfigured')}</p>)}
+    {settings && !app && !settings.configured && <p className="text-sm text-muted">{t('push.notConfigured')}</p>}
+    {settings?.configured && !app && <>
       {needsInstall ? <p className="text-sm text-muted">{t('push.installIos')}{' '}<Link to="/settings/apps" className="text-accent-text underline">{t('push.installGuide')}</Link></p> : !supported ? <p className="text-sm text-muted">{t('push.unsupported')}</p> : <>
         <p className="text-sm">{t(settings.enabled && settings.subscriptionId && deviceReady ? 'push.on' : 'push.off')}</p>
         {(!settings.enabled || !settings.subscriptionId || !deviceReady) && <Button busy={busy} disabled={!registration} onClick={() => void change(true)}>{t('push.enable')}</Button>}
       </>}
       {settings.enabled && <Button className="ml-2" busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>}
     </>}
+    {settings?.native && me && isAdmin(me) && <p className="text-xs text-muted max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
     {failed && <ErrorNote>{t(denied ? 'push.denied' : 'push.failed')}</ErrorNote>}
   </section>
+}
+
+/** Signed in inside the phone app, when the OS has not been asked yet: the app's own question, above the tab bar (not
+ * inside a room or an AI chat, whose message box needs the bottom). Only [알림 켜기] shows the OS prompt; [나중에]
+ * puts it away (lib/mobile-push.ts askLater: a week, then for good after the second time). */
+export function PhonePushAsk() {
+  const t = useT()
+  const ask = usePhonePush((s) => s.ask)
+  const path = useRealPath()
+  const [busy, setBusy] = useState(false), [failed, setFailed] = useState(false)
+  if (!ask || hidesTabs(path)) return null
+  const turnOn = async () => {
+    setBusy(true); setFailed(false)
+    try { await registerMobilePush() }
+    catch (error) {
+      // a "no" in the OS prompt closes the question (Settings says so), and so does a build without push; a cancelled
+      // one (logout) says nothing
+      const code = (error as Error)?.message
+      if (code !== 'push_denied' && code !== 'push_unavailable' && !(error instanceof DOMException && error.name === 'AbortError')) setFailed(true)
+    } finally { setBusy(false) }
+  }
+  return <div role="region" aria-label={t('push.title')} className="mx-3 mb-2 shrink-0 rounded-xl border border-line bg-surface p-3 shadow-sm" data-testid="phone-push-ask">
+    <p className="text-sm font-medium">{t('push.ask')}</p>
+    {failed && <p className="mt-1 text-sm text-danger" role="alert">{t('push.failed')}</p>}
+    <div className="mt-2.5 flex justify-end gap-2">
+      <Button variant="ghost" onClick={() => askLater()} data-testid="phone-push-later">{t('push.later')}</Button>
+      <Button variant="primary" busy={busy} onClick={() => void turnOn()} data-testid="phone-push-on">{t('push.turnOn')}</Button>
+    </div>
+  </div>
+}
+
+/** The 나 tab's list, under 알림: when the phone's Settings turned this app's notifications off, says so with the way
+ * back there (only an app with push-permission-v1 can open it; an older one gets the words only). */
+export function PhonePushLine() {
+  const t = useT()
+  const denied = usePhonePush((s) => s.permission === 'denied')
+  if (!denied || !mobilePushApp()) return null
+  return <div className="flex items-center gap-2 px-3 pb-1 text-sm md:hidden" data-testid="phone-push-line">
+    <span className="min-w-0 flex-1 text-muted">{t('push.phoneOffShort')}</span>
+    {canOpenAppSettings() && <Button size="sm" onClick={() => void openAppSettings().catch(() => {})}>{t('push.openSettings')}</Button>}
+  </div>
 }

@@ -10,9 +10,15 @@
 // An answer that ran a team skill on team files (Message.receipt) says so in place of "작업 N단계": "팀 스킬 '할 일 정리'
 // · 팀 파일 2개" (docs/DECISIONS.md "M — One meeting note, everyone's own tasks"), the receipt of a shared skill on shared
 // files; it still opens the step list.
+// A dev environment command or job that waits in the team queue (Step.devEnvRun) shows "Waiting for the dev
+// environment… #2 in line" under its row, with the live place (lib/devEnvQueue.ts) and a Cancel button, until it
+// starts; a command that waited too long says the dev environment is full.
 import clsx from 'clsx'
-import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
+import { AudioLines, Brain, Check, ChevronDown, ChevronRight, CircleAlert, CirclePause, CircleStop, Clock, FileSearch, Film, Globe, Info, Loader2, MessageCircleQuestion, Monitor, Shapes, Workflow, Wrench } from 'lucide-react'
 import { useState } from 'react'
+import { api, API, errorText } from '../../lib/api'
+import { refreshQueue, useQueuePlace } from '../../lib/devEnvQueue'
+import { toast } from '../../store/ui'
 import { localizeStep, mediaStepKind, stepPlace } from '@mycel/shared'
 import type { Message, Step } from '@mycel/shared/api'
 import { useSkillTitle } from '../../lib/skillTitles'
@@ -36,6 +42,34 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
   return parts.join(' · ')
 }
 
+/** The waiting state of a dev environment run under its step (only the person of the chat sees the chat). */
+function QueueLine({ step }: { step: Step }) {
+  const t = useT()
+  const locale = useLocale()
+  const run = step.devEnvRun!
+  // a command's ticket goes with its call: once the step ended there is nothing to watch
+  const watching = run.state === 'waiting' && (run.kind === 'job' || step.status === 'running')
+  const place = useQueuePlace(watching ? run.id : null)
+  const [busy, setBusy] = useState(false)
+  if (run.state === 'expired') return <p className="ml-6 px-1 text-xs text-danger" data-testid="devenv-queue-full">{t('devEnvQueue.full')}</p>
+  if (run.state === 'cancelled') return <p className="ml-6 px-1 text-xs text-muted" data-testid="devenv-queue-cancelled">{t('devEnvQueue.cancelled')}</p>
+  if (!watching || place === 'gone') return null
+  const n = typeof place === 'number' ? place : run.position
+  const cancel = async () => {
+    setBusy(true)
+    try { await api.call(API.stopMyDevEnvRun, { params: { runId: run.id } }) } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) } finally { setBusy(false); refreshQueue() }
+  }
+  return (
+    <div className="ml-6 flex items-center gap-2 px-1 text-xs text-muted" data-testid="devenv-queue" role="status">
+      <Clock size={12} className="shrink-0 text-faint" aria-hidden />
+      <span className="min-w-0 flex-1">{n ? t('devEnvQueue.waiting', { n }) : t('devEnvQueue.waitingNoPlace')}</span>
+      <button type="button" disabled={busy} onClick={() => void cancel()} className="touch-hit shrink-0 rounded px-1.5 py-0.5 text-xs text-accent-text hover:bg-hover disabled:opacity-50" data-testid="devenv-queue-cancel">
+        {t('devEnvQueue.cancel')}
+      </button>
+    </div>
+  )
+}
+
 function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: Step[] }) {
   const t = useT()
   const locale = useLocale()
@@ -57,7 +91,7 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
   // while a sub-agent works, its latest step shows under its row (like Claude Code)
   const latest = subtask && running && !open ? kids[kids.length - 1] : undefined
   return (
-    <li className="text-[13px] text-muted" {...(subtask ? { 'data-testid': 'subtask', 'data-step-id': step.id } : {})}>
+    <li className="text-label text-muted" {...(subtask ? { 'data-testid': 'subtask', 'data-step-id': step.id } : {})}>
       <button type="button" disabled={!expandable} aria-expanded={expandable ? open : undefined} aria-label={subtask && expandable ? `${words.label}${cut ? ` · ${cut}` : ''} · ${t('steps.subtaskShow')}` : undefined}
         onClick={() => setOpen((v) => !v)} className={clsx('flex w-full items-center gap-2 rounded px-1 py-0.5 text-left', expandable && 'hover:bg-hover')}>
         {running ? <Loader2 size={13} className="shrink-0 animate-spin" aria-label={t('steps.running')} /> : step.tool === 'attachment' ? (
@@ -75,6 +109,7 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
         {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
         {expandable && (open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />)}
       </button>
+      {step.devEnvRun && <QueueLine step={step} />}
       {latest && (
         <ul className="ml-6 border-l border-line pl-3" data-testid="subtask-latest">
           <StepRow key={latest.id} step={latest} live={live} />
@@ -101,7 +136,7 @@ function StepRow({ step, live, kids = [] }: { step: Step; live: boolean; kids?: 
                   ) : (
                     <span className="text-xs text-muted">{s.title || s.url}</span>
                   )}
-                  <span className="ml-1.5 text-[11px] text-faint">{hostOf(s.url)}</span>
+                  <span className="ml-1.5 text-micro text-faint">{hostOf(s.url)}</span>
                 </li>
               ))}
             </ul>
@@ -149,7 +184,7 @@ export default function Steps({ steps: all, streaming, receipt }: { steps: Step[
   const skill = useSkillTitle(rec?.skill.path ?? null, rec?.skill.name ?? '')
   // a skill someone else made ("S"): "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개"
   const receiptText = rec ? (rec.skill.by ? t('steps.receiptBy', { by: rec.skill.by, skill, n: rec.teamFiles }) : t('steps.receipt', { skill, n: rec.teamFiles })) : null
-  if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-[13px] text-faint" data-testid="steps-receipt">{receiptText}</p> : null
+  if (!steps.length) return receiptText ? <p className="mb-3 px-1 text-label text-faint" data-testid="steps-receipt">{receiptText}</p> : null
   const { top, kids } = groupSteps(steps)
   // images the AI chose to show (shared browser screenshots) stay visible even when the list is folded
   const shown = steps.flatMap((s) => (s.kind === 'browser' ? s.images ?? [] : []))
@@ -166,7 +201,7 @@ export default function Steps({ steps: all, streaming, receipt }: { steps: Step[
   }
   return (
     <div className="mb-3" data-testid="steps">
-      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex items-center gap-1 rounded px-1 py-0.5 text-[13px] text-faint hover:bg-hover hover:text-ink">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="touch-hit flex items-center gap-1 rounded px-1 py-0.5 text-label text-faint hover:bg-hover hover:text-ink">
         {open ? <ChevronDown size={13} aria-hidden /> : <ChevronRight size={13} aria-hidden />}
         {receiptText ? <span data-testid="steps-receipt">{receiptText}</span> : t('steps.summary', { n: top.length })}
         {steps.some((s) => s.status === 'error' && !s.paused && !s.stopped) && <CircleAlert size={13} className="text-danger" aria-label={t('steps.someFailed')} data-testid="steps-failed" />}
@@ -179,6 +214,8 @@ export default function Steps({ steps: all, streaming, receipt }: { steps: Step[
           ))}
         </ul>
       )}
+      {/* a queued job outlives the answer: its place in line stays in view while the list is folded */}
+      {!open && steps.filter((s) => s.devEnvRun?.kind === 'job' && s.devEnvRun.state === 'waiting').map((s) => <QueueLine key={s.id} step={s} />)}
       {!open && shown.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-2">
           {shown.map((im) => (

@@ -13,6 +13,7 @@ import { badSegment, foldKey } from '../policy/names'
 import { msg } from '../auth/messages'
 import { audit } from './audit'
 import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath } from './folders'
+import { notifyTemplateOffers } from '../notifications/service'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -89,6 +90,8 @@ export function createGroupAs(ctx: AppContext, actorId: string, b: { name: strin
     audit(ctx.db, { actor: auth.user.id, action: 'group.create', target: id, detail: { name: b.name, folder: folder.path, memberIds } })
   })()
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  // templates for this group reach its members now (security review 2, #1)
+  notifyTemplateOffers(ctx)
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
@@ -110,7 +113,7 @@ export function updateGroup(c: Context<AppEnv>, ctx: AppContext, id: string, b: 
     }
     audit(ctx.db, { actor: auth.user.id, action: 'group.update', target: id, detail: { name: b.name, description: b.description, memberIds } })
   })()
-  if (memberIds) afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
+  if (memberIds) { afterAccessChange(ctx, before, { actor: auth.user.id, target: id }); notifyTemplateOffers(ctx) }
   return toGroup(ctx, ctx.db.query('SELECT id, name, description FROM groups WHERE id = ?').get(id) as GroupRow)
 }
 
@@ -124,6 +127,9 @@ export function deleteGroup(c: Context<AppEnv>, ctx: AppContext, id: string): vo
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query('DELETE FROM groups WHERE id = ?').run(id)
     ctx.db.query("DELETE FROM budgets WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    // team connections' and templates' rules: a group nobody can see any more would block every later change of them
+    ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
+    ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name } })
   })()
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })

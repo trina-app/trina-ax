@@ -58,6 +58,9 @@ test('own connector settings show the address and revoke the selected connection
   await page.route('**/api/connectors/remote', route => route.fulfill({ json: { configured: true, resource: consent.resource, items: revoked ? [] : [{ id: 'synthetic-grant', clientName: 'Synthetic Claude', scopes: consent.scopes, createdAt: '2026-01-01T00:00:00.000Z', expiresAt: consent.expiresAt, currentSession: true }] } }))
   await page.route('**/api/connectors/remote/synthetic-grant', route => { expect(route.request().method()).toBe('DELETE'); revoked = true; return route.fulfill({ status: 204 }) })
   await signIn(page)
+  // the team uses Slack (the mock's /api/slack/me): its line is in App connectors, under the app cards
+  await page.goto('/settings/connectors')
+  await expect(page.getByTestId('connector-connections').getByTestId('slack-account')).toContainText('Slack')
   await page.goto('/settings/ai-apps')
   const pane = page.getByTestId('ai-apps')
   await expect(pane).toContainText('https://team.example/mcp')

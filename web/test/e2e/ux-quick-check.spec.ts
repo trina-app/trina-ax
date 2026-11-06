@@ -33,8 +33,10 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   expect(card.x + card.width).toBeLessThanOrEqual(PHONE.width)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(PHONE.width)
   expect(await lines(bob.locator('p').first())).toBe(1)
-  // the owner (yourself) has no menu
-  await expect(page.getByTestId('member-card-olga').getByTestId('member-more')).toHaveCount(0)
+  // the owner (yourself): the "…" has only "Folders they see" (no actions on yourself)
+  await page.getByTestId('member-card-olga').getByTestId('member-more').click()
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['accessView.membersLink']])
+  await page.keyboard.press('Escape')
   // "…" opens the actions inside the screen; Reset password opens its dialog
   await bob.getByTestId('member-more').click()
   const menu = page.getByRole('menu')
@@ -42,7 +44,7 @@ test('Admin › Members on a phone: a card per member, the actions behind "…";
   const m = await box(menu)
   expect(m.x).toBeGreaterThanOrEqual(0)
   expect(m.x + m.width).toBeLessThanOrEqual(PHONE.width)
-  await expect(menu.getByRole('menuitem')).toHaveText([t['common.edit'], t['members.reset'], t['members.resetLinkButton'], t['members.disable'], t['common.delete']])
+  await expect(menu.getByRole('menuitem')).toHaveText([t['accessView.membersLink'], t['common.edit'], t['members.reset'], t['members.resetLinkButton'], t['members.disable'], t['common.delete']])
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
   await expect(bob.getByTestId('member-more')).toBeFocused()
@@ -83,7 +85,8 @@ test('Admin › MCP: the help line is under the title, before the list', async (
   const header = await box(page.getByTestId('connectors-header'))
   const n = await box(note)
   expect(n.y).toBeGreaterThanOrEqual(header.y + header.height - 1)
-  expect(n.y).toBeLessThan((await box(page.getByTestId('integration-request-add'))).y)
+  // nothing between the line and the list: no card for requests (asking a member is in Add connection's menu)
+  await expect(page.getByText(t['integrations.admin.desc'])).toHaveCount(1)
 })
 
 test('Admin › Plugins: a long licence list is "Licenses", the list in its tooltip and under the line when pressed', async ({ page }) => {

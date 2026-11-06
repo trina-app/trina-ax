@@ -4,7 +4,7 @@
 // resultSkill: the run the server recorded, the path the 7-day goal counts), never a copy: people who join land on its
 // form and their runs count with the owner's. The link is made in advance (InviteStep `prepare`: the message and one
 // "메시지 복사" at once), an open link that leads elsewhere is changed to that skill (same address), and no files go
-// with it: the pack's skills read the team's own folders (the promo video: the newest company intro in the brand
+// with it: the pack's skills read the team's own folders (the intro deck: the newest company intro in the brand
 // folder), and the link puts people in the team's group. Closing the bar asks the soft "most teams start with one or
 // two" first, as the invite step does. Only the owner sees it, and only until the invite is done or put off.
 // (Before, the bar drafted a team skill from the answer, "S": a near-copy of the pack's skill under another path, so a

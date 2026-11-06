@@ -15,7 +15,7 @@
 // and said when it is not there. By person opens a folder's panel here (`?edit=<path>&back=<its address>`): the folder
 // is chosen and its panel opened, and closing or saving that panel goes back to the person.
 import clsx from 'clsx'
-import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, Briefcase, Cable, ChevronRight, Folder as FolderIcon, FolderSearch, FolderTree, Info, Loader2, Lock, Plus, RotateCw, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, UserRound, UsersRound, type LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { AccessTreeNode, AccessTreeResponse, Folder, FolderAccessResponse, Group } from '@mycel/shared/api'
@@ -28,7 +28,8 @@ import { accessErrorText, LevelLabel } from './AccessResults'
 import { RemoveRulesButton, isSkillsFolder, useRemoveRules } from './Folders'
 import AccessEdit from './AccessEdit'
 import { useFolderPeople } from './SkillManagers'
-import { Card, useFocusAfterRemove, useLoad } from './common'
+import { useFocusAfterRemove, useLoad } from './common'
+import { InFolderHeader } from './folder-slots'
 
 /** One level as loaded so far: its children's paths in the server's order. */
 interface Level { children: string[]; total: number; nextCursor: string | null }
@@ -547,7 +548,7 @@ export default function AccessTree() {
     row.scrollIntoView({ block: 'nearest' })
   })
   const backButton = (
-    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13px] font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
+    <button type="button" onClick={back} className="-mx-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-label font-medium text-muted transition hover:bg-hover hover:text-ink max-sm:min-h-10 @2xl:hidden" data-testid="folder-detail-back">
       <ArrowLeft size={15} aria-hidden /> {t('accessTree.back')}
     </button>
   )
@@ -751,19 +752,29 @@ export default function AccessTree() {
       <div className="@container">
         <div className="flex flex-col gap-4 @2xl:flex-row @2xl:items-start @2xl:gap-0">
           <div ref={treeBox} className={clsx('min-w-0 flex-1 @2xl:pr-4', treeHidden && '@max-2xl:hidden')}>
-            <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-              <Switch
-                checked={ruledOnly}
-                onChange={(on) => {
-                  setRuledOnly(on)
-                  if (on && !tree.data?.ruled) void tree.ruledPage(false)
-                  // back to the whole tree: the chosen folder is opened to again
-                  if (!on && selected !== null && selected !== '' && node) void reveal(selected)
-                }}
-                label={t('accessTree.ruledOnly')}
-                testId="tree-ruled-only"
-              />
-            </div>
+            {/* the switch sits in the page header's filter row, next to By folder / By person */}
+            <InFolderHeader slot="filter">
+              <span className="inline-flex h-9 items-center rounded-lg border border-line px-3 max-sm:min-h-10">
+                <Switch
+                  checked={ruledOnly}
+                  onChange={(on) => {
+                    setRuledOnly(on)
+                    if (on && !tree.data?.ruled) void tree.ruledPage(false)
+                    // back to the whole tree: the chosen folder is opened to again
+                    if (!on && selected !== null && selected !== '' && node) void reveal(selected)
+                  }}
+                  label={t('accessTree.ruledOnly')}
+                  testId="tree-ruled-only"
+                />
+              </span>
+            </InFolderHeader>
+            {/* how to read the tree: one small fold instead of a paragraph */}
+            <details className="group mb-2 px-1.5 text-xs text-muted" data-testid="tree-how">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded py-1 text-faint hover:text-ink [&::-webkit-details-marker]:hidden">
+                <Info size={13} aria-hidden /> {t('accessTree.how')}
+              </summary>
+              <p className="mt-1 max-w-prose leading-5">{t('accessTree.desc')}</p>
+            </details>
             {tree.stale !== null && (
               <p role="status" className="mb-2 flex flex-wrap items-center gap-x-2 text-xs text-danger" data-testid="tree-stale">
                 {t('accessTree.refreshFailed')}
@@ -808,7 +819,8 @@ export default function AccessTree() {
           </div>
           <div
             className={clsx(
-              'min-w-0 @2xl:sticky @2xl:top-4 @2xl:max-h-[calc(100dvh-2rem)] @2xl:shrink-0 @2xl:overflow-y-auto @2xl:border-l @2xl:border-line @2xl:pl-5 scroll-thin',
+              // just under the page's sticky header (Folders.tsx passes its height)
+              'min-w-0 @2xl:sticky @2xl:top-[calc(var(--folders-head,0px)+1rem)] @2xl:max-h-[calc(100dvh-var(--folders-head,0px)-2rem)] @2xl:shrink-0 @2xl:overflow-y-auto @2xl:border-l @2xl:border-line @2xl:pl-5 scroll-thin',
               // the edit panel takes a little more room beside the tree
               editing ? '@2xl:w-[22rem] @3xl:w-[26rem] @5xl:w-[30rem]' : '@2xl:w-80 @3xl:w-96',
               !treeHidden && '@max-2xl:hidden',
@@ -825,16 +837,16 @@ export default function AccessTree() {
 
   return (
     <>
-      <Card
-        headingRef={cardHeading}
-        title={t('accessTree.title')}
-        desc={t('accessTree.desc')}
-        actions={
-          <Button size="sm" variant="primary" onClick={() => void leaveEdit().then((ok) => ok && setPicking(true))} data-testid="folder-rule-new">
-            <Plus size={14} aria-hidden /> {t('rules.addFolder')}
-          </Button>
-        }
-      >
+      {/* no card: the tree and the chosen folder sit on the page, split by a hairline; Add folder is the header's button */}
+      <InFolderHeader slot="actions">
+        <Button size="sm" variant="primary" onClick={() => void leaveEdit().then((ok) => ok && setPicking(true))} data-testid="folder-rule-new">
+          <Plus size={14} aria-hidden /> {t('rules.addFolder')}
+        </Button>
+      </InFolderHeader>
+      <section aria-labelledby="access-tree-title" data-testid="access-tree">
+        <h3 id="access-tree-title" ref={cardHeading} tabIndex={-1} className="sr-only">
+          {t('accessTree.title')}
+        </h3>
         {(folders.error || groups.error || users.error) && (
           <div className="mb-4" data-testid="access-side-error">
             <ErrorNote
@@ -849,7 +861,7 @@ export default function AccessTree() {
           </div>
         )}
         {body}
-      </Card>
+      </section>
       <FolderPicker
         open={picking}
         title={t('rules.addFolder')}
@@ -1066,7 +1078,7 @@ function Tree({ data, ruled, open, busy, failed, selected, onToggle, onMore, onR
               setActive(r.key)
               void activate(r)
             }}
-            className="flex cursor-pointer items-center gap-1.5 rounded-lg py-2 pr-2 text-[13px] font-medium text-muted transition-[background-color,color] hover:bg-hover hover:text-ink focus-visible:-outline-offset-2 max-sm:min-h-10"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg py-2 pr-2 text-label font-medium text-muted transition-[background-color,color] hover:bg-hover hover:text-ink focus-visible:-outline-offset-2 max-sm:min-h-10"
             data-testid={r.kind === 'more' ? 'tree-more' : 'tree-failed'}
           >
             <Indent />
@@ -1086,6 +1098,9 @@ function Tree({ data, ruled, open, busy, failed, selected, onToggle, onMore, onR
 }
 
 /** Room for the depth: 12px a level up to four on a narrow tree, 16px up to eight on a wide one. Deeper rows say so. */
+/** Some rule that decides here sits on a parent folder (the row then says which); rules only of this folder do not. */
+const inheritsRule = (n: AccessTreeNode) => sourceSaysSomething(n) && n.who.some((w) => w.reason === 'rule' && (w.folder ?? '') !== n.path)
+
 function Indent() {
   return <span className="w-[calc(min(var(--d),4)*0.75rem)] shrink-0 @xl/tree:w-[calc(min(var(--d),8)*1rem)]" aria-hidden />
 }
@@ -1130,7 +1145,7 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
       onClick={onChoose}
       title={n.path || name}
       // only the fill fades: a transition of the outline would draw the focus ring in ink before the accent
-      className={clsx('flex cursor-pointer items-start gap-1.5 rounded-lg py-2 pr-2 transition-[background-color] focus-visible:-outline-offset-2', selected ? 'bg-accent-soft' : 'hover:bg-hover')}
+      className={clsx('flex cursor-pointer items-start gap-1.5 rounded-lg py-1.5 pr-2 transition-[background-color] focus-visible:-outline-offset-2', selected ? 'bg-accent-soft' : 'hover:bg-hover')}
       data-testid="tree-row"
       data-path={n.path}
       data-rules={n.rules}
@@ -1166,31 +1181,36 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
           )}
         </div>
         {personal ? (
-          <p className="mt-0.5 text-[13px] leading-5 text-muted">
+          <p className="mt-0.5 text-label leading-5 text-muted">
             {t('accessTree.personal.who')} <span className="text-xs text-faint">· {t('accessTree.personal.fixed')}</span>
           </p>
         ) : (
-          <p className="mt-0.5 text-[13px] leading-5">
+          <p className="mt-0.5 text-label leading-5">
             <span className={own || n.path === '' ? 'text-ink' : 'text-muted'} data-testid="tree-who">
               {whoSeesText(t, n, members)}
             </span>
-            {/* a folder nobody but the owner and admins opens, by no rule at all: "팀장과 관리자만" says it all */}
-            {sourceSaysSomething(n) && (
+            {/* where it comes from only when a parent's rule decides (a folder's own rules need no "this folder's rules"
+                on every row; the lock says it has rules) */}
+            {inheritsRule(n) && (
               <>
                 {' '}
-                <span className="text-xs text-faint" data-testid="tree-source">
+                <span className="text-faint" data-testid="tree-source">
                   · {sourceText(t, n, members)}
                 </span>
               </>
             )}
           </p>
         )}
-        {risks.map((r) => (
-          <p key={r} className="mt-1 flex items-start gap-1 text-xs text-warn" data-testid="tree-risk">
-            <TriangleAlert size={12} className="mt-0.5 shrink-0" aria-hidden />
-            {r}
-          </p>
-        ))}
+        {risks.length > 0 && (
+          <span className="mt-1 flex flex-wrap gap-1">
+            {risks.map((r) => (
+              <span key={r} className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-1.5 py-0.5 text-micro font-medium text-warn" data-testid="tree-risk">
+                <TriangleAlert size={11} className="shrink-0" aria-hidden />
+                {r}
+              </span>
+            ))}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -1358,8 +1378,6 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
           ))}
           <div className="mt-4">
             <h4 className="text-xs font-semibold text-muted">{t('accessTree.people')}</h4>
-            <p className="mt-1 text-[13px] text-ink">{whoSeesText(t, n, members)}</p>
-            {sourceSaysSomething(n) && <p className="text-xs text-faint">{sourceText(t, n, members)}</p>}
             <People answer={answer} path={n.path} names={names} />
           </div>
         </>
@@ -1408,21 +1426,22 @@ function People({ answer, path, names }: { answer: ReturnType<typeof useFolderAn
       <p className="mt-2 text-xs text-muted tabular-nums" data-testid="folder-detail-counts">
         {t('accessTree.counts', { see: s.read + s.write, write: s.write, none: s.none })}
       </p>
-      <ul className="mt-1 divide-y divide-line" data-testid="folder-people">
+      <ul className="mt-1 divide-y divide-line border-t border-line" data-testid="folder-people">
         {data.people.map((p) => {
           const level = levelOf(p)
           return (
-            <li key={p.user.id} className="py-2" data-testid="folder-person" data-person={p.user.id} data-level={level}>
-              <div className="flex min-w-0 items-baseline gap-2">
-                <span className="min-w-0 truncate text-sm font-medium text-ink">{p.user.name}</span>
-                <span className="shrink-0 text-xs text-faint">{t(`role.${p.role}`)}</span>
+            <li key={p.user.id} className="flex items-start gap-3 py-2" data-testid="folder-person" data-person={p.user.id} data-level={level}>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-baseline gap-1.5">
+                  <span className="min-w-0 truncate text-sm text-ink">{p.user.name}</span>
+                  <span className="shrink-0 text-xs text-faint">· {t(`role.${p.role}`)}</span>
+                </div>
+                {/* the reason in one dim line; all of it in the tooltip and for screen readers */}
+                <p className="truncate text-xs text-faint" title={reasonText(t, asRow(p), p.role, names).join(' · ')}>
+                  {reasonText(t, asRow(p), p.role, names).join(' · ')}
+                </p>
               </div>
-              <LevelLabel level={level} className="mt-0.5 flex text-xs" />
-              <div className="mt-0.5 space-y-0.5 text-xs [overflow-wrap:anywhere] text-muted">
-                {reasonText(t, asRow(p), p.role, names).map((line) => (
-                  <p key={line}>{line}</p>
-                ))}
-              </div>
+              <LevelLabel level={level} className="mt-0.5 flex shrink-0 text-xs" />
             </li>
           )
         })}

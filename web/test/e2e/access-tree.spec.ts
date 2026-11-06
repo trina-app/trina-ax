@@ -65,9 +65,10 @@ test('the tree: who sees each folder and from where, the way down to marked fold
   await expect(item(page, 'docs').getByTestId('tree-who')).toHaveText(t['accessTree.who.adminsOnly'])
   await expect(item(page, 'docs').getByTestId('tree-source')).toHaveCount(0)
   await expect(item(page, '')).toContainText(t['accessTree.restricted'])
-  // shared: everyone writes, from its own rule; a risk, said once (not on the folders below it)
+  // shared: everyone writes, from its own rule (the lock-free row needs no "this folder's rules"); a risk, said once
+  // (not on the folders below it), as a small chip
   await expect(item(page, 'shared').getByTestId('tree-who')).toHaveText(`${t['rules.everyone']} · ${t['access.write']}`)
-  await expect(item(page, 'shared').getByTestId('tree-source')).toHaveText(`· ${t['accessTree.source.here']}`)
+  await expect(item(page, 'shared').getByTestId('tree-source')).toHaveCount(0)
   await expect(item(page, 'shared').getByTestId('tree-risk')).toHaveText(t['accessTree.risk.everyone'])
   await expect(item(page, 'shared')).not.toContainText(t['accessTree.restricted'])
   // the team skills: everyone reads; skills/영업 lets everyone change what every AI follows
@@ -150,9 +151,14 @@ test('the keyboard: one Tab stop, arrows move, open and close, typing jumps, Ent
   await page.goto('/admin/folders')
   await expect(item(page, 'projects/apollo')).toBeVisible()
   await expect(tree(page).locator('[role="treeitem"][tabindex="0"]')).toHaveCount(1)
+  // the header: Add folder, then By folder / By person, then the switch; then "How this works", then the tree
   await page.getByTestId('folder-rule-new').focus()
   await page.keyboard.press('Tab')
+  await expect(page.getByRole('tab', { name: t['accessView.byFolder'] })).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(page.getByTestId('tree-ruled-only')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByTestId('tree-how').locator('summary')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(item(page, '')).toBeFocused()
   await page.keyboard.press('ArrowDown')
@@ -428,7 +434,8 @@ for (const size of [{ width: 1360, height: 900 }, { width: 375, height: 812 }]) 
     // the Tab stop is the chosen row
     await expect(item(page, 'shared')).toHaveAttribute('tabindex', '0')
     await page.getByTestId('folder-rule-new').focus()
-    await page.keyboard.press('Tab') // the "rule folders only" switch comes first
+    // the header's tabs and switch, and "How this works", come first
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Tab')
     await page.keyboard.press('Tab')
     await expect(item(page, 'shared')).toBeFocused()
     expect(realErrors(errors)).toEqual([])
@@ -685,4 +692,26 @@ test('a team folder that serves Skills/ is the team skills on the screen too: th
   await expect(item(page, 'Skills/영업')).toContainText(t['accessTree.kind.skills'])
   await expect(detail(page)).toContainText(t['skillMgr.folderHint'])
   await expect(detail(page).getByTestId('skill-manager-badge')).toBeVisible()
+})
+
+test('the header stays at the top while the tree scrolls: title, Add folder, the tabs and the switch', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await team(page)
+  await page.setViewportSize({ width: 1360, height: 520 })
+  await page.goto('/admin/folders')
+  await expect(item(page, 'projects/apollo')).toBeVisible()
+  const content = page.getByTestId('admin-content')
+  await content.evaluate((el) => el.scrollTo(0, el.scrollHeight))
+  await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+  const header = page.getByTestId('folders-header')
+  const box = (await header.boundingBox())!
+  const area = (await content.boundingBox())!
+  // the header sits at the top of the scrolling area, whole, with its controls usable
+  expect(Math.abs(box.y - area.y)).toBeLessThan(2)
+  await expect(page.getByTestId('folder-rule-new')).toBeInViewport()
+  await expect(header.getByTestId('tree-ruled-only')).toHaveCount(1)
+  await expect(header.getByRole('tab', { name: t['accessView.byPerson'] })).toBeInViewport()
+  // no card around the tree
+  await expect(page.getByTestId('access-tree').locator('section.rounded-2xl')).toHaveCount(0)
 })

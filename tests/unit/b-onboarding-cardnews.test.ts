@@ -1,12 +1,13 @@
 // Onboarding N (docs/DECISIONS.md "N — The first result is the company's card news"): while a company profile draft
 // reads the website, the server collects the brand's pictures and colours from the pages it opened itself; the first
 // result places them into the team's brand folder, writes 회사 소개.md when no file was given, and opens the chat. No
-// picture is made anywhere: too few pictures and the skill uses its type-only cards (Higgsfield taken out). Since "V" the
-// first result runs the promo video skill; the card news stays installed for every team.
+// picture is made anywhere: too few pictures and the skill uses its type-only cards (Higgsfield taken out). Since "D2" the
+// first result runs the intro deck skill (the promo video of "V" before it); the card news and the promo video stay
+// installed for every team.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, CARD_NEWS_ARTIFACT_KEY, GENERAL_CARDNEWS_SKILL, GENERAL_PROMO_SKILL } from '@mycel/shared/api'
+import { API, CARD_NEWS_ARTIFACT_KEY, DECK_TOOL, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { noteEgressIp } from '../../server/src/tools/egress'
@@ -295,9 +296,9 @@ describe('the website reading and the first result (the real web_fetch and a loc
     expect((await h.req('alice', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: [] }), headers: { 'content-type': 'application/json' } })).status).toBe(403)
     await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'https://www.acme.example/', name: 'Acme', oneLine: 'Quiet desk fans', products: 'Desk fans', audience: '', tone: [], avoid: '', sources: [], colors: ['#0e5e4e'] } })
     const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    // the first result is the promo video since docs/DECISIONS.md "V" (the card news skill stays installed)
-    expect(r.skillPath).toBe(GENERAL_PROMO_SKILL)
-    expect(fs.existsSync(path.join(h.team, GENERAL_CARDNEWS_SKILL))).toBe(true)
+    // the first result is the intro deck since docs/DECISIONS.md "D2" (the card news and promo video skills stay installed)
+    expect(r.skillPath).toBe(GENERAL_DECK_SKILL)
+    for (const skill of [GENERAL_CARDNEWS_SKILL, GENERAL_PROMO_SKILL]) expect(fs.existsSync(path.join(h.team, skill))).toBe(true)
     // names in the team's language (the harness team is English): Brand/Images, logo, website-n, Company intro.md
     expect(r.images.map((p) => path.basename(p))).toEqual(['logo.png', 'website-1.png', 'website-2.jpg'])
     for (const p of r.images) expect(fs.existsSync(path.join(h.team, p))).toBe(true)
@@ -312,7 +313,7 @@ describe('the website reading and the first result (the real web_fetch and a loc
     // the history of the file is the owner's save
     expect((h.ctx.db.query("SELECT user_id FROM file_events WHERE path = ? ORDER BY rowid LIMIT 1").get(r.intro) as { user_id: string }).user_id).toBe('dana')
     const chat = h.ctx.db.query('SELECT title, title_source, user_id FROM chats WHERE id = ?').get(r.chatId) as { title: string; title_source: string; user_id: string }
-    expect(chat).toEqual({ title: '우리 회사 홍보 영상', title_source: 'user', user_id: 'dana' })
+    expect(chat).toEqual({ title: '우리 회사 소개서', title_source: 'user', user_id: 'dana' })
     // a second start: the pictures are there once, 회사 소개.md is kept as it is (someone may have edited it)
     fs.writeFileSync(path.join(h.team, r.intro!), '# 손본 소개\n')
     const again = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
@@ -329,21 +330,30 @@ describe('the website reading and the first result (the real web_fetch and a loc
     expect((await h.req('dana', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: ['groups/none/x.pdf'] }), headers: { 'content-type': 'application/json' } })).status).toBe(400)
   })
 
-  test('a row from before the skill: "홍보 영상" is added on its own once, and recorded; the card news is left as it is', async () => {
+  test('a row from before the skill: "회사 소개서" is added on its own once, and recorded; the promo video and the card news are left as they are', async () => {
     const raw = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!
-    const skill = path.join(h.team, GENERAL_PROMO_SKILL)
+    const skill = path.join(h.team, GENERAL_DECK_SKILL)
     fs.rmSync(path.dirname(skill), { recursive: true, force: true })
-    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, general: { at: raw.general.at, tasksPath: raw.general.tasksPath, briefPath: raw.general.briefPath, cardNewsPath: raw.general.cardNewsPath } })
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, general: { at: raw.general.at, tasksPath: raw.general.tasksPath, briefPath: raw.general.briefPath, cardNewsPath: raw.general.cardNewsPath, promoVideoPath: raw.general.promoVideoPath } })
     const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-    expect(r.skillPath).toBe(GENERAL_PROMO_SKILL)
+    expect(r.skillPath).toBe(GENERAL_DECK_SKILL)
     expect(fs.existsSync(skill)).toBe(true)
     const general = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!.general
+    expect(general.introDeckPath).toBe(GENERAL_DECK_SKILL)
     expect(general.promoVideoPath).toBe(GENERAL_PROMO_SKILL)
     expect(general.cardNewsPath).toBe(GENERAL_CARDNEWS_SKILL)
     // recorded: deleted again on purpose, it is not brought back
     fs.rmSync(path.dirname(skill), { recursive: true, force: true })
-    expect((await h.api('dana').call(API.startFirstResult, { body: { files: [] } })).skillPath).toBe(GENERAL_PROMO_SKILL)
+    expect((await h.api('dana').call(API.startFirstResult, { body: { files: [] } })).skillPath).toBe(GENERAL_DECK_SKILL)
     expect(fs.existsSync(skill)).toBe(false)
+    // blocked (recorded null): the start says so in the owner's words and makes no chat
+    const chats = (h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!, general: { ...general, introDeckPath: null } })
+    const blocked = await h.req('dana', '/api/onboarding/welcome/first-result', { method: 'POST', body: JSON.stringify({ files: [] }), headers: { 'content-type': 'application/json' } })
+    expect(blocked.status).toBe(409)
+    expect(JSON.stringify(await blocked.json())).toMatch(/회사 소개서 스킬을 넣지 못했어요|company profile skill could not be added/)
+    expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n).toBe(chats)
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!, general: { ...general, introDeckPath: GENERAL_DECK_SKILL } })
   })
 
   test('no picture is made: the first-result chat offers no image tool, also with a Higgsfield key file on the server', async () => {
@@ -416,7 +426,7 @@ describe('the skill files (docs/DECISIONS.md "W2": the result in front, the answ
     expect(ko).toContain('사진을 새로 만들거나, 인터넷·스톡 사진을 가져오거나')
     expect(en).toContain('Never generate a photo, take one from the web or a stock library')
   })
-  test('the promo video (the first result since "V") opens by itself too: one line, no internal names', () => {
+  test('the promo video (the first result of "V", still installed) opens by itself too: one line, no internal names', () => {
     const promo = (l: 'ko' | 'en') => fs.readFileSync(path.join(import.meta.dir, `../../resources/skill-packs/general/${l}/promo-video/SKILL.md`), 'utf8')
     const said = (md: string) => md.slice(md.search(/^## 7\. /m))
     const ko = said(promo('ko')), en = said(promo('en'))
@@ -425,6 +435,34 @@ describe('the skill files (docs/DECISIONS.md "W2": the result in front, the answ
     expect(ko).toContain('스킬이나 도구 이름, 칸 이름, 스타일 이름, 색 코드')
     expect(en).toContain('no skill or tool name, no slot names, no style names, no color codes')
     for (const md of [ko, en]) expect(md).not.toMatch(/promo_video|\b(bold|editorial|night)\b/)
+  })
+  test('the intro deck (the first result since "D2"): the tool first with nothing before it, then one line, no internal names', () => {
+    const deck = (l: 'ko' | 'en') => fs.readFileSync(path.join(import.meta.dir, `../../resources/skill-packs/general/${l}/intro-deck/SKILL.md`), 'utf8')
+    const ko = deck('ko'), en = deck('en')
+    const said = (md: string) => md.slice(md.search(/^## 8\. /m))
+    // the form: the topic, who it is for (the tool's audience), the material folded away
+    for (const md of [ko, en]) expect(md).toMatch(/"name": "topic"[^\n]*\n\s*\{"name": "audience"[^\n]*\n\s*\{"name": "files"[^\n]*"advanced": true/)
+    expect(ko).toContain('title: 회사 소개서')
+    expect(en).toContain('title: Company profile')
+    // the tool, called first; never HTML or a file of its own
+    for (const md of [ko, en]) expect(md).toContain(`\`${DECK_TOOL}\``)
+    expect(ko).toContain('그 전에는 아무 글도 쓰지 않아요')
+    expect(en).toContain('Write nothing before it')
+    expect(ko).toContain('소개서를 HTML이나 파일(PPT, PDF, 문서)로 따로 만들지 않아요')
+    expect(en).toContain('Never make the deck as HTML or as a file')
+    // the facts, the audience never one, the pictures only from the brand folder
+    expect(ko).toContain('숫자는 자료에 숫자로 적힌 것만, 적힌 그대로 써요')
+    expect(en).toContain('Use only numbers written as numbers in the material, exactly as written')
+    expect(ko).toContain('"누구에게 보낼까요"는 사실이 아니에요')
+    expect(en).toContain('"Who is it for" is not a fact')
+    expect(ko).toContain('사진을 새로 만들거나 인터넷·스톡에서 가져오지 않아요')
+    expect(en).toContain('Never make or fetch a picture')
+    // the answer: one line, nothing internal
+    expect(said(ko)).toContain('한 줄만 써요: "(회사 이름) 회사 소개서를 만들었어요. 바꾸고 싶은 장이나 말이 있으면 알려 주세요."')
+    expect(said(en)).toContain('the answer is one line')
+    expect(said(ko)).toContain('스킬이나 도구 이름, 칸 이름, 분위기 이름, 색 코드')
+    expect(said(en)).toContain('no skill or tool name, no slot names, no look names, no color codes')
+    for (const md of [said(ko), said(en)]) expect(md).not.toMatch(/intro_deck|`(paper|ink|brand)`/)
   })
 })
 

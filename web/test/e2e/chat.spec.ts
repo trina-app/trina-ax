@@ -207,8 +207,7 @@ test('a safety check the server raised has its own header, never the "AI asks" o
   await expect(card).toHaveAttribute('data-origin', 'server')
   await expect(card).toContainText('팀 서버의 안전 확인')
   await expect(card).not.toContainText('AI가 확인하고 싶어 해요')
-  await card.getByLabel('열지 않기').check()
-  await card.getByRole('button', { name: '답하기' }).click()
+  await card.getByRole('button', { name: '열지 않기', exact: true }).click()
   await expect(card).toHaveCount(0)
 })
 
@@ -254,7 +253,7 @@ test('search (⌘K) finds chats by content', async ({ page }) => {
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await page.getByTestId('new-chat').click()
   await page.keyboard.press('ControlOrMeta+k')
-  await page.getByPlaceholder('채팅, 프로젝트, 스킬 검색').fill('banana')
+  await page.getByPlaceholder('채팅 제목·내용, 파일 이름, 프로젝트 등 검색').fill('banana')
   await expect(page.getByRole('option', { name: /banana bread recipe/ })).toBeVisible()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('user-text')).toHaveText('banana bread recipe')

@@ -69,28 +69,65 @@ export function skillNameOf(path: string | null | undefined): string {
 /** The Home entry shows while the steps were started and are neither finished nor hidden. */
 export const showResume = (p: WelcomeProgress | null) => !!p && !p.finishedAt && !p.dismissedAt
 
+/**
+ * Coming back resumes the steps (docs/DECISIONS.md "W4"): an owner who left them unfinished lands on them instead of
+ * Home, once per tab session. Only a landing counts (the tab opened on Home, or a sign-in sent it there:
+ * `LANDING_STATE`), never a link to somewhere else or a later click on Home. The steps on screen in this tab (after
+ * /setup, this redirect, the Home row) mark the session, so "나중에 하기" goes Home and stays there. The mark is kept per
+ * account in sessionStorage, and in this page too when the browser refuses storage.
+ */
+export const LANDING_STATE = { landing: true } as const
+const SEEN_KEY = 'mycel.welcome.seen'
+const seenHere = new Set<string>()
+export function markStepsSeen(userId: string) {
+  seenHere.add(userId)
+  try { sessionStorage.setItem(`${SEEN_KEY}:${userId}`, '1') } catch { /* this page's copy holds it */ }
+}
+export function stepsSeen(userId: string): boolean {
+  if (seenHere.has(userId)) return true
+  try { return sessionStorage.getItem(`${SEEN_KEY}:${userId}`) === '1' } catch { return false }
+}
+/** A new tab session: on sign-out (lib/logout.ts), so the next sign-in brings an unfinished owner back; and in tests. */
+export const forgetStepsSeen = () => {
+  seenHere.clear()
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i)
+      if (k?.startsWith(SEEN_KEY)) sessionStorage.removeItem(k)
+    }
+  } catch { /* none kept */ }
+}
+/** A landing takes the owner to the steps while they were started, are neither finished nor hidden, and have a step to
+ * open (resumeStep: with only a put-off invite left there is none, and the steps would send Home again). */
+export const resumesOnLanding = (p: WelcomeProgress | null) => showResume(p) && resumeStep(p) !== null
+/** Whether a location is a landing: the first entry of the tab (react-router's "default" key) on Home itself, or a
+ * sign-in's. A first entry that carries a question or a project (`/?prompt=…`, `/?project=…` from a link opened in a new
+ * tab) is not a landing: it is going somewhere, and the steps would lose it. */
+export const isLanding = (l: { key: string; state: unknown; search?: string }) =>
+  (l.key === 'default' && !l.search) || (l.state as { landing?: unknown } | null)?.landing === true
+
 /** The invite bar on the first-result chat: until the invite is done or put off. */
 export const showInviteBar = (p: WelcomeProgress | null, chatId: string) => !!p && p.resultChatId === chatId && p.steps.invite === null
 
 /**
  * The skill that made the first result, to share as it is (docs/DECISIONS.md "W2 — AI connection first"): the run the
  * server recorded for the answer (`receipt`: the path the 7-day goal counts), else the first question's "/name" among
- * the skills these steps recorded (the promo video, the card news, the meeting notes skills, the ad copy); null when
- * neither says.
+ * the skills these steps recorded (the intro deck, the promo video, the card news, the meeting notes skills, the ad
+ * copy); null when neither says.
  */
 export function resultSkill(messages: Pick<Message, 'role' | 'content' | 'receipt'>[], p: WelcomeProgress | null): string | null {
   const ran = messages.find((m) => m.role === 'assistant' && m.receipt)?.receipt?.skill.path
   if (ran) return ran
   const name = /^\/([^\s/]+)/.exec(messages.find((m) => m.role === 'user')?.content.trim() ?? '')?.[1]
   if (!name || !p) return null
-  const recorded = [p.general?.promoVideoPath, p.general?.cardNewsPath, p.general?.tasksPath, p.general?.briefPath, p.pack?.skillPath]
+  const recorded = [p.general?.introDeckPath, p.general?.promoVideoPath, p.general?.cardNewsPath, p.general?.tasksPath, p.general?.briefPath, p.pack?.skillPath]
   return recorded.find((path): path is string => !!path && skillNameOf(path) === name) ?? null
 }
 
-/** The skill the welcome steps' own invite step carries (no chat to read it from): the first result's, the promo video
- * (docs/DECISIONS.md "V"), so a teammate's run counts for the 7-day goal; else the card news (a row whose first result
- * ran it), the marketing pack's ad copy, the meeting notes skill (rows from before them). */
-export const inviteSkill = (p: WelcomeProgress): string | null => p.general?.promoVideoPath ?? p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
+/** The skill the welcome steps' own invite step carries (no chat to read it from): the first result's, the intro deck
+ * (docs/DECISIONS.md "D2"), so a teammate's run counts for the 7-day goal; else the promo video or the card news (a row
+ * whose first result ran one of them), the marketing pack's ad copy, the meeting notes skill (rows from before them). */
+export const inviteSkill = (p: WelcomeProgress): string | null => p.general?.introDeckPath ?? p.general?.promoVideoPath ?? p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
 
 /** Home's one line after "자료 없이 해 볼게요" (router state): where meeting notes go. */
 export interface NotesHint { folder: string; team: string }

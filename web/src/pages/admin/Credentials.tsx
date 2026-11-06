@@ -249,10 +249,12 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
  * target), named after the kind (no name field), the provider's terms in one line; the password again stays for a
  * team connection (the server checks it on every add, owner-reauth), and one's own needs none, as before.
  */
-export function AddCredential({ allowedKinds, family, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, simple, onClose, onDone }: {
+export function AddCredential({ allowedKinds, family, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, onlyKinds, simple, onClose, onDone }: {
   allowedKinds: CredentialKind[]; /** this provider's kinds only (Add account in its row) */ family?: Family; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean
   /** one way chosen already ("Claude 구독 연결"): the list of ways is not shown (in the simple form, until "다른 방법") */
   initialKind?: CredentialKind
+  /** the list shows only these ways ("API 키로 연결": the Claude and OpenAI keys) */
+  onlyKinds?: CredentialKind[]
   simple?: boolean
   onClose: () => void; onDone: () => void
 }) {
@@ -356,7 +358,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
     }
     onClose()
   }
-  const kinds = (personal ? PERSONAL_KIND_ORDER : KIND_ORDER).filter((k) => (!replace || k === replace.kind) && (!family || FAMILY[family].includes(k)))
+  const kinds = (personal ? PERSONAL_KIND_ORDER : KIND_ORDER).filter((k) => (!replace || k === replace.kind) && (!family || FAMILY[family].includes(k)) && (!onlyKinds || onlyKinds.includes(k)))
   // moving a member's connection to a team connection picked for other people: that member may be left without AI
   const mover = move?.where === 'personal' && move.ownerId ? users.find((u) => u.id === move.ownerId) : undefined
   const leftOut = !!mover && assignments.length > 0
@@ -392,7 +394,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
         : (
           <div className="space-y-4">
             {personal && <p className="text-sm text-muted">{t('credentials.personalFirst')}</p>}
-            {!personal && !sharedSubscriptions && <p className="text-sm text-warn" data-testid="shared-subscriptions-off">{t('credentials.sharedSubscriptionsOff')}</p>}
+            {!personal && !sharedSubscriptions && kinds.some((k) => SUBSCRIPTION.has(k)) && <p className="text-sm text-warn" data-testid="shared-subscriptions-off">{t('credentials.sharedSubscriptionsOff')}</p>}
             {!replace && (!initialKind || otherWays) && (
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">{t('credentials.chooseKind')}</legend>

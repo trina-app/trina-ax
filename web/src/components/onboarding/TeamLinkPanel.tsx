@@ -20,7 +20,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
 import QrCode from '../QrCode'
-import { Button, Field, Skeleton, confirmDialog, inputCls, useCopy } from '../ui'
+import { Button, Field, Modal, Skeleton, confirmDialog, inputCls, useCopy } from '../ui'
 import { GroupChecks } from '../../pages/admin/people-choices'
 import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
 
@@ -262,7 +262,7 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
     <>
       <div>
         <p className="text-xs font-medium text-muted">{t('teamLink.link')}</p>
-        <p className="mt-1 font-mono text-[13px] leading-5 break-all text-ink select-all" data-testid="team-link-url">{url}</p>
+        <p className="mt-1 font-mono text-label leading-5 break-all text-ink select-all" data-testid="team-link-url">{url}</p>
         <div className="mt-1 -ml-2.5 flex flex-wrap items-center gap-1">
           <CopyQuiet text={url} label={t('teamLink.copyLink')} />
           <Button size="sm" variant="ghost" onClick={() => setQr((v) => !v)} aria-expanded={qr} data-testid="team-link-qr">
@@ -275,7 +275,7 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
           </div>
         )}
       </div>
-      <div className="space-y-1 text-[13px] leading-5 text-muted" data-testid="team-link-facts">
+      <div className="space-y-1 text-label leading-5 text-muted" data-testid="team-link-facts">
         <p>
           {t('teamLink.usesLabel')} <span className="text-ink tabular-nums" data-testid="team-link-uses">{t('teamLink.uses', { used: link.uses, max: link.maxUses })}</span>
           {' · '}{t('teamLink.expiresLabel')} <span className="text-ink" data-testid="team-link-expires">{t('teamLink.until', { date: formatDateTime(link.expiresAt, locale) })}</span>
@@ -419,7 +419,7 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, starter, seatsLef
     <>
       {groups.length > 0 && (
         <div>
-          <p className="mb-1.5 text-[13px] font-medium">{t('teamLink.groups')}</p>
+          <p className="mb-1.5 text-label font-medium">{t('teamLink.groups')}</p>
           <GroupChecks groups={groups} value={groupIds} onChange={setGroupIds} />
         </div>
       )}
@@ -490,20 +490,27 @@ function CreateForm({ initial, groups, skills, fixedSkillPath, starter, seatsLef
   )
 }
 
-/** Admin › Members: the team invite link. A card from 640px (the admin cards' frame); on a phone no frame of its own,
- * only a hairline under it, as the Home goal card (a frame near the screen edge reads as tight). */
-export function TeamLinkCard() {
+/** Admin › Members: the team invite link in a popup (the page's "Team invite link" button). The same panel as before,
+ * so making the link, copying it or its message, changing it and turning it off work exactly as they did on the page;
+ * after "Make invite link" the popup shows the link with its Copy buttons. */
+export function TeamLinkDialog({ onClose, onChange }: { onClose: () => void; onChange?: (r: TeamLinkResponse) => void }) {
   const t = useT()
-  const id = useId()
   return (
-    <section className="mb-6 border-b border-line pb-6 sm:rounded-2xl sm:border sm:bg-surface sm:pb-0" aria-labelledby={id} data-testid="team-link-card">
-      <header className="pb-4 sm:border-b sm:border-line sm:px-4 sm:py-3">
-        <h2 id={id} className="text-sm font-semibold">{t('teamLink.title')}</h2>
-        <OneLine className="mt-0.5 text-xs text-muted">{t('teamLink.desc')}</OneLine>
-      </header>
-      <div className="sm:p-4">
-        <TeamLinkPanel />
+    <Modal
+      open
+      onClose={onClose}
+      title={t('teamLink.title')}
+      width={560}
+      footer={
+        <Button onClick={onClose} data-testid="team-link-done">
+          {t('common.done')}
+        </Button>
+      }
+    >
+      <div data-testid="team-link-card">
+        <OneLine className="mb-4 text-sm text-muted">{t('teamLink.desc')}</OneLine>
+        <TeamLinkPanel onChange={onChange} />
       </div>
-    </section>
+    </Modal>
   )
 }

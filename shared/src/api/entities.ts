@@ -221,6 +221,16 @@ export const Step = z.object({
   /** how much of the answer text (characters of Message.content) was written when the step started: an artifact's
    * card shows at that point of the answer. Absent on steps from before this field */
   textAt: z.number().int().min(0).optional(),
+  /** box_shell on the srt runner (docs/DECISIONS.md "Dev environment: one queue"): the command or job waits in the team
+   * queue. id: the queued run (POST /api/dev-env/runs/:id/stop cancels it); position: its place in line when the step
+   * was written (the app reads the live place from GET /api/dev-env/runs); state: waiting, started, expired (the
+   * command waited too long: the dev environment is full) or cancelled. Absent on every other step */
+  devEnvRun: z.object({
+    id: z.string().max(64),
+    kind: z.enum(['command', 'job']),
+    state: z.enum(['waiting', 'started', 'expired', 'cancelled']),
+    position: z.number().int().min(1).nullable(),
+  }).optional(),
 })
 export type Step = z.infer<typeof Step>
 

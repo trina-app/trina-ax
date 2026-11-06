@@ -130,8 +130,11 @@ export function MyRequests({ onConnected, version }: { onConnected: (i: Integrat
         </>
       )}
       {open && (
-        <AnswerDialog
-          r={open}
+        <OwnKeyDialog
+          src={open}
+          title={t('integrations.asked.dialogTitle', { name: open.name })}
+          intro={t('integrations.asked.dialogIntro', { by: open.requestedBy?.name ?? '?' })}
+          submit={(body) => api.call(API.completeIntegrationRequest, { params: { id: open.id }, body })}
           onClose={() => { setOpen(null); void load() }}
           onDecline={async () => { if (await decline(open)) setOpen(null) }}
           onConnected={(i, signIn) => {
@@ -152,12 +155,27 @@ function WithHost({ text, host }: { text: (host: string) => string; host: string
   return <>{parts.map((p, i) => <Fragment key={i}>{i > 0 && <strong className="font-semibold">{host}</strong>}{p}</Fragment>)}</>
 }
 
+/** What an admin filled in for the member to connect as their own: a request (above) or a template
+ * (TemplatesView.tsx). The service is fixed, so the member is told where their key goes. */
+export interface OwnKeySource {
+  kind: IntegrationRequest['kind']
+  name: string
+  url: string
+  auth: IntegrationRequest['auth']
+  authHeader: string | null
+  notes: string | null
+}
+
 /** What the admin filled in (fixed: that is what was asked for), then the member's key or a sign-in next, and what
- * the AI may change there. Saved as the member's own connection; they can change it afterwards like any other. */
-function AnswerDialog({ r, onClose, onDecline, onConnected }: {
-  r: IntegrationRequest
+ * the AI may change there. Saved as the member's own connection; they can change it afterwards like any other.
+ * `onDecline`: a request can be declined from here (a template cannot). */
+export function OwnKeyDialog({ src: r, title, intro, submit, onClose, onDecline, onConnected }: {
+  src: OwnKeySource
+  title: string
+  intro: string
+  submit: (body: { secret?: string; writePolicy: WritePolicy }) => Promise<Integration>
   onClose: () => void
-  onDecline: () => void
+  onDecline?: () => void
   onConnected: (i: Integration, signIn: { window: Window | null } | null) => void
 }) {
   const t = useT()
@@ -183,7 +201,7 @@ function AnswerDialog({ r, onClose, onDecline, onConnected }: {
     setError(null)
     setServer({})
     try {
-      const i = await api.call(API.completeIntegrationRequest, { params: { id: r.id }, body: { writePolicy: policy, ...(key ? { secret: secret.trim() } : {}) } })
+      const i = await submit({ writePolicy: policy, ...(key ? { secret: secret.trim() } : {}) })
       onConnected(i, signInNext ? { window: win } : null)
     } catch (e) {
       win?.close()
@@ -206,12 +224,14 @@ function AnswerDialog({ r, onClose, onDecline, onConnected }: {
       open
       onClose={onClose}
       width={560}
-      title={t('integrations.asked.dialogTitle', { name: r.name })}
+      title={title}
       footer={
         <>
-          <Button variant="ghost" onClick={onDecline} data-testid="integration-answer-decline">
-            {t('integrations.asked.decline')}
-          </Button>
+          {onDecline && (
+            <Button variant="ghost" onClick={onDecline} data-testid="integration-answer-decline">
+              {t('integrations.asked.decline')}
+            </Button>
+          )}
           <span className="flex-1" />
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
@@ -223,7 +243,7 @@ function AnswerDialog({ r, onClose, onDecline, onConnected }: {
       }
     >
       <form className="space-y-5" noValidate onSubmit={(e) => { e.preventDefault(); void connect() }} data-testid="integration-answer">
-        <p className="text-sm">{t('integrations.asked.dialogIntro', { by: r.requestedBy?.name ?? '?' })}</p>
+        <p className="text-sm">{intro}</p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-line px-3 py-2 text-sm">
           {rows.map(([k, v]) => (
             <div key={k} className="contents">
