@@ -152,6 +152,7 @@ function Profile() {
     }
   }
   const theme = me.user.prefs.theme ?? 'system'
+  const phone = useMediaQuery('(max-width: 767.98px)')
   return (
     <>
       <Section title={t('settings.profile')} page>
@@ -202,9 +203,16 @@ function Profile() {
             </span>
           </Row>
           <Row label={t('settings.role')}>
-            <span className="block text-sm text-muted sm:text-right">
-              {t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
-            </span>
+            {/* phones: the role in words, not a badge */}
+            {phone ? (
+              <span className="block text-sm text-muted sm:text-right">
+                {t(`role.${me.user.role}`)} · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+              </span>
+            ) : (
+              <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted sm:justify-end">
+                <Badge>{t(`role.${me.user.role}`)}</Badge> · {me.groups.map((g) => g.name).join(', ') || t('settings.noGroups')}
+              </span>
+            )}
           </Row>
           {/* the team owner deletes accounts: this asks them (App Store review 5.1.1(v)) */}
           <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
