@@ -394,11 +394,23 @@ describe('changes asked for in a room', () => {
     fs.rmSync(abs(), { force: true })
   })
 
+  test('an empty write says so as a field: the size counts the content (none), not the words for it', async () => {
+    const roomId = await room(['alice', 'erin'])
+    const q = await send('alice', roomId, `@트리나 empty\n${fake({ tool: 'write', args: { file_path: 'shared/room-ai-empty.md', content: '' } }, { say: 'ok' })}`)
+    const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
+    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
+    const d = (card.data.request as { details?: { text: string; fields?: { name: string; value: string }[] }[] }).details![0]!
+    expect(d).toMatchObject({ text: '', fields: [{ name: 'Action', value: 'Save' }, { name: 'File', value: 'shared/room-ai-empty.md' }, { name: 'Content', value: '(empty)' }] })
+    await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
+    await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
+  })
+
   test('the card shows the start of a long text with all of it one click away; for an instruction file all of it at once', async () => {
     const roomId = await room(['alice', 'erin'])
     // a planted instruction past the preview is still in the card: behind "Show all" for an ordinary file, open from the
     // start for a team rule or skill file
     const long = 'Lorem ipsum dolor sit amet. '.repeat(100) + 'PLANTED-PAST-THE-PREVIEW'
+    const questions = new Map<string, string>()
     const card = async (file: string) => {
       const q = await send('alice', roomId, `@트리나 note\n${fake({ tool: 'write', args: { file_path: file, content: long } }, { say: 'ok' })}`)
       const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
@@ -406,6 +418,7 @@ describe('changes asked for in a room', () => {
       await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: 'skip' } })
       await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id && f.data.run.state === 'done', 30_000)
       expect(fs.existsSync(path.join(h.team, file))).toBe(false)
+      questions.set(file, (c.data.request as { question: string }).question)
       return (c.data.request as { details?: { text: string; fields?: { value: string }[]; collapsedAt?: number }[] }).details![0]!
     }
     const plain = await card('shared/room-ai-long.md')
@@ -416,7 +429,10 @@ describe('changes asked for in a room', () => {
       './users/alice/skills/notes.md', 'users/alice/./skills/notes.md', 'users/alice//skills/notes.md', 'shared/CLAUDE.md/', 'Skills/room-ai-rule.md']) {
       const d = await card(file)
       expect({ file, text: d.text === long, collapsedAt: d.collapsedAt }).toEqual({ file, text: true, collapsedAt: undefined })
+      // one line says what it is
+      expect({ file, says: questions.get(file)!.endsWith('This is an instruction file the AI follows. Read all of its content.') }).toEqual({ file, says: true })
     }
+    expect(questions.get('shared/room-ai-long.md')).not.toContain('instruction file')
   })
 })
 

@@ -323,6 +323,38 @@ test('files: kept outside the team folder, readable by the room\'s members only,
   expect(fs.existsSync(stored)).toBe(false)
 })
 
+test('photos: the place they were taken and the camera are cut out; they stand upright at the size shown', async () => {
+  const { exifOrientation } = await import('../../server/src/uploads/metadata')
+  const { mia, nora } = await setup()
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const original = fs.readFileSync(path.join(import.meta.dir, '../fixtures/exif/portrait-o6.jpg'))
+  expect(original.toString('latin1')).toContain('FixtureCam')
+  const form = new FormData()
+  form.set('file', new File([original], 'IMG_0001.jpg', { type: 'image/jpeg' }))
+  const up = await h.fetch(`/api/rooms/${dm.id}/files`, { method: 'POST', body: form, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
+  expect(up.status).toBe(201)
+  const file = await up.json()
+  // stored landscape with orientation 6: shown portrait, so the room's box is portrait too
+  expect(file).toMatchObject({ kind: 'image', width: 48, height: 64 })
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [file.id], clientMessageId: cm() })
+  const got = new Uint8Array(await (await h.fetch(`/api/rooms/${dm.id}/files/${file.id}?download=1`, { headers: { cookie: nora.client.cookie! } })).arrayBuffer())
+  const text = Buffer.from(got).toString('latin1')
+  for (const leak of ['FixtureCam', 'Fixture Phone', 'FIXTURE-COMMENT', 'xmpmeta', '\x88\x25']) expect({ leak, in: text.includes(leak) }).toEqual({ leak, in: false })
+  expect(exifOrientation(got)).toBe(6)
+  expect(file.size).toBe(got.length)
+  // a TIFF (it can carry GPS like any camera EXIF, and is not cleaned) goes as a plain file: no preview, no thumbnail
+  const tif = new FormData()
+  tif.set('file', new File([fs.readFileSync(path.join(import.meta.dir, '../fixtures/exif/photo-gps.tif'))], 'scan.tif', { type: 'image/tiff' }))
+  const tifRes = await h.fetch(`/api/rooms/${dm.id}/files`, { method: 'POST', body: tif, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
+  expect(tifRes.status).toBe(201)
+  expect(await tifRes.json()).toMatchObject({ name: 'scan.tif', kind: 'other', thumb: false })
+  // a file that only claims to be a photo is refused with a reason, and nothing is kept
+  const bad = new FormData()
+  bad.set('file', new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0, 4, 0, 0])], 'broken.jpg', { type: 'image/jpeg' }))
+  const no = await h.fetch(`/api/rooms/${dm.id}/files`, { method: 'POST', body: bad, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
+  expect(no.status).toBe(400)
+})
+
 test('backups: room files are in the team archive and come back with a restore; rows and files match after it', async () => {
   const { mia, nora } = await setup()
   const { BackupManager } = await import('../../server/src/system/backup')

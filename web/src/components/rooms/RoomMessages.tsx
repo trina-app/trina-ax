@@ -20,7 +20,7 @@ import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
 import { useLocale, useT } from '../../i18n'
-import { useAvatarOf, usePeople } from '../../store/people'
+import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
 import { quoteOf, useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
@@ -36,10 +36,30 @@ const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(l
 export const messageDomId = (id: string) => `room-msg-${id}`
 
 /** the largest box a thumbnail takes, so the list does not jump while it loads */
-function thumbBox(f: RoomFile): { width: number; height: number } | undefined {
+export function thumbBox(f: { width?: number | null; height?: number | null }): { width: number; height: number } | undefined {
   if (!f.width || !f.height) return undefined
   const k = Math.min(1, 320 / f.width, 240 / f.height)
   return { width: Math.round(f.width * k), height: Math.round(f.height * k) }
+}
+
+/** A photo's thumbnail: in the box its stored size gives until it loads, then in its own shape when that differs. The
+ * thumbnail is always upright; a photo sent before the server stored the upright size (a portrait phone photo stored
+ * landscape with EXIF orientation 6) has a landscape size, which would crop it to its middle band. */
+function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
+  const [own, setOwn] = useState<{ width: number; height: number } | null>(null)
+  return (
+    <img
+      src={src}
+      alt=""
+      loading="lazy"
+      style={thumbBox(own ?? f)}
+      onLoad={(e) => {
+        const { naturalWidth: width, naturalHeight: height } = e.currentTarget
+        if (width && height && (!f.width || !f.height || Math.abs(width / height - f.width / f.height) > 0.05)) setOwn({ width, height })
+      }}
+      className="block max-h-60 max-w-full object-cover"
+    />
+  )
 }
 
 export function RoomMessages({ roomId, messages, pending, meId, members, onReply }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onReply: (q: RoomQuote) => void }) {
@@ -53,10 +73,12 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
   /** a mentioned person's name: the room's member list, else the directory */
   const names = useMemo(() => {
     const map = new Map<string, string>()
-    for (const p of Object.values(byId)) map.set(p.id, p.name)
+    // the directory last: it has a name changed since the member list was read
     for (const m of members) map.set(m.id, m.name)
+    for (const p of Object.values(byId)) map.set(p.id, p.name)
     return map
   }, [byId, members])
+  const nameOf = useNameOf()
   const jump = (id: string) => {
     document.getElementById(messageDomId(id))?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     setFlash(id)
@@ -68,7 +90,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
   const ended = useRooms(useShallow((s) => (s.ai[roomId]?.runs ?? NO_RUNS).filter((r) => !runActive(r))))
   const after = (m: RoomMessage) => [
     ...ended.filter((r) => r.questionId === m.id).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />),
-    ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={m.author?.name ?? t('rooms.goneUser')} />] : []),
+    ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={nameOf(m.author) ?? t('rooms.goneUser')} />] : []),
   ]
   const orphans = ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
 
@@ -89,7 +111,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
               <RunAvatar m={first} />
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-2">
-                  <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (first.author?.name ?? t('rooms.goneUser'))}</span>
+                  <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>
                   <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className="shrink-0 text-xs text-faint">
                     {timeOf(first.createdAt, locale)}
                   </time>
@@ -167,7 +189,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   // an AI answer: the person who asked puts it (or their preview) away; an owner or admin any answer they see
   const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin'))
   const openable = useMemo(() => (ai ? new Set(m.openable ?? []) : undefined), [ai, m.openable])
-  const mentioned = useMemo(() => m.mentions.map((id) => ({ id, name: names.get(id) ?? '' })), [m.mentions, names])
+  // a mention is the name as it was typed: the person's name now (the directory) and as the member list has it, so
+  // "@Ben" still stands out after Ben renamed himself
+  const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
   // "@트리나" stands out like a person's name (the server asked the AI for it)
   const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...aiMentionNames(m.body, mentioned)]), [m.body, mentioned, ai])
   const [press, setPress] = useState(0)
@@ -260,8 +284,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
  * "나만 볼 수 있어요" there instead: whose question it answers is clear, who sees it is not (PreviewLine). */
 function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump?: () => void }) {
   const t = useT()
+  const nameOf = useNameOf()
   if (m.visibility === 'private') return <PreviewLine roomId={roomId} m={m} />
-  const text = t('rooms.aiAskedBy', { name: m.askedBy?.name ?? t('rooms.goneUser') })
+  const text = t('rooms.aiAskedBy', { name: nameOf(m.askedBy) ?? t('rooms.goneUser') })
   return onJump ? (
     <button type="button" onClick={onJump} className="mb-0.5 block max-w-full truncate text-left text-xs text-faint hover:text-ink hover:underline" data-testid="room-ai-asked-by">
       {text}
@@ -340,10 +365,11 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
 
 function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   const t = useT()
+  const nameOf = useNameOf()
   const what = q.deleted ? t('rooms.deleted') : q.excerpt || (q.fileCount ? t('rooms.lastFiles', { n: q.fileCount }) : '')
   const inner = (
     <>
-      <span className="block truncate font-medium text-muted">{q.author?.name ?? t('rooms.goneUser')}</span>
+      <span className="block truncate font-medium text-muted">{nameOf(q.author) ?? t('rooms.goneUser')}</span>
       <span className="block truncate text-faint">{what}</span>
     </>
   )
@@ -376,7 +402,7 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
       {files.map((f) =>
         f.kind === 'image' && f.thumb ? (
           <button key={f.id} type="button" onClick={() => void preview(f)} aria-label={t('rooms.openImage', { name: f.name })} title={f.name} className="overflow-hidden rounded-lg border border-line bg-subtle" data-testid="room-image">
-            <img src={url(f, { thumb: '1' })} alt="" loading="lazy" style={thumbBox(f)} className="block max-h-60 max-w-full object-cover" />
+            <RoomThumb f={f} src={url(f, { thumb: '1' })} />
           </button>
         ) : (
           <button key={f.id} type="button" onClick={() => startDownload(url(f, { download: '1' }), f.name)} aria-label={t('rooms.download', { name: f.name })} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">

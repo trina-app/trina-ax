@@ -8092,6 +8092,42 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   uploader only). The upload is the chat attachment's path and limits (multipart ≤ 50 MB, the storage check, the temp
   file and its sha256, the image size and thumbnail helpers, no preview of a quarantined file). A deleted message's files
   are removed from disk; uploads never sent are swept after a day. The AI step reads them from there, with the same check.
+- **Photos: upright, and without where they were taken (end-to-end run, 2026-11-06).** A phone's portrait photo is
+  often stored landscape with EXIF orientation 6: the thumbnail (ffmpeg) and the browser show it upright, but its
+  stored size was the landscape one, so the room's 320×240 box cropped it to the middle band. The size is now the
+  shown one (`displaySize` in `uploads/image.ts`: orientations 5–8 swap width and height; chat attachments too). Rows
+  from before keep their size; the web shows a thumbnail in its own shape once it has loaded (`RoomThumb`), so no
+  backfill. Every member gets the original, so a photo's metadata is cut out on upload, as messengers do
+  (`uploads/metadata.ts`, the profile photo's cleaner with a messenger's settings): EXIF (with GPS, camera, times),
+  XMP, comments, PNG text chunks, other cameras' extras and anything after a JPEG's end; JPEG, PNG, WebP and HEIC.
+  Kept: the picture byte for byte, its colour profile, an animation, and its orientation, written back as the only EXIF
+  tag, so it still stands upright. Profile photos stay as strict as before (no colour profile, no animation, no
+  orientation tag).
+  - **Keep-lists, and refusal when unsure (review of bf51a728).** Every format keeps only what draws the picture:
+    JPEG the frame, scan, Huffman, quantisation and restart segments (each checked against its fixed layout), APP0
+    only as JFIF, APP14 only as Adobe, APP2 only as an ICC profile (JFXX, JPGn 0xF0–0xFD, every other APPn and
+    comments go; Adobe must fit its layout, a JFIF that does not is dropped (it is not needed to draw the picture),
+    and the ICC parts are kept only when together they are exactly the profile its header describes, else all dropped
+    (colours as without a profile, never a profile stretched over EXIF); stray bytes after a kept segment are skipped up to the
+    next marker, as libjpeg does, up to 4 KB, and never kept, while after a dropped metadata segment they refuse the
+    file, because a wrong length there ends inside the metadata and a skip could take it for markers and keep it, as
+    a fuzz showed); PNG and WebP their picture chunks, and an animated WebP's frames only their picture chunks; HEIC its
+    picture items (EXIF becomes an empty block, every other item spaces), the parts of mdat they use (the rest zeros)
+    and its item tables and properties (other boxes' payloads zeros). A file that does not read exactly (a box that
+    does not fit, an item table it cannot follow) is refused with a reason instead of being passed on. HEIC's tables
+    are bounded (10,000 items, 1,000 extents an item, 20,000 steps; sizes 0, 4 or 8 only): a crafted 400 KB file whose
+    tables took 45 s is refused in under a millisecond. The cleaner runs in the upload request, not in a worker: every
+    parser is linear (a 50 MB JPEG, crafted or not, takes 60–100 ms, about as long as hashing it), which a worker would only
+    move. A 24,000-file mutation fuzz threw nothing, kept no metadata and took at most 2 ms a file.
+  - Shown only when cleaned or harmless: GIF, BMP and SVG (no place in practice) are shown as they are; a TIFF (it
+    can hold GPS like any camera EXIF) or a file whose bytes are not the picture its name says goes as a plain file
+    (no preview, no thumbnail), like a document, whose metadata is not cleaned either.
+  - Photos sent before this change keep their metadata: they are not rewritten (no backfill).
+- **The keyboard keeps the newest message in sight (end-to-end run, 2026-11-06).** The page uses
+  `interactive-widget=resizes-content`, so a phone's keyboard shrinks the message list from below with its scroll
+  position unchanged and no scroll event; the list followed only its content's size, so the newest messages went
+  behind the message box. The list now also follows its own size: when it gets shorter and the reader was at the
+  bottom, it stays at the bottom (`lib/stickToBottom.ts`, the room and the AI chat alike).
 - **Realtime to members only.** Every room event goes through `publishEach` with the room's member rows (and `canSee`
   for a message), so a person outside the room never gets one. Payloads are one message (≤ 10,000 characters, ≤ 10
   files) or a few ids, well under the per-user buffer. Reconnect: the hub's replay check (`stillVisible`) now also

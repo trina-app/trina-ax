@@ -16,6 +16,7 @@ import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { UnreadBadge } from '../components/rooms/SidebarRooms'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
+import { useNameOf } from '../store/people'
 
 /** today: the time; yesterday: the word; before: the date */
 export function listTime(iso: string, locale: Locale, yesterday: string): string {
@@ -54,7 +55,7 @@ export default function Rooms() {
             <Link to="/" className={row} data-testid="rooms-ai">
               <img src="/favicon.svg" alt="" aria-hidden className="size-10 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
+                <span className="block truncate text-base font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
                 <span className="block truncate text-sm text-muted">{t('rooms.ai.hint')}</span>
               </span>
             </Link>
@@ -87,7 +88,8 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   // an AI answer (no author) is Markdown: one plain line of it
   const line = !m ? '' : m.author ? m.excerpt.replace(/\s+/g, ' ').trim() : plainLine(m.excerpt)
   const what = !m ? '' : m.deleted ? t('rooms.deleted') : line || (m.fileCount ? t('rooms.lastFiles', { n: m.fileCount }) : '')
-  const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : (m.author?.name ?? null)
+  const nameOf = useNameOf()
+  const who = !m ? null : m.author?.id === me?.user.id ? t('rooms.you') : room.kind === 'dm' ? null : nameOf(m.author)
   const unread = room.unreadCount
   return (
     <Link to={`/rooms/${room.id}`} className={className} data-testid="rooms-row">
@@ -95,7 +97,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={unread > 0 ? 'truncate font-semibold text-ink' : 'truncate font-medium text-ink'}>{title}</span>
+          <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}>{title}</span>
           {room.muted && (
             <>
               <BellOff size={12} className="shrink-0 text-faint" aria-hidden />

@@ -15,6 +15,7 @@ import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
+import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useEngines } from '../store/engines'
@@ -120,17 +121,13 @@ function ChatView({ chatId }: { chatId: string }) {
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [messages.length, last?.content.length, last?.steps.length])
 
-  // diagrams, images and code highlighting grow the page after the text arrived: stay at the bottom if we were there
+  // diagrams, images and code highlighting grow the page after the text arrived, and a phone's keyboard shrinks the
+  // list: stay at the bottom if we were there
   const content = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const el = content.current
-    if (!el) return
-    const ro = new ResizeObserver(() => {
-      const s = scroller.current
-      if (s && stick.current) s.scrollTop = s.scrollHeight
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
+    const s = scroller.current, c = content.current
+    if (!s || !c) return
+    return stickToBottom(s, c, () => stick.current)
   }, [])
 
   const onScroll = async () => {

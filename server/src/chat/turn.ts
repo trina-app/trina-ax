@@ -1335,8 +1335,10 @@ export class TurnExec {
     if (this.roomAllowed.has(key)) return null
     const L = this.spec.locale
     const what = this.redact(this.toolSet?.stepLabel(tool, input, L) ?? stepLabel(tool, input, L, BROWSER_TOOL_NAMES))
+    // a skill, rule or instruction file looks like any file save: one line says what it is (its content is open in full)
+    const instruction = w.targets.some(instructionLike) ? ` ${tr('roomAiConfirmInstruction', L)}` : ''
     const answer = await this.waitForPerson({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('roomAiConfirm', L, { what }),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('roomAiConfirm', L, { what }) + instruction,
       options: [{ label: tr('roomAiConfirmYes', L), value: 'allow' }, { label: tr('roomAiConfirmNo', L), value: 'skip' }], multiple: false, allowText: false,
       details: roomChangeDetails(tool, input, L).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) })),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
@@ -1887,9 +1889,10 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale): { label: st
       ]
     }
     case 'write':
-      return detail([field('roomAiChangeFile', str(a.file_path))], str(a.content) || tr('roomAiChangeEmpty', L), [str(a.file_path)])
+      // an empty file: said as a field, so the card's size (of the text) is not that of the words "(빈 내용)"
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.content) ? [] : [field('roomAiChangeContent', tr('roomAiChangeEmpty', L))])], str(a.content), [str(a.file_path)])
     case 'edit':
-      return detail([field('roomAiChangeFile', str(a.file_path))], `${str(a.old_string)}\n→\n${str(a.new_string) || tr('roomAiChangeEmpty', L)}`, [str(a.file_path)])
+      return detail([field('roomAiChangeFile', str(a.file_path)), ...(str(a.new_string) ? [] : [field('roomAiChangeNewText', tr('roomAiChangeEmpty', L))])], `${str(a.old_string)}\n→\n${str(a.new_string)}`, [str(a.file_path)])
     case 'make_file': {
       // made from a file (a source, a template, pictures): what those hold is not on the card, and the card says so
       const from = [str(a.source), str(a.template), ...(Array.isArray(a.images) ? a.images.filter((x): x is string => typeof x === 'string') : [])].filter(Boolean)

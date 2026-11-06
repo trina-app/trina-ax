@@ -5,7 +5,7 @@ import { useCallback } from 'react'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { roomTitle } from '../../lib/rooms'
-import { useAvatarOf, usePeopleList } from '../../store/people'
+import { useAvatarOf, usePeople, usePeopleList } from '../../store/people'
 import { Avatar } from '../Avatar'
 
 /** The room's name as the app shows it (DMs: the other person; the everyone room: "전체"). */
@@ -13,7 +13,12 @@ export function useRoomTitle() {
   const t = useT()
   const all = t('rooms.all')
   const gone = t('rooms.goneUser')
-  return useCallback((room: Pick<Room, 'kind' | 'name' | 'peers'>) => roomTitle(room, { all, gone }), [all, gone])
+  // a DM is named after the other person as the directory has them now (a changed name shows at once)
+  const byId = usePeople((s) => s.byId)
+  return useCallback((room: Pick<Room, 'kind' | 'name' | 'peers'>) => {
+    const peer = room.kind === 'dm' ? room.peers[0] : undefined
+    return roomTitle(peer && byId[peer.id] ? { ...room, peers: [{ ...peer, name: byId[peer.id]!.name }] } : room, { all, gone })
+  }, [all, gone, byId])
 }
 
 /** `tile`: the icon on a round tile the size of an avatar (lists); without it a bare 16px icon in a box of that size

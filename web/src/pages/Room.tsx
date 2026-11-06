@@ -9,8 +9,9 @@ import { Link, useParams } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage, type RoomQuote } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
 import { newestSeq } from '../lib/rooms'
+import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
-import { usePeopleList } from '../store/people'
+import { usePeople, usePeopleList } from '../store/people'
 import { useRooms, type PendingSend } from '../store/rooms'
 import { useMe } from '../store/session'
 import { toast } from '../store/ui'
@@ -78,6 +79,7 @@ function RoomView({ roomId }: { roomId: string }) {
   const messages = thread?.messages ?? NO_MESSAGES
   // the AI at work here (components/rooms/RoomAiStatus.tsx): the bottom follows its steps too
   const aiKey = useRooms((s) => { const a = s.ai[roomId]; return a ? `${a.answering}:${a.runs.map((r) => `${r.state}${r.steps.length}`).join(',')}` : '' })
+  const peerTitle = usePeople((s) => (room?.kind === 'dm' && room.peers[0] ? s.byId[room.peers[0].id]?.title : undefined)) || null
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
@@ -88,16 +90,11 @@ function RoomView({ roomId }: { roomId: string }) {
     const el = scroller.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [last?.id, messages.length, pending.length, aiKey])
-  // thumbnails load after the text: stay at the bottom if we were there
+  // thumbnails load after the text, and a phone's keyboard shrinks the list: stay at the bottom if we were there
   useEffect(() => {
-    const el = content.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => {
-      const s = scroller.current
-      if (s && stick.current) s.scrollTop = s.scrollHeight
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
+    const s = scroller.current, c = content.current
+    if (!s || !c) return
+    return stickToBottom(s, c, () => stick.current)
   }, [])
 
   const tryRead = useCallback(() => {
@@ -160,9 +157,17 @@ function RoomView({ roomId }: { roomId: string }) {
           <ChevronLeft size={20} aria-hidden />
         </Link>
         {room && <RoomIcon room={room} size={24} />}
-        <h1 className="min-w-0 truncate font-medium text-ink" data-testid="room-title">
-          {room ? title(room) : ''}
-        </h1>
+        {/* a DM: the other person's title (직함) small under their name, as the people list shows it */}
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-medium text-ink" data-testid="room-title">
+            {room ? title(room) : ''}
+          </h1>
+          {peerTitle && (
+            <p className="truncate text-xs text-muted" data-testid="room-peer-title">
+              {peerTitle}
+            </p>
+          )}
+        </div>
         {room && room.kind !== 'dm' && (
           <button type="button" onClick={() => setShowMembers(true)} className="touch-hit shrink-0 rounded px-1 py-1 text-xs text-faint hover:text-ink max-sm:py-2" data-testid="room-members-button">
             {t('rooms.members', { n: room.memberCount })}
