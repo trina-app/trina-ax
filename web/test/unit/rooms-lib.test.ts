@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, plainLine, roomBadge, roomTitle, runActive, threadClosing, threadOpening, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
+import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, roomBadge, roomTitle, runActive, threadClosing, threadOpening, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -47,10 +47,45 @@ describe('@mentions', () => {
     expect(matchMembers(members, 'zz', ME.id)).toEqual([])
   })
 
-  test('picking writes "@name " and only names still in the text are sent', () => {
+  test('picking writes "@name "', () => {
     expect(insertMention('hi @c', 3, 5, 'Cy Park')).toEqual({ text: 'hi @Cy Park ', caret: 12 })
-    expect(keptMentions('hi @Cy Park and @Ben', [CY, BEN, BEN])).toEqual([CY.id, BEN.id])
-    expect(keptMentions('hi Ben', [BEN])).toEqual([])
+  })
+
+  test('the box\'s mentions: picked people whose "@name" is whole where it was put; what is sent is exactly them', () => {
+    const cy = { start: 3, end: 11, id: CY.id, name: CY.name }
+    const ben = { start: 16, end: 20, id: BEN.id, name: BEN.name }
+    const text = 'hi @Cy Park and @Ben'
+    expect(mentionTokens(text, [cy, ben], false)).toEqual([{ start: 3, end: 11, kind: 'person', id: CY.id }, { start: 16, end: 20, kind: 'person', id: BEN.id }])
+    expect(tokenMentions(mentionTokens(text, [cy, ben, { ...ben }], false))).toEqual([CY.id, BEN.id])
+    // the text there changed (the range no longer holds "@Ben"): not a mention
+    expect(mentionTokens('hi @Cy Park and @Bex', [cy, ben], false).map((x) => x.id)).toEqual([CY.id])
+    // a letter right before the "@" pauses it (the message would show it as text, as mentionParts does)
+    expect(mentionTokens('hi x@Cy Park', [{ ...cy, start: 4, end: 12 }], false)).toEqual([])
+    expect(mentionTokens('hi (@Cy Park)', [{ ...cy, start: 4, end: 12 }], false)).toHaveLength(1)
+    // text that only looks like a mention (pasted, typed) is none
+    expect(mentionTokens('hi @Cy Park', [], false)).toEqual([])
+  })
+
+  test('"@트리나" stands out where the server takes it as a call, unless a picked person has that name', () => {
+    expect(mentionTokens('@트리나 정리해 줘', [], true)).toEqual([{ start: 0, end: 4, kind: 'ai', id: '@ai' }])
+    expect(mentionTokens('@트리나 정리해 줘', [], false)).toEqual([])
+    expect(mentionTokens('@트리나야 안녕', [], true)).toEqual([])
+    expect(mentionTokens('메일 a@트리나', [], true)).toEqual([])
+    expect(mentionTokens('ask @trina, please', [], true)).toEqual([{ start: 4, end: 10, kind: 'ai', id: '@ai' }])
+    // a person called 트리나 was picked: the server asks no AI for any "@트리나" of this message
+    const person = { start: 0, end: 4, id: 'tri', name: '트리나' }
+    expect(mentionTokens('@트리나 @트리나', [person], true)).toEqual([{ start: 0, end: 4, kind: 'person', id: 'tri' }])
+    // a person whose name goes on from an AI name keeps it (the server asks no AI there either)
+    expect(mentionTokens('@Trina Kim hi', [{ start: 0, end: 10, id: 'tk', name: 'Trina Kim' }], true).map((x) => x.kind)).toEqual(['person'])
+    // a shorter name an AI name runs past: the call wins and the person is not sent
+    const tri = mentionTokens('@트리나 hi', [{ start: 0, end: 3, id: 'tri', name: '트리' }], true)
+    expect(tri).toEqual([{ start: 0, end: 4, kind: 'ai', id: '@ai' }])
+    expect(tokenMentions(tri)).toEqual([])
+  })
+
+  test('a text\'s mentions as picked ones again (an edit, a send that came back), as the message marks them', () => {
+    expect(mentionsIn('hi @Cy Park and @Ben', [CY, BEN])).toEqual([{ start: 3, end: 11, id: CY.id, name: CY.name }, { start: 16, end: 20, id: BEN.id, name: BEN.name }])
+    expect(mentionsIn('ben@Ben', [BEN])).toEqual([])
   })
 
   test('a sent text: the @names of the people it mentions, the rest as plain text', () => {
