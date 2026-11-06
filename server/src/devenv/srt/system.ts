@@ -14,6 +14,8 @@ export interface SpawnSpec {
   exitFile: string
   settingsFile: string
   command: string
+  /** Full internet: run srt through full.mjs (the settings have strictAllowlist false) */
+  full?: boolean
   /** stdout and stderr go here (the same file for a job); never a pipe */
   stdoutFile: string
   stderrFile: string
@@ -107,7 +109,7 @@ export function systemdSystem(id: string): SrtSystem {
     spawn(s) {
       const out = openOut(s.stdoutFile), err = s.stderrFile === s.stdoutFile ? out : openOut(s.stderrFile)
       try {
-        const p = Bun.spawn(scopeArgv({ runId: s.runId, id: s.id, limits: s.limits, exitFile: s.exitFile, settingsFile: s.settingsFile, command: s.command }), {
+        const p = Bun.spawn(scopeArgv({ runId: s.runId, id: s.id, limits: s.limits, exitFile: s.exitFile, settingsFile: s.settingsFile, command: s.command, full: s.full }), {
           cwd: s.cwd, env: s.env, stdin: 'ignore', stdout: out, stderr: err,
         })
         p.unref()

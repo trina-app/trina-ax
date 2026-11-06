@@ -33,6 +33,7 @@ import { Avatar } from '../components/Avatar'
 import { squarePhoto, type Photo } from '../lib/avatar'
 import { DriveConnection } from '../components/settings/DriveConnection'
 import { Notifications } from '../components/settings/Notifications'
+import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { AccountDeletion } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { MemoryForm } from '../components/settings/MemoryForm'
@@ -55,6 +56,7 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'drive' && <DriveConnection key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'apps' && <Apps />}
       {tab === 'credentials' && <MyCredentials />}

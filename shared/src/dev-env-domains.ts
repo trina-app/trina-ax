@@ -39,6 +39,8 @@ export function extraDomainProblem(domain: string, teamHosts: readonly string[] 
   if (labels.length < 2) return 'a domain needs at least two parts, for example example.com'
   if (!labels.every((l) => LABEL.test(l))) return 'not a host name'
   if (/^[0-9.]+$/.test(host) || host.includes(':')) return 'an IP address is not allowed'
+  // 0x7f.1 and other spellings of an address; no real top-level domain is all digits
+  if (labels.every((l) => /^(0x[0-9a-f]+|[0-9]+)$/.test(l)) || /^[0-9]+$/.test(labels[labels.length - 1]!)) return 'an IP address is not allowed'
   const lowerTeam = teamHosts.map((t) => t.toLowerCase())
   for (const t of lowerTeam) {
     if (host === t || t.endsWith('.' + host)) return 'this is the host name of this Trina server'
@@ -49,4 +51,52 @@ export function extraDomainProblem(domain: string, teamHosts: readonly string[] 
 /** The team's list after the checks: lowercase, no duplicates, in the order given. */
 export function cleanExtraDomains(list: readonly string[]): string[] {
   return [...new Set(list.map((d) => d.trim().toLowerCase()).filter(Boolean))]
+}
+
+// ---------------- sites a person allows (docs/DECISIONS.md "Dev environment: sites a person allows") ----------------
+
+/** At most this many sites one person can allow "always". */
+export const DEV_ENV_MAX_USER_SITES = 100
+
+/** The warning that a person accepts to turn Full internet on. A new version (other words) turns it off for everyone
+ * until each person accepts again; it never needs an admin. */
+export const DEV_ENV_FULL_WARNING_VERSION = 1
+
+/** Names of the local network and of metadata services. A person may not allow them (the browser's office-network
+ * names, chat/browser-gate.ts, use the same idea). */
+export const LOCAL_SUFFIXES = ['localhost', 'local', 'internal', 'lan', 'corp', 'home', 'home.arpa', 'intranet', 'private', 'localdomain', 'test', 'invalid', 'example']
+
+/** The host of what the AI asked for: "https://Api.Example.com:443/x" -> "api.example.com". Null when nothing is left. */
+export function siteFromInput(raw: string): string | null {
+  let h = raw.trim().toLowerCase()
+  h = h.replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+  h = h.split(/[/?#]/, 1)[0]!
+  h = h.replace(/^[^@]*@/, '')
+  if (h.startsWith('[')) return h.length > 1 ? h : null
+  // one colon: a port ("host:443") or scp's path ("github.com:org/repo"); more: an IPv6 address, refused later
+  if (h.split(':').length === 2) h = h.slice(0, h.indexOf(':'))
+  h = h.replace(/\.+$/, '')
+  return h || null
+}
+
+/** Why a person may not allow this site, or null when they may. The checks of an admin's site (extraDomainProblem),
+ * and no local or metadata name. */
+export function userSiteProblem(host: string, teamHosts: readonly string[] = []): string | null {
+  const p = extraDomainProblem(host, teamHosts)
+  if (p) return p
+  const h = host.startsWith('*.') ? host.slice(2) : host
+  if (LOCAL_SUFFIXES.some((s) => h === s || h.endsWith('.' + s))) return 'a local or internal name is not allowed'
+  return null
+}
+
+/** Does a site pattern cover this host? Exact, or "*.example.com" for every name under example.com (srt's rule). */
+export function siteCovers(pattern: string, host: string): boolean {
+  if (pattern.startsWith('*.')) return host.endsWith(pattern.slice(1))
+  return pattern === host
+}
+
+/** The sites of one person's run: the default list, the team's sites, the person's own and the once-allowed ones,
+ * lowercase and with no duplicates. */
+export function mergeSites(...lists: readonly (readonly string[])[]): string[] {
+  return [...new Set(lists.flat().map((d) => d.trim().toLowerCase()).filter(Boolean))]
 }

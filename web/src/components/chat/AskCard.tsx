@@ -1,5 +1,5 @@
-// ask_user: the AI asks back mid-answer (options and/or free text), and browser_site: the in-app browser wants an
-// office-network address. Answered with POST /api/turns/:id/answer; closed by turn.request.closed (answered in
+// ask_user: the AI asks back mid-answer (options and/or free text), browser_site: the in-app browser wants an
+// office-network address, and dev_env_site: a dev-environment command needs a site that is not allowed. Answered with POST /api/turns/:id/answer; closed by turn.request.closed (answered in
 // another window, timed out, turn ended). Ordinary form controls (radios / checkboxes / buttons) for keyboards
 // and screen readers. The AI's own questions can also be answered from the message box (lib/askAnswer.ts): what is
 // ticked here goes along with that answer when the question takes several. The same card outside a turn (a scheduled
@@ -68,6 +68,32 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             </Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'browser_site', decision: 'deny' })}>
               {t('browser.deny')}
+            </Button>
+          </div>
+          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+        </div>
+      </div>
+    )
+
+  // a dev-environment command needs a site that is not allowed: only the person who owns the turn gets this card
+  if (r.kind === 'dev_env_site')
+    return (
+      <div className="my-3 overflow-hidden rounded-2xl border border-warn/40" role="group" aria-label={t('devEnvSite.title', { host: r.host })} data-testid="dev-env-site-card">
+        <div className="flex items-center gap-2 bg-warn-soft px-4 py-2.5 text-sm font-semibold text-warn">
+          <Globe size={16} aria-hidden /> <span className="min-w-0 break-all">{t('devEnvSite.title', { host: r.host })}</span>
+        </div>
+        <div className="space-y-2 px-4 py-3 text-sm">
+          {r.command && <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-subtle px-2 py-1 font-mono text-xs text-muted" data-testid="dev-env-site-command">{r.command}</pre>}
+          <p className="text-xs text-muted">{t('devEnvSite.body')}</p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'once' })} data-testid="dev-env-site-once">
+              {t('devEnvSite.allowOnce')}
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'always' })} data-testid="dev-env-site-always">
+              {t('devEnvSite.allowAlways')}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'deny' })} data-testid="dev-env-site-deny">
+              {t('devEnvSite.deny')}
             </Button>
           </div>
           {error && <p role="alert" className="text-xs text-danger">{error}</p>}
