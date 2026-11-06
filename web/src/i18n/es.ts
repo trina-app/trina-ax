@@ -2367,6 +2367,7 @@ export const es: Record<MessageKey, string> = {
   'credentials.claude.manual': "Crearlo en una terminal",
   'credentials.claude.starting': "Preparando el inicio de sesión de Claude…",
   'credentials.claude.open': "Abrir Claude para aprobar",
+  'credentials.claude.copyLink': "Copiar enlace",
   'credentials.claude.code': "Pegue el código que muestra Claude después de aprobar",
   'credentials.claude.codeInvalid': "Pegue el código completo (tiene un # en medio).",
   'credentials.claude.done': "Conectado · Suscripción de Claude",

@@ -2403,6 +2403,7 @@ export const ko = {
   'credentials.claude.manual': '터미널로 직접 만들기',
   'credentials.claude.starting': 'Claude 로그인 준비 중…',
   'credentials.claude.open': 'Claude 열어서 승인하기',
+  'credentials.claude.copyLink': '링크 복사',
   'credentials.claude.code': '승인한 뒤 Claude가 보여 주는 코드를 붙여 넣어 주세요',
   'credentials.claude.codeInvalid': '코드 전체를 붙여 넣어 주세요(중간에 #가 있어요).',
   'credentials.claude.done': '연결했어요 · Claude 구독',

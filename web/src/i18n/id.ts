@@ -2404,6 +2404,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.claude.manual': 'Buat lewat terminal',
   'credentials.claude.starting': 'Menyiapkan login Claude…',
   'credentials.claude.open': 'Buka Claude untuk menyetujui',
+  'credentials.claude.copyLink': 'Salin link',
   'credentials.claude.code': 'Tempel kode yang ditampilkan Claude setelah Anda menyetujui',
   'credentials.claude.codeInvalid': 'Tempel seluruh kodenya (ada # di tengahnya).',
   'credentials.claude.done': 'Terhubung · Langganan Claude',

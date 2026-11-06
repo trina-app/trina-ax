@@ -2367,6 +2367,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.claude.manual': "ターミナルで作成する",
   'credentials.claude.starting': "Claudeログインを準備しています…",
   'credentials.claude.open': "Claudeを開いて承認",
+  'credentials.claude.copyLink': "リンクをコピー",
   'credentials.claude.code': "承認後にClaudeが表示するコードを貼り付けてください",
   'credentials.claude.codeInvalid': "コード全体を貼り付けてください（途中に#が入っています）。",
   'credentials.claude.done': "接続しました · Claudeサブスクリプション",

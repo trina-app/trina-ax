@@ -2404,6 +2404,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.claude.manual': 'Make it in a terminal instead',
   'credentials.claude.starting': 'Preparing the Claude sign-in…',
   'credentials.claude.open': 'Open Claude to approve',
+  'credentials.claude.copyLink': 'Copy link',
   'credentials.claude.code': 'Paste the code Claude shows after you approve',
   'credentials.claude.codeInvalid': 'Paste the whole code (it has a # in the middle).',
   'credentials.claude.done': 'Connected · Claude subscription',
