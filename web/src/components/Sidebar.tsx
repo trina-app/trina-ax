@@ -5,7 +5,7 @@
 // "더 보기 (N)" for the rest with what is unread there) and "트리나 기록" (the AI's history: the five latest and the chat
 // on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K" when a hidden chat waits for me or has an
 // unseen answer; "답변 필요" and dots from the chat list itself, chat/ChatState.tsx), so the AI never sinks under many
-// rooms. People and the AI never share a word:
+// rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its own row between the two. People and the AI never share a word:
 // no bare "채팅" here. Each folds, and each one's whole list stays open or closed, remembered in this browser. Then the
 // account menu (the
 // person's email or ID, Settings, Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens
