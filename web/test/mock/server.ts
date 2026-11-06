@@ -2198,14 +2198,28 @@ export class MockServer {
         this.kg = { ...this.kg, added: [...new Set(added)] }
       }
       if (c.body.enabled === false) this.kg = { ...this.kg, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, diskBytes: 0, busy: 0 }
-      if (c.body.enabled === true && !this.kg.enabled) this.kg = { ...mockKnowledgeGraph(true), added: this.kg.added }
+      if (c.body.enabled === true && !this.kg.enabled) this.kg = { ...mockKnowledgeGraph(true), added: this.kg.added, documents: this.kg.documents }
+      // documents: off deletes the index (nothing listed); on brings the made-up folders back
+      if (c.body.documents === false) this.kg = { ...this.kg, documents: mockKgDocuments(false) }
+      if (c.body.documents === true && !this.kg.documents.enabled) this.kg = { ...this.kg, documents: mockKgDocuments(true) }
       return this.kg
     },
-    rebuildKnowledgeGraph: () => {
-      if (!this.kg.enabled) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
-      this.kg = { ...this.kg, roots: this.kg.roots.map((r) => ({ ...r, status: 'pending' as const, files: 0, symbols: 0 })), busy: this.kg.roots.length }
+    // like the server: part code, documents or (none) both, of the parts that are on
+    rebuildKnowledgeGraph: (c) => {
+      const part = c.body.part as 'code' | 'documents' | undefined
+      const code = this.kg.enabled && part !== 'documents', docs = this.kg.documents.enabled && part !== 'code'
+      if (!code && !docs) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
+      const d = this.kg.documents
+      this.kg = {
+        ...this.kg,
+        ...(code ? { roots: this.kg.roots.map((r) => ({ ...r, status: 'pending' as const, files: 0, symbols: 0 })), busy: this.kg.roots.length } : {}),
+        documents: docs ? { ...d, folders: d.folders.map((f) => ({ ...f, status: 'pending' as const })), busy: d.folders.length } : d,
+      }
       // the rebuild "finishes" a moment later
-      setTimeout(() => { this.kg = { ...mockKnowledgeGraph(true), added: this.kg.added } }, 1500)
+      setTimeout(() => {
+        const fresh = mockKnowledgeGraph(true)
+        this.kg = { ...this.kg, ...(code ? { roots: fresh.roots, busy: 0 } : {}), documents: docs ? fresh.documents : this.kg.documents }
+      }, 1500)
       return this.kg
     },
     deleteTeamIcon: () => {
@@ -3274,8 +3288,7 @@ function officeFixtures(): [string, Uint8Array][] {
 
 /** Made-up folders for Admin › Team settings › Knowledge graph (no real team's). */
 function mockKnowledgeGraph(available: boolean): KnowledgeGraphStatus {
-  // the documents part (stub until the admin screen shows it)
-  const documents = { enabled: true, folders: [], personal: { folders: 0, documents: 0, failed: 0 }, documents: 0, failed: [], failedCount: 0, lastUpdatedAt: null, diskBytes: 0, busy: 0 }
+  const documents = mockKgDocuments(true)
   if (!available) return { available: false, version: null, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, added: [], diskBytes: 0, busy: 0, documents }
   const at = new Date(Date.now() - 4 * 60_000).toISOString()
   return {
@@ -3286,5 +3299,28 @@ function mockKnowledgeGraph(available: boolean): KnowledgeGraphStatus {
       { path: 'shared', source: 'auto', status: 'ready', files: 1, symbols: 3, lastSyncAt: at },
     ],
     personal: { folders: 2, files: 14, symbols: 96 }, diskBytes: 23_400_000, busy: 0, documents,
+  }
+}
+
+/** The documents part of the made-up knowledge graph: on (the default) with three folders and three files that could
+ * not be read, or off (nothing indexed). */
+function mockKgDocuments(on: boolean): KnowledgeGraphStatus['documents'] {
+  if (!on) return { enabled: false, folders: [], personal: { folders: 0, documents: 0, failed: 0 }, documents: 0, failed: [], failedCount: 0, lastUpdatedAt: null, diskBytes: 0, busy: 0 }
+  const at = new Date(Date.now() - 2 * 60_000).toISOString()
+  return {
+    enabled: true,
+    folders: [
+      { path: 'projects/marketing', source: 'auto', status: 'ready', documents: 84, failed: 2, lastUpdatedAt: at },
+      { path: 'projects/web-app', source: 'auto', status: 'ready', documents: 12, failed: 0, lastUpdatedAt: at },
+      { path: 'shared', source: 'auto', status: 'ready', documents: 40, failed: 1, lastUpdatedAt: at },
+    ],
+    personal: { folders: 2, documents: 31, failed: 1 },
+    documents: 136,
+    failed: [
+      { path: 'projects/marketing/campaign-final.pptx', reason: 'too_big' },
+      { path: 'projects/marketing/scan-2024.pdf', reason: 'empty' },
+      { path: 'shared/old-contract.hwp', reason: 'unreadable' },
+    ],
+    failedCount: 3, lastUpdatedAt: at, diskBytes: 8_200_000, busy: 0,
   }
 }
