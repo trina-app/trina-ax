@@ -3553,6 +3553,35 @@ export const ko = {
   // ── K: 내 스킬 가져오기 step (welcome.skills.*, skillShare.*) ──
   // ── K end: 내 스킬 가져오기 step ──
   // ── K: welcome order, team files, deck status, invite ──
+  "welcome.progress.skills": "내 스킬",
+  "welcome.progress.files": "팀 파일",
+  "welcome.next.files": "다음: 팀 파일 가져오기",
+  "welcome.next.invite": "다음: 팀원 초대",
+  "welcome.next.step": "다음",
+  "welcome.deck.building": "회사 소개서 만드는 중",
+  "welcome.deck.ready": "회사 소개서가 다 됐어요",
+  "welcome.deck.failed": "회사 소개서를 다 만들지 못했어요",
+  "welcome.deck.open": "보기",
+  "welcome.deck.waitTitle": "회사 소개서를 마무리하고 있어요",
+  "welcome.deck.waitDesc": "다 되면 바로 열어 드려요. 이 화면을 닫아도 계속 만들어요.",
+  "welcome.deck.waitFailedTitle": "회사 소개서를 다 만들지 못했어요",
+  "welcome.deck.waitFailedDesc": "채팅에서 무엇이 막혔는지 보고 다시 만들 수 있어요.",
+  "welcome.deck.openChat": "채팅에서 보기",
+  "welcome.deck.inviteFirst": "기다리지 않고 팀원 초대하기",
+  "welcome.deck.inviteNow": "팀원 초대하기",
+  "welcome.teamFiles.title": "팀이 같이 쓰는 파일도 넣어 둘까요?",
+  "welcome.teamFiles.desc": "회사 소개서, 지난 보고서, 양식처럼 팀이 같이 보는 파일을 넣으면 팀원 누구나 {product}와 바로 써요.",
+  "welcome.teamFiles.where": "넣을 곳",
+  "welcome.teamFiles.more": "파일 더 넣기",
+  "welcome.teamFiles.noFolder": "팀 폴더를 아직 만들지 못했어요. 나중에 파일 화면에서 넣을 수 있어요.",
+  "welcome.teamFiles.failed": "올리지 못한 파일이 있어요",
+  "welcome.teamFiles.added": "{folder} 폴더에 {n}개를 넣었어요",
+  "welcome.resume.skillsLeft": "남은 일: 내 스킬 가져오기",
+  "teamLink.messageShared": "{name}님이 {product}에서 {team}에 함께하자고 초대했어요. 팀 스킬 {skills}을 같이 써 보자고 해요. 링크로 바로 들어올 수 있어요: {url}",
+  "teamLink.sharedTwo": "'{a}', '{b}'",
+  "teamLink.sharedMany": "'{a}' 등 {n}개",
+  "teamLink.landing": "들어오면 '{skill}'부터 열려요",
+  "teamLink.landingChange": "바꾸기",
   // ── K end: welcome order ──
 } as const
 

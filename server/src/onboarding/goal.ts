@@ -20,6 +20,8 @@ import type { AppContext } from '../context'
 import { getSetting, setSetting } from '../admin/settings'
 import { notificationsOf } from '../notifications/service'
 import { titleFor } from './goal-names'
+import { readWelcome } from './welcome'
+import { readSkill } from '../chat/skills'
 
 const DAY_MS = 86_400_000
 /** after the window, a reached goal's "달성했어요" stays this long, only for a team that saw the card in its window */
@@ -128,6 +130,24 @@ export function joinedNotRun(db: Database, viewerId: string, w: GoalWindow, ran:
 }
 
 /**
+ * The skill the card counts: the one most people ran; but while the skill the invite opens (shared from 내 스킬
+ * 가져오기, docs/DECISIONS.md "K": `shared.landing` of the welcome steps) has as many runners, that one, even with
+ * nobody yet — the same skill the link opens and the members land on. A landing skill deleted since counts no more.
+ */
+export function focusSkill(ctx: AppContext, p: GoalProgress): SkillRunners | null {
+  const landing = readWelcome(ctx)?.shared?.landing ?? null
+  if (!landing) return p.best
+  const runs = skillRunners(ctx.db, p.startedAt, p.endsAt).find((s) => s.path === landing)
+  if (runs) return !p.best || runs.people.length >= p.best.people.length ? runs : p.best
+  if (p.best) return p.best
+  let name: string | null = null
+  try { name = readSkill(ctx.files, ctx.files.principal(firstOwner(ctx.db) ?? ''), landing)?.name ?? null } catch { name = null }
+  return name ? { path: landing, name, people: [] } : null
+}
+
+const firstOwner = (db: Database) => (db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null)?.id ?? null
+
+/**
  * The card for an owner or admin (the route checks the role), or null when there is nothing to show:
  *   - open: the window runs and the goal is not reached;
  *   - reached: reached in the window; shown while the window runs, and after it for REACHED_GRACE_MS only when the
@@ -145,7 +165,7 @@ export function teamGoal(ctx: AppContext, viewerId: string, now = new Date()): T
   const p = goalProgress(ctx.db)
   if (!p || (!open && !p.reachedAt)) return null
   if (open && !getSetting(ctx.db, GOAL_SHOWN_KEY)) setSetting(ctx.db, GOAL_SHOWN_KEY, now.toISOString())
-  const best = p.best
+  const best = focusSkill(ctx, p)
   const goal: TeamGoal = {
     state: p.reachedAt ? 'reached' : 'open',
     target: GOAL_PEOPLE, days: GOAL_DAYS,

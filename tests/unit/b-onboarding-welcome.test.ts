@@ -36,7 +36,7 @@ test('nothing until the steps start; then each step is kept on the server and re
 
   // the first visit starts it, with the setup link's website (normalized)
   const started = (await owner.call('PATCH', '/api/onboarding/welcome', { site: 'www.acme.example' })).progress
-  expect(started.steps).toEqual({ profile: null, result: null, invite: null })
+  expect(started.steps).toEqual({ profile: null, result: null, skills: null, files: null, invite: null })
   expect(started.site).toBe('https://www.acme.example/')
   expect(started.finishedAt).toBeNull()
 
@@ -49,7 +49,7 @@ test('nothing until the steps start; then each step is kept on the server and re
   await other.login('olga', 'owner horse battery 42')
   const read = (await other.call('GET', '/api/onboarding/welcome')).progress
   expect(read.teamType).toBe('sales')
-  expect(read.steps).toEqual({ profile: 'skipped', result: null, invite: null })
+  expect(read.steps).toEqual({ profile: 'skipped', result: null, skills: null, files: null, invite: null })
   expect((await ada.client.call('GET', '/api/onboarding/welcome')).progress).toEqual(read)
   expect(WelcomeProgress.parse(getSetting(h.ctx.db, WELCOME_SETTING))).toEqual(read)
 
@@ -139,7 +139,7 @@ test('a stored row a later release changed: read field by field, the pack never 
     pack: { id: 'marketing', version: 2, installedAt: '2026-11-04T00:00:00.000Z' }, goal: { people: 3 },
   })
   const read = (await ada.client.call('GET', '/api/onboarding/welcome')).progress
-  expect(read.steps).toEqual({ profile: null, result: null, invite: null })
+  expect(read.steps).toEqual({ profile: null, result: null, skills: null, files: null, invite: null })
   expect(read.pack).toEqual({ id: 'marketing', at: '', skillPath: WELCOME_RESULT_SKILL })
   expect(read.site).toBeNull()
 

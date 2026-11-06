@@ -20,6 +20,7 @@ import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMe } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
 import QrCode from '../QrCode'
+import type { InviteShared } from './InviteStep'
 import { Button, Field, Modal, Skeleton, confirmDialog, inputCls, useCopy } from '../ui'
 import { GroupChecks } from '../../pages/admin/people-choices'
 import { Loadable, OneLine, useAction, useActionOk, useLoad } from '../../pages/admin/common'
@@ -70,7 +71,7 @@ export function linkToMake(data: TeamLinkResponse): boolean {
  * `skillPath` alone (no files), keeping its address; `prepare`: the owner walking the welcome steps, the link is made
  * as the panel opens when none could let anyone in (`linkToMake`; never for anyone else); `folded`: the invite step's
  * short view (TeamLinkView). */
-export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, starter, made, retarget, prepare, folded, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; starter?: TeamLinkStarter | null; made?: boolean; retarget?: boolean; prepare?: boolean; folded?: boolean; onChange?: (r: TeamLinkResponse) => void }) {
+export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath, starter, made, retarget, prepare, folded, shared, onChange }: { withGroups?: boolean; skillPicker?: boolean; skillPath?: string | null; starter?: TeamLinkStarter | null; made?: boolean; retarget?: boolean; prepare?: boolean; folded?: boolean; shared?: InviteShared | null; onChange?: (r: TeamLinkResponse) => void }) {
   const me = useMe()
   const admin = isAdmin(me)
   const owner = isOwner(me)
@@ -108,6 +109,14 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
   // The person pressed 팀원 초대 with the lead's files: an open link that leads elsewhere is changed once to carry them
   // (its address stays, so a link already posted in a chat now leads there too)
   const [patch, setPatch] = useState<'idle' | 'running' | 'done'>('idle')
+  // another shared skill picked to open first (바꾸기): the open link is changed once more, to that one
+  const lastPath = useRef(skillPath)
+  useEffect(() => {
+    if (lastPath.current === skillPath) return
+    lastPath.current = skillPath
+    if (patch === 'done') setPatch('idle')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skillPath])
   const want = (starter || made || retarget) && skillPath ? { skillPath, starter: starter ?? null, groupId: teamGroup?.id ?? null } : null
   const wantPatch = !!want && ready && patch === 'idle' && linkDiffers(state.data?.link ?? null, want)
   useEffect(() => {
@@ -164,6 +173,7 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
           fixedSkillPath={skillPath}
           starter={starter}
           made={made}
+          shared={shared}
           defaultGroupIds={teamGroup ? [teamGroup.id] : []}
           busy={busy}
           folded={folded}
@@ -189,6 +199,9 @@ export interface TeamLinkViewProps {
   starter?: TeamLinkStarter | null
   /** `fixedSkillPath` is a team skill the lead just made: the message says so ("{팀}에 '…' 스킬을 만들어 뒀어요") */
   made?: boolean
+  /** the skills shared from 내 스킬 가져오기 (docs/DECISIONS.md "K"): the message names them, one line says which the link
+   * opens first, with 바꾸기 among them */
+  shared?: InviteShared | null
   /** the groups a new link starts with (the team's own group); a link before keeps its own */
   defaultGroupIds?: string[]
   busy: boolean
@@ -208,7 +221,7 @@ const STALE = {
 } as const satisfies Record<TeamLinkState | 'unreadable', MessageKey | null>
 
 /** What the panel shows, without loading anything (tests render it as it is). */
-export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPath, starter, made = false, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke }: TeamLinkViewProps) {
+export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPath, starter, made = false, shared = null, defaultGroupIds = [], busy, folded = false, onCreate, onRevoke }: TeamLinkViewProps) {
   const t = useT()
   const locale = useLocale()
   const [editing, setEditing] = useState(false)
@@ -253,7 +266,9 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
   const skillName = link.skill ? (link.skill.title ?? link.skill.name) : null
   // a starter with no file left that a newcomer could read leads nowhere: the usual message
   const waiting = link.starter && link.starter.files > 0 ? link.starter : null
-  const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, starter: waiting?.kind, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath })
+  // the shared skills, while the link opens one of them (the landing one; a link that leads elsewhere says its own skill)
+  const sharedHere = shared && link.skill && shared.options.some((o) => o.path === link.skill!.path) ? shared : null
+  const message = teamLinkMessage(t, { name: inviter, team, url, skill: skillName, starter: waiting?.kind, made: made && !!fixedSkillPath && link.skill?.path === fixedSkillPath, shared: sharedHere?.titles })
   const groupNames = link.groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter((x): x is string => !!x)
   // the groups line: always when the link puts people in groups; "그룹 없음" only on a team that has groups
   const showGroups = link.groupIds.length > 0 || groups.length > 0
@@ -318,10 +333,35 @@ export function TeamLinkView({ data, inviter, team, groups, skills, fixedSkillPa
         <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm leading-6 whitespace-pre-wrap break-words text-ink" data-testid="team-link-message">
           {message}
         </blockquote>
+        {sharedHere && skillName && <LandingLine shared={sharedHere} skill={skillName} />}
         <CopyPrimary text={message} label={t('teamLink.copyMessage')} />
       </div>
       {folded ? <ManageFold>{details}</ManageFold> : details}
     </div>
+  )
+}
+
+/** "들어오면 '{스킬}'부터 열려요 · 바꾸기" (docs/DECISIONS.md "K"): the shared skill the link opens; 바꾸기 (only with two
+ * or more) is a plain select of the shared skills, and the link changes to the one picked (same address). */
+function LandingLine({ shared, skill }: { shared: InviteShared; skill: string }) {
+  const t = useT()
+  const id = useId()
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-1 text-label text-muted" data-testid="team-link-landing">
+      <span>{t('teamLink.landing', { skill })}</span>
+      {shared.options.length > 1 && (
+        <>
+          <span aria-hidden>·</span>
+          <label htmlFor={id} className="sr-only">{t('teamLink.landingChange')}</label>
+          <span className="relative inline-flex items-center">
+            <span aria-hidden className="font-medium text-ink underline decoration-line-strong underline-offset-4">{t('teamLink.landingChange')}</span>
+            <select id={id} className="absolute inset-0 cursor-pointer opacity-0" value={shared.landing} onChange={(e) => shared.onLanding(e.target.value)} data-testid="team-link-landing-change">
+              {shared.options.map((o) => <option key={o.path} value={o.path}>{o.title}</option>)}
+            </select>
+          </span>
+        </>
+      )}
+    </p>
   )
 }
 

@@ -1,6 +1,7 @@
 // On the chat the welcome steps' first result ran in (pages/Welcome.tsx), once its answer is in, one slim bar for the
 // owner with one button: "마음에 드시나요? 팀원도 같은 방식으로 바로 만들 수 있어요" [팀에 공유] (docs/DECISIONS.md "W2 —
-// AI connection first"). It opens the invite with the skill that made the result, as it is (lib/welcome.ts
+// AI connection first"). It opens the invite (내 스킬 가져오기 came before it, docs/DECISIONS.md "K": with skills shared
+// there the invite names them and its link opens the first of them); otherwise with the skill that made the result, as it is (lib/welcome.ts
 // resultSkill: the run the server recorded, the path the 7-day goal counts), never a copy: people who join land on its
 // form and their runs count with the owner's. The link is made in advance (InviteStep `prepare`: the message and one
 // "메시지 복사" at once), an open link that leads elsewhere is changed to that skill (same address), and no files go
@@ -21,7 +22,7 @@ import { isOwner, useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { Button, IconButton, Modal, useMediaQuery } from '../ui'
-import { InviteStep, SkipDialog } from './InviteStep'
+import { InviteStep, SkipDialog, sharedForInvite } from './InviteStep'
 
 type ChatMessage = Pick<Message, 'role' | 'content' | 'receipt'>
 
@@ -36,7 +37,8 @@ export function WelcomeInviteBar({ chatId, answered, messages = [] }: { chatId: 
   useEffect(() => {
     if (owner) void useWelcome.getState().load().catch(() => {})
   }, [owner])
-  const skillPath = useMemo(() => resultSkill(messages, progress), [messages, progress])
+  // the skill the owner shared from 내 스킬 가져오기 first (docs/DECISIONS.md "K": the link opens it), else the deck's
+  const skillPath = useMemo(() => progress?.shared?.landing ?? resultSkill(messages, progress), [messages, progress])
   if (!owner || !loaded || !progress || !showInviteBar(progress, chatId)) return null
 
   const invite = () => {
@@ -78,7 +80,7 @@ export function WelcomeInviteBar({ chatId, answered, messages = [] }: { chatId: 
       {open && (
         // the dialog's own title names the step: no second heading inside it
         <Modal open onClose={() => setOpen(false)} width={560} title={t('teamLink.stepTitle')}>
-          <InviteStep title={null} skillPath={skillPath} retarget={!!skillPath} prepare onDone={() => finish('done')} onSkip={() => finish('skipped')} />
+          <InviteStep title={null} skillPath={skillPath} retarget={!!skillPath} shared={sharedForInvite(progress)} prepare onDone={() => finish('done')} onSkip={() => finish('skipped')} />
         </Modal>
       )}
       {asking && <SkipDialog onInvite={invite} onLater={() => finish('skipped')} />}

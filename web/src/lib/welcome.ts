@@ -1,5 +1,5 @@
 // The welcome steps (pages/Welcome.tsx; docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting
-// note, everyone's own tasks", "W2 — AI connection first"): which step to open, what the Home entry counts, what
+// note, everyone's own tasks", "W2 — AI connection first", "K — 내 스킬 가져오기"): which step to open, what the Home entry counts, what
 // leaving the first step installs, which skill the invite under the first answer shares, and where the owner goes
 // right after /setup.
 import { GENERAL_TASKS_SKILL, WELCOME_COUNTED, WELCOME_STEPS, type Message, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
@@ -7,52 +7,77 @@ import { GENERAL_TASKS_SKILL, WELCOME_COUNTED, WELCOME_STEPS, type Message, type
 /** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
 const AFTER_AI = WELCOME_STEPS.filter((s) => s !== 'ai')
 
-/** Where the steps resume once AI answers: the first step after the AI step not yet done or put off; with none left,
- * the first counted step that was put off ("later" is now); null when everything is done (or finished). */
-function resumeWithAi(p: WelcomeProgress | null): WelcomeStep | null {
+/** A step's state; absent (a row from before 내 스킬 / 팀 파일, an older server) reads as open. */
+export const stepState = (p: WelcomeProgress, s: WelcomeStep) => p.steps[s] ?? null
+
+/**
+ * Whether a step is open on this device: not done or put off; and 내 스킬 가져오기 put off on a phone (`skillsLater`:
+ * skills live on a computer, docs/DECISIONS.md "K") is open again on a computer. `computer` false: a phone.
+ */
+export const openHere = (p: WelcomeProgress, s: WelcomeStep, computer = true) =>
+  stepState(p, s) === null || (s === 'skills' && computer && !!p.skillsLater && p.steps.skills !== 'done')
+
+/** Where the steps resume once AI answers: the first step after the AI step still open here; with none left, the first
+ * counted step that was put off ("later" is now; on a phone not 내 스킬, which waits for a computer); null when
+ * everything is done (or finished). */
+function resumeWithAi(p: WelcomeProgress | null, computer: boolean): WelcomeStep | null {
   if (p?.finishedAt) return null
   if (!p) return AFTER_AI[0]!
-  const open = AFTER_AI.find((s) => p.steps[s] === null)
+  const open = AFTER_AI.find((s) => openHere(p, s, computer))
   if (open) return open
-  return WELCOME_COUNTED.find((s) => p.steps[s] !== 'done') ?? null
+  return WELCOME_COUNTED.find((s) => stepState(p, s) !== 'done' && !(s === 'skills' && !computer && p.skillsLater)) ?? null
 }
 
-/** The steps the AI step holds back: 회사 소개 and 첫 결과 need AI, the invite does not. */
+/** The steps the AI step holds back: 회사 소개 and the intro deck need AI; 내 스킬 (its checks work without AI), 팀 파일
+ * and the invite do not. */
 const needsAi = (s: WelcomeStep | null) => s === 'profile' || s === 'result'
 
 /**
  * Where the steps resume. Without an AI that answers the owner (`aiReady` false: GET /api/me/ai-access), the AI step
- * in front of 회사 소개 and 첫 결과, never in front of the invite: with only the invite left it is the invite.
+ * in front of 회사 소개 and the intro deck, never in front of the later steps. `computer` false on a phone.
  */
-export function resumeStep(p: WelcomeProgress | null, aiReady = true): WelcomeStep | null {
-  const s = resumeWithAi(p)
+export function resumeStep(p: WelcomeProgress | null, aiReady = true, computer = true): WelcomeStep | null {
+  const s = resumeWithAi(p, computer)
   return !aiReady && needsAi(s) ? 'ai' : s
 }
 
-/** After a step: the next one in order that is still open; null (back to Home) when none is left after it, so a step
- * put off never comes straight back. */
-export function nextStep(p: WelcomeProgress, from: WelcomeStep): WelcomeStep | null {
+/** After a step: the next one in order that is still open here; null (back to Home) when none is left after it, so a
+ * step put off never comes straight back. */
+export function nextStep(p: WelcomeProgress, from: WelcomeStep, computer = true): WelcomeStep | null {
   const order: readonly WelcomeStep[] = from === 'ai' ? AFTER_AI : AFTER_AI.slice(AFTER_AI.indexOf(from) + 1)
-  return order.find((s) => p.steps[s] === null) ?? null
+  return order.find((s) => openHere(p, s, computer)) ?? null
 }
 
-/** The step before (the AI step is never gone back to: it is over once AI answers). */
-export function prevStep(from: WelcomeStep): WelcomeStep | null {
-  return from === 'ai' ? null : AFTER_AI[AFTER_AI.indexOf(from) - 1] ?? null
+/** The step before (the AI step is never gone back to: it is over once AI answers). The intro deck is not gone back to
+ * from the steps after it once it started (it builds on the server; its chat is a click away on the status line). */
+export function prevStep(from: WelcomeStep, p?: WelcomeProgress | null): WelcomeStep | null {
+  if (from === 'ai') return null
+  const before = AFTER_AI[AFTER_AI.indexOf(from) - 1] ?? null
+  if (before === 'result' && p?.resultChatId && p.steps.result === 'done') return null
+  return before
 }
 
 /** The steps the progress counts: the AI step while it is needed (the steps would open on it) or once it was shown
- * (recorded), then 회사 소개 and 첫 결과; an owner whose AI answered from the start never sees it (two steps). */
+ * (recorded), then 회사 소개, the intro deck, 내 스킬 and 팀 파일; an owner whose AI answered from the start never sees it
+ * (four steps). */
 export function countedSteps(p: WelcomeProgress | null, aiReady = true): WelcomeStep[] {
   const ai = (p?.steps.ai ?? null) !== null || resumeStep(p, aiReady) === 'ai'
   return ai ? ['ai', ...WELCOME_COUNTED] : [...WELCOME_COUNTED]
 }
 
-/** "1/2" on the Home entry: the counted steps done */
+/** "1/4" on the Home entry: the counted steps done */
 export const doneCount = (p: WelcomeProgress | null, aiReady = true) => (p ? countedSteps(p, aiReady).filter((s) => p.steps[s] === 'done').length : 0)
 
-/** How many steps the progress counts (the "/2", "/3" with the AI step): read it from here, never as a number of its own. */
+/** How many steps the progress counts (the "/4", "/5" with the AI step): read it from here, never as a number of its own. */
 export const stepTotal = (p: WelcomeProgress | null = null, aiReady = true) => countedSteps(p, aiReady).length
+
+/** What Home's row names: the invite alone left (every counted step done), 내 스킬 alone left (the rest done; put off on
+ * a phone or here), else the count. */
+export function resumeLeft(p: WelcomeProgress, aiReady = true): 'invite' | 'skills' | 'count' {
+  const left = countedSteps(p, aiReady).filter((s) => p.steps[s] !== 'done')
+  if (!left.length) return 'invite'
+  return left.length === 1 && left[0] === 'skills' ? 'skills' : 'count'
+}
 
 /** Every team's start (POST /api/onboarding/welcome/team): the general pack and the team's own group with its brand
  * folder, while any is missing (the server installs and creates each once, whatever the page asks; a group recorded
@@ -66,8 +91,9 @@ export function skillNameOf(path: string | null | undefined): string {
   return file === 'SKILL.md' ? (parts.at(-2) ?? '') : file.replace(/\.md$/, '')
 }
 
-/** The Home entry shows while the steps were started and are neither finished nor hidden. */
-export const showResume = (p: WelcomeProgress | null) => !!p && !p.finishedAt && !p.dismissedAt
+/** The Home entry shows while the steps were started and are neither finished nor hidden, and have a step to open on
+ * this device (on a phone, 내 스킬 put off for a computer is not one). */
+export const showResume = (p: WelcomeProgress | null, computer = true) => !!p && !p.finishedAt && !p.dismissedAt && resumeStep(p, true, computer) !== null
 
 /**
  * Coming back resumes the steps (docs/DECISIONS.md "W4"): an owner who left them unfinished lands on them instead of
@@ -99,7 +125,7 @@ export const forgetStepsSeen = () => {
 }
 /** A landing takes the owner to the steps while they were started, are neither finished nor hidden, and have a step to
  * open (resumeStep: with only a put-off invite left there is none, and the steps would send Home again). */
-export const resumesOnLanding = (p: WelcomeProgress | null) => showResume(p) && resumeStep(p) !== null
+export const resumesOnLanding = (p: WelcomeProgress | null, computer = true) => showResume(p, computer)
 /** Whether a location is a landing: the first entry of the tab (react-router's "default" key) on Home itself, or a
  * sign-in's. A first entry that carries a question or a project (`/?prompt=…`, `/?project=…` from a link opened in a new
  * tab) is not a landing: it is going somewhere, and the steps would lose it. */
@@ -124,10 +150,18 @@ export function resultSkill(messages: Pick<Message, 'role' | 'content' | 'receip
   return recorded.find((path): path is string => !!path && skillNameOf(path) === name) ?? null
 }
 
-/** The skill the welcome steps' own invite step carries (no chat to read it from): the first result's, the intro deck
+/** The skill the invite carries: the shared skill the owner brought from 내 스킬 가져오기 (`shared.landing`, the first
+ * recommended one unless they changed it; docs/DECISIONS.md "K"), else the first result's, the intro deck
  * (docs/DECISIONS.md "D2"), so a teammate's run counts for the 7-day goal; else the promo video or the card news (a row
  * whose first result ran one of them), the marketing pack's ad copy, the meeting notes skill (rows from before them). */
-export const inviteSkill = (p: WelcomeProgress): string | null => p.general?.introDeckPath ?? p.general?.promoVideoPath ?? p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
+export const inviteSkill = (p: WelcomeProgress): string | null => p.shared?.landing ?? p.general?.introDeckPath ?? p.general?.promoVideoPath ?? p.general?.cardNewsPath ?? p.pack?.skillPath ?? p.general?.tasksPath ?? null
+
+/** The shared skills' names for the invite message, the landing skill first (docs/DECISIONS.md "K"); none: []. */
+export function sharedTitles(p: WelcomeProgress | null): string[] {
+  const all = p?.shared?.skills ?? []
+  const first = all.find((x) => x.path === p?.shared?.landing)
+  return [...(first ? [first] : []), ...all.filter((x) => x !== first)].map((x) => x.title)
+}
 
 /** Home's one line after "자료 없이 해 볼게요" (router state): where meeting notes go. */
 export interface NotesHint { folder: string; team: string }
