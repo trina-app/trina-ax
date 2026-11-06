@@ -123,6 +123,9 @@ describe('handleEvent', () => {
   })
   afterEach(() => {
     globalThis.fetch = realFetch
+    // later files (in Linux CI's file order) expect no half-made session: this one has no session id
+    useSession.setState({ status: { kind: 'loading' } })
+    useRooms.getState().reset()
   })
   const tick = () => new Promise((r) => setTimeout(r, 0))
 
