@@ -2962,6 +2962,7 @@ export const ko = {
   "skills.issues.inputsTitle": "아래 스킬은 쓸 수 있지만, 입력 양식 없이 열려요.",
   "skills.issues.inputs": "입력 양식(metadata의 inputs)을 읽지 못했어요. \"inputs: |\"라고 쓰고, 다음 줄부터 JSON 목록을 들여 써 주세요. 칸마다 name과 label이 있어야 하고, 머리말은 8KB(한글 약 2,700자)를 넘으면 안 돼요.",
   "audit.act.onboarding.pack_install": "추천 스킬 묶음 설치",
+  "audit.act.onboarding.default_skills": "기본 스킬 추가",
   // onboarding stream D: the company profile (components/onboarding/ProfileStep.tsx, CompanyProfileCard.tsx)
   "onboarding.profile.title": "회사 소개",
   "onboarding.profile.siteTitle": "회사 홈페이지를 알려 주세요",

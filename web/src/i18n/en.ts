@@ -2963,6 +2963,7 @@ export const en: Record<MessageKey, string> = {
   "skills.issues.inputsTitle": "These skills work, but open without their form.",
   "skills.issues.inputs": "The form (inputs in the header metadata) could not be read. Write \"inputs: |\" and the JSON list on the lines below it, indented. Each field needs a name and a label, and the header must stay under 8 KB.",
   "audit.act.onboarding.pack_install": "Recommended skill pack installed",
+  "audit.act.onboarding.default_skills": "Default skills added",
   // onboarding stream D: the company profile (components/onboarding/ProfileStep.tsx, CompanyProfileCard.tsx)
   "onboarding.profile.title": "Company profile",
   "onboarding.profile.siteTitle": "What is your company website?",

@@ -2923,6 +2923,7 @@ export const es: Record<MessageKey, string> = {
   "skills.issues.inputsTitle": "Estas habilidades funcionan, pero se abren sin su formulario.",
   "skills.issues.inputs": "No se pudo leer el formulario (inputs en los metadatos del encabezado). Escriba \"inputs: |\" y la lista JSON en las líneas siguientes, con sangría. Cada campo necesita name y label, y el encabezado no debe superar 8 KB.",
   "audit.act.onboarding.pack_install": "Paquete de habilidades recomendado instalado",
+  "audit.act.onboarding.default_skills": "Habilidades predeterminadas añadidas",
   // onboarding stream D: the company profile (components/onboarding/ProfileStep.tsx, CompanyProfileCard.tsx)
   "onboarding.profile.title": "Perfil de la empresa",
   "onboarding.profile.siteTitle": "¿Cuál es el sitio web de su empresa?",

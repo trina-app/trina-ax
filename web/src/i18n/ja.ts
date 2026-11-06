@@ -2923,6 +2923,7 @@ export const ja: Record<MessageKey, string> = {
   "skills.issues.inputsTitle": "次のスキルは使えますが、入力フォームなしで開きます。",
   "skills.issues.inputs": "入力フォーム（ヘッダーの metadata の inputs）を読み取れませんでした。「inputs: |」と書き、次の行から JSON のリストを字下げして書いてください。各欄に name と label が必要で、ヘッダーは 8 KB 以内にしてください。",
   "audit.act.onboarding.pack_install": "おすすめスキルパックを追加",
+  "audit.act.onboarding.default_skills": "標準スキルを追加",
   // onboarding stream D: the company profile (components/onboarding/ProfileStep.tsx, CompanyProfileCard.tsx)
   "onboarding.profile.title": "会社紹介",
   "onboarding.profile.siteTitle": "会社のホームページを教えてください",
