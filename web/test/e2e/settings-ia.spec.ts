@@ -1,7 +1,8 @@
 // Admin and Settings, reorganised (pages/admin/AdminLayout.tsx, pages/settingsTabs.ts, components/settings/SettingsDialog.tsx):
-// Admin's groups People · AI · Connections · Activity · Team, one "AI providers" page instead of AI engines plus AI
-// connections (each provider with its own accounts and Add account), the old addresses leading there, Settings' named
-// groups Account · AI · Connections · App, and every page saying whether it is for the whole team or just for you.
+// Admin's groups People · Connections · Activity · Team, one "Providers" page (first in Connections) instead of AI
+// engines plus AI connections (each provider with its own accounts and Add account), the old addresses leading there,
+// the team's AI settings in Team settings (#ai), Settings' named groups Account · Connections · App, and every page
+// saying whether it is for the whole team or just for you.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { DICTS, type MessageKey } from '../../src/i18n'
@@ -10,15 +11,13 @@ import { realErrors, reset, signIn, watchConsole } from './helpers'
 const t = DICTS.en
 const ADMIN: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
-  ['admin.group.ai', ['admin.providers']],
-  ['admin.group.connections', ['admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins']],
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
 const SETTINGS: [string, MessageKey[]][] = [
-  ['account', ['settings.profile', 'settings.security', 'settings.usage']],
-  ['ai', ['settings.providers', 'settings.memory']],
-  ['connections', ['integrations.title', 'connectors.title', 'aiApps.title']],
+  ['account', ['settings.profile', 'settings.security', 'settings.usage', 'settings.memory']],
+  ['connections', ['settings.providers', 'integrations.title', 'connectors.title', 'aiApps.title']],
   ['app', ['notifications.title', 'settings.apps', 'settings.about']],
 ]
 
@@ -27,7 +26,7 @@ async function start(page: Page) {
   await signIn(page)
 }
 
-test('Admin: the five groups, one AI providers item and no AI connections; every page says it is for the whole team', async ({ page }) => {
+test('Admin: four groups, Providers first in Connections, no AI group and no AI connections; every page says it is for the whole team', async ({ page }) => {
   const errors = watchConsole(page)
   await start(page)
   await page.goto('/admin')
@@ -38,6 +37,8 @@ test('Admin: the five groups, one AI providers item and no AI connections; every
   }
   await expect(menu.getByRole('link', { name: 'AI connections' })).toHaveCount(0)
   await expect(menu.getByRole('link', { name: 'AI engines' })).toHaveCount(0)
+  await expect(menu.getByRole('link', { name: 'AI providers' })).toHaveCount(0)
+  await expect(menu.getByRole('group')).toHaveCount(ADMIN.length)
   for (const path of ['/admin/members', '/admin/providers', '/admin/integrations', '/admin/app-connectors', '/admin/settings']) {
     await page.goto(path)
     await expect(page.getByTestId('admin-content').getByTestId('page-scope').first()).toHaveText(t['scope.team'])
@@ -45,7 +46,7 @@ test('Admin: the five groups, one AI providers item and no AI connections; every
   expect(realErrors(errors)).toEqual([])
 })
 
-test('AI providers: each engine row lists its own accounts with Add account for just its kinds', async ({ page }) => {
+test('Providers: each engine row lists its own accounts with Add account for just its kinds', async ({ page }) => {
   await start(page)
   await page.goto('/admin/providers')
   await expect(page.getByTestId('engines-header')).toContainText(t['admin.providers'])
@@ -62,16 +63,19 @@ test('AI providers: each engine row lists its own accounts with Add account for 
   await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'] }).click()
   // the API engine has its own form, no account list
   await expect(page.locator('[data-engine="api"]').getByTestId('provider-accounts-claude')).toHaveCount(0)
-  // members' own accounts: in Team provider settings
-  await page.getByRole('tab', { name: t['engines.tab.team'] }).click()
-  await expect(page.getByTestId('member-accounts')).toContainText(t['providers.memberAccounts'])
+  // members' own accounts: in Team settings, with the team's other AI settings
+  await expect(page.getByTestId('member-accounts')).toHaveCount(0)
+  await page.goto('/admin/settings')
+  await expect(page.getByTestId('team-ai-settings').getByTestId('member-accounts')).toContainText(t['providers.memberAccounts'])
 })
 
-test('old addresses: AI engines and AI connections open AI providers (with the provider open), Settings › AI connections opens AI providers', async ({ page }) => {
+test('old addresses: AI engines and AI connections open Providers (with the provider open), their team tab opens Team settings, Settings › AI connections opens Providers', async ({ page }) => {
   await start(page)
   await page.goto('/admin/engines?tab=team')
-  await expect(page).toHaveURL(/\/admin\/providers\?tab=team$/)
+  await expect(page).toHaveURL(/\/admin\/settings#ai$/)
   await expect(page.getByTestId('engine-choice')).toBeVisible()
+  await page.goto('/admin/engines')
+  await expect(page).toHaveURL(/\/admin\/providers$/)
   await page.goto('/admin/credentials')
   await expect(page).toHaveURL(/\/admin\/providers\?engine=claude-code$/)
   await expect(page.locator('[data-engine="claude-code"]').getByTestId('engine-details')).toBeVisible()
@@ -80,7 +84,7 @@ test('old addresses: AI engines and AI connections open AI providers (with the p
   await expect(page.getByTestId('my-providers')).toBeVisible()
 })
 
-test('Settings: named groups Account, AI, Connections, App; every section says it is just for you', async ({ page }) => {
+test('Settings: named groups Account, Connections, App (Providers first in Connections); every section says it is just for you', async ({ page }) => {
   await start(page)
   await page.goto('/settings/profile')
   const list = page.getByTestId('settings-menu')
@@ -89,6 +93,8 @@ test('Settings: named groups Account, AI, Connections, App; every section says i
     await expect(g.getByText(t[`settings.group.${group}` as MessageKey], { exact: true })).toBeVisible()
     await expect(g.getByRole('link')).toHaveText(items.map((k) => t[k]))
   }
+  // no AI group any more: Providers is under Connections, Memory under Account
+  await expect(list.getByTestId('settings-group-ai')).toHaveCount(0)
   for (const path of ['/settings/profile', '/settings/providers', '/settings/integrations', '/settings/connectors']) {
     await page.goto(path)
     await expect(page.getByTestId('settings-content').getByTestId('page-scope')).toHaveText(t['scope.you'])
@@ -107,7 +113,7 @@ test('phone width: the Admin strip and the Settings list keep every item without
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`AI providers, the Admin menu and the Settings groups have no serious accessibility problems (${scheme})`, async ({ page }) => {
+  test(`Providers, the AI groups of Team settings, the Admin menu and the Settings groups have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await start(page)
     const audit = async () => {
@@ -117,8 +123,9 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.goto('/admin/providers')
     await expect(page.getByTestId('provider-accounts-claude')).toBeVisible()
     expect(await audit()).toEqual([])
-    await page.goto('/admin/providers?tab=team')
+    await page.goto('/admin/settings#ai')
     await expect(page.getByTestId('member-accounts')).toBeVisible()
+    await expect(page.getByTestId('engine-budgets')).toBeVisible()
     expect(await audit()).toEqual([])
     await page.goto('/settings/providers')
     await expect(page.getByTestId('my-providers')).toBeVisible()

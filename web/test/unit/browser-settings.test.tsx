@@ -57,15 +57,15 @@ describe('where Settings > Browser shows', () => {
     expect(browserSettingsBridge()).toBeNull()
     expect(settingsTabs(false).some((x) => x.id === 'browser')).toBe(false)
   })
-  test('AI providers lead the AI group, before what the AI remembers, with or without the Browser tab', () => {
-    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'browser', 'usage', 'providers', 'memory'])
-    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 5)).toEqual(['profile', 'security', 'usage', 'providers', 'memory'])
+  test('Providers lead the Connections group, after Account ends with what the AI remembers, with or without the Browser tab', () => {
+    expect(settingsTabs(true, true).map((x) => x.id).slice(0, 7)).toEqual(['profile', 'security', 'browser', 'usage', 'memory', 'providers', 'integrations'])
+    expect(settingsTabs(false, true).map((x) => x.id).slice(0, 6)).toEqual(['profile', 'security', 'usage', 'memory', 'providers', 'integrations'])
   })
-  test('the groups: Account, AI, Connections, App, each section in one of them', () => {
+  test('the groups: Account, Connections, App (no AI group), each section in one of them', () => {
     const by = (g: string) => settingsTabs(true, true).filter((x) => x.group === g).map((x) => x.id)
-    expect(by('account')).toEqual(['profile', 'security', 'browser', 'usage'])
-    expect(by('ai')).toEqual(['providers', 'memory'])
-    expect(by('connections')).toEqual(['integrations', 'connectors', 'ai-apps'])
+    expect(by('account')).toEqual(['profile', 'security', 'browser', 'usage', 'memory'])
+    expect(by('ai')).toEqual([])
+    expect(by('connections')).toEqual(['providers', 'integrations', 'connectors', 'ai-apps'])
     expect(by('app')).toEqual(['notifications', 'apps', 'about'])
   })
 })

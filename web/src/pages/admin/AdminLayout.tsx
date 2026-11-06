@@ -3,10 +3,11 @@
 // office mode the automatic update card (docs/OFFICE.md "자동 업데이트").
 //
 // The menu stays where it is while a page scrolls: its own column on wide screens, a strip under the title on narrow
-// ones. Groups: People · AI (AI providers: the engines and the accounts they use, Engines.tsx) · Connections (MCP, App
-// connectors, AI apps, plugins) · Activity · Team (team settings, the server). Home (/admin) comes first: what needs
-// attention, then one line per area (Home.tsx). Every page here is for the whole team (AdminPageHeader says so).
-// Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open AI providers.
+// ones. Groups: People · Connections (Providers: the AI engines and the accounts they use, Engines.tsx; MCP, App
+// connectors, AI apps, plugins) · Activity · Team (team settings, with the team's AI settings, and the server). Home
+// (/admin) comes first: what needs attention, then one line per area (Home.tsx). Every page here is for the whole team
+// (AdminPageHeader says so). Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
+// Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
 import clsx from 'clsx'
 import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, Plug, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
@@ -43,12 +44,9 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
     ],
   },
   {
-    label: 'admin.group.ai',
-    items: [{ id: 'providers', label: 'admin.providers', icon: Cpu }],
-  },
-  {
     label: 'admin.group.connections',
     items: [
+      { id: 'providers', label: 'admin.providers', icon: Cpu },
       { id: 'integrations', label: 'admin.integrations', icon: Cable },
       { id: 'app-connectors', label: 'connectors.title', icon: Plug },
       { id: 'ai-apps', label: 'aiApps.title', icon: Bot },
@@ -84,6 +82,9 @@ export default function AdminLayout() {
     nav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [section])
   if (!isAdmin(me)) return <Navigate to="/" replace />
+  // the team's AI settings moved from the Providers page's second tab into Team settings: its old address opens them
+  const q = new URLSearchParams(search)
+  if ((section === 'engines' || section === 'providers') && q.get('tab') === 'team') return <Navigate to={q.get('focus') === 'limits' ? '/admin/settings#ai-limits' : '/admin/settings#ai'} replace />
   // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
   if (section === 'engines') return <Navigate to={`/admin/providers${search}`} replace />
   if (section === 'credentials') return <Navigate to="/admin/providers?engine=claude-code" replace />

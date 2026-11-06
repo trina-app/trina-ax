@@ -15,14 +15,14 @@ permissions, invite your team, prepare a team skill, make the first backup. A fi
 | Group | Pages |
 |---|---|
 | **People** | Members & invites, Groups, Folder permissions |
-| **AI** | AI providers |
-| **Connections** | MCP, App connectors, AI apps, Plugins |
+| **Connections** | Providers, MCP, App connectors, AI apps, Plugins |
 | **Activity** | Usage, Activity log |
 | **Team** | Team settings, System |
 
 :::note
 Earlier versions had the AI accounts on their own **AI connections** page, next to **AI engines**. Both are one
-**AI providers** page now, and the old addresses open it.
+**Providers** page now, and the old addresses open it. The team's AI settings (defaults, who picks the engine, members'
+own accounts, usage limits) are in **Team settings**.
 :::
 
 ## Your first week
@@ -32,10 +32,10 @@ Earlier versions had the AI accounts on their own **AI connections** page, next 
 Assign folders to groups and check access with two test accounts. [Read about permissions](files-and-permissions.md).
 
 #### Connect the AI
-In **AI providers**, the owner chooses **Add account** in the Claude Code or Codex row and connects an authorized
+In **Providers**, the owner chooses **Add account** in the Claude Code or Codex row and connects an authorized
 Claude or OpenAI account. Each row shows whether that engine is ready.
 
-![Admin › AI providers: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "AI providers")
+![Admin › Providers: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "Providers")
 
 #### Invite the team
 Start with a small pilot group, then confirm roles and folder access.
@@ -57,25 +57,31 @@ Back up, then practise a restore with IT. [Read about backups](../operate/backup
 People who operate the server, its OS or its storage can read stored files and chats. In hosted plans, that includes Trina's operators.
 :::
 
-## AI providers
+## Providers
 
-**Admin › AI providers** has two tabs.
-
-| Tab | What it holds |
-|---|---|
-| **Providers** | One row per engine (Claude Code, Codex, API): its state, sign-in mode, models and last check, with **↻** to check again and an on/off switch. Under Claude Code and Codex, the accounts the team answers with, in the order they are tried, with **Add account** for the owner. |
-| **Team provider settings** | The default engine and model, answers at the same time, who may pick the engine, switching to Codex at Claude's limit, usage limits, and whether members may add their own accounts. |
+**Admin › Providers**, first in the Connections group, has one row per engine (Claude Code, Codex, API): its state,
+sign-in mode, models and last check, with **↻** to check again and an on/off switch. Under Claude Code and Codex are
+the accounts the team answers with, in the order they are tried, with **Add account** for the owner.
 
 Click an engine's name to open its details: what is missing and how to fix it, every model, and for the owner the API engine form.
 
 ![An engine row opened: the reason it is not ready, its sign-in mode, models and last check](../images/admin/engines-open.webp "An engine opened")
 
-![Admin › AI providers › Team provider settings: team defaults, who picks the engine, the switch to Codex, and usage limits](../images/admin/engines-team.webp "Team provider settings")
+## The team's AI settings
 
-Save and Cancel appear in a section only after you change something in it.
+**Admin › Team settings** ends with the team's AI settings:
+
+| Group | What it holds |
+|---|---|
+| **AI defaults** | The default engine and model, and how many answers run at the same time. |
+| **Who picks the engine** | Whether members may pick another engine, and switching to Codex at Claude's limit. |
+| **Members' own AI accounts** | Whether members may add their own accounts, whether a subscription may be shared, and the accounts they added. |
+| **Usage limits** | Token or dollar limits a day or a month, for a person, a group or the team. |
+
+Cancel and Save appear in a group only after you change something in it; each group saves on its own.
 
 :::note
-The two tabs are new in 0.4.0. In 0.3.0 and earlier, everything is on one **AI engines** page.
+From 0.4.0. In 0.3.0 and earlier, all of this and the engines are on one **AI engines** page.
 :::
 
 ## Activity log

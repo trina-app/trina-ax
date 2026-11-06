@@ -10,8 +10,7 @@ const t = DICTS.en
 
 const MENU: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
-  ['admin.group.ai', ['admin.providers']],
-  ['admin.group.connections', ['admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins']],
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
@@ -119,8 +118,8 @@ test('the admin menu stays where it is while the page scrolls, on a wide screen 
   await start(page)
   for (const size of [{ width: 1360, height: 640 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    // Team provider settings: the longer of the two AI engines tabs
-    await page.goto('/admin/providers?tab=team')
+    // Team settings, with the team's AI settings at its end: the longest admin page
+    await page.goto('/admin/settings')
     await expect(page.getByTestId('engine-choice')).toBeVisible()
     const menu = page.getByTestId('admin-menu')
     const before = (await menu.boundingBox())!
@@ -129,7 +128,7 @@ test('the admin menu stays where it is while the page scrolls, on a wide screen 
     await content.evaluate((el) => el.scrollTo(0, el.scrollHeight))
     await expect.poll(() => content.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
     expect((await menu.boundingBox())!.y).toBe(before.y)
-    await expect(menu.getByRole('link', { name: t['admin.providers'], exact: true })).toBeInViewport()
+    await expect(menu.getByRole('link', { name: t['admin.settings'], exact: true })).toBeInViewport()
     await expect(menu.getByRole('link', { name: t['admin.home'], exact: true })).toBeAttached()
   }
 })
@@ -137,7 +136,7 @@ test('the admin menu stays where it is while the page scrolls, on a wide screen 
 test('a long explanation stays on one line until "More" opens it', async ({ page }) => {
   await start(page)
   await page.setViewportSize({ width: 1100, height: 800 })
-  await page.goto('/admin/providers?tab=team')
+  await page.goto('/admin/settings#ai')
   const card = page.locator('section').filter({ has: page.getByRole('heading', { name: t['engines.choice'], exact: true }) })
   const desc = card.getByText(t['engines.choiceDesc'], { exact: true })
   await expect(desc).toBeVisible()

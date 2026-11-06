@@ -26,9 +26,8 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 
 | Group | Sections |
 |---|---|
-| **Account** | Profile, Security & devices, Usage |
-| **AI** | AI providers (when the team lets members add their own accounts), Memory |
-| **Connections** | MCP, App connectors, AI apps |
+| **Account** | Profile, Security & devices, Usage, Memory |
+| **Connections** | Providers (when the team lets members add their own accounts), MCP, App connectors, AI apps |
 | **App** | Notifications, Apps, About |
 
 :::steps

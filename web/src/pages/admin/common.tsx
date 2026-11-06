@@ -6,8 +6,8 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button, ErrorNote, Field, Modal, Skeleton, StickyHeader, inputCls } from '../../components/ui'
 
-/** AI engines › Team provider settings, scrolled to Usage limits (Engines.tsx reads focus=limits). */
-export const USAGE_LIMITS_LINK = '/admin/providers?tab=team&focus=limits'
+/** Team settings, scrolled to Usage limits (TeamAiSettings.tsx reads #ai-limits). */
+export const USAGE_LIMITS_LINK = '/admin/settings#ai-limits'
 
 export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const t = useT()
@@ -276,12 +276,19 @@ export function ReauthDialog({ title, body, confirm, danger, onClose, onConfirm 
   )
 }
 
-/** A group of settings under a plain heading (Team settings): no box, a hairline above every group but the first. */
-export function SettingsSection({ title, desc, children, testId, id }: { title: ReactNode; desc?: ReactNode; children: ReactNode; testId?: string; id?: string }) {
+/** A group of settings under a plain heading (Team settings): no box, a hairline above every group but the first.
+ * `actions`: a button beside the heading (Add limit). `headingRef`: the heading takes the focus when a link opens the
+ * page at this group (#ai-limits). */
+export function SettingsSection({ title, desc, actions, children, testId, id, headingRef }: { title: ReactNode; desc?: ReactNode; actions?: ReactNode; children: ReactNode; testId?: string; id?: string; headingRef?: Ref<HTMLHeadingElement> }) {
   return (
-    <section id={id} className="border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
-      <h2 id={id ? `${id}-title` : undefined} className="text-base font-medium">{title}</h2>
-      {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+    <section id={id} className="scroll-mt-24 border-t border-line py-6 first:border-t-0 first:pt-2" data-testid={testId} aria-labelledby={id ? `${id}-title` : undefined}>
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 id={id ? `${id}-title` : undefined} ref={headingRef} tabIndex={headingRef ? -1 : undefined} className="text-base font-medium focus:outline-none">{title}</h2>
+          {desc && <div className="mt-1 text-sm text-muted">{desc}</div>}
+        </div>
+        {actions}
+      </div>
       <div className="mt-1">{children}</div>
     </section>
   )
