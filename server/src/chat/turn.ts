@@ -1105,6 +1105,7 @@ export class TurnExec {
       ...(s.sources ? { sources: s.sources.slice(0, 50) } : {}), ...(s.images ? { images: s.images.slice(0, 20) } : {}),
       // a sub-agent's step: the id of its sub-task step, through the same cap as step ids (review S8)
       ...(s.parentId ? { parentId: stepId(s.parentId) } : {}), ...(s.subtask ? { subtask: s.subtask } : {}),
+      ...(s.devEnvRun ? { devEnvRun: s.devEnvRun } : {}),
     }
     const i = this.steps.findIndex((x) => x.id === step.id)
     // where in the answer the step started (held text is let out before a tool step): an artifact's card shows there.

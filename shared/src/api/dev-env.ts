@@ -40,7 +40,7 @@ export const DevEnvLimits = z.object({
   memoryMiB: z.number().int().min(256).max(8192).default(2560),
   pids: z.number().int().min(64).max(4096).default(512),
   diskGiB: z.number().int().min(1).max(32).default(4),
-  idleStopMin: z.number().int().min(5).max(240).default(30),
+  idleStopMin: z.number().int().min(5).max(240).default(10),
 })
 export type DevEnvLimits = z.infer<typeof DevEnvLimits>
 export const DEV_ENV_DEFAULT_LIMITS: DevEnvLimits = DevEnvLimits.parse({})
