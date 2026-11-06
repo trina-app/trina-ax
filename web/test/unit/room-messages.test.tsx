@@ -304,3 +304,17 @@ test('an event line is one quiet line in the middle: no avatar, menu, unread num
   expect(count(html, 'data-testid="room-run"')).toBe(2)
   expect(html).toContain(translate('en', 'rooms.event.invited', { actor: 'Ben', names: 'Cy Park' }))
 })
+
+test('phones: the first message after an event line keeps its time unless the message run above has the same one', () => {
+  const sec = (s: number) => new Date(Date.parse(at(1)) + s * 1000).toISOString()
+  const minute = (iso: string) => iso.slice(11, 16)
+  const runs = groupRuns([
+    message({ roomId: R, seq: 1, createdAt: at(0) }),
+    message({ roomId: R, seq: 2, author: CY, body: '', event: { type: 'left' }, createdAt: sec(0) }),
+    message({ roomId: R, seq: 3, author: ME, createdAt: sec(5) }),
+    message({ roomId: R, seq: 4, author: CY, body: '', event: { type: 'left' }, createdAt: sec(10) }),
+    message({ roomId: R, seq: 5, createdAt: sec(20) }),
+  ])
+  // seq 3 is a minute after seq 1 (the event line's time does not count): shown; seq 5 has seq 3's minute: once
+  expect(sameTimeAsAbove(runs, minute)).toEqual([false, false, false, false, true])
+})

@@ -82,6 +82,11 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const taken = useMemo(() => new Set([meId, ...(inRoom ?? []).map((m) => m.user.id)]), [meId, inRoom])
   const others = useMemo(() => (people ?? []).filter((p) => !taken.has(p.id)), [people, taken])
   const active = useMemo(() => new Set(others.map((p) => p.id)), [others])
+  // only people the list shows can stay ticked: a DM's other person whose account is gone (or anyone no longer active)
+  // is dropped from what the DM's 초대하기 ticked, instead of a count with nobody to see and a refusal on sending
+  useEffect(() => {
+    if (people) setPicked((l) => (l.every((id) => active.has(id)) ? l : l.filter((id) => active.has(id))))
+  }, [people, active])
   const needle = q.trim().toLocaleLowerCase()
   const shown = useMemo(() => {
     const hit = (s: string | undefined) => !!s && s.toLocaleLowerCase().includes(needle)

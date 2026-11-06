@@ -137,3 +137,13 @@ test('inviting into a group chat leaves out the people already in it', async () 
     await m.unmount()
   }
 })
+
+test("a DM's 초대하기 whose other person is gone ticks nobody: no count, nothing to send", async () => {
+  const { m } = await open({ kind: 'new', preselect: ['gone-person'] })
+  try {
+    expect(m.get('picker-count').textContent).toBe('')
+    expect(m.get('picker-go').hasAttribute('disabled')).toBe(true)
+  } finally {
+    await m.unmount()
+  }
+})

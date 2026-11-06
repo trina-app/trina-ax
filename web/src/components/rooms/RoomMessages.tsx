@@ -37,10 +37,20 @@ const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
 export const messageDomId = (id: string) => `room-msg-${id}`
 
-/** For each run: its time reads the same as the run's above it on the same day (a date line starts a new day). Phones
- * show such a time once: the first run of that minute has it. */
+/** For each run: its time reads the same as the time shown above it on the same day (a date line starts a new day).
+ * Phones show such a time once: the first run of that minute has it. An event line shows no time, so a run compares
+ * with the nearest message run above it, never with an event line. */
 export function sameTimeAsAbove(runs: readonly MessageRun[], time: (iso: string) => string): boolean[] {
-  return runs.map((run, i) => i > 0 && !run.newDay && time(run.messages[0]!.createdAt) === time(runs[i - 1]!.messages[0]!.createdAt))
+  let shown: string | null = null
+  return runs.map((run) => {
+    if (run.newDay) shown = null
+    const first = run.messages[0]!
+    if (first.event) return false
+    const t = time(first.createdAt)
+    const same = shown === t
+    shown = t
+    return same
+  })
 }
 
 /** the largest box a thumbnail takes, so the list does not jump while it loads */
