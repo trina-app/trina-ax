@@ -19,7 +19,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { KnowledgeGraphRoot, KnowledgeGraphStatus } from '@mycel/shared/api'
+import type { KnowledgeGraphDocuments, KnowledgeGraphRoot, KnowledgeGraphStatus } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getSetting, getTeamSettings, setSetting } from '../admin/settings'
 import { authorize } from '../policy/authorize'
@@ -36,6 +36,8 @@ import { CodeGraphRunner, type GraphRef, type GraphRunner, type GraphSymbol } fr
 
 export const ENABLED_SETTING = 'knowledgeGraph.enabled'
 export const ADDED_SETTING = 'knowledgeGraph.added'
+/** the documents part: on unless an admin turned it off (needs nothing installed) */
+export const DOCS_SETTING = 'knowledgeGraph.documents'
 /** the folders whose sub-folders are each one index */
 const TOPS = ['projects', 'groups', 'users', CONNECTED_ROOT] as const
 
@@ -142,6 +144,9 @@ export class KnowledgeGraph {
   available() { return !!this.runner }
   /** on: an admin's choice; not chosen: on when CodeGraph is here */
   enabled() { return this.available() && (getSetting<boolean>(this.ctx.db, ENABLED_SETTING) ?? true) }
+  /** the documents part: on unless an admin turned it off */
+  docsEnabled() { return getSetting<boolean>(this.ctx.db, DOCS_SETTING) ?? true }
+  setDocsEnabled(on: boolean) { setSetting(this.ctx.db, DOCS_SETTING, on) }
   added(): string[] {
     const v = getSetting<unknown>(this.ctx.db, ADDED_SETTING)
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
@@ -351,7 +356,7 @@ export class KnowledgeGraph {
   }
 
   /** Make the index of one folder (or all) again from the files. */
-  rebuild(p?: string) {
+  rebuild(p?: string, _part?: 'code' | 'documents') {
     if (!this.enabled()) return
     const targets = p ? [p] : Object.keys(this.state.roots)
     if (!p) { this.gen++; this.abort?.abort(); this.queue = [] }
@@ -417,9 +422,14 @@ export class KnowledgeGraph {
   }
 
   /** Admin › Team settings › Knowledge graph. Personal folders only as a total. */
+  /** The documents part of the status (filled by the document index). */
+  docStatus(): KnowledgeGraphDocuments {
+    return { enabled: this.docsEnabled(), folders: [], personal: { folders: 0, documents: 0, failed: 0 }, documents: 0, failed: [], failedCount: 0, lastUpdatedAt: null, diskBytes: 0, busy: 0 }
+  }
+
   status(): KnowledgeGraphStatus {
     const on = this.enabled()
-    const base = { available: this.available(), version: this.runner?.version ?? null, enabled: on, added: this.added() }
+    const base = { available: this.available(), version: this.runner?.version ?? null, enabled: on, added: this.added(), documents: this.docStatus() }
     if (!on) return { ...base, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, diskBytes: 0, busy: 0 }
     const sources = new Map(this.candidates().map((c) => [c.path, c.source]))
     const roots: KnowledgeGraphRoot[] = []

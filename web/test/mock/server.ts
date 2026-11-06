@@ -3274,7 +3274,9 @@ function officeFixtures(): [string, Uint8Array][] {
 
 /** Made-up folders for Admin › Team settings › Knowledge graph (no real team's). */
 function mockKnowledgeGraph(available: boolean): KnowledgeGraphStatus {
-  if (!available) return { available: false, version: null, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, added: [], diskBytes: 0, busy: 0 }
+  // the documents part (stub until the admin screen shows it)
+  const documents = { enabled: true, folders: [], personal: { folders: 0, documents: 0, failed: 0 }, documents: 0, failed: [], failedCount: 0, lastUpdatedAt: null, diskBytes: 0, busy: 0 }
+  if (!available) return { available: false, version: null, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, added: [], diskBytes: 0, busy: 0, documents }
   const at = new Date(Date.now() - 4 * 60_000).toISOString()
   return {
     available: true, version: '1.5.0', enabled: true, added: [],
@@ -3283,6 +3285,6 @@ function mockKnowledgeGraph(available: boolean): KnowledgeGraphStatus {
       { path: 'projects/data-pipeline', source: 'auto', status: 'indexing', files: 0, symbols: 0, lastSyncAt: null },
       { path: 'shared', source: 'auto', status: 'ready', files: 1, symbols: 3, lastSyncAt: at },
     ],
-    personal: { folders: 2, files: 14, symbols: 96 }, diskBytes: 23_400_000, busy: 0,
+    personal: { folders: 2, files: 14, symbols: 96 }, diskBytes: 23_400_000, busy: 0, documents,
   }
 }
