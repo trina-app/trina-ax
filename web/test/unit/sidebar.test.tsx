@@ -268,8 +268,9 @@ describe('a computer', () => {
     } finally {
       await m.unmount()
     }
-    // nothing needs me behind it: "모두 보기" alone
-    useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), requests: {} })
+    // nothing needs me behind it, or only an unseen answer in a chat that runs again (its row shows the running dot):
+    // "모두 보기" alone
+    useChats.setState({ chats: [chat(1, { unseen: true, runState: 'running' }), ...Array.from({ length: 7 }, (_, i) => chat(i + 2))], requests: {} })
     m = await render()
     try {
       expect(m.find('ai-chats-all')).not.toBeNull()

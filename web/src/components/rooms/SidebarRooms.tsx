@@ -2,7 +2,8 @@
 // latest activity, one count pill each for what I have not read ("@" instead when one of them mentions me; grey in a
 // muted room), and "+" for a new conversation. Strictly the five latest show, and the room on screen if it is not one
 // of them (six at most); "더 보기 (N)" opens the rest in place ("접기" closes it), remembered in this browser like the
-// fold, and carries what the hidden rooms hold unread ("안 읽음 M", "@" when one mentions me) so no count is lost.
+// fold, and carries what the hidden rooms hold unread ("안 읽음 M", "@" when one mentions me), so no count the 대화
+// tab shows is lost (a muted room's count only when nothing else is unread there, as its own badge is grey).
 // Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'

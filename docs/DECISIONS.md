@@ -10549,7 +10549,8 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   sight; then **트리나 기록** (the AI's name: `aiName`, the product's name in the core edition): exactly the five latest AI
   chats and the chat on screen if it is not one of them, then "모두 보기" for the whole history with its filters in
   place (choosing a filter opens it too; "접기"), which says "답 필요 K" with a dot when K hidden chats wait for my answer
-  or have an answer I have not seen (the warn colour when one waits, the accent when they are only unseen). Each section folds, and each one's whole list stays open or closed, remembered in this browser
+  or have an answer I have not seen and is not running again (the warn colour when one waits, the accent when they are
+  only unseen). Each section folds, and each one's whole list stays open or closed, remembered in this browser
   (`mycel.sidebar.rooms`, `mycel.sidebar.roomsAll`, `mycel.sidebar.recents`, `mycel.sidebar.recentsAll`). The order is
   latest activity; a row moves only when the list changes after a message is sent or received.
 - **Many rooms: strictly capped sections in one scroll** (the owner, 2026-11-06, decided). The AI history must not sink

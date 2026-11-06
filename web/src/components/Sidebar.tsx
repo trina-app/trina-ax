@@ -152,10 +152,11 @@ export default function Sidebar() {
   const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
   const openChat = /^\/c\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
   const latest = useMemo(() => used.filter((c, i) => i < LATEST || c.id === openChat), [used, openChat])
-  // the hidden chats that need me (the AI waits for my answer, or an answer I have not seen): counted on "모두 보기"
+  // the hidden chats that need me, counted on "모두 보기" as their rows would show it (ChatStateDot): the AI waits for my
+  // answer, or an answer I have not seen (not while the chat runs again: its row shows the running dot then)
   const hiddenNeeds = useMemo(() => {
     const asked = new Set(Object.values(waiting).map((r) => r.chatId))
-    const needs = used.filter((c) => !latest.includes(c) && (c.waiting || asked.has(c.id) || c.unseen))
+    const needs = used.filter((c) => !latest.includes(c) && (c.waiting || asked.has(c.id) || (c.unseen && c.runState === 'idle')))
     return { n: needs.length, waiting: needs.some((c) => c.waiting || asked.has(c.id)) }
   }, [used, latest, waiting])
   const full = !wide || allChats || changed.length > 0
