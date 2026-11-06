@@ -1,4 +1,4 @@
-// 내 스킬 가져오기, onboarding v5 (docs/DECISIONS.md "W5"; server/src/skills/share.ts, share-merge.ts, migration 252):
+// 내 스킬 가져오기, onboarding v5 (docs/DECISIONS.md "W5"; server/src/skills/share.ts, share-merge.ts, migration 253):
 //   - the merge chat is a RESTRICTED turn (the review of PR #100: a normal chat with every tool and the candidate as its
 //     first message let a skill from anywhere steer the AI): the request names the skills only, the candidate goes into
 //     the instructions as data (its tags broken), the only tools are read, write and edit of the team skill it merges
@@ -6,7 +6,7 @@
 //   - while the owner's welcome steps are under way a merge waits ("later", no chat); applying anything marks 내 스킬
 //     done wherever it was applied; at the end of the steps ONE merge chat takes every waiting merge and ONE Inbox
 //     notice "합칠 스킬 N개 확인하기" leads there; idempotent; an admin's merge never waits;
-//   - a dismissed or expired share keeps nothing of what it proposed (and migration 252 empties the old ones);
+//   - a dismissed or expired share keeps nothing of what it proposed (and migration 253 empties the old ones);
 //   - a picked .codex folder: the share is Codex's (`app`), its config.toml's remote MCP servers come from the browser
 //     and are checked again (no key, query or user in the address).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -229,8 +229,8 @@ describe('what a share keeps', () => {
     expect((h.ctx.db.query('SELECT result FROM skill_shares WHERE id = ?').get(e.id) as { result: string }).result).not.toContain('old-thing')
   })
 
-  test('migration 252 empties the dismissed and expired shares made before it, and leaves the others', () => {
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '252_b_skill_share_merges.sql'), 'utf8')
+  test('migration 253 empties the dismissed and expired shares made before it, and leaves the others', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '253_b_skill_share_merges.sql'), 'utf8')
     const update = sql.slice(sql.indexOf('UPDATE skill_shares'))
     const full = JSON.stringify({ candidates: [{ name: 'kept-name', description: 'a description' }], rule: { text: 'a rule' }, ruleIn: null, tools: [], landing: null })
     const now = new Date().toISOString()

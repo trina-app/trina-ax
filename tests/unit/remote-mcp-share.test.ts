@@ -69,7 +69,7 @@ test('Codex sends with app "codex": the proposal is Codex\'s (source and app), i
   const r = await f.tools.call(f.token, 'share_skills', { ...proposal, app: 'codex', where: '~/.codex' })
   expect(r.isError).toBeUndefined()
   const out = JSON.parse(r.content[0]!.text.split('\n\n')[0]!) as { proposalId: string }
-  // the source column's CHECK knows no codex: claude_code there, codex beside it (migration 252)
+  // the source column's CHECK knows no codex: claude_code there, codex beside it (migration 253)
   expect(f.h.ctx.db.query('SELECT source, source_detail FROM skill_shares WHERE id = ?').get(out.proposalId)).toEqual({ source: 'claude_code', source_detail: 'codex' })
   const notice = f.h.hub.events.find((e) => e.kind === 'publish' && (e.data as { data: { code: string } }).data?.code === 'skill_share')!
   expect((notice.data as { data: { message: string } }).data.message).toMatch(/^Codex/)
