@@ -2681,7 +2681,114 @@ export class MockServer {
     listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
     getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }),
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
-    listRemoteConnectors: () => ({ configured: false, resource: null, items: [] }),
+    // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "K") ----------------
+    // The team connector is on here (GET /api/connectors/remote: configured, at this server's /mcp), so the welcome
+    // step shows its Claude Code line. A share proposal is a fixed, realistic one whatever was sent (the server's
+    // checks and AI are not mocked): 10 candidates from a folder (3 recommended: one with a file, one similar to a team
+    // skill and merged by default; 4 other: personal, a personal path, two dev; 3 excluded: a secret, scripts, a
+    // plugin), a CLAUDE.md rule of 5 lines with 12 dropped; from Claude Code (POST with source "claude_code", as the
+    // share_skills tool would) 12 candidates from 2 projects and two tools. It reads `checking` (every row unjudged)
+    // for the first two reads and `ready` from the third. Applying writes the ticked skills as team skills, opens a
+    // chat for a merge and records the welcome progress's shared skills. The proposals belong to the server's
+    // generation, so /__test/reset clears them.
+    ...((): Partial<Record<ApiName, Handler>> => {
+      type Share = import('@mycel/shared/api').SkillShare
+      type Cand = import('@mycel/shared/api').ShareCandidate
+      type Row = { share: Share; owner: string; reads: number }
+      const self = this as unknown as { skillShareState?: { gen: number; rows: Row[] } }
+      const rows = (): Row[] => {
+        if (self.skillShareState?.gen !== this.generation) self.skillShareState = { gen: this.generation, rows: [] }
+        return self.skillShareState.rows
+      }
+      const mine = (c: Ctx) => rows().find((r) => r.share.id === c.params.id && r.owner === c.user.id) ?? fail('not_found', 404)
+      const cand = (name: string, title: string, group: Cand['group'], reason: Cand['reason'], o: Partial<Cand> = {}): Cand => ({
+        name, title, description: `${title} — ${name}`, origin: 'user', project: null, group, reason, detail: null, personalPath: false,
+        files: group === 'excluded' ? [] : [{ path: 'SKILL.md', bytes: 1200 }], scriptsDropped: 0, sameName: null, similar: null, action: 'add', applied: null, ...o,
+      })
+      const fixture = (cc: boolean): Cand[] => [
+        cand('weekly-report', '주간 업무 보고', 'recommended', 'team_any'),
+        cand('quote-draft', '견적서 초안', 'recommended', 'with_file', { detail: '견적 양식', files: [{ path: 'SKILL.md', bytes: 1400 }, { path: 'templates/견적 양식.md', bytes: 2100 }] }),
+        cand('meeting-notes', '회의록 정리', 'recommended', 'similar', { detail: '할 일 정리', similar: { path: GENERAL_TASKS_SKILL, title: '할 일 정리' }, action: 'merge' }),
+        cand('my-schedule', '내 일정 정리', 'other', 'personal'),
+        cand('vendor-mail', '거래처 메일', 'other', 'personal_path', { personalPath: true }),
+        cand('commit-message', '커밋 메시지', 'other', 'dev'),
+        cand('pr-review', 'PR 리뷰', 'other', 'dev', { scriptsDropped: 1 }),
+        ...(cc ? [cand('standup', '스탠드업 메모', 'other', 'personal', { origin: 'project', project: 'acme-web' }), cand('api-docs', 'API 문서', 'other', 'dev', { origin: 'project', project: 'acme-api' })] : []),
+        cand('slack-notify', '슬랙 알림', 'excluded', 'secret', { detail: 'slack' }),
+        cand('deploy', '배포하기', 'excluded', 'scripts'),
+        cand('frontend-design', 'frontend-design', 'excluded', 'plugin', { origin: 'plugin' }),
+      ]
+      /** what a read shows: unjudged while checking */
+      const view = (r: Row): Share => r.share.status !== 'checking' ? r.share
+        : { ...r.share, candidates: r.share.candidates.map((x) => (x.group === 'excluded' ? x : { ...x, group: 'other', reason: 'unjudged', detail: null, action: x.sameName ? 'merge' : 'add' })) }
+      const read = (r: Row): Share => {
+        if (r.share.status === 'checking' && ++r.reads > 2) r.share = { ...r.share, status: 'ready', ai: 'done' }
+        return view(r)
+      }
+      const skillText = (name: string, title: string) => `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`
+      const put = (path: string, text: string) => {
+        for (let d = path.lastIndexOf('/'); d > 0; d = path.lastIndexOf('/', d - 1)) this.files.set(path.slice(0, d), this.files.get(path.slice(0, d)) ?? { type: 'folder', mtime: now() })
+        this.putFile(path, text)
+      }
+      return {
+        listRemoteConnectors: (c) => ({ configured: true, resource: `${new URL(c.req.url).origin}/mcp`, items: [] }),
+        createSkillShare: (c) => {
+          const b = c.body as import('@mycel/shared/api').CreateSkillShare
+          const cc = b.source === 'claude_code'
+          const at = now()
+          const share: Share = {
+            id: uuidv7(), source: b.source, status: 'checking', where: cc ? null : b.where ?? '.claude', projects: cc ? b.projects ?? 2 : null,
+            createdAt: at, expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString(), ai: 'pending', candidates: fixture(cc),
+            rule: { lines: 5, dropped: 12, path: null, text: '- 보고서는 결론부터 짧게 써요\n- 숫자는 표로 정리해요\n- 고객 이름은 회사 공식 표기를 따라요\n- 일정은 YYYY-MM-DD로 적어요\n- 모르면 추측하지 말고 물어봐요' },
+            tools: cc ? [{ name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', header: null, templateId: null, error: null }, { name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', header: null, templateId: null, error: null }] : [],
+            landing: null,
+          }
+          const r: Row = { share, owner: c.user.id, reads: 0 }
+          rows().push(r)
+          return view(r)
+        },
+        listSkillShares: (c) => ({
+          items: rows().filter((r) => r.owner === c.user.id && (!c.query.status || r.share.status === c.query.status) && (!c.query.source || r.share.source === c.query.source))
+            .slice().reverse().map(read),
+        }),
+        getSkillShare: (c) => read(mine(c)),
+        applySkillShare: (c) => {
+          const r = mine(c)
+          if (r.share.status !== 'ready') fail('conflict', 409, r.share.status === 'checking' ? '아직 확인하는 중이에요.' : '이 제안은 이미 끝났어요.')
+          const b = c.body as import('@mycel/shared/api').ApplySkillShare
+          const candidates = r.share.candidates.map((x) => ({ ...x }))
+          const added: { path: string; title: string; recommended: boolean }[] = []
+          for (const s of b.skills) {
+            const x = candidates.find((y) => y.name === s.name && y.group !== 'excluded') ?? fail('validation', 400, `${s.name}: 공유할 수 없는 스킬이에요.`)
+            const title = x.title ?? x.name
+            if (s.action === 'merge' && (x.sameName || x.similar)) {
+              const chat: Chat = { id: uuidv7(), projectId: null, title: `${title} 합치기`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+              this.chats.push(chat)
+              x.applied = { status: 'merge', path: null, chatId: chat.id, error: null }
+            } else {
+              const name = s.action === 'separate' ? s.as ?? `${x.name}-2` : x.name
+              const path = `skills/${name}/SKILL.md`
+              put(path, skillText(name, title))
+              x.applied = { status: 'added', path, chatId: null, error: null }
+              added.push({ path, title, recommended: x.group === 'recommended' })
+            }
+          }
+          const rule = r.share.rule && b.rule ? { ...r.share.rule, path: 'skills/일하는-방식.md' } : r.share.rule
+          if (rule?.path && b.rule) put(rule.path, rule.text)
+          const tools = r.share.tools.map((x) => (b.tools?.includes(x.name) ? { ...x, templateId: uuidv7() } : x))
+          const landing = (added.find((x) => x.recommended) ?? added[0])?.path ?? null
+          r.share = { ...r.share, status: 'applied', candidates, rule, tools, landing }
+          if (this.welcome && added.length) this.welcome = { ...this.welcome, shared: { at: now(), skills: added.map(({ path, title }) => ({ path, title })), landing } }
+          return r.share
+        },
+        dismissSkillShare: (c) => {
+          const r = mine(c)
+          if (r.share.status === 'checking' || r.share.status === 'ready') r.share = { ...r.share, status: 'dismissed' }
+          return undefined
+        },
+      }
+    })(),
+    // ---------------- 내 스킬 가져오기 end ----------------
     connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),
   }
 
