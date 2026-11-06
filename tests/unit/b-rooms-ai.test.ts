@@ -79,6 +79,10 @@ describe('calling the AI', () => {
     expect(roomAiCalled('@트리나야 안녕')).toBe(false)
     expect(roomAiCalled('mail me at a@트리나')).toBe(false)
     expect(roomAiCalled('@트리나 hi', ['트리나'])).toBe(false)
+    // a mentioned person whose "@name" goes on from an AI name has it ("@Trina Kim"); a shorter name does not
+    expect(roomAiCalled('@Trina Kim hi', ['Trina Kim'])).toBe(false)
+    expect(roomAiCalled('@Trina Kim hi')).toBe(true)
+    expect(roomAiCalled('@트리나 hi', ['트리'])).toBe(true)
     expect(roomAiMentions('@트리나 and @Trina')).toHaveLength(2)
     expect(roomAiQuestion('@트리나 /회의록 정리')).toBe('/회의록 정리')
     expect(roomAiQuestion('보고서 @트리나 봐 줘')).toBe('보고서 @트리나 봐 줘')

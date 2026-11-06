@@ -8291,7 +8291,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 ## 대화방의 트리나 — the AI in team chat rooms (feat/rooms-trina, 2026-11-05)
 
 - **A room question is a normal chat turn of the person who asked.** "@트리나 …" (or `@Trina`, `@トリナ`, the product's
-  names; `roomAiMentions` in `shared/src/api/rooms.ts`, not when a person picked from the list has that name) in
+  names; `roomAiMentions` in `shared/src/api/rooms.ts`, not when a person picked from the list has that name, or a
+  name that goes on from it there, "@Trina Kim") in
   `Rooms.send()` asks the AI as the sender: the same engine choice, tools, folder checks, budget, queue limits and fair
   queue as a chat send, and the turn's usage is theirs. The turn runs in a chat of theirs with `chats.room_id` set
   (migration 242; one per room and person, `chats_room_session`), so the turn code, sessions (`--resume`), the read
@@ -10486,3 +10487,41 @@ owner asked for every skill in the repository to be in every team without anyone
 - Rejected: seeding in `bootstrapOwner` (setup) — every test harness sets up through it, and the welcome steps run
   right after setup anyway; a migration — the skills are files written through the file layer as a person, not rows;
   re-adding a deleted pack skill on update — a delete on purpose must stay.
+
+## 메시지 상자의 멘션 — mentions stand out in a room's message box (feat/composer-mention-highlight, 2026-11-06)
+넣을 곳: trina-ax `web/src/components` (TokenTextarea.tsx, rooms/useMentionMenu.tsx) and `web/src/lib` (textTokens.ts,
+rooms.ts), 이유: the room's message box showed a picked "@name" as plain text, so nobody could tell who would be notified.
+
+- **A picked name is a token at once, Slack-like.** Picking from the "@" list writes "@name " (the name the room shows:
+  the directory's, as the messages show it) and keeps where it stands; the box draws it in the accent colour of a sent
+  mention on `accent-soft`. `@트리나` gets the same look wherever the server takes it as a call (`roomAiMentions` with the
+  picked people's names). The composer, a thread's reply box and the edit form (which shows a message's mentions the way
+  the message marks them, `mentionParts`) all use it.
+- **What stands out is what is sent.** `mentions` is exactly the people whose tokens are in the box
+  (`lib/rooms.ts mentionTokens`): text that only looks like "@name" (pasted, typed without the list, a token broken by an
+  edit) is plain and notifies nobody; a letter typed right before the "@" pauses a token, because the message would show
+  it as text (`mentionCanStart`, the rule of `mentionParts` and the server's AI check). Where an AI name runs past a
+  shorter picked name the call wins and the person is not sent; a picked name that goes on from an AI name ("@Trina Kim")
+  keeps it, and the server now asks no AI there either.
+- **Tokens act as one piece.** Backspace at a token's end or Delete at its start selects the token and lets the
+  browser delete it (native undo stays); the arrow keys step over one; a caret put inside one goes to its nearer edge; an
+  edit inside one (through a selection) makes it text. A phone keyboard whose Backspace arrives as an edit and no key
+  (Android, also as its IME taking back the word) gets the same: a deletion into a token from its edge takes all of it.
+  While an IME writes, the box does nothing of its own, except for such a deletion of text from before the IME began.
+- **How it is drawn: the browser's own `<textarea>` with a layer under it** (`components/TokenTextarea.tsx`, generic:
+  tokens are ranges with a kind, so the AI chat's box can show `#room` the same way). The text area keeps typing, every
+  IME, autocorrect, spell check and undo; while it has text its letters are not painted (`-webkit-text-fill-color:
+  transparent`, index.css), its caret, selection (see-through), the IME's underline and the placeholder are. The layer
+  copies the text area's computed font, padding, borders and wrapping (the touch-screen font size too), its width
+  without a scroll bar and its scroll offset, and draws the same text with the tokens in colour; a token's look may use
+  colour, background and box-shadow only, never anything that moves a letter. Checked in Chromium, WebKit and iOS 26
+  Safari (the simulator): the text area's letters drawn over the layer's land on them, also at 390 and 320 px and
+  scrolled. Forced colours: the text area draws its own letters and the layer hides.
+- Rejected: `contenteditable` (as Slack) — no rich-input component exists here, and Korean composition, the caret and
+  mobile keyboards in a contenteditable are where editors break; the text area gets them right for free. Highlighting
+  only the background (the text area's own letters on top, as react-mentions does) — then a mention could not have the
+  accent colour of a sent one. Matching "@name" in the text for everyone picked (the old `keptMentions`) — a pasted or
+  retyped name would notify someone the box does not show.
+- Known limits: an undo after a token was deleted brings its letters back as text, not as a mention. The syllable an
+  IME is writing is drawn by the layer from each input event (in the same frame); its underline is the text area's own.
+

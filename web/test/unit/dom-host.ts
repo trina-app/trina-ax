@@ -2,8 +2,8 @@
 // attributes, a style object, value / checked properties React can track, events that capture and bubble, focus, and
 // a form's submit from its submit button or requestSubmit. Installed only around the tests that use it
 // (installDom / removeDom), so other tests keep seeing no `window`; mount() renders into it and clicks, types and waits
-// inside act(). What it does not do: layout, CSS, selection, real navigation. The browser itself is covered by the e2e
-// specs.
+// inside act(). What it does not do: layout, CSS, selection (a text field keeps only its selectionStart and End), real
+// navigation. The browser itself is covered by the e2e specs.
 import { act, type ReactNode } from 'react'
 const HTML_NS = 'http://www.w3.org/1999/xhtml'
 
@@ -133,6 +133,7 @@ export class FakeElement extends FakeNode {
     this.localName = name
     this.tagName = this.nodeName
   }
+  get children(): FakeElement[] { return this.childNodes.filter((c): c is FakeElement => c instanceof FakeElement) }
   getAttribute(n: string) { return this.attributes.get(n.toLowerCase()) ?? null }
   hasAttribute(n: string) { return this.attributes.has(n.toLowerCase()) }
   setAttribute(n: string, v: unknown) { this.attributes.set(n.toLowerCase(), String(v)) }
@@ -154,7 +155,8 @@ export class FakeElement extends FakeNode {
   focus() { if (this.ownerDocument) this.ownerDocument.activeElement = this }
   blur() { if (this.ownerDocument?.activeElement === this) this.ownerDocument.activeElement = this.ownerDocument.body }
   scrollIntoView() {}
-  setSelectionRange() {}
+  /** a text field's selection (no layout: only where it is) */
+  setSelectionRange(start: number, end: number) { Object.assign(this, { selectionStart: start, selectionEnd: end }) }
   getBoundingClientRect() { return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 } }
   get scrollHeight() { return 0 }
   get clientHeight() { return 0 }

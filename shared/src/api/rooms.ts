@@ -45,7 +45,8 @@ const AI_NAMES_LONGEST = [...ROOM_AI_NAMES].sort((a, b) => b.length - a.length)
 const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}_]/u.test(c)
 
 /** Where "@<AI name>" stands in a text: after the start, a space or an opening mark, and not followed by a letter or a
- * digit ("@트리나야" is not it). `taken`: names of people mentioned in the message (a person called 트리나 wins). */
+ * digit ("@트리나야" is not it). `taken`: names of people mentioned in the message (a person called 트리나 wins, and a
+ * mentioned person's "@name" that goes on from an AI name is theirs: "@Trina Kim"). */
 export function roomAiMentions(body: string, taken: readonly string[] = []): { start: number; end: number }[] {
   const out: { start: number; end: number }[] = []
   const lower = body.toLocaleLowerCase()
@@ -54,6 +55,7 @@ export function roomAiMentions(body: string, taken: readonly string[] = []): { s
     if (i > 0 && !/[\s([{"'“‘]/.test(body[i - 1]!)) continue
     const name = AI_NAMES_LONGEST.find((n) => lower.startsWith(n.toLocaleLowerCase(), i + 1) && !isWordChar(body[i + 1 + n.length]))
     if (!name || people.has(name.toLocaleLowerCase())) continue
+    if ([...people].some((p) => p.length > name.length && lower.startsWith(p, i + 1))) continue
     out.push({ start: i, end: i + 1 + name.length })
   }
   return out

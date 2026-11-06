@@ -1,7 +1,7 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
 // messages, event lines, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent
 // text). No React, no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { ROOM_AI_NAMES, ROOM_MENTIONS_MAX, roomAiCalled, type Room, type RoomAiRun, type RoomEventLine, type RoomMessage, type Step, type UserRef } from '@mycel/shared/api'
+import { ROOM_AI_NAMES, ROOM_MENTIONS_MAX, roomAiCalled, roomAiMentions, type Room, type RoomAiRun, type RoomEventLine, type RoomMessage, type Step, type UserRef } from '@mycel/shared/api'
 
 /** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone, and for an
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
@@ -120,11 +120,45 @@ export function insertMention(text: string, start: number, caret: number, name: 
   return { text: text.slice(0, start) + insert + text.slice(caret), caret: start + insert.length }
 }
 
-/** The people picked from the list whose "@name" is still in the text (one typed away again is not mentioned). */
-export function keptMentions(text: string, picked: { id: string; name: string }[]): string[] {
+/** Where a mention's "@" may stand: at the start, or after a space or an opening mark (the server's "@트리나" check,
+ * shared roomAiMentions, and mentionParts go by the same rule). */
+export const mentionCanStart = (text: string, at: number) => at === 0 || /[\s([{"'“‘]/.test(text[at - 1] ?? '')
+
+/** A person picked from the "@" list, and where their "@name" went in the message box. */
+export interface PickedMention { start: number; end: number; id: string; name: string }
+/** A mention as the message box shows it: a person the message will notify, or the AI it will ask ("@트리나"). */
+export interface MentionToken { start: number; end: number; kind: 'person' | 'ai'; id: string }
+
+/** The mentions in a message box, which are what is sent: the picked people whose "@name" is still whole where it was put
+ * and may start a mention there (a letter typed right before it pauses it); with `ai`, every "@<AI name>" the server
+ * will take as a call (roomAiMentions with those people's names: a person of that name wins). Text that only looks like
+ * a mention (pasted, typed without the list, a picked name broken by an edit) is plain text: it notifies nobody. */
+export function mentionTokens(text: string, picked: readonly PickedMention[], ai: boolean): MentionToken[] {
+  const people = picked.filter((p) => p.name && p.end === p.start + p.name.length + 1 && text.startsWith(`@${p.name}`, p.start) && mentionCanStart(text, p.start))
+  const calls = ai ? roomAiMentions(text, people.map((p) => p.name)) : []
+  // a person's "@name" that an AI name runs past ("@트리" + "나"): the call wins, as on the sent message; the server
+  // asks the AI and the person is not sent (a person whose name goes past the AI name keeps it: roomAiMentions)
+  const kept = people.filter((p) => !calls.some((r) => r.start < p.end && p.start < r.end))
+  const tokens: MentionToken[] = [...kept.map((p) => ({ start: p.start, end: p.end, kind: 'person' as const, id: p.id })), ...calls.map((r) => ({ start: r.start, end: r.end, kind: 'ai' as const, id: AI_MENTION_ID }))]
+  return tokens.sort((a, b) => a.start - b.start)
+}
+
+/** The people a message mentions, for what is sent: its people's tokens, each once, at most ROOM_MENTIONS_MAX. */
+export function tokenMentions(tokens: readonly MentionToken[]): string[] {
   const ids: string[] = []
-  for (const p of picked) if (p.name && text.includes(`@${p.name}`) && !ids.includes(p.id)) ids.push(p.id)
+  for (const x of tokens) if (x.kind === 'person' && !ids.includes(x.id)) ids.push(x.id)
   return ids.slice(0, ROOM_MENTIONS_MAX)
+}
+
+/** These people's "@name"s in a text (a message to edit, a send that came back), as mentionParts marks them. */
+export function mentionsIn(text: string, people: { id: string; name: string }[]): PickedMention[] {
+  const out: PickedMention[] = []
+  let at = 0
+  for (const part of mentionParts(text, people)) {
+    if (part.userId) out.push({ start: at, end: at + part.text.length, id: part.userId, name: part.text.slice(1) })
+    at += part.text.length
+  }
+  return out
 }
 
 /** A sent text cut into plain parts and the "@name"s of the people it mentions (the longest name wins where one name
@@ -135,7 +169,7 @@ export function mentionParts(body: string, mentioned: { id: string; name: string
   const parts: { text: string; userId?: string }[] = []
   let plain = ''
   for (let i = 0; i < body.length; ) {
-    const hit = body[i] === '@' && (i === 0 || /[\s([{"'“‘]/.test(body[i - 1]!)) ? names.find((p) => body.startsWith(p.name, i + 1)) : undefined
+    const hit = body[i] === '@' && mentionCanStart(body, i) ? names.find((p) => body.startsWith(p.name, i + 1)) : undefined
     if (hit) {
       if (plain) parts.push({ text: plain })
       plain = ''

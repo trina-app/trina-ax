@@ -8,7 +8,7 @@
 import { create } from 'zustand'
 import { uuidv7, type Room, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
-import { withRun, withRunPosition, withRunStep } from '../lib/rooms'
+import { withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
 import { useSession } from './session'
@@ -291,6 +291,9 @@ const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadView'
 /** what was typed in a room (or one of its threads: placeKey) and not sent yet, while this page is open
  * (components/rooms/RoomComposer.tsx); gone at sign-out with the rest */
 export const roomDrafts = new Map<string, string>()
+/** the people picked in those drafts and where their names stand (lib/rooms.ts PickedMention), so a draft keeps its
+ * mentions */
+export const roomDraftMentions = new Map<string, PickedMention[]>()
 
 /** read positions already asked for, per room and per thread (placeKey; a scroll fires many times: one request per new
  * position) */
@@ -704,6 +707,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       asked.clear()
       leaving.clear()
       roomDrafts.clear()
+      roomDraftMentions.clear()
       timelineGen++
       threadGen++
       set({ ...EMPTY })

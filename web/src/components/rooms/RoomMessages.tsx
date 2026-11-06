@@ -31,11 +31,12 @@ import { useMe } from '../../store/session'
 import { useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
+import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
 import { MenuButton, useLongPress } from './MenuButton'
 import { reactable, ReactionChips, ReactionPicker, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
-import { useMentionMenu } from './useMentionMenu'
+import { pickedInMessage, useMentionMenu } from './useMentionMenu'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -515,7 +516,9 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
   const [draft, setDraft] = useState(m.body)
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
-  const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial })
+  // the mentions it has stand out as they do on the message, and stay mentions while they are whole
+  const [picked] = useState(() => pickedInMessage(m.body, initial))
+  const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked })
   const save = async () => {
     const body = draft.trim()
     if (!body || busy) return
@@ -538,16 +541,12 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
       }}
     >
       {mention.list}
-      <textarea
+      <TokenTextarea
         ref={input}
         autoFocus
         aria-label={t('rooms.editLabel')}
         value={draft}
         {...mention.inputProps}
-        onChange={(e) => {
-          setDraft(e.target.value)
-          mention.track()
-        }}
         onKeyDown={(e) => {
           if (mention.onKeyDown(e)) return
           if (e.key === 'Escape') {

@@ -130,6 +130,18 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
    overflowing. Elements that set their own word-break (break-all, overflow-wrap:anywhere) keep it. */
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
 ::selection { background: var(--c-accent-soft); }
+/* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
+   its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
+   token's background shows under it), an IME's marks, spell check and placeholder are in between. */
+textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: transparent; }
+textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; background: color-mix(in srgb, var(--c-accent) 24%, transparent); }
+[data-token-layer="back"] > div, [data-token-layer="back"] [data-token] { color: transparent !important; }
+[data-token-layer="front"] [data-token] { background: none !important; box-shadow: none !important; }
+/* with the system's forced colours the box draws its own letters and the layer stays away */
+@media (forced-colors: active) {
+  textarea[data-token-input]:not(:placeholder-shown), textarea[data-token-input]::selection { -webkit-text-fill-color: currentcolor; }
+  [data-token-layer] { visibility: hidden; }
+}
 
 /* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
