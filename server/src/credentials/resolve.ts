@@ -27,11 +27,12 @@ export type Resolution =
   | { ok: true; credentialId: string; kind: CredentialKind; tier: Tier }
   | { ok: false; reason: 'none' | 'all_unusable'; retryAt: string | null; skipped: { id: string; why: Unusable }[] }
 
-/** the candidates of a person and engine in order, with their tier */
-export function candidates(db: Database, userId: string, engine: CredEngine, exclude?: ReadonlySet<string>): { row: CredRow; tier: Tier }[] {
+/** the candidates of a person and engine in order, with their tier. `groupsOf`: the groups to use instead of the
+ * person's own (someone not there yet: a person who will join through the team link with its groups) */
+export function candidates(db: Database, userId: string, engine: CredEngine, exclude?: ReadonlySet<string>, groupsOf?: readonly string[]): { row: CredRow; tier: Tier }[] {
   const kinds = KINDS_OF[FAMILY_OF[engine]]
   const memberOwn = memberOwnAllowed(db)
-  const groups = new Set((db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as { group_id: string }[]).map((g) => g.group_id))
+  const groups = new Set(groupsOf ?? (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as { group_id: string }[]).map((g) => g.group_id))
   const rows = db.query(`SELECT ${ROW_COLS} FROM engine_credentials WHERE kind IN (${kinds.map(() => '?').join(',')})`).all(...kinds) as CredRow[]
   const asg = new Map<string, { t: string; s: string }[]>()
   for (const a of db.query('SELECT credential_id, subject_type, subject_id FROM engine_credential_assignments').all() as { credential_id: string; subject_type: string; subject_id: string }[]) {
@@ -91,14 +92,40 @@ export const SOON_MS = 60 * 60_000
  * SOON_MS and is not "out of credit", which no wait fixes)? The same candidates and checks as resolveCredential and the
  * proxy (broker.ts): the person's own connection only while the team allows them, assignments, subscription sharing,
  * the kinds this server allows, switched off, refused, expired, the monthly block limit. Admin › Members "No AI". */
-export function hasCredentialSoonFor(db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now = new Date()): boolean {
-  return candidates(db, userId, engine).some(({ row }) => {
-    const u = unusable(db, row, now, allowedKinds)
-    if (!u) return true
-    if (u.why !== 'limited' || isCreditLimit(row.status_code) || Date.parse(u.retryAt!) - now.getTime() > SOON_MS) return false
-    // `limited` is checked after every lasting reason; the one after it (the monthly block limit) is checked again
-    return !unusable(db, { ...row, limited_until: null }, now, allowedKinds)
+export function hasCredentialSoonFor(db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now = new Date(), groupsOf?: readonly string[]): boolean {
+  return candidates(db, userId, engine, undefined, groupsOf).some(({ row }) => {
+    const b = backAt(db, row, now, allowedKinds)
+    return !!b && !b.monthly && b.at - now.getTime() <= SOON_MS
   })
+}
+
+/**
+ * When a connection works again by waiting alone: now (it works now); the end of a provider's limit (D14 `limited`,
+ * not "out of credit"); the start of next month for the monthly block limit (`over_limit`), or the later of the two when
+ * both stop it (`monthly`). null when no wait helps: switched off, refused, expired, out of credit, a kind this server
+ * does not allow, sharing off.
+ */
+function backAt(db: Database, row: CredRow, now: Date, allowedKinds: AllowedKinds): { at: number; monthly: boolean } | null {
+  const u = unusable(db, row, now, allowedKinds)
+  if (!u) return { at: now.getTime(), monthly: false }
+  if (u.why === 'over_limit') return { at: Date.parse(u.retryAt!), monthly: true }
+  if (u.why !== 'limited' || isCreditLimit(row.status_code)) return null
+  // `limited` is checked after every lasting reason; the one after it (the monthly block limit) is checked again
+  const after = unusable(db, { ...row, limited_until: null }, now, allowedKinds)
+  if (!after) return { at: Date.parse(u.retryAt!), monthly: false }
+  return after.why === 'over_limit' ? { at: Math.max(Date.parse(u.retryAt!), Date.parse(after.retryAt!)), monthly: true } : null
+}
+
+/** The earliest time a connection of this person for the engine works again by waiting alone (ISO; backAt), or null
+ * when no wait brings one back (none, or each switched off, refused, expired, out of credit). The same candidates and
+ * checks as resolveCredential and hasCredentialSoonFor. Admin › Members "AI limit until …". */
+export function credentialBackAt(db: Database, userId: string, engine: CredEngine, allowedKinds: AllowedKinds, now = new Date()): string | null {
+  let best: number | null = null
+  for (const { row } of candidates(db, userId, engine)) {
+    const b = backAt(db, row, now, allowedKinds)
+    if (b && (best === null || b.at < best)) best = b.at
+  }
+  return best === null ? null : new Date(best).toISOString()
 }
 
 /** usable team (not personal) connections of a family: Admin > AI engines and the diagnostics */

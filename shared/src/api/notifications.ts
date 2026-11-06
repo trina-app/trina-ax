@@ -21,9 +21,10 @@ export type PushEventType = z.infer<typeof PushEventType>
  * to be deleted (account_deletion_notices; shared/src/api/account-deletion.ts), and a connection template an admin
  * shared with the person or whose address or sign-in changed (integration_template_notices; docs/INTEGRATIONS.md
  * "Templates"), and for admins a Drive shared with the team that stopped working and needs a new sign-in
- * (drive_share_notices; docs/GOOGLE-DRIVE.md "Sharing a Drive with the team"), and a change to the team's AI an admin made
+ * (drive_share_notices; docs/GOOGLE-DRIVE.md "Sharing a Drive with the team"), and for the owner at the end of the
+ * welcome steps the skills to merge that waited for it (skill_merge_notices; docs/DECISIONS.md "W5"), and a change to the team's AI an admin made
  * (told to the owners) or to a member's own connection (told to that member; credential_change_notices). */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'credential.change'])
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -38,8 +39,8 @@ export const InboxNotification = z.object({
   /** 'team.joined' only: the name of the person who joined through the team invite link, while the account is there;
    * older servers omit it */
   joined: z.object({ name: z.string() }).optional(),
-  /** 'account.deletion_request' only (owners): who asked for their account to be deleted, by display name while the
-   * account is there (null once it is deleted), and where the request is now: open (waits for the owner; link
+  /** 'account.deletion_request' only (owners and admins): who asked for their account to be deleted, by display name while the
+   * account is there (null once it is deleted), and where the request is now: open (waits for the owner or an admin; link
    * 'admin_members' opens that person in Admin › Members, sourceId is their id), cancelled (they took it back) or
    * handled (the account was deleted); older servers omit it */
   deletionRequest: z.object({ name: z.string().nullable(), state: z.enum(['open', 'cancelled', 'handled']) }).optional(),
@@ -58,6 +59,9 @@ export const InboxNotification = z.object({
   credentialChange: z.object({
     who: z.string(), action: z.enum(['added', 'replaced', 'removed', 'disabled', 'reassigned', 'zero_limit', 'shared_on', 'engine', 'personal_disabled', 'personal_removed']), subject: z.string(),
   }).optional(),
+  /** 'skills.merge_waiting' only (the owner, at the end of the welcome steps): how many skills wait to be merged into
+   * team skills; link 'chat' opens the one merge chat (chatId); older servers omit it */
+  merges: z.object({ n: z.number().int().positive() }).optional(),
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),

@@ -35,6 +35,7 @@ export const WELCOME_SETTING = 'onboarding.welcome'
 type Raw = Record<string, unknown>
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v)
 const PackShape = WelcomeProgress.shape.pack.unwrap()
+const SharedShape = WelcomeProgress.shape.shared.unwrap().unwrap()
 const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable(), cardNewsPath: z.string().nullable().optional(), promoVideoPath: z.string().nullable().optional(), introDeckPath: z.string().nullable().optional() })
 
 /** The stored row: none, an object, or something that is not an object (`raw` null with `row` true). */
@@ -78,64 +79,170 @@ function view(raw: Raw, now: string): WelcomeProgress {
     site: pick(opt, raw.site, null),
     dismissedAt: pick(opt, raw.dismissedAt, null),
     finishedAt: pick(opt, raw.finishedAt, null),
+    ...(typeof raw.doneShownAt === 'string' ? { doneShownAt: raw.doneShownAt } : {}),
     // the three-step version's team step, put off and never answered since: the pack is not installed by itself
     ...(steps.team === 'skipped' && pick(TeamType.nullable(), raw.teamType, null) === null ? { teamSkipped: true } : {}),
     // recorded in any shape: installed (as for the marketing pack), the paths falling back to the pack's own; absent
     // until then, so rows from before read exactly as they did
     ...(raw.general === null || raw.general === undefined ? {} : { general: pick(GeneralShape, raw.general, { at: '', tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL }) }),
     ...(() => { const g = pick(TeamGroupRef.nullable(), raw.teamGroup ?? null, null); return g ? { teamGroup: g } : {} })(),
+    ...(raw.skillsLater === true ? { skillsLater: true } : {}),
+    ...(() => { const sh = pick(SharedShape.nullable(), raw.shared ?? null, null); return sh ? { shared: sh } : {} })(),
   }
 }
 
+// `result` stays null: the first result is no longer a step (docs/DECISIONS.md "W5"), but the stored row is still a
+// WelcomeProgress, and an older build that reads it after a rollback reads it as before
 const fresh = (now: string): Raw => ({
   startedAt: now, updatedAt: now, teamType: null,
-  steps: { profile: null, result: null, invite: null },
+  steps: { profile: null, result: null, skills: null, files: null, invite: null },
   pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
 })
 
-/** The stored object to change: the row as it is, or a fresh one when there is none. A row that is not an object is
- * refused: it is never replaced by a fresh one (that would forget the pack). */
+/** The stored object to change: the row as it is (the deck's chat settled, settleDeck), or a fresh one when there is
+ * none. A row that is not an object is refused: it is never replaced by a fresh one (that would forget the pack). */
 function forWrite(ctx: Pick<AppContext, 'db'>, now: string): Raw {
   const s = stored(ctx)
   if (s.row && !s.raw) fail('conflict')
-  return s.raw ? { ...s.raw, steps: isObj(s.raw.steps) ? { ...s.raw.steps } : {} } : fresh(now)
+  if (!s.raw) return fresh(now)
+  const raw = { ...s.raw, steps: isObj(s.raw.steps) ? { ...s.raw.steps } : {} }
+  settleDeck(ctx, raw)
+  return raw
 }
 
-/** The stored progress, or null when the steps were never opened (or the row is not an object). */
+/** The stored progress (the deck's chat settled, settleDeck), or null when the steps were never opened (or the row is
+ * not an object). */
 export function readWelcome(ctx: Pick<AppContext, 'db'>): WelcomeProgress | null {
   const s = stored(ctx)
-  return s.raw ? view(s.raw, new Date().toISOString()) : null
+  if (!s.raw) return null
+  const raw = { ...s.raw, steps: isObj(s.raw.steps) ? { ...s.raw.steps } : {} }
+  settleDeck(ctx, raw)
+  return view(raw, new Date().toISOString())
 }
 
-/** profile and result done, and the invite either way */
-export const welcomeFinished = (p: WelcomeProgress) => p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite !== null
+// ---------------------------------------------------------------- the intro deck's chat (docs/DECISIONS.md "W5")
+// The chat POST …/first-result makes is kept in the row's own field `deckChatId` (never shown), and becomes
+// `resultChatId` only once it holds a message: 회사 소개 counts as saved with a deck only when the deck's message really
+// went in. A tab closed or a send that failed after "저장하고 계속" leaves 회사 소개 open, and its next "저장하고 계속"
+// gets the same chat again (review of PR #100: the chat used to be recorded as the deck before the page sent).
+const DECK_CHAT = 'deckChatId'
+const chatThere = (ctx: Pick<AppContext, 'db'>, id: string, userId?: string) =>
+  !!(userId ? ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, userId) : ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND deleted_at IS NULL').get(id))
+const holdsMessage = (ctx: Pick<AppContext, 'db'>, id: string) => !!ctx.db.query('SELECT 1 FROM chats c WHERE c.id = ? AND c.deleted_at IS NULL AND EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = c.id)').get(id)
 
-function save(ctx: Pick<AppContext, 'db'>, raw: Raw, now: string): WelcomeProgress {
-  if (!view(raw, now).finishedAt && welcomeFinished(view(raw, now))) raw.finishedAt = now
+/** The deck's chat as it is now, on a copy of the row: the kept chat that holds its message becomes `resultChatId`; a
+ * `resultChatId` recorded before this rule for a deck whose message never went (its chat there and empty, no first
+ * result answered: old row (a) after a closed tab) goes back to being the kept chat. Never throws (a database without
+ * chats reads the row as stored). */
+function settleDeck(ctx: Pick<AppContext, 'db'>, raw: Raw): void {
+  try {
+    const steps = isObj(raw.steps) ? raw.steps : {}
+    if (typeof raw.resultChatId === 'string' && (steps.result ?? null) === null && chatThere(ctx, raw.resultChatId) && !holdsMessage(ctx, raw.resultChatId)) {
+      if (typeof raw[DECK_CHAT] !== 'string') raw[DECK_CHAT] = raw.resultChatId
+      raw.resultChatId = null
+    }
+    const kept = raw[DECK_CHAT]
+    if ((raw.resultChatId ?? null) === null && typeof kept === 'string' && holdsMessage(ctx, kept)) raw.resultChatId = kept
+  } catch { /* as stored */ }
+}
+
+/** The name the intro deck runs by ("/intro-deck"): the folder of its SKILL.md. */
+const deckName = (p: WelcomeProgress) => (p.general?.introDeckPath ?? GENERAL_DECK_SKILL).split('/').slice(-2, -1)[0] || 'intro-deck'
+
+/** An intro deck really started (docs/DECISIONS.md "W5", the end screen's line): the deck's chat (`resultChatId`, or
+ * the kept one) is there and holds the "/intro-deck" message, or a deck build was made in it. A first result of a row
+ * from before (a card news, an ad copy) is no deck. */
+export function deckStarted(ctx: Pick<AppContext, 'db'>): boolean {
+  const s = stored(ctx)
+  if (!s.raw) return false
+  const p = readWelcome(ctx)!
+  const cmd = `/${deckName(p)}`
+  for (const id of new Set([p.resultChatId, s.raw[DECK_CHAT]].filter((x): x is string => typeof x === 'string'))) {
+    if (!chatThere(ctx, id)) continue
+    try {
+      if (ctx.db.query('SELECT 1 FROM intro_deck_builds WHERE chat_id = ? LIMIT 1').get(id)) return true
+    } catch { /* a database without deck builds */ }
+    const said = ctx.db.query("SELECT substr(content, 1, 100) AS c FROM messages WHERE chat_id = ? AND role = 'user' ORDER BY created_at LIMIT 20").all(id) as { c: string }[]
+    if (said.some((m) => m.c === cmd || m.c.startsWith(`${cmd} `) || m.c.startsWith(`${cmd}\n`))) return true
+  }
+  return false
+}
+
+/** The progress as the screens get it: the row and the facts read for them (`deckStarted`, `landingSkill`). */
+export function welcomeOut(ctx: AppContext, p: WelcomeProgress | null): WelcomeProgress | null {
+  if (!p) return p
+  let landing: string | null = null
+  try { landing = landingSkill(ctx) } catch { /* none */ }
+  return { ...p, deckStarted: deckStarted(ctx), landingSkill: landing }
+}
+
+/**
+ * 회사 소개 answered (docs/DECISIONS.md "W5"): put off, or saved with the intro deck started (`resultChatId`) or, on a
+ * row from before, its first result answered either way. A row from before whose profile was saved but whose first
+ * result never ran (old row (a)) is still open: 회사 소개's "저장하고 계속" starts the deck there.
+ */
+export const profileAnswered = (p: WelcomeProgress) => p.steps.profile === 'skipped' || (p.steps.profile === 'done' && (p.resultChatId !== null || p.steps.result !== null))
+const answered = (v: WelcomeStepState | null | undefined) => v === 'done' || v === 'skipped'
+/** 회사 소개 answered, and 내 스킬, 팀 파일 and the invite each done or put off; not while 내 스킬 waits for a computer
+ * (skillsLater). The deck is a fact, not a step. */
+export const welcomeFinished = (p: WelcomeProgress) => profileAnswered(p) && answered(p.steps.skills) && answered(p.steps.files) && answered(p.steps.invite) && !p.skillsLater
+
+/** What runs when a save ends the steps, or the owner's ✕ on them held (the merges that waited for them:
+ * skills/share-merge.ts). Registered by the module that owns it, so this file needs no import of the chat runtime; a
+ * hook that throws is logged, never fatal. */
+type EndedHook = (ctx: AppContext, ownerId: string) => void
+// kept on a hoisted function, not a module constant: share-merge.ts registers while the import cycle through the
+// skill packs has not run this module's body yet
+function endedHooks(): EndedHook[] { return ((endedHooks as unknown as { list?: EndedHook[] }).list ??= []) }
+export function onWelcomeEnded(fn: EndedHook): void { if (!endedHooks().includes(fn)) endedHooks().push(fn) }
+function finishedNow(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppContext>, ownerId: string): void {
+  for (const fn of endedHooks()) {
+    try { fn(ctx as AppContext, ownerId) } catch (err) { ctx.log?.warn('after the welcome steps ended: a hook failed', { err }) }
+  }
+}
+
+/** Write the row; `finished` is true when this save just ended the steps (finishedAt set now). */
+function saveRow(ctx: Pick<AppContext, 'db'>, raw: Raw, now: string): { progress: WelcomeProgress; finished: boolean } {
+  let finished = false
+  if (!view(raw, now).finishedAt && welcomeFinished(view(raw, now))) { raw.finishedAt = now; finished = true }
   raw.updatedAt = now
   setSetting(ctx.db, WELCOME_SETTING, raw)
-  return view(raw, now)
+  return { progress: view(raw, now), finished }
 }
+const save = (ctx: Pick<AppContext, 'db'>, raw: Raw, now: string): WelcomeProgress => saveRow(ctx, raw, now).progress
 
 /** Apply one change of the owner's (an empty change only starts the progress). */
-export function updateWelcome(ctx: Pick<AppContext, 'db'>, userId: string, u: WelcomeUpdate): WelcomeProgress {
+export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppContext>, userId: string, u: WelcomeUpdate): WelcomeProgress {
   const now = new Date().toISOString()
   const raw = forWrite(ctx, now)
   const p = view(raw, now)
   const steps = raw.steps as Raw
   if (u.resultChatId !== undefined) {
-    // the bar shows on this chat: one of the caller's own, not deleted
-    const own = ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(u.resultChatId, userId)
-    if (!own) fail('not_found')
-    raw.resultChatId = u.resultChatId
+    // the deck's chat: one of the caller's own, not deleted; recorded once it holds a message (a page that sends it
+    // later: settleDeck records the kept chat when its message is in)
+    if (!chatThere(ctx, u.resultChatId, userId)) fail('not_found')
+    if (holdsMessage(ctx, u.resultChatId)) raw.resultChatId = u.resultChatId
   }
   if (u.teamType) raw.teamType = u.teamType
   if (u.step) {
     // done stays done: going back to a step and putting it off again does not undo it. The AI step: `skipped` when it
     // was shown (AI was needed), `done` once AI answers the owner after that (docs/DECISIONS.md "W2")
     if (u.step.state === 'done' || p.steps[u.step.id] !== 'done') steps[u.step.id] = u.step.state
-    // the invite put off before there was a result comes back once there is one (the bar on the result chat)
-    if (u.step.id === 'result' && u.step.state === 'done' && p.steps.invite === 'skipped') steps.invite = null
+    // 회사 소개 put off on a row whose profile was saved before without a deck (old row (a), docs/DECISIONS.md "W5"): the
+    // profile stays saved and the deck is put off (`result: skipped`, old row (d)), so the step is answered and the
+    // steps do not come back to it
+    if (u.step.id === 'profile' && u.step.state === 'skipped' && p.steps.profile === 'done' && !p.resultChatId && (p.steps.result ?? null) === null) steps.result = 'skipped'
+    // 내 스킬 가져오기 done or put off on a computer: no longer waiting for one
+    if (u.step.id === 'skills') delete raw.skillsLater
+  }
+  if (u.skillsLater && !u.step) {
+    // put off on a phone: skipped there, open again on a computer (never undoes a share that was done)
+    if (p.steps.skills !== 'done') { steps.skills = 'skipped'; raw.skillsLater = true }
+  }
+  if (u.landing !== undefined) {
+    // the invite opens one of the shared skills (바꾸기): nothing else
+    if (!p.shared?.skills.some((x) => x.path === u.landing)) fail('validation', undefined, { fields: { 'body.landing': 'not a shared skill' } })
+    raw.shared = { ...p.shared!, landing: u.landing }
   }
   if (u.inviteShown && !p.inviteShownAt) raw.inviteShownAt = now
   if (u.site !== undefined) {
@@ -143,12 +250,85 @@ export function updateWelcome(ctx: Pick<AppContext, 'db'>, userId: string, u: We
     if (site) raw.site = site
   }
   if (u.dismissed !== undefined) raw.dismissedAt = u.dismissed ? (p.dismissedAt ?? now) : null
+  // the end screen shows once
+  if (u.doneShown && !p.doneShownAt) raw.doneShownAt = now
   if (u.finish) {
     // "자료 없이 해 볼게요" without the marketing pack: what is still open is put off, and the steps are over
     for (const s of WELCOME_STEPS) if (s !== 'ai' && p.steps[s] === null) steps[s] = 'skipped'
+    delete raw.skillsLater
     if (!p.finishedAt) raw.finishedAt = now
   }
-  return save(ctx, raw, now)
+  const r = saveRow(ctx, raw, now)
+  // the legacy "finish" sets finishedAt itself: it ends the steps too
+  if (r.finished || (u.finish && !p.finishedAt)) finishedNow(ctx, userId)
+  // hiding the steps (✕) lets what waited for them go, but only once it holds: the setup row's toast can undo it
+  if (u.dismissed && !p.dismissedAt) afterDismissHold(ctx, userId)
+  return r.progress
+}
+
+/**
+ * How long a hidden setup row (✕) must stay hidden before it counts as the end of the steps for what waited for them
+ * (docs/DECISIONS.md "W5": the merges into team skills). The row's undo toast lasts seconds; ✕ then undo inside this
+ * starts nothing in the middle of the steps.
+ */
+export const DISMISS_HOLD_MS = 60_000
+/** The steps were hidden (✕) at least DISMISS_HOLD_MS ago and not brought back. */
+const dismissHeld = (p: WelcomeProgress, now = Date.now()) => !!p.dismissedAt && now - Date.parse(p.dismissedAt) >= DISMISS_HOLD_MS
+
+/** After a ✕, once DISMISS_HOLD_MS passed: the steps' end hooks run if they are still hidden then (endHeldDismissal).
+ * A server stopped meanwhile leaves it to the share sweep (skills/share-merge.ts startStaleMerges), which starts what
+ * no longer waits. */
+function afterDismissHold(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppContext>, ownerId: string): void {
+  const t = setTimeout(() => endHeldDismissal(ctx, ownerId), DISMISS_HOLD_MS + 1000)
+  ;(t as { unref?: () => void }).unref?.()
+}
+
+/** The steps hidden for good (✕ held, not finished): what waited for their end goes now. Idempotent (the hooks are). */
+export function endHeldDismissal(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppContext>, ownerId: string, now = Date.now()): boolean {
+  let p: WelcomeProgress | null
+  try { p = readWelcome(ctx) } catch { return false }
+  if (!p || p.finishedAt || !dismissHeld(p, now)) return false
+  finishedNow(ctx, ownerId)
+  return true
+}
+
+/** The owner's welcome steps are under way (the row exists, not finished, not hidden for good) and `userId` is the
+ * owner: merges into team skills wait for their end (skills/share-merge.ts). Steps hidden for at least DISMISS_HOLD_MS
+ * hold nothing back: no setup row leads to them, so a merge waiting for them would wait for good. A ✕ still inside its
+ * undo time holds them as before. */
+export function welcomeUnfinishedFor(ctx: Pick<AppContext, 'db'>, userId: string): boolean {
+  try {
+    const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL").get(userId)
+    if (!owner) return false
+    const p = readWelcome(ctx)
+    return !!p && !p.finishedAt && !dismissHeld(p)
+  } catch { return false }
+}
+
+/** Does this team skill exist for the person (the file layer, their folder rules)? */
+function skillThere(ctx: AppContext, userId: string | null, rel: string): boolean {
+  try {
+    const who = userId ? ctx.files.principal(userId) : null
+    if (!who) return false
+    return authorize(ctx.files.fx, ctx.files.rules(), who, rel, 'read', { mustExist: true }).st?.isFile() ?? false
+  } catch { return false }
+}
+
+/**
+ * The skill everything points at (docs/DECISIONS.md "W5"): the invite link, the goal card, the end screen. The shared
+ * skill the invite opens (`shared.landing`) while it is there, else the general pack's 할 일 정리 (`general.tasksPath`)
+ * while it is there, else null. Never the intro deck: it is the owner's own first run, not the team's skill.
+ * `as`: whose view of the files decides "there" (default: the first owner).
+ */
+export function landingSkill(ctx: AppContext, as?: string): string | null {
+  const p = readWelcome(ctx)
+  if (!p) return null
+  const who = as ?? ((ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null)?.id ?? null)
+  const deck = new Set([GENERAL_DECK_SKILL, p.general?.introDeckPath].filter((x): x is string => !!x))
+  for (const path of [p.shared?.landing, p.general?.tasksPath]) {
+    if (path && !deck.has(path) && skillThere(ctx, who, path)) return path
+  }
+  return null
 }
 
 /** The ad copy skill "/ad-copy" runs for the team: the pack's own file, else another team skill of that name. */
@@ -292,6 +472,37 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
   return { progress: save(ctx, raw, now), install, outcome }
 }
 
+/**
+ * The intro deck's chat, once per team (docs/DECISIONS.md "W5": 회사 소개's "저장하고 계속" starts it; saving again only
+ * saves). `started`: the deck's chat is the owner's, not deleted, and holds a message (recorded as `resultChatId` now if
+ * it was not yet). `reuse`: the chat made for the deck is theirs and holds none (the page was closed, or its send
+ * failed): it is handed out again. Otherwise `make` creates the chat and it is kept for the deck (`deckChatId`, not yet
+ * `resultChatId`) in the same synchronous step, so two requests at once get one chat.
+ */
+export function deckChatFor(ctx: Pick<AppContext, 'db'>, userId: string, make: () => string): { kind: 'started'; chatId: string } | { kind: 'reuse' | 'new'; chatId: string } {
+  const now = new Date().toISOString()
+  const raw = forWrite(ctx, now)
+  const recorded = view(raw, now).resultChatId
+  if (recorded && chatThere(ctx, recorded, userId)) {
+    // a deck that started; or a first result's chat of a row from before that never got its message: sent into again
+    return holdsMessage(ctx, recorded) ? { kind: 'started', chatId: recorded } : { kind: 'reuse', chatId: recorded }
+  }
+  const kept = typeof raw[DECK_CHAT] === 'string' ? raw[DECK_CHAT] as string : null
+  if (kept && chatThere(ctx, kept, userId)) {
+    if (!holdsMessage(ctx, kept)) return { kind: 'reuse', chatId: kept }
+    // its message is in while `resultChatId` still names a deleted chat: this one is the deck
+    raw.resultChatId = kept
+    save(ctx, raw, now)
+    return { kind: 'started', chatId: kept }
+  }
+  const chatId = make()
+  raw[DECK_CHAT] = chatId
+  // a recorded chat that is gone (deleted) is no deck any more: the new one becomes it once its message is in
+  raw.resultChatId = null
+  save(ctx, raw, now)
+  return { kind: 'new', chatId }
+}
+
 /** "/intro-deck" for the first result (docs/DECISIONS.md "D2"; the promo video of "V" and the card news of "N" before
  * it, both still installed with the pack): the recorded path, or once, for a row whose general pack was recorded before
  * the skill existed, the skill installed on its own and recorded (null when blocked). `install` runs only then; a skill
@@ -308,4 +519,40 @@ export function introDeckSkill(ctx: AppContext, userId: string, install: () => {
   raw.general = { ...general, introDeckPath: path }
   save(ctx, raw, now)
   return path
+}
+
+/**
+ * The skills an owner just shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK", "W5"; server/src/skills/share.ts apply),
+ * from the welcome step or from /skills/share/:id alike: any apply that went through (`went`: skills added, merges
+ * started or waiting, the team rule, tools) marks 내 스킬 done (and no longer waiting for a computer); the skills added
+ * go to `shared` in order (each path once), and the invite's skill is set once (`landing`: the first recommended one
+ * added, else the first added; the owner changes it on the invite). Only while the steps' row exists and only for the
+ * owner (an admin's share changes nothing here). Never throws: the share is done either way. Returns whether this save
+ * just ended the steps (the hooks of onWelcomeEnded have run then).
+ */
+export function recordShared(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppContext>, userId: string, added: { path: string; title: string; recommended: boolean }[], went = added.length > 0): boolean {
+  if (!went && !added.length) return false
+  try {
+    const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner'").get(userId)
+    const s = stored(ctx)
+    if (!owner || !s.raw) return false
+    const now = new Date().toISOString()
+    const raw: Raw = { ...s.raw, steps: isObj(s.raw.steps) ? { ...s.raw.steps } : {} }
+    settleDeck(ctx, raw)
+    const p = view(raw, now)
+    if (added.length) {
+      const skills = [...(p.shared?.skills ?? [])]
+      for (const a of added) if (!skills.some((x) => x.path === a.path)) skills.push({ path: a.path, title: a.title })
+      const landing = p.shared?.landing ?? added.find((a) => a.recommended)?.path ?? added[0]!.path
+      raw.shared = { at: p.shared?.at ?? now, skills, landing }
+    }
+    ;(raw.steps as Raw).skills = 'done'
+    delete raw.skillsLater
+    const r = saveRow(ctx, raw, now)
+    if (r.finished) finishedNow(ctx, userId)
+    return r.finished
+  } catch (err) {
+    ctx.log.warn('welcome shared skills not recorded', { err })
+    return false
+  }
 }

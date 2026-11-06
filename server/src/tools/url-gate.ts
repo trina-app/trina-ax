@@ -34,7 +34,7 @@
 import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
 import { getDomain } from 'tldts'
-import type { ConfirmDetail, Locale } from '@mycel/shared/api'
+import { ROOM_REF_RE, type ConfirmDetail, type Locale } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
@@ -147,7 +147,8 @@ function typedUrls(db: Database, chatId: string): Set<string> {
   const seen = new Set<string>()
   for (const r of db.query(`SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND auto_sent = 0
     AND id NOT IN (SELECT user_message_id FROM turns WHERE chat_id = ? AND client_kind = 'schedule' AND user_message_id IS NOT NULL)`).all(chatId, chatId) as { content: string }[]) {
-    for (const u of extractUrls(r.content)) seen.add(u)
+    // a "#" room token's title is a room's name (any member of a group chat sets it), not the person's typing
+    for (const u of extractUrls(r.content.replace(ROOM_REF_RE, ' '))) seen.add(u)
   }
   return seen
 }

@@ -1,6 +1,7 @@
 // Render build-resources/icon.png (1024x1024) with Electron's own renderer: `electron scripts/make-icon.cjs`.
 // electron-builder turns it into the .icns / .ico. Rerun only when the design changes. This edition's icon.png is the trina.app
-// mark (rendered from web/public/favicon.svg with rsvg-convert, 2026-10-28): do not regenerate it with this script.
+// mark, rendered from desktop/scripts/trina-icon.svg with rsvg-convert (the command is in that file): do not regenerate it
+// with this script.
 const { app, BrowserWindow } = require('electron')
 const { writeFileSync } = require('node:fs')
 const { join } = require('node:path')

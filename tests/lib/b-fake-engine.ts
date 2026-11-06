@@ -5,6 +5,8 @@
 //   @fake {"say": "text"}                    stream text (in small chunks)
 //   @fake {"tool": "read", "args": {...}}    call one of our tools; {"sayResult": true} also says the result,
 //                                            {"sayLength": true} only its length and the start of its last line
+//   @fake {"tool": …, "followResult": true}  also run the "@fake {…}" directives found in the result (an AI that follows
+//                                            an instruction planted in what a tool returned)
 //   @fake {"sleep": 300}                     wait
 //   @fake {"toolStarted": "read", "args": {...}}  report a call of one of our tools that never finishes (a long
 //                                            download, a slow page): the step stays running until the turn ends
@@ -460,6 +462,8 @@ for (const d of directives) {
   else if (d.tool) {
     const r = await tool(d.tool, d.args ?? {}, !!d.expectImage, !!d.inspectImages)
     if (d.sayResult) await say(r)
+    // an AI that follows an instruction it found in a tool's result (prompt injection): "@fake {...}" anywhere in a line
+    if (d.followResult) for (const line of r.split('\n')) { const m = /@fake (\{.*\})\s*$/.exec(line); if (m) { try { directives.push(JSON.parse(m[1]!)) } catch {} } }
     if (d.sayLength) await say(`length=${r.length} tail=${r.trimEnd().split('\n').at(-1)?.slice(0, 12)}`)
   } else if (d.toolStarted) {
     turnsUsed++

@@ -34,8 +34,12 @@ import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { ROOM_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
+import { roomReadTools } from './room-tools'
+import { hideUrls } from '../tools/audit-url'
+import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
+import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 
-interface Tool {
+export interface Tool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
@@ -97,8 +101,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
-    // a team skill draft (onboarding/skill-draft.ts): no tool at all besides the refused file tools
-    if (exec.skillDraft) return false
+    // a team skill draft (onboarding/skill-draft.ts), a skill share's judgement (skills/share-judge.ts) or its merge
+    // (skills/share-merge.ts): no tool at all besides the file tools (refused, or for a merge only on its team skills)
+    if (exec.skillDraft || exec.shareJudge || exec.shareMerge) return false
     if(confidential && !localTool(t.name)) return false
     // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
     if (exec.room && !ROOM_TOOLS.has(t.name)) return false
@@ -108,6 +113,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec)) add(t)
+  // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
+  // in a confidential or draft chat (add() above keeps those to their own tools)
+  // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway)
+  if (!exec.templateRun) for (const t of roomReadTools(exec)) add(t)
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -160,6 +169,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const files = caller?.files ?? exec.files
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
       if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
+      if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
+      if (exec.shareMerge) return { ...text(SHARE_MERGE_REFUSAL, true), summary: `${name} -> refused: skill share merge (no tools)` }
       const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
       if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
@@ -174,7 +185,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       exec.noteRoomTool(name, args)
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
       const roomNo = await exec.confirmRoomChange(name, args)
-      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (room)` }
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -207,8 +218,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
       }
       exec.afterTool()
-      // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts)
-      return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
+      // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
+      // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
+      const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
+      return { content: out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary }
     },
     afterFileTool: (name, isError, args) => {
       exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
@@ -219,17 +232,21 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
       const no = await exec.confirmRoomChange(name, args)
-      return no ? { refusal: no, summary: `${name} -> not allowed by the user (room)` } : null
+      return no ? { refusal: no, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` } : null
     },
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
+      if (exec.shareJudge) return { refusal: SHARE_JUDGE_REFUSAL, summary: `${name} -> refused: skill share judgement (no team files)` }
+      // a skill share's merge: read, write and edit of exactly the team skills it merges into; write and edit go on to the
+      // skill-write card below like anywhere else
+      if (exec.shareMerge && !mergeAllows(exec, name, args)) return { refusal: SHARE_MERGE_REFUSAL, summary: `${name} -> refused: skill share merge (only its team skills)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
       recordSent(exec.rt.db, exec.spec.chatId, args)
       // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
       const roomNo = await exec.confirmRoomChange(name, args)
-      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (room)` }
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
@@ -238,6 +255,18 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return typeof p === 'string' ? exec.confirmWidening(p) : null
     },
   }
+}
+
+/** A merge chat's file call: read, write or edit, on one of the team skill files it merges into (the path as the file
+ * layer resolves it for this person: its letter case and Unicode form). Anything else is refused. */
+function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
+  if (name !== 'read' && name !== 'write' && name !== 'edit') return false
+  const p = (args as { file_path?: unknown } | null)?.file_path
+  if (typeof p !== 'string' || !p.trim()) return false
+  const targets = mergeTargets(exec.shareMerge!)
+  let rel: string
+  try { rel = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, name === 'read' ? 'read' : 'write', { mustExist: name !== 'write' }).rel } catch { return false }
+  return targets.has(rel.normalize('NFC'))
 }
 
 /** The person of this turn for tools that need a server-raised confirmation (web_fetch URLs, design tab 7). */
@@ -381,8 +410,9 @@ function bTools(exec: TurnExec): Tool[] {
         if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
         const value = clean.text
         let source: 'ai' | 'user' = 'ai'
-        if (exec.tainted) {
-          // this conversation has seen outside content: the person confirms before anything is kept (tab 3)
+        // this conversation has seen outside content, or once had a team chat room's messages in it (chats.rooms_seen,
+        // kept for the rest of the chat): the person confirms before anything is kept (tab 3)
+        if (exec.tainted || exec.roomsSeen) {
           const answer = await exec.waitForPerson({
             kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
             options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,
