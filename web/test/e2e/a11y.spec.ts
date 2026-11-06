@@ -221,23 +221,26 @@ test('no serious accessibility problems at phone width', async ({ page }) => {
 // themes: the screens an owner configures the team on are as readable as the chat.
 for (const scheme of ['light', 'dark'] as const) {
   test(`the remaining screens have no serious accessibility problems (${scheme})`, async ({ page }) => {
+    test.setTimeout(120_000)
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
     await signIn(page)
-    for (const s of ['groups', 'folders', 'providers', 'usage', 'audit', 'settings', 'system']) {
+    for (const s of ['groups', 'folders', 'providers', 'usage', 'audit', 'settings', 'system', 'plugins']) {
       await page.goto(`/admin/${s}`)
       await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible()
       await page.waitForTimeout(300)
       await audit(page, `admin/${s}`)
     }
-    for (const s of ['security', 'providers', 'memory', 'apps']) {
+    for (const s of ['security', 'providers', 'memory', 'apps', 'notifications', 'connectors', 'about']) {
       await page.goto(`/settings/${s}`)
       await page.waitForTimeout(300)
       await audit(page, `settings/${s}`)
     }
-    await page.goto('/projects')
-    await page.waitForTimeout(300)
-    await audit(page, 'projects')
+    for (const p of ['skills', 'scheduled', 'projects']) {
+      await page.goto(`/${p}`)
+      await page.waitForTimeout(300)
+      await audit(page, p)
+    }
     await page.goto('/trash')
     await page.waitForTimeout(300)
     await audit(page, 'trash')
