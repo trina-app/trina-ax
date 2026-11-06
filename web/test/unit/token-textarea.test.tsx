@@ -1,19 +1,29 @@
 // The token box (components/TokenTextarea.tsx) without a room: both layers hold the same text with the tokens marked,
 // take over the text area's metrics (its padding widened by a scroll bar that takes room) and follow its scroll. The
 // browser's layout is the e2e specs' (room-mentions.spec.ts); this DOM has none, so the text area's sizes are set here.
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { act, useState } from 'react'
 import { TokenTextarea, type TextToken } from '../../src/components/TokenTextarea'
-import { FakeElement, FakeEvent, installDom, mount, removeDom } from './dom-host'
-
-beforeAll(() => { installDom() })
-afterAll(() => { removeDom() })
+import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
 
 const STYLE: Record<string, string> = { 'font-size': '17px', 'line-height': '26px', 'padding-left': '6px', 'padding-right': '6px', 'border-left-width': '0px', 'border-right-width': '0px', color: 'rgb(20, 17, 15)', direction: 'ltr' }
+let shown: Mounted | null = null
+let stubbed: typeof getComputedStyle
+
+beforeAll(() => { installDom() })
+// the text area's computed style, as a browser would give it (put back after each test)
+beforeEach(() => {
+  stubbed = globalThis.getComputedStyle
+  globalThis.getComputedStyle = (() => ({ getPropertyValue: (p: string) => STYLE[p] ?? '' })) as unknown as typeof getComputedStyle
+})
+afterEach(async () => {
+  await shown?.unmount()
+  shown = null
+  globalThis.getComputedStyle = stubbed
+})
+afterAll(() => { removeDom() })
 
 test('both layers: the same text and tokens, the metrics of the text area, its scroll bar and its scroll', async () => {
-  const was = globalThis.getComputedStyle
-  globalThis.getComputedStyle = (() => ({ getPropertyValue: (p: string) => STYLE[p] ?? '' })) as unknown as typeof getComputedStyle
   let rerender = () => {}
   function Box() {
     const [n, setN] = useState(0)
@@ -22,6 +32,7 @@ test('both layers: the same text and tokens, the metrics of the text area, its s
     return <TokenTextarea value={`hi @Ann and more${'!'.repeat(n)}`} tokens={tokens} onTextChange={() => {}} tokenClass={() => 'tok'} data-testid="box" />
   }
   const m = await mount(<Box />)
+  shown = m
   try {
     const box = m.get('box')
     // a classic scroll bar of 15px inside a 300px text area; scrolled 40px down
@@ -50,7 +61,7 @@ test('both layers: the same text and tokens, the metrics of the text area, its s
     expect(box.getAttribute('data-token-input')).toBe('')
     expect(box.style.backgroundColor).toBe('transparent')
   } finally {
+    shown = null
     await m.unmount()
-    globalThis.getComputedStyle = was
   }
 })
