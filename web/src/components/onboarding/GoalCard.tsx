@@ -4,11 +4,11 @@
 // '광고 문구'는 아직이에요." [다시 보내기] (copies a nudge with the skill form's link); one more person: "한 명만 더 쓰면
 // 달성이에요."; nobody joined: "아직 아무도 안 들어왔어요." — those two with [초대 문구 복사] (the team link's message), or
 // [팀원 초대] while no link works. Reached: "달성했어요 · 민지·지훈·Olga" until dismissed.
-// On phones (below 768px) it is one slim line above the greeting, no frame and no rule: the title with the progress
-// and the days left, which opens the next step and its button in place (never [다시 보내기] there: an orange button
-// above the greeting); reached: "달성했어요 · names" and the way to hide it on one line. From 768px a card.
+// On phones (below 768px) it is one quiet 44px row under the message box (Home places it there), no frame and no rule,
+// like the folders row: the title with the progress and the days left, which opens the next step and its button in
+// place (never [다시 보내기] on phones); reached: "달성했어요 · names" and the way to hide it. From 768px a card.
 import clsx from 'clsx'
-import { Check, CheckCircle2, ChevronDown, Copy, UserPlus, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronDown, Copy, Target, UserPlus, X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import type { TeamGoal, TeamLinkResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
@@ -62,14 +62,14 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
     return () => { live = false }
   }, [given, goal.state, linkTick])
   const skill = goal.skill
-  const frame = phone ? 'mb-2 text-center' : 'mb-8 rounded-2xl border border-line bg-surface p-4'
+  const frame = phone ? undefined : 'mb-8 rounded-2xl border border-line bg-surface p-4'
 
   if (goal.state === 'reached') {
     return (
       <section className={frame} aria-labelledby="team-goal-title" data-testid="team-goal" data-state="reached">
-        <div className={clsx('flex items-center gap-2', phone && 'min-h-11 justify-center')}>
+        <div className={clsx('flex items-center', phone ? 'min-h-11 gap-2.5 pl-3' : 'gap-2')}>
           <CheckCircle2 size={phone ? 16 : 18} className="shrink-0 text-ok" aria-hidden />
-          <h2 id="team-goal-title" className={clsx('min-w-0', phone ? 'text-label' : 'flex-1 text-sm')}>
+          <h2 id="team-goal-title" className="min-w-0 flex-1 text-sm">
             <span className={phone ? 'font-medium' : 'font-semibold'}>{t('goal.reachedTitle')}</span>
             {skill && <span className="text-muted" data-testid="team-goal-names"> · {runnerNames(skill.people, skill.runners)}</span>}
           </h2>
@@ -107,22 +107,25 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
     }
   }
   const title = <span className={phone ? 'font-medium text-ink' : 'font-semibold'}>{t('goal.title', { days: goal.days, target: goal.target })}</span>
-  const counts = <span className="text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
+  // phones: the counts as the row's second line, so a wrap never leaves "남음" alone
+  const counts = phone
+    ? <span className="block text-xs text-muted tabular-nums" data-testid="team-goal-progress">{progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
+    : <span className="text-muted tabular-nums" data-testid="team-goal-progress"> · {progress} · {t('goal.daysLeft', { n: goal.daysLeft })}</span>
   const nextLine = <p className={clsx('text-sm text-muted text-pretty', !phone && 'mt-1')} data-testid="team-goal-next" data-next={next.kind}>{goalNextText(t, locale, next, named?.name ?? null)}</p>
   return (
     <section className={frame} aria-labelledby="team-goal-title" data-testid="team-goal" data-state="open">
       {phone ? (
         <>
-          {/* one line; a tap opens the next step (and its button, but never "다시 보내기": an orange button above the
-              greeting) */}
-          <h2 id="team-goal-title" className="text-label">
-            {/* the chevron runs with the text, so it stays after the last word when a longer language wraps */}
-            <button type="button" onClick={() => setShown((v) => !v)} aria-expanded={shown} aria-controls={nextId} className="min-h-11 max-w-full rounded-lg px-2 py-2.5 text-balance transition hover:bg-hover" data-testid="team-goal-toggle">
-              {title}{counts}
-              <ChevronDown size={15} className={clsx('ml-1.5 inline-block align-[-3px] text-faint transition', shown && 'rotate-180')} aria-hidden />
+          {/* one row; a tap opens the next step under it (and its button, but never "다시 보내기" on phones) */}
+          <h2 id="team-goal-title" className="text-sm">
+            <button type="button" onClick={() => setShown((v) => !v)} aria-expanded={shown} aria-controls={nextId} className="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition hover:bg-hover" data-testid="team-goal-toggle">
+              <Target size={16} className="shrink-0 text-faint" aria-hidden />
+              <span className="min-w-0 flex-1 text-pretty">{title}{counts}</span>
+              <ChevronDown size={16} className={clsx('shrink-0 text-faint transition', shown && 'rotate-180')} aria-hidden />
             </button>
           </h2>
-          <div id={nextId} hidden={!shown} className="mb-3 px-2">
+          {/* in line with the title's text (12px padding, the 16px icon and its 10px gap) */}
+          <div id={nextId} hidden={!shown} className="pr-3 pb-2 pl-[38px]">
             {nextLine}
             {next.kind !== 'waiting' && action && <div className="mt-3">{action}</div>}
           </div>

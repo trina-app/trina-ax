@@ -9713,3 +9713,23 @@ section of its own, not a follow-up of D (the company profile), though the deck 
   substitute face.
 - The toast when a picture became type-only at download time (the info answer could say how many).
 - The video hook (`DECK_VIDEO_SUGGESTION`) and pictures from an uploaded PPTX's `ppt/media/`.
+
+## Home on phones: no cards, the box first (fix/phone-home, 2026-11-06)
+
+The owner, looking at Home in the phone app: "새채팅 페이지도 엄청 정신이 없었네". Below 768px Home keeps the greeting
+and the message box as its first two things and puts everything else in quiet 44px rows under the box, without frames.
+Placement: Team AX core (Home, the message box, the goal card). From 768px Home is as before (Y's card at the top).
+
+- **Y's "one thing" moves under the box on phones.** The setup row or the 7-day goal is the first row under the box:
+  the goal as its title with "0/3 · 7일 남음" under it, which opens the next step (and its button, still never
+  [다시 보내기] on phones) in place; reached as "달성했어요 · names ×". Above the greeting it read as a label of the
+  greeting, and opening it moved the box. A project's new chat ("/?project=") shows neither, on every width.
+- **The folders are one row**, "내 AI가 볼 수 있는 폴더 5개 ›", that opens the list in a sheet; whether the AI may write a
+  folder is an icon, with the words once under the list (also on the desktop card, where "쓰기 가능" was on every
+  folder). **Two examples** as plain rows with an arrow up to the box: the first and the third (one to look, one to
+  write). Frequent questions, popular skills and the no-AI card lose their frames.
+- **The message box is a room's box on phones**: attach and voice inside it, the round accent send (Enter makes a new
+  line there). The row under it stays only for the engine picker (not moved: that would change how an engine is
+  picked; a later option is the "+" menu).
+- **Honorifics:** a name that already ends with one (대표님, 김민지 씨, 田中様) gets no second 님 / さん from a text
+  (i18n `format`).

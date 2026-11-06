@@ -181,14 +181,16 @@ describe('the card: a title, one line, one button', () => {
       expect(hidden).toBe(1)
     } finally { await m.unmount() }
   })
-  test('phones: one line with the progress, a tap shows the next step; no [다시 보내기] there; reached on one line', async () => {
+  test('phones: one row with the progress under the title, a tap shows the next step; no [다시 보내기] there; reached on one row', async () => {
     const media = globalThis.matchMedia
     globalThis.matchMedia = ((q: string) => ({ matches: q === '(max-width: 767.98px)', addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof matchMedia
     try {
       let m = await card(goal({ joined: 1, waiting: { first: '민지', more: 0 } }), LINK)
       try {
         const toggle = m.get('team-goal-toggle')
-        expect(toggle.textContent).toBe('7일 안에 3명이 같은 스킬 써 보기 · 1/3 · 5일 남음')
+        // the title, and the counts as its second line
+        expect(toggle.textContent).toBe('7일 안에 3명이 같은 스킬 써 보기1/3 · 5일 남음')
+        expect(m.get('team-goal-progress').textContent).toBe('1/3 · 5일 남음')
         expect(toggle.getAttribute('aria-expanded')).toBe('false')
         // no frame, no rule under it
         expect(m.get('team-goal').className).not.toContain('border')

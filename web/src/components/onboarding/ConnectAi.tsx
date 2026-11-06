@@ -173,7 +173,7 @@ export function NoAiCard() {
       <section className="mb-6 rounded-2xl border border-line p-4 sm:p-5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" aria-labelledby="no-ai-title" data-testid="no-ai-card" data-action={action}>
         {trialNote}
         <h2 id="no-ai-title" className="font-semibold text-ink">{t('welcome.ai.title')}</h2>
-        <p className="mt-1 mb-4 text-sm text-muted text-pretty">{t('welcome.ai.why')}</p>
+        <p className="mt-1 mb-4 text-sm text-muted text-balance">{t('welcome.ai.why')}</p>
         <ConnectAiPanel />
       </section>
     )
@@ -182,7 +182,7 @@ export function NoAiCard() {
     <section role="status" className="mb-6 rounded-2xl border border-line px-4 py-3.5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" data-testid="no-ai-card" data-action={action}>
       {trialNote}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 max-md:flex-col max-md:gap-y-3">
-        <p className="min-w-0 flex-[1_1_12rem] text-sm leading-6 text-ink text-pretty max-md:flex-none">{t(requested ? 'aiAccess.banner.asked' : 'aiConnect.member')}</p>
+        <p className="min-w-0 flex-[1_1_12rem] text-sm leading-6 text-ink text-balance max-md:flex-none">{t(requested ? 'aiAccess.banner.asked' : 'aiConnect.member')}</p>
         {!requested && (
           <Button size="sm" variant="primary" busy={sending} onClick={() => void ask()} data-testid="ai-access-button" data-action="ask_owner">
             {sending ? t('aiAccess.asking') : t('aiAccess.askOwner')}

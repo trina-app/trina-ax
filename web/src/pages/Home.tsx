@@ -6,8 +6,9 @@
 // does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
-// Phones (below 768px): the top row is one frameless line above the greeting (the goal opens its next step in place),
-// and a project's new chat ("/?project=") shows no top row: the goal and the setup row are about the team.
+// Phones (below 768px): no cards; the greeting and the box come first, and the "one thing" (the setup row, the goal)
+// is the first quiet row under the box (the goal opens its next step in place), so the box stays put. A project's new
+// chat ("/?project=") shows neither: the goal and the setup row are about the team.
 // Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
 // one line each, with nothing else added:
 //   - a member who just joined with a link that carries the lead's files (lib/starter.ts): "민지님이 이번 주 팀 회의록
@@ -80,13 +81,15 @@ export default function Home() {
   useEffect(() => { void useAiAccess.getState().load() }, [])
   const noAi = extras && !starter && ai.loaded && !ai.usable
   const suggest = extras && !projectId && !starter && ai.loaded && ai.usable
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  // a project's new chat is about that project: the team's goal and setup row stay on Home itself
+  const top = !noAi && extras && isAdmin(me) && !starter && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
         <div className="w-full max-w-[720px]">
-          {/* a project's new chat is about that project: the team's goal and setup row stay on Home itself */}
-          {noAi ? <NoAiCard /> : extras && isAdmin(me) && !starter && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />}
+          {noAi ? <NoAiCard /> : !phone && top}
           {project && (
             <p className="mb-2 text-center text-sm text-muted">
               <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -113,6 +116,8 @@ export default function Home() {
               {starter.by ? t('starter.privateBy', { name: me.user.name, by: starter.by }) : t('starter.private', { name: me.user.name })}
             </p>
           )}
+          {/* phones: the top row is the first row under the box */}
+          {phone && top && <div className="mt-3">{top}</div>}
           {suggest && firstTime && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
           {suggest && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
           {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
@@ -288,7 +293,8 @@ function FirstTime({ onExample }: { onExample: (text: string) => void }) {
           <AccessLegend folders={shown} />
         </section>
       )}
-      {/* phones: two plain rows with an arrow up to the box; from 768px three boxes side by side */}
+      {/* phones: two plain rows with an arrow up to the box (the first and the third: one to look, one to write); from
+          768px three boxes side by side */}
       <div className="grid grid-cols-1 md:grid-cols-3 md:gap-2">
         {EXAMPLES.map((k, i) => {
           const text = t(k, { folder: names[i % names.length]! })
@@ -297,7 +303,7 @@ function FirstTime({ onExample }: { onExample: (text: string) => void }) {
               key={k}
               type="button"
               onClick={() => onExample(text)}
-              className={clsx('flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-muted transition hover:bg-hover hover:text-ink md:rounded-xl md:border md:border-line md:px-3.5 md:py-3', i >= 2 && 'max-md:hidden')}
+              className={clsx('flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-muted transition hover:bg-hover hover:text-ink md:rounded-xl md:border md:border-line md:px-3.5 md:py-3', i === 1 && 'max-md:hidden')}
               data-testid="example"
             >
               <span className="min-w-0 flex-1">{text}</span>

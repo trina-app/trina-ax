@@ -1,5 +1,5 @@
 // "시작 설정 이어하기 (1/2)" ("(1/3)" once the AI step was shown), on the owner's Home until the welcome steps are
-// finished or hidden (pages/Welcome.tsx). One slim row (on phones a frameless line above the greeting), the only thing at the top of Home while it shows
+// finished or hidden (pages/Welcome.tsx). One slim row (on phones a frameless row under the message box), the only thing at the top of Home while it shows
 // (docs/DECISIONS.md "Y — Home shows one thing at a time"; Home decides: while no AI answers the owner, Home's connect
 // card stands in its place, so the row never leads back to the AI step). Nothing shows for anyone else, or before the
 // steps were started.
@@ -31,12 +31,12 @@ export function WelcomeResume() {
   const total = stepTotal(progress, aiReady)
   const hide = () => void useWelcome.getState().update({ dismissed: true }).catch(() => toast({ level: 'error', text: t('error.network') }))
   return (
-    // phones (below 768px): one line above the greeting, no frame, like the goal's line
-    <div className="mb-6 flex items-center gap-1 rounded-xl border border-line pr-1.5 max-md:mb-2 max-md:justify-center max-md:border-0 max-md:pr-0" data-testid="welcome-resume">
-      <Link to="/welcome" className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3.5 py-3 hover:bg-hover max-md:min-h-11 max-md:flex-none max-md:gap-2 max-md:rounded-lg max-md:px-2 max-md:py-0" data-testid="welcome-resume-link">
+    // phones (below 768px): a quiet 44px row under the message box (Home places it there), no frame, like the goal's
+    <div className="mb-6 flex items-center gap-1 rounded-xl border border-line pr-1.5 max-md:mb-0 max-md:border-0 max-md:pr-0" data-testid="welcome-resume">
+      <Link to="/welcome" className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3.5 py-3 hover:bg-hover max-md:min-h-11 max-md:gap-2.5 max-md:rounded-lg max-md:px-3 max-md:py-2" data-testid="welcome-resume-link">
         <Sparkles size={16} className="shrink-0 text-accent-text" aria-hidden />
         {/* the counted steps done: only the invite is left, say that rather than "(2/2)" */}
-        <span className="min-w-0 flex-1 text-sm font-medium text-ink max-md:text-label">{n >= total ? t('welcome.resume.inviteLeft') : t('home.setupResume', { n, total })}</span>
+        <span className="min-w-0 flex-1 text-sm font-medium text-ink">{n >= total ? t('welcome.resume.inviteLeft') : t('home.setupResume', { n, total })}</span>
       </Link>
       <IconButton label={t('welcome.resume.hide')} onClick={hide} className="touch-hit" data-testid="welcome-resume-hide">
         <X size={15} />
