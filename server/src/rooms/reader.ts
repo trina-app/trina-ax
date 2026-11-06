@@ -56,6 +56,8 @@ const norm = (s: string) => s.normalize('NFC').toLocaleLowerCase().replace(/\s+/
 /** What people add after a room's or a person's name when they name it ("<name> room", an honorific): matching data,
  * not screen text */
 const NAME_EXTRAS = /(채팅방|대화방|단톡방|톡방|채팅|대화|방|room|chat|channel|dm|디엠|님|씨|1:1)$/i
+/** The everyone room without a name of its own is called by the app's word for everyone, in any of its languages */
+const EVERYONE_WORDS = ['everyone', 'all', '전체', 'semua', '全員', 'todos']
 const strip = (s: string) => {
   let v = s.replace(/^#+/, '')
   for (let i = 0; i < 3; i++) v = v.replace(NAME_EXTRAS, '').replace(/[\s·,]+$/, '')
@@ -113,9 +115,9 @@ export function findRoom(db: Database, userId: string, ref: string): Found {
   let hits: (Mine & { view: Room })[] = []
   for (const m of mine) {
     const view = roomOut(db, m.room, m.me)
-    const t = norm(titleOf(view))
+    const titles = [titleOf(view), ...(m.room.kind === 'all' && !view.name ? EVERYONE_WORDS : [])].map(norm)
     let score = 0
-    for (const q of qs) {
+    for (const q of qs) for (const t of titles) {
       if (q === t) score = Math.max(score, 90)
       else if (q.length >= 2 && t.length >= 2 && (t.includes(q) || q.includes(t))) score = Math.max(score, 60)
     }

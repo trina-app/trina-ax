@@ -145,6 +145,9 @@ describe('exactly my view', () => {
     expect(one && 'one' in one ? one.one.room.id : null).toBe(a)
     const dmHit = findRoom(h.ctx.db, 'alice', 'Erin Yoo님')
     expect(dmHit && 'one' in dmHit ? dmHit.one.room.id : null).toBe(withErin)
+    // the everyone room by the app's word for it
+    const all = findRoom(h.ctx.db, 'alice', '전체 대화방')
+    expect(all && 'one' in all ? all.one.room.kind : null).toBe('all')
     const many = readAs('alice', `디자인${tag}`)
     expect(many.text).toContain('Several of the user\'s rooms match')
     expect(many.text).toContain(a)
