@@ -1,11 +1,12 @@
 // "AI 연결" wherever no AI answers (docs/DECISIONS.md "W2 — AI connection first"): one way in, the same everywhere.
-// The welcome step and Home's card show ConnectAiPanel (one primary "Claude 구독 연결" while the team allows a shared
-// Claude subscription, the other ways folded under "다른 방법"); the line above the composer and a failed answer show
-// ConnectAiButton ("AI 연결하기"; a member's "내 AI 연결하기"). Each opens Admin › AI connections' own AddCredential
-// dialog in its simple form (the whole team, named after the kind, the provider's terms in one line, the password again
-// for a team connection; one's own as in Settings). No connection logic here. When the dialog is done, GET
-// /api/me/ai-access is asked again: every "no AI" place reads that store, so they all move on together; a connection
-// saved that cannot answer yet says so.
+// The welcome step and Home's card show ConnectAiPanel: the three ways at once, "Claude 구독 연결" (추천) first, then
+// "ChatGPT 구독 연결" and "API 키로 연결", and one quiet line to the AI engines page for other providers (OpenRouter …).
+// The line above the composer and a failed answer show ConnectAiButton ("AI 연결하기"; a member's "내 AI 연결하기"): one
+// button where there is room for one line, opening on the recommended way, with "다른 방법" in the dialog for the rest.
+// Each opens Admin › AI connections' own AddCredential dialog in its simple form (the whole team, named after the kind,
+// the provider's terms in one line, the password again for a team connection; one's own as in Settings). No connection
+// logic here. When the dialog is done, GET /api/me/ai-access is asked again: every "no AI" place reads that store, so
+// they all move on together; a connection saved that cannot answer yet says so.
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CredentialKind } from '@mycel/shared/api'
@@ -41,29 +42,44 @@ async function answersNow(): Promise<boolean> {
   return useAiAccess.getState().usable
 }
 
-/** The simple dialog: Claude chosen, or every way. */
-function Dialog({ ways, personal, claude, onClose, onDone }: { ways: Ways; personal: boolean; claude: boolean; onClose: () => void; onDone: () => void }) {
+/** The simple dialog: one way chosen (`kind`), the key ways (`onlyKinds`), or every way. */
+function Dialog({ ways, personal, kind, onlyKinds, onClose, onDone }: { ways: Ways; personal: boolean; kind?: CredentialKind; onlyKinds?: CredentialKind[]; onClose: () => void; onDone: () => void }) {
   return (
     <Suspense fallback={null}>
       <AddCredential simple personal={personal} allowedKinds={ways.allowedKinds} gateway={ways.gateway ?? undefined} sharedSubscriptions={ways.sharedSubscriptions}
-        groups={[]} users={[]} initialKind={claude ? 'anthropic-oauth' : undefined} onClose={onClose} onDone={onDone} />
+        groups={[]} users={[]} initialKind={kind} onlyKinds={onlyKinds} onClose={onClose} onDone={onDone} />
     </Suspense>
   )
+}
+
+/** The ways ConnectAiPanel offers, in order: each opens the dialog on its kind, or on the API keys the team allows. */
+type Way = { id: 'claude' | 'chatgpt' | 'keys'; label: MessageKey; kind?: CredentialKind; onlyKinds?: CredentialKind[] }
+const KEY_KINDS: CredentialKind[] = ['anthropic-api-key', 'openai-api-key']
+
+/** A subscription is offered while the team allows sharing one (the dialog would refuse it otherwise); a key way while
+ * the team allows either key. */
+function waysShown(w: Ways): Way[] {
+  const shown: Way[] = []
+  if (claudeOf(w, false)) shown.push({ id: 'claude', label: 'welcome.ai.claude', kind: 'anthropic-oauth' })
+  if (w.sharedSubscriptions && w.allowedKinds.includes('chatgpt')) shown.push({ id: 'chatgpt', label: 'welcome.ai.chatgpt', kind: 'chatgpt' })
+  const keys = KEY_KINDS.filter((k) => w.allowedKinds.includes(k))
+  if (keys.length) shown.push({ id: 'keys', label: 'welcome.ai.keys', onlyKinds: keys })
+  return shown
 }
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 
 /**
- * The welcome step's way to connect (and Home's card for the owner): one primary "Claude 구독 연결", the other ways
- * folded under "다른 방법" (open when there is no Claude button): the same dialog with every way, and the AI engines
- * page for other providers (OpenRouter …). The team's connection: the owner's.
+ * The welcome step's way to connect (and Home's card for the owner): the ways at once, one stack of equal rows. The
+ * first is the main button ("Claude 구독 연결", marked 추천), the others bordered; each opens the dialog on its way. Under
+ * them one quiet line to the AI engines page for other providers (OpenRouter …). The team's connection: the owner's.
  */
 export function ConnectAiPanel({ disabled }: { disabled?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const [ways, setWays] = useState<Ways | null>(null)
-  const [open, setOpen] = useState<'claude' | 'other' | null>(null)
-  const [checking, setChecking] = useState(false)
+  const [open, setOpen] = useState<Way | null>(null)
+  const [checking, setChecking] = useState<Way['id'] | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let live = true
@@ -71,42 +87,39 @@ export function ConnectAiPanel({ disabled }: { disabled?: boolean }) {
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const claude = !!ways && claudeOf(ways, false)
   const done = async () => {
+    const used = open?.id ?? null
     setOpen(null)
-    setChecking(true)
+    setChecking(used)
     setError(null)
     try {
       if (!(await answersNow())) setError(t('welcome.ai.notYet'))
     } finally {
-      setChecking(false)
+      setChecking(null)
     }
   }
+  const shown = ways ? waysShown(ways) : []
   return (
-    <div className="space-y-4" data-testid="connect-ai">
+    <div className="space-y-3" data-testid="connect-ai">
       {!ways && !error ? <Skeleton lines={2} /> : (
-        <div className="space-y-4">
-          {claude && (
-            <Button variant="primary" className="max-sm:w-full" busy={checking} disabled={disabled} onClick={() => setOpen('claude')} data-testid="welcome-ai-claude">
-              {t('welcome.ai.claude')}
-            </Button>
-          )}
-          <details className="group text-sm" open={!claude || undefined} data-testid="welcome-ai-other">
-            <summary className="cursor-pointer text-muted select-none hover:text-ink">{t('welcome.ai.other')}</summary>
-            <div className="mt-3 space-y-3 border-l border-line pl-3 text-left">
-              <p className="text-[13px] text-muted">{t('welcome.ai.otherDesc')}</p>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <Button size="sm" variant={claude ? 'secondary' : 'primary'} disabled={!ways || disabled} onClick={() => setOpen('other')} data-testid="welcome-ai-other-open">
-                  {t('welcome.ai.otherOpen')}
+        <>
+          {shown.length > 0 && (
+            <div className="flex flex-col gap-2 sm:max-w-sm" data-testid="welcome-ai-ways">
+              {shown.map((w, i) => (
+                <Button key={w.id} variant={i === 0 ? 'primary' : 'secondary'} className="w-full" busy={checking === w.id} disabled={disabled || checking !== null} onClick={() => setOpen(w)} data-testid={`welcome-ai-${w.id}`}>
+                  <span className="min-w-0 flex-1 truncate text-left">{t(w.label)}</span>
+                  {w.id === 'claude' && <span className="text-xs font-normal opacity-80" data-testid="welcome-ai-recommended">{t('welcome.ai.recommended')}</span>}
                 </Button>
-                <Link to="/admin/engines" className={quietLink} data-testid="welcome-ai-engines">{t('welcome.ai.engines')}</Link>
-              </div>
+              ))}
             </div>
-          </details>
-        </div>
+          )}
+          <p className="text-[13px] leading-5 text-balance">
+            <Link to="/admin/engines" className="text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" data-testid="welcome-ai-engines">{t('welcome.ai.enginesLine')}</Link>
+          </p>
+        </>
       )}
       {error && <ErrorNote>{error}</ErrorNote>}
-      {open && ways && <Dialog ways={ways} personal={false} claude={open === 'claude'} onClose={() => setOpen(null)} onDone={() => void done()} />}
+      {open && ways && <Dialog ways={ways} personal={false} kind={open.kind} onlyKinds={open.onlyKinds} onClose={() => setOpen(null)} onDone={() => void done()} />}
     </div>
   )
 }
@@ -151,7 +164,7 @@ export function ConnectAiButton({ personal = false, size = 'sm', quiet, label, .
       ) : (
         <Button size={size} variant="primary" busy={loading || checking} onClick={() => void start()} {...props}>{text}</Button>
       )}
-      {ways && <Dialog ways={ways} personal={personal} claude={!personal && claudeOf(ways, false)} onClose={() => setWays(null)} onDone={() => void done()} />}
+      {ways && <Dialog ways={ways} personal={personal} kind={!personal && claudeOf(ways, false) ? 'anthropic-oauth' : undefined} onClose={() => setWays(null)} onDone={() => void done()} />}
     </>
   )
 }
@@ -173,7 +186,7 @@ export function NoAiCard() {
       <section className="mb-6 rounded-2xl border border-line p-4 sm:p-5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" aria-labelledby="no-ai-title" data-testid="no-ai-card" data-action={action}>
         {trialNote}
         <h2 id="no-ai-title" className="font-semibold text-ink">{t('welcome.ai.title')}</h2>
-        <p className="mt-1 mb-4 text-sm text-muted text-balance">{t('welcome.ai.why')}</p>
+        <p className="mt-1 mb-4 text-sm text-balance text-muted">{t('welcome.ai.why')}</p>
         <ConnectAiPanel />
       </section>
     )

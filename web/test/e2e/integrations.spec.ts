@@ -217,8 +217,8 @@ test('an admin gives a team connection to a group and a person; a member sees it
   await page.goto('/admin/integrations')
   await expect(page.getByRole('heading', { name: 'MCP' }).first()).toBeVisible()
   await expect(page.getByText('아직 팀 MCP 연결이 없어요')).toBeVisible()
-  // what the page is for, and that an admin has to be among the people to use one in their own chats
-  await expect(page.getByTestId('team-integrations-note')).toHaveText('회사 계정으로 서비스를 연결하고 쓸 사람을 정해요. 관리자도 사용할 사람에 들어 있어야 자기 대화에서 쓸 수 있어요.')
+  // what the page is for, in one short line
+  await expect(page.getByTestId('team-integrations-note')).toHaveText('회사 계정과 템플릿, 그리고 각각 누가 쓸 수 있는지예요. 멤버 개인 연결은 보이지 않아요.')
   await page.getByTestId('integration-add').click()
   const dialog = page.getByRole('dialog').filter({ hasNot: page.getByTestId('settings-menu') }) // not Settings itself
   await expect(dialog.getByRole('heading', { name: '팀 연결 추가' })).toBeVisible()

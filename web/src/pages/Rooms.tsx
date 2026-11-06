@@ -4,7 +4,7 @@
 // "새 1:1 대화" opens the people list (/rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
 // 1:1 icon, components/Layout.tsx): no second title row here.
 import { BellOff, Plus } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Locale, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
@@ -18,6 +18,7 @@ import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { UnreadBadge } from '../components/rooms/SidebarRooms'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 import { useNameOf } from '../store/people'
+import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
 
 /** today: the time; yesterday: the word; before: the date */
 export function listTime(iso: string, locale: Locale, yesterday: string): string {
@@ -29,6 +30,8 @@ export function listTime(iso: string, locale: Locale, yesterday: string): string
 
 export default function Rooms() {
   const t = useT()
+  // a phone's sign-in lands here (signedInHome): the owner who left the welcome steps unfinished goes to them instead
+  const resuming = useResumeOnLanding((useLocation().state as { landing?: unknown } | null)?.landing === true)
   const locale = useLocale()
   const rooms = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
@@ -38,6 +41,7 @@ export default function Rooms() {
   const picking = params.has('new')
   const setPicking = (on: boolean) => setParams(on ? { new: '1' } : {}, { replace: true })
   const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
+  if (resuming) return <div className="h-full" />
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page">
       <div className="max-md:hidden">

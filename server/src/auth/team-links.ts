@@ -35,7 +35,7 @@ import { getTeamSettings } from '../admin/settings'
 import { readSkill } from '../chat/skills'
 import { skillMakerName } from '../skills/author'
 import { Vault } from '../credentials/vault'
-import { notifyTeamJoined } from '../notifications/service'
+import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import type { Principal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
@@ -367,6 +367,7 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   // turned away, only failed and refused attempts add up
   hold.release()
   ensurePersonalFolder(ctx.files.fx.root, id)
+  notifyTemplateOffers(ctx, { userId: id })
   // the owners hear about every join, and so does the admin who made the link
   const owners = (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
   notifyTeamJoined(ctx, r.created_by ? [...owners, r.created_by] : owners, id)

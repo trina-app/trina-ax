@@ -1,7 +1,8 @@
 // Settings > MCP (called "External services" before; the address is still /settings/integrations):
 // the person's own connections to MCP servers and APIs (used only in their own chats),
 // then the team connections an admin lets them use (read-only unless they manage them); above them, services an admin
-// asked them to connect as their own (components/integrations/AnswerDialog.tsx). Not the "App connectors" tab
+// asked them to connect as their own (components/integrations/AnswerDialog.tsx), and the templates an admin shared with
+// them to connect with their own key ("From your team", components/integrations/TemplatesView.tsx). Not the "App connectors" tab
 // (ConnectorConnections.tsx): that is the other direction, claude.ai using this server's files. "Discover" adds a known
 // service by name; "Add connection" takes any MCP server or API by its address.
 import { Cable } from 'lucide-react'
@@ -18,6 +19,7 @@ import { afterAdded, ConnectorDiscover, ConnectorsHeader, matchesQuery, type Con
 import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { IntegrationRow, useIntegrationActions } from '../components/integrations/IntegrationRow'
+import { MyTemplates } from '../components/integrations/TemplatesView'
 import { Loadable, useLoad } from './admin/common'
 
 export default function Integrations() {
@@ -56,6 +58,17 @@ export default function Integrations() {
           onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
         />
       </div>
+      {(tab === 'connected' || !state.data?.personalAllowed) && (
+        <div className="[&:not(:empty)]:mb-5">
+          <MyTemplates
+            version={requests}
+            query={query}
+            actions={actions}
+            onEdit={(i) => setDialog({ existing: i })}
+            onConnected={(i, signIn) => actions.saved(i, signIn, !state.data?.items.some((x) => x.id === i.id))}
+          />
+        </div>
+      )}
       <Loadable state={state}>
         {(d) => {
           const { mine, team } = splitByScope(d.items)

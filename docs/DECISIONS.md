@@ -9735,3 +9735,29 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   takes the name's last sound ("김민지 씨가"). One helper for the app's texts (i18n `format`) and the team server's
   texts with a name (Slack's "{name}님의 질문", notices, cards): `shared/src/honorific.ts`. A name with 님 inside it
   ("김님희") keeps the text's own.
+
+## W4 — The owner's walk: setup in two groups, the AI ways at once, coming back resumes (fix/setup-form-sections, 2026-11-06)
+- **Setup form.** "어디까지가 팀이고, 어디부터가 팀장 계정인지 모르겠어": the fields sit in two fieldsets under quiet headings
+  with a hairline, 팀 (team name, team language) and 내 계정 · 팀장 (내 이름, username, password). The password is asked once
+  with the join page's show switch (PR #68), the hint "8자 이상" on the same line; no "비밀번호 확인". The setup API never
+  took the second field.
+- **The AI step shows its ways at once** ("AI 연결 왜 claude 연결 밖에 없어? codex 랑 API는??"; replaces W2's "다른 방법"
+  fold): "Claude 구독 연결" (추천, the main button), "ChatGPT 구독 연결" and "API 키로 연결" as one stack of equal rows, each
+  opening the existing `AddCredential` dialog on that way (`initialKind`; the keys with `onlyKinds`: the Claude and
+  OpenAI keys the team allows), and one quiet line to the AI engines page for other providers (OpenRouter …). A
+  subscription row shows only while the team shares subscriptions (the dialog would refuse it); the first row shown is
+  the main button. No new connection logic. Home's owner card is the same panel. "AI 연결하기" above the composer and
+  under a failed answer stays one button (one line of room there): it opens on the recommended way, and the dialog's
+  "다른 방법" lists every way.
+- **Coming back resumes the steps** ("하다가 중간에 나가면 여기로 들어오지?"). Before, only the redirect right after /setup
+  opened them; later visits showed Home's "시작 설정 이어하기 (n/total)". Now an owner whose steps are started, neither
+  finished nor hidden, and have a step to open (`resumesOnLanding`: not when only a put-off invite is left, where the
+  steps would send Home again) goes to /welcome, which opens at its resume step, when Home is a landing: the tab opened
+  on Home (react-router's first entry) or a sign-in without `?next` sent it there (`LANDING_STATE`; on a phone the
+  sign-in lands on the 대화 list, which does the same). Once per tab session: the steps on screen (after /setup, this
+  redirect, the Home row) mark it in sessionStorage per account, and in the page when the browser refuses storage, so
+  "나중에 하기" goes Home and stays; a new tab or a new sign-in session brings them back until they are finished or the
+  row is hidden. Never for admins or members (the steps are the owner's), never a link to somewhere else (a chat, an
+  invite, `?next`) or a later click on Home. Home shows nothing until the progress is read on such a landing, so it
+  does not flash first; a failed read stays on Home.
+

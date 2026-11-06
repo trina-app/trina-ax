@@ -2,7 +2,7 @@
 // (/join#t=…) and the forced password change.
 import clsx from 'clsx'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { InviteInfo, Locale, PasswordResetInfo, TeamLinkInfo } from '@mycel/shared/api'
@@ -96,7 +96,7 @@ function AuthFrame({ title, children, sub, switcher = true }: { title: string; c
         </p>
         <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)] max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:shadow-none">
           <h1 className={clsx('text-lg font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
-          {sub && <div className="mb-4 text-sm text-muted">{sub}</div>}
+          {sub && <div className="mb-4 text-sm text-balance text-muted">{sub}</div>}
           {children}
         </div>
         {switcher && <LanguageSwitcher />}
@@ -129,6 +129,56 @@ function useSubmit() {
   }
   const error = !shown ? null : 'key' in shown ? t(shown.key) : errorText(shown.e, locale, t('error.network'))
   return { busy, error, run, setError: (key: MessageKey) => setShown({ key }), setFailure: (e: unknown) => setShown({ e }) }
+}
+
+/**
+ * Typing a new password once (invite, team link, setup) or twice (password change): the eye button shows what was
+ * typed and Caps Lock is named, which catches a typo better than typing blind twice. `caps` goes on the password
+ * inputs' onKeyDown and onKeyUp; the row goes under the last password field.
+ */
+function usePasswordReveal() {
+  const [show, setShow] = useState(false)
+  const [capsOn, setCapsOn] = useState(false)
+  const caps = (e: React.KeyboardEvent) => setCapsOn(e.getModifierState?.('CapsLock') ?? false)
+  return { show, capsOn, caps, toggle: () => setShow((v) => !v) }
+}
+
+/** The Caps Lock note and the eye button, on their own row; with `hint`, on the field's hint line instead (the hint's
+ * place under the field, the button at the field's right edge): the input names `hint.id` in aria-describedby, and
+ * the text is left empty while the field shows an error (an error takes the hint's place, as in Field). */
+function PasswordRevealRow({ reveal, testId, hint }: { reveal: ReturnType<typeof usePasswordReveal>; testId: string; hint?: { id: string; text: string } }) {
+  const t = useT()
+  const { show, capsOn, toggle } = reveal
+  const label = show ? t('auth.hidePassword') : t('auth.showPassword')
+  return (
+    <div className={clsx('flex items-center justify-between gap-2', hint && 'mt-1')}>
+      <span className="min-w-0 text-xs">
+        <span role="status" className="text-warn" data-testid="caps-lock">
+          {capsOn ? t('auth.capsLock') : ''}
+        </span>
+        {hint && !capsOn && <span id={hint.id} className="text-faint">{hint.text}</span>}
+      </span>
+      <IconButton label={label} aria-pressed={show} onClick={toggle} className={clsx('shrink-0', hint && '-my-1.5 -mr-1.5 max-sm:-my-2 max-sm:-mr-2')} data-testid={testId}>
+        {show ? <EyeOff size={15} /> : <Eye size={15} />}
+        <span className="ml-1 text-xs">{label}</span>
+      </IconButton>
+    </div>
+  )
+}
+
+/** A group of fields under a quiet heading and a hairline (the setup form: the team, then the owner's own account). */
+function FormSection({ title, children, testId }: { title: string; children: ReactNode; testId: string }) {
+  return (
+    <fieldset className="min-w-0" data-testid={testId}>
+      <legend className="mb-3 w-full">
+        <span className="flex items-center gap-3 text-xs font-medium text-muted">
+          {title}
+          <span className="h-px flex-1 bg-line" aria-hidden />
+        </span>
+      </legend>
+      <div className="space-y-3">{children}</div>
+    </fieldset>
+  )
 }
 
 export function Login() {
@@ -192,7 +242,9 @@ export function Setup() {
   const navigate = useNavigate()
   // the link from the account console (#token=…&team=…&lang=…&site=…) or the installer (?token=…), read once
   const [link] = useState(() => readSetupLink(window.location))
-  const [form, setForm] = useState({ setupToken: link.token ?? '', teamName: link.team ?? '', name: '', username: '', password: '', password2: '' })
+  const [form, setForm] = useState({ setupToken: link.token ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
+  const reveal = usePasswordReveal()
+  const passwordHintId = useId()
   const { busy, error, run, setError } = useSubmit()
   useEffect(() => {
     // the token leaves the address bar (history, screenshots) as soon as it is in the form
@@ -210,12 +262,10 @@ export function Setup() {
     name: requiredCheck(form.name),
     username: usernameCheck(form.username),
     password: form.password ? null : 'auth.required',
-    password2: form.password2 ? null : 'auth.required',
   })
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!check(e.currentTarget)) return
-    if (form.password !== form.password2) return setError('auth.passwordMismatch')
     if ([...form.password].length < PASSWORD_MIN) return setError('auth.passwordRule')
     void run(async () => {
       // the team's time zone starts as this browser's (Admin > Settings changes it)
@@ -230,56 +280,64 @@ export function Setup() {
     })
   }
   return (
-    // the "Team language" field below is this screen's language switcher too (one picker, not two)
+    // the "Team language" field below is this screen's language switcher too (one picker, not two). Two groups under
+    // quiet headings, so it is plain where the team ends and the owner's own account begins.
     <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
-      <form onSubmit={submit} noValidate className="space-y-3">
-        {!link.token && (
-          <Field label={t('setup.token')} hint={t('setup.tokenHint')} error={errorOf('setupToken')}>
-            <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
+      <form onSubmit={submit} noValidate className="space-y-6">
+        <FormSection title={t('setup.section.team')} testId="setup-section-team">
+          {!link.token && (
+            <Field label={t('setup.token')} hint={t('setup.tokenHint')} error={errorOf('setupToken')}>
+              <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
+            </Field>
+          )}
+          <Field label={t('setup.teamName')} error={errorOf('teamName')}>
+            <input className={inputCls} name="teamName" value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
           </Field>
-        )}
-        <Field label={t('setup.teamName')} error={errorOf('teamName')}>
-          <input className={inputCls} name="teamName" value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
-        </Field>
-        <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
-          {/* the team language is the language on screen: picking one here switches this page too */}
-          <select
-            className={inputCls}
-            value={locale}
-            data-testid="setup-locale"
-            onChange={(e) => {
-              const l = e.target.value as Locale
-              storeLocale(l)
-              setLocale(l)
-            }}
-          >
-            {LOCALES.map((l) => (
-              <option key={l.id} value={l.id} lang={l.id}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={t('auth.name')} error={errorOf('name')}>
-          <input className={inputCls} name="name" value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} />
-        </Field>
-        <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={errorOf('username') ?? (usernameProblem(form.username) ? t('auth.usernameHint') : null)}>
-          <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" />
-        </Field>
-        <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
-          <input className={inputCls} name="password" type="password" value={form.password} onChange={set('password')} required autoComplete="new-password" />
-        </Field>
-        <Field label={t('auth.passwordAgain')} error={errorOf('password2')}>
-          <input className={inputCls} name="password2" type="password" value={form.password2} onChange={set('password2')} required autoComplete="new-password" />
-        </Field>
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        )}
-        <Button type="submit" variant="primary" className="w-full" busy={busy}>
-          {t('setup.create')}
-        </Button>
+          <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
+            {/* the team language is the language on screen: picking one here switches this page too */}
+            <select
+              className={inputCls}
+              value={locale}
+              data-testid="setup-locale"
+              onChange={(e) => {
+                const l = e.target.value as Locale
+                storeLocale(l)
+                setLocale(l)
+              }}
+            >
+              {LOCALES.map((l) => (
+                <option key={l.id} value={l.id} lang={l.id}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </FormSection>
+        <FormSection title={t('setup.section.owner')} testId="setup-section-owner">
+          <Field label={t('setup.name')} error={errorOf('name')}>
+            <input className={inputCls} name="name" value={form.name} onChange={set('name')} required autoComplete="name" maxLength={100} data-testid="setup-name" />
+          </Field>
+          <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={errorOf('username') ?? (usernameProblem(form.username) ? t('auth.usernameHint') : null)}>
+            <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="setup-username" />
+          </Field>
+          {/* one password field, as when joining: the eye button shows what was typed (no second field to type blind) */}
+          <div>
+            <Field label={t('auth.password')} error={errorOf('password')}>
+              <input className={inputCls} name="password" type={reveal.show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={reveal.caps} onKeyUp={reveal.caps} required autoComplete="new-password" autoCapitalize="none" aria-describedby={passwordHintId} data-testid="setup-password" />
+            </Field>
+            <PasswordRevealRow reveal={reveal} testId="setup-password-show" hint={{ id: passwordHintId, text: errorOf('password') ? '' : t('setup.passwordHint') }} />
+          </div>
+        </FormSection>
+        <div className="space-y-3">
+          {error && (
+            <p role="alert" className="text-sm text-danger">
+              {error}
+            </p>
+          )}
+          <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="setup-submit">
+            {t('setup.create')}
+          </Button>
+        </div>
       </form>
     </AuthFrame>
   )
@@ -289,15 +347,13 @@ export interface JoinValues { name: string; username: string; password: string }
 
 /**
  * The new-account form of an invite and of the team invite link: name, username, password. No second password field:
- * the eye button shows what was typed (and Caps Lock is named), which catches a typo better than typing blind twice.
+ * the eye button shows what was typed (PasswordRevealRow; the setup form has the same).
  * The same rules as before: the username rule while typing, the length before sending, the server's words after.
  */
 export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { submitLabel: string; busy: boolean; error: string | null; onSubmit: (v: JoinValues) => void; onTooShort: () => void }) {
   const t = useT()
   const [form, setForm] = useState({ name: '', username: '', password: '' })
-  const [show, setShow] = useState(false)
-  const [capsOn, setCapsOn] = useState(false)
-  const caps = (e: React.KeyboardEvent) => setCapsOn(e.getModifierState?.('CapsLock') ?? false)
+  const reveal = usePasswordReveal()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   // the form checks its own fields (noValidate): errors under the field in the screen language, never a browser popup
   const { errorOf, check } = useFieldChecks({ name: requiredCheck(form.name), username: usernameCheck(form.username), password: form.password ? null : 'auth.required' })
@@ -315,20 +371,10 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { s
       <Field label={t('auth.username')} hint={t('auth.usernameHint')} error={errorOf('username') ?? (usernameProblem(form.username) ? t('auth.usernameHint') : null)}>
         <input className={inputCls} name="username" value={form.username} onChange={set('username')} required autoComplete="username" autoCapitalize="none" pattern="[A-Za-z0-9._@\-]{2,64}" data-testid="invite-username" />
       </Field>
-      {/* "Show password" sits on the field's label line (not a row of its own), outside the label so it is not part of
-          the field's name; Caps Lock is said under the field, and takes no room while it is off */}
-      <div className="relative">
-        <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
-          <input className={inputCls} name="password" type={show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="invite-password" />
-        </Field>
-        <IconButton label={show ? t('auth.hidePassword') : t('auth.showPassword')} aria-pressed={show} onClick={() => setShow(!show)} className="absolute -top-1.5 -right-1.5 max-sm:-top-2 max-sm:-right-2" data-testid="invite-password-show">
-          {show ? <EyeOff size={15} /> : <Eye size={15} />}
-          <span className="ml-1 text-xs">{show ? t('auth.hidePassword') : t('auth.showPassword')}</span>
-        </IconButton>
-        <span role="status" className="mt-1 block text-xs text-warn empty:mt-0" data-testid="caps-lock">
-          {capsOn ? t('auth.capsLock') : ''}
-        </span>
-      </div>
+      <Field label={t('auth.password')} hint={t('auth.passwordRule')} error={errorOf('password')}>
+        <input className={inputCls} name="password" type={reveal.show ? 'text' : 'password'} value={form.password} onChange={set('password')} onKeyDown={reveal.caps} onKeyUp={reveal.caps} required autoComplete="new-password" autoCapitalize="none" data-testid="invite-password" />
+      </Field>
+      <PasswordRevealRow reveal={reveal} testId="invite-password-show" />
       {error && (
         <p role="alert" className="text-sm text-danger">
           {error}
@@ -532,9 +578,8 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
   const withoutCurrent = !!forced && !!me?.session.tempLogin
   const [form, setForm] = useState({ current: '', next: '', next2: '' })
   // typing blind twice: let the person see what they typed, and say when Caps Lock is on
-  const [show, setShow] = useState(false)
-  const [capsOn, setCapsOn] = useState(false)
-  const caps = (e: React.KeyboardEvent) => setCapsOn(e.getModifierState?.('CapsLock') ?? false)
+  const reveal = usePasswordReveal()
+  const { show, caps } = reveal
   const { busy, error, run, setError } = useSubmit()
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
@@ -568,15 +613,7 @@ export function ChangePasswordForm({ onDone, forced }: { onDone: () => void; for
       <Field label={t('auth.passwordAgain')} error={errorOf('next2')}>
         <input className={inputCls} name="next2" type={show ? 'text' : 'password'} value={form.next2} onChange={set('next2')} onKeyDown={caps} onKeyUp={caps} required autoComplete="new-password" autoCapitalize="none" data-testid="password-new2" />
       </Field>
-      <div className="flex items-center justify-between gap-2">
-        <span role="status" className="text-xs text-warn" data-testid="caps-lock">
-          {capsOn ? t('auth.capsLock') : ''}
-        </span>
-        <IconButton label={show ? t('auth.hidePassword') : t('auth.showPassword')} aria-pressed={show} onClick={() => setShow(!show)} data-testid="password-show">
-          {show ? <EyeOff size={15} /> : <Eye size={15} />}
-          <span className="ml-1 text-xs">{show ? t('auth.hidePassword') : t('auth.showPassword')}</span>
-        </IconButton>
-      </div>
+      <PasswordRevealRow reveal={reveal} testId="password-show" />
       {error && (
         <p role="alert" className="text-sm text-danger">
           {error}

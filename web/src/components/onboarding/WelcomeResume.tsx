@@ -2,11 +2,11 @@
 // finished or hidden (pages/Welcome.tsx). One slim row (on phones a frameless row under the message box), the only thing at the top of Home while it shows
 // (docs/DECISIONS.md "Y — Home shows one thing at a time"; Home decides: while no AI answers the owner, Home's connect
 // card stands in its place, so the row never leads back to the AI step). Nothing shows for anyone else, or before the
-// steps were started.
+// steps were started. On a landing the owner goes to the steps themselves (useResumeOnLanding).
 import { Sparkles, X } from 'lucide-react'
-import { useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { doneCount, showResume, stepTotal } from '../../lib/welcome'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { doneCount, markStepsSeen, resumesOnLanding, showResume, stepsSeen, stepTotal } from '../../lib/welcome'
 import { useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { isOwner, useMe } from '../../store/session'
@@ -43,6 +43,33 @@ export function WelcomeResume() {
       </IconButton>
     </div>
   )
+}
+
+/**
+ * Coming back resumes the steps (lib/welcome.ts, docs/DECISIONS.md "W4"): on a landing (`landing`: the tab opened here,
+ * or a sign-in sent it here), an owner whose steps are started, unfinished and not hidden goes to /welcome, which opens
+ * at its resume step; once per tab session (the steps mark it), never for anyone else. Decided when the page opens: a
+ * later change of the progress never sends anyone away. True while that is being decided, so the page shows nothing
+ * first (a failed read decides "stay").
+ */
+export function useResumeOnLanding(landing: boolean): boolean {
+  const me = useMe()
+  const navigate = useNavigate()
+  const userId = me?.user.id ?? ''
+  const [armed] = useState(() => landing && isOwner(me) && !stepsSeen(userId))
+  const loaded = useWelcome((s) => s.loaded)
+  const progress = useWelcome((s) => s.progress)
+  useEffect(() => {
+    if (armed) void useWelcome.getState().load().catch(() => {})
+  }, [armed])
+  const go = armed && loaded && resumesOnLanding(progress)
+  useEffect(() => {
+    if (!go) return
+    markStepsSeen(userId)
+    navigate('/welcome', { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [go])
+  return armed && (!loaded || go)
 }
 
 export default WelcomeResume
