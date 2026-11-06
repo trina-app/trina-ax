@@ -2299,7 +2299,7 @@ export class MockServer {
     checkEngine: (c) => this.enginesResponse().engines.find((e) => e.id === c.params.id) ?? fail('not_found', 404),
     // the team's API engine: not set up (like a fresh server)
     getApiEngine: () => ({ baseUrl: null, model: null, label: null, hasKey: false }),
-    putApiEngine: (c) => ({ baseUrl: c.body.baseUrl, model: c.body.model, label: c.body.label ?? null, hasKey: !!c.body.key }),
+    putApiEngine: (c) => c.body.password !== this.passwords.get(c.user.username) ? fail('forbidden', 403, '비밀번호가 맞지 않아요.', { 'body.password': 'wrong password' }) : ({ baseUrl: c.body.baseUrl, model: c.body.model, label: c.body.label ?? null, hasKey: !!c.body.key }),
     listBudgets: () => ({ items: this.budgets }),
     createBudget: (c) => {
       const b: Budget = { id: uuidv7(), subjectType: c.body.subjectType, subjectId: c.body.subjectId, period: c.body.period, limitUsd: c.body.limitUsd, limitTokens: c.body.limitTokens ?? null, action: c.body.action, usedUsd: 0, usedTokens: 1234 }
@@ -2479,7 +2479,7 @@ export class MockServer {
     listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22' }),
     sealingKey: () => this.sealer.publicKey(),
     createCredential: async (c) => {
-      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403, '비밀번호가 맞지 않아요.', { 'body.password': 'wrong password' })
+      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403, '비밀번호가 맞지 않아요.', { 'body.password': 'wrong password' })
       return { status: 201, body: await this.addCredential(c.user, c.body, false) }
     },
     createMyCredential: async (c) => {
@@ -2497,7 +2497,7 @@ export class MockServer {
       return x
     },
     replaceCredentialSecret: async (c) => {
-      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
+      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403)
       const x = this.credentials.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
       await this.sealer.unseal(c.body.sealed, 'credential.replace').catch(() => fail('validation', 400))
       x.state = 'ok'; x.detail = null
@@ -2527,7 +2527,7 @@ export class MockServer {
     myCredentials: (c) => ({ allowed: this.credMemberOwn, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], items: this.credentials.filter((x) => x.owner?.id === c.user.id) }),
     startCredentialLogin: (c) => {
       if (!this.credSharedSubscriptions) fail('forbidden', 403)
-      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
+      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403) // the caller's own (owner or admin)
       return { status: 202, body: this.startLogin(c.user, c.body.label, false, c.body.reconnectId, c.body.kind) }
     },
     startMyCredentialLogin: (c) => {
@@ -2538,7 +2538,7 @@ export class MockServer {
     submitMyCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
     getCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
-    cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
+    cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user, true); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
 
     // Google Drive (server/src/routes/drive.ts): this test server has no Google client, like a server not set up for it.
@@ -3031,6 +3031,9 @@ export class MockServer {
   /** a ChatGPT sign-in: the code after a moment, then the connection. A Claude sign-in: the authorize address after a
    * moment, then it waits for the pasted code (good-code#good-state connects, anything else is a wrong code). */
   startLogin(user: User, label: string, personal: boolean, reconnectId?: string, kind: CredentialLogin['kind'] = 'chatgpt'): CredentialLogin {
+    // one sign-in at a time (like the server): the owner or an admin is told whose it is and can stop it
+    const running = [...this.credLogins.values()].find((x) => x.state === 'starting' || x.state === 'code' || x.state === 'checking')
+    if (running) fail('busy', 409, '다른 AI 로그인이 진행 중이에요. 하나씩만 할 수 있어요.', undefined, user.role !== 'member' && !personal ? { reason: 'login_busy', loginId: running.loginId, personal: running.personal, starter: this.users.find((u) => u.id === running.userId)?.name ?? '' } : undefined)
     const loginId = 'login' + uuidv7().replace(/-/g, '')
     const l = { loginId, kind, state: 'starting' as CredentialLogin['state'], url: null as string | null, code: null as string | null, expiresAt: new Date(Date.now() + 16 * 60_000).toISOString(), credential: null as Credential | null, reason: null as string | null, userId: user.id, personal, label, reconnectId }
     this.credLogins.set(loginId, l)
@@ -3078,9 +3081,9 @@ export class MockServer {
     if (!l || l.userId !== user.id) return fail('not_found', 404)
     return this.loginView(l)
   }
-  cancelLogin(id: string, user: User) {
+  cancelLogin(id: string, user: User, anyLogin = false) {
     const l = this.credLogins.get(id)
-    if (!l || l.userId !== user.id) fail('not_found', 404)
+    if (!l || (l.userId !== user.id && !anyLogin)) fail('not_found', 404)
     // like the server while it saves the new token: 409 (here for the whole check)
     if (l!.state === 'checking') fail('conflict', 409, '새 토큰을 확인하고 저장하는 중이에요. 곧 끝나요.')
     if (l!.state === 'starting' || l!.state === 'code') { l!.state = 'cancelled'; this.publish({ type: 'credential.login', data: this.loginView(l!) }) }
@@ -3300,7 +3303,7 @@ export class MockServer {
       const user = this.userOf(req)
       if (ep.auth !== 'public') {
         if (!user) fail('unauthorized', 401)
-        if ((ep.auth === 'admin' && user!.role === 'member') || ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && user!.role !== 'owner')) fail('forbidden', 403)
+        if (((ep.auth === 'admin' || ep.auth === 'admin-reauth') && user!.role === 'member') || ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && user!.role !== 'owner')) fail('forbidden', 403)
         // like the server: a temporary password reaches only the endpoints that change it
         if (user!.mustChangePassword && !ep.allowWhilePasswordChange) fail('password_change_required', 403)
       }

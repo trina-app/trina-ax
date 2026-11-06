@@ -6,6 +6,7 @@ import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { passwordProblem, temporaryPassword } from '../../server/src/auth/passwords'
 import { weakPasswordMessage } from '../../server/src/auth/messages'
 import { OWNER_PW, SETUP_TOKEN, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+const SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'A'.repeat(16), ct: 'A'.repeat(40) } // well-formed, never opened
 
 // argon2id with 64 MiB per hash, 4 at a time (auth/passwords.ts): the rate-limit cases hash dozens of passwords and take
 // about 2 s alone, more on a busy machine; the 5 s default cut them off there
@@ -319,6 +320,17 @@ describe('rate limits (per account and per real client IP)', () => {
     }
     const r = await m.client.try('POST', '/api/auth/password', { currentPassword: 'cloud forest path 33', newPassword: 'cloud desert road 44' })
     expect(r.status).toBe(429)
+    expect(await h.auth.verifyPassword('olga', OWNER_PW, { ip: null, via: 'test' })).toBe(true)
+  })
+  test('admin-reauth (the team\'s AI steps) is limited per person like owner-reauth: wrong passwords count, then even the right one waits', async () => {
+    h.advance(DEFAULT_LIMITS.windowMs + 1000)
+    const adm = await addMember(h, owner, { username: 'adriana', role: 'admin', password: 'harbor lamp stone 55' })
+    const body = (password: string) => ({ kind: 'anthropic-api-key', label: 'x', sealed: SEALED, password })
+    for (let i = 0; i < DEFAULT_LIMITS.perReauth; i++) expect((await adm.client.try('POST', '/api/admin/credentials', body('wrong wrong'))).status).toBe(403)
+    // the right password is now refused too (429), and so is the owner-reauth path of the same person
+    expect((await adm.client.try('POST', '/api/admin/credentials', body('harbor lamp stone 55'))).status).toBe(429)
+    expect((await adm.client.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://93.184.216.34/v1', model: 'm', password: 'harbor lamp stone 55' })).status).toBe(429)
+    // other people are not affected
     expect(await h.auth.verifyPassword('olga', OWNER_PW, { ip: null, via: 'test' })).toBe(true)
   })
   test('failed sign-ins are audited with the real IP, never with the tried password', async () => {

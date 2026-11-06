@@ -1219,7 +1219,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **D9 Codex는 진짜 토큰을 받지 않는다**: 턴의 `CODEX_HOME/auth.json`은 가짜(접근 토큰·API 키 자리 = 이 턴의 프록시 토큰, refresh 자리 = `teamax-no-refresh`, account_id = `teamax-<sha256(연결 id)[:12]>`, 서명 없는 id_token에 진짜 플랜 종류만). 공급자 `teamax`(이름은 PRODUCT.displayName, "OpenAI"가 아님)가 `http://127.0.0.1:<proxy>/codex/<chatgpt|openai>`로 보내고, 프록시가 진짜 Authorization·ChatGPT-Account-ID(또는 키)를 넣는다. Codex 턴의 CONNECT 터널은 없앴다(`connect.ts`의 `codexTurns`는 F1·옛 구성에서만). `chatgpt_base_url`·갱신 주소도 프록시로: `/codex/backend/wham/config/bundle`은 `{}`, 그 밖 배경 호출은 404(Codex 0.163이 ChatGPT 턴마다 부르는 `accounts/check`·`settings/user`는 경고 없이), `/codex/oauth/token`은 400 invalid_grant + 감사.
 - **D10 갱신은 서버가**: 연결별 single-flight, 회전된 refresh token을 같은 트랜잭션에서 먼저 저장한 뒤 새 접근 토큰을 쓴다. `invalid_grant`·`refresh_token_*`·401이면 `needs_reconnect`. 일시 실패는 그 요청만 502. 하루 한 번 8일 넘게 안 쓴 연결을 갱신.
 - **D12 봉인**: 브라우저(`web/src/lib/seal.ts`)가 서버 공개키(`<secrets>/credential-sealing.jwk`, P-256)로 ECDH + HKDF-SHA256(info `mycel-seal-v1|<kid>`) + AES-256-GCM으로 봉인. 평문 `{secret, nonce, purpose}`: purpose가 엔드포인트와 다르면 거부, 같은 nonce는 10분 안에 두 번 받지 않음. 계약에 봉인 안 된 비밀값 필드가 없다. `crypto.subtle`이 없는 화면(LAN의 http)은 "https에서만"이라고 말한다.
-- **D13 권한**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
+- **D13 권한 (대체됨: 맨 아래 「관리자도 팀 AI 연결을 한다」)**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
 - **D14 상태는 연결별**: 401 → 그 연결만 `invalid`(ChatGPT는 갱신 1번·재전송 1번 뒤), 긴 429 → 그 연결만 `limited_until`(DB, 재시작해도 유지). 프록시 전역 `limitedUntil`은 없앴다.
 - **D15 넘기기**: 묶인 연결이 한도·거절·월 한도에 걸리면 같은 계열 다음 연결로 새 시도(최대 2번, Claude는 새 세션, 단계·알림·감사 `engine.credential_switch`). 없으면 `rate_limited`일 때만 `limitFallback`(Claude→Codex, Codex 연결이 있을 때만), 그다음 오류.
 - **D16 비용**: `credentials/prices.ts`(2026-10-22 정가). API 키만 계산, 구독은 0(토큰은 셈). 모르는 모델은 계열 최대값 + 서버 시작 뒤 모델마다 한 번 감사.
@@ -11128,3 +11128,144 @@ person too; they already create and disable people, and having to ask the owner 
   Admin › Members list tells an admin which members asked (`deletionRequested`, members only). Texts in all five
   languages said "the team owner deletes": they say "the team owner or an admin" now. The archive still says it is
   readable by the owner only.
+## Admins connect the team's AI too (2026-11-06, product owner)
+
+**Decision.** The owner and admins have the same powers over the team's AI connections and the team API engine
+settings (Admin › Providers). Before, only the owner could add, replace, rename, order, assign, limit, switch off or
+remove a team connection, start a ChatGPT or Claude sign-in, change the two team switches ("members' own connections",
+"shared subscriptions") or edit the API engine; admins could only list and re-check. Members' own connections
+(`/api/me/credentials`) are unchanged: they are theirs alone.
+
+**Why.** An admin is who keeps the team running day to day, and a refused or expired connection is an admin's job to
+fix. "Tell the owner" was a dead end when the owner is not around, and the product owner asked for it.
+
+- **Re-auth: `admin-reauth`.** A new auth level next to `owner-reauth`, in the auth layer only (`shared/src/api/endpoint.ts`,
+  `server/src/http/route.ts`): the caller must be an admin or the owner, and the body carries `password`, checked
+  against the caller's **own** password (same rate limit as every re-entry). `createCredential`,
+  `replaceCredentialSecret` and `startCredentialLogin` use it (so does "Move it to the team", which is an add). The
+  rest (`updateCredential`, `deleteCredential`, the sign-in's get / cancel / code, `updateCredentialSettings`,
+  `getApiEngine`, `putApiEngine`) are plain `admin`. A demo server refuses `admin-reauth` like `owner-reauth`.
+  Nothing of member deletion (`deleteUser`, `owner-reauth`) was touched.
+- **Either may change what the other added.** There is no per-row "who may" check: a connection is the team's. Audit
+  lines keep the actor as before (`created_by` and `audit_log.actor_id` are the admin).
+- **The owner hears of an admin's change.** When an admin adds, replaces, removes or switches off a team connection
+  (including through a Claude or ChatGPT sign-in), or saves the API engine settings, each active owner gets one short
+  in-app notice (`credential_admin_change`, link Admin › Providers): who, what, and the connection's name or the model.
+  Never a token or key. It uses the channel the connection notices already use (`CredCtx.notify`, the live `notice`
+  event); no new channel. The owner's own changes send nothing. Renames, ordering, assigning and limits send nothing
+  (too noisy, and not a change of what answers).
+- **A sign-in belongs to who started it.** `credentialLogins` already keyed a sign-in, its address, its state events and
+  the code step by the starter's user id (404 for anyone else, the owner included), so an admin's Claude sign-in
+  works end to end with no change to it, the launcher or native code. Only one sign-in runs at a time on a server.
+- **Owner-specific assumptions found, and what changed.**
+  - *Who is told of a refused, expiring, limited or disconnected connection:* already the owner and admins
+    (`admins()` in `credentials/store.ts`). Unchanged.
+  - *"AI access requests"* (`requestAiAccess`, a member without AI): went to owners only. Now to the owner(s) and the
+    admins (`onboarding.ai_request` rows per person; the same name-and-link notice; settled together when the member
+    can use AI). An admin or owner cannot ask (403).
+  - *The button for "no AI"* (`aiAccessFor`): an admin got `connect_own` / `ask_owner`. Now `connect_team`, like the
+    owner: the Home card, the banner above the composer and the chat error offer the connect dialog. The chat error's
+    separate "tell the owner" words for admins are gone (`aiConnect.error.admin.*`).
+  - *Admin › Providers:* the buttons, the connection menu, the reconnect button, the two switches and the API engine
+    form were hidden unless `isOwner`; now `isAdmin` (owner or admin).
+  - *Left owner-only, on purpose:* the owner's setup checklist on Admin Home and the welcome steps (they walk through
+    backups and System, which stay the owner's, and belong to the owner's onboarding progress); member deletion,
+    updates, restores, the team name, transfer of ownership.
+  - *Members' own connections:* admin endpoints could already switch off or delete a member's personal connection for
+    the owner. Admins get the same (one rule: the team's policy), they still never see a secret.
+- **Hosted / managed installs.** No owner-only rule there turned out to be about billing or a provider-managed
+  connection. What a hosted server restricts stays as it is, and it never depended on the role: the hosting
+  service's trial AI credit is not a connection row (nobody edits it here), the allowed kinds come from
+  `engine.credentialKinds`, and the API engine address must be public https (`apiEngineAnyUrl`). All of these apply to
+  admins exactly as to the owner.
+- **Rejected:** a lighter re-auth for admins, or none (a connection is the team's money and access; the password
+  again stays); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
+  to other admins too (the owner is the one who answers for the team, and admins see the change in Activity log).
+
+### Review round 1 of "Admins connect the team's AI too" (2026-11-06)
+
+An independent review found one hole and several gaps. What changed, and why:
+
+- **The team API engine's key cannot be sent to a new address** (the hole: an admin could save a new address without a
+  key, which kept the stored key, and "check again" then sent it there; every API-engine turn after that went there
+  too). Now: a changed address (scheme, host or port) never keeps the stored key: the caller sends a key for it, or
+  `null` (400 otherwise; for the owner too). `putApiEngine` is `admin-reauth` (the caller's own password). An admin
+  (not the owner) cannot set a private, loopback or link-local address on a self-hosted or office install (403): the
+  address rules are web_fetch's own (`isPublicAddress` / `isLocalAddress` / `checkHostName` through
+  `assertPublicHttps`, now with `allowHttp`), not new ones. A private address already set stays as it is when only
+  the model changes. The owner's notice names the host and the model.
+- **The notice reaches an owner who is away.** Next to the live notice (the channel of the connection notices) it is
+  an inbox row (`credential.change`, table `credential_change_notices`, migration 116, additive, reader level 1;
+  who, action, the connection's name or the engine's host and model, never a key), in all five languages. It is sent
+  whenever the actor is **not an owner** (so a person demoted a moment ago is still reported). Also told, after
+  consideration: giving a connection to other people (`reassigned`), a zero limit (`zero_limit`), turning shared
+  subscriptions on (`shared_on`: a provider-terms risk the owner answers for). Not told, with a reason: turning
+  shared subscriptions off or the members' own connections on or off (no new risk; Activity log), renames, order and
+  normal limits (noise).
+- **A sign-in belongs to its starter and to the right door.** A team sign-in can be reached only through
+  `/api/admin/credential-logins`, a personal one only through `/api/me/...` (404 through the other). At store time a
+  team sign-in (Claude and ChatGPT) checks that its starter is still an active owner or admin
+  (`policy_changed` otherwise). Making someone a member ends their running team sign-ins; disabling them ends all
+  (`credentials/login.ts cancelLoginsOf`, called from `updateUser`). The owner or any admin can stop any **team**
+  sign-in (only one runs at a time, and a forgotten one blocked everybody for up to 16 minutes); the Activity log
+  says who (`credential.login_cancel`). Reading the address and sending the code stay the starter's alone.
+- **A member's own connection through the admin endpoints.** The owner keeps what the owner had. An admin may only
+  switch off or remove a **member's** (not the owner's, not another admin's), never rename, reorder, limit or
+  replace its key, and the member is told (live and in the inbox). Reversing it (switching it on again) is the
+  member's. This replaces the earlier "admins get the owner's powers here" line.
+- **Copy.** Texts for members who are told to ask now say owner or admin (all five languages).
+
+### Review round 2 of "Admins connect the team's AI too" (2026-11-07)
+
+- **The API engine's key is stored with its address, and read only for it.** The round-1 rule ("a changed address needs
+  a key") was decided from a read made before the admin's DNS wait and written after it, so an owner's new key saved
+  during that wait ended up paired with the admin's address. Now the key file holds the key and the origin it was
+  made for (`engine/api-agent.ts`); `readApiEngine`, which every reader that sends the key goes through, returns
+  `key: null` for any other origin. An older bare key is bound to the address that was set when it is first rewritten.
+  The handler also decides the rule from a fresh read with no wait before the write. Regression test: the review's
+  race, adapted (`a-credentials-api`).
+- **Redirects and re-pointed names.** API-engine calls never follow a redirect (`redirect: 'error'`, every install).
+  An address an admin set (`setBy: 'admin'` in `engine-api.json`; an address the owner set and an admin left alone stays
+  the owner's) must be a public address at every call, not only when it was saved, with the same classification as
+  before (`assertPublicHttps`, `allowHttp`). No cache: one DNS lookup per call is cheap beside the model call.
+- **A busy sign-in can be stopped from the dialog.** Only one sign-in runs per server. The 409 for an owner or an admin
+  starting one carries `LoginBusyParams` (the running sign-in's id, whether it is the team's or a member's own, and the
+  starter's name); a member starting their own gets none of it. The Add account dialog shows it with **Stop it**, and
+  the owner or an admin may stop any sign-in, a member's own included (that member is told, live and in the inbox,
+  `personal_login_stopped`). Reading the address and sending the code stay the starter's alone.
+- **A save counts as a change only when something differs.** Assignments are compared as sets and the limit by value, so
+  the edit dialog (which always sends its whole form) no longer tells the owner, nor writes a false "changed" line in
+  the Activity log, when only the name changed.
+- **The inbox row's `action` has no CHECK list** (migration 116, not released): a later build may add actions, and a
+  reader that does not know one shows a generic line. 116 is still free in the A range on dev after this merge.
+- **Sign-in rights, finished.** Deleting a member also ends their running sign-ins; a personal sign-in of a disabled or
+  deleted account stores nothing; a Claude sign-in looks at its starter's role again inside the write itself (after
+  the provider check, which takes seconds).
+- **Texts.** "The team owner moved your connection" now names who did (an admin may).
+- **Matrix tests.** The admin-reauth cases are sent with a wrong password and check the reason: the owner and an admin
+  must be refused at the password (or by its rate limit), a member for the role, so a refusal for the wrong reason does
+  not pass.
+
+### Review round 3 of "Admins connect the team's AI too" (2026-11-07)
+
+- **The key is bound to the whole address, path included.** On a gateway that serves many tenants under one host (for
+  example `/v1/{account}/{gateway}/…`) an origin is not an address. The key file now holds `{"key","url"}` with the
+  normalised address (scheme, host, port, path, query; no trailing slash, no fragment), and `readApiEngine` returns the key
+  only for exactly that address. The "a changed address needs a key of its own, or null" rule uses the same comparison, for
+  the owner too (a path change without a key is a 400). Key files of this change's earlier commits (origin-bound) and the
+  older bare ones are bound to the address that was set the first time they are rewritten. The key file is written before
+  the settings, so a failed key write never leaves an older key readable for a new address.
+- **An address an admin set stays "the admin's" whoever saves next.** `setBy` is kept while the address is unchanged (an
+  owner changing only the model does not make it trusted); only an owner who sets a new address makes it theirs.
+- **An admin sets https addresses only**, at save and before each call (and the per-call public check stays). The check and
+  the connection resolve a name separately, and Bun's fetch has its own DNS cache, so a name can be re-pointed in between;
+  with https the TLS name check still stops a request to an internal host. http (a local Ollama, a LAN address) stays the
+  owner's.
+- **The role is read again after every wait.** The API-engine save re-reads who asks (role, status) after the DNS
+  lookups and before the write; creating or replacing a team connection from the admin routes does the same inside
+  the write, after the provider check (`ensure`). A sign-in already did.
+- **Stopping a sign-in follows the document.** The owner may stop anyone's sign-in; an admin a team sign-in or a member's
+  own; an admin's own only the owner; the owner's own nobody else. A stop that does not happen because the sign-in is
+  saving its token (409) is neither recorded nor told.
+- **No notice for a save that changes nothing** (the same address, model, name, and no new key).
+

@@ -369,6 +369,8 @@ export const ApiEngineBody = z.object({
   model: z.string().min(1).max(200),
   label: z.string().max(40).optional(),
   key: z.string().max(500).nullable().optional(),
+  /** the caller's own password again (admin-reauth) */
+  password: z.string().min(1).max(256),
 })
 
 export const EngineStatus = z.object({
@@ -550,8 +552,8 @@ export const ADMIN = {
   previewFolderEdit: endpoint({ method: 'POST', path: '/api/admin/access/edit-preview', auth: 'admin', owner: 'A', body: FolderEditBody, response: FolderEditPreview, summary: 'What saving these rules on one folder would change: who loses and gains access there and below, what "follow the folder above" gives now, warnings, and the hash of the rules now. Nothing is saved.' }),
 
   engines: endpoint({ method: 'GET', path: '/api/admin/engines', auth: 'admin', owner: 'A', response: EnginesResponse, summary: 'Engine install/login/lockdown status, models, defaults, concurrency.' }),
-  getApiEngine: endpoint({ method: 'GET', path: '/api/admin/engines/api-config', auth: 'owner', owner: 'A', response: ApiEngineConfig, summary: 'The team API engine settings (the key is never returned, only whether one is set).' }),
-  putApiEngine: endpoint({ method: 'PUT', path: '/api/admin/engines/api-config', auth: 'owner', owner: 'A', body: ApiEngineBody, response: ApiEngineConfig, summary: 'Set the team API engine: OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep.' }),
+  getApiEngine: endpoint({ method: 'GET', path: '/api/admin/engines/api-config', auth: 'admin', owner: 'A', response: ApiEngineConfig, summary: 'The team API engine settings (the key is never returned, only whether one is set).' }),
+  putApiEngine: endpoint({ method: 'PUT', path: '/api/admin/engines/api-config', auth: 'admin-reauth', owner: 'A', body: ApiEngineBody, response: ApiEngineConfig, summary: 'Set the team API engine (the caller\'s own password again): OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep it. A changed address (scheme, host or port) never keeps the old key: send a key for it, or null (400 otherwise). An admin cannot set a private, loopback or link-local address (403; the owner can).' }),
   updateEngines: endpoint({ method: 'PATCH', path: '/api/admin/engines', auth: 'admin', owner: 'A', body: UpdateEnginesBody, response: EnginesResponse, summary: 'Defaults, concurrency, enable/disable, who else may pick the engine, Claude-limit fallback to Codex.' }),
   checkEngine: endpoint({ method: 'POST', path: '/api/admin/engines/:id/check', auth: 'admin', owner: 'A', response: EngineStatus, summary: 'Re-check one engine now (bounded, no model call unless needed).' }),
 
