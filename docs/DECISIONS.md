@@ -5617,7 +5617,7 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   stored sites again at each run start and leaves out one that has become a problem (a new team host name), with no
   error.
 - **Only her runs.** `settingsFor` reads the sites and the Full switch of `space.userId`, the person who owns the chat.
-  Another person's runs never get them (unit test, and attack case A12d).
+  Another person's runs never get them (unit test in `dev-env-srt.test.ts`).
 - **Full internet, per person (owner's "plus a Full internet option"; per person because the owner said no admin
   step).** Off by default. Settings > Dev environment sites turns it on after a confirm with "The AI can send files you
   can read to any site." (`DEV_ENV_FULL_WARNING_VERSION` 1, kept per person in `dev_env_user_net`). srt refuses `*` in
@@ -5649,8 +5649,8 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   Extra sites stay as the team's default list.
 - **Tests.** `tests/unit/dev-env-sites.test.ts` (host checks, merge, narrower), `tests/unit/dev-env-srt.test.ts`
   ("sites a person allows": once, always, deny, refused hosts, No network, Full internet, a waiting job, removal stops
-  a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c-e,
-  A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
+  a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c,
+  A12e, A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
 
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
