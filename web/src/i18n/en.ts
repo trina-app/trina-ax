@@ -3305,6 +3305,8 @@ export const en: Record<MessageKey, string> = {
   "rooms.aiMention": "Ask the AI · it answers from files you can open",
   "tabs.label": "Main",
   "tabs.back": "Back",
+  "sidebar.aiChats": "Chats with {name}",
+  "sidebar.newAnswer": "New answer",
   "tabs.chats": "Chats",
   "tabs.files": "Files",
   "tabs.me": "Me",

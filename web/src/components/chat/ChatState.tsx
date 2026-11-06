@@ -6,6 +6,7 @@ import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useDeckBuilds } from '../../store/deckBuilds'
+import { useUnseenChats } from '../../store/unseenChats'
 
 /** never sent in and never named: created for the attachments of a draft (the composer, "Ask AI about this") */
 export const isUnused = (c: Pick<Chat, 'title' | 'createdAt' | 'updatedAt' | 'runState'>) => !c.title && c.createdAt === c.updatedAt && c.runState === 'idle'
@@ -17,9 +18,12 @@ export function ChatStateDot({ chat }: { chat: Pick<Chat, 'id' | 'runState'> }) 
   const t = useT()
   const needsAnswer = useNeedsAnswer(chat.id)
   const deckReady = useDeckBuilds((s) => !!s.unseen[chat.id])
+  // PROTOTYPE (desktop sidebar): an answer that finished while I was elsewhere (store/unseenChats.ts)
+  const answered = useUnseenChats((s) => !!s.ids[chat.id])
   if (needsAnswer) return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
   if (chat.runState !== 'idle') return <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" aria-label={t(chat.runState === 'queued' ? 'chat.queued' : 'chat.running')} />
   if (deckReady) return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label={t('deck.progress.ready')} data-testid="deck-ready-dot" />
+  if (answered) return <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" role="img" aria-label={t('sidebar.newAnswer')} data-testid="new-answer-dot" />
   return null
 }
 

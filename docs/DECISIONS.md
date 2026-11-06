@@ -10110,3 +10110,25 @@ page, so the phone's back opened the chat again). The owner approved four tabs. 
 - Tests: `web/test/unit/phone-nav.test.tsx`, `web/test/e2e/phone-nav.spec.ts` (tabs, start tab, badges, no-loop back
   in a chat, a room and a page, from inside and from outside).
 - Version impact: **minor** (a new phone navigation; no API change).
+
+## Desktop sidebar: rooms first (proposal, feat/phone-nav, 2026-11-06; not approved yet)
+
+넣을 곳: Team AX core (`web/src/components/Sidebar.tsx`, `rooms/SidebarRooms.tsx`), 이유: the owner's principle that chat
+rooms matter more than the AI's session history ("follow Slack almost entirely") applies to the computer's sidebar too.
+A prototype in its own commit, so it can be dropped or changed after the owner has seen the screenshots.
+
+- **Before:** the product's name, seven rows (새 채팅, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬) plus 관리자, then
+  대화방 (eight rows, unread ones beyond them, "모두 보기"), then 최근 채팅 by date. With a dozen rooms the AI chats were
+  below the fold at 1440×900.
+- **Proposal:** the team's name on top (the account line no longer repeats it); one row for 새 채팅 (with ⇧⌘O) and a
+  search icon (⌘K in its tooltip); one row of icons whose names are their tooltips: 파일, 프로젝트, 예약 작업, 팀 스킬,
+  알림함 (the count on the bell), 관리자 for owners and admins; then **대화방 as the main, uncapped list** (rooms, group
+  chats, DMs by latest activity, unread in bold with the count, ⊕ new conversation); then **"트리나 채팅"** (the AI's
+  name), foldable and remembered, with the five latest AI chats and "모두 보기" for the whole history with its filters
+  (choosing a filter opens it too). A chat whose AI waits for me shows "답변 필요" (the running chats on screen ask for
+  their open cards once); a chat whose answer finished while I was elsewhere gets a dot until it is opened (this window
+  only for now: the server keeps no per-chat "seen" mark).
+- **Removed:** seven text rows (two rows instead), the product's name on top, the team name in the account line, 팀
+  스킬's own count (the Inbox has the suggestion), the cap on rooms and its "모두 보기", the AI chats' date groups and
+  filter in the default view (behind "모두 보기").
+- Not decided: whether the AI chats should fold by default; a server-side "seen" mark for finished answers.

@@ -3265,6 +3265,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.aiMention": "Pregunte a la IA · responde con los archivos que usted puede abrir",
   "tabs.label": "Menú principal",
   "tabs.back": "Atrás",
+  "sidebar.aiChats": "Chats con {name}",
+  "sidebar.newAnswer": "Respuesta nueva",
   "tabs.chats": "Chats",
   "tabs.files": "Archivos",
   "tabs.me": "Yo",

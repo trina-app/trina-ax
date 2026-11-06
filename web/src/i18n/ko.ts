@@ -3304,6 +3304,8 @@ export const ko = {
   "rooms.aiMention": "AI에게 물어보기 · 내가 열 수 있는 파일로 답해요",
   "tabs.label": "주요 메뉴",
   "tabs.back": "뒤로",
+  "sidebar.aiChats": "{name} 채팅",
+  "sidebar.newAnswer": "새 답변",
   "tabs.chats": "대화",
   "tabs.files": "파일",
   "tabs.me": "나",

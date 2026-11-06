@@ -210,12 +210,13 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await expect(mine).toContainText('주간 보고')
   await expect(page.getByRole('tab', { name: /검토 대기/ })).toHaveCount(0) // bob manages nothing
 
-  // the owner manages skills/: a count in the sidebar, the review dialog, edit, 등록
+  // the owner manages skills/: a count on the review tab (the sidebar's count is the Inbox's), the review dialog, edit,
+  // 등록
   const ctx = await browser.newContext({ baseURL: page.url().replace(/\/skills.*$/, ''), locale: 'ko-KR' })
   const owner = await ctx.newPage()
   await signIn(owner, OWNER)
-  await expect(owner.getByTestId('skills-pending')).toHaveText('1')
   await owner.getByTestId('nav-skills').click()
+  await expect(owner.getByRole('tab', { name: '검토 대기 (1)' })).toBeVisible()
   await owner.getByTestId('review-list').getByTestId('review-open').click()
   const review = owner.getByTestId('review-dialog')
   await expect(review.getByTestId('review-preview')).toContainText('the answer')

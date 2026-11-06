@@ -3305,6 +3305,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.aiMention": "Tanya AI · menjawab dari berkas yang bisa Anda buka",
   "tabs.label": "Menu utama",
   "tabs.back": "Kembali",
+  "sidebar.aiChats": "Obrolan {name}",
+  "sidebar.newAnswer": "Jawaban baru",
   "tabs.chats": "Obrolan",
   "tabs.files": "File",
   "tabs.me": "Saya",

@@ -25,7 +25,8 @@ const rememberedOpen = () => {
   }
 }
 
-export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
+/** `all`: PROTOTYPE (desktop sidebar, not approved yet): every room, no "모두 보기" (rooms are the sidebar's main list) */
+export function SidebarRooms({ onNavigate, all }: { onNavigate: () => void; all?: boolean }) {
   const t = useT()
   const rooms = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
@@ -44,7 +45,7 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
       return !v
     })
   // unread rooms stay in sight even past the first rows
-  const shown = rooms.filter((r, i) => i < SHOWN || r.unreadCount > 0)
+  const shown = all ? rooms : rooms.filter((r, i) => i < SHOWN || r.unreadCount > 0)
   return (
     <div className="mb-3" data-testid="sidebar-rooms">
       <div className="flex items-center gap-1 pr-1 pl-3">
@@ -101,7 +102,7 @@ function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
       <NavLink
         to={`/rooms/${room.id}`}
         onClick={onNavigate}
-        className={({ isActive }) => clsx('flex h-9 items-center gap-2 rounded-lg px-3 text-sm hover:bg-hover max-sm:h-10', isActive ? 'bg-hover font-medium text-ink' : unread > 0 ? 'font-medium text-ink' : 'text-muted')}
+        className={({ isActive }) => clsx('flex h-9 items-center gap-2 rounded-lg px-3 text-sm hover:bg-hover max-sm:h-10', isActive ? 'bg-hover font-medium text-ink' : unread > 0 ? 'font-semibold text-ink' : 'text-muted')}
         data-testid="sidebar-room"
       >
         <RoomIcon room={room} size={20} />

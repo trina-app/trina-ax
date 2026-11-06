@@ -3265,6 +3265,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.aiMention": "AIに聞く · 自分が開けるファイルで回答します",
   "tabs.label": "メインメニュー",
   "tabs.back": "戻る",
+  "sidebar.aiChats": "{name}とのチャット",
+  "sidebar.newAnswer": "新しい回答",
   "tabs.chats": "トーク",
   "tabs.files": "ファイル",
   "tabs.me": "自分",

@@ -1,16 +1,18 @@
-// Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons): new chat, search, projects, scheduled,
-// inbox (with the unread count), files, team skills, admin, the team chat rooms (rooms/SidebarRooms.tsx), recent chats
-// by date, and the account menu (the person's email or ID, Settings, Usage (their own, in
+// Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons). PROTOTYPE (desktop, not approved yet;
+// docs/DECISIONS.md "Desktop sidebar: rooms first"): the team's name on top, one row for a new AI chat and search, one
+// row of icons with tooltips (files, projects, scheduled, team skills, inbox with its count, admin), then the rooms as
+// the main, uncapped list (rooms/SidebarRooms.tsx), then the AI's chats ("트리나 채팅": the five latest, "모두 보기" for
+// the whole history with its filters; a dot on a chat that waits for me or finished while I was elsewhere), and the
+// account menu (the person's email or ID, Settings, Usage (their own, in
 // Settings), Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is the 트리나
 // tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top, 검색, 프로젝트, 예약
 // 작업, 팀 스킬, the recent chats, and 삭제한 채팅 at the bottom. New chat is the 트리나 tab itself, the Inbox and Admin
 // are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
 import clsx from 'clsx'
 import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
-import { PRODUCT } from '@mycel/shared'
 import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
@@ -18,15 +20,16 @@ import { aiName } from '../lib/tabs'
 import { useLogout } from '../lib/logout'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
-import { useChats } from '../store/chats'
-import { skillsChanged } from '../store/live'
+import { mergeOpenRequests, useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
+import { useUnseenChatsWatch } from '../store/unseenChats'
 import { Avatar } from './Avatar'
 import { useChatActions } from './chat/chatActions'
 import { ChatStateDot, isUnused, NeedsAnswerLabel } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
+import { IconButton, useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 
 /** shortcut hints in the keys of this computer (the handlers take ⌘ and Ctrl alike, Layout.tsx) */
@@ -84,9 +87,15 @@ const remember = (key: string, v: string) => {
   }
 }
 const OPEN_KEY = 'mycel.sidebar.recents'
+/** PROTOTYPE (desktop sidebar): AI chats shown before "모두 보기" */
+const LATEST = 5
 
 export default function Sidebar() {
   const t = useT()
+  // the column beside the page (a computer) or the phone's drawer: the drawer keeps the phone's own layout
+  const wide = useMediaQuery('(min-width: 768px)')
+  const [allChats, setAllChats] = useState(false)
+  useUnseenChatsWatch()
   const me = useMeStrict()
   const chats = useChats((s) => s.chats)
   const loaded = useChats((s) => s.chatsLoaded)
@@ -133,15 +142,21 @@ export default function Sidebar() {
   }, [chats, view, waiting, projects, t])
   const listId = useId()
   const peek = useChatPeek()
+  // a computer: the five latest AI chats unless the whole history is open (or filtered)
+  const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
+  const full = !wide || allChats || changed.length > 0
+  // PROTOTYPE: a running chat may be waiting for my answer (an ask card), which the list does not say: ask once per
+  // running chat on screen, so its row shows "답변 필요" without opening it
+  const running = used.slice(0, LATEST).filter((c) => c.runState !== 'idle').map((c) => c.id).join(',')
+  useEffect(() => {
+    if (!wide || !running) return
+    for (const id of running.split(',')) {
+      const before = new Set(Object.keys(useChats.getState().requests))
+      api.call(API.listTurnRequests, { params: { id } }).then((r) => useChats.setState((s) => ({ requests: mergeOpenRequests(s.requests, id, r.items, before) })), () => {})
+    }
+  }, [wide, running])
 
   const close = () => setDrawer(false)
-  // suggestions waiting for me (I manage their skills folder): a count next to "팀 스킬"
-  const [pendingSkills, setPendingSkills] = useState(0)
-  useEffect(() => {
-    const load = () => api.call(API.skillsOverview).then((o) => setPendingSkills(o.pendingReview), () => {})
-    void load()
-    return skillsChanged.on(() => void load())
-  }, [])
   // unread inbox notifications: a count next to "Inbox" (the list itself is in Settings > Notifications)
   const unread = useInboxUnread()
   const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover max-md:h-11'
@@ -153,84 +168,38 @@ export default function Sidebar() {
         <Link to="/" onClick={close} className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
           <img src="/favicon.svg" alt="" aria-hidden className="size-5 rounded-md" />
           {/* the phone's drawer is the AI's history: the AI's one name there, as on its tab */}
-          <span className="max-md:hidden">{PRODUCT.displayName}</span>
+          <span className="truncate max-md:hidden" data-testid="sidebar-team">{me.team.name}</span>
           <span className="md:hidden">{aiName(t)}</span>
         </Link>
       </div>
-      <div className="space-y-0.5 px-2">
-        <button
-          type="button"
-          className={clsx(nav, 'w-full font-medium max-md:hidden')}
-          onClick={() => {
-            close()
-            navigate('/')
-          }}
-          data-testid="new-chat"
-        >
-          <MessageSquarePlus size={16} className="text-accent-text" aria-hidden /> {t('sidebar.newChat')}
-          <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
-        </button>
-        <button type="button" className={clsx(nav, 'w-full')} onClick={() => setSearchOpen(true)}>
-          <Search size={16} aria-hidden /> {t('sidebar.search')}
-          <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
-        </button>
-        <NavLink to="/projects" className={active} onClick={close}>
-          <FolderKanban size={16} aria-hidden /> {t('sidebar.projects')}
-        </NavLink>
-        <NavLink to="/scheduled" className={active} onClick={close} data-testid="nav-scheduled">
-          <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
-        </NavLink>
-        {/* phones: the Inbox is on top of the 나 tab, with its count on the tab */}
-        <NavLink
-          to="/settings/notifications"
-          className={(s) => clsx(active(s), 'max-md:hidden')}
-          onClick={(e) => {
-            settingsOpenedFrom(e.currentTarget)
-            close()
-          }}
-          data-testid="nav-inbox"
-        >
-          <Bell size={16} aria-hidden /> {t('inbox.title')}
-          {unread > 0 && (
-            // aria-label on a plain span is not read: the number is hidden from screen readers and the words are sr-only
-            <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="inbox-unread">
-              <span aria-hidden>{unread > 99 ? '99+' : unread}</span>
-              <span className="sr-only">{t('notifications.unread', { count: unread })}</span>
-            </span>
-          )}
-        </NavLink>
-        {/* the phone drawer is for the AI's chats: 파일 and the account are the 파일 and 나 tabs there. Deleted chats,
-            which the account menu holds, are at the drawer's bottom on a phone instead. */}
-        <NavLink to="/files" className={(s) => clsx(active(s), 'max-md:hidden')} onClick={close}>
-          <FolderOpen size={16} aria-hidden /> {t('sidebar.files')}
-        </NavLink>
-        <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
-          <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
-          {pendingSkills > 0 && (
-            // phones: no second count for the same suggestion (the Inbox has it, counted on the 나 tab)
-            <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink max-md:hidden" data-testid="skills-pending" aria-label={t('skills.tabReview')}>
-              {pendingSkills}
-            </span>
-          )}
-        </NavLink>
-        {/* phones: Admin is in the 나 tab, under the Inbox */}
-        {isAdmin(me) && (
-          <NavLink to="/admin" className={(s) => clsx(active(s), 'max-md:hidden')} onClick={close}>
-            <Shield size={16} aria-hidden /> {t('sidebar.admin')}
+      {wide ? (
+        <DesktopNav unread={unread} onNewChat={() => navigate('/')} onSearch={() => setSearchOpen(true)} />
+      ) : (
+        // the phone drawer: the AI's history only (파일, the Inbox and Admin are tabs or in the 나 tab there)
+        <div className="space-y-0.5 px-2">
+          <button type="button" className={clsx(nav, 'w-full')} onClick={() => setSearchOpen(true)}>
+            <Search size={16} aria-hidden /> {t('sidebar.search')}
+          </button>
+          <NavLink to="/projects" className={active} onClick={close}>
+            <FolderKanban size={16} aria-hidden /> {t('sidebar.projects')}
           </NavLink>
-        )}
-      </div>
+          <NavLink to="/scheduled" className={active} onClick={close} data-testid="nav-scheduled">
+            <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
+          </NavLink>
+          <NavLink to="/skills" className={active} onClick={close} data-testid="nav-skills">
+            <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
+          </NavLink>
+        </div>
+      )}
 
       <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide}>
         {/* the team chat rooms (people with people), above the AI chats; not in the phone drawer: the 대화 tab is
             where they are there */}
-        <div className="max-md:hidden">
-          <SidebarRooms onNavigate={close} />
-        </div>
+        {wide && <SidebarRooms onNavigate={close} all />}
         <div className="group/recents flex items-center gap-1 pr-1 pl-3">
           <h2 className="text-xs font-medium text-faint">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={() => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
-              {t('sidebar.recents')}
+              {wide ? t('sidebar.aiChats', { name: aiName(t) }) : t('sidebar.recents')}
               <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
             </button>
           </h2>
@@ -253,7 +222,19 @@ export default function Sidebar() {
               {t('sidebar.filter.none')}
             </p>
           )}
-          {groups.map(([key, { label, items }]) => (
+          {!full && (
+            <ul data-testid="ai-chats-latest">
+              {used.slice(0, LATEST).map((c) => (
+                <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
+              ))}
+            </ul>
+          )}
+          {!full && (used.length > LATEST || cursor) && (
+            <button type="button" onClick={() => setAllChats(true)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-all">
+              {t('rooms.showAll')}
+            </button>
+          )}
+          {full && groups.map(([key, { label, items }]) => (
             <div key={key || 'all'} className="mb-2">
               {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
               <ul>
@@ -263,7 +244,7 @@ export default function Sidebar() {
               </ul>
             </div>
           ))}
-          {cursor && (
+          {full && cursor && (
             <button
               type="button"
               className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted hover:bg-hover"
@@ -277,19 +258,68 @@ export default function Sidebar() {
               {more ? t('common.loading') : t('sidebar.more')}
             </button>
           )}
+          {wide && allChats && (
+            <button type="button" onClick={() => setAllChats(false)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-less">
+              {t('common.less')}
+            </button>
+          )}
         </div>
       </div>
       {peek.card}
-      <div className="max-md:hidden">
+      {wide ? (
         <AccountMenu />
-      </div>
-      {/* phones: the account menu's Deleted chats, at the end of the history */}
-      <div className="border-t border-line p-2 md:hidden">
-        <NavLink to="/trash" className={active} onClick={close} data-testid="nav-trash">
-          <Trash2 size={16} aria-hidden /> {t('sidebar.trash')}
-        </NavLink>
-      </div>
+      ) : (
+        // phones: the account menu's Deleted chats, at the end of the history
+        <div className="border-t border-line p-2">
+          <NavLink to="/trash" className={active} onClick={close} data-testid="nav-trash">
+            <Trash2 size={16} aria-hidden /> {t('sidebar.trash')}
+          </NavLink>
+        </div>
+      )}
     </nav>
+  )
+}
+
+/** PROTOTYPE (desktop sidebar): the seven rows of before in two. A new AI chat (with its shortcut) and search share one
+ * row; files, projects, scheduled tasks, team skills, the Inbox (its count on the bell) and Admin are one row of icons
+ * whose names are their tooltips. Team skills has no count of its own: a suggestion is an Inbox notice already. */
+function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat: () => void; onSearch: () => void }) {
+  const t = useT()
+  const me = useMeStrict()
+  const icon = ({ isActive }: { isActive: boolean }) => clsx('relative flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink', isActive && 'bg-hover text-ink')
+  const items: { to: string; label: string; icon: ReactNode; testId: string; badge?: number; onClick?: (e: ReactMouseEvent<HTMLAnchorElement>) => void }[] = [
+    { to: '/files', label: t('sidebar.files'), icon: <FolderOpen size={17} aria-hidden />, testId: 'nav-files' },
+    { to: '/projects', label: t('sidebar.projects'), icon: <FolderKanban size={17} aria-hidden />, testId: 'nav-projects' },
+    { to: '/scheduled', label: t('sidebar.scheduled'), icon: <CalendarClock size={17} aria-hidden />, testId: 'nav-scheduled' },
+    { to: '/skills', label: t('sidebar.skills'), icon: <BookMarked size={17} aria-hidden />, testId: 'nav-skills' },
+    { to: '/settings/notifications', label: t('inbox.title'), icon: <Bell size={17} aria-hidden />, testId: 'nav-inbox', badge: unread, onClick: (e) => settingsOpenedFrom(e.currentTarget) },
+    ...(isAdmin(me) ? [{ to: '/admin', label: t('sidebar.admin'), icon: <Shield size={17} aria-hidden />, testId: 'nav-admin' }] : []),
+  ]
+  return (
+    <div className="space-y-1 px-2">
+      <div className="flex items-center gap-1">
+        <button type="button" className="flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-ink hover:bg-hover" onClick={onNewChat} data-testid="new-chat">
+          <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.newChat')}</span>
+          <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
+        </button>
+        <IconButton label={`${t('sidebar.search')} (${onMac() ? '⌘K' : 'Ctrl+K'})`} onClick={onSearch} className="size-9 shrink-0" data-testid="nav-search">
+          <Search size={16} />
+        </IconButton>
+      </div>
+      <div className="flex items-center gap-0.5" data-testid="nav-icons">
+        {items.map((x) => (
+          <NavLink key={x.to} to={x.to} className={icon} aria-label={x.label} title={x.label} onClick={x.onClick} data-testid={x.testId}>
+            {x.icon}
+            {!!x.badge && (
+              <span className="absolute top-0.5 left-1/2 ml-1 min-w-4 rounded-full bg-accent px-1 text-center text-nano leading-4 font-medium text-accent-ink" data-testid="inbox-unread">
+                <span aria-hidden>{x.badge > 99 ? '99+' : x.badge}</span>
+                <span className="sr-only">{t('notifications.unread', { count: x.badge })}</span>
+              </span>
+            )}
+          </NavLink>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -482,12 +512,9 @@ function AccountMenu() {
         data-testid="account-menu"
       >
         <Avatar user={me.user} size={24} />
+        {/* PROTOTYPE (desktop sidebar): the team's name is on top of the sidebar now, not said twice here */}
         <span className="flex min-w-0 flex-1 items-baseline gap-1">
           <span className="truncate text-sm font-medium">{me.user.name}</span>
-          <span className="shrink-0 text-xs text-faint" aria-hidden>
-            ·
-          </span>
-          <span className="truncate text-xs text-faint">{me.team.name}</span>
         </span>
         <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
       </button>
