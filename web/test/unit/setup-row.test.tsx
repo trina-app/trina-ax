@@ -1,6 +1,7 @@
 // The setup row (components/onboarding/SetupRow.tsx, docs/DECISIONS.md "W5 — Onboarding v5"): the owner's one way back
 // to the welcome steps from every page, in the sidebar above Recents (the ☰ drawer on a phone):
-// - "설정 이어서 하기 · n/4" → /welcome, owner only; never on /welcome, once finished, or hidden;
+// - "설정 이어서 하기 · n/4" (the steps done; put off is not done) → /welcome, owner only; never on /welcome, once
+//   finished, or hidden; one step left here is named instead ("남은 일: 팀 파일"), the same words as a phone's Home row;
 // - ✕ hides it with an undo toast; while no AI answers, "AI 연결하기" opens the connect dialog, not on Home (its no-AI
 //   card); on a phone not on Home (Home's own quiet row), elsewhere yes;
 // - Admin › Home: its own checklist hides while the steps are unfinished; "시작 설정 다시 보기" brings a hidden row back.
@@ -10,6 +11,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { GENERAL_BRIEF_SKILL, GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { SetupRow } from '../../src/components/onboarding/SetupRow'
+import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
 import Sidebar from '../../src/components/Sidebar'
 import { OwnerSetup } from '../../src/pages/admin/OwnerChecklist'
 import { stepTotal } from '../../src/lib/welcome'
@@ -26,7 +28,7 @@ const meOf = (role: 'owner' | 'admin' | 'member') => ({
   session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: true },
 })
 const GENERAL = { at: '2026-11-04T00:00:00.000Z', tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, introDeckPath: GENERAL_DECK_SKILL }
-/** 회사 소개 put off and 내 스킬 done: 2 of 4 answered, 팀 파일 next */
+/** 회사 소개 put off and 내 스킬 done: 1 of 4 done (put off is not done), 팀 파일 next */
 const half = (over: Partial<WelcomeProgress> = {}): WelcomeProgress => ({
   startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: null,
   steps: { profile: 'skipped', result: null, skills: 'done', files: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
@@ -103,9 +105,9 @@ describe('the setup row', () => {
     try {
       await m.until(() => m.find('setup-row-link'), 'the row')
       expect(m.get('setup-row').getAttribute('data-state')).toBe('resume')
-      expect(m.get('setup-row-link').textContent).toBe(`${translate('ko', 'setupRow.resume')}· 2/${stepTotal()}`)
+      expect(m.get('setup-row-link').textContent).toBe(`${translate('ko', 'setupRow.resume')}· 1/${stepTotal()}`)
       expect(m.get('setup-row-link').textContent).toContain('설정 이어서 하기')
-      expect(m.get('setup-row-count').textContent).toBe('· 2/4')
+      expect(m.get('setup-row-count').textContent).toBe('· 1/4')
       expect(m.get('setup-row-link').getAttribute('href')).toBe('/welcome')
       // a left click (react-router's Link follows only button 0)
       const click = Object.assign(new FakeEvent('click', { bubbles: true, cancelable: true }), { button: 0 })
@@ -225,6 +227,34 @@ describe('the setup row', () => {
       } finally { await m.unmount() }
     }
   })
+
+  // the recheck of onboarding v5: a phone's Home read "설정 이어서 하기 · 4/4" with 팀 파일 put off and 내 스킬 waiting
+  // for a computer, as if nothing were left
+  test('with one step left here the row names it ("남은 일: 팀 파일"), no count; a phone\'s Home row and its drawer say the same; a computer counts the steps done', async () => {
+    signIn('owner')
+    progress = half({ resultChatId: '01900000-0000-7000-8000-0000000000c1', skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', invite: 'done' } })
+    phoneWidth()
+    let m = await mount(<MemoryRouter initialEntries={['/']}><WelcomeResume /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('welcome-resume-text'), 'Home\'s row')
+      expect(m.get('welcome-resume-text').textContent).toBe('남은 일: 팀 파일')
+    } finally { await m.unmount() }
+    // the drawer (anywhere but Home on a phone): the same words
+    m = await row('/c/abc')
+    try {
+      await m.until(() => m.find('setup-row-link'), 'the drawer\'s row')
+      expect(m.get('setup-row-link').textContent).toBe('남은 일: 팀 파일')
+      expect(m.find('setup-row-count')).toBeNull()
+    } finally { await m.unmount() }
+    // a computer: 내 스킬 is left there too; the count is the steps done, never "4/4"
+    g.matchMedia = computerMedia
+    useWelcome.getState().reset()
+    m = await row('/c/abc')
+    try {
+      await m.until(() => m.find('setup-row-link'), 'the row')
+      expect(m.get('setup-row-link').textContent).toBe('설정 이어서 하기· 2/4')
+    } finally { await m.unmount() }
+  }, 20_000)
 
   test('it sits in the sidebar above Recents', async () => {
     signIn('owner')

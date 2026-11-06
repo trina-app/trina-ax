@@ -11,7 +11,7 @@ import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillTitle, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillLabel, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
 import { formAnswers } from '../../lib/skillForm'
@@ -143,7 +143,7 @@ export function UserText({ content, clamp }: { content: string; clamp: boolean }
   if (!cmd || !skill) return <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
   return (
     <div data-testid="user-text-skill">
-      <SkillChip title={skillTitle(skill)} name={skill.name} />
+      <SkillChip title={skillLabel(skill)} name={skill.name} />
       {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={cmd.rest} /></div>}
     </div>
   )
@@ -174,7 +174,7 @@ export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<
   const long = line.length >= FORM_RUN_FOLD_CHARS || run.answers.some((a) => a.value.includes('\n'))
   return (
     <div className={clsx('flex max-w-[85%] min-w-0 flex-col items-end gap-1 sm:max-w-[80%]', sending && 'opacity-70')} data-testid="user-form-run">
-      <SkillChip title={skillTitle(run.skill)} name={run.skill.name} />
+      <SkillChip title={skillLabel(run.skill)} name={run.skill.name} />
       {open ? (
         <dl className="space-y-1 text-right text-[13px] leading-5 [overflow-wrap:anywhere]" data-testid="user-form-answers" data-open="true">
           {run.answers.map((a, i) => (

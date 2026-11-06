@@ -1,15 +1,16 @@
 // The setup row (docs/DECISIONS.md "W5 — Onboarding v5"): the owner's one way back to the welcome steps from every
 // page, one line in the sidebar above Recents (Sidebar.tsx mounts it; on a phone it is in the ☰ drawer). While the steps
-// are unfinished and not hidden: "설정 이어서 하기 · 2/4", which opens /welcome at the step it resumes on; while no AI
-// answers the owner: "AI 연결하기", which opens the same connect dialog as every other "AI 연결하기" (ConnectAi.tsx).
+// are unfinished and not hidden: "설정 이어서 하기 · 2/4" (or, with one step left, "남은 일: 팀 파일"), which opens /welcome
+// at the step it resumes on; while no AI answers the owner: "AI 연결하기", which opens the same connect dialog as every
+// other "AI 연결하기" (ConnectAi.tsx).
 // Never on /welcome itself. Without AI it hides on Home, where the no-AI card stands; on a phone it hides on Home,
 // whose own quiet row under the message box says the same (WelcomeResume); on a computer it replaces that row. ✕ hides
 // it (the row's `dismissedAt`) with an undo toast; Admin › Home's "시작 설정 다시 보기" brings it back. The rules are
-// lib/welcome.ts setupRowState; the counts are the steps' own (doneCount, stepTotal).
+// lib/welcome.ts setupRowState; the words and counts are the steps' own (setupRowWords: the same as Home's row).
 import { Sparkles, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { doneCount, setupRowState, stepTotal } from '../../lib/welcome'
+import { setupRowState, setupRowWords } from '../../lib/welcome'
 import { useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { isOwner, useMe } from '../../store/session'
@@ -56,8 +57,7 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
       () => toast({ level: 'error', text: t('error.network') }),
     )
   }
-  const n = doneCount(progress, aiReady, computer)
-  const total = stepTotal(progress, aiReady)
+  const words = setupRowWords(t, progress, aiReady, computer)
   return (
     <div className="group/setup mb-3 flex items-center gap-0.5 pr-1" data-testid="setup-row" data-state={state}>
       {state === 'ai' ? (
@@ -68,10 +68,12 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
       ) : (
         <Link to="/welcome" onClick={onNavigate} className={row} data-testid="setup-row-link">
           <Sparkles size={16} className="shrink-0 text-accent-text" aria-hidden />
-          <span className="min-w-0 truncate">{t('setupRow.resume')}</span>
-          <span className="shrink-0 text-xs font-normal text-faint tabular-nums" data-testid="setup-row-count">
-            <span aria-hidden>· </span>{n}/{total}
-          </span>
+          <span className="min-w-0 truncate">{words.text}</span>
+          {words.count && (
+            <span className="shrink-0 text-xs font-normal text-faint tabular-nums" data-testid="setup-row-count">
+              <span aria-hidden>· </span>{words.count}
+            </span>
+          )}
         </Link>
       )}
       <button
