@@ -96,7 +96,7 @@ export default function Home() {
         {/* phones: the greeting and the box at one place (a third of the way down) and the rows under the box hanging
             below them, so opening one (the goal's next step) moves nothing above it and a long list scrolls. From 768px
             one centred column (the wrappers are display: contents there) */}
-        <div className="w-full max-w-[720px] max-md:grid max-md:min-h-0 max-md:flex-1 max-md:grid-rows-[minmax(0,1fr)_auto_minmax(0,2fr)]" data-testid="home-column">
+        <div className="w-full max-w-[720px] max-md:grid max-md:min-h-0 max-md:flex-1 max-md:grid-cols-1 max-md:grid-rows-[minmax(0,1fr)_auto_minmax(0,2fr)]" data-testid="home-column">
           <div className="md:hidden" aria-hidden />
           <div className="md:contents" data-testid="home-head">
             {noAi ? <NoAiCard /> : !phone && top}

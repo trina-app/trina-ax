@@ -34,6 +34,7 @@
 // whether pictures exist and the budget (the longer ones read the site first: phase "reading"), until the next reset.
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
+import type { KnowledgeGraphStatus } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -227,6 +228,9 @@ export class MockServer {
   settings: TeamSettings = defaultSettings()
   /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon, /favicon.ico, the manifest */
   teamIcon: TeamIconFile | null = null
+  /** Admin › Team settings › Knowledge graph (server/src/knowledge-graph/): made-up folders; POST /__test/knowledge-graph
+   * {available?: boolean} says whether CodeGraph is "installed" */
+  kg: KnowledgeGraphStatus = mockKnowledgeGraph(true)
   speechKey: { set: boolean; hint: string | null; updatedAt: string | null } = { set: false, hint: null, updatedAt: null }
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
@@ -398,6 +402,7 @@ export class MockServer {
     this.integrationTemplates = []
     this.settings = defaultSettings()
     this.teamIcon = null
+    this.kg = mockKnowledgeGraph(true)
     this.speechKey = { set: false, hint: null, updatedAt: null }
     this.transcribeChats = []
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null }
@@ -2292,6 +2297,29 @@ export class MockServer {
       this.publish(TEAM_ICON_CHANGED)
       return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: bytes.byteLength }
     },
+    // like server/src/routes/knowledge-graph.ts: on needs CodeGraph; off clears the folders; added folders outside users/
+    knowledgeGraphStatus: () => this.kg,
+    updateKnowledgeGraph: (c) => {
+      if (c.body.enabled === true && !this.kg.available) throw new Fail('conflict', 409, 'CodeGraph is not installed', undefined, { reason: 'unavailable' })
+      if (c.body.added !== undefined) {
+        const added = c.body.added as string[]
+        for (const a of added) {
+          if (a.startsWith('users')) throw new Fail('validation', 400, 'personal', { 'body.added': 'personal' }, { reason: 'personal' })
+          if (!/^[\w.-]+(\/[\w.-]+)*$/.test(a) || a.startsWith('nope')) throw new Fail('validation', 400, 'not found', { 'body.added': 'not_found' }, { reason: 'not_found' })
+        }
+        this.kg = { ...this.kg, added: [...new Set(added)] }
+      }
+      if (c.body.enabled === false) this.kg = { ...this.kg, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, diskBytes: 0, busy: 0 }
+      if (c.body.enabled === true && !this.kg.enabled) this.kg = { ...mockKnowledgeGraph(true), added: this.kg.added }
+      return this.kg
+    },
+    rebuildKnowledgeGraph: () => {
+      if (!this.kg.enabled) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
+      this.kg = { ...this.kg, roots: this.kg.roots.map((r) => ({ ...r, status: 'pending' as const, files: 0, symbols: 0 })), busy: this.kg.roots.length }
+      // the rebuild "finishes" a moment later
+      setTimeout(() => { this.kg = { ...mockKnowledgeGraph(true), added: this.kg.added } }, 1500)
+      return this.kg
+    },
     deleteTeamIcon: () => {
       if (this.teamIcon) this.publish(TEAM_ICON_CHANGED)
       this.teamIcon = null
@@ -3140,6 +3168,7 @@ export class MockServer {
       this.deckThumbs = body.thumbs !== false
       this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
     }
+    else if (p === '/__test/knowledge-graph') this.kg = mockKnowledgeGraph(body.available !== false)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
@@ -3360,4 +3389,21 @@ function officeFixtures(): [string, Uint8Array][] {
     } catch { /* no pandoc: no docx/pptx sample */ }
   }
   return (office = out)
+}
+
+/** Made-up folders for Admin › Team settings › Knowledge graph (no real team's). */
+function mockKnowledgeGraph(available: boolean): KnowledgeGraphStatus {
+  // the documents part (stub until the admin screen shows it)
+  const documents = { enabled: true, folders: [], personal: { folders: 0, documents: 0, failed: 0 }, documents: 0, failed: [], failedCount: 0, lastUpdatedAt: null, diskBytes: 0, busy: 0 }
+  if (!available) return { available: false, version: null, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, added: [], diskBytes: 0, busy: 0, documents }
+  const at = new Date(Date.now() - 4 * 60_000).toISOString()
+  return {
+    available: true, version: '1.5.0', enabled: true, added: [],
+    roots: [
+      { path: 'projects/web-app', source: 'auto', status: 'ready', files: 128, symbols: 1840, lastSyncAt: at },
+      { path: 'projects/data-pipeline', source: 'auto', status: 'indexing', files: 0, symbols: 0, lastSyncAt: null },
+      { path: 'shared', source: 'auto', status: 'ready', files: 1, symbols: 3, lastSyncAt: at },
+    ],
+    personal: { folders: 2, files: 14, symbols: 96 }, diskBytes: 23_400_000, busy: 0, documents,
+  }
 }

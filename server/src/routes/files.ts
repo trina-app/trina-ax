@@ -19,6 +19,7 @@ import { ToolError } from '../policy/errors'
 import type { RouteModule } from './module'
 import { assertStorageRoom } from '../system/storage'
 import { registerDriveRoutes } from './drive'
+import { registerKnowledgeGraphRoutes } from './knowledge-graph'
 import { registerIntegrationRoutes } from './integrations'
 import { registerIntegrations } from '../integrations/connections/tools'
 import { registerPluginRoutes } from './plugins'
@@ -40,6 +41,8 @@ export const filesRoutes: RouteModule = {
     registerDriveRoutes(kit, ctx)
     registerIntegrationRoutes(kit, ctx)
     registerPluginRoutes(kit, ctx)
+    // Admin › Team settings › Knowledge graph (knowledge-graph/service.ts)
+    registerKnowledgeGraphRoutes(kit, ctx)
     const C = componentC(ctx)
     const svc = C.files
     const tmpDir = path.join(ctx.config.dataDir, 'uploads', 'tmp')

@@ -20,6 +20,7 @@ import { registerPromoVideo } from '../promo-video/tool'
 import { registerIntroDeck } from '../intro-deck/tool'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
+import { KNOWLEDGE_EXPLORE, registerKnowledgeExplore } from '../knowledge-graph/tool'
 import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFailure } from './url-gate'
@@ -233,6 +234,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   for (const name of FILE_MOVE_TOOL_NAMES) exposeToTurns(name)
   // search by meaning (tools/search.ts): only when it is on
   if (registerSearch(ctx, reg)) exposeToTurns('search')
+  // the code map of the team's folders (knowledge-graph/tool.ts): offered while the knowledge graph is on
+  registerKnowledgeExplore(ctx, reg)
+  exposeToTurns(KNOWLEDGE_EXPLORE)
   // scheduled tasks (tools/schedules.ts)
   registerScheduleTools(ctx, reg)
   for (const name of SCHEDULE_TOOL_NAMES) exposeToTurns(name)
