@@ -89,7 +89,8 @@ export default function Integrations() {
                   {t('integrations.mine')}
                 </h3>
                 {!mine.length ? (
-                  <div className="rounded-xl border border-dashed border-line" data-testid="integrations-empty">
+                  // phones: no frame around the empty state (it is the only thing under its heading)
+                  <div className="md:rounded-xl md:border md:border-dashed md:border-line" data-testid="integrations-empty">
                     <EmptyState icon={<Cable size={26} />} title={d.personalAllowed ? t('integrations.empty') : t('integrations.personalOffTitle')}>
                       <p>{d.personalAllowed ? t('integrations.emptyHint') : t('integrations.personalOff')}</p>
                     </EmptyState>

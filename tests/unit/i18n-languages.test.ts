@@ -118,6 +118,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$/ },
   'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older Korean wording (합니다체) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$/ },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
+  'shared/src/honorific.ts': { why: 'the honorifics a name may already end with (님, 씨) and the Korean particles after them (grammar, not screen text)', also: /^const (HONORIFICS|RO|PARTICLES)\b/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
   'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
   'server/src/files/hwp-edit.ts': { why: 'the HWP terms 배포용, 개인 정보 보안, 변경 추적 and 문서 연결 in notes to the AI about a document it will not change (not screen text)', also: /\((배포용|개인 정보 보안|변경 추적|문서 연결)\)/ },

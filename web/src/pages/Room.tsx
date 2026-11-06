@@ -1,5 +1,5 @@
-// One room (/rooms/:roomId; the mobile app links here from a notice): a 48px header with the room's name, its member
-// count (opens the member list) and the bell (mute, its only setting); the messages (components/rooms/RoomMessages.tsx),
+// One room (/rooms/:roomId; the mobile app links here from a notice): a 48px header with the room's name (its mark
+// beside it on computers), its member count (opens the member list) and the bell (mute, its only setting); the messages (components/rooms/RoomMessages.tsx),
 // older ones loaded on scrolling up; the message box at the bottom. What I see is marked read (POST
 // /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
@@ -156,7 +156,13 @@ function RoomView({ roomId }: { roomId: string }) {
         <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
           <ChevronLeft size={20} aria-hidden />
         </Link>
-        {room && <RoomIcon room={room} size={24} />}
+        {/* the room's mark beside its name: computers only (on a phone the name is enough; a DM's picture is on the
+            person's messages) */}
+        {room && (
+          <span className="flex shrink-0 max-md:hidden">
+            <RoomIcon room={room} size={24} />
+          </span>
+        )}
         {/* a DM: the other person's title (직함) small under their name, as the people list shows it */}
         <div className="min-w-0">
           <h1 className="truncate text-base font-medium text-ink" data-testid="room-title">

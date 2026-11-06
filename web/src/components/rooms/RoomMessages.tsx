@@ -1,9 +1,9 @@
 // The messages of a room, oldest first: one author's messages close together share one avatar, name and time
-// (lib/rooms.ts groupRuns), a date line starts each day, and each message shows how many members have not read it yet
-// (only when some have not, like KakaoTalk's number). A message's text is another member's words: plain text with its
-// line breaks, never HTML or Markdown; the @names it mentions stand out. "…" on a message (on hover; a long press on
-// touch screens) answers or copies it, and edits or deletes one's own. Images show as thumbnails that open in the side panel; other
-// files are chips that download.
+// (lib/rooms.ts groupRuns; on phones the time only when it differs from the one above), a date line starts each day,
+// and each message shows how many members have not read it yet (only when some have not, like KakaoTalk's number). A
+// message's text is another member's words: plain text with its line breaks, never HTML or Markdown; the @names it
+// mentions stand out. "…" on a message (on hover; a long press on touch screens) answers or copies it, and edits or
+// deletes one's own. Images show as thumbnails that open in the side panel; other files are chips that download.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
@@ -15,7 +15,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
-import { aiMentionNames, groupRuns, mentionParts, runActive } from '../../lib/rooms'
+import { aiMentionNames, groupRuns, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
@@ -34,6 +34,12 @@ const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
 export const messageDomId = (id: string) => `room-msg-${id}`
+
+/** For each run: its time reads the same as the run's above it on the same day (a date line starts a new day). Phones
+ * show such a time once: the first run of that minute has it. */
+export function sameTimeAsAbove(runs: readonly MessageRun[], time: (iso: string) => string): boolean[] {
+  return runs.map((run, i) => i > 0 && !run.newDay && time(run.messages[0]!.createdAt) === time(runs[i - 1]!.messages[0]!.createdAt))
+}
 
 /** the largest box a thumbnail takes, so the list does not jump while it loads */
 export function thumbBox(f: { width?: number | null; height?: number | null }): { width: number; height: number } | undefined {
@@ -93,10 +99,12 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
     ...(m.answeredPrivately ? [<PrivateAnswered key={`private-${m.id}`} name={nameOf(m.author) ?? t('rooms.goneUser')} />] : []),
   ]
   const orphans = ended.filter((r) => !loaded.has(r.questionId)).map((r) => <EndedRun key={r.turnId} roomId={roomId} run={r} />)
+  // phones: a run's time only when it differs from the run above it ("오전 11:56" once for four messages of that minute)
+  const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])
 
   return (
     <div data-testid="room-messages">
-      {runs.map((run) => {
+      {runs.map((run, i) => {
         const first = run.messages[0]!
         return (
           <Fragment key={run.key}>
@@ -112,7 +120,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onReply
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-2">
                   <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : (nameOf(first.author) ?? t('rooms.goneUser'))}</span>
-                  <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className="shrink-0 text-xs text-faint">
+                  <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
                     {timeOf(first.createdAt, locale)}
                   </time>
                   {/* an AI answer is long Markdown: its unread number sits by the time, not on a line of its own */}

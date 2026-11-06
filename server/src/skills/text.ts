@@ -1,5 +1,6 @@
 // Server texts of team skills (ko / en / id): the confirmation card, notices, refusals.
 import type { Locale } from '@mycel/shared/api'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -33,7 +34,8 @@ export const SKILL_TEXT = {
 } as const
 
 export function st(key: keyof typeof SKILL_TEXT, locale: Locale, vars: Record<string, string> = {}): string {
-  let s = SKILL_TEXT[key][locale] ?? SKILL_TEXT[key].en
+  // no second honorific after a name that has one ("{who} 님이" with 대표님, shared/src/honorific.ts)
+  let s = dropDoubleHonorifics(SKILL_TEXT[key][locale] ?? SKILL_TEXT[key].en, vars)
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v)
   return s
 }

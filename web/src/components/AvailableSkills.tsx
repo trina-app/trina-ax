@@ -163,7 +163,8 @@ function SkillSection({ title, items, folders, onRun }: { title: string; items: 
     <section aria-label={title}>
       <h2 className="mb-1 flex items-center gap-2 text-sm font-medium">
         {title}
-        <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums" data-testid="skill-count">{items.length}</span>
+        {/* phones: the count as plain text, no pill */}
+        <span className="rounded-full bg-subtle px-1.5 text-xs text-muted tabular-nums max-md:bg-transparent max-md:px-0 max-md:font-normal" data-testid="skill-count">{items.length}</span>
       </h2>
       <ul className="-mx-2 divide-y divide-line">
         {items.map((s) => <SkillRow key={s.path} skill={s} folder={folders} onRun={onRun} />)}
@@ -188,7 +189,8 @@ function SkillRow({ skill: s, folder, onRun }: { skill: Skill; folder: boolean; 
         onClick={use}
         data-testid="skill-use"
       >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted">
+        {/* phones: the icon alone, no framed tile on every row */}
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line bg-subtle text-muted max-md:size-5 max-md:border-0 max-md:bg-transparent">
           <ScrollText size={16} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">

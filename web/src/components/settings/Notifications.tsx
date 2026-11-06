@@ -7,6 +7,7 @@ import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
 import { Button, ErrorNote, Skeleton } from '../ui'
+import { mobilePushApp } from '../../lib/mobile-push'
 import { PushNotifications } from './PushNotifications'
 import { deletionNoticeText } from './AccountDeletion'
 
@@ -45,6 +46,7 @@ const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
 
 export function Notifications() {
   const t = useT(), locale = useLocale()
+  const app = mobilePushApp()
   const [items, setItems] = useState<InboxNotification[] | null>(null)
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
@@ -90,10 +92,12 @@ export function Notifications() {
     try { await api.call(API.markNotificationRead, { params: { id: item.id } }); if (generation === life.current) await load() }
     catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
   }
-  // Phones: whether alerts reach this phone comes right after the title (it is what matters there); no frames inside
-  // the Settings card, and hints as large as the text they explain.
+  // Phones: in the phone app, whether alerts reach this phone comes right after the title (it is what matters there); a
+  // phone's browser has the inbox first (its push lines only say what it cannot do). No frames inside the Settings
+  // card, and hints as large as the text they explain. The title itself is in the bar above on a phone
+  // (SettingsDialog.tsx), so here it is for screen readers only.
   return <section className="flex flex-col gap-5" data-testid="notifications">
-    <div className="max-md:order-first"><h2 className="text-base font-semibold">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted">{t('notifications.description')}</p></div>
+    <div className="max-md:order-first"><h2 className="text-base font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!items && !error && <Skeleton lines={3} />}
     {/* the inbox comes first: it is what the sidebar's "Inbox" opens; the preferences follow below it */}
@@ -124,6 +128,6 @@ export function Notifications() {
       {preferenceKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
       <p className="text-xs text-muted max-md:text-sm">{t('notifications.preferenceHint')}</p>
     </fieldset>}
-    <div className="max-md:-order-1"><PushNotifications /></div>
+    <div className={app ? 'max-md:-order-1' : undefined}><PushNotifications /></div>
   </section>
 }

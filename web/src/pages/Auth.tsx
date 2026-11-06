@@ -83,15 +83,18 @@ export function LanguageSwitcher() {
   )
 }
 
+/** The sign-in style screens. From 640px the form is a card in the middle of the screen; on a phone it has no frame
+ * (the card's edge sat 16px from the screen's and only boxed the fields in once more) and it starts near the top, so
+ * the button is in view and the keyboard does not push the page around. */
 function AuthFrame({ title, children, sub, switcher = true }: { title: string; children: ReactNode; sub?: ReactNode; switcher?: boolean }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10">
+    <div className="flex min-h-full flex-col items-center justify-center bg-canvas px-4 py-10 max-sm:justify-start max-sm:pt-[max(2.5rem,8vh)]">
       <main className="w-full max-w-sm">
-        <p className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+        <p className="mb-6 flex items-center justify-center gap-2 text-xl font-semibold tracking-tight max-sm:mb-8">
           <img src="/favicon.svg" alt="" aria-hidden className="size-7 rounded-lg dark:ring-1 dark:ring-line" />
           {PRODUCT.displayName}
         </p>
-        <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)]">
+        <div className="rounded-2xl border border-line bg-surface p-6 shadow-[var(--c-shadow)] max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:shadow-none">
           <h1 className={clsx('text-lg font-semibold', sub ? 'mb-1' : 'mb-4')}>{title}</h1>
           {sub && <div className="mb-4 text-sm text-balance text-muted">{sub}</div>}
           {children}

@@ -28,6 +28,7 @@ import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import { toast } from '../store/ui'
 import { Button, confirmDialog, IconButton } from './ui'
+import { MenuButton, type MenuItem } from './rooms/MenuButton'
 
 const HwpView = lazy(() => import('./viewers/HwpView'))
 const PdfView = lazy(() => import('./viewers/PdfView'))
@@ -150,6 +151,17 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   }, [])
 
   const download = () => (file.source === 'team' ? startDownload(fileUrl(file.path), file.name) : saveBlob(file.blob, file.name))
+  // phones: "add to chat", "open in Files" and "download" sit behind one ⋯ (a computer keeps them as icons)
+  const teamPath = file.source === 'team' ? file.path : null
+  const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
+  const openInFiles = () => teamPath && navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+  const canDownload = error?.kind !== 'missing'
+  // the app's "…" menu (rooms/MenuButton.tsx): arrow keys, Home / End, Esc back to the button; a bottom sheet on phones
+  const more: MenuItem[] = [
+    ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
+    ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
+    ...(canDownload ? [{ label: t('common.download'), icon: <Download size={15} className="shrink-0" aria-hidden />, onSelect: download, testId: 'file-more-download' }] : []),
+  ]
 
   return (
     <aside aria-label={t('preview.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="file-panel">
@@ -176,8 +188,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
             </button>
           )}
-          {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && chatAttach.target && (
-            <IconButton label={t('files.addToChatNamed', { title: chatAttach.target.title })} onClick={() => chatAttach.addToChat([file.path])} data-testid="file-add-to-chat">
+          {addToChat && (
+            <IconButton label={t('files.addToChatNamed', { title: addToChat.title })} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">
               <Paperclip size={16} />
             </IconButton>
           )}
@@ -187,15 +199,16 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </IconButton>
           )}
           {file.source === 'team' && (
-            <IconButton label={t('preview.openInFiles')} onClick={() => navigate(`/files?path=${encodeURIComponent(parentPath(file.path))}&select=${encodeURIComponent(file.name)}`)}>
+            <IconButton label={t('preview.openInFiles')} className="max-md:hidden" onClick={openInFiles}>
               <FolderOpen size={16} />
             </IconButton>
           )}
-          {error?.kind !== 'missing' && (
-            <IconButton label={t('common.download')} onClick={download}>
+          {canDownload && (
+            <IconButton label={t('common.download')} className="max-md:hidden" onClick={download}>
               <Download size={16} />
             </IconButton>
           )}
+          {more.length > 0 && <MenuButton label={t('files.actionsFor', { name: file.name })} items={more} className="md:hidden" muted testId="file-panel-more" />}
           <IconButton label={t('common.close')} onClick={onClose}>
             <X size={16} />
           </IconButton>

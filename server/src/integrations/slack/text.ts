@@ -2,6 +2,7 @@
 // and Slack's message text as the question (the answer's way back is rich-text.ts).
 import { PRODUCT } from '@mycel/shared'
 import { ErrorCode, errorMessage, type Locale } from '@mycel/shared/api'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -62,7 +63,8 @@ export function reasonText(reason: string, locale: Locale): string {
 export function say(key: TextKey, locale: Locale, params: Record<string, string> = {}): string {
   const all: Record<string, string> = { product: PRODUCT.displayName, ...params }
   if (params.reason !== undefined) all.reason = reasonText(params.reason, locale)
-  return (TEXT[key][locale] ?? TEXT[key].en).replace(/\{(\w+)\}/g, (m, k: string) => all[k] ?? m)
+  // no second honorific after a name that has one ("{name}님의 질문" with 대표님, shared/src/honorific.ts)
+  return dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, all).replace(/\{(\w+)\}/g, (m, k: string) => all[k] ?? m)
 }
 
 const decode = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
@@ -124,5 +126,5 @@ export const REFUSAL: Record<string, T> = {
 export function refusal(reason: string, locale: Locale, params: Record<string, string> = {}): string | undefined {
   const r = REFUSAL[reason]
   const all: Record<string, string> = { product: PRODUCT.displayName, ...params }
-  return r ? (r[locale] ?? r.en).replace(/\{(\w+)\}/g, (m, k: string) => all[k] ?? m) : undefined
+  return r ? dropDoubleHonorifics(r[locale] ?? r.en, all).replace(/\{(\w+)\}/g, (m, k: string) => all[k] ?? m) : undefined
 }

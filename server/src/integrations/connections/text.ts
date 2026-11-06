@@ -1,6 +1,7 @@
 // Words people see for external-service connections (docs/INTEGRATIONS.md): the server's confirmation card, API
 // refusals and why a connection check failed (lastError, stored as a code and put into words for each reader).
 import type { Locale } from '@mycel/shared/api'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -81,7 +82,8 @@ export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'private_addre
   | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_failed' | 'key_unsafe'
 
 export const say = (key: TextKey, locale: Locale, vars: Record<string, string | number> = {}) =>
-  (TEXT[key][locale] ?? TEXT[key].en).replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all))
+  // no second honorific after a name that has one ("{by}님이" with 대표님, shared/src/honorific.ts)
+  dropDoubleHonorifics(TEXT[key][locale] ?? TEXT[key].en, vars).replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all))
 
 /** The stored code in words ("refused:401" -> "The service did not accept the key ... (HTTP 401)"). */
 export function reasonText(code: string | null, locale: Locale): string | null {
