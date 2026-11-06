@@ -139,6 +139,10 @@ export const ConnectServiceRequest = z.object({
   scope: IntegrationScope,
   /** target 'service': the connection the AI filled in. host = the address's host, the card's main line */
   service: z.object({ kind: IntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
+  /** a connection template an admin shared with this person (scope personal): connecting it makes their own
+   * connection from the template (its address, sign-in method and header fixed), only while the template is the
+   * version shown here; older servers omit it */
+  template: z.object({ id: z.string(), version: z.number().int().positive() }).optional(),
   /** the AI's one line on what it is for */
   why: z.string().optional(),
   /** an HTTP API's usage notes as the AI wrote them: saved with the connection exactly as here and given to the AI in
@@ -147,7 +151,19 @@ export const ConnectServiceRequest = z.object({
   /** when the card closes by itself (the AI then continues without it) */
   expiresAt: z.string().optional(),
 })
-export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest, ConnectServiceRequest])
+/** A dev-environment command needs a site that is not allowed (docs/DECISIONS.md "Dev environment: sites a person
+ * allows"). Raised by the server only (the AI's ask_user cannot make one), for the person who owns the turn, in every
+ * window of hers. once: this answer (a job or dev server keeps it); always: her own list of allowed sites; deny. */
+export const DevEnvSiteRequest = z.object({
+  kind: z.literal('dev_env_site'),
+  requestId: z.string(),
+  /** the host name, checked by the server (no address, no local name, not the team server) */
+  host: z.string(),
+  /** the command that needs it, secrets hidden */
+  command: z.string().optional(),
+  expiresAt: z.string().optional(),
+})
+export const TurnRequest = z.discriminatedUnion('kind', [AskUserRequest, BrowserSiteRequest, ConnectServiceRequest, DevEnvSiteRequest])
 export type TurnRequest = z.infer<typeof TurnRequest>
 
 export const FileChange = z.object({

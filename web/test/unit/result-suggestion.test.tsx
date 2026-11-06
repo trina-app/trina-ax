@@ -165,13 +165,18 @@ describe('the suggestion under a result', () => {
       } finally { await m.unmount() }
     }
     expect(called('GET /api/onboarding/suggestion')).toEqual([])
-    suggestion = null
-    const m = await mount(<MemoryRouter><ResultSuggestion chatId={CHAT} messages={thread()} busy={false} onSend={() => {}} /></MemoryRouter>)
-    try {
-      await m.until(() => called('GET /api/onboarding/suggestion').length, 'asked')
-      await m.settle(30)
-      expect(m.find('result-suggestion')).toBeNull()
-    } finally { await m.unmount() }
+    // none, or the promo video from the intro deck (docs/DECISIONS.md "D2": not built yet, the server never sends it
+    // while it is off): no line
+    for (const s of [null, { kind: 'deck-video', key: 'deck-video' }] as const) {
+      suggestion = s
+      calls = []
+      const m = await mount(<MemoryRouter><ResultSuggestion chatId={CHAT} messages={thread()} busy={false} onSend={() => {}} /></MemoryRouter>)
+      try {
+        await m.until(() => called('GET /api/onboarding/suggestion').length, 'asked')
+        await m.settle(30)
+        expect(m.find('result-suggestion')).toBeNull()
+      } finally { await m.unmount() }
+    }
   })
 
   test('the lead\'s first result: the invite bar only, the server is not asked for another one', async () => {

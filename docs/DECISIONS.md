@@ -5629,6 +5629,75 @@ later PR removes it.
 - **Tests.** `tests/unit/dev-env-srt.test.ts` (fakes) and `tests/linux/srt-attack.ts` (real srt in Docker, CI). Not yet
   verified on systemd: polkit, the scope limits, OOM, and the Starter memory budget (design section 11).
 
+### Dev environment: sites a person allows (feat/devenv-user-allow-sites, 2026-11-06)
+
+Input: the owner, after a talk with Dion: "Let's follow Claude Code: when a site is blocked, ask the user, and the user
+can allow it (once or always), with no admin step. Plus a Full internet option with a clear warning." and "no admin
+in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNER=srt`); the box does not change.
+
+- **How the AI asks.** srt does not tell the server which host it blocked (no ask callback under `strictAllowlist`, and
+  the debug lines share the command's output, so a command could fake them). So the AI names the host:
+  `box_shell` takes `request_sites` (at most 5). The tool text says to use it after a blocked connection (HTTP 403,
+  curl's "CONNECT tunnel failed, response 403"), and the answer after such a failure says so too. The host is
+  untrusted input: the server parses it (`siteFromInput`) and checks it (`userSiteProblem` = `extraDomainProblem` plus
+  no local or metadata names: `localhost`, `.local`, `.internal`, `.lan`, `.corp`, `.home.arpa`, `.test` and more; no
+  IP address in any spelling, `0x7f.1` and `2852039166` too; not a team host name or a pattern that covers one).
+  A refused host gets no card, and the command does not run. The AI asks for one exact host only: a `*.` pattern gets
+  no card (one click would cover every name under a domain, for example every bucket of a storage service). Only an
+  admin's Extra sites can have a pattern.
+- **No second card.** A host that the person did not allow in a turn (no, or no answer) is refused at once when the AI
+  asks for it again in the same turn, with no card. A web page or a file can tell the AI to ask again; it cannot make
+  the person see the card again. In a turn where nobody can answer (a scheduled task) no card is raised: the AI is told
+  that nobody can allow a site there, and that the person's "always" sites work.
+- **The card.** A new server-raised `TurnRequest` kind `dev_env_site` (host, the command with secrets hidden). The AI's
+  `ask_user` cannot make one. It goes to every window of the person who owns the turn, not only the sending window
+  (unlike `browser_site`). `/api/turns/:id/answer` takes `{kind: 'dev_env_site', decision: once|always|deny}`; only the
+  turn's owner can answer (`ownTurn`, another person gets 404). No answer, a timeout and a scheduled run (no card) mean
+  no. A no stops the command. A host that is allowed already (the default list, the team's sites, the person's own,
+  once in this turn, Full internet) needs no card.
+- **Once and always.** Once: for a foreground command, the rest of this turn (a set on the turn's tool). For a job or a
+  dev server it is kept on the row (`dev_env_runs.once_domains`), because a waiting job builds its settings later,
+  outside the turn. Always: the person's own list, `dev_env_site_grants (user_id, host)`, at most 100. The server checks
+  stored sites again at each run start and leaves out one that has become a problem (a new team host name), with no
+  error.
+- **Only her runs.** `settingsFor` reads the sites and the Full switch of `space.userId`, the person who owns the chat.
+  Another person's runs never get them (unit test in `dev-env-srt.test.ts`).
+- **Full internet, per person (owner's "plus a Full internet option"; per person because the owner said no admin
+  step).** Off by default. Settings > Dev environment sites turns it on after a confirm with "The AI can send files you
+  can read to any site." (`DEV_ENV_FULL_WARNING_VERSION` 1, kept per person in `dev_env_user_net`). srt refuses `*` in
+  `allowedDomains`, and leaving the network config out drops the proxy, the deny lists and the network namespace. So a
+  Full run has `strictAllowlist: false` and runs `full.mjs` (installed next to srt's `cli.js` by `install-srt.sh`):
+  srt's own CLI, with an ask callback. srt asks it only for a host that is on no list, after its deny list. srt's
+  resolved-address guard judges host names only, never an IP literal or `localhost`, so the callback allows a host
+  name only and refuses every IP literal, loopback name and local name (the same list as `userSiteProblem`) itself.
+  It also checks the settings' `deniedDomains` again on its own form of the host: srt compares its canonical form,
+  which keeps one of two trailing dots (`team.example.com..`). Checked on macOS with the pinned srt: without that
+  rule, `127.0.0.1` and `169.254.169.254` went through the proxy. With it, these are refused: IP literals in every
+  spelling, `localhost` names, names that resolve to loopback, 10/8, 192.168/16, 169.254/16 or the VM's IP, the team
+  host and `metadata.google.internal`. `install-srt.sh` runs `full.mjs --self-test`. If `full.mjs` is missing, Full
+  internet acts as off (the lists only), and the switch is not shown.
+- **No network wins.** The team's `offline` and the plan's `offline` give an empty list and a strict allowlist, with
+  every site and Full switch of the person. No card is raised, and the settings section shows only a note.
+- **Narrower network stops runs.** `dev_env_runs.net` keeps the sites and the Full switch that a job or dev server
+  started with. The tracker stops it (reason `setting`) when one of them is gone: the person removed a site, turned
+  Full internet off, or the team removed a site. A new site does not stop it. Rows from older builds have no snapshot
+  and are not checked, so a deploy stops nothing.
+- **The warning text.** The admin's srt warning gets one line: each person can allow more sites, or turn Full internet
+  on for herself, with no admin step. `DEV_ENV_SRT_WARNING_VERSION` stays 2 on purpose: a raise would turn every team
+  off until an admin accepts again, and that is an admin step.
+- **Audit (all five locales).** `dev_env.site_allowed` (scope once or always), `dev_env.site_denied`,
+  `dev_env.site_refused`, `dev_env.site_removed`, `dev_env.full_on`, `dev_env.full_off`.
+- **Settings > Dev environment sites.** The person's own sites with Remove (her jobs and dev servers that started with
+  that site stop at once), the Full internet switch, and the team's sites. The section is there while
+  `GET /api/dev-env/sites` says the dev environment is on for her. Endpoints are for the caller only.
+- **Not done.** The host comes from the AI, not from srt (a better path is srt's `--control-fd` or a decider for `-c`
+  runs). "Once" for a running dev server does not reach the run that is running: the AI starts it again. The admin's
+  Extra sites stay as the team's default list.
+- **Tests.** `tests/unit/dev-env-sites.test.ts` (host checks, merge, narrower), `tests/unit/dev-env-srt.test.ts`
+  ("sites a person allows": once, always, deny, refused hosts, No network, Full internet, a waiting job, removal stops
+  a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c,
+  A12e, A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.
@@ -9589,3 +9658,191 @@ environment image (another developer; handoff below).
   from its parts); a proof without a picture is type and light (the references had a real chart and real customer
   messages); one AI pass writes the copy (the references' copy was edited by hand); the beds are library music cut to
   the grid, not scored to the edit, and no person has listened to the nine sounds in the videos yet.
+
+## D2 — The first result is the company's intro deck (feat/onboarding-deck, 2026-11-06)
+
+The owner, after the promo video round: "그냥 소개서를 만들어주는거는 어때 슬라이드 형식으로? 회사 웹사이트를 보고?", then
+"리서치하고 계획해서 해보긴 하자", with the standing bar "퀄리티 개 좋아야 해" (a plain bullet PPT was rejected outright). Then:
+"지금 상태로 일단 넣고 그다음 바꾸자" — this section describes what went in; the quality work still open is under "Next".
+Placement: Team AX core (onboarding, the chat tool, the artifact panel, two downloads). The letter: "D" for deck; "D2" is a
+section of its own, not a follow-up of D (the company profile), though the deck is built from that profile.
+
+### The owner's three decisions (the plan's recommendations), each one constant
+- **Pretendard is embedded in the PowerPoint file** (`EMBED_FONTS`, `intro-deck/pptx.ts`): Regular and Bold as the
+  family "Pretendard", ExtraBold as "Pretendard ExtraBold" (how Pretendard names its static faces), each whole, as
+  `ppt/fonts/*.fntdata` (an EOT header and the TrueType font, uncompressed, `intro-deck/eot.ts`), listed in
+  `p:embeddedFontLst`. Measured: the three fonts add 3.5 MB deflated; a deck with pictures is 3.6–6.3 MB.
+- **The look follows the brand colour** (`fittingThemes`, `intro-deck/theme.ts`): a colour that carries white type at
+  4.5:1 → `brand`; a vivid one that does not → `ink`; light, muted, grey or none → `paper`. The AI may pick another
+  look that fits; one that does not is replaced and the answer says so.
+- **No product mark on the slides**: nothing is drawn; the PDF's metadata names its maker (typst) only.
+
+### Slots, not design
+- `intro_deck` (C's registry, offered in every chat; the pack skill "회사 소개서" / "Company profile" uses it), input
+  `IntroDeckInput` (`shared/src/api/intro-deck.ts`, strict): title, company, website, brand colour, logo, theme,
+  `audience` (from the skill form; order and tone only, never a fact), 1–8 `sources`, and 6–10 slides of eleven kinds in
+  a fixed order: cover, about, needs, offer, numbers, products (up to twice), process, proof (names, a quote or a case),
+  history (turning points or certifications), contact last; one scene between the third slide and contact. Cover,
+  about, offer and contact are required. The AI never writes HTML, XML or typst.
+- **Checks** (`intro-deck/spec.ts`, every problem at once, the promo video's helpers reused from
+  `promo-video/spec.ts`): the order; every number on a slide written in the sources as a whole number, each stat exactly
+  as written; names (customers, partners, certifications, people) as written after NFKC, whitespace aside (a "name,
+  company" may have its parts apart); a quote word for word; email, phone, address and website as written in the
+  sources or the saved profile; "최고, 1위, 유일, 최초, No.1, best-in-class…" only when the sources use them; pictures
+  from a brand folder, PNG/JPEG/WebP by their bytes, each once, the logo only in `logo`, big enough for their place
+  (full bleed: landscape 1.3–2.4:1 and ≥ 1,600 px wide; half a slide ≥ 800 px on the short side; a card ≥ 400 px); no
+  full stop at the end of a headline; every line fits (below); no slide over 40 % text. A source whose SHA-256 is one of
+  the files this tool gave out (`intro_decks.pptx_sha256 / pdf_sha256`; the builds are byte-for-byte repeatable: no
+  clock inside) is refused, so a deck put back into the team folder never proves its own numbers. First failure: fix
+  every problem and call once more; second: stop and say why in one sentence; a third call is refused.
+- **Speaker notes** written by the server: each number and name on the slide with the file it stands in and the words
+  around it ("출처: 회사 소개.md — '…'"), so a salesperson can check before sending.
+
+### One layout, three outputs
+- `layout.ts` turns the checked slots and the theme into a display list (text with its lines already broken, pictures
+  with one crop rectangle per placement, solid or gradient rectangles, hairlines); every decision is made there once:
+  the variant of each slide (cover A full-bleed photo with scrims / B split / C type-only; offer A with a half-slide
+  picture / B ledger rows; products A picture cards / B tinted cards; proof A name wall / B pull quote / C before → action
+  → result; history A ledger / B certification list; numbers in one row, or two to a row for long figures), sizes,
+  crops, grounds (paper and brand never put three dark slides in a row: the numbers go light), vertical balance under
+  the title.
+- **The grid**: 1920 × 1080, margins 120 / 104 / 96, 12 columns with 40 px gutters; the eyebrow and the title in the
+  same place on every content slide. Pretendard only, weights 400 / 700 / 800; display 112 (128 type-only cover), title
+  64, card head 40, body 32 (16 pt), label 24 (+0.12 em), numbers up to 188 with the unit at 0.45×. Hairlines, no boxes
+  around body text except the tinted product cards, one corner radius per deck (paper 0, ink and brand 16). A starred
+  key phrase shows in the accent only on the cover, the about statement and the closing line (one accent per content
+  slide: its eyebrow).
+- **Fitting** (`text.ts`): lines break only at spaces (keep-all), balanced so no line ends with a lone one-character
+  word ("결정할 / 수" counts as longer), measured with Pretendard's advance widths (`promo-video/metrics.ts`, weight 400
+  added from the bundled static Regular TTF; its Bold reads within 1/1000 em of the Chromium-measured 700 row), each
+  line ≤ 1/1.1 of its box (Noto Sans KR's Hangul is 6.5 % wider; Malgun Gothic unmeasured). A text too long steps down
+  one size, then it is a problem with the slot named and the characters a line holds.
+- **The preview** (`html.ts`): absolutely placed elements on a stage scaled by container units, each line its own
+  `white-space: pre` element, every text escaped, pictures by team path (the panel inlines them), Pretendard from
+  `/vendor/fonts/pretendard.css` (a new file, family "Pretendard Web", the same woff2; `promo-video.css` stays for saved
+  videos). It pages: ← → / PageUp PageDown / Home End, a 40 px swipe, a click on the left or right third, a slim bar
+  ‹ 3 / 9 › with an `aria-live` counter, 160 ms slide-and-fade (none with reduced motion), each slide
+  `aria-roledescription` in the team's language; under 560 px every slide stands in one scrolling column. It shows once
+  the font is there (at most 1.5 s). The panel shows no code tab, copy, page download or "save to the team folder" for it
+  (the deck must not become team material by accident) and one [받기 ▾] with "PowerPoint (.pptx)" and "PDF".
+- **The PowerPoint file** (`pptx.ts`): our own writer on `files/zip-write.ts`, not pptxgenjs (it writes the GB2312
+  charset on every `<a:ea>`, has no gradients, no line-break control and no font embedding; unmaintained since
+  2025-06). One master, one blank layout, theme fonts Pretendard with 맑은 고딕 as the Hangul script font; one text box
+  per paragraph, our breaks as `<a:br/>`, exact line spacing, `lang` per team language with the Hangul charset (-127),
+  `eaLnBrk="0"` (inferred from the documentation; unverified in PowerPoint), one-line labels `wrap="none"`, boxes 12 %
+  wider than their column into the gutter (a viewer's wider substitute face must not break a Hangul word); pictures with
+  `srcRect` from the layout's crop; speaker notes; `docProps` with the title and no author. **Gradients are pictures**:
+  Apple's renderer (Quick Look, the Mac and iPhone preview of an attachment) drew a `gradFill`'s transparent stops as
+  opaque black over the cover photo, so scrims and the ink glow are small PNGs with alpha stretched to their rectangle
+  (measured fix; a plan deviation from "rects with gradFill").
+- **The PDF** (`typst.ts`): each line `place`d at its baseline in its own unconstrained box (typst breaks Hangul between
+  syllables and must never wrap), pictures in clipped boxes offset by the crop, gradients native, every string a typst
+  string literal in code mode. Run like `make_file`: isolated, `--root` the work folder, `--font-path` the bundled
+  Pretendard (and Noto Sans CJK on Linux), `typstJobs()`, 120 s. Measured: 0.1–0.55 s for 7–10 slides on this Mac,
+  71 KB (no pictures) to 2.7 MB.
+- **Fonts shipped**: the static Pretendard 1.3.9 TTFs (Regular, Bold, ExtraBold; 8 MB) in `resources/fonts/pretendard/`,
+  copied into every Linux bundle's `fonts/`; typst uses the same TTFs (no separate OTFs: one set of files instead of the
+  plan's two). The notice names all four Pretendard files; `BUNDLED_FONTS` now always asks for it in a Linux bundle.
+
+### Downloads and storage
+- `GET /api/intro-decks/:id` (title, theme, slide count, `pptx: true`, `pdf` only where typst and the fonts are),
+  `/pptx`, `/pdf`; the chat's owner only. Built on demand from `intro_decks` (migration 235: `artifact_id, chat_id,
+  user_id, spec, pptx_sha256, pdf_sha256, created_at`), never from the artifact's HTML, with the pictures the chat's owner
+  can read at build time (one no longer readable makes that slide type-only). Kept as `<data>/intro-decks/<artifact
+  id>.pptx|.pdf`; removed when the chat is purged (`forgetIntroDecks`). Not saved into team files.
+
+### The welcome step
+- The first result runs "/intro-deck 우리 회사 소개서 만들어 줘" with the same material as before (the owner's upload or
+  회사 소개.md, the brand images folder) in a chat titled "우리 회사 소개서" (five locales); the general pack records
+  `introDeckPath` (installed on its own once for a row recorded before the skill); [팀에 공유] carries `/intro-deck`, so
+  members' runs count for the 7-day goal. Promo video and card news stay installed.
+- **The video hook, not built**: `deckToPromoInput` (`intro-deck/promo.ts`, tested) maps a checked deck to the promo
+  video's slots; `ResultSuggestion` has `deck-video`, never returned while `DECK_VIDEO_SUGGESTION = false`. When on: the
+  video line first under the first deck, then the [팀에 공유] bar. The owner said 10 s; the video is 18.5 s.
+
+### The gate (2026-11-06, real AI on this Mac's Claude Code login, dev servers with their relays)
+- Six teams: a large manufacturer's site, a café on its own site, a Korean B2B SaaS, ax.trina.app, an English SaaS, and
+  a 20-page company PDF uploaded without a website. Website reading 36–42 s. From the first-result button to the deck on
+  screen: 35, 36, 48, 64, 77, 85 s (p50 ≈ 56 s; the upload case slowest); answer done 2–10 s later. Looks chosen: paper ×2
+  (no brand colour, a near-black logo colour), brand ×2 (navy, violet), ink ×2 (orange, amber).
+- 4 of 6 needed the one rewrite (target ≤ 1 in 4): three from layout limits (a 7-digit figure in a 4-up row, a full web
+  address on the contact slide, a long product body in a four-card row: all three relaxed since: figures go two to a row,
+  addresses show without "https://", four-card bodies take four lines) and two from facts (a quote not word for word; a
+  person written with their outlet). After the relaxing, the three layout problems lay out without a problem.
+- PPTX on the first click 131–328 ms (then 5 ms from the cache), PDF 120–550 ms.
+- Looked at every slide at full size (HTML, PDF, LibreOffice with and without Pretendard, Quick Look) next to the plan's
+  reference decks. Found and fixed during the gate: Quick Look's opaque gradients (above); titles accented on every
+  slide (accent now cover/about/closing only); a photo's own lettering under the cover headline and the scene line
+  (stronger scrims where the type sits); a pill whose text wrapped in a substitute font.
+
+- **A browser walk** (390 × 844, then 1440 × 900, a fresh team, AI on): setup → the website → "자료 없이 만들게요" → the
+  deck opened by itself as a full-screen sheet 66.5 s later (one rewrite of about 35 s included); arrows, Home/End, the
+  › button, a swipe and a right-third click page it on a computer; both downloads came through (a 4.9 MB .pptx, a
+  7-page PDF); [팀에 공유] → the invite message. Fixed after it: product card names on one line across the row.
+- **Found by the tests, fixed**: a company name without a logo longer than about eight Hangul syllables did not fit its
+  one line on the cover and contact slides (it now takes two lines in a wider box); the secondary type on some brand
+  grounds fell under 4.5:1 (dim is now held at 4.5:1 and mute at 3:1 on every ground); a typst path that does not exist
+  offered the PDF; "previous" was not disabled on the first slide. From the review: the one-starred-phrase check now
+  counts the stars as written (it ran on the text with its stars already taken off), and the tests' companies are
+  named "Acme …".
+
+### Verified and not
+- Verified here: the PPTX opens in LibreOffice 26.8 and Quick Look, and python-pptx reads and saves it. **The embedded
+  fonts load in LibreOffice**: with no Pretendard on the system its PDF export uses Pretendard-Regular, -Bold and
+  -ExtraBold taken from the file (`pdffonts`), and the same deck written without embedding falls back to Linux
+  Libertine; the PDF in typst/pdftoppm; the HTML in Chrome. LibreOffice adds a space between Hangul and Latin or
+  digits ("30 년"); it is LibreOffice's Asian-text spacing, not in the file.
+- **Not verified on this Mac**: PowerPoint (Windows or Mac) actually loading the embedded fonts and honouring
+  `eaLnBrk="0"`; Keynote; the Google Slides import. Without Pretendard, Apple's renderers (Quick Look, Keynote) set the
+  Hangul in a serif face (AppleMyungjo; tried: panose, pitchFamily, the theme's Hangul font — only an installed font's
+  name changes it), and lines may break inside words there; the PDF is the format that looks the same everywhere.
+
+### Rejected
+- pptxgenjs (above). python-pptx (Python packages on every customer server). LibreOffice (375–469 MB, and it dropped the
+  Hangul without the font). HTML → PDF with Chrome (no Chrome on hosted Linux). A designer's master .pptx filled with
+  pptx-automizer (PPTX only: the preview and the PDF would need a second design, and its overflow cannot be measured).
+
+### Next (quality work still open)
+- Covers and section slides with more character: a type-only cover is a logo, a bar and a headline; the references use
+  stronger typographic devices and real product imagery.
+- Pictures: the website's pictures are often banners with lettering or small; crop to the subject, recolour or drop
+  them; a logo that is an app icon on its own dark square reads small on the ink ground (crop to its mark).
+- Apple's and Google's renderers without Pretendard (serif fallback); measure Malgun Gothic and check PowerPoint for
+  Windows with the embedded fonts and `eaLnBrk`; a person on the team to open one deck in PowerPoint and Keynote.
+- Rewrite rate: fewer first-try failures (the skill's limits per slot, quotes and attributions); a failed first call
+  shows as a red failed step under the answer although the second call made the deck.
+- On a phone the stacked slides' small type (labels, page numbers) is about 4 px; on a computer the panel leaves empty
+  space under the 16:9 stage, and the keys work only after a click inside the frame.
+- A WebP picture or logo (the website reading keeps small WebP files as they are) showed as an empty box in Quick Look,
+  so the PowerPoint file leaves WebP out for now (that slide takes its type-only version, a WebP logo becomes the
+  company's name; the preview and the PDF keep it); next: convert WebP to PNG or JPEG when the file is built (needs a
+  decoder on hosted Linux, which has no ffmpeg). The contact slide's offer pill can overflow its pill in a wider
+  substitute face.
+- The toast when a picture became type-only at download time (the info answer could say how many).
+- The video hook (`DECK_VIDEO_SUGGESTION`) and pictures from an uploaded PPTX's `ppt/media/`.
+
+## W4 — The owner's walk: setup in two groups, the AI ways at once, coming back resumes (fix/setup-form-sections, 2026-11-06)
+- **Setup form.** "어디까지가 팀이고, 어디부터가 팀장 계정인지 모르겠어": the fields sit in two fieldsets under quiet headings
+  with a hairline, 팀 (team name, team language) and 내 계정 · 팀장 (내 이름, username, password). The password is asked once
+  with the join page's show switch (PR #68), the hint "8자 이상" on the same line; no "비밀번호 확인". The setup API never
+  took the second field.
+- **The AI step shows its ways at once** ("AI 연결 왜 claude 연결 밖에 없어? codex 랑 API는??"; replaces W2's "다른 방법"
+  fold): "Claude 구독 연결" (추천, the main button), "ChatGPT 구독 연결" and "API 키로 연결" as one stack of equal rows, each
+  opening the existing `AddCredential` dialog on that way (`initialKind`; the keys with `onlyKinds`: the Claude and
+  OpenAI keys the team allows), and one quiet line to the AI engines page for other providers (OpenRouter …). A
+  subscription row shows only while the team shares subscriptions (the dialog would refuse it); the first row shown is
+  the main button. No new connection logic. Home's owner card is the same panel. "AI 연결하기" above the composer and
+  under a failed answer stays one button (one line of room there): it opens on the recommended way, and the dialog's
+  "다른 방법" lists every way.
+- **Coming back resumes the steps** ("하다가 중간에 나가면 여기로 들어오지?"). Before, only the redirect right after /setup
+  opened them; later visits showed Home's "시작 설정 이어하기 (n/total)". Now an owner whose steps are started, neither
+  finished nor hidden, and have a step to open (`resumesOnLanding`: not when only a put-off invite is left, where the
+  steps would send Home again) goes to /welcome, which opens at its resume step, when Home is a landing: the tab opened
+  on Home (react-router's first entry) or a sign-in without `?next` sent it there (`LANDING_STATE`; on a phone the
+  sign-in lands on the 대화 list, which does the same). Once per tab session: the steps on screen (after /setup, this
+  redirect, the Home row) mark it in sessionStorage per account, and in the page when the browser refuses storage, so
+  "나중에 하기" goes Home and stays; a new tab or a new sign-in session brings them back until they are finished or the
+  row is hidden. Never for admins or members (the steps are the owner's), never a link to somewhere else (a chat, an
+  invite, `?next`) or a later click on Home. Home shows nothing until the progress is read on such a landing, so it
+  does not flash first; a failed read stays on Home.
+

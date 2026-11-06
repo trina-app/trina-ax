@@ -22,7 +22,7 @@ import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
 import { RealPath } from './lib/realPath'
 import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
-import { afterSetupTarget, clearAfterSetup } from './lib/welcome'
+import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
 
 const ChatPage = lazy(() => import('./pages/Chat'))
 const Files = lazy(() => import('./pages/Files'))
@@ -276,5 +276,7 @@ function NotFound() {
 function AfterSignIn() {
   const location = useLocation()
   const next = new URLSearchParams(location.search).get('next')
-  return <Navigate to={next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : signedInHome()} replace />
+  // no ?next: a landing (lib/welcome.ts LANDING_STATE), where an owner with unfinished welcome steps goes to them
+  if (next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return <Navigate to={next} replace />
+  return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
 }

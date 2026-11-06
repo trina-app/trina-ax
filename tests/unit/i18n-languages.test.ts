@@ -179,6 +179,10 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/promo-video/layout.ts': { why: 'the Hangul range that picks a Korean line\'s measure (not screen text)', also: /^export const hasHangul = / },
   'server/src/promo-video/metrics.ts': { why: 'the characters whose widths are measured from the bundled font (not screen text)', also: /^const EXTRA_CHARS = / },
   'shared/src/api/promo-video.ts': { why: 'Korean examples in the promo_video tool\'s slot descriptions the AI reads (not screen text)', also: /\.describe\(|\b(Text|Line)\(\d+, '/ },
+  'shared/src/api/intro-deck.ts': { why: 'Korean examples in the intro_deck tool\'s slot descriptions the AI reads (not screen text)', also: /\.describe\(|\b(Text|Opt)\(\d+, '/ },
+  'server/src/intro-deck/tool.ts': { why: 'the intro deck\'s theme names (ko next to en/id/ja/es)', also: /^\s*ko: \{ paper: / },
+  'server/src/intro-deck/html.ts': { why: 'the deck pager\'s words (ko next to en/id/ja/es)', also: /^\s*ko: \{ slide: / },
+  'server/src/intro-deck/spec.ts': { why: 'the Korean superlatives a deck may use only when its sources do (a word list the check matches, not screen text), and the notes\' source label', also: /^export const SUPERLATIVES = / },
 }
 
 /** Whether every Korean text on the line is the Korean slot of a table entry: `ko: '…'` (or `ko: (n) => `…``, or

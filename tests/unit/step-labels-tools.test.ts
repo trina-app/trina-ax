@@ -12,7 +12,7 @@ import { DRIVE_TOOL_NAMES } from '../../server/src/tools/drive'
 const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es']
 const NONE = new Set<string>()
 // set_title has no step (the new title shows in the sidebar); connected services label their own tools
-const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'promo_video', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
+const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'promo_video', 'intro_deck', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
 const INPUT: Record<string, Record<string, unknown>> = {
   hwp_render: { source: 'qa-hwp/report.hwpx', page: 2, format: 'png' },
   schedule_create: { title: 'Weekly digest', prompt: 'x', repeat: 'weekly', time: '09:00', weekday: 1 },
@@ -23,6 +23,7 @@ const INPUT: Record<string, Record<string, unknown>> = {
   drive_read: { fileId: '1XyZ' },
   generate_video: { prompt: 'a cat on a sofa' },
   promo_video: { title: 'Acme promo video' },
+  intro_deck: { title: 'Acme 회사 소개서' },
   skill: { name: '견적서 작성' },
   find_skills: { query: '견적' },
   find_tools: { query: 'upscale video' },

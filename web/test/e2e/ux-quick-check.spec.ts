@@ -83,7 +83,8 @@ test('Admin › MCP: the help line is under the title, before the list', async (
   const header = await box(page.getByTestId('connectors-header'))
   const n = await box(note)
   expect(n.y).toBeGreaterThanOrEqual(header.y + header.height - 1)
-  expect(n.y).toBeLessThan((await box(page.getByTestId('integration-request-add'))).y)
+  // nothing between the line and the list: no card for requests (asking a member is in Add connection's menu)
+  await expect(page.getByText(t['integrations.admin.desc'])).toHaveCount(1)
 })
 
 test('Admin › Plugins: a long licence list is "Licenses", the list in its tooltip and under the line when pressed', async ({ page }) => {

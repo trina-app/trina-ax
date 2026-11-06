@@ -3,7 +3,7 @@
 // so the feature does not exist for clients of a normal install.
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, DEV_ENV_SRT_WARNING_VERSION, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity, type DevEnvProjectSetting } from '@mycel/shared/api'
+import { API, DEV_ENV_SRT_WARNING_VERSION, type DevEnvMySites, type DevEnvAvailability, type DevEnvBox, type DevEnvProjectResponse, type DevEnvActivity, type DevEnvProjectSetting } from '@mycel/shared/api'
 import type { BoxdBoxInfo } from '@mycel/shared'
 import type { AppContext } from '../context'
 import type { RouteModule } from './module'
@@ -16,10 +16,11 @@ import type { Principal } from '../policy/access'
 import { ticketIds } from '../devenv/srt/queue'
 import { boxd } from '../devenv/boxd'
 import { devEnvFlag, devEnvInForce, devEnvRunner, devEnvSetting, mayUseBox, mayUseDevEnv, newConsent, requiredWarningVersion, saveDevEnvSetting, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
-import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_MAX_EXTRA_DOMAINS, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
-import { findRun, planState, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
+import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
+import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
+import { findRun, fullAvailable, networkNow, planState, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
 import { issuePreview, startPreviewGateway } from '../devenv/preview'
-import { runningJobs, startJobTracker } from '../devenv/jobs'
+import { pollSrt, runningJobs, startJobTracker } from '../devenv/jobs'
 
 const isAdmin = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
@@ -227,6 +228,44 @@ export const devEnvRoutes: RouteModule = {
       if (!await stopRun(ctx, params.runId, 'stopped')) fail('not_found')
       audit(ctx.db, { actor: auth.user.id, action: 'dev_env.stop', target: null, detail: { run: params.runId, runner: 'srt' } })
       return mine(auth.user.id)
+    })
+
+    // srt: the sites one person allowed and her Full internet switch (docs/DECISIONS.md "Dev environment: sites a
+    // person allows"). Only her own: no admin sees or changes them here, and nobody else's runs get them.
+    const mySites = (userId: string): DevEnvMySites => {
+      if (!devEnvFlag() || devEnvRunner() !== 'srt') fail('not_found')
+      const base = { sites: [], fullInternet: false, fullAvailable: false, fullWarningVersion: DEV_ENV_FULL_WARNING_VERSION, teamSites: [], maxSites: DEV_ENV_MAX_USER_SITES }
+      if (!mayUseDevEnv(ctx.db, ctx.files, userId)) return { state: 'off', ...base }
+      if (networkNow(ctx) === 'offline') return { state: 'no_network', ...base }
+      return {
+        ...base, state: 'on', sites: userSites(ctx.db, userId), fullInternet: fullInternet(ctx.db, userId), fullAvailable: fullAvailable(),
+        teamSites: [...DEV_ENV_DEFAULT_DOMAINS, ...teamSetting(ctx.db).extraDomains],
+      }
+    }
+    /** the person's jobs and dev servers whose network got narrower stop now, not at the next tracker poll */
+    const narrowNow = (userId: string) => pollSrt(ctx, { userId }).catch(() => {})
+    kit.handle(API.myDevEnvSites, ({ auth }) => mySites(auth.user.id))
+    kit.handle(API.removeMyDevEnvSite, async ({ body, auth }) => {
+      mySites(auth.user.id)
+      const host = body.host.trim().toLowerCase()
+      if (!removeUserSite(ctx.db, auth.user.id, host)) fail('not_found')
+      audit(ctx.db, { actor: auth.user.id, action: 'dev_env.site_removed', target: null, detail: { host } })
+      await narrowNow(auth.user.id)
+      return mySites(auth.user.id)
+    })
+    kit.handle(API.setMyDevEnvFullInternet, async ({ body, auth }) => {
+      const now = mySites(auth.user.id)
+      if (body.on) {
+        // the person turns it on for herself: no admin step, but the warning first; never with No network
+        if (now.state !== 'on') fail('conflict', 'The dev environment has no network for you now.', { params: { reason: 'dev_env_no_network' } })
+        if (!fullAvailable()) fail('conflict', 'This server cannot run Full internet.', { params: { reason: 'dev_env_full_unavailable' } })
+        if (body.acceptWarning !== DEV_ENV_FULL_WARNING_VERSION) fail('conflict', 'Accept the Full internet warning first.', { params: { reason: 'dev_env_full_warning', warningVersion: DEV_ENV_FULL_WARNING_VERSION } })
+      }
+      const before = fullInternet(ctx.db, auth.user.id)
+      setFullInternet(ctx.db, auth.user.id, body.on)
+      if (before !== body.on) audit(ctx.db, { actor: auth.user.id, action: body.on ? 'dev_env.full_on' : 'dev_env.full_off', target: null, detail: body.on ? { warningVersion: DEV_ENV_FULL_WARNING_VERSION } : null })
+      if (!body.on) await narrowNow(auth.user.id)
+      return mySites(auth.user.id)
     })
 
     const teamView = async () => {

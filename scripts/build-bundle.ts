@@ -220,6 +220,9 @@ export const LINUX_TOOLS = ['bun', 'rg', 'pandoc', 'typst'] as const
 /** app/<v>/fonts/: the fonts make_file PDFs are drawn with (server/src/config.ts bundledFontDir; scripts/linux/downloads.ts
  * LINUX_FONTS). In the version folder, so every update brings them and no root step or distribution package is needed. */
 export const LINUX_FONT_FILES = Object.keys(LINUX_FONTS)
+/** app/<v>/fonts/ also holds the static Pretendard the intro deck's PDF is drawn with and its PowerPoint file embeds
+ * (docs/DECISIONS.md "D2"; resources/fonts/pretendard/, kept in the repository, OFL-1.1). */
+export const PRETENDARD_STATIC = ['Pretendard-Regular.ttf', 'Pretendard-Bold.ttf', 'Pretendard-ExtraBold.ttf'] as const
 /** the install kit's name: <kit>-<version>-linux-<arch>.tar.gz (the office zip's naming, PRODUCT.officeBundle) */
 export const SERVER_KIT = PRODUCT.officeBundle.replace(/-office$/, '-server')
 export const kitName = (version: string, arch: LinuxArch) => `${SERVER_KIT}-${version}-linux-${arch}`
@@ -279,6 +282,7 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     ...(o.whisper ? whisperFiles(o.arch).map((w) => `bin/${w}`) : []),
     ...LINUX_NATIVE.map((n) => `native/${n}`),
     ...LINUX_FONT_FILES.map((f) => `fonts/${f}`),
+    ...PRETENDARD_STATIC.map((f) => `fonts/${f}`),
     // the fonts' notice (scripts/release-notices.ts BUNDLED_FONTS)
     ...BUNDLED_FONTS.filter((b) => !b.withWeb || o.web !== false).flatMap((b) => b.files.map((f) => `licenses/${b.id}/${f}`)),
     // the official plugin list (metadata only); the HWP renderer, its font and plugin packages are never in a bundle
@@ -367,6 +371,11 @@ export async function buildLinuxBundle(o: {
   fs.mkdirSync(path.join(dir, 'fonts'), { recursive: true })
   for (const f of LINUX_FONT_FILES) {
     fs.copyFileSync(await cachedDownload(f, { table: LINUX_FONTS }), path.join(dir, 'fonts', f))
+    fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
+  }
+  // the intro deck's PDF and PowerPoint fonts (docs/DECISIONS.md "D2"): the static Pretendard from the repository
+  for (const f of PRETENDARD_STATIC) {
+    fs.copyFileSync(path.join(REPO, 'resources', 'fonts', 'pretendard', f), path.join(dir, 'fonts', f))
     fs.chmodSync(path.join(dir, 'fonts', f), 0o644)
   }
 

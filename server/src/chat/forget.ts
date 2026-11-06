@@ -1,7 +1,8 @@
 // What a permanently deleted chat leaves outside the DB (linux-runtime L18): the engine session stash (the server's,
 // <data>/sessions/<chatId>), the engine's working folder <agent root>/<chatId>, the dev environment's work folder
-// of the chat (devenv/srt/runner.ts forgetChatWork) and the MP4s of its promo videos (<data>/promo-videos/<artifact
-// id>.mp4, promo-video/render.ts forgetPromoVideos). In production the engine's folder belongs to
+// of the chat (devenv/srt/runner.ts forgetChatWork), the MP4s of its promo videos (<data>/promo-videos/<artifact
+// id>.mp4, promo-video/render.ts forgetPromoVideos) and the files of its intro decks (<data>/intro-decks/, intro-deck/
+// files.ts forgetIntroDecks). In production the engine's folder belongs to
 // the engine account (700): the server cannot remove it, so it asks the launcher (op `forget`, native/cmd/mycel-launcher
 // /ops.go). Dev and office mode run the engine as the server's own user: the folder is removed directly as before.
 //
@@ -18,6 +19,7 @@ import { getSetting, setSetting } from '../admin/settings'
 import { launcherForget } from '../native'
 import { forgetChatWork } from '../devenv/srt/runner'
 import { forgetPromoVideos } from '../promo-video/render'
+import { forgetIntroDecks } from '../intro-deck/files'
 
 export const FORGET_PENDING_KEY = 'chat.forgetPending'
 export const MAX_FORGET_PENDING = 500
@@ -52,9 +54,11 @@ export function forgetPurgedChats(ctx: AppContext, chatIds: string[]): Promise<v
     // the dev environment's work folder of the chat (srt runner, server-owned: <base>/devenv/work/<chatId>)
     forgetChatWork(id)
   }
-  // the promo videos' MP4s are named by artifact, not by chat: every one whose row went with these chats
+  // the promo videos' MP4s and the intro decks' files are named by artifact, not by chat: every one whose row went
+  // with these chats
   if (ids.length) {
     try { forgetPromoVideos(ctx) } catch (e) { ctx.log.warn('promo video files not removed', { err: e }) }
+    try { forgetIntroDecks(ctx) } catch (e) { ctx.log.warn('intro deck files not removed', { err: e }) }
   }
   const sock = launcherSockOf(ctx)
   if (!sock || !ids.length) return Promise.resolve()

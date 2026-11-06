@@ -29,11 +29,11 @@ import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
 import { isAdmin, isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
-import { readNotesHint, showResume, type NotesHint } from '../lib/welcome'
+import { isLanding, readNotesHint, showResume, type NotesHint } from '../lib/welcome'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { FrequentQuestions } from '../components/FrequentQuestions'
 import { PopularSkills } from '../components/PopularSkills'
-import { WelcomeResume } from '../components/onboarding/WelcomeResume'
+import { useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
@@ -50,7 +50,10 @@ export default function Home() {
   const [project, setProject] = useState<Project | null>(null)
   // a member who just joined: the lead's files and their question, until the first message is sent
   const starter = useMemo(() => (projectId ? null : heldStarter(me.user.id)), [me.user.id, projectId])
-  const notes = readNotesHint(useLocation().state)
+  const location = useLocation()
+  const notes = readNotesHint(location.state)
+  // the owner who left the welcome steps unfinished lands on them, once per tab session (never a link elsewhere)
+  const resuming = useResumeOnLanding(isLanding(location))
   const [preset, setPreset] = useState<{ text: string; n: number } | null>(() => (starter ? { text: starterQuestion(starter, t), n: 0 } : prompt ? { text: prompt, n: 0 } : null))
   useEffect(() => {
     if (!starter || !starter.files.length || starterAttached(me.user.id)) return
@@ -77,6 +80,7 @@ export default function Home() {
   const noAi = extras && !starter && ai.loaded && !ai.usable
   const suggest = extras && !projectId && !starter && ai.loaded && ai.usable
 
+  if (resuming) return <div className="h-full" data-testid="home-resuming" />
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">

@@ -187,6 +187,27 @@ export const DevEnvActivity = z.object({
 })
 export type DevEnvActivity = z.infer<typeof DevEnvActivity>
 
+/** The sites one person allowed and her Full internet switch (docs/DECISIONS.md "Dev environment: sites a person
+ * allows"). state: off = the dev environment is not on for this person (nothing to show); no_network = the team (or
+ * the plan) set No network: nothing can be allowed and the lists are empty; on = the lists below apply. */
+export const DevEnvMySites = z.object({
+  state: z.enum(['off', 'no_network', 'on']),
+  sites: z.array(z.object({ host: z.string(), createdAt: IsoTime })),
+  /** the person's Full internet switch is on (with the current warning accepted) */
+  fullInternet: z.boolean(),
+  /** this server can run Full internet (full.mjs installed); false: the switch is not shown */
+  fullAvailable: z.boolean(),
+  /** the warning version that turning Full internet on needs */
+  fullWarningVersion: z.number().int(),
+  /** the sites every run of the team may reach: the default list and the team's extra sites */
+  teamSites: z.array(z.string()),
+  maxSites: z.number().int(),
+})
+export type DevEnvMySites = z.infer<typeof DevEnvMySites>
+export const RemoveDevEnvSiteBody = z.object({ host: z.string().min(1).max(260) })
+/** Full internet on needs the warning accepted (acceptWarning = fullWarningVersion); off needs nothing. */
+export const SetDevEnvFullInternetBody = z.object({ on: z.boolean(), acceptWarning: z.number().int().min(1).optional() })
+
 export const DEV_ENV = {
   devEnv: endpoint({ method: 'GET', path: '/api/projects/:id/dev-env', auth: 'user', owner: 'B', response: DevEnvProjectResponse, summary: 'Dev environment (experiment) of a project: setting, availability, the box state; for people who can read the folder.' }),
   updateDevEnv: endpoint({ method: 'PUT', path: '/api/projects/:id/dev-env', auth: 'admin', owner: 'B', body: UpdateDevEnvBody, response: DevEnvProjectResponse, summary: 'Turn the dev environment of a project on or off, who may use it, network and limits; turning on needs the current warning accepted (audited).' }),
@@ -197,5 +218,8 @@ export const DEV_ENV = {
   updateDevEnvTeam: endpoint({ method: 'PUT', path: '/api/admin/dev-env', auth: 'admin', owner: 'B', body: UpdateDevEnvTeamBody, response: DevEnvTeamResponse, summary: 'Change the dev environment of the team: on or off (srt), who may use it, network, limits and the extra sites the AI may reach (audited).' }),
   myDevEnvRuns: endpoint({ method: 'GET', path: '/api/dev-env/runs', auth: 'user', owner: 'B', response: DevEnvRuns, summary: 'srt runner: the runs of the caller (every chat, with or without a project): what runs and what waits.' }),
   stopMyDevEnvRun: endpoint({ method: 'POST', path: '/api/dev-env/runs/:runId/stop', auth: 'user', owner: 'B', response: DevEnvRuns, summary: 'srt runner: stop a run of the caller, or cancel a waiting job of the caller (audited).' }),
+  myDevEnvSites: endpoint({ method: 'GET', path: '/api/dev-env/sites', auth: 'user', owner: 'B', response: DevEnvMySites, summary: 'srt runner: the sites the caller allowed for the dev environment, the Full internet switch, and the team\'s sites.' }),
+  removeMyDevEnvSite: endpoint({ method: 'POST', path: '/api/dev-env/sites/remove', auth: 'user', owner: 'B', body: RemoveDevEnvSiteBody, response: DevEnvMySites, summary: 'srt runner: remove a site from the caller\'s own allowed sites; the caller\'s jobs and dev servers that use it stop (audited).' }),
+  setMyDevEnvFullInternet: endpoint({ method: 'PUT', path: '/api/dev-env/full-internet', auth: 'user', owner: 'B', body: SetDevEnvFullInternetBody, response: DevEnvMySites, summary: 'srt runner: turn the caller\'s Full internet on (the warning accepted) or off; off stops the caller\'s jobs and dev servers that used it (audited).' }),
   devEnvActivity: endpoint({ method: 'GET', path: '/api/projects/:id/dev-env/activity', auth: 'user', owner: 'B', response: z.object({ items: z.array(DevEnvActivity) }), summary: 'Box audit of a project: AI commands, changed files, box and preview events (read access to the folder).' }),
 } as const

@@ -33,7 +33,8 @@ import { storageRoom } from '../../system/storage'
 import { resolveLayout } from '../../system/layout'
 import { mayUseDevEnv, teamSetting } from '../setting'
 import { folderView, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
+import { RUN_ID_RE, SRT_PATHS, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
+import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders } from './placeholders'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
@@ -60,7 +61,7 @@ export const END_NOTE: Record<EndReason, string> = {
   stopped: 'stopped by a person',
   idle: 'stopped: unused',
   disk: 'stopped: the server disk is nearly full',
-  setting: 'stopped: the dev environment setting or the folder access of the person changed',
+  setting: 'stopped: the dev environment setting, the allowed sites or the folder access of the person changed',
   expired: 'did not start: it waited for 24 hours',
   lost: 'the run ended with no exit code',
 }
@@ -218,7 +219,7 @@ export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | n
 
 // ---------------- one run ----------------
 
-interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string }
+interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string }
 
 function prepare(c: SrtConfig, userId: string) {
   const p = devenvPaths(c.base)
@@ -239,29 +240,52 @@ export function serverPaths(ctx: Pick<AppContext, 'config' | 'engineConfig'>): s
   return [...new Set(out.filter((p): p is string => !!p && path.isAbsolute(p) && fs.existsSync(p)).map((p) => path.resolve(p)))]
 }
 
-/** The settings of a run, checked; throws with the reason when the run must not start. */
-async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network: 'open' | 'offline') {
+/** Can this server run Full internet? full.mjs is installed (install-srt.sh). Without it Full internet acts as off:
+ * the run gets the lists only (fail closed). */
+export const fullAvailable = () => !!systemOverride || fs.existsSync(SRT_PATHS.cliFull)
+
+/** The network of runs now: the team's choice cut to the plan ('offline' wins). */
+export function networkNow(ctx: AppContext): 'open' | 'offline' {
+  const l = limitsFor(ctx)
+  return l.ok ? l.l.network : 'offline'
+}
+
+/** The network part of the person's runs now: the team's sites, her own sites and Full internet (sites.ts). */
+export function personNetNow(ctx: AppContext, userId: string) {
+  const p = personNet(ctx.db, userId, teamHosts(ctx))
+  return { ...p, full: p.full && fullAvailable() }
+}
+const snapshotNow = (ctx: AppContext, userId: string): NetSnapshot => netSnapshot(teamSetting(ctx.db).extraDomains, personNetNow(ctx, userId))
+
+/** The settings of a run, checked; throws with the reason when the run must not start. `once`: the sites allowed once
+ * for this run (the turn's, or the row's). */
+async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network: 'open' | 'offline', once: readonly string[] = []) {
   const run = runWrites(ctx, c, space)
   const view = personView(ctx, space.userId, run)
   if (!view) throw new Error('the person cannot use the dev environment now')
   if (!rootAllowed(ctx, c, space, view)) throw new Error('the person cannot open the folder of this chat now')
   const work = run.start === null ? space.root : null
+  const hosts = teamHosts(ctx)
+  // only this person's sites and switch: another person's never reach this run
+  const person = personNetNow(ctx, space.userId)
   const input = {
     base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId, view, start: run.start, work, network,
     extraDomains: teamSetting(ctx.db).extraDomains,
-    denyHosts: teamHosts(ctx),
+    userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
+    full: person.full,
+    denyHosts: hosts,
     denyAddrs: [...listEnv(process.env.MYCEL_DEV_ENV_DENY_ADDRS), ...await publicIps()],
     serverPaths: serverPaths(ctx),
   }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(`refused settings: ${problems.join('; ')}`)
-  return { settings, work, hash: runHash(view, run) }
+  return { settings, work, hash: runHash(view, run), net: netSnapshot(input.extraDomains, person) }
 }
 
-async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string }> {
+async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
   const p = prepare(c, s.space.userId)
-  const { settings, work, hash } = await settingsFor(ctx, c, s.space, s.network)
+  const { settings, work, hash, net } = await settingsFor(ctx, c, s.space, s.network, s.once)
   // a cwd through a link out of the root folder is refused before the run (attack A10)
   const cwd = resolveRunCwd(s.space.root, s.cwd)
   if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
@@ -275,10 +299,10 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     sp = await c.system.spawn({
     runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
-    stdoutFile: s.stdoutFile, stderrFile: s.stderrFile,
+    stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings),
     })
   } catch (e) { release(); throw e }
-  return { ...sp, exited: sp.exited.finally(release), hash }
+  return { ...sp, exited: sp.exited.finally(release), hash, net }
 }
 
 function readHead(file: string, max: number): { text: string; cut: boolean } {
@@ -355,7 +379,7 @@ export function runProblem(ctx: AppContext): string | null {
 
 /** A foreground command: the call waits for it. The answer has the shape of boxd's exec answer, so tool.ts reads both
  * runners the same way. */
-export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal }): Promise<{ ok: true; value: BoxdExit } | { ok: false; message: string }> {
+export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[] }): Promise<{ ok: true; value: BoxdExit } | { ok: false; message: string }> {
   const c = srtConfig()
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
@@ -372,7 +396,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
     let oom = false
     try {
       const sp = await spawnRun(ctx, c, {
-        runId, space: o.space, cwd: o.cwd, command: o.command, network: lim.l.network,
+        runId, space: o.space, cwd: o.cwd, command: o.command, network: lim.l.network, once: o.once ?? [],
         limits: lim.l, runtimeMaxSec: Math.ceil(o.timeoutMs / 1000) + 30, stdoutFile: out, stderrFile: err,
       })
       a.pid = sp.pid
@@ -403,8 +427,8 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
 
 // ---------------- jobs and dev servers (rows) ----------------
 
-export interface RunRow { id: string; user_id: string; chat_id: string | null; project_id: string | null; turn_id: string | null; name: string; command: string; root: string; cwd: string; started_at: string; run_at: string | null; state: 'waiting' | 'running' | 'ended'; kind: 'job' | 'server'; unit: string; access: string; last_line: string; log_tail: string }
-export const RCOLS = 'id, user_id, chat_id, project_id, turn_id, name, command, root, cwd, started_at, run_at, state, kind, unit, access, last_line, log_tail'
+export interface RunRow { id: string; user_id: string; chat_id: string | null; project_id: string | null; turn_id: string | null; name: string; command: string; root: string; cwd: string; started_at: string; run_at: string | null; state: 'waiting' | 'running' | 'ended'; kind: 'job' | 'server'; unit: string; access: string; last_line: string; log_tail: string; once_domains: string; net: string }
+export const RCOLS = 'id, user_id, chat_id, project_id, turn_id, name, command, root, cwd, started_at, run_at, state, kind, unit, access, last_line, log_tail, once_domains, net'
 
 const openRuns = (db: Database, state: 'waiting' | 'running', kind?: 'job' | 'server') =>
   db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE ended_at IS NULL AND state = ? ${kind ? 'AND kind = ?' : ''} ORDER BY started_at, id`).all(...(kind ? [state, kind] : [state])) as RunRow[]
@@ -432,12 +456,13 @@ function takeCommand(c: SrtConfig, rowId: string): string | null {
   try { const t = fs.readFileSync(f, 'utf8'); rm(f); return t } catch { return null }
 }
 
-interface NewRow { space: Space; name: string; turnId: string; command: string; shown: string; cwd: string }
+interface NewRow { space: Space; name: string; turnId: string; command: string; shown: string; cwd: string; once?: readonly string[] }
 function insertRow(ctx: AppContext, j: NewRow, kind: 'job' | 'server'): string {
   const id = newId()
   keepCommand(id, j.command)
-  ctx.db.query('INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at, ai_told_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, j.space.userId, j.space.chatId, j.space.projectId, j.turnId, kind, j.name, j.shown.slice(0, 500), j.space.root, j.cwd, 'waiting', new Date().toISOString(), kind === 'server' ? new Date().toISOString() : null)
+  // the once-allowed sites go with the row: a waiting job builds its settings later, outside the turn
+  ctx.db.query('INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at, ai_told_at, once_domains) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, j.space.userId, j.space.chatId, j.space.projectId, j.turnId, kind, j.name, j.shown.slice(0, 500), j.space.root, j.cwd, 'waiting', new Date().toISOString(), kind === 'server' ? new Date().toISOString() : null, formatOnce(j.once ?? []))
   return id
 }
 
@@ -511,12 +536,12 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   const space = spaceOfRow(row)
   try {
     const sp = await spawnRun(ctx, c, {
-      runId, space, cwd: row.cwd, command, network: lim.l.network, limits: lim.l,
+      runId, space, cwd: row.cwd, command, network: lim.l.network, once: parseOnce(row.once_domains ?? '', teamHosts(ctx)), limits: lim.l,
       runtimeMaxSec: row.kind === 'server' ? SERVER_MAX_SEC : JOB_MAX_SEC, stdoutFile: log, stderrFile: log,
     })
     active.set(runId, { runId, space, kind: row.kind, command: row.command.slice(0, 300), startedAt: new Date().toISOString(), pid: sp.pid, stopReason: null, rowId: row.id })
     void sp.exited.then(() => { const a = active.get(runId); if (a) active.delete(runId) })
-    const set = ctx.db.query("UPDATE dev_env_runs SET state = 'running', run_at = ?, unit = ?, access = ? WHERE id = ? AND ended_at IS NULL").run(new Date().toISOString(), unitName(runId), accessHashFrom(ctx, row.user_id, sp.hash), row.id)
+    const set = ctx.db.query("UPDATE dev_env_runs SET state = 'running', run_at = ?, unit = ?, access = ?, net = ? WHERE id = ? AND ended_at IS NULL").run(new Date().toISOString(), unitName(runId), accessHashFrom(ctx, row.user_id, sp.hash), JSON.stringify(sp.net), row.id)
     if (!set.changes) {
       // the row ended while the run started (a stop of a waiting job): no run may live with no open row
       const a = active.get(runId)
@@ -610,6 +635,7 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
   const diskStopped = room && !room.ok ? await stopAll(ctx, 'disk') : []
   // the access of a run depends on the person and on its starting folder (only that folder is writable)
   const hashes = new Map<string, string>()
+  const nets = new Map<string, NetSnapshot>()
   for (const r of openRuns(ctx.db, 'running')) {
     if (filter?.chatId && r.chat_id !== filter.chatId) continue
     if (filter?.userId && r.user_id !== filter.userId) continue
@@ -617,6 +643,13 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
     const key = `${r.user_id}\0${r.root}`
     if (!hashes.has(key)) hashes.set(key, accessHash(ctx, spaceOfRow(r)))
     if (r.access && hashes.get(key) !== r.access) { await stopRow(ctx, r, 'setting'); continue }
+    // the network got narrower (the person removed a site, turned Full internet off; the team removed a site): stop it.
+    // A row from an older build has no snapshot and is not checked
+    const started = parseSnapshot(r.net ?? '')
+    if (started) {
+      if (!nets.has(r.user_id)) nets.set(r.user_id, snapshotNow(ctx, r.user_id))
+      if (netNarrowed(started, nets.get(r.user_id)!)) { await stopRow(ctx, r, 'setting'); continue }
+    }
     const s = await rowStatus(c, r)
     const seconds = Math.round((Date.now() - Date.parse(r.run_at ?? r.started_at)) / 1000)
     if (s.running) {

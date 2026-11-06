@@ -17,6 +17,7 @@ import { toolRegistry } from './registry'
 import { egressOf, egressSettled } from './egress'
 import { registerHiggsfield } from './higgsfield'
 import { registerPromoVideo } from '../promo-video/tool'
+import { registerIntroDeck } from '../intro-deck/tool'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
 import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
@@ -239,6 +240,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   // the company's promo video (promo-video/tool.ts, docs/DECISIONS.md "V"): slots in, our template out
   registerPromoVideo(ctx, reg)
   exposeToTurns('promo_video')
+  // the company's intro deck (intro-deck/tool.ts, docs/DECISIONS.md "D2"): slots in, our layout out
+  registerIntroDeck(ctx, reg)
+  exposeToTurns('intro_deck')
   // Higgsfield video (tools/higgsfield.ts): only when an admin put the team's key in <data>/secrets/higgsfield.key
   if (registerHiggsfield(ctx, reg)) exposeToTurns('generate_video')
 }

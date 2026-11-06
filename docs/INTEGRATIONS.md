@@ -49,6 +49,82 @@ back), `server/src/routes/integrations.ts`, migration
   ones are left out of chats; they stay listed so their owners can delete them. Team connections are not affected.
 - Deleting a member deletes their personal connections (keys included) and removes them from team connections' rules.
 
+## Templates: each member connects their own key
+
+A template is a service an admin registers once for the team, without a key; each member it is for connects it with
+their own key or sign-in. One shared team key would let everyone's AI act with the key owner's rights, and the service
+would log every call under that one person; a template keeps each call under its member's own rights. In Admin › MCP,
+"Add connection" (and a Discover card's +) asks who connects: **For the team (one key)**, a team connection as above,
+the default; or **Template: each member connects their own**, which takes the kind, name, address, sign-in method (an
+API key with its header, or OAuth), who it is for (everyone, groups, people; admins only when named) and an optional
+note, and never a key or a write rule. The address may not have a query or a fragment (`?…`, `#…`): it goes with every
+member's key, so a key there would reach every member and the service would log their calls under its owner. The
+name reaches every member's AI, so it may not hold hidden or direction-changing characters, a double quote or control
+characters (and the note no hidden characters).
+
+- The members it is for see it in Settings › MCP under **From your team**. **Connect** opens the same dialog as an
+  admin's request: the address, where the key goes (the host in bold), their key or a sign-in next, and the write rule
+  (ask or refuse). The app sends back the template's version as the member saw it: a template that changed since is
+  refused (409, "This template changed") and shown again as it is now. It becomes their own (personal) connection, made through the same create path as one they add
+  themselves (`template_id` set), used only in their chats with their key. They may change only their key or sign-in
+  and the write rule; the address, sign-in method, header, name and note are the template's, so a key only ever goes
+  to the address the admin registered (even its owner sees the address without a query). They can disconnect (delete
+  it) at any time.
+- It is usable only while the template covers its member (`store.ts mayUse`, `templateCovers`), whatever
+  `personalIntegrations` says (the admin registered the service), and it does not count toward a member's 20.
+- The admin sees "Template · N connected" (members with a key or sign-in now). It opens who the template is for, each
+  with **Connected** (and since when), **Not connected**, **Key stopped working** (the service refused their key or
+  sign-in: the connection's status `needs_auth`) or **Not working** (status `error`): names and states only, from
+  `GET /api/admin/integration-templates/:id/members` (admins). Never a key, the address, a tool or anything the
+  service returned. The activity log stays minimal (below): it does not say which template a member connected.
+- The people a template is for are told once in their inbox (`integration.template`, table
+  `integration_template_notices`; migration 334): when it is made for them, when a rule change, a group they join or
+  joining the team while it is for everyone brings it to them: told at once on those events (a template made or its rule
+  changed, a group's members changed, someone added, invited, joined or enabled again), with the notification tick as a
+  backstop every 30 seconds (one set-based query, at most 500 notices per pass).
+  Its maker is not told about their own template, someone who connected it already is not told, and
+  `integration_template_offers` keeps a second notice from coming after the first is past its 30 days. When a new
+  address, sign-in method or header drops a member's key, that member gets "Reconnect <name>"
+  (`integration.template_reconnect`, one per change). Both open Settings › MCP with the template's Connect
+  (`?template=<id>`); they carry its id and name only while it is still for that person, never an address or a key.
+- In a chat, the AI is told which templates for this person are not connected yet (or whose key stopped working) and
+  offers the connect card for them (`connect_service` with `template`, or found by the address the AI filled in). The
+  card says "Connect your own key for <name>" and connects through the template's own path (`templates.ts connect`):
+  only while the template is for this person and is the version the card showed (409 otherwise), with the template's
+  address, sign-in method and header, also when members' own connections are turned off. Never anyone else's
+  connection; not in a scheduled run (nobody is there to finish a card). For a template the member already has (its key
+  stopped working), the card only sends the new key: their write rule and tool switches stay, and "Not now" removes
+  only a connection that card itself made.
+- A scheduled task that needs a template (one of its runs used a connection made from it, noted in
+  `schedule_template_needs`; or its instruction names the template, but only when the owner has no working connection
+  of their own to the same service, and never for everyday or short names such as "the" or "Notes") does not start while its owner has no key for it or theirs stopped working: the
+  run's result is "Needs your own key for <name>" (`lastOutcome` `needs_key`, `lastNeed`; the occurrence is kept in
+  `schedule_template_skips`), the owner gets a failure notice that names the template and opens its Connect, and Run
+  now says the same (409). It never runs with anyone else's key; once the owner connects it, the next run starts.
+- A new address, sign-in method or header on the template deletes every member's connection made from it (keys and
+  sign-ins; OAuth tokens are revoked): they connect again. A new name or note is copied to their connections without
+  touching their version, so a sign-in, a token refresh or a write waiting for a yes is not thrown away. A rule that no
+  longer covers a member deletes that member's connection; a group change is refused at once and swept when the
+  templates are next listed (the sweep does not wait for the services to be told, and also drops a connection whose
+  address, sign-in method or header is not the template's). Deleting the template deletes them all. Deleting a member
+  deletes theirs and revokes their sign-ins; deleting a member or a group also removes them from every template's rule
+  (and a group from team connections' rules), so the rule can still be changed.
+- At most 50 templates. Audit: `integration_template.create / update / delete` (the admin's changes). A member's
+  connection made from one is logged like any member's own connection, `integration.create` and `integration.delete`
+  with only its scope, kind and sign-in method (and `why`: `template_moved`, `template_deleted`, `not_covered`, when a
+  template change dropped it), never which template, service or member.
+- An admin's note on a template is the admin's: the AI reads it as "Note from your team admin".
+- The chat's connect card does not count template connections toward a member's 20, and does not call one the
+  template no longer covers "already connected".
+- Not yet: choosing a default ("one team key" or "template") by sign-in method.
+
+Code: `server/src/integrations/connections/templates.ts`, `schedule-needs.ts`, `server/src/notifications/service.ts`
+(offerTemplates), `server/src/chat/connect-service.ts`, migrations `333_c_integration_templates.sql` and
+`334_c_integration_template_notices.sql`, `336_c_integration_template_policy.sql` (a template or its rule changing
+advances the safe-operations policy generation); web: `web/src/components/integrations/TemplatesView.tsx`. Tests:
+`tests/unit/c-integration-templates.test.ts`, `tests/unit/c-template-chat-schedule.test.ts`,
+`web/test/e2e/integration-templates.spec.ts`.
+
 ## Asking a member to connect
 
 Some services log every call as the person whose key it is, so that key belongs in the member's personal connection.
