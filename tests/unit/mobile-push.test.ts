@@ -377,23 +377,68 @@ test('a reinstall (keychain id kept, files gone) asks for the sign-out until it 
     }
     return { deps, state: () => ({ key, exists, tries }) }
   }
+  const ios = { ios: true, hasTeam: true }
   const reinstall = make('install-0', false)
-  expect(await wasReinstalled(reinstall.deps)).toBe(true)
+  expect(await wasReinstalled(reinstall.deps, ios)).toBe(true)
   expect(reinstall.state().exists).toBe(false) // no marker until the sign-out got its answer
-  expect(await wasReinstalled(reinstall.deps)).toBe(true) // the server did not answer: the next launch tries again
+  expect(await wasReinstalled(reinstall.deps, ios)).toBe(true) // the server did not answer: the next launch tries again
   await reinstallDone(reinstall.deps)
   expect(reinstall.state()).toEqual({ key: 'install-0', exists: true, tries: null })
-  expect(await wasReinstalled(reinstall.deps)).toBe(false)
+  expect(await wasReinstalled(reinstall.deps, ios)).toBe(false)
   // a server that never answers: given up after a few launches
   const unreachable = make('install-0', false)
-  for (let i = 0; i < MAX_SIGN_OUT_LAUNCHES; i++) expect(await wasReinstalled(unreachable.deps)).toBe(true)
-  expect(await wasReinstalled(unreachable.deps)).toBe(false)
+  for (let i = 0; i < MAX_SIGN_OUT_LAUNCHES; i++) expect(await wasReinstalled(unreachable.deps, ios)).toBe(true)
+  expect(await wasReinstalled(unreachable.deps, ios)).toBe(false)
   expect(unreachable.state().exists).toBe(true)
   const update = make(null, false) // from a build that wrote neither, or a first install
-  expect(await wasReinstalled(update.deps)).toBe(false)
+  expect(await wasReinstalled(update.deps, ios)).toBe(false)
   expect(update.state()).toMatchObject({ key: 'install-1', exists: true })
-  expect(await wasReinstalled(make('install-0', true).deps)).toBe(false) // an ordinary launch
-  expect(await wasReinstalled(make('install-0', false, false).deps)).toBe(false) // cannot write the marker: never act
+  expect(await wasReinstalled(make('install-0', true).deps, ios)).toBe(false) // an ordinary launch
+  expect(await wasReinstalled(make('install-0', false, false).deps, ios)).toBe(false) // cannot write the marker: never act
+})
+
+test('a normal update whose marker cannot be written saves no id, so the next launch signs nobody out', async () => {
+  const { wasReinstalled } = await import('../../mobile/src/install')
+  let key: string | null = null, exists = false, writable = false
+  const deps = {
+    keychain: { get: async () => key, set: async (v: string | null) => { key = v } },
+    tries: { get: async () => null, set: async () => {} },
+    marker: { exists: () => exists, create: () => { if (!writable) throw new Error('disk full'); exists = true }, remove: () => { exists = false } },
+    newId: () => 'install-1',
+  }
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: true })).toBe(false)
+  expect(key).toBeNull() // no id without the marker
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: true })).toBe(false) // the next launch: still no reinstall
+  writable = true
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: true })).toBe(false)
+  expect(key as string | null).toBe('install-1'); expect(exists).toBe(true)
+})
+
+test('a reinstall with no team saved writes the marker at once: a sign-in made later is never signed out', async () => {
+  const { wasReinstalled } = await import('../../mobile/src/install')
+  let exists = false, tries: string | null = '2'
+  const deps = {
+    keychain: { get: async () => 'install-0', set: async () => {} },
+    tries: { get: async () => tries, set: async (v: string | null) => { tries = v } },
+    marker: { exists: () => exists, create: () => { exists = true }, remove: () => { exists = false } },
+    newId: () => 'install-1',
+  }
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: false })).toBe(false)
+  expect(exists).toBe(true); expect(tries as string | null).toBeNull()
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: true })).toBe(false) // the next launch, signed in: nothing
+})
+
+test('Android never takes the reinstall path, whatever the storage says', async () => {
+  const { wasReinstalled } = await import('../../mobile/src/install')
+  let touched = false
+  const deps = {
+    keychain: { get: async () => { touched = true; return 'install-0' }, set: async () => { touched = true } },
+    tries: { get: async () => null, set: async () => { touched = true } },
+    marker: { exists: () => { touched = true; return false }, create: () => { touched = true }, remove: () => { touched = true } },
+    newId: () => 'install-1',
+  }
+  expect(await wasReinstalled(deps, { ios: false, hasTeam: true })).toBe(false)
+  expect(touched).toBe(false)
 })
 
 test('the reinstall sign-out: once per launch, only on the team page saved at launch, done only on the server answer', async () => {

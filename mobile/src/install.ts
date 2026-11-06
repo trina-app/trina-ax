@@ -15,21 +15,27 @@ export interface InstallDeps {
 export const MAX_SIGN_OUT_LAUNCHES = 5
 export const MAX_SIGN_OUT_PAGES = 3
 
-/** True on a launch after the app was deleted and installed again, until the kept session was ended. iOS keeps the
+/** True on a launch after the app was deleted and installed again, until the kept session was ended. Only on iOS:
+ * Android removes the app's storage (SecureStore included, which is kept out of backups) on uninstall, so it never has
+ * an id to survive; the check does nothing there at all. iOS keeps the
  * keychain (the team address, and the id kept here) when the app is deleted, and the WebView's session survived it in
  * testing, but the app's files go: a keychain id without the file marker is a reinstall. The marker is written only
  * once the sign-out got its answer (reinstallDone), so a sign-out that did not reach the server is tried again at the
  * next launch, at most MAX_SIGN_OUT_LAUNCHES times. An update from a build that wrote neither, or a first install,
  * writes both and is no reinstall. When the marker cannot be written the answer is false, so a failing file system never
  * signs the person out at every launch. */
-export async function wasReinstalled(d: InstallDeps): Promise<boolean> {
+export async function wasReinstalled(d: InstallDeps, launch: { ios: boolean; hasTeam: boolean }): Promise<boolean> {
+  if (!launch.ios) return false
   const id = await d.keychain.get().catch(() => null)
   if (d.marker.exists()) { if (!id) await d.keychain.set(d.newId()).catch(() => {}); return false }
   if (!id) {
-    try { d.marker.create() } catch { /* the next launch decides again */ }
+    // the id only with the marker: an id without one would read as a reinstall at the next launch
+    try { d.marker.create() } catch { return false }
     await d.keychain.set(d.newId()).catch(() => {})
     return false
   }
+  // no team saved: no session to end (a sign-in made later in this launch must not be signed out at the next one)
+  if (!launch.hasTeam) { await reinstallDone(d); return false }
   try { d.marker.create(); d.marker.remove() } catch { return false }
   const tries = Number(await d.tries.get().catch(() => null)) || 0
   if (tries >= MAX_SIGN_OUT_LAUNCHES) { await reinstallDone(d); return false }

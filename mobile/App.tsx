@@ -86,9 +86,10 @@ export default function App() {
     let off = () => {}
     // removals owed to teams left while their server could not be reached
     void retryRemovals(devices).catch(() => {})
-    void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam(), wasReinstalled(reinstallDeps()).catch(() => false)]).then(async ([origin, chosen, pads, again]) => {
+    void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam()]).then(async ([origin, chosen, pads]) => {
       since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads
-      if (again && origin) { const deps = reinstallDeps(); signOut.current = new ReinstallSignOut(origin, () => reinstallDone(deps), () => Crypto.randomUUID()) }
+      const deps = reinstallDeps()
+      if (await wasReinstalled(deps, { ios: Platform.OS === 'ios', hasTeam: !!origin }).catch(() => false) && origin) signOut.current = new ReinstallSignOut(origin, () => reinstallDone(deps), () => Crypto.randomUUID())
       device.current = origin ? (await currentDevice(devices, origin).catch(() => null))?.deviceId ?? null : null
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
