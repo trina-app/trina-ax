@@ -228,7 +228,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
           <ul>
             {rows.map((c, i) => (
               <li key={c.name} className={clsx('flex items-start gap-3 border-line py-3', pad, i > 0 && 'border-t')} data-testid="skill-row" data-name={c.name}>
-                <input type="checkbox" disabled checked={false} readOnly className="mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] opacity-45" aria-label={c.title ?? c.name} />
+                <input type="checkbox" disabled checked={false} readOnly className="mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark] opacity-45" aria-label={c.title ?? c.name} />
                 <span className="min-w-0 flex-1">
                   <SkillName c={c} phone={phone} />
                   <span aria-hidden className="mt-2 block h-2.5 animate-pulse rounded-full bg-hover" style={{ width: `${[62, 48, 70, 40, 56][i % 5]}%` }} />
@@ -302,7 +302,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
           checked={!!ticked?.[c.name]}
           onChange={(e) => toggle(c.name, e.target.checked)}
           disabled={applying}
-          className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)]"
+          className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark]"
           data-testid="skill-check"
         />
         <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
@@ -348,7 +348,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
         {source}
         {noAi}
       </div>
-      <fieldset className={clsx('m-0 min-w-0 p-0', frame)} disabled={applying}>
+      <fieldset className={clsx('min-w-0', frame)} disabled={applying}>
         <legend className="sr-only">{t('welcome.skills.listLabel')}</legend>
         <h3 ref={heading} tabIndex={-1} className={clsx('flex items-center gap-2 pt-3 pb-1 text-sm font-semibold text-ink outline-none', pad, !recommended.length && 'sr-only')} data-testid="skills-recommended">
           {t('welcome.skills.recommended', { n: recommended.length })}
@@ -387,7 +387,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
         <div className="space-y-3">
           {rule && (
             <div className="flex items-start gap-3" data-testid="skills-rule">
-              <input id={`${ids}-rule`} type="checkbox" checked={ruleOn} onChange={(e) => setRuleOn(e.target.checked)} disabled={applying} className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)]" data-testid="skills-rule-check" />
+              <input id={`${ids}-rule`} type="checkbox" checked={ruleOn} onChange={(e) => setRuleOn(e.target.checked)} disabled={applying} className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark]" data-testid="skills-rule-check" />
               <span className="min-w-0 flex-1">
                 <label htmlFor={`${ids}-rule`} className="cursor-pointer text-sm font-medium text-ink">{t('welcome.skills.rule', { n: rule.lines })}</label>
                 <button type="button" className={clsx(quietLink, 'touch-hit ml-2 text-label')} onClick={() => setRuleShown(true)} aria-haspopup="dialog" data-testid="skills-rule-view">{t('welcome.skills.ruleView')}</button>
@@ -397,7 +397,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
           )}
           {tools.length > 0 && (
             <div className="flex items-start gap-3" data-testid="skills-tools">
-              <input id={`${ids}-tools`} type="checkbox" checked={toolsOn} onChange={(e) => setToolsOn(e.target.checked)} disabled={applying} className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)]" data-testid="skills-tools-check" />
+              <input id={`${ids}-tools`} type="checkbox" checked={toolsOn} onChange={(e) => setToolsOn(e.target.checked)} disabled={applying} className="touch-hit mt-0.5 size-4.5 shrink-0 accent-[var(--c-accent)] dark:[color-scheme:dark]" data-testid="skills-tools-check" />
               <label htmlFor={`${ids}-tools`} className="min-w-0 flex-1 cursor-pointer">
                 <span className="text-sm font-medium text-ink">{t('welcome.skills.tools', { n: tools.length, names: tools.map((x) => x.name).join(', ') })}</span>
                 <span className="mt-0.5 block text-label text-muted">{t('welcome.skills.toolsNote')}</span>
