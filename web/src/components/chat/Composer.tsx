@@ -131,7 +131,9 @@ export default function Composer({
   const [chosen, setChosen] = useState(skill ?? null)
   const skillMenu = useSkillMenu(text, setText)
   const taRef = useRef<HTMLTextAreaElement>(null)
-  const roomMenu = useRoomRefMenu({ text, setText, input: taRef, initial: initial.picked })
+  // a confidential chat keeps to its local tools: no room is read there, so "#" lists none (closed while not known);
+  // nor while the box answers the AI's question (that answer is plain text, it carries no room)
+  const roomMenu = useRoomRefMenu({ text, setText, input: taRef, initial: initial.picked, enabled: confidential === false && !answering })
   const wired = roomMenu.wire(text)
   const tokens = roomMenu.ranges.length > 0
   const [scrollTop, setScrollTop] = useState(0)
@@ -352,7 +354,7 @@ export default function Composer({
     if (answering) {
       // a failure (the question was answered in another window or closed meanwhile) keeps the text and says why
       try {
-        await answering.onAnswer(wired)
+        await answering.onAnswer(text)
         setText('')
         roomMenu.reset()
         writeDraft(userId, draftId, '')

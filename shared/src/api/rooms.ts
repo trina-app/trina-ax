@@ -96,8 +96,9 @@ export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s ===
  * who are not in it).
  */
 export const ROOM_REF_RE = /#\[([^\[\]\n]{1,80})\]\(room:([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/g
-/** The title as a token can hold it. */
-export const roomRefTitle = (title: string) => title.replace(/[\[\]\r\n\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, ROOM_NAME_MAX) || '?'
+/** The title as a token can hold it: no brackets or lines, and never an address (any member of a group chat names it,
+ * and an address in the person's message would count as one they typed: tools/url-gate.ts) */
+export const roomRefTitle = (title: string) => title.replace(/[\[\]\r\n\u2028\u2029]+/g, ' ').replace(/:\/\//g, ': //').replace(/\s+/g, ' ').trim().slice(0, ROOM_NAME_MAX) || '?'
 /** The token for a picked room. */
 export const roomRefToken = (id: string, title: string) => `#[${roomRefTitle(title)}](room:${id})`
 /** The rooms a message names with tokens, in order, each once. */
@@ -118,6 +119,14 @@ export function roomRefParts(text: string): ({ text: string } | { room: { id: st
   if (at < text.length) out.push({ text: text.slice(at) })
   return out
 }
+/** The message as the AI is given it: each token as "[#room N]" (N in the order of roomRefsOf), its title and id only
+ * in the server's data block (chat/turn.ts roomRefsBlock), never as the person's own words. */
+export function roomRefsForModel(text: string): string {
+  const order = roomRefsOf(text).map((r) => r.id)
+  return text.replace(ROOM_REF_RE, (_all, _title: string, id: string) => `[#room ${order.indexOf(id) + 1}]`)
+}
+/** An earlier message of the conversation as the AI is given it: each token as the room's id alone. */
+export const roomRefsByIdOnly = (text: string) => text.replace(ROOM_REF_RE, (_all, _title: string, id: string) => `[#room room_id=${id}]`)
 /** The message as people read it: each token as "#<title>" (lists, titles, a text box to edit it in). */
 export const plainRoomRefs = (text: string) => text.replace(ROOM_REF_RE, (_all, title: string) => `#${title}`)
 

@@ -35,6 +35,7 @@ import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboar
 import { ROOM_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
+import { hideUrls } from '../tools/audit-url'
 
 export interface Tool {
   name: string
@@ -212,8 +213,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
       }
       exec.afterTool()
-      // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts)
-      return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
+      // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
+      // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
+      const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
+      return { content: out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary }
     },
     afterFileTool: (name, isError, args) => {
       exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()

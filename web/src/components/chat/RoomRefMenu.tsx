@@ -8,12 +8,14 @@ import clsx from 'clsx'
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { PRODUCT_NAMED_AFTER_AI, roomRefParts, roomRefTitle, type Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { deleteToken, insertRoomRef, keepPicked, matchRooms, roomRefAt, tokenRanges, toWire, type PickedRoom, type TokenRange } from '../../lib/roomRefs'
+import { deleteToken, insertRoomRef, keepPicked, matchRooms, roomMenuWanted, roomRefAt, tokenRanges, toWire, type PickedRoom, type TokenRange } from '../../lib/roomRefs'
 import { useRooms } from '../../store/rooms'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { scrollToShow } from './SkillMenu'
 
-export function useRoomRefMenu({ text, setText, input, initial = [] }: { text: string; setText: (s: string) => void; input: RefObject<HTMLTextAreaElement | null>; initial?: PickedRoom[] }) {
+/** `enabled`: the "#" list opens at all (false where the AI cannot read rooms: a confidential chat; tokens already in
+ * the text still show and are sent) */
+export function useRoomRefMenu({ text, setText, input, initial = [], enabled = true }: { text: string; setText: (s: string) => void; input: RefObject<HTMLTextAreaElement | null>; initial?: PickedRoom[]; enabled?: boolean }) {
   const t = useT()
   const id = useId()
   const title = useRoomTitle()
@@ -27,7 +29,7 @@ export function useRoomRefMenu({ text, setText, input, initial = [] }: { text: s
   /** the caret before the latest move: a caret that lands inside a token goes on past it the way it was moving */
   const lastCaret = useRef<number | null>(null)
   const at = useMemo(() => (caret === null ? null : roomRefAt(text, caret)), [text, caret])
-  const wanted = !!at && closedFor !== text
+  const wanted = roomMenuWanted({ enabled, at, closedFor, text })
   // the rooms are the sidebar's list; read once when "#" is typed before it ever loaded (a phone opens no sidebar)
   useEffect(() => { if (wanted && !rooms.length) void loadRooms().catch(() => {}) }, [wanted, rooms.length, loadRooms])
   const label = (r: Room) => (r.kind === 'dm' ? t('composer.roomDm', { name: title(r) }) : title(r))

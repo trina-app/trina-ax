@@ -6,7 +6,7 @@
 //  + <previous_conversation> when a new engine session starts (tab 3 "이어가기 실패·엔진 교체").
 import fs from 'node:fs'
 import { PRODUCT, TEAM_TOOL_PREFIX } from '@mycel/shared'
-import { MEMORY_TEXT_MAX, type Locale } from '@mycel/shared/api'
+import { MEMORY_TEXT_MAX, roomRefsByIdOnly, type Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
 import { isPersonalSkill, isSkillManifest, listSkills, managedSkillRoots, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
@@ -213,7 +213,8 @@ export function historyTrimmed(history: { role: 'user' | 'assistant'; content: s
 /** Recent messages of the branch, newest kept, at most 40,000 characters; older ones are counted, not summarized. */
 export function historyBlock(history: { role: 'user' | 'assistant'; content: string }[]): string {
   if (!history.length) return ''
-  const { parts, omitted } = historyWindow(history)
+  // a "#" room in an earlier message: its id only (a room's name is not the person's words: chat/turn.ts roomRefsBlock)
+  const { parts, omitted } = historyWindow(history.map((h) => (h.role === 'user' ? { ...h, content: roomRefsByIdOnly(h.content) } : h)))
   return [
     '<previous_conversation>',
     'The conversation so far in this chat (your earlier session is not available; continue from here).',

@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { roomRefToken, type Locale, type Room, type Step } from '@mycel/shared/api'
 import { roomRefTitle } from '@mycel/shared/api'
-import { deleteToken, fromWire, insertRoomRef, keepPicked, matchRooms, outsideToken, roomRefAt, tokenRanges, toWire } from '../../src/lib/roomRefs'
+import { deleteToken, fromWire, insertRoomRef, keepPicked, matchRooms, outsideToken, roomMenuWanted, roomRefAt, tokenRanges, toWire } from '../../src/lib/roomRefs'
 import { TokenLayer, WithRoomRefs } from '../../src/components/chat/RoomRefMenu'
 import Steps from '../../src/components/chat/Steps'
 import { translate, useLocaleStore } from '../../src/i18n'
@@ -29,6 +29,19 @@ describe('the "#" list', () => {
     expect(roomRefAt('## 제목', 2)).toBeNull()
     expect(roomRefAt('# 제목', 2)).toBeNull()
     expect(roomRefAt('#마케\n팅', 6)).toBeNull()
+  })
+
+  test('not in a confidential chat (no room is read there), nor while its state is unknown; Esc closes it for that text', () => {
+    const at = roomRefAt('#', 1)
+    expect(roomMenuWanted({ enabled: true, at, closedFor: null, text: '#' })).toBe(true)
+    expect(roomMenuWanted({ enabled: false, at, closedFor: null, text: '#' })).toBe(false)
+    expect(roomMenuWanted({ enabled: true, at, closedFor: '#', text: '#' })).toBe(false)
+    expect(roomMenuWanted({ enabled: true, at: null, closedFor: null, text: 'x' })).toBe(false)
+  })
+
+  test('a title never carries an address into the message (any member names a group chat)', () => {
+    expect(roomRefTitle('https://evil.example/x 공지')).toBe('https: //evil.example/x 공지')
+    expect(roomRefToken(id(1), 'https://evil.example/x')).not.toContain('://')
   })
 
   test('filters as I type: titles, a 1:1 chat or group chat by a member\'s name; titles that start with it first', () => {

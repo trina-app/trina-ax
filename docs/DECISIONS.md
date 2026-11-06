@@ -10453,7 +10453,7 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   "예산"", "대화방 파일 읽기 · 보고서.pdf", in the five languages (`FILE_STEP_VERB`; English "Read conversation").
 - **Limits.** A read gives at most 200 messages, each cut at 4,000 characters, the whole at 60,000 with a line that says
   how to go on (`until=` the oldest shown). A search looks at the newest 20,000 positions of each room (the
-  `(room_id, seq)` index), the 200 rooms with the latest activity, at most 100 results. A list counts only the 100 rooms
+  `(room_id, seq)` index), at most 100 rooms and 100,000 positions in all (the latest activity first), at most 100 results. A list counts only the 100 rooms
   it shows, and a room named by its name is matched on its title alone (the counts are read for the match only). A file's text at most 40,000
   characters a call (`offset` reads on), files up to the plan's read limit and 32 MB.
 - **"#" in the AI chat's box.** Typing "#" lists the rooms I am in (group chats, team rooms, the everyone room, 1:1
@@ -10479,6 +10479,28 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   day with a clock change); the person searched for is matched among all accounts in a fixed order. Left: paging back
   with `until=` skips another message of the very same millisecond; AI-chosen names in other tools' audit lines (a file
   path, an artifact key) are as they were, and every such change after a room read waited for the person's yes.
+- **Second review (2026-11-06) fixes.**
+  - A `#` token's title is a room's name, which any member of a group chat sets, so it is never the person's words:
+    the address check (`tools/url-gate.ts typedUrls`) reads the person's messages without their tokens (a room named
+    "https://…" made that address one the person typed: no card), a token's title never holds "://"
+    (`roomRefTitle`), and the AI gets the message with "[#room N]" in each token's place, the titles and ids only in
+    the `<room_refs>` data block; earlier messages of the conversation give the id alone. A message that holds a token
+    marks the chat (`rooms_seen`) by itself, before any tool is called.
+  - My own private AI preview in what a read or search showed (private because it used what the room may not read)
+    adds `{type:'user'}` to the chat's read scope, so saving it where others can read still asks.
+  - Every room tool call names its step once, found or not (the verb alone when nothing was found, never the name the
+    AI guessed), so batched calls keep their own steps (patchToolStep is first in, first out per tool).
+  - A search has one budget for all its rooms (`ROOM_SEARCH_BUDGET`, 100,000 positions; at most 100 rooms), the rooms
+    with the latest activity first; what was not searched, or only in part, is said.
+  - In a chat that read rooms, every http(s) address in a tool's audit line keeps only its site and a 12-character
+    fingerprint (`tools/audit-url.ts`; `web_fetch https://example.com/… #3f2a9c1b07de -> 4 chars`); the intro deck's
+    "was this article opened" check accepts that form.
+  - Before a read, the person's team rooms and everyone room are put right as `GET /api/rooms` does
+    (`Rooms.syncFor`): someone taken out of a group a moment ago reads nothing of its room.
+  - The `#` list does not open in a confidential chat (nor while that is not known).
+  - Tests added: archived rooms and a room I was taken out of; the tool set for a room session, a draft, an approved
+    template and a confidential chat; after a read, a sub-agent's write, `save_url`, a schedule and a connection's
+    tool each wait for the card; a scheduled run in such a chat changes nothing and raises no card.
 - **Rollback.** Migration 254 is additive (reader level unchanged). An older build has no room tools and ignores the
   mark: in a chat that already holds room content it asks only where it asked before (memories after outside content,
   the wider-audience card). Accepted: going back is rare, and nothing new is read there.

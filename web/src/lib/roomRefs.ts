@@ -23,6 +23,10 @@ export function roomRefAt(text: string, caret: number): { start: number; query: 
   return { start: at, query }
 }
 
+/** Does the "#" list open: only where rooms can be read (not in a confidential chat), at a "#word", unless Esc closed it
+ * for this very text. */
+export const roomMenuWanted = (o: { enabled: boolean; at: { start: number } | null; closedFor: string | null; text: string }) => o.enabled && !!o.at && o.closedFor !== o.text
+
 const fold = (s: string) => s.normalize('NFC').toLocaleLowerCase().replace(/\s+/g, '')
 
 /** The rooms whose title (or, for a 1:1 chat or a group chat, a member's name) holds the query: titles that start with

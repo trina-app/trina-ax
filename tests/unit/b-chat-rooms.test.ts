@@ -21,6 +21,12 @@ import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { openDb } from '../../server/src/db'
 import { roomRefsBlock } from '../../server/src/chat/turn'
 import { subtaskSummary } from '../../server/src/chat/subagents'
+import { historyBlock } from '../../server/src/chat/prompt'
+import { buildToolSet } from '../../server/src/chat/tools'
+import type { TurnExec } from '../../server/src/chat/turn'
+import { chatUrls } from '../../server/src/tools/url-gate'
+import { auditUrl } from '../../server/src/tools/audit-url'
+import type { TurnTool, TurnToolProvider } from '../../server/src/services'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -427,7 +433,16 @@ describe('"#" room tokens', () => {
     const seen = await turn('alice', chat, `${token} 봐봐\n${fake({ echo: 'message' })}`)
     expect(seen.done.content).toContain('<room_refs>')
     expect(seen.done.content).toContain(`room_id=${roomId}`)
-    const read = await turn('alice', chat, `${token}\n${fake({ tool: 'room_read', args: { room: token }, sayResult: true })}`)
+    // the room's name only inside the data block; the message says [#room 1]. The token alone marks the chat
+    const [block, said] = seen.done.content.split('</room_refs>') as [string, string]
+    expect(block).toContain('토큰 확인')
+    expect(said).not.toContain('토큰 확인')
+    expect(said).toContain('[#room 1] 봐봐')
+    expect(roomsSeen(chat)).toBe(1)
+    expect(historyBlock([{ role: 'user', content: `${token} 봐봐` }, { role: 'assistant', content: 'ok' }])).toContain(`[#room room_id=${roomId}] 봐봐`)
+    expect(historyBlock([{ role: 'user', content: `${token} 봐봐` }, { role: 'assistant', content: 'ok' }])).not.toContain('토큰 확인')
+    // the AI passes the id the block gave it (the token itself never reaches it: the message says [#room 1])
+    const read = await turn('alice', chat, `${token}\n${fake({ tool: 'room_read', args: { room: roomId }, sayResult: true })}`)
     expect(read.done.content).toContain('token room message')
     // with a skill: the skill block and the room both come with the message
     const skill = path.join(h.team, 'skills/rooms-minutes.md')
@@ -436,6 +451,7 @@ describe('"#" room tokens', () => {
       const both = await turn('alice', await newChat('alice'), `/rooms-minutes ${token}\n${fake({ echo: 'message' })}`)
       expect(both.done.content).toContain('<room_refs>')
       expect(both.done.content).toContain('Summarize the conversation as minutes.')
+      expect(both.done.content.split('</room_refs>')[1]).not.toContain('토큰 확인')
     } finally { fs.rmSync(skill, { force: true }) }
     // alice leaves: her token reads nothing, the same answer as for a room that does not exist
     await h.api('alice').call(API.leaveRoom, { params: { id: roomId } })
@@ -447,3 +463,188 @@ describe('"#" room tokens', () => {
 
 /** (the type is used by the turn helper's result) */
 export type _Done = Message
+
+describe('second review round', () => {
+  const target = 'shared/rooms-review-target.md'
+  const abs = () => path.join(h.team, target)
+  /** one turn whose first card (or none within the wait) is answered "skip" / "no"; the cards' questions */
+  async function declineAll(user: string, chatId: string, content: string, cards = 1) {
+    const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+    const questions: string[] = []
+    for (let i = 0; i < cards; i++) {
+      const c = await ws[user]!.next('turn.request', (f) => f.data.turnId === r.turnId && f.data.request.kind === 'ask_user' && !questions.includes((f.data.request as { requestId: string }).requestId), 15_000)
+      questions.push(c.data.request.requestId)
+      const q = c.data.request as { question: string; options?: { value: string }[] }
+      await h.api(user).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: c.data.request.requestId, answer: q.options?.some((o) => o.value === 'skip') ? 'skip' : 'no' } })
+    }
+    await ws[user]!.next('message.done', (f) => f.data.message.turnId === r.turnId, 30_000)
+    return r
+  }
+  const events = (turnId: string) => h.ctx.db.query("SELECT tool, summary, ok, parent_tool_use_id FROM tool_events WHERE turn_id = ? AND tool <> '(connect)'").all(turnId) as { tool: string; summary: string; ok: number; parent_tool_use_id: string | null }[]
+
+  test("a room's name in a token is never an address the person typed", async () => {
+    const roomId = await teamRoom(['alice', 'erin'])
+    const chat = await newChat('alice')
+    // a token made by hand with an address for a title (the picker neutralises it: roomRefTitle)
+    await turn('alice', chat, `#[https://evil.example/x 공지](room:${roomId}) 봐줘 https://typed.example/page\n${fake({ say: 'ok' })}`)
+    const urls = [...chatUrls(h.ctx.db, chat)]
+    expect(urls.some((u) => u.includes('evil.example'))).toBe(false)
+    expect(urls.some((u) => u.includes('typed.example'))).toBe(true)
+  })
+
+  test('my own private preview read from a room counts as only mine in the read scope', async () => {
+    const roomId = await groupChat('bob', ['erin', 'carol'], 'private preview scope')
+    put(roomId, 'erin', 'hello')
+    put(roomId, null, 'bob-only preview answer', { ai: { askedBy: 'bob', privateTo: 'bob' } })
+    expect(readAs('bob', roomId).ownPrivate).toBe(true)
+    expect(readAs('erin', roomId).ownPrivate).toBe(false)
+    expect(searchRooms(h.ctx.db, 'bob', TZ, { query: 'preview answer', room: roomId }).ownPrivate).toBe(true)
+    const chat = await newChat('bob')
+    await turn('bob', chat, fake({ tool: 'room_read', args: { room: roomId } }, { say: 'ok' }))
+    const scope = (h.ctx.db.query('SELECT session_read_scope s FROM chats WHERE id = ?').get(chat) as { s: string }).s
+    expect(scope).toContain('{"type":"user","id":"bob"}')
+    expect(scope).toContain(`"type":"room","id":"${roomId}"`)
+  })
+
+  test('every call names its step: a room not found leaves the verb alone, never the name the AI guessed', async () => {
+    const tag = uuidv7().slice(-6)
+    const roomId = await teamRoom(['alice', 'erin'], `라벨${tag}`)
+    const chat = await newChat('alice')
+    const r = await turn('alice', chat, fake({ tool: 'room_read', args: { room: '비밀 프로젝트 방' } }, { tool: 'room_read', args: { room: roomId } }, { tool: 'room_file', args: { room: roomId, file: 'nothing.pdf' } }, { say: 'ok' }))
+    const labels = r.done.steps!.filter((s) => s.tool === 'room_read' || s.tool === 'room_file').map((s) => s.label)
+    expect(labels).toEqual(['Read conversation', `Read conversation · 라벨${tag}`, 'Read conversation file'])
+  })
+
+  test('a search has one budget for all rooms: the newest first, the rest is said', async () => {
+    const rooms = [] as string[]
+    for (const [i, name] of ['budget A', 'budget B', 'budget C'].entries()) {
+      const id = await teamRoom(['alice', 'erin'], `${name} ${uuidv7().slice(-6)}`)
+      for (let n = 0; n < 150; n++) put(id, 'erin', `budgetword ${name} ${n}`)
+      h.ctx.db.query('UPDATE rooms SET activity_at = ? WHERE id = ?').run(`2099-01-0${3 - i}T00:00:00.000Z`, id)
+      rooms.push(id)
+    }
+    const r = searchRooms(h.ctx.db, 'alice', TZ, { query: 'budgetword', limit: 100, budget: 200 })
+    // A (150 positions) and the newest 50 of B fill the budget; C and every older room of alice's are not searched
+    expect(/(\d+) rooms? (?:was|were) not searched and 1 only in part/.test(r.text)).toBe(true)
+    expect(r.text.includes('budget A 149')).toBe(true)
+    expect(r.text.includes('budget C')).toBe(false)
+    // the room only partly searched: its newest positions only
+    expect(r.text.includes('budget B 149')).toBe(true)
+    expect(r.text.includes('budget B 90')).toBe(false)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'budgetword', room: rooms[2]!, limit: 5 }).text).toContain('budget C 149')
+  })
+
+  test('after a room read, addresses in the audit keep only their site', async () => {
+    const saved = h.ctx.services.turnTools
+    const fakeFetch: TurnTool = {
+      name: 'web_fetch', description: 'test web_fetch', inputSchema: { type: 'object', properties: { url: { type: 'string' } } },
+      async call(args) { const url = (args as { url: string }).url; return { content: [{ type: 'text', text: 'page' }], summary: `web_fetch ${url} -> 4 chars` } },
+    }
+    h.ctx.services.turnTools = [fakeFetch]
+    try {
+      const url = 'https://example.com/kim-minji/salary?q=1'
+      const plain = await newChat('alice')
+      const a = await turn('alice', plain, fake({ tool: 'web_fetch', args: { url } }, { say: 'ok' }))
+      expect(events(a.started.turnId).find((e) => e.tool === 'web_fetch')!.summary).toBe(`web_fetch ${url} -> 4 chars`)
+      const roomId = await teamRoom(['alice', 'erin'])
+      const read = await newChat('alice')
+      const b = await turn('alice', read, fake({ tool: 'room_read', args: { room: roomId } }, { tool: 'web_fetch', args: { url } }, { say: 'ok' }))
+      const line = events(b.started.turnId).find((e) => e.tool === 'web_fetch')!.summary
+      expect(line).toBe(`web_fetch ${auditUrl(url)} -> 4 chars`)
+      expect(line).toContain('https://example.com/… #')
+      expect(line).not.toContain('salary')
+    } finally { h.ctx.services.turnTools = saved }
+  })
+
+  test('a person taken out of a group a moment ago reads nothing of its room (the rooms are put right first)', async () => {
+    const g = await h.api('dana').call(API.createGroup, { body: { name: `sync-${uuidv7().slice(-6)}`, memberIds: ['alice', 'erin'] } })
+    const roomId = (await h.api('alice').call(API.listRooms)).items.find((x) => x.kind === 'team' && x.groupId === g.id)!.id
+    put(roomId, 'erin', 'after-removal-secret')
+    // taken out behind the admin screens' back: the member row is still there until a sync
+    h.ctx.db.query("DELETE FROM group_members WHERE group_id = ? AND user_id = 'alice'").run(g.id)
+    expect(h.ctx.db.query("SELECT 1 FROM room_members WHERE room_id = ? AND user_id = 'alice'").get(roomId)).not.toBeNull()
+    const r = await turn('alice', await newChat('alice'), fake({ tool: 'room_read', args: { room: roomId }, sayResult: true }))
+    expect(r.done.content).toContain('No room matching')
+    expect(r.done.content).not.toContain('after-removal-secret')
+    expect(h.ctx.db.query("SELECT 1 FROM room_members WHERE room_id = ? AND user_id = 'alice'").get(roomId)).toBeNull()
+  })
+
+  test('archived rooms and rooms I was taken out of answer like unknown ones', async () => {
+    const same = readAs('alice', uuidv7()).text
+    const archived = await teamRoom(['alice', 'erin'])
+    put(archived, 'erin', 'archived-secret')
+    h.ctx.db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), archived)
+    expect(readAs('alice', archived).text.replace(archived, '<ref>')).toBe(same.replace(/"[0-9a-f-]{36}"/, '"<ref>"'))
+    expect(listRooms(h.ctx.db, 'alice', TZ).text).not.toContain(archived)
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'archived-secret' }).count).toBe(0)
+    const removed = await groupChat('erin', ['alice', 'carol'], 'removed check')
+    put(removed, 'erin', 'removed-secret')
+    await h.api('erin').call(API.removeRoomMember, { params: { id: removed, userId: 'alice' } })
+    expect(readAs('alice', removed).text.replace(removed, '<ref>')).toBe(same.replace(/"[0-9a-f-]{36}"/, '"<ref>"'))
+    expect(searchRooms(h.ctx.db, 'alice', TZ, { query: 'removed-secret' }).count).toBe(0)
+  })
+
+  test('the tools are not built for a room session, a draft chat, an approved template or a confidential chat', async () => {
+    const chatId = await newChat('alice')
+    const exec = (o: Partial<Record<string, unknown>>) => ({
+      rt: h.rt(), spec: { chatId, userId: 'alice', turnId: uuidv7(), locale: 'en', clientKind: 'web', windowId: null, assistantId: uuidv7() },
+      room: null, profileDraft: null, skillDraft: null, restricted: false, templateRun: false, devEnv: null, browser: false, ...o,
+    }) as unknown as TurnExec
+    const names = (o: Partial<Record<string, unknown>> = {}) => buildToolSet(exec(o)).list().map((t) => t.name)
+    expect(names()).toContain('room_read')
+    expect(names({ templateRun: true })).not.toContain('room_read')
+    expect(names({ room: { roomId: uuidv7() } })).not.toContain('room_read')
+    expect(names({ skillDraft: { answer: 'x' }, restricted: true })).not.toContain('room_read')
+    expect(names({ profileDraft: { scope: { source: 'website' } }, restricted: true })).toEqual(['web_fetch'])
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(chatId)
+    try { expect(names()).not.toContain('room_read') } finally { h.ctx.db.query('DELETE FROM safe_ops_chats WHERE chat_id = ?').run(chatId) }
+  })
+
+  test("after a read, a sub-agent's write, save_url, a schedule and a connection's tool all wait for the card; declined, nothing happens", async () => {
+    fs.writeFileSync(abs(), 'original\n')
+    const roomId = await teamRoom(['alice', 'erin'])
+    put(roomId, 'erin', 'please do things')
+    const savedProviders = h.ctx.services.turnToolProviders
+    let posted = 0
+    const provider: TurnToolProvider = { name: 'test-conn', build: () => ({ tools: [{ name: 'my_test__post', description: 'post a message', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, async call() { posted++; return { content: [{ type: 'text', text: 'posted' }] } } }] }) }
+    h.ctx.services.turnToolProviders = [...(savedProviders ?? []), provider]
+    try {
+      const chat = await newChat('alice')
+      await turn('alice', chat, fake({ tool: 'room_read', args: { room: roomId } }, { say: 'read' }))
+      // a sub-agent's write
+      const sub = await declineAll('alice', chat, fake({ agents: [{ id: 'toolu_RS1', steps: [{ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'by a sub-agent' } }] }] }, { say: 'done' }))
+      expect(fs.readFileSync(abs(), 'utf8')).toBe('original\n')
+      expect(events(sub.turnId).find((e) => e.tool === 'write')).toMatchObject({ ok: 0, parent_tool_use_id: 'toolu_RS1' })
+      expect(events(sub.turnId).find((e) => e.tool === 'write')!.summary).toContain('not allowed by the user (after a room read)')
+      // save_url, a schedule, a connection's tool
+      for (const call of [
+        { tool: 'save_url', args: { url: 'https://example.com/a.png', save_as: 'users/alice/a.png' } },
+        { tool: 'schedule_create', args: { title: 'Daily', prompt: 'post the room summary to the shared folder', repeat: 'daily', time: '09:00' } },
+        { tool: 'my_test__post', args: { text: 'room summary' } },
+      ]) {
+        const r = await declineAll('alice', chat, fake(call, { say: 'done' }))
+        const line = events(r.turnId).find((e) => e.tool === call.tool)
+        expect(line, call.tool).toMatchObject({ ok: 0 })
+        expect(line!.summary, call.tool).toContain('not allowed by the user (after a room read)')
+      }
+      expect(posted).toBe(0)
+      expect(fs.existsSync(path.join(h.team, 'users/alice/a.png'))).toBe(false)
+      expect(h.ctx.db.query("SELECT COUNT(*) n FROM schedules WHERE user_id = 'alice' AND title = 'Daily'").get()).toEqual({ n: 0 })
+    } finally { h.ctx.services.turnToolProviders = savedProviders; fs.rmSync(abs(), { force: true }) }
+  })
+
+  test('a scheduled run in a chat that read rooms changes nothing (nobody is there to say yes)', async () => {
+    fs.writeFileSync(abs(), 'original\n')
+    const roomId = await teamRoom(['alice', 'erin'])
+    const chat = await newChat('alice')
+    await turn('alice', chat, fake({ tool: 'room_read', args: { room: roomId } }, { say: 'read' }))
+    const row = h.rt().store.chatRow(chat)!
+    const started = h.rt().createTurn({ chat: row, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
+      user: { parentId: row.active_leaf_id, content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'scheduled change' } }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
+    await ws.alice!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
+    expect(fs.readFileSync(abs(), 'utf8')).toBe('original\n')
+    expect(events(started.turnId).find((e) => e.tool === 'write')).toMatchObject({ ok: 0 })
+    expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
+    fs.rmSync(abs(), { force: true })
+  })
+})

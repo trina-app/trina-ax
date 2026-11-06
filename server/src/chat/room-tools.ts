@@ -23,6 +23,7 @@ import { mediaKind } from '@mycel/shared'
 import { readRegular } from '../files/store'
 import { readMaxBytes } from '../system/limits'
 import { roomFilesOf } from '../rooms/files'
+import { roomsOf } from '../rooms/service'
 import { findRoomFile, listRooms, localTime, readRoom, ROOM_DATA_NOTE, roomKindLine, searchRooms, type ReadResult } from '../rooms/reader'
 import { addSources, type ReadSource } from './read-scope'
 import { neutralizeTags } from './prompt'
@@ -54,15 +55,26 @@ export function roomReadTools(exec: TurnExec): Tool[] {
     exec.markRoomsSeen()
     return null
   }
+  /** Rooms follow groups and accounts (rooms/service.ts sync): a person whose rooms are out of step (taken out of a
+   * group a moment ago) has them put right before anything is read, as GET /api/rooms does. Never throws: the read
+   * itself goes by the member rows as they are. */
+  const syncMine = () => { try { roomsOf(rt.ctx).syncFor(spec.userId) } catch (e) { rt.log.warn('room sync before a read failed', { err: e }) } }
   /** what a result showed: the rooms join the chat's read scope (their members see it) */
-  const record = (r: Pick<ReadResult, 'seen'>) => {
+  const record = (r: Pick<ReadResult, 'seen' | 'ownPrivate'>) => {
     const add: ReadSource[] = r.seen.map((s) => ({ type: 'room', id: s.roomId, ...(s.fromSeq !== undefined ? { fromSeq: s.fromSeq } : {}) }))
+    // a private preview of the person's own (it used what the room may not read) counts as theirs alone
+    if (r.ownPrivate) add.push({ type: 'user', id: spec.userId })
     addSources(rt.db, spec.chatId, add)
   }
-  const label = (tool: string, what: string) => {
+  /** The step of this call names what it read as the person sees it, or nothing (the verb alone: an id or a name the AI
+   * passed that was not found). Every call patches its step exactly once, found or not, so the steps of batched calls
+   * keep their own (TurnExec.patchToolStep is first in, first out per tool). */
+  const label = (tool: 'room_read' | 'room_file', what = '') => {
+    const named = what.replace(/\s+/g, ' ').trim().slice(0, 80)
     exec.patchToolStep(tool, (s) => {
       const at = s.label.indexOf(' · ')
-      return { label: `${at >= 0 ? s.label.slice(0, at) : s.label} · ${what.replace(/\s+/g, ' ').trim().slice(0, 80)}` }
+      const verb = at >= 0 ? s.label.slice(0, at) : s.label
+      return { label: named ? `${verb} · ${named}` : verb }
     })
   }
   return [
@@ -73,6 +85,7 @@ export function roomReadTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const no = begin()
         if (no) return { ...text(no, true), summary: 'rooms -> denied: account disabled' }
+        syncMine()
         const search = a.data.query !== undefined || a.data.person !== undefined || a.data.since !== undefined || a.data.until !== undefined
         const r = search ? searchRooms(rt.db, spec.userId, rt.timeZone, a.data) : listRooms(rt.db, spec.userId, rt.timeZone, a.data.room)
         record(r)
@@ -83,13 +96,14 @@ export function roomReadTools(exec: TurnExec): Tool[] {
       name: 'room_read', description: ROOM_TOOL_DESCRIPTIONS.room_read, inputSchema: schema(RoomReadInput),
       async call(args) {
         const a = RoomReadInput.safeParse(args)
-        if (!a.success) return text(zodText(a.error), true)
+        if (!a.success) { label('room_read'); return text(zodText(a.error), true) }
         const no = begin()
-        if (no) return { ...text(no, true), summary: 'room_read -> denied: account disabled' }
+        if (no) { label('room_read'); return { ...text(no, true), summary: 'room_read -> denied: account disabled' } }
+        syncMine()
         const r = readRoom(rt.db, spec.userId, rt.timeZone, a.data)
         record(r)
         // the step names the room as the person sees it (an id the AI passed means nothing to them)
-        if (r.title) label('room_read', r.title)
+        label('room_read', r.title)
         return { ...text(r.text, !r.ok), summary: `room_read -> ${r.title === undefined ? 'no room' : `${r.count ?? 0} message${r.count === 1 ? '' : 's'}${a.data.thread ? ' (thread)' : ''}`}` }
       },
     },
@@ -97,10 +111,12 @@ export function roomReadTools(exec: TurnExec): Tool[] {
       name: 'room_file', description: ROOM_TOOL_DESCRIPTIONS.room_file, inputSchema: schema(RoomFileInput),
       async call(args, files) {
         const a = RoomFileInput.safeParse(args)
-        if (!a.success) return text(zodText(a.error), true)
+        if (!a.success) { label('room_file'); return text(zodText(a.error), true) }
         const no = begin()
-        if (no) return { ...text(no, true), summary: 'room_file -> denied: account disabled' }
-        return readRoomFile(exec, files, a.data)
+        if (no) { label('room_file'); return { ...text(no, true), summary: 'room_file -> denied: account disabled' } }
+        syncMine()
+        let named = ''
+        try { return await readRoomFile(exec, files, a.data, (name) => { named = name }) } finally { label('room_file', named) }
       },
     },
   ]
@@ -109,13 +125,13 @@ export function roomReadTools(exec: TurnExec): Tool[] {
 /** room_file: the file checked by RoomFiles.open (in the room now, its message visible to me, not deleted), its bytes
  * bound to that check, then as text (the extractors of a Drive file: the text layer only, no OCR) or as the model's
  * picture (the same switch, engine check and per-answer budget as a read). */
-async function readRoomFile(exec: TurnExec, files: TurnFiles, a: { room: string; file: string; offset?: number }): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
+async function readRoomFile(exec: TurnExec, files: TurnFiles, a: { room: string; file: string; offset?: number }, named: (name: string) => void): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
   const { rt, spec } = exec
   const found = findRoomFile(rt.db, spec.userId, a.room, a.file, rt.timeZone)
   if ('text' in found) return { ...text(found.text), summary: 'room_file -> not found' }
   const { file, message, room, title, author } = found
   addSources(rt.db, spec.chatId, [{ type: 'room', id: room.id, fromSeq: message.thread_root_seq ?? message.seq }])
-  exec.patchToolStep('room_file', (s) => ({ label: `${s.label.split(' · ')[0]} · ${file.name.slice(0, 80)}` }))
+  named(file.name)
   const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, rt.timeZone)} in the ${neutralizeTags(roomKindLine(room.kind, title.replace(/[\r\n"<>]+/g, ' ').slice(0, 120)))}. ${ROOM_DATA_NOTE}`
   const kind = mediaKind(file.name)
   if (kind) return { ...text(`${head}\nThis is a${kind === 'audio' ? 'n audio' : ' video'} file: video and audio sent in a room cannot be read here, only its name is known. The user can open it in the room, or save it to the team folder and ask again.`), summary: `room_file -> ${kind} not read` }

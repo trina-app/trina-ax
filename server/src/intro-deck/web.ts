@@ -14,6 +14,7 @@ import { redirectGuard } from '../tools/connection-urls'
 import { egressOf } from '../tools/egress'
 import { TEXT as GATE_TEXT } from '../tools/url-gate'
 import { webFetch, wrapExternal, type FetchOptions } from '../tools/web-fetch'
+import { auditUrl } from '../tools/audit-url'
 
 export interface WebPart { url: string; label: string; text: string; kind: 'page' | 'article'; title?: string }
 /** Characters kept of each page (the fact check reads them; the AI gets a shorter excerpt). */
@@ -122,8 +123,11 @@ export async function readSite(ctx: AppContext, t: ToolCtx, max: number, asked: 
 export async function readArticles(ctx: AppContext, t: ToolCtx, list: { url: string; outlet: string; date: string }[], problems: string[], o: WebOptions = {}, dropped: string[] = []): Promise<WebPart[]> {
   const out: WebPart[] = []
   for (const [i, a] of list.entries()) {
-    const prefix = `web_fetch ${a.url} -> `
-    const opened = t.turnId ? ctx.db.query("SELECT 1 FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch' AND ok = 1 AND (summary = ? OR substr(summary, 1, ?) = ?) LIMIT 1").get(t.turnId, `web_fetch ${a.url}`, prefix.length, prefix) : null
+    // the address as the line has it, or as a chat that read team chat rooms keeps it (its site and fingerprint)
+    const opened = t.turnId && [a.url, auditUrl(a.url)].some((u) => {
+      const prefix = `web_fetch ${u} -> `
+      return !!ctx.db.query("SELECT 1 FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch' AND ok = 1 AND (summary = ? OR substr(summary, 1, ?) = ?) LIMIT 1").get(t.turnId, `web_fetch ${u}`, prefix.length, prefix)
+    })
     if (!opened) { problems.push(`web_sources[${i}]: "${a.url}" was not opened with web_fetch in this answer; open it first, or leave the article and its facts out`); continue }
     const r = await fetchText(ctx, t, a.url, null, o)
     if (!r || r.text.trim().length < 200) { problems.push(`web_sources[${i}]: "${a.url}" could not be read again; leave the article and its facts out`); continue }
