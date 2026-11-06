@@ -28,6 +28,9 @@ import { pollSrt, runResultsForAI } from './jobs'
 import path from 'node:path'
 import { changesByOthers, markSeen, withChangeWindow, type ForeignChange } from './track'
 import type { Change } from './snapshot'
+import type { Step } from '@mycel/shared/api'
+import { placeInLine, startWaiting } from './srt/runner'
+import { addTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -78,7 +81,8 @@ export const SRT_SHELL_DESCRIPTION = 'Run a shell command in the dev environment
   + 'For a dev server use background=true. There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
-  + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back.'
+  + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
+  + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 
 /** commands that would use a person's login (hole 2: the person confirms after seeing who changed what) */
 export const CREDENTIAL_COMMAND = /(^|[\s;&|(])(git\s+(push|fetch|pull|clone|submodule|ls-remote)|npm\s+(publish|login|adduser|token)|yarn\s+(publish|npm\s+publish)|pnpm\s+publish|gh\s|ssh\s|scp\s|rsync\s.*:|docker\s+(login|push)|twine\s+upload|cargo\s+publish|aws\s|gcloud\s|az\s)/
@@ -115,6 +119,8 @@ export interface BoxShellHost {
   turnId: string
   /** the chat of the turn: the link in a job's notice */
   chatId?: string
+  /** srt: the waiting state of this call's command or job on its step (Step.devEnvRun) */
+  queueStep?(run: NonNullable<Step['devEnvRun']>): void
   signal: AbortSignal
   /** a server card the person answers (chat/tools.ts turnPerson): the value of the chosen option, or null */
   confirm(question: string, options: { label: string; value: string }[], details: string[]): Promise<string | null>
@@ -150,10 +156,15 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   const timeoutMs = (input.timeout_sec ?? 120) * 1000
   const started = Date.now()
   const shown = h.redact(input.command)
+  // a command waits for a slot of the team's queue (srt/queue.ts) before its change window opens: what other people
+  // change while it waits is not the command's
+  let slot: { release(): void } | null = null
   if (!jobName && !background) {
-    const slot = commandSlotFree(ctx)
-    if (!slot.ok) return { ...text(h.redact([...notes, ...await o.jobNotes(), `Error: the command could not run (${slot.message}).`].join('\n')), true), summary: `${o.what} -> busy` }
+    const got = await waitForSlot(h, { space, cwd, shown, timeoutMs })
+    if (!got.ok) return { ...text(h.redact([...notes, ...await o.jobNotes(), got.message].join('\n')), true), summary: `${o.what} -> ${got.summary}` }
+    slot = got
   }
+  const run = async (): Promise<Out> => { try { return await go() } finally { slot?.release() } }
   type Out = { kind: 'exit'; r: Awaited<ReturnType<typeof runCommand>> } | { kind: 'job'; r: Awaited<ReturnType<typeof submitJob>> } | { kind: 'server'; r: Awaited<ReturnType<typeof startServer>> }
   const go = async (): Promise<Out> => {
     const base = { space, turnId: h.turnId, command: input.command, shown, cwd }
@@ -163,9 +174,9 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   }
   let w: Window & { value: Out }
   if (o.tracked) {
-    w = await withChangeWindow(ctx, o.tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, go)
+    w = await withChangeWindow(ctx, o.tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, run).finally(() => slot?.release())
     markSeen(ctx, o.tracked.id, h.userId)
-  } else w = { ...NO_WINDOW, value: await go() }
+  } else w = { ...NO_WINDOW, value: await run() }
   notes.push(...await o.jobNotes())
   const out = w.value
   const result = !out.r.ok ? { error: out.r.message.slice(0, 300) }
@@ -179,6 +190,8 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   if (!out.r.ok) return { ...text(h.redact([...notes, `Error: the command could not run (${out.r.message.slice(0, 300)}).`].join('\n')), true), summary: `${what} -> ${out.r.message.slice(0, 200)}` }
   const empty = { ev: 'exit' as const, code: 0, signal: '', stdout: '', stderr: '', truncated: false, ms: Date.now() - started }
   if (out.kind === 'job' && out.r.ok) {
+    // the chat shows the job's place in line until it starts (the app reads the live place)
+    if (out.r.state === 'waiting') h.queueStep?.({ id: out.r.rowId, kind: 'job', state: 'waiting', position: out.r.position })
     const head = out.r.state === 'running'
       ? `Started as job ${jobName} (log: $TRINA_LOGS/${jobName}.log). Do not wait for it: when it ends the person gets a notice, and your next box_shell call in this chat gives you the result.`
       : `Queued as job ${jobName}: other jobs of the team run now, so it waits (position ${out.r.position}) and starts by itself. Do not wait for it: when it ends the person gets a notice, and your next box_shell call in this chat gives you the result.`
@@ -192,6 +205,37 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     : e.signal === 'stopped' ? 'Stopped.'
     : `Exit code ${e.code}.`
   return answer(h, { notes, head, started, exit: e, w, background: false, what })
+}
+
+/** A foreground command takes a slot of the team's queue (srt/queue.ts): at once when one is free and nobody is ahead,
+ * else it waits as a ticket, at most 5 minutes; the chat shows the place in line and a Cancel button (Step.devEnvRun).
+ * The slot is free again with release(). */
+async function waitForSlot(h: BoxShellHost, o: { space: Space; cwd: string; shown: string; timeoutMs: number }): Promise<{ ok: true; release(): void } | { ok: false; message: string; summary: string }> {
+  const { ctx } = h
+  const rowId = addTicket(ctx.db, { space: o.space, turnId: h.turnId, shown: o.shown, cwd: o.cwd })
+  const limitMs = commandWaitFor(o.timeoutMs)
+  const ended = waitTicket(ctx.db, rowId, h.userId, { waitMs: limitMs, signal: h.signal })
+  await startWaiting(ctx)
+  // granted in that start round: no waiting state at all
+  let end = await Promise.race([ended, Promise.resolve(null)])
+  const waited = end === null
+  if (waited) {
+    h.queueStep?.({ id: rowId, kind: 'command', state: 'waiting', position: placeInLine(ctx, rowId) })
+    end = await ended
+  }
+  if (end === 'granted') {
+    if (waited) h.queueStep?.({ id: rowId, kind: 'command', state: 'started', position: null })
+    let done = false
+    return { ok: true, release: () => { if (done) return; done = true; releaseCommand(rowId); void startWaiting(ctx).catch(() => {}) } }
+  }
+  const state = end === 'expired' ? 'expired' as const : 'cancelled' as const
+  h.queueStep?.({ id: rowId, kind: 'command', state, position: null })
+  audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: o.space.projectId, detail: { turnId: h.turnId, chatId: o.space.chatId, command: o.shown.slice(0, 2000), cwd: o.cwd, runner: 'srt', result: { error: end === 'expired' ? 'full' : end ?? 'stopped', waitedMs: limitMs } } })
+  const message = end === 'expired' ? `Error: ${FULL_MESSAGE} The command did not run: it waited ${Math.round(limitMs / 60_000)} minutes for a free slot. Tell the person. Do not try again in a loop.`
+    : end === 'cancelled' ? 'The person cancelled this command before it started. It did not run. Do not run it again unless the person asks.'
+    : end === 'aborted' ? 'Stopped. The command did not run.'
+    : 'The command did not run: the dev environment stopped (the setting changed, or the server disk is nearly full). Do not try again now.'
+  return { ok: false, message, summary: end === 'expired' ? 'full' : end ?? 'stopped' }
 }
 
 /** One box_shell call on the srt runner. */

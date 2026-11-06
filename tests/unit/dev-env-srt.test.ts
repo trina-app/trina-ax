@@ -658,19 +658,19 @@ describe('a command follows the person, not the project', () => {
     ac.abort()
     expect(out(await p)).toContain('Stopped.')
   })
-  test('one command at a time per folder; past maxRunning + 1 on the server the call is refused at once', async () => {
-    const a = alice().call({ command: 'sleep', timeout_sec: 2 })
+  test('one command at a time per folder; past maxRunning on the server a command waits in the queue (queue.ts)', async () => {
+    const a = alice().call({ command: 'sleep', timeout_sec: 1 })
     const b = alice().call({ command: 'echo second', timeout_sec: 5 })
     await Bun.sleep(100)
-    expect(runs.size).toBe(1) // b waits for a (same folder)
-    const c = alice({ project: null, chat: chatPlain }).call({ command: 'sleep', timeout_sec: 2 })
+    expect(runs.size).toBe(1) // b waits for a slot (Starter: maxRunning 1, for the whole team)
+    const d = shell('bob', null, chatBob).call({ command: 'echo third' })
     await Bun.sleep(100)
-    expect(runs.size).toBe(2)
-    // Starter: maxRunning 1, so at most 2 commands on the server, for the whole team
-    const d = await shell('bob', null, chatBob).call({ command: 'echo third' })
-    expect(out(d)).toContain('busy')
-    await Promise.all([a, c])
+    expect(runs.size).toBe(1)
+    expect(out(await a)).toContain('Stopped: the time limit')
+    // bob has had no slot yet: he goes before alice's second command (turn-taking with one slot)
+    expect(out(await d)).toContain('third')
     expect(out(await b)).toContain('second')
+    expect(runs.size).toBe(3)
   })
 })
 
@@ -718,6 +718,7 @@ describe('jobs and the queue (per team)', () => {
     expect(runResultsForAI(h.ctx, 'alice', chatFalcon)).toEqual([])
   })
   test('srt\'s mount points stay while a job runs in the folder, and go when it ends (not left by a killed run)', async () => {
+    setSrtSystem(fake, { base: devBase, id: 'mycel', plan: { ...STARTER, maxRunning: 2 } }) // a slot for the command too
     const dir = fs.realpathSync(path.join(h.team, FALCON))
     await alice().call({ command: 'sleep', job: true, log_name: 'ph' })
     expect(fs.existsSync(path.join(dir, '.mcp.json'))).toBe(true)

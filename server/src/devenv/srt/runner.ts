@@ -9,12 +9,14 @@
 // (its root) is the project folder of a project chat, else the chat's work folder.
 //
 // Kinds of run:
-//  - command (box_shell): the call waits for it. One per root at a time; at most maxRunning + 1 on the server, past
-//    that the call is refused at once.
-//  - job (job=true): a row in dev_env_runs. Over maxRunning it waits in a FIFO queue for the whole team (state
-//    waiting) and starts when a slot is free. At most 3 waiting per person and 10 on the server. A waiting job ends
-//    "expired" after 24 hours.
-//  - dev server (background=true): a row with kind server. At most maxRunning on the server and one per chat.
+//  - command (box_shell): the call waits for it. One per root at a time. Commands and jobs share the maxRunning slots
+//    of the plan and one queue for the whole team (queue.ts: FIFO with a fair share per person). A command waits for a
+//    slot as a ticket row (foreground = 1) for at most 5 minutes, then the call ends ("The dev environment is full").
+//  - job (job=true): a row in dev_env_runs. With no free slot it waits in the same queue (state waiting) and starts
+//    when it gets a slot. At most 3 waiting jobs per person and 10 on the server. A waiting job ends "expired" after 24
+//    hours.
+//  - dev server (background=true): a row with kind server. At most maxRunning on the server and one per chat; no
+//    queue: past that it is refused ("Preview is full").
 //
 // Runs keep going when the server restarts: their output goes to files, and the tracker finds them again by the
 // unit name in the row. A unit with no row is stopped. The tracker also stops a job or dev server when the person's
@@ -34,6 +36,7 @@ import { folderView, viewAccess, viewHash, type FolderView, type RunWrites } fro
 import { RUN_ID_RE, chatWork, devenvPaths, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders } from './placeholders'
+import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type SrtSystem } from './system'
 
 export const MAX_WAITING_PER_PERSON = 3
@@ -121,7 +124,7 @@ const active = new Map<string, Active>()
 const rootLocks = new Map<string, Promise<void>>()
 /** dev servers: CPU time at the last poll, and since when they are idle */
 const idleSince = new Map<string, { usec: number; at: number; since: number | null }>()
-function reset() { active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null }
+function reset() { active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; _resetQueue() }
 
 let planCache: { at: number; state: PlanState } | null = null
 let selfTest: { at: number; problem: string } | null = null
@@ -435,7 +438,7 @@ function insertRow(ctx: AppContext, j: NewRow, kind: 'job' | 'server'): string {
 export async function submitJob(ctx: AppContext, j: NewRow): Promise<SubmitResult> {
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
-  const waiting = openRuns(ctx.db, 'waiting')
+  const waiting = withoutTickets(ctx.db, openRuns(ctx.db, 'waiting'))
   if (waiting.filter((r) => r.user_id === j.space.userId).length >= MAX_WAITING_PER_PERSON) return { ok: false, message: `queue full: ${MAX_WAITING_PER_PERSON} of your jobs wait already. Wait for one to start, or stop one.` }
   if (waiting.length >= MAX_WAITING_SERVER) return { ok: false, message: `queue full: ${MAX_WAITING_SERVER} jobs wait on this server. Try again later.` }
   const id = insertRow(ctx, j, 'job')
@@ -443,8 +446,7 @@ export async function submitJob(ctx: AppContext, j: NewRow): Promise<SubmitResul
   const row = ctx.db.query('SELECT state, ended_at, end_note FROM dev_env_runs WHERE id = ?').get(id) as { state: string; ended_at: string | null; end_note: string }
   if (row.ended_at) return { ok: false, message: row.end_note || 'the job could not start' }
   if (row.state === 'running') return { ok: true, state: 'running', position: null, rowId: id }
-  const pos = openRuns(ctx.db, 'waiting').findIndex((r) => r.id === id) + 1
-  return { ok: true, state: 'waiting', position: pos, rowId: id }
+  return { ok: true, state: 'waiting', position: placeInLine(ctx, id), rowId: id }
 }
 
 /** One start at a time. The tracker, submitJob and every box_shell call (pollSrt) start waiting jobs; two of them
@@ -467,7 +469,7 @@ async function startServerNow(ctx: AppContext, j: NewRow): Promise<{ ok: true; r
   const servers = openRuns(ctx.db, 'running', 'server')
   const mine = servers.filter((r) => (j.space.chatId ? r.chat_id === j.space.chatId : r.root === j.space.root))
   if (mine.length) return { ok: false, message: `a dev server runs in this chat already (${mine.map((r) => r.name).join(', ')}). Stop it first (the dev environment list, or ask the person).` }
-  if (servers.length >= lim.l.maxRunning) return { ok: false, message: `${servers.length} dev servers run on this server, the most it allows. Ask a person to stop one.` }
+  if (servers.length >= lim.l.maxRunning) return { ok: false, message: `${PREVIEW_FULL} (${servers.length} dev servers run on this server, the most it allows.)` }
   const id = insertRow(ctx, j, 'server')
   const row = ctx.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE id = ?`).get(id) as RunRow
   const r = await startRow(ctx, row)
@@ -526,21 +528,44 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
 /** the hash of the view the run started with (accessHash's format) */
 const accessHashFrom = (ctx: AppContext, userId: string, viewHashValue: string) => (mayUseDevEnv(ctx.db, ctx.files, userId) ? viewHashValue : 'off')
 
-/** Start waiting jobs while there are free slots, oldest first. Expired ones end. */
+/** Give free slots to waiting jobs and commands (queue.ts: one queue, fair share). Expired jobs end; tickets with no
+ * waiting call end (lost). */
 export function startWaiting(ctx: AppContext): Promise<void> {
   return oneStart(() => startWaitingNow(ctx))
 }
+const slotsMax = () => { const p = planState(); return p.ok ? (p.plan?.maxRunning ?? NO_PLAN_MAX_RUNNING) : 0 }
+/** the person of every held slot: running jobs (rows of any process) and commands of this process */
+const slotHolders = (db: Database) => [...openRuns(db, 'running', 'job').map((r) => r.user_id), ...heldCommands()]
 async function startWaitingNow(ctx: AppContext): Promise<void> {
-  const p = planState()
-  const max = p.ok ? (p.plan?.maxRunning ?? NO_PLAN_MAX_RUNNING) : 0
+  const max = slotsMax()
+  endOrphanTickets(ctx.db)
+  const tickets = ticketIds(ctx.db)
   for (const w of openRuns(ctx.db, 'waiting', 'job')) {
-    if (Date.now() - Date.parse(w.started_at) > WAIT_MAX_MS) { takeCommand(srtConfig(), w.id); ender(ctx, w.id, { code: null, reason: 'expired', tail: '', lastLine: '' }); continue }
-    if (openRuns(ctx.db, 'running', 'job').length >= max) return
-    // read again: an earlier start in this loop awaited, and a stop may have ended this row meanwhile
-    if (!ctx.db.query("SELECT 1 FROM dev_env_runs WHERE id = ? AND state = 'waiting' AND ended_at IS NULL").get(w.id)) continue
+    if (!tickets.has(w.id) && Date.now() - Date.parse(w.started_at) > WAIT_MAX_MS) { takeCommand(srtConfig(), w.id); ender(ctx, w.id, { code: null, reason: 'expired', tail: '', lastLine: '' }) }
+  }
+  // one start per round, read again each round: a start awaits, and a stop may end a row meanwhile. Each round starts
+  // an entry (a slot less) or ends one (an entry less), so the loop ends.
+  for (;;) {
+    const waiting = openRuns(ctx.db, 'waiting', 'job')
+    const id = pickNext(waiting.map((r) => ({ id: r.id, userId: r.user_id })), slotHolders(ctx.db), max, servedNow())
+    if (!id) return
+    const w = waiting.find((r) => r.id === id)!
+    // a ticket added while a start awaited is in the DB, not in `tickets`
+    if (ticketIds(ctx.db).has(id)) { grantTicket(ctx.db, id); continue }
+    noteServed(w.user_id)
     await startRow(ctx, w)
   }
 }
+
+/** The place in line of a waiting job or command (1 = next), from the start order of queue.ts. Null: not waiting. */
+export function placeInLine(ctx: AppContext, rowId: string): number | null {
+  const i = queueOrder(ctx).indexOf(rowId)
+  return i < 0 ? null : i + 1
+}
+const queueOrder = (ctx: AppContext) => startOrder(openRuns(ctx.db, 'waiting', 'job').map((r) => ({ id: r.id, userId: r.user_id })), slotHolders(ctx.db), slotsMax(), servedNow())
+
+/** what a dev server over the limit says (the AI passes it on to the person) */
+export const PREVIEW_FULL = 'Preview is full. Close another preview or wait.'
 
 /** What the tracker reads for one running row: still running, or ended with a code and a reason. */
 async function rowStatus(c: SrtConfig, r: RunRow): Promise<{ running: true; tail: string } | { running: false; code: number | null; reason: EndReason; tail: string }> {
@@ -615,6 +640,8 @@ async function idleCheck(ctx: AppContext, c: SrtConfig, r: RunRow) {
 
 async function stopRow(ctx: AppContext, r: RunRow, reason: EndReason) {
   const c = srtConfig()
+  // a command's ticket: the waiting call ends (cancelled or stopped); no notice, no result as a job
+  if (r.state === 'waiting' && cancelTicket(ctx.db, r.id, reason)) return
   if (r.state === 'waiting') { takeCommand(c, r.id); ender(ctx, r.id, { code: null, reason, tail: '', lastLine: '' }); return }
   const runId = runIdOf(r.unit)
   const a = active.get(runId)
@@ -661,6 +688,8 @@ export const stopAll = (ctx: AppContext, reason: EndReason) => stopWhere(ctx, ()
  * end at the next poll (lost). */
 export async function reconcile(ctx: AppContext): Promise<void> {
   const c = srtConfig()
+  // the calls of waiting commands went with the old process
+  endOrphanTickets(ctx.db)
   const known = new Set((ctx.db.query("SELECT unit FROM dev_env_runs WHERE ended_at IS NULL AND unit != ''").all() as { unit: string }[]).map((r) => r.unit))
   for (const a of active.values()) known.add(unitName(a.runId))
   for (const u of await c.system.units()) {
@@ -690,8 +719,12 @@ export async function runsOf(ctx: AppContext, filter: { projectId: string } | { 
     out.push({ id: r.id, kind: r.kind, name: r.name, by: ref(r.user_id), startedAt: r.started_at, runAt: r.run_at, position: null, memoryMiB: u.memoryBytes === null ? null : Math.round(u.memoryBytes / 1048576), lastLine: r.last_line, chatId: chatOf(r.user_id, r.chat_id), projectId: r.project_id })
   }
   for (const a of commands) out.push({ id: a.runId, kind: 'command', name: a.command.slice(0, 80), by: ref(a.space.userId), startedAt: a.startedAt, runAt: a.startedAt, position: null, memoryMiB: null, lastLine: '', chatId: chatOf(a.space.userId, a.space.chatId), projectId: a.space.projectId })
+  // a command's ticket shows as a waiting command; the place in line follows the start order (queue.ts)
+  const tickets = ticketIds(ctx.db), order = queueOrder(ctx)
+  const place = (id: string, i: number) => { const p = order.indexOf(id); return p < 0 ? i + 1 : p + 1 }
   const waiting = waitingAll.map((r, i) => ({ r, i })).filter(({ r }) => match({ userId: r.user_id, projectId: r.project_id }))
-    .map(({ r, i }) => ({ id: r.id, kind: r.kind, name: r.name, by: ref(r.user_id), startedAt: r.started_at, runAt: null, position: i + 1, memoryMiB: null, lastLine: '', chatId: chatOf(r.user_id, r.chat_id), projectId: r.project_id }))
+    .map(({ r, i }) => ({ id: r.id, kind: tickets.has(r.id) ? 'command' as const : r.kind, name: tickets.has(r.id) ? r.command.slice(0, 80) : r.name, by: ref(r.user_id), startedAt: r.started_at, runAt: null, position: place(r.id, i), memoryMiB: null, lastLine: '', chatId: chatOf(r.user_id, r.chat_id), projectId: r.project_id }))
+    .sort((a, b) => a.position - b.position)
   return { running: out, waiting }
 }
 
@@ -701,7 +734,8 @@ export function othersInProject(ctx: AppContext, projectId: string, userId: stri
   const waitingAll = openRuns(ctx.db, 'waiting')
   const rows = [...openRuns(ctx.db, 'running'), ...waitingAll].filter((r) => r.project_id === projectId && r.user_id !== userId)
   const names = new Map((ctx.db.query('SELECT id, name FROM users').all() as { id: string; name: string }[]).map((u) => [u.id, u.name]))
-  return rows.map((r) => ({ kind: r.kind, name: r.name, by: names.get(r.user_id) ?? '?', position: r.state === 'waiting' ? waitingAll.findIndex((w) => w.id === r.id) + 1 : null }))
+  const tickets = ticketIds(ctx.db), order = queueOrder(ctx)
+  return rows.map((r) => ({ kind: tickets.has(r.id) ? 'command' : r.kind, name: tickets.has(r.id) ? 'a command' : r.name, by: names.get(r.user_id) ?? '?', position: r.state === 'waiting' ? order.indexOf(r.id) + 1 || waitingAll.findIndex((w) => w.id === r.id) + 1 : null }))
 }
 
 /** The work folder of a chat goes with the chat (chat/forget.ts, after the purge). */
