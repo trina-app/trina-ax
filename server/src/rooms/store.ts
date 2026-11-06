@@ -14,6 +14,8 @@
 // Who follows a thread and where they are in it: room_thread_follows. Reactions: room_reactions (8 fixed emoji),
 // counted for current members only, never anywhere else.
 import type { Database } from 'bun:sqlite'
+import { getPreferences, type Preferences } from '../notifications/preferences'
+import { roomNotifyOut } from './alerts'
 import { answerFilePaths, RoomEventLine, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type UserRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
@@ -21,7 +23,8 @@ const EXCERPT_QUOTE = 200
 const EXCERPT_LIST = 120
 
 export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null }
-export interface MemberRow { room_id: string; user_id: string; joined_at: string; last_read_seq: number; visible_from_seq: number; muted: number }
+/** muted / notify_level: my level for the room (rooms/alerts.ts ownLevel; notify_level is absent from rows made in code) */
+export interface MemberRow { room_id: string; user_id: string; joined_at: string; last_read_seq: number; visible_from_seq: number; muted: number; notify_level?: string | null }
 export interface MessageRow {
   id: string; room_id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null
   visibility: 'room' | 'private'; visible_to: string | null; body: string; reply_to_id: string | null; mentions: string
@@ -335,7 +338,8 @@ export function managerOf(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'cre
   return (db.query('SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at, user_id LIMIT 1').get(room.id) as { user_id: string } | null)?.user_id ?? null
 }
 
-export function roomOut(db: Database, room: RoomRow, viewer: MemberRow): Room {
+/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
+export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
   // the room's own name wins over the server's (the group's name); a DM is always the other person
   const name = room.kind !== 'dm' && room.name ? room.name : groupName(db, room)
   const memberCount = (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(room.id) as { n: number }).n
@@ -350,7 +354,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow): Room {
     peers: peers.map((p) => ({ id: p.id, name: p.name })),
     unreadCount: unread.n, threadsUnread: threads.n, nextThreadId: threads.next, mentioned: unread.mentioned || threads.mentioned,
     lastReadSeq: Math.max(viewer.last_read_seq, viewer.visible_from_seq), lastSeq: Math.max(lastSeqFor(db, room.id, viewer), viewer.visible_from_seq),
-    lastMessage: last, muted: !!viewer.muted, createdAt: room.created_at,
+    lastMessage: last, muted: !!viewer.muted, notify: roomNotifyOut(room.kind, viewer, prefs), createdAt: room.created_at,
     activityAt: last && last.createdAt > since ? last.createdAt : since,
   }
 }

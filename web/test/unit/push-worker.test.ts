@@ -187,13 +187,20 @@ test('a room notice opens its room; the room id comes from the signed-in notice,
   await badThread.clickShown()
   expect(badThread.navigated).toEqual([`https://team.example/rooms/${roomId}`])
 
-  // the room preference off: nothing shows
-  const off = worker()
-  off.configure({ messages: messages as any })
-  off.preferences({ roomMessages: false })
-  off.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben' } })
-  await off.push({ ...payload, code: 'room.dm' })
-  expect(off.shown).toHaveLength(0)
+  // the default 받지 않음 (the older switch roomMessages false): a room at its own level still alerts, and the server sent
+  // this push only because that level asks for it (docs/DECISIONS.md "대화방 알림 설정"): it shows
+  const own = worker()
+  own.configure({ messages: messages as any })
+  own.preferences({ roomMessages: false })
+  own.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben' } })
+  await own.push({ ...payload, code: 'room.dm' })
+  expect(own.shown).toHaveLength(1)
+  // read meanwhile: nothing shows
+  const read = worker()
+  read.configure({ messages: messages as any })
+  read.item({ id: 'event-1', code: 'room.dm', readAt: '2026-11-06T00:00:00.000Z', link: 'room', room: { id: roomId, from: 'Ben' } })
+  await read.push({ ...payload, code: 'room.dm' })
+  expect(read.shown).toHaveLength(0)
 })
 
 test('a room notice is silent when an open page takes care of the sound; otherwise, and for other notices, it is not', async () => {
