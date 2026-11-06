@@ -6,13 +6,15 @@ import { formatDateTime } from '../../lib/format'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
-import { Button, ErrorNote, Skeleton } from '../ui'
-import { mobilePushApp } from '../../lib/mobile-push'
+import { Button, ErrorNote, Skeleton, Switch } from '../ui'
 import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
 import { deletionNoticeText } from './AccountDeletion'
+import { PrefRow, PrefSection } from './PrefRows'
+import { RoomNotifySettings } from './RoomNotifySettings'
 
-const preferenceKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions', 'roomMessages'] as const
+/** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings) */
+const workKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
 
 /** A DM message or an @mention in a team chat room: who wrote it when the server still names them (never the text). */
 const roomText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
@@ -47,14 +49,15 @@ const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
 
 export function Notifications() {
   const t = useT(), locale = useLocale()
-  const app = mobilePushApp()
   const sound = useRoomSoundOn()
   const [items, setItems] = useState<InboxNotification[] | null>(null)
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null)
   const [cursor, setCursor] = useState<string | null>(null)
-  const [unread, setUnread] = useState(0), [busy, setBusy] = useState(false)
+  const [unread, setUnread] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const life = useRef(0), sequence = useRef(0), writing = useRef(false)
+  /** changes made while one is saving: sent together right after it (nothing waits for the server on screen) */
+  const queued = useRef<Partial<NotificationPreferences> | null>(null)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
   const load = useCallback(async (after?: string) => {
     const generation = life.current, seq = ++sequence.current
@@ -65,7 +68,9 @@ export function Notifications() {
       ])
       if (generation !== life.current || seq !== sequence.current) return
       setItems(previous => after && previous ? [...new Map([...previous, ...inbox.items].map(item => [item.id, item])).values()] : inbox.items)
-      setPreferences(prefs); setCursor(inbox.nextCursor); setUnread(inbox.unreadCount); setError(null)
+      // while my changes are being saved, the switches show them, not a read from before the last one landed
+      if (!writing.current) setPreferences(prefs)
+      setCursor(inbox.nextCursor); setUnread(inbox.unreadCount); setError(null)
     } catch (e) { if (generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     // useT returns a fresh function; its translations change only with locale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -76,17 +81,25 @@ export function Notifications() {
     const access = accessChanged.on(() => { setItems(null); void load() })
     return () => { off(); reload(); access() }
   }, [load])
-  const update = async (key: keyof NotificationPreferences, value: boolean) => {
-    if (writing.current) return
+  // shown at once; saved in order, one request at a time (a change made meanwhile goes with the next one)
+  const update = async (patch: Partial<NotificationPreferences>) => {
     const generation = life.current
+    setPreferences(current => current ? { ...current, ...patch } : current)
+    sequence.current++
+    if (writing.current) { queued.current = { ...queued.current, ...patch }; return }
     const before = preferences
-    setPreferences(current => current ? { ...current, [key]: value } : current)
-    writing.current = true; sequence.current++; setBusy(true)
+    writing.current = true
     try {
-      await api.call(API.updateNotificationPreferences, { body: { [key]: value } })
-      if (generation === life.current) await load()
-    } catch (e) { if (generation === life.current) { setPreferences(before); setError(errorText(e, locale, t('error.network'))) } }
-    finally { writing.current = false; if (generation === life.current) setBusy(false) }
+      for (let body: Partial<NotificationPreferences> | null = patch; body; body = queued.current, queued.current = null) {
+        await api.call(API.updateNotificationPreferences, { body })
+      }
+    } catch (e) {
+      queued.current = null; writing.current = false
+      if (generation === life.current) { setPreferences(before); setError(errorText(e, locale, t('error.network'))) }
+      return
+    }
+    writing.current = false
+    if (generation === life.current) await load()
   }
   const read = async (item: InboxNotification) => {
     if (item.readAt) return
@@ -94,17 +107,16 @@ export function Notifications() {
     try { await api.call(API.markNotificationRead, { params: { id: item.id } }); if (generation === life.current) await load() }
     catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
   }
-  // Phones: in the phone app, whether alerts reach this phone comes right after the title (it is what matters there); a
-  // phone's browser has the inbox first (its push lines only say what it cannot do). No frames inside the Settings
-  // card, and hints as large as the text they explain. The title itself is in the bar above on a phone
+  // The inbox first (on a phone this page is 알림함, the 나 tab's top row), then the settings as plain sections: 대화,
+  // 작업·연결 알림, 이 기기 (docs/DECISIONS.md "대화방 알림 설정"). No frames; the title is in the bar above on a phone
   // (SettingsDialog.tsx), so here it is for screen readers only.
   return <section className="flex flex-col gap-5" data-testid="notifications">
-    <div className="max-md:order-first"><h2 className="text-base font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
+    <div><h2 className="text-base font-semibold max-md:sr-only">{t('notifications.title')}</h2><p className="mt-1 text-sm text-muted max-md:mt-0">{t('notifications.description')}</p></div>
     {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
     {!items && !error && <Skeleton lines={3} />}
     {/* the inbox comes first: it is what the sidebar's "Inbox" opens; the preferences follow below it */}
     {items && <div data-testid="notifications-inbox">
-      <h3 className="mb-3 text-sm font-semibold">{t('inbox.title')} <span className="font-normal text-muted">· {t('notifications.unread', { count: unread })}</span></h3>
+      <h3 className="mb-3 text-base font-semibold">{t('inbox.title')} <span className="font-normal text-muted">· {t('notifications.unread', { count: unread })}</span></h3>
       {!items.length && <p className="text-sm text-muted">{t('notifications.empty')}</p>}
       <ul className="divide-y divide-line">{items.map(item => <li key={item.id} className="flex items-start gap-3 py-3" data-testid="notification-item">
         <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{item.code === 'room.dm' || item.code === 'room.mention' ? roomText(item, t) : item.code === 'dev_env.job' || item.code === 'dev_env.box' ? devEnvText(item, t) : item.code === 'onboarding.ai_request' && item.requester ? t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name }) : item.code === 'skills.merge_waiting' && item.merges ? t('notifications.event.skills.merge_waitingN', { n: item.merges.n }) : item.code === 'team.joined' ? (item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')) : item.code === 'onboarding.first_run' ? firstRunText(t, locale, item) : item.code === 'account.deletion_request' ? deletionNoticeText(t, item) : item.code === 'integration.request' && item.request ? t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host }) : item.code === 'drive.share_reconnect' && item.driveShare ? t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name }) : item.template ? t(item.code === 'integration.template_reconnect' ? 'notifications.event.integration.template_reconnectNamed' : 'notifications.event.integration.templateNamed', { name: item.template.name }) : item.code === 'schedule.failure' && item.needsKey ? t('notifications.event.schedule.needsKey', { name: item.needsKey.name }) : t(item.code === 'schedule.failure' && item.review ? 'notifications.event.schedule.review' : item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
@@ -126,16 +138,18 @@ export function Notifications() {
       </li>)}</ul>
       {cursor && <Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button>}
     </div>}
-    {/* the server's choices are disabled while one saves; this device's sound switch never waits for the server, and
-        shows even when the server's choices could not be read */}
-    {(preferences || error) && <fieldset className="space-y-3 md:rounded-xl md:border md:border-line md:p-4"><legend className="text-sm font-medium md:px-1 max-md:mb-3">{t('notifications.preferences')}</legend>
-      {/* a server from before a preference existed leaves it out: no box for it */}
-      {preferences && preferenceKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <label key={key} className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy} checked={preferences[key]} onChange={e => void update(key, e.target.checked)} data-testid={`notification-pref-${key}`} />{t(`notifications.${key}`)}</label>)}
-      {preferences && <p className="text-xs text-muted max-md:text-sm">{t('notifications.preferenceHint')}</p>}
-      {/* this device's chime for new room messages meant for me (store/roomSound.ts): kept in this browser, not on the
-          server, so it sits under a hairline apart from the events above */}
-      <label className={`flex items-center gap-2 text-sm${preferences ? ' border-t border-line pt-3' : ''}`}><input type="checkbox" checked={sound} onChange={e => changeRoomSound(e.target.checked)} data-testid="notification-sound" /><span>{t('notifications.sound')} <span className="text-muted">· {t('notifications.soundDevice')}</span></span></label>
-    </fieldset>}
-    <div className={app ? 'max-md:-order-1' : undefined}><PushNotifications /></div>
+    {preferences && <RoomNotifySettings prefs={preferences} onChange={(patch) => void update(patch)} />}
+    {preferences && <PrefSection title={t('notifications.section.work')} desc={t('notifications.preferenceHint')} testId="notifications-work">
+      {/* a server from before a preference existed leaves it out: no row for it */}
+      {workKeys.filter(key => typeof preferences[key] === 'boolean').map(key => <PrefRow key={key} id={`np-${key}`} title={t(`notifications.${key}`)} desc={t(`notifications.${key}Desc`)}
+        control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key]} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
+    </PrefSection>}
+    {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
+        the server's choices could not be read) and push to this device */}
+    <PrefSection title={t('notifications.section.device')} testId="notifications-device">
+      <PrefRow id="np-sound" title={t('notifications.sound')} desc={t('notifications.soundDesc')}
+        control={<Switch id="np-sound" external describedBy="np-sound-desc" checked={sound} onChange={changeRoomSound} label={t('notifications.sound')} testId="notification-sound" />} />
+      <PushNotifications />
+    </PrefSection>
   </section>
 }

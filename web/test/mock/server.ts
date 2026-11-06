@@ -10,7 +10,7 @@
 // when the person presses Stop ends stopped, Step.stopped);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -223,6 +223,11 @@ export class MockServer {
   memories: Memory[] = []
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
   schedules: (Schedule & { userId: string })[] = []
+  /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
+  notifyPrefs = MockServer.notifyPrefsDefault()
+  static notifyPrefsDefault() {
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+  }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
@@ -335,7 +340,7 @@ export class MockServer {
   uploadDelayMs = 0
   private uploadAnswer = () => new Promise<void>((done) => setTimeout(done, this.uploadDelayMs))
 
-  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string } = {}) {
+  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
     this.uploadDelayMs = 0
     this.setupNeeded = !!o.setup
@@ -347,6 +352,7 @@ export class MockServer {
     this.popular = []
     this.devEnv = null
     this.devEnvTeam = MockServer.devEnvTeamDefault()
+    this.notifyPrefs = MockServer.notifyPrefsDefault()
     this.devEnvSites = new Map()
     this.epoch = uuidv7()
     this.seq = 0
@@ -430,6 +436,11 @@ export class MockServer {
     this.downloadOnly.clear()
     this.connection = defaultConnection()
     if (!this.setupNeeded) this.seed()
+    // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
+    if (o.withAdmin && !this.setupNeeded) {
+      this.addUser({ id: 'dana', username: 'dana', name: 'Dana', role: 'admin', groupIds: [], localeChoice: this.usersFollowTeam ? null : 'ko' }, 'dana password 1')
+      this.addUser({ id: 'eve', username: 'eve', name: 'Eve', role: 'admin', groupIds: [], localeChoice: this.usersFollowTeam ? null : 'ko' }, 'eve password 1')
+    }
     for (const u of this.users) if (u.username === o.mustChange) u.mustChangePassword = true
   }
 
@@ -1283,7 +1294,7 @@ export class MockServer {
     me: (c) => this.me(c.user, ''),
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
-    listRooms: () => ({ items: [] }),
+    listRooms: () => ({ items: [], alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul' } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
     mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
@@ -1847,6 +1858,13 @@ export class MockServer {
       return u
     },
     deleteUser: (c) => {
+      const target = this.users.find((u) => u.id === c.params.id) ?? fail('not_found', 404)
+      const me = c.user
+      // as the server: an admin removes a member only, with their password again
+      if (me.role === 'admin') {
+        if (target.role !== 'member') fail('forbidden', 403)
+        if (c.body?.password !== this.passwords.get(me.username)) fail('forbidden', 403, 'wrong password')
+      }
       this.users = this.users.filter((u) => u.id !== c.params.id)
       return undefined
     },
@@ -2855,7 +2873,14 @@ export class MockServer {
     })) }),
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
     listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
-    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }),
+    getNotificationPreferences: () => this.notifyPrefs,
+    // the server's rule for the older apps' roomMessages (server/src/notifications/preferences.ts savePreferences)
+    updateNotificationPreferences: (c) => {
+      const b = c.body
+      const level = b.roomLevel ?? (b.roomMessages === false ? 'none' : b.roomMessages === true && this.notifyPrefs.roomLevel === 'none' ? 'direct' : this.notifyPrefs.roomLevel)
+      this.notifyPrefs = { ...this.notifyPrefs, ...b, roomLevel: level, roomMessages: level !== 'none', quietHours: b.quietHours ?? this.notifyPrefs.quietHours, roomThreadReplies: b.roomThreadReplies ?? this.notifyPrefs.roomThreadReplies }
+      return this.notifyPrefs
+    },
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
     // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "SK") ----------------
     // The team connector is on here (GET /api/connectors/remote: configured, at this server's /mcp), so the welcome
@@ -3319,7 +3344,7 @@ export class MockServer {
 
   async testControl(p: string, req: Request): Promise<Response> {
     const body = (await req.json().catch(() => ({}))) as Json
-    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined })
+    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)

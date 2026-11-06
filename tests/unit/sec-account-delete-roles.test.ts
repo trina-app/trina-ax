@@ -1,7 +1,8 @@
 // Who may delete an account (DECISIONS.md A 역할 규칙; owner decision 2026-11-06, before it the owner only): the owner,
 // or an admin for a member (active or disabled). Nobody deletes the owner or themselves, and only the owner deletes an
 // admin; guard() in server/src/admin/users.ts enforces this, the contract is admin-level. Whoever deletes, the personal
-// folder goes to the owner's archive, never to the acting admin.
+// folder goes to the owner's archive, never to the acting admin. An admin types their password again (the password
+// and the re-reading of the actor and target at the moment of the delete: sec-account-delete-by-role.test.ts).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -23,11 +24,12 @@ describe('account deletion: the owner, or an admin for members', () => {
 
   const asAdmin = (id: string) => {
     const vars: Record<string, unknown> = { auth: { user: { id: admin.id, role: 'admin' } }, locale: 'en', log: h.ctx.log }
-    return () => deleteUser({ get: (k: string) => vars[k] } as any, h.ctx, id, 'delete')
+    vars.info = { ip: '10.0.0.7', userAgent: 'test' }
+    return () => deleteUser({ get: (k: string) => vars[k] } as any, h.ctx, id, 'delete', admin.password)
   }
-  const refused = (fn: () => void) => {
+  const refused = async (fn: () => Promise<void>) => {
     let err: unknown
-    try { fn() } catch (e) { err = e }
+    try { await fn() } catch (e) { err = e }
     expect(err).toBeInstanceOf(HttpError)
     expect((err as HttpError).code).toBe('forbidden')
   }
@@ -40,7 +42,7 @@ describe('account deletion: the owner, or an admin for members', () => {
     const erin = await addMember(h, owner, { username: 'erin' })
     const root = h.ctx.files.fx.root
     fs.writeFileSync(path.join(root, 'users', erin.id, 'notes.md'), 'erin keeps this')
-    expect((await admin.client.try('DELETE', `/api/admin/users/${erin.id}`)).status).toBe(204)
+    expect((await admin.client.try('DELETE', `/api/admin/users/${erin.id}`, { password: admin.password })).status).toBe(204)
     expect((await erin.client.try('GET', '/api/me')).status).toBe(401)
     expect((await h.client().try('POST', '/api/auth/login', { username: 'erin', password: erin.password })).status).toBe(401)
     expect((await owner.call('GET', '/api/admin/users')).items.some((u: any) => u.id === erin.id)).toBe(false)
@@ -54,7 +56,7 @@ describe('account deletion: the owner, or an admin for members', () => {
     for (const how of ['delete', 'transfer'] as const) {
       const m = await addMember(h, owner, { username: `mia-${how}` })
       expect((await admin.client.try('PATCH', `/api/admin/users/${m.id}`, { status: 'disabled' })).status).toBe(200)
-      expect((await admin.client.try('DELETE', `/api/admin/users/${m.id}?personalFolder=${how}`)).status).toBe(204)
+      expect((await admin.client.try('DELETE', `/api/admin/users/${m.id}?personalFolder=${how}`, { password: admin.password })).status).toBe(204)
       expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users', m.id))).toBe(false)
     }
   })
@@ -62,8 +64,8 @@ describe('account deletion: the owner, or an admin for members', () => {
   test('an admin cannot delete another admin, the owner or themselves (HTTP and the server function)', async () => {
     const abe = await addMember(h, owner, { username: 'abe', role: 'admin' })
     for (const id of [abe.id, 'dana', admin.id]) {
-      for (const q of ['', '?personalFolder=delete']) expect((await admin.client.try('DELETE', `/api/admin/users/${id}${q}`)).status, `${id}${q}`).toBe(403)
-      refused(asAdmin(id))
+      for (const q of ['', '?personalFolder=delete']) expect((await admin.client.try('DELETE', `/api/admin/users/${id}${q}`, { password: admin.password })).status, `${id}${q}`).toBe(403)
+      await refused(asAdmin(id))
     }
     // nothing happened to them
     expect((await abe.client.try('GET', '/api/me')).status).toBe(200)

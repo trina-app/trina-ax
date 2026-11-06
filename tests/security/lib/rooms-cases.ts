@@ -33,6 +33,13 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (dm.status !== 403) throw new Error(`a DM was renamed: ${dm.status}`)
       const g = await w.as[who].req('PATCH', `/api/rooms/${w.ids.groupRoom}`, { name: C.groupName })
       if (g.status !== 200) throw new Error(`a group chat member could not rename it: ${g.status}`)
+      // my own notification level for the room (docs/DECISIONS.md "대화방 알림 설정"): a member sets it, back to the default
+      for (const notifyLevel of ['mentions', null]) {
+        const n = await w.as[who].req('PATCH', `/api/rooms/${w.ids.dmRoom}`, { notifyLevel })
+        if (n.status !== 200) throw new Error(`a member could not set their level: ${n.status}`)
+      }
+      const both = await w.as[who].req('PATCH', `/api/rooms/${w.ids.dmRoom}`, { notifyLevel: 'off', muted: true })
+      if (both.status !== 400) throw new Error(`muted with notifyLevel was taken: ${both.status}`)
     },
   },
   listRoomMessages: { build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/messages`), scope: 'room-dm' },

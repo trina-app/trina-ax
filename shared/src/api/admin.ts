@@ -47,6 +47,9 @@ export const ResetLinkResult = z.object({ token: z.string(), url: z.string(), ex
 /** What happens to the personal folder users/<id>/ of a deleted member (tab 5): moved into the owner's personal
  * folder (only the owner sees it), or deleted together with the account. */
 export const DeleteUserQuery = z.object({ personalFolder: z.enum(['transfer', 'delete']).default('transfer') })
+/** An admin types their own password again to delete a member (checked like the AI connections' and the speech key's,
+ * rate-limited); the owner is not asked, as before. Without it an admin is refused (403). */
+export const DeleteUserBody = z.object({ password: z.string().min(1).max(256).optional() })
 export const UsersResponse = z.object({
   items: z.array(User),
   /** "No AI": the active people who cannot use any AI connection now: no personal connection of theirs and no team
@@ -61,7 +64,7 @@ export const UsersResponse = z.object({
    * connection, switched off, refused, expired, out of credit): plain "No AI". ("AI 한도 · 11월 8일 오전 12:59까지") */
   noAiUntil: z.record(UserId, IsoTime).optional(),
   /** The people with an open request to have their account deleted (Settings › Profile › 계정 삭제 요청,
-   * shared/src/api/account-deletion.ts). For the owner only, who is asked; absent for admins. */
+   * shared/src/api/account-deletion.ts). For the owner and the admins, who delete accounts (an admin gets the members' requests only). */
   deletionRequested: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
@@ -521,7 +524,7 @@ export const ADMIN = {
   listUsers: endpoint({ method: 'GET', path: '/api/admin/users', auth: 'admin', owner: 'A', query: z.object({ noAi: QueryBool.optional() }), response: UsersResponse, summary: 'All members, and with ?noAi=1 who cannot use AI now ("No AI").' }),
   createUser: endpoint({ method: 'POST', path: '/api/admin/users', auth: 'admin', owner: 'A', status: 201, body: CreateUserBody, response: CreatedUser, summary: 'Add a member with a temporary password (alternative to an invite).' }),
   updateUser: endpoint({ method: 'PATCH', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', body: UpdateUserBody, response: User, summary: 'Role, groups, disable (ends their sessions). Only the owner changes admins.' }),
-  deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', query: DeleteUserQuery, response: empty, status: 204, summary: 'Remove a member (admins delete members; only the owner deletes admins; never the owner or yourself): sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
+  deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', query: DeleteUserQuery, body: DeleteUserBody, response: empty, status: 204, summary: 'The owner removes anyone but themselves; an admin removes a member only (never the owner, an admin or themselves), with their password again in the body. Sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
   resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', body: ResetPasswordBody, response: ResetPasswordResult, summary: 'New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited.' }),
   createResetLink: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-link', auth: 'admin', owner: 'A', response: ResetLinkResult, summary: 'One-time password reset link (24 h) to hand over; ends their sessions when used; audited.' }),
   transferOwnership: endpoint({ method: 'POST', path: '/api/admin/transfer-ownership', auth: 'owner-reauth', owner: 'A', body: TransferOwnershipBody, response: Ok, summary: 'Make another member the owner (password re-entry); the old owner becomes admin.' }),

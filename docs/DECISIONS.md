@@ -126,7 +126,7 @@
 - **링크 주소**: 초대 `<origin>/invite/<token>`, 재설정 `<origin>/reset-password/<token>`(D가 이 경로를 쓴다). origin은 요청의 Origin이 이 서버·`publicOrigins`일 때 그것, 아니면 `publicOrigins[0]`, 아니면 요청 주소.
 - **초대 기본 유효 기간 7일**(1·5번 탭; 계약 기본값 72시간을 168시간으로). 1회용(동시 수락도 한 번만), 사용한 초대는 취소할 수 없다. 취소한 초대는 목록에서 뺀다. admin 역할 초대는 owner만.
 - **첫 owner 만들기**: `POST /api/setup`(설정 토큰, 사용자가 0명일 때만, 즉시 트랜잭션 안에서 다시 확인)과 CLI `bun run admin create-owner --username … --name … --team … < 비밀번호`(비밀번호는 stdin으로만). 성공하면 설정 토큰 파일을 지운다. 기본 폴더 `shared/`(everyone 쓰기)·`skills/`(everyone 읽기, admin 역할 쓰기)와 `groups/`·`projects/`·`users/<owner>/`를 만든다.
-- **역할 규칙**: admin을 만들고·바꾸고·지우고·초기화하는 것은 owner만. **계정 삭제는 2026-11-06 owner 결정으로 admin도 한다**: admin은 member 계정(활성·비활성)을 지울 수 있고, admin 계정은 owner만 지운다(그 전에는 4번 탭 "owner만"대로 owner만 지웠다). 계약은 `auth: 'admin'`이고 역할은 서버 `guard()`가 본다. 화면은 그 행을 관리할 수 있는 사람(다른 동작과 같은 조건)에게 삭제를 보인다. 누가 지우든 개인 폴더는 owner 개인 폴더로 간다. owner 계정은 관리 API로 바꾸거나 지울 수 없고(넘기기만, 비밀번호 재확인), 자기 계정은 지울 수 없으며 자기 역할·상태도 바꿀 수 없다. 아이디는 대소문자 구분 없이 유일.
+- **역할 규칙**: admin을 만들고·바꾸고·지우고·초기화하는 것은 owner만. **계정 삭제는 owner와 admin**: owner는 자기 자신을 뺀 누구든, admin은 member만(owner·다른 admin·자기 자신은 못 지움) 지우고, admin은 자기 비밀번호를 다시 넣는다(아래 "Admins delete members" 절, 2026-11-06; 처음에는 owner만이었다). 4번 탭 `DELETE /api/admin/users/:id`는 "owner만"이라 적혀 있었다. owner 계정은 관리 API로 바꾸거나 지울 수 없고(넘기기만, 비밀번호 재확인), 자기 역할·상태는 바꿀 수 없다. 아이디는 대소문자 구분 없이 유일.
 - **계정 삭제는 묘비(tombstone)**: 바로 비활성 + 세션 종료 + 엔진 세션 초기화, 아이디(username)는 풀어서 다시 쓸 수 있게 하고 `users.id`(개인 폴더 이름)는 다시 쓰지 않는다. 채팅·메모리는 `chatTrashRetentionDays`(기본 7일) 뒤 정리하고, 사용량(turns)과 감사 기록의 이름은 남긴다. 개인 폴더는 `transfer`(기본)면 owner 개인 폴더 아래 `보관된 계정/<id>/`(팀 기본 언어)로 옮기고 `.attachments/`는 지운다. `delete`면 함께 지운다. 2번 탭의 "`보관/<이름>/` + owner만 쓰기 규칙"은 admin이 규칙과 상관없이 `users/` 밖 전부 쓰기라 owner 전용이 되지 않으므로, owner 개인 폴더 안에 두는 쪽을 골랐다.
 - **그룹 폴더 이름은 그룹 이름 그대로**(`groups/마케팅`), 이름 규칙에 걸리면 `groups/group-<id 끝 8자리>`. 그룹 이름을 바꿔도 폴더 이름은 그대로다(폴더 이름 바꾸기는 파일 API가 `folders.path`를 고친다). 그룹을 지우면 그 그룹 규칙과 예산이 지워지고 폴더는 남는다. 그래서 새 그룹은 이미 있는 폴더(디스크나 `folders`, 대소문자·유니코드 형태 무시)를 쓰지 않고 `<이름>-2`처럼 새 폴더를 만든다: 옛 그룹 폴더의 파일을 새 그룹이 이어받지 않게.
 - **폴더 경로는 디스크의 실제 이름으로 저장**: 관리자가 `PROJECTS/Apollo`라고 써도 권한 함수와 같은 걷기로 `projects/apollo`를 찾는다. `users/`·`users/**`·`.system`, 파일, 심볼릭 링크, 이름 규칙 위반은 거부. 같은 대상 규칙 두 번, 없는 그룹·사람은 400. 규칙 전부 지우기(`DELETE /api/admin/folders/:id`)는 `folders` 행까지 지우고 디스크 폴더는 남긴다.
@@ -8251,7 +8251,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
   `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
   notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
-  (`roomMessages`), turns both off; per room there is mute. An edit notifies nobody.
+  (`roomMessages`), turns both off; per room there is mute (amended 2026-11-06: a default of three, thread replies,
+  quiet hours and four levels per room, see "대화방 알림 설정"). An edit notifies nobody.
 - **People directory.** The room screens use `GET /api/people` and the photo address from feat/profile (merged into this
   branch): one `Avatar` (feat/profile's, `web/src/components/Avatar.tsx`), one people store (`web/src/store/people.ts`,
   with the lookups the rooms need) and one quiet handler for `profile_changed` (no toast; the people list, once read,
@@ -8590,9 +8591,8 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Not deployed.
 - **App Review screens**: a native "offline" / "cannot reach your team" screen with Try again and Change team address
   (Korean and English by the phone's language). Account deletion starts inside the app: Settings › Profile › 계정 삭제
-  opens `/settings/account/delete` ("계정 삭제 요청"). The request is for the owner (since 2026-11-06 an admin may
-  delete a member's account too, see 역할 규칙 in A, but is not told of requests), so the
-  person confirms and the owner (only the owner) gets an in-app notice (no OS push) that opens
+  opens `/settings/account/delete` ("계정 삭제 요청"). Admins create accounts and (from 2026-11-06, see "Admins delete members") the owner and the admins delete them, so
+  the person confirms and the owner, and the admins when a member asks, get an in-app notice (no OS push) that opens
   Admin › Members at that person. Removing that person works as for anyone: the account goes and the personal files
   are archived for the owner (they are not deleted). The owner cannot ask (409; hand over the role first). Requests are
   idempotent, audited, at most five a day (migration 244).
@@ -10342,7 +10342,8 @@ web app's rooms and settings); no server change.
   applies to it as to a browser), and the page does the rest. Checked in desktop Chromium and with unit tests; not yet
   on an iPhone or an Android phone.
 - **The switch**: Settings › Notifications, one row "알림 소리 · 이 기기에서만" under a hairline below the server's event
-  choices (it is this device's, in localStorage `mycel.roomSound`, on by default, kept at sign-out like the theme).
+  choices (since "대화방 알림 설정": the row 알림 소리 in the section 이 기기, and what rings follows the room's level and
+  quiet hours) (it is this device's, in localStorage `mycel.roomSound`, on by default, kept at sign-out like the theme).
   It is not disabled while a server choice saves and shows even when those could not be read. Turning it on plays
   the chime once; searching Settings for 소리 / sound finds it. In all five languages.
 - **Not in this step.** The personal Inbox (scheduled results, skill suggestions, approvals) has no event that says "a
@@ -10707,6 +10708,123 @@ a later member sees a room from their join on (`visible_from_seq`), threads incl
   only), the permission matrix (`listRoomThread`, `markRoomThreadRead`, `reactRoomMessage`), and the web tests
   `rooms-store`, `room-messages`, `room-thread`, `room-sound`, `push-worker`.
 
+## 내 AI 채팅에서 대화방 읽기 — the AI chat reads my conversations (feat/chat-reads-rooms, 2026-11-06)
+
+The owner: "우리 클로드 세션들은 내 채팅방을 다 볼 수 있지? '~ 채팅방 봐봐' 하면 되겠지?" Until now only @트리나 inside a room
+saw that room. Now a person's own AI chat reads their rooms, with their view and nothing more.
+
+- **Three tools, in the person's own chats only** (`server/src/chat/room-tools.ts`, data in `server/src/rooms/reader.ts`):
+  `rooms` (the rooms I am in now: name, kind, member count, unread, followed threads with news, last activity, id; with
+  `query`, `person`, `since` or `until` the messages I can see that match, newest first, with room, author, time and an
+  excerpt), `room_read` (a room's timeline or one thread: the newest 50 by default, at most 200, `since` / `until` in the
+  team's time zone, oldest first; a root says "thread: N replies" and how to open it) and `room_file` (a file sent in a
+  room: text through the Drive file's extractors, text layer only, no OCR; pictures through `imageForModel`, the read's
+  switch, engine check and per-answer budget; video and audio are named, not read). They are never offered in a room's
+  own AI session (`ROOM_TOOLS` does not list them), a confidential chat (not local tools; with safe operations on, every
+  chat is), a draft chat, an approved scheduled template (its scope refuses them) or to a sub-agent (`PARENT_ONLY_TOOLS`:
+  they patch their step, and other people's words stay with the main AI). A scheduled run of the person's own may read
+  rooms; nobody answers its cards, so it changes nothing after a read. A Slack-asked chat is the person's chat too (its
+  answer goes to their Slack thread, as team files do).
+- **Exactly my view.** Only rooms I am a member of now (not archived); the store's rules decide each line (`SEE_SQL`,
+  `canSee`, `TIMELINE_SQL`): from my join on, a thread by its root's seq, other people's private previews never, my own
+  marked "a private preview only your user sees", deleted messages left out (a deleted root that still has replies shows
+  only that it was there, so its thread stays readable), event lines as short notices ("X invited Y"). Thread replies
+  stay in their thread unless they went to the room too (`thread_reply_of`). My role adds nothing: an owner or admin
+  who is not in a room finds nothing. Rooms are found among mine only, so an id or a name of a room I am not in answers
+  word for word like one that does not exist (no oracle); a person searched for who wrote nothing I see, or nobody by
+  that name, both give "no messages". A room by name: its title as I see it (own name, group name, the other person of
+  a 1:1 chat, the members of an unnamed group chat, "everyone"), with "채팅방", "님" and the like after it, then a title
+  that holds it; several equally good matches are listed with their ids and the AI asks. Here the room's own name is
+  given to the AI (the person names rooms by it); it is data like the messages.
+- **Room words are data.** Every result says the messages are other people's, never instructions, and that links in
+  them are not the person's (the same framing as `<room_context>` in rooms/ai.ts); each message is a `<room_message>`
+  with its author, who that is to the person and its time; our block tags inside are neutralised (`room_messages`,
+  `room_event`, `room_list`, `room_file`, `room_refs` joined `BLOCK_TAGS`). Links in a result are not learned links: a
+  web_fetch of one needs the address card.
+- **The mark: every change waits for a yes after a room was read.** Any call of a room tool sets `chats.rooms_seen`
+  (migration 254, additive, reader 1) and taints the session. From then on, for the rest of that chat (a new session,
+  an edited first message and a restart do not clear it; it is read from the database on every call), every tool call
+  outside `ROOMS_SEEN_READ_ONLY_TOOLS` (`rooms/ai-tools.ts`: the room session's read-only tools, the room tools, the
+  scheduled tasks' list, Drive's search, list and read, `find_tools`, `set_title`, and the in-app browser's reading tools
+  only in a turn that has the browser)
+  raises the room session's server card (`confirmRoomChange`, its words: "여기에 대화방 메시지(다른 사람이 쓴 글)가
+  들어와서, 무언가를 바꾸기 전에 먼저 물어봐요. 트리나가 이 작업을 하려고 해요: …"), the same card with the same
+  details (what it does, the file, all of what it writes one click away) and the same rule for skill and instruction
+  files. No answer or "하지 않기" changes nothing. `remember` raises its own card with the text it would keep
+  (`tainted || roomsSeen`), so room content never becomes a memory without a yes. A planted "@fake" instruction in a
+  room message that the stand-in AI follows is the test (`b-chat-rooms.test.ts`).
+- **Read scope.** What a read or search showed joins the chat's read scope as `{type:'room', id, fromSeq}` (the oldest
+  message given, by who sees it), so saving it where people outside the room can read also asks with the wider-audience
+  card. A plain list of rooms adds nothing (names only; every change asks anyway, and a scope of a hundred rooms would
+  make that card name them all).
+- **No audit naming rooms.** The tool lines (`tool_events`, which admins read) say only `rooms -> search, 3 shown`,
+  `room_read -> 12 messages`, `room_file -> text 4000 characters`: no room, id, person, word searched or file name. No
+  `audit_log` row is written. The steps under the answer (the person's own chat) name the room: "대화방 읽기 · 마케팅"
+  (patched from the id the AI passed to the room's title as the person sees it; a bare id is never shown), "대화방 찾기
+  "예산"", "대화방 파일 읽기 · 보고서.pdf", in the five languages (`FILE_STEP_VERB`; English "Read conversation").
+- **Limits.** A read gives at most 200 messages, each cut at 4,000 characters, the whole at 60,000 with a line that says
+  how to go on (`until=` the oldest shown). A search looks at the newest 20,000 positions of each room (the
+  `(room_id, seq)` index), at most 100 rooms and 100,000 positions in all (the latest activity first), at most 100 results. A list counts only the 100 rooms
+  it shows, and a room named by its name is matched on its title alone (the counts are read for the match only). A file's text at most 40,000
+  characters a call (`offset` reads on), files up to the plan's read limit and 32 MB.
+- **"#" in the AI chat's box.** Typing "#" lists the rooms I am in (group chats, team rooms, the everyone room, 1:1
+  chats as "<name> · 1:1"), filtered as I type (titles, and a 1:1 or group chat by a member's name), arrow keys, Enter
+  or Tab, Esc, a tap; rows 44 px on phones. Picking writes "#마케팅 " as a token: accent text on the soft accent ground,
+  drawn by a layer behind the native text box (whose own text is then transparent), so Korean input, selection and spell
+  check stay the box's own; Backspace or Delete takes it whole and the caret never stops inside it. What is sent is
+  `#[마케팅](room:<id>)` (`shared/src/api/rooms.ts` `roomRefToken`); the draft keeps that form. The server puts a
+  `<room_refs>` block in front of the message with the titles and ids (only where the room tools are offered), so the AI
+  reads exactly that room with `room_read` and never guesses by name; membership is checked when it reads (a token of a
+  room I left reads nothing, said as for an unknown room). `/회의록 #마케팅` runs the skill with that room as its input.
+  A sent message shows its tokens as the same chips; editing a message or a waiting message shows "#마케팅" and keeps the
+  room. Not in a room's own box: a room's name would reach people who are not in it. Plain words ("마케팅 대화방 봐봐")
+  still work through the tools.
+- **Independent review (2026-11-06) fixes.** A sub-task's description (written by the AI, up to 80 characters) went
+  into the `agent` audit line, which admins read: once a chat read rooms only its length is kept. A picked room whose
+  title had brackets, double spaces or more than 80 characters lost its id (the box showed the token's cleaned title,
+  the picker kept the raw one): the picker keeps the token's title. Two rooms of one title (two 김민지 1:1 chats) kept the
+  first pick: one room per title now, the latest pick, and rooms whose token was deleted are forgotten. Approved
+  scheduled templates are no longer offered the tools (their scope refused them at the call). The browser's reading
+  tools skip the card only in a turn that has the browser. A converter's error (it can quote the file) is one line with
+  our tags neutralised. "Several rooms match" gives times in the team's zone; a date's end is the next day's start (a
+  day with a clock change); the person searched for is matched among all accounts in a fixed order. Left: paging back
+  with `until=` skips another message of the very same millisecond; AI-chosen names in other tools' audit lines (a file
+  path, an artifact key) are as they were, and every such change after a room read waited for the person's yes.
+- **Second review (2026-11-06) fixes.**
+  - A `#` token's title is a room's name, which any member of a group chat sets, so it is never the person's words:
+    the address check (`tools/url-gate.ts typedUrls`) reads the person's messages without their tokens (a room named
+    "https://…" made that address one the person typed: no card), a token's title never holds "://"
+    (`roomRefTitle`), and the AI gets the message with "[#room N]" in each token's place, the titles and ids only in
+    the `<room_refs>` data block; earlier messages of the conversation give the id alone. A message that holds a token
+    marks the chat (`rooms_seen`) by itself, before any tool is called.
+  - My own private AI preview in what a read or search showed (private because it used what the room may not read)
+    adds `{type:'user'}` to the chat's read scope, so saving it where others can read still asks.
+  - Every room tool call names its step once, found or not (the verb alone when nothing was found, never the name the
+    AI guessed), so batched calls keep their own steps (patchToolStep is first in, first out per tool).
+  - A search has one budget for all its rooms (`ROOM_SEARCH_BUDGET`, 100,000 positions; at most 100 rooms), the rooms
+    with the latest activity first; what was not searched, or only in part, is said.
+  - In a chat that read rooms, every http(s) address in a tool's audit line keeps only its site and a 12-character
+    fingerprint (`tools/audit-url.ts`; `web_fetch https://example.com/… #3f2a9c1b07de -> 4 chars`); the intro deck's
+    "was this article opened" check accepts that form.
+  - Before a read, the person's team rooms and everyone room are put right as `GET /api/rooms` does
+    (`Rooms.syncFor`): someone taken out of a group a moment ago reads nothing of its room.
+  - The `#` list does not open in a confidential chat (nor while that is not known).
+  - Tests added: archived rooms and a room I was taken out of; the tool set for a room session, a draft, an approved
+    template and a confidential chat; after a read, a sub-agent's write, `save_url`, a schedule and a connection's
+    tool each wait for the card; a scheduled run in such a chat changes nothing and raises no card.
+- **Rollback.** Migration 254 is additive (reader level unchanged). An older build has no room tools and ignores the
+  mark: in a chat that already holds room content it asks only where it asked before (memories after outside content,
+  the wider-audience card). Accepted: going back is rare, and nothing new is read there.
+- **Numbering.** 254, reserved for this branch: 249 and 253 are the skill-share branch's (PR #100), 250 group chats, 251
+  threads, 252 feat/phone-nav (chat seen), 255 feat/room-notify-prefs.
+- **Tests.** `tests/unit/b-chat-rooms.test.ts` (where the tools are, membership and the identical unknown answer, admins,
+  names, a later member, threads, previews, deleted messages and event lines, neutralised tags, limits, since / until,
+  search, the step words, the card after a read and not before, in later turns and after a database reopen, a planted
+  write and memory refused, the audit lines, room files, "#" tokens with a skill and after leaving),
+  `step-labels-tools.test.ts`, the tool lists in `b-chat`, `b-browser` and `i-wiring`, and the web test
+  `room-refs.test.tsx` (the "#" list, its filter, picking, the token sent with the room id, Backspace, chips, the room
+  steps in five languages).
+
 ## K — Knowledge graph: CodeGraph's code map of the team folders, filtered at every question (2026-11-06)
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
   upload the files its automaticaly sync the folder for the knowledge graph". The AI gets `knowledge_explore`: functions,
@@ -10825,3 +10943,139 @@ default skills, accepting that they become public here, leaving out anything int
   third-party generators that need paid credits.
 - Rejected: shipping the Korean lint script (a pack is one SKILL.md, and the checks are in the text); making the HR
   pack a default (labour-law forms only some teams need, and wrong for teams outside Korea).
+
+## 대화방 알림 설정 — room notification settings (feat/room-notify-prefs, 2026-11-06)
+
+넣을 곳: Team AX core (`server/src/rooms`, `server/src/notifications`, `shared/src/api/room-alerts.ts`, the web app's
+Settings › Notifications and the room's bell), 이유: chat and notifications are core, and one rule has to serve the
+server's notices, every push and the web app's sound.
+
+The owner, on Settings › Notifications: "여기에 채팅 관련 내용이 들어가야 하지 않을까?" Chat had one checkbox ("1:1·그룹
+대화 메시지와 나를 언급한 메시지") and the device's sound switch; a room had mute. Rooms follow Slack almost entirely, so
+the settings do too. Naming (the owner's rule): the people's side is **대화** (the section is 대화, rooms are 대화방,
+"1:1·그룹 대화"), never a bare "채팅"; English "Conversations".
+
+- **My default for rooms** (Settings › Notifications › 대화, "알림 받을 메시지", `NotificationPreferences.roomLevel`):
+  `direct` = 1:1·그룹 대화와 나를 멘션한 메시지 (the default and the behaviour before: every message of a DM or group
+  chat, in team rooms and the everyone room what mentions me), `all` = 모든 새 메시지 (every message of every room I am
+  in), `none` = 받지 않음. It replaces the one `roomMessages` checkbox; a person who had it off is 받지 않음.
+- **Replies in threads I follow** ("내가 참여한 스레드의 답글", `roomThreadReplies`, on by default): followers as the
+  threads define them (the root's author or asker, everyone who replied, people mentioned in a reply). Off: a followed
+  reply alerts only when it mentions me.
+- **Each room's own level** (the room's bell, `PATCH /api/rooms/:id {notifyLevel}`): 기본값 (설정 따름) = null, 모든
+  메시지, 멘션만, 끄기. The room's level wins over my default, 받지 않음 included (a room set to 모든 메시지 still alerts),
+  as Slack's channel settings do. Mute is 끄기. The bell is a menu of the four, the chosen one ticked and the default
+  saying what it gives this room now ("기본값 (설정 따름) · 멘션만"); the bell is crossed out at 끄기. Members only, 404
+  for anyone else as for every room route; the body is strict (`muted` and `notifyLevel` together are refused).
+- **The one rule** (`shared/src/api/room-alerts.ts`, used by the server and the web app): `roomLevel(kind, own, default)`
+  gives the level (own, else the default for the kind: `direct` is 모든 메시지 for any kind but `team` and `all`, 멘션만
+  for those); `roomAlert(...)` says what a new message is to a member: a mention (any level but 끄기), a reply in a
+  thread I follow with the switch on (a message, any level but 끄기), any other message of the timeline only at 모든
+  메시지, a reply that stays in its thread nothing else (a reply sent to the room too is a message of the room). The
+  server makes its notices with it (`Rooms.notify`), so Web Push and the phone push (both send the notices, ids only)
+  follow it, and the web app's sound (`lib/roomSound.ts shouldRing`) calls the same function with the level the server
+  sends: `Room.notify = {own, byDefault, level}` on every room (list, get, `room.updated`), and the rooms list's
+  `alerts = {threadReplies, quietHours, timeZone}`. The app never works the level out itself; with an older server
+  (no `notify`) it uses the rule before (muted, else `direct`). Before, mute and the switch were checked in
+  `Rooms.notify` and the sound kept its own copy of the kind rule.
+- **A message notice is `room.dm` whatever the room.** `room_notices.event_type` has a fixed CHECK list and tables are
+  never rebuilt, so a team room's message at 모든 메시지 is a `room.dm` notice; the push text is the same generic line
+  ("새 메시지가 왔어요"), the path opens the room or its thread. One notice per unread run, as before.
+- **Quiet hours** ("방해 금지 시간", `quietHours = {on, start, end, weekends}`, off by default, 22:00–08:00): from start up
+  to end, across midnight when the end comes first; with weekends, all of Saturday and Sunday too. In the team's time
+  zone (Admin › Team settings, settings `timeZone`, `teamTimeZone()`; the line under the row names it), not the
+  device's: the server decides the pushes and the people of one team share one clock. `inQuietHours(q, tz, now)` is the
+  one function; an unknown zone reads as UTC; start = end is refused (400). Inside them: the notice is kept
+  (`room_notices.quiet = 1`; the room's badge and the notice by id as before; room notices are not listed in the Inbox,
+  "대화방의 트리나") but never queued for a push, and the web app does not ring. One quiet notice per unread run; once
+  the quiet hours are over, the next message makes a new notice that pushes, even while the quiet one is unread (it no
+  longer holds the run back). Nothing that waited is pushed when they end (Slack does the same). Only room alerts are
+  quiet: a scheduled task's result or a connection that needs a sign-in still pushes at night (they are rare and the
+  person asked for them; a later step can widen it).
+- **Pushes are checked again.** A push of a room notice is sent only while the room's level still asks for it (a
+  message notice below 모든 메시지 only for a reply in a thread I still follow) and outside my quiet hours at that moment
+  (`rooms/alerts.ts noticeWanted`, before and after each send, like the other eligibility checks), and a change of my
+  settings cancels what waits for a retry (`cancelDisabledPushDeliveries`); a change on a room's bell aborts a push on its
+  way (`cancelPushUser`). In a browser the service worker no longer checks a switch of its own for room codes (it used
+  `roomMessages`, now false for 받지 않음, and would have dropped the push of a room at its own level, which iOS punishes
+  by taking the subscription away): the server's check is the one, the worker still shows only a current, unread notice.
+- **The app follows changes.** A preference change that touches rooms sends `notice room_alerts_changed` to my own
+  windows, and a new team time zone (Admin › Team settings) sends it to everyone's; they read the rooms list again
+  (levels, quiet hours, the zone). A room's own level answers with the room and `room.updated` to my windows only.
+- **Settings › Notifications, lean.** No frames: the inbox stays first (on a phone this page is the 나 tab's 알림함 row,
+  feat/phone-nav), then three plain sections under a hairline, **대화** → **작업·연결 알림** (scheduled task done /
+  failed, connection sign-in, team skill suggestions) → **이 기기** (알림 소리, 기기 푸시 알림), one row per setting with
+  a short line under its name and the control on the right, like Admin › Team settings (a switch stays on the right on a
+  phone). 알림 받을 메시지 is three radio rows under its line; 방해 금지 시간 shows its hours and "주말은 하루 종일" only
+  while on, and saves a time as soon as it is whole and differs from the other; **알림 끈 대화방 N개** lists the rooms at
+  끄기, each with the same four levels to turn it back on (a room changed there stays in the list until the page is
+  left). The push box became a row (its status under the name, its button on the right, what push sends below).
+  Changes save at once, in order (a change made while one saves goes with the next request), so nothing is disabled
+  while saving. Settings search finds the page by 소리, 방해 금지, 스레드, 멘션 (and 언급). In all five languages. Checked
+  at 1440 and 390×844, light and dark, ko and en (screenshots and a before/after sheet for the owner); the impeccable
+  detector found nothing.
+- **Rollback: reader 1.** Migration 255 is additive: `room_members.notify_level`, `notification_preferences.room_level`,
+  `room_thread_replies`, `quiet_*`, `room_notices.quiet`. `room_members.muted` and `notification_preferences.room_messages`
+  stay in step and stay the source of truth for 끄기 and 받지 않음 (an older build that unmutes or turns the switch on is
+  followed). An older build ignores the rest: it alerts as before this change (a DM at 멘션만 notifies every message, a
+  team room at 모든 메시지 only mentions, no quiet hours; a quiet notice of the last day still unread may be pushed).
+  Nothing is exposed that should not be, so `SCHEMA_READER_LEVEL` stays 6. The migration number is 255 (249 and 253 are
+  the skill-share PR's, 252 feat/phone-nav's, 254 feat/chat-reads-rooms').
+- **The older apps.** `roomMessages` stays in the preferences (false = 받지 않음; true brings 받지 않음 back to `direct`;
+  `roomLevel` wins when both come) and `muted` in `PATCH /api/rooms/:id` (true = 끄기, false brings 끄기 back to the
+  default). `Room.muted` now means 끄기, as before; the grey badge and the 대화 tab's count go by it, not by 받지 않음.
+- **Independent review (2026-11-06) fixes.** The service worker's room switch (above); a change made while the page
+  read the settings again after a save was kept on screen but never sent (now every change is sent, in order, and a read
+  never overwrites what is being saved); a waiting push re-checked the thread reply without asking whether I still follow
+  it, and not the quiet hours at the moment of sending; a new team time zone left open windows on the old one; the bell
+  menu's heading was a stray element inside the menu (now its accessible name, shown once); an unreadable weekday read
+  as Sunday (now no weekend); Indonesian rows say "kamu" like the rest. Left as is: Korean notice and lock-screen texts
+  say 언급 where the new rows say 멘션 (the owner's words for the settings; the room screens use both already).
+- **Not in this step.** Quiet hours for the other notices; a schedule per weekday; "30분 동안 알림 끄기" (snooze); the
+  phone app's own notification settings (the OS's) and the desktop app's OS notices (rooms do not use them).
+- **Tests.** `tests/unit/room-alerts.test.ts` (levels × kinds × defaults, the alert rule with mentions, followed and
+  unfollowed replies and the switch, quiet hours across midnight, inside one day, weekends, daylight saving, Seoul vs
+  Los Angeles, an unknown zone, the schema), `tests/unit/b-rooms-notify.test.ts` (the preferences API and its strict
+  body, the older apps' switch and an older build's columns, migration 255's data, a room's level through the API with
+  members only, events to my windows only, notices for every default × room kind × mention and each room's level
+  winning, thread replies and the switch, replies sent to the room too, quiet notices kept and never pushed in the team's
+  zone and the run after them pushing, pushes re-checked and cancelled), the permission matrix (`updateRoom` with
+  `notifyLevel`, `updateNotificationPreferences` with the new fields), `web/test/unit/room-notify.test.tsx` (the sound
+  with the server's levels, thread replies, quiet hours and an older server; the bell's four choices; the page's order,
+  rows and saves, changes made during a save or the read after it; an older server's one switch;
+  `room_alerts_changed`), `web/test/unit/push-worker.test.ts` (a room notice shows with the default 받지 않음), and the
+  e2e specs `room-sound`,
+  `schedule-notifications` and `push` updated for switches and rows.
+- Version impact: **minor** (new settings and an additive migration; nothing removed).
+## Admins delete members (feat/admin-delete-member, 2026-11-06)
+
+넣을 곳: trina-ax server/src/admin + web/src/pages/admin, 이유: the product owner asked that admins can delete a
+person too; they already create and disable people, and having to ask the owner for the last step only delayed it.
+
+- **Who may delete whom.** The owner deletes anyone but themselves, as before. An admin deletes a **member** only:
+  never the owner, never another admin, never themselves. These are the rules `guard()` already applied to disable and
+  password reset, so delete now follows the same table. The contract is `auth: 'admin'` (it was `'owner'`); the server
+  function `deleteUser` is the real check.
+- **Relation to the first change of 2026-11-06** (admins may delete members, no password, requests to the owner only,
+  `sec-account-delete-roles.test.ts`): this builds on it. The role rules are the same; on top, an admin types their
+  password again, the actor and target are read again at the moment of the delete, and requests also reach the admins.
+- **Deleting is as heavy as before.** Same flow and choices: the tombstone, sessions end now, chats and memories go
+  after the retention period, the personal folder goes to the owner's archive (`transfer`) or is deleted
+  (`?personalFolder=delete`), the same warning dialog in the web. The archive is always in the **owner's** personal
+  folder, also when an admin deletes: the admin does not get the person's files.
+- **Re-entering the password (admins only).** `DELETE /api/admin/users/:id` takes an optional body `{ password }`. An
+  admin without a valid one gets 403 (`wrongPassword`, rate-limited per person like every re-entry:
+  `sessions.verifyPassword`). The owner is not asked, as before ("the owner's behaviour is unchanged"). No new auth
+  level was added: there was no admin-level re-auth mode (`owner-reauth` is owner-only, and the speech key already
+  checks an admin's password inside its handler), so this does the same inside `deleteUser`. The web shows the existing
+  `ReauthDialog` to an admin and the one-click confirm to the owner.
+- **The role is read at the moment of the delete.** The route checks the target before the password check, and
+  `deleteUser` reads the person again and applies the rule once more inside the delete transaction (the password check
+  is the only `await`). A member promoted to admin between page load and delete, or while the password is being
+  checked, is refused with 403. Audit: `user.delete` with the acting admin as actor, as for the owner.
+- **Requests for deletion** ("계정 삭제 요청") now reach the people who can handle them: the owner and, when a member
+  asks, the admins (inbox entry, link to the person in Admin › Members; settled when the account is deleted or the
+  request is taken back). An admin's own request goes to the owner only, since an admin cannot delete an admin. The
+  Admin › Members list tells an admin which members asked (`deletionRequested`, members only). Texts in all five
+  languages said "the team owner deletes": they say "the team owner or an admin" now. The archive still says it is
+  readable by the owner only.

@@ -130,6 +130,10 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
    overflowing. Elements that set their own word-break (break-all, overflow-wrap:anywhere) keep it. */
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
 ::selection { background: var(--c-accent-soft); }
+/* The AI chat's message box with "#" room tokens (components/chat/RoomRefMenu.tsx): a layer behind it draws the text,
+   so its own is transparent; the caret stays, and the selection lets that text show through. */
+.room-ref-field { color: transparent; caret-color: var(--c-ink); }
+.room-ref-field::selection { color: transparent; background: color-mix(in srgb, var(--c-accent) 26%, transparent); }
 
 /* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges

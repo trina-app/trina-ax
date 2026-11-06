@@ -189,7 +189,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/admin/users` | Admin | All members, and with ?noAi=1 who cannot use AI now ("No AI"). |
 | `POST` | `/api/admin/users` | Admin | Add a member with a temporary password (alternative to an invite). |
 | `PATCH` | `/api/admin/users/:id` | Admin | Role, groups, disable (ends their sessions). Only the owner changes admins. |
-| `DELETE` | `/api/admin/users/:id` | Admin | Remove a member (admins delete members; only the owner deletes admins; never the owner or yourself): sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted. |
+| `DELETE` | `/api/admin/users/:id` | Admin | The owner removes anyone but themselves; an admin removes a member only (never the owner, an admin or themselves), with their password again in the body. Sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted. |
 | `POST` | `/api/admin/users/:id/reset-password` | Admin | New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited. |
 | `POST` | `/api/admin/users/:id/reset-link` | Admin | One-time password reset link (24 h) to hand over; ends their sessions when used; audited. |
 | `POST` | `/api/admin/transfer-ownership` | Owner + password | Make another member the owner (password re-entry); the old owner becomes admin. |
@@ -313,7 +313,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/notifications` | Signed in | Own metadata-only inbox, retained for 30 days. |
 | `POST` | `/api/notifications/:id/read` | Signed in | Mark an own notification read. |
 | `GET` | `/api/notification-preferences` | Signed in | Own inbox event preferences. OS push opt-in is separate. |
-| `PATCH` | `/api/notification-preferences` | Signed in | Change own inbox event preferences. |
+| `PATCH` | `/api/notification-preferences` | Signed in | Change own inbox event preferences and room notification settings (room default, thread replies, quiet hours). |
 
 ## Push notifications
 
@@ -464,10 +464,10 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/rooms` | Signed in | The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count and the last message. |
+| `GET` | `/api/rooms` | Signed in | The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message and my notification level; alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone). |
 | `POST` | `/api/rooms` | Signed in | Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom. |
 | `GET` | `/api/rooms/:id` | Signed in | One room I am in (404 for anyone else, admins included). |
-| `PATCH` | `/api/rooms/:id` | Signed in | Mute or unmute a room for me, or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM). |
+| `PATCH` | `/api/rooms/:id` | Signed in | Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM). |
 | `GET` | `/api/rooms/:id/messages` | Signed in | The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. |
 | `POST` | `/api/rooms/:id/messages` | Signed in | Send a message as myself (never another author), or a reply in a thread, with @mentions and files; DMs, group chats, mentions and followed threads notify. |
 | `GET` | `/api/rooms/:id/messages/:messageId/thread` | Signed in | A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root). |
@@ -491,8 +491,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/me/deletion-request` | Signed in | Whether I have asked the team owner to delete my account (or am the owner, who cannot ask). |
-| `POST` | `/api/me/deletion-request` | Signed in | Ask the team owner to delete my account: tells the owner in the app (metadata only), audited, idempotent. The owner gets 409. |
+| `GET` | `/api/me/deletion-request` | Signed in | Whether I have asked the team owner or an admin to delete my account (or am the owner, who cannot ask). |
+| `POST` | `/api/me/deletion-request` | Signed in | Ask the team owner or an admin to delete my account: tells the owner (and the admins, when I am a member) in the app (metadata only), audited, idempotent. The owner gets 409. |
 | `DELETE` | `/api/me/deletion-request` | Signed in | Take back my open account deletion request (no-op when none is open); audited. |
 
 ## Slack connector
