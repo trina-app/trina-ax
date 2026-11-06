@@ -8170,7 +8170,7 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   `author`, `authorId`, `authorKind` or `visibility` is refused (400), and edit and delete are the author's only (403).
   Message text from another member is data, shown as plain text in the app (never Markdown or HTML); the AI step must
   treat it as untrusted input too, and can rely on `author_id` being the real sender.
-- **KakaoTalk's unread number.** Every message carries `unread`: members who may see it (`visible_from_seq < seq`) and
+- **KakaoTalk's unread number** (removed 2026-11-06: no read receipts, see "스레드와 반응"). Every message carried `unread`: members who may see it (`visible_from_seq < seq`) and
   whose `last_read_seq < seq`. The sender has read their own message (sending moves their read position to it). Reads
   only move forward (`POST /api/rooms/:id/read`, clamped to the room's last seq). Nobody's read position is in any
   response: `room.read` tells the others only "fromSeq < seq <= toSeq has one reader more", so the number updates
@@ -8260,11 +8260,12 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
 - **Web.** Desktop and web: a foldable "대화방" group in the sidebar above the AI chats (team rooms, 전체, DMs; one count
   pill per room, "@" in front when one mentions me; "+" opens the people list for a DM); a room opens in the main area at
   `/rooms/:roomId` (the mobile app deep-links there), the list at `/rooms`. The room screen groups consecutive messages
-  by author (avatar, name, time once), shows the unread number beside a message only while it is above 0, quotes a reply
+  by author (avatar, name, time once), shows the unread number beside a message only while it is above 0 (removed, see "스레드와
+  반응"), quotes a reply (replaced by threads)
   (a click scrolls to it), offers reply, edit and delete in one "…" menu per message (always visible on touch screens),
   @mention autocomplete of the room's members, files and images, and one primary action, Send. A message's unread
   number only ever goes down, so the app keeps the lower of two copies (the answer to my own send can arrive after the
-  other person already read it). Text is plain text with line breaks, never Markdown or HTML.
+  other person already read it) (removed with the number, see "스레드와 반응"). Text is plain text with line breaks, never Markdown or HTML.
 - **Phones.** Below 768 px a bottom tab bar with three tabs, 대화 (`/rooms`) · 파일 · 나 (Settings, with the profile
   page from feat/profile), hairline above, one unread count on 대화. The 대화 list starts with a pinned row for the
   AI chat (the product's name; it opens Home), like KakaoTalk's "나와의 채팅"; the AI chat has no tab of its own. Inside
@@ -10291,6 +10292,99 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
   event line or room name in the AI's context, a new conversation after an invite), the permission matrix
   (`inviteRoomMembers`, `removeRoomMember`, `leaveRoom`, and checks on create, rename and invite), and the web tests
   `room-picker`, `room-info`, `rooms-lib`, `rooms-store`, `room-messages`.
+## 스레드와 반응 — threads, reactions, no read receipts (feat/room-threads, 2026-11-06)
+
+The owner: rooms follow Slack almost entirely. Three changes: threads (they replace the quoted reply, "답장"), emoji
+reactions, and no read receipts (KakaoTalk's per-message number goes). The one deliberate difference from Slack stays:
+a later member sees a room from their join on (`visible_from_seq`), threads included.
+
+- **A thread hangs under a message of the timeline.** Any message for the whole room that is not an event line or
+  deleted can get replies (`SendRoomMessageBody.threadRootId`); a reply cannot have a thread of its own, and a private
+  preview or an event line never is a root (400, the same answer whatever is wrong). A reply takes a seq like any
+  message (`room_messages.thread_root_id`, migration 251) but is not in the timeline (`TIMELINE_SQL`), the rooms list's
+  last line, the room's unread count or its place in the list; it lives in the thread (`GET
+  /api/rooms/:id/messages/:messageId/thread`, its root and the replies, paged like the timeline). The root shows the
+  thread under it (`RoomMessage.thread`: the replies I can see, the last one's time, up to 3 people who replied).
+  "대화방에도 보내기" (`alsoInRoom`) puts a reply in the timeline as well, marked "스레드 답글" there and "대화방에도
+  보냄" in the thread, and it counts and notifies there like any message. A deleted root keeps its replies (the thread
+  stays readable) but takes no new ones. The old quoted reply is no longer made by the app; `replyToId` is still
+  accepted (not with `threadRootId`) and old quotes render as before.
+- **A thread follows its root.** `room_messages.thread_root_seq` keeps the root's seq on every reply; `canSee` /
+  `SEE_SQL` go by it, so a member who joined after the root (`visible_from_seq >= root seq`) sees no reply of it, however
+  late it was written: not in the thread (404), not in the timeline (a reply sent to the room too stays hidden from
+  them), not its files (`RoomFiles.open`), sources, reactions, notices (`Notifications.out`), events or the AI's answers.
+  A root's seq never changes (only a private preview moves when posted, and a root is never private).
+- **Following, Slack's way.** `room_thread_follows` (migration 251): the root's author follows from the first reply
+  (everything after the root is new to them), everyone who replies, and people mentioned in a reply (from that reply
+  on), each only while in the room and able to see the root. A new reply notifies its followers and the people it
+  mentions, nobody else, unless the room is muted (`Rooms.notify`): `room.mention` for a mention, else `room.dm` (the
+  push is the same generic line; `room_notices` has a fixed CHECK list and is never rebuilt, so no new code). One notice
+  per unread run and thread (`Notifications.roomNotice` looks for an unread notice whose message is in the same thread,
+  or in the timeline); reading the room reads only the timeline's notices, reading the thread (`POST …/thread/read`)
+  that thread's. A notice of a reply opens its thread: the push path is `/rooms/<room>/t/<root>` (ids only), the notice
+  names the thread (`InboxNotification.room.thread`) and the service worker opens it from the signed-in fetch. In a DM
+  or group chat a thread reply notifies only its followers (the other person when they follow it).
+- **Badges.** Thread replies never raise the room's own unread count. For a follower, a thread with replies after their
+  position is one thing to read: `Room.threadsUnread` (and `nextThreadId`, the one with the newest such reply) counts in
+  the room's badge in the sidebar, the 대화 list and the 대화 tab (a reply sent to the room too counts there once, in
+  the timeline); `Room.mentioned` also covers a followed reply that mentions me. The root shows a dot for them (`RoomThreadSummary.newReplies`), and the room's header a thread mark
+  with a dot that opens the newest one (the room may be long: the badge must lead somewhere). A reply's own author has
+  read the thread up to it.
+- **@트리나 in a thread answers in the thread.** Its context is the thread (the root, always kept, and the replies
+  before the question the asker can see, for the whole room), never the room's other messages; the block says so
+  (`thread="yes"`, the instructions' room section too). Its conversation is that thread's: the session's earlier
+  questions in the same thread (`RoomAi.lastAnswerHere`: each place, the timeline and every thread, keeps its own branch
+  of the person's room session), so the timeline's history never comes into a thread and the reverse. What the answer
+  used counts from the root's seq (`seenSeq`), so a member who joined after the root keeps the answer private ("○○ 님이
+  들어오기 전 대화를 참고했어요"). The share rule is the room's, with every current member (fail closed, though members
+  who cannot see the thread would never see the answer). A posted answer or preview stays in its thread, notifies the
+  thread's followers (never the asker) and does not move the room in the list. `RoomAiRun.threadRootId` puts my
+  question's progress under the thread.
+- **Reactions.** Eight fixed emoji (`ROOM_REACTIONS`: 👍 ✅ 👀 🙏 😂 🎉 ❤️ 🔥; anything else 400), one each per person and
+  message (`room_reactions`, migration 251), on messages for the whole room and their replies; never on an event line, a
+  deleted message (its reactions go with it) or a private preview. `PUT …/reactions {emoji, on}`: the same again changes
+  nothing; a change takes from the sending budget (one bucket with messages, invites and renames). They never notify,
+  ring, count as unread, move a room or go to the AI. Chips show the count, mine marked, and who (the first 10 names, then
+  how many more) on hover or a long press; counted for people in the room now (someone leaving takes their reactions,
+  and the threads they followed). Realtime: `room.reactions` to the members who see the message, each with their own
+  `mine`.
+- **No read receipts.** `RoomMessage.unread` is gone, and so is the broadcast that told the others "one reader more".
+  `room.read` now goes to the reader's own windows only, with their position and badge. Nobody's read position is in
+  any response or event for anyone else.
+- **Realtime.** A reply goes (`room.message`) to the members who see its root; the root's summary (`room.thread`) to
+  each of them as they see it (one copy for everyone but followers and the asker of a private preview there); the
+  followers also get their room (`room.updated`) for the badge. All of it is `room.*`, so the replay check covers it.
+- **Web.** Desktop: a thread opens as a plain column beside the room (a hairline on its left, its own reply box with the
+  one choice "대화방에도 보내기" under it); phones: the whole screen at `/rooms/:roomId/t/:messageId` (the route keeps the
+  bottom tabs hidden like a room). A message's hover row on computers: react, reply in thread, "…"; on touch screens a
+  long press opens the sheet with the eight emoji on top. Under a message: its chips, and for a root the thread line
+  ("답글 3개 · 마지막 답글 오후 2:10", up to 3 faces, a dot when new for me). The room sound (lib/roomSound.ts) rings
+  for a reply in a thread I follow or that mentions me, like a DM message; any other reply is quiet even in a DM or
+  group chat unless it went to the room too; reactions never ring. All five languages. Checked at 1440 and 390×844,
+  light and dark, ko and en, with names ending in 님 and a very long name; the phone type audit (now also opening a
+  thread) flags nothing.
+- **Independent review (2026-11-06) fixes.** Counts said what the thread rules hide: the AI's "answering" count now
+  counts, per member, only questions they can see (`RoomAi.count`; a question in an old thread is not even a number to a
+  later member), and `Room.lastSeq` is the newest position of the timeline the viewer sees (`lastSeqFor`), not the
+  room's counter, which moved with every reply in a thread they cannot see. A reply sent to the room too counts once
+  for a follower: in the timeline, not again as a thread with news. A read's answer and `room.read` say whether
+  something unread still mentions me (`RoomReadState.mentioned`), so reading the room keeps the "@" of a followed
+  thread's mention. Speed: `SEE_SQL` keeps a plain `m.seq > ?` before the root's rule (a reply's seq is above its
+  root's), so the (room_id, seq) index starts at the member's join (a timeline page of a 100k-message room: 22 ms →
+  0.01 ms), and `threadsUnread` starts from the follow rows (`CROSS JOIN`: 14 ms → 0.01 ms). Left as is: a mention of
+  someone who cannot see the thread is kept in the reply's mentions (they get nothing; dropping it would tell the writer
+  who joined after the root).
+- **Rollback: reader level 6.** An older build knows no `thread_root_id`: it would show every reply in the timeline,
+  count and notify it, and show a root's late replies to a member who joined after the root (it checks the reply's own
+  seq). So 251 declares `min_compatible_reader: 6` and `SCHEMA_READER_LEVEL` is 6; going back means restoring the
+  backup taken before the update.
+- **Tests.** `tests/unit/b-rooms-threads.test.ts` (a reply stays in its thread, what can hold one, a later member sees
+  none of it, members only for every route, followers and mutes, notices that open the thread, realtime, reactions and
+  their limits, one budget, the reader level), `b-rooms-ai.test.ts` "the AI in a thread" (thread-only context, one
+  conversation per place, a later member keeps it private), `b-rooms.test.ts` (no read count, reads go to my windows
+  only), the permission matrix (`listRoomThread`, `markRoomThreadRead`, `reactRoomMessage`), and the web tests
+  `rooms-store`, `room-messages`, `room-thread`, `room-sound`, `push-worker`.
+
 ## K — Knowledge graph: CodeGraph's code map of the team folders, filtered at every question (2026-11-06)
 - **What.** "please use codegraph … on the filesystem so claude easily search up the files", and "every people wants to
   upload the files its automaticaly sync the folder for the knowledge graph". The AI gets `knowledge_explore`: functions,
