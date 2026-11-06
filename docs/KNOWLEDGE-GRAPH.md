@@ -1,16 +1,36 @@
 # Knowledge graph
 
-The knowledge graph is a map of the code in the team's folders. The AI uses it through the `knowledge_explore` tool to
-find functions, classes and how they connect ("where is the order total computed?", "what calls `checkout`?"). It
-updates itself when people upload or change files. Every answer is filtered by the asking person's folder access.
+The knowledge graph is the AI's map of the team's files, in two parts:
 
-CodeGraph makes the map: [github.com/colbymchenry/codegraph](https://github.com/colbymchenry/codegraph), MIT license.
-It is an optional tool on the server. Without it, the knowledge graph is off and Admin says to install it.
+- **Documents** (on by default, nothing to install, every server): the text of the documents people upload (PDF, Word,
+  Excel, PowerPoint, Hangul, Markdown, text, HTML, CSV and more; the formats `server/src/knowledge-graph/documents/`
+  accepts) as searchable passages with their page, sheet, slide or heading, in SQLite FTS5 with Korean and Japanese
+  matching inside words, and links between documents with their reason (same folder, one names or links to the other,
+  shared distinctive terms, the same people). Text comes from the converters the AI's reads use (`files/extract.ts`:
+  pandoc, pdftotext, the Office and Hangul workers; OCR of scanned PDFs on a Mac, as before), isolated and below people's
+  work; a file that fails is recorded with its reason and shown to admins.
+- **Code** (with CodeGraph installed): functions, classes and how they call each other, below.
 
-Code: `server/src/knowledge-graph/` (service, mirror, runner, tool), `server/src/routes/knowledge-graph.ts`,
+The AI uses both through `knowledge_explore`: one question returns document passages with a link to the place, the
+related documents and why, and code symbols with what calls them. It updates itself when people upload, change, move or
+delete files. Every answer is filtered by the asking person's folder access at the moment they ask.
+
+Documents and code are indexed per folder: `projects/<name>`, `groups/<name>`, `users/<id>`, `connected/<name>`,
+`shared/` and every other top-level folder, other project folders, and folders an admin adds. The service lists each
+folder with the file tools' rules (no symbolic or hard links, no server temp names, not quarantined, not chat
+attachments or dependency folders), reads each changed file's bytes itself (the very file it listed) and hands them to
+the index; files over 100 MB are recorded as too big without being read. At most 200 documents per folder run; a big
+folder comes back for the rest after a pause.
+
+The document index lives in `<data>/knowledge-graph/documents/`; turning the documents part off deletes it.
+
+CodeGraph makes the code map: [github.com/colbymchenry/codegraph](https://github.com/colbymchenry/codegraph), MIT license.
+It is an optional tool on the server. Without it the code part is off; documents work anyway.
+
+Code: `server/src/knowledge-graph/` (service, docs-port, documents/, mirror, runner, tool), `server/src/routes/knowledge-graph.ts`,
 `shared/src/api/knowledge-graph.ts`, `web/src/pages/admin/KnowledgeGraph.tsx`. Tests:
-`tests/unit/c-knowledge-graph.test.ts`, `tests/security/lib/knowledge-graph-cases.ts`,
-`web/test/e2e/admin-knowledge-graph.spec.ts`.
+`tests/unit/c-knowledge-graph.test.ts`, `tests/unit/c-knowledge-graph-docs.test.ts`, the documents module's own tests,
+`tests/security/lib/knowledge-graph-cases.ts`, `web/test/e2e/admin-knowledge-graph.spec.ts`.
 
 ## Install CodeGraph
 
@@ -108,15 +128,16 @@ second. A query: about 0.5 s including the sandbox start.
 ## Access: what an answer may show
 
 The indexes hold everything in their folders. What `knowledge_explore` shows is decided at the question, for the person
-asking, with the folder rules as they are then:
+asking, with the folder rules as they are then. The same rules hold for document passages, related documents and code:
 
 - Only folders the person can see anything in are asked (`RuleSet.canList`). Someone else's personal folder never is.
-- Every file the answer names (a match, a caller, a callee) passes `authorize(read)` for that person at that moment, the
+- Every file the answer names (a passage, a related document, a code match, a caller, a callee) passes `authorize(read)` for that person at that moment, the
   same check as the read tool: folder rules, personal folders (owner only, not admins or the team owner), hidden
   sub-folders inside a readable folder, symbolic links, hard links, quarantined files. A file that fails is left out
   without a trace: no name, no count, no "hidden".
 - The lines of code come from the team file itself, read through the same checks (`readRegular`, no link followed). The
-  copy and the index are never shown.
+  copy and the index are never shown for a file the person cannot read now. A related document is named only when the
+  person may read it too, and its reason is made from the two documents' own names and text.
 - `path` narrows the search to one folder. A folder the person cannot read is refused with the same words as a missing
   one ("not found or no access").
 - Losing access works at once: the next question leaves the folder out, without re-indexing.

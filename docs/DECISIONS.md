@@ -10001,6 +10001,13 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   read from the team file through the same checks. Rejected: one index per person (a copy of the code per person,
   re-indexed on every rule change) and filtering at indexing (a rule change would need a re-index to take effect; hidden
   sub-folders inside a readable folder would still leak through callers).
+- **Documents too, built in** (2026-11-06, "all of the document people uploads!"). The knowledge graph also indexes the
+  text of every document type Trina already reads (files/extract.ts converters, isolated), as FTS5 passages with Korean
+  and Japanese matching inside words and explainable links between documents (folder, mention, link, shared terms,
+  people), with no AI calls and nothing to install, so it is on by default on every server; code stays the CodeGraph part.
+  The service lists the files and reads their bytes; the index (knowledge-graph/documents/) never opens a team path and
+  never decides access. Same access rule as code: each passage and related document is named only after authorize(read)
+  for the asker at question time.
 - **Updates after a quiet time.** `publishChanges` and connected-folder syncs emit `tree-changed`; a folder runs 30 s
   after its last change (at most 5 minutes after the first), one folder at a time below people's work, plus a check of
   every folder after the start and each night. The 2026-11-01 semantic-index lesson (1.9 GB, most cores) is why CodeGraph
