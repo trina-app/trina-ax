@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
+import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, phonePushView, registerMobilePush, setMobilePushSession, usePhonePush } from '../../src/lib/mobile-push'
 import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
@@ -373,21 +373,6 @@ test('store builds 1 and 2: a registered session does not override a "no" this p
   } finally { server.restore() }
 })
 
-test('notifications turned off in the OS: a registered device does not make it "on", and does not override the "no"', async () => {
-  expect(phonePushView({ permission: 'undetermined', on: true, canOpenSettings: true })).toEqual({ status: 'push.off', action: 'enable' })
-  const server = pushServer({ enabled: true, native: { available: true, deviceId: 'device-1', gateway: 'push.example.test' } })
-  try {
-    handler = withPermission('denied')
-    win.mycelMobile = { ...config, capabilities: today }
-    setMobilePushSession('user:os-turned-off')
-    await settle(() => usePhonePush.getState().permission !== null)
-    await settle()
-    expect(usePhonePush.getState()).toMatchObject({ permission: 'denied', ask: false })
-    expect(messages.filter(m => m.type === 'push-token')).toHaveLength(0)
-    expect(phonePushView({ permission: 'denied', on: true, canOpenSettings: true })).toEqual({ status: 'push.deniedPhone', action: 'open-settings' })
-  } finally { server.restore() }
-})
-
 test('a first check that got no answer (a busy phone) is tried again; the question then shows', async () => {
   const server = pushServer()
   try {
@@ -405,3 +390,26 @@ test('a first check that got no answer (a busy phone) is tried again; the questi
   } finally { server.restore() }
 })
 
+test('open-settings does not wait for the app: no error when the person stays in the phone\'s Settings', async () => {
+  win.mycelMobile = { ...config, capabilities: today }
+  handler = m => { if (m.type !== 'open-settings') reply(m) } // the app answers only when it is back
+  const started = Date.now()
+  await openAppSettings() // resolves at once and never rejects later
+  expect(Date.now() - started).toBeLessThan(1000)
+  expect(messages.some(m => m.type === 'open-settings')).toBe(true)
+})
+
+test('notifications turned off in the OS: a registered device does not make it "on", and does not override the "no"', async () => {
+  expect(phonePushView({ permission: 'undetermined', on: true, canOpenSettings: true })).toEqual({ status: 'push.off', action: 'enable' })
+  const server = pushServer({ enabled: true, native: { available: true, deviceId: 'device-1', gateway: 'push.example.test' } })
+  try {
+    handler = withPermission('denied')
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('user:os-turned-off')
+    await settle(() => usePhonePush.getState().permission !== null)
+    await settle()
+    expect(usePhonePush.getState()).toMatchObject({ permission: 'denied', ask: false })
+    expect(messages.filter(m => m.type === 'push-token')).toHaveLength(0)
+    expect(phonePushView({ permission: 'denied', on: true, canOpenSettings: true })).toEqual({ status: 'push.deniedPhone', action: 'open-settings' })
+  } finally { server.restore() }
+})
