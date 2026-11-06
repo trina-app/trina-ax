@@ -1782,7 +1782,7 @@ export const en: Record<MessageKey, string> = {
 
   'teamSettings.nameOwnerOnly': 'Only the owner can change the team name.',
   'transfer.title': 'Transfer ownership',
-  'transfer.desc': 'Make another active person the team owner. You then become an admin and can no longer do the owner-only actions (team name, member removal, System, AI connections).',
+  'transfer.desc': 'Make another active person the team owner. You then become an admin and can no longer do the owner-only actions (team name, making and removing admins, System, AI connections).',
   'transfer.to': 'New owner',
   'transfer.pick': 'Choose a person',
   'transfer.none': 'No other active person yet. Invite someone first.',

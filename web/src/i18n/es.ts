@@ -1750,7 +1750,7 @@ export const es: Record<MessageKey, string> = {
   'budgets.tokensUsed': "Tokens {used} / {limit}",
   'teamSettings.nameOwnerOnly': "Solo el propietario puede cambiar el nombre del equipo.",
   'transfer.title': "Transferir la propiedad",
-  'transfer.desc': "Convierta a otra persona activa en propietaria del equipo. Usted pasará a ser administrador y perderá las acciones exclusivas del propietario (nombre del equipo, eliminación de miembros, Sistema y conexiones de IA).",
+  'transfer.desc': "Convierta a otra persona activa en propietaria del equipo. Usted pasará a ser administrador y perderá las acciones exclusivas del propietario (nombre del equipo, nombrar y eliminar administradores, Sistema y conexiones de IA).",
   'transfer.to': "Nuevo propietario",
   'transfer.pick': "Elegir una persona",
   'transfer.none': "Aún no hay otra persona activa. Invite a alguien primero.",

@@ -1781,7 +1781,7 @@ export const ko = {
 
   'teamSettings.nameOwnerOnly': '팀 이름은 팀장만 바꿀 수 있어요.',
   'transfer.title': '팀장 넘김',
-  'transfer.desc': '다른 활성 사용자를 팀장으로 정해요. 그 뒤 나는 관리자가 되고, 팀장만 할 수 있는 일(팀 이름, 멤버 삭제, 시스템, AI 연결)은 할 수 없어요.',
+  'transfer.desc': '다른 활성 사용자를 팀장으로 정해요. 그 뒤 나는 관리자가 되고, 팀장만 할 수 있는 일(팀 이름, 관리자 지정·삭제, 시스템, AI 연결)은 할 수 없어요.',
   'transfer.to': '새 팀장',
   'transfer.pick': '사람을 고르세요',
   'transfer.none': '팀장을 넘길 다른 활성 사용자가 없어요. 먼저 사람을 초대해 주세요.',

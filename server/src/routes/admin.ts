@@ -67,7 +67,7 @@ export const adminRoutes: RouteModule = {
       let problems = {}
       if (query.noAi) try { problems = getChatRuntime(ctx).engines.get().problems } catch { /* no chat runtime: none known */ }
       const noAi = query.noAi ? peopleWithoutAi(ctx, { problems }) : null
-      // who asked for their account to be deleted: the owner's (who deletes accounts) only
+      // who asked for their account to be deleted: the owner's only (the request is for the owner)
       const deletionRequested = auth.user.role === 'owner' ? openDeletionRequests(ctx) : null
       return { items: listUsers(ctx), ...(noAi ? { noAi } : {}), ...(deletionRequested ? { deletionRequested } : {}) }
     })

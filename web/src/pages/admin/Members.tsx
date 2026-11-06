@@ -114,14 +114,15 @@ export default function Members() {
     if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body, confirm: t('common.delete'), danger: true }))) return
     if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id } }))) await users.reload()
   }
-  /** The actions used less often: on a phone in the card's "…" menu with the others, on a wide screen in the row's
-   * "…" menu next to Edit and Reset password, so the row keeps one line. */
+  /** The actions used less often, for the rows this viewer manages (canManage): on a phone in the card's "…" menu with
+   * the others, on a wide screen in the row's "…" menu next to Edit and Reset password, so the row keeps one line. */
   const moreActions = (u: User): MemberMenuItem[] => [
     { label: t('members.resetLinkButton'), icon: <UserRoundKey size={14} aria-hidden />, onSelect: () => void createResetLink(u), testId: `reset-link-${u.username}` },
     u.status === 'active'
       ? { label: t('members.disable'), icon: <UserRoundX size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `disable-member-${u.username}` }
       : { label: t('members.enable'), icon: <UserRoundCheck size={14} aria-hidden />, onSelect: () => void toggleDisabled(u), testId: `enable-member-${u.username}` },
-    ...(isOwner(me) ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `delete-member-${u.username}` }] : []),
+    // anyone who manages this row deletes it (canManage: an admin deletes members, only the owner deletes admins)
+    { label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void remove(u), danger: true, testId: `delete-member-${u.username}` },
   ]
   // an invite is revoked at once, with no confirm dialog: one at a time, a held key does not repeat it, and the focus goes
   // to the list's title (the next row's button is another revoke)

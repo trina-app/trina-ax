@@ -1782,7 +1782,7 @@ export const id: Record<MessageKey, string> = {
 
   'teamSettings.nameOwnerOnly': 'Hanya owner yang bisa mengganti nama tim.',
   'transfer.title': 'Alihkan owner',
-  'transfer.desc': 'Jadikan orang aktif lain owner tim. Setelah itu Anda menjadi admin dan tidak bisa lagi melakukan tindakan khusus owner (nama tim, menghapus anggota, Sistem, koneksi AI).',
+  'transfer.desc': 'Jadikan orang aktif lain owner tim. Setelah itu Anda menjadi admin dan tidak bisa lagi melakukan tindakan khusus owner (nama tim, menunjuk dan menghapus admin, Sistem, koneksi AI).',
   'transfer.to': 'Owner baru',
   'transfer.pick': 'Pilih orang',
   'transfer.none': 'Belum ada orang aktif lain. Undang seseorang dulu.',

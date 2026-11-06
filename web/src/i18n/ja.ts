@@ -1750,7 +1750,7 @@ export const ja: Record<MessageKey, string> = {
   'budgets.tokensUsed': "トークン {used} / {limit}",
   'teamSettings.nameOwnerOnly': "チーム名を変更できるのはオーナーのみです。",
   'transfer.title': "オーナー権限を譲渡",
-  'transfer.desc': "別の有効なメンバーをチームオーナーにします。自分は管理者となり、オーナー専用の操作（チーム名、メンバー削除、システム、AI接続）ができなくなります。",
+  'transfer.desc': "別の有効なメンバーをチームオーナーにします。自分は管理者となり、オーナー専用の操作（チーム名、管理者の任命と削除、システム、AI接続）ができなくなります。",
   'transfer.to': "新しいオーナー",
   'transfer.pick': "メンバーを選択",
   'transfer.none': "ほかに有効なメンバーがいません。先に招待してください。",
