@@ -623,7 +623,7 @@ describe('/welcome', () => {
       expect(m.get('welcome-files-pick').textContent).toContain('소개 자료가 있으면 같이 넣기')
       expect(m.get('welcome-profile-continue').textContent).toBe('저장하고 계속')
       // the line under the button: the deck starts, the tier's minutes, where it will be
-      expect(m.get('welcome-deck-line').textContent).toBe("저장하면 회사 소개서를 만들기 시작해요 · 10분쯤 · 최근 채팅의 '우리 회사 소개서'")
+      expect(m.get('welcome-deck-line').textContent).toBe(`저장하면 회사 소개서를 만들기 시작해요 · 10분쯤 · ${historyName((k, p) => translate('ko', k, p))}의 '우리 회사 소개서'`)
       expect(primaries(m)).toBe(1)
       // 고치기: the full review in a dialog, with what was saved; saving there changes the line
       await m.click('welcome-profile-fix')
@@ -676,7 +676,7 @@ describe('/welcome', () => {
       await m.until(() => m.find('welcome-profile')?.getAttribute('data-state') === 'saved', 'the saved 회사 소개')
       expect(stepOf(m)).toBe('profile')
       expect(m.get('welcome-profile-line').textContent).toBe('이렇게 이해했어요: Acme makes quiet desk fans. · 고치기')
-      expect(m.get('welcome-deck-line').textContent).toBe("저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · 최근 채팅의 '우리 회사 소개서'")
+      expect(m.get('welcome-deck-line').textContent).toBe(`저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · ${historyName((k, p) => translate('ko', k, p))}의 '우리 회사 소개서'`)
       // another tab or device started the deck since: the server says so, nothing is sent twice
       progress = { ...progress!, resultChatId: CHAT }
       deckBefore = true
@@ -761,7 +761,7 @@ describe('/welcome', () => {
     const m = await app()
     try {
       await m.until(() => m.find('welcome-deck-line'), 'the deck line')
-      expect(m.get('welcome-deck-line').textContent).toBe(`저장하면 회사 소개서를 만들기 시작해요 · 3분쯤 · ☰ 메뉴의 ${translate('ko', 'sidebar.recents')} › '우리 회사 소개서'`)
+      expect(m.get('welcome-deck-line').textContent).toBe(`저장하면 회사 소개서를 만들기 시작해요 · 3분쯤 · ☰ 메뉴의 ${historyName((k, p) => translate('ko', k, p))} › '우리 회사 소개서'`)
     } finally { await m.unmount() }
   })
 
@@ -853,7 +853,7 @@ describe('/welcome', () => {
       expect(m.get('profile-step-save').textContent).toBe('저장하고 계속')
       expect(primaries(m)).toBe(1)
       const line = review.querySelector('[data-testid="welcome-deck-line"]')!
-      expect(line.textContent).toBe(translate('ko', 'welcome.profile.deckLine', { min: 5, name: historyName((k) => translate('ko', k)) }))
+      expect(line.textContent).toBe(translate('ko', 'welcome.profile.deckLine', { min: 5, name: historyName((k, p) => translate('ko', k, p)) }))
       const html = m.html()
       expect(html.indexOf('data-testid="welcome-files-pick"')).toBeLessThan(html.indexOf('data-testid="profile-step-save"'))
       expect(html.indexOf('data-testid="profile-step-save"')).toBeLessThan(html.indexOf('data-testid="welcome-deck-line"'))
@@ -1085,7 +1085,7 @@ describe('the later steps and the end', () => {
       expect(m.find('welcome-progress')).toBeNull()
       expect(m.find('welcome-back')).toBeNull()
       expect(m.get('welcome-done').querySelector('h2')?.textContent).toBe('준비 끝났어요')
-      expect(m.get('welcome-done').textContent).toContain(`회사 소개서는 ${translate('ko', 'sidebar.recents')}의 '우리 회사 소개서'에 있어요`)
+      expect(m.get('welcome-done').textContent).toContain(`회사 소개서는 ${historyName((k, p) => translate('ko', k, p))}의 '우리 회사 소개서'에 있어요`)
       await m.until(() => m.get('welcome-done-try').textContent === "'할 일 정리' 먼저 써 보기", 'the skill named')
       expect(m.get('welcome-done-home').textContent).toBe('홈으로')
       expect(m.get('welcome-done-home').getAttribute('class') ?? '').not.toContain('bg-accent ')

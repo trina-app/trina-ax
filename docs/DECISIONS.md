@@ -10935,6 +10935,105 @@ owner asked for every skill in the repository to be in every team without anyone
   right after setup anyway; a migration — the skills are files written through the file layer as a person, not rows;
   re-adding a deleted pack skill on update — a delete on purpose must stay.
 
+## Phone navigation: four tabs (feat/phone-nav, 2026-11-06)
+
+넣을 곳: Team AX core (`web/src/lib/tabs.ts`, `components/BottomTabs.tsx`, `components/PhoneTopBar.tsx`), 이유: the
+phone app is the web app in a web view, so its navigation is the web app's.
+
+An independent review of the phone app scored its navigation 18 of 40: it opened on the people-chat list, the ⊕ there
+made a 1:1 and not an AI chat, past AI chats were only behind ☰ under eight rows, the same top-right spot meant three
+things, "what needs me" was in four places, and Android's back looped (‹ in a chat or a room pushed the list as a new
+page, so the phone's back opened the chat again). The owner approved four tabs. Below 768 px:
+
+- **Tabs: 트리나 · 대화 · 파일 · 나.** 트리나 is Home (greeting, message box, the 7-day goal row for admins, then the
+  three latest AI chats as plain rows, under "트리나 기록"); 대화 is rooms, DMs and group chats; 나 is Settings. The AI has one
+  name in the chrome: "트리나" where the product is named after it (`PRODUCT_NAMED_AFTER_AI`), the product's short name
+  in the core edition (`aiName`).
+- **Where the app opens is one constant**, `START_TAB` in `lib/tabs.ts` (now `'ai'`). The sign-in landing
+  (`signedInHome`) and a phone opened on `/` (the mobile app's entry) follow it, so opening on 대화 later is one line;
+  the welcome steps still resume on either landing. The owner said rooms matter more than AI history; the approved start
+  stays 트리나 for now.
+- **One action per bar, each in one place.** ☰ is only on Home and opens the AI's history (검색, 프로젝트, 예약 작업, 팀
+  스킬, 트리나 기록 with its filters, 삭제한 기록 at the bottom; names: "Desktop sidebar: rooms first"). ⊕ is only on 대화 (the people list). 파일 has no top bar
+  (its own header is the bar). A page under a tab (팀 스킬, 프로젝트, 예약 작업, 삭제한 채팅, 관리자) shows ‹ and its name;
+  its own heading stays for screen readers only, and a project's or a task's page drops its list crumb there (the bar
+  above says it). Removed: the pinned "트리나 · AI에게 물어보기" row in 대화, ☰ and its red dot on the other tabs, the drawer
+  rows 새 채팅 / 알림함 / 관리자, the new-chat icon in the top bar, "Trina AX" as the bar's title, 나's own 알림 row.
+- **One count per kind of thing.** Unread room messages on 대화 (muted rooms left out), unread Inbox notices on 나 (one
+  count for the window: `store/inbox.ts`, which the desktop sidebar's 알림함 uses too). 나's list starts with 알림함
+  (that count; its section's bar says 알림함 too) and, for owners and admins, 관리자. The drawer's 팀 스킬 count is gone
+  on phones: a suggestion is an Inbox notice already.
+- **‹ never pushes** (`lib/back.ts`). With an entry of the app's own before it (React Router's `history.state.idx` above
+  0) ‹ is `history.back()`, the same step as the phone's back; opened from outside (a notice, a link, the first page)
+  it replaces the entry with the tab's list. Rooms, AI chats, the top bar and the room-not-found link do this. Rejected:
+  tracking the previous page ourselves (a reload or a WebView restore loses it; the router's index survives both).
+- **Taps:** the bar's buttons and the drawer's rows are 44 px; the type scale is the phone one (13 px floor, badges 11).
+- Tests: `web/test/unit/phone-nav.test.tsx`, `web/test/e2e/phone-nav.spec.ts` (tabs, start tab, badges, no-loop back
+  in a chat, a room and a page, from inside and from outside).
+- Version impact: **minor** (a new phone navigation; no API change).
+
+## Desktop sidebar: rooms first (feat/phone-nav, 2026-11-06)
+
+넣을 곳: Team AX core (`web/src/components/Sidebar.tsx`, `rooms/SidebarRooms.tsx`, `chat/ChatState.tsx`; the chat list's
+`waiting` / `unseen` and `POST /api/chats/:id/seen` in `server/src/chat/` and `routes/chats.ts`, migration 252), 이유:
+the owner's principle that chat rooms matter more than the AI's session history ("follow Slack almost entirely")
+applies to the computer's sidebar too. Approved by the owner after the prototype's screenshots ("ㄱㄱ").
+
+- **Before:** the product's name, seven rows (새 채팅, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬) plus 관리자, then
+  대화방 (eight rows, unread ones beyond them, "모두 보기"), then 최근 채팅 by date. With a dozen rooms the AI chats were
+  below the fold at 1440×900.
+- **Now (768 px and wider):** the team's name on top (the account line no longer repeats it); one row for 트리나에게 묻기
+  (a new AI chat, with ⇧⌘O) and a search icon (⌘K); one row of icons: 파일, 프로젝트, 예약 작업, 팀 스킬, 알림함 (the count on the bell), 관리자
+  for owners and admins only. Each icon is a link named by its label (the Inbox's name carries the count, so a screen
+  reader says it), reached by Tab with the focus ring, and shows its name as a tooltip on hover and on keyboard focus
+  (a native `title` shows on hover only). Then **one scroll with two strictly capped sections, no boxes**: **대화**
+  (rooms, group chats, DMs by latest activity, unread in bold with the count, thread replies and mentions counted in, a
+  long name cut with the whole of it on hover, ⊕ 새 대화): exactly the five latest, and the room on screen if it is not
+  one of them (six at most), then "더 보기 (N)" that opens the rest in place ("접기" closes it) and, when a hidden room
+  has something unread, carries one pill in the rooms' badge style: "안 읽음 M" (the hidden rooms' unread messages and
+  followed replies added; "@" before it when one of them mentions me; a muted room's count only when no other hidden
+  room has any, grey like its own badge; the screen reader hears "읽지 않은 메시지 M개"), so no count is ever out of
+  sight; then **트리나 기록** (the AI's name: `aiName`, the product's name in the core edition): exactly the five latest AI
+  chats and the chat on screen if it is not one of them, then "모두 보기" for the whole history with its filters in
+  place (choosing a filter opens it too; "접기"), which says "답 필요 K" with a dot when K hidden chats wait for my answer
+  or have an answer I have not seen and is not running again (the warn colour when one waits, the accent when they are
+  only unseen). Between the two sections, on its own row and in neither list, onboarding's setup row ("설정 이어서
+  하기 · n/4" or "AI 연결하기" for the owner, W5). Each section folds, and each one's whole list stays open or closed,
+  remembered in this browser (`mycel.sidebar.rooms`, `mycel.sidebar.roomsAll`, `mycel.sidebar.recents`,
+  `mycel.sidebar.recentsAll`). The order is latest activity; a row moves only when the list changes after a message is
+  sent or received.
+- **Many rooms: strictly capped sections in one scroll** (the owner, 2026-11-06, decided). The AI history must not sink
+  as people chats grow, and the owner chose caps over panes: first the sidebar scrolled as one with a sticky AI heading,
+  then two stacked panes (대화 scrolling on its own, 트리나 기록 pinned at the bottom), then caps that always let unread
+  rooms through. The last one failed on the owner's own account (13 unread rooms): no cap at all, and 트리나 기록 below the
+  fold at 1280. So the cap is strict, five and the open one, and what is hidden is counted on its button instead. With
+  60 rooms (9 unread) the e2e sees the five rooms and all five AI chats without scrolling at 1440×900 and at 1280×800;
+  it holds for any number of rooms and any number unread.
+- **Names: people and the AI never share a word** (the owner, 2026-11-06: no bare "채팅" in navigation). People: 대화 (the
+  section, the tab, the /rooms page; one room can still be called a 대화방 in sentences), 새 대화. The AI: 트리나에게 묻기
+  (the new-chat button, the chat's new-chat icon, the search palette's action), 트리나 기록 (the desktop section, the
+  phone drawer's heading, the 트리나 tab's latest chats), 삭제한 기록 (the trash row and page), the search palette's tab
+  기록. Other words that said 채팅 in the chrome: an untitled AI chat is "제목 없음", the empty history "아직 기록이 없어요",
+  "이 조건에 맞는 기록이 없어요", "이 기록을 찾을 수 없어요", the search box "기록 제목·내용 …". English: Conversations, Ask
+  Trina, Trina history, Deleted history; es/ja/id alike. Messages and descriptions deeper in the app keep their words.
+- **"답변 필요" and the new-answer dot come from the chat list, no request per chat.** `Chat.waiting`: the AI waits for
+  the person (an open card every window shows; a card for one desktop window is that window's). `Chat.unseen`: an
+  answer finished after the person last had the chat on screen. Both are optional fields (additive) on every Chat the
+  API returns, and `chat.updated` is published when a card opens or closes and after `POST /api/chats/:id/seen`, so every
+  window and device follows. The chat page marks the chat seen while it is on screen and the window visible; the dot
+  never shows on the chat on screen.
+- **Seen state: there was none on the server, so it is new and additive.** Migration 252 adds `chats.seen_at` (chats
+  belong to one person, so one column is that person's mark) and sets it to the migration time on every existing chat,
+  so no old chat gets a dot after the update; a chat with no mark counts its answers after it was made. `unseen` is the
+  newest finished assistant message (done, error or stopped) later than the mark. Older builds ignore the column.
+  Rejected: a per-window mark in the browser (gone on reload, wrong on another device).
+- **Removed:** seven text rows (two rows instead), the product's name on top, the team name in the account line, 팀
+  스킬's own count (the Inbox has the suggestion), the old cap of eight rooms that let every unread one through, the AI
+  chats' date groups and filter in the default view (behind "모두 보기").
+- The phone's drawer keeps its own layout ("Phone navigation: four tabs"); it gets the same dots.
+- Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
+  case for the new route.
+- Version impact: **minor** (a new endpoint, two optional fields, one additive migration).
 ## DS2 — Natural writing as a default, Korean HR documents as an optional pack (2026-11-06)
 
 넣을 곳: trina-ax `resources/skill-packs/work/{ko,en}/humanizer`, `resources/skill-packs/hr` and

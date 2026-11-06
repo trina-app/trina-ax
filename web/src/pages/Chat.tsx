@@ -14,6 +14,8 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
+import { useBackLink } from '../lib/back'
+import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
 import { stickToBottom } from '../lib/stickToBottom'
@@ -53,6 +55,7 @@ function ChatView({ chatId }: { chatId: string }) {
   }, [deckReady, chatId])
   const announce = useAnnounce()
   const navigate = useNavigate()
+  const backLink = useBackLink()
   const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId))
   const [chat, setChat] = useState<Chat | null>(chatFromList ?? null)
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
@@ -70,6 +73,22 @@ function ChatView({ chatId }: { chatId: string }) {
   const choose = canChooseEngine(me)
   const actions = useChatActions()
   const title = chat?.title || t('chat.untitled')
+  // an answer finished here since I last had it on screen (Chat.unseen; the sidebar's dot): on screen now, so seen, in
+  // every window and on every device. The server's chat.updated says so on the socket, in order with the other events;
+  // the reply is not used (it could arrive after a newer state). Again when the window comes back while it is unseen.
+  const unseen = !!(chatFromList ?? chat)?.unseen
+  useEffect(() => {
+    if (!unseen) return
+    let sent = false
+    const seen = () => {
+      if (sent || document.hidden) return
+      sent = true
+      api.call(API.markChatSeen, { params: { id: chatId } }).then(() => {}, () => { sent = false })
+    }
+    seen()
+    document.addEventListener('visibilitychange', seen)
+    return () => document.removeEventListener('visibilitychange', seen)
+  }, [unseen, chatId])
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
   }, [chatFromList])
@@ -255,7 +274,7 @@ function ChatView({ chatId }: { chatId: string }) {
       <div className="flex h-full flex-col justify-center" data-testid="chat-not-found">
         <EmptyState title={t('chat.notFound')}>
           <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
-            {t('sidebar.newChat')}
+            {t('sidebar.askAi', { name: aiName(t) })}
           </Link>
         </EmptyState>
       </div>
@@ -264,9 +283,10 @@ function ChatView({ chatId }: { chatId: string }) {
   return (
     <div className="flex h-full flex-col">
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
-          it is the only bar (Layout drops its own here): back to the 대화 list, the name, and a new chat. */}
+          it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
+          the name, and a new chat. */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1">
-        <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
+        <Link to="/" replace onClick={backLink} aria-label={t('tabs.back')} title={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
           <ChevronLeft size={20} aria-hidden />
         </Link>
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
@@ -286,7 +306,7 @@ function ChatView({ chatId }: { chatId: string }) {
           )}
         </div>
         {isDesktop() && <BrowserToggle />}
-        <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} className="p-3! md:hidden" data-testid="chat-new">
+        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => navigate('/')} className="p-3! md:hidden" data-testid="chat-new">
           <MessageSquarePlus size={20} />
         </IconButton>
       </div>

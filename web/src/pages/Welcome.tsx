@@ -775,7 +775,7 @@ const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
 
 /**
  * 준비 끝났어요 (docs/DECISIONS.md "W5"), once (`doneShownAt`). When the intro deck started, one line says where it is
- * ("최근 채팅의 '우리 회사 소개서'": the sidebar's heading, historyName; no button: its row has its own marker); without a deck, no line. The one primary is
+ * ("트리나 기록의 '우리 회사 소개서'": the sidebar's heading, historyName; no button: its row has its own marker); without a deck, no line. The one primary is
  * the owner's own run of the skill everything points at ("'{skill}' 먼저 써 보기": the same form a member lands on), or
  * "AI 연결하기" while no AI answers; 홈으로 is a quiet link.
  */

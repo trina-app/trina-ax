@@ -26,10 +26,13 @@ test('the sidebar is as wide as Claude\'s, with 14 px rows of 36 px', async ({ p
   const side = page.getByRole('navigation', { name: t['sidebar.label'] })
   // the column is 280 px, its right border included
   expect(Math.round((await side.locator('..').boundingBox())!.width)).toBe(280)
+  // 트리나에게 묻기 is the one text row; 프로젝트 is an icon of the same height
+  const newChat = side.getByTestId('new-chat')
+  expect(Math.round((await newChat.boundingBox())!.height)).toBe(36)
+  expect(await newChat.evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
   const projects = side.getByRole('link', { name: t['sidebar.projects'] })
   expect(Math.round((await projects.boundingBox())!.height)).toBe(36)
-  expect(await projects.evaluate((el) => getComputedStyle(el).fontSize)).toBe('14px')
-  expect(await side.getByRole('heading', { name: t['sidebar.recents'] }).evaluate((el) => getComputedStyle(el).fontSize)).toBe('12px')
+  expect(await side.getByTestId('recents-toggle').evaluate((el) => getComputedStyle(el.closest('h2')!).fontSize)).toBe('12px')
 })
 
 test('the account menu opens above the profile line, moves with the keyboard and changes the appearance', async ({ page }) => {
@@ -271,7 +274,9 @@ test('Recents folds away; filter, group and sort like Claude\'s, remembered and 
   await side.getByTestId('recents-filter-clear').click()
   await expect(side.getByTestId('recents-filter-label')).toHaveCount(0)
   await expect(side.getByTestId('recents-filter-dot')).toHaveCount(0)
-  await expect(list.getByRole('heading', { level: 3 })).toHaveText([t['sidebar.today']])
+  // PROTOTYPE (desktop sidebar): back to the five latest, without date groups; "모두 보기" shows them by date
+  await expect(side.getByTestId('ai-chats-latest')).toBeVisible()
+  await expect(list.getByRole('heading', { level: 3 })).toHaveCount(0)
 })
 
 test('the Recents menu with the keyboard: Enter, arrows, → into a choice, ← and Esc back', async ({ page }) => {

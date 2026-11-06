@@ -710,8 +710,9 @@ export function PageHeader({ title, desc, actions }: { title: ReactNode; desc?: 
     <div ref={ref} data-sticky-header className={clsx(stickyCls, 'shrink-0 border-b border-line')}>
       <div className={clsx(pageColumn, 'flex flex-wrap items-end justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5')}>
       <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {desc && <p className="mt-1 text-sm text-muted">{desc}</p>}
+        {/* phones: the top bar says the page's name (components/PhoneTopBar.tsx); here for screen readers only */}
+        <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{title}</h1>
+        {desc && <p className="mt-1 text-sm text-muted max-md:mt-0">{desc}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>

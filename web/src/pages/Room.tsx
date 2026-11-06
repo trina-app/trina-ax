@@ -13,6 +13,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
 import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
+import { useBackLink } from '../lib/back'
 import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
@@ -40,11 +41,12 @@ export default function RoomPage() {
 
 function RoomNotFound() {
   const t = useT()
+  const backLink = useBackLink()
   return (
     <div className="flex h-full flex-col justify-center" data-testid="room-not-found">
       <EmptyState title={t('rooms.notFound')}>
         <p>{t('rooms.notFoundHint')}</p>
-        <Link to="/rooms" className="mt-3 inline-block font-medium text-accent-text underline">
+        <Link to="/rooms" replace onClick={backLink} className="mt-3 inline-block font-medium text-accent-text underline">
           {t('rooms.back')}
         </Link>
       </EmptyState>
@@ -54,6 +56,8 @@ function RoomNotFound() {
 
 function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: string | null; badThread: boolean }) {
   const t = useT()
+  // ‹ goes back where I came from (else the 대화 list in place of the room): the phone's own back never loops
+  const backLink = useBackLink()
   const locale = useLocale()
   const me = useMe()
   const meId = me?.user.id ?? null
@@ -178,7 +182,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     <div className="flex h-full" data-testid="room-page">
     <div className={clsx('flex h-full min-w-0 flex-1 flex-col', threadId && 'max-md:hidden')} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4">
-        <Link to="/rooms" aria-label={t('rooms.back')} title={t('rooms.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
+        <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} title={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
           <ChevronLeft size={20} aria-hidden />
         </Link>
         {/* the room's mark beside its name: computers only (on a phone the name is enough; a DM's picture is on the

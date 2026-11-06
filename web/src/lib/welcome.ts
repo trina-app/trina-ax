@@ -6,11 +6,11 @@
 // no step: it is an ordinary chat ("우리 회사 소개서") found by its row in the chat list.
 import { GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, WELCOME_COUNTED, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
+import { aiName } from './tabs'
 
 /** Where the deck's chat is listed, as the sidebar names that list: the sidebar heading's own message
- * (`sidebar.recents`, Sidebar.tsx), never words of our own. The walk of PR #100 found "트리나 기록" here while the sidebar
- * said "최근 채팅"; when feat/phone-nav renames that list, it changes that one message and these lines follow. */
-export const historyName = (t: (key: MessageKey) => string): string => t('sidebar.recents')
+ * (`sidebar.aiChats` with the AI's name, "트리나 기록", Sidebar.tsx), never words of our own. */
+export const historyName = (t: (key: MessageKey, params?: Params) => string): string => t('sidebar.aiChats', { name: aiName(t) })
 
 /** The steps after the AI step, in order (the AI step is a gate, not a place in the order: docs/DECISIONS.md "W2"). */
 const ORDER: readonly WelcomeStep[] = WELCOME_COUNTED

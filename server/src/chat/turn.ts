@@ -1579,7 +1579,11 @@ export class TurnExec {
       this.humanWaits++
       const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request } }
       if (o.window) this.rt.hub.publishTo(this.spec.userId, o.window, ev)
-      else this.rt.hub.publish(this.spec.userId, ev)
+      else {
+        this.rt.hub.publish(this.spec.userId, ev)
+        // the chat list says it waits (Chat.waiting), in every window and on every device
+        this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated')
+      }
     })
   }
 
@@ -1613,7 +1617,10 @@ export class TurnExec {
     this.humanWaits = Math.max(0, this.humanWaits - 1)
     const ev = { type: 'turn.request.closed' as const, data: { turnId: this.id, requestId, reason } }
     if (r.window) this.rt.hub.publishTo(this.spec.userId, r.window, ev)
-    else this.rt.hub.publish(this.spec.userId, ev)
+    else {
+      this.rt.hub.publish(this.spec.userId, ev)
+      this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated')
+    }
     r.resolve(value)
   }
 

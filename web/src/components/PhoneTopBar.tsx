@@ -1,0 +1,58 @@
+// The phone's top bar (below 768 px): it says where you are and holds one action at most, each in one place.
+//   트리나 (Home):  ☰ the AI's history (검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, 삭제한 기록) · the AI's name
+//   대화 (/rooms):   its name · ⊕ a new conversation (the people list)
+//   파일:            none (the Files page's own header is the bar)
+//   a page under a tab (팀 스킬, 프로젝트, 관리자, …): ‹ back · the page's name (the page keeps its heading for screen
+//                    readers only, so the name is not said twice)
+// Not in a room or an AI chat: their own header (with its ‹) is the bar there. ‹ goes back in the real history, or to
+// the tab's list in place of this entry (lib/back.ts), so the phone's own back never loops. Every button is 44 px.
+import { ChevronLeft, Menu, MessageCirclePlus } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useT } from '../i18n'
+import { useGoBack } from '../lib/back'
+import { aiName, hidesTabs, pageTitleKey, START_TAB, TAB_ROOT, tabOf } from '../lib/tabs'
+import { useUi } from '../store/ui'
+import { IconButton } from './ui'
+
+const icon = 'size-11 shrink-0'
+
+export function PhoneTopBar() {
+  const t = useT()
+  const navigate = useNavigate()
+  const { pathname: path, search } = useLocation()
+  const setDrawer = useUi((s) => s.setDrawer)
+  const tab = tabOf(path)
+  const back = useGoBack(TAB_ROOT[tab ?? START_TAB])
+  if (hidesTabs(path) || tab === 'files') return null
+  // a project's new chat ("/?project=") is reached from the project: a way back there, not the history drawer
+  const home = path === '/' && !new URLSearchParams(search).has('project')
+  const rooms = path === '/rooms'
+  const titleKey = pageTitleKey(path)
+  const title = path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
+  return (
+    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
+      {home ? (
+        <IconButton label={t('sidebar.open')} onClick={() => setDrawer(true)} className={icon} data-testid="menu-open">
+          <Menu size={20} />
+        </IconButton>
+      ) : rooms ? (
+        <span className={icon} aria-hidden />
+      ) : (
+        <IconButton label={t('tabs.back')} onClick={back} className={icon} data-testid="topbar-back">
+          <ChevronLeft size={22} />
+        </IconButton>
+      )}
+      {/* a page with its own (screen-reader) heading: the name here is for the eye only */}
+      <span aria-hidden={titleKey ? true : undefined} className="min-w-0 flex-1 truncate text-center text-sm font-semibold" data-testid="topbar-title">
+        {title}
+      </span>
+      {rooms ? (
+        <IconButton label={t('rooms.newChat')} onClick={() => navigate('/rooms?new=1', { replace: true })} className={icon} data-testid="topbar-new-dm">
+          <MessageCirclePlus size={20} />
+        </IconButton>
+      ) : (
+        <span className={icon} aria-hidden />
+      )}
+    </div>
+  )
+}

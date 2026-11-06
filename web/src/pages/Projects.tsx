@@ -167,10 +167,11 @@ export function ProjectHome() {
           top while the page scrolls */}
       <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6" testId="project-topline">
         <nav aria-label={t('files.breadcrumb')} className="flex min-w-0 items-center gap-1.5 text-sm">
-          <Link to="/projects" className="shrink-0 text-muted hover:text-ink">
+          {/* phones: the top bar above says 프로젝트, with its ‹ (components/PhoneTopBar.tsx) */}
+          <Link to="/projects" className="shrink-0 text-muted hover:text-ink max-md:hidden">
             {t('projects.title')}
           </Link>
-          <span className="text-faint" aria-hidden>
+          <span className="text-faint max-md:hidden" aria-hidden>
             /
           </span>
           {p.canEdit ? (

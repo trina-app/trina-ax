@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { OWNER, reset, signIn, watchConsole } from './helpers'
+import { PRODUCT } from '@mycel/shared'
+import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
+import { DICTS } from '../../src/i18n'
+
+/** the sidebar's new AI chat ("Ask Trina" / "트리나에게 묻기"; the core edition says its product's name) */
+const askAi = (l: 'en' | 'ko') => DICTS[l]['sidebar.askAi'].replace('{name}', PRODUCT_NAMED_AFTER_AI ? DICTS[l]['rooms.aiName'] : PRODUCT.shortName)
 
 // first-run setup starts in the browser's language when none was picked (89e32d5, the office's own Mac): these two
 // run in an English browser
@@ -77,7 +83,7 @@ test.describe('first-run setup in an English browser', () => {
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
     // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText('New chat')
+  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
   })
 })
 
@@ -211,7 +217,7 @@ test('language switch to English and Indonesian', async ({ page }) => {
   await page.getByTestId('locale-en').click()
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText('New chat')
+  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
   await page.getByTestId('locale-id').click()
   await expect(page.getByRole('heading', { name: 'Pengaturan' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'id')
@@ -237,7 +243,7 @@ test('the sign-in page shows the team default, a pick on it is kept in this brow
   await page.getByTestId('login-password').fill(OWNER.password)
   await page.getByTestId('login-submit').click()
   // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText('New chat')
+  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
 })
 
 test('personal setting: team default, an own language, back to the team default; an admin change reaches followers', async ({ page }) => {
@@ -304,7 +310,7 @@ test('an error on the sign-in page stays after a language switch; signing out sh
   await page.getByTestId('auth-locale').selectOption('en')
   await page.getByTestId('login-password').fill(OWNER.password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByRole('button', { name: '새 채팅' })).toBeVisible()
+  await expect(page.getByRole('button', { name: askAi('ko') })).toBeVisible()
   // signed out, the sign-in page is in this browser's pick (English), not olga's language
   await page.getByTestId('account-menu').click()
   await page.getByTestId('logout').click()

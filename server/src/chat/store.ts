@@ -15,6 +15,8 @@ export interface ChatRow {
   title_source: string
   /** migration 242: the AI session of this person in a team chat room (rooms/ai.ts); never one of their chats on screen */
   room_id: string | null
+  /** migration 252: when the person last had the chat on screen (POST /api/chats/:id/seen); null: never since made */
+  seen_at: string | null
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -34,7 +36,7 @@ export interface ProjectRow {
   trashed_with: string | null
 }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with'
 
@@ -115,13 +117,25 @@ export class ChatStore {
     if (!o.deleted && r.deleted_at) return null
     return r
   }
-  toChat(r: ChatRow, runState: ChatRunState): Chat {
+  /** `waiting`: the runtime's word that the AI waits for the person here (ChatRuntime.waitsForPerson) */
+  toChat(r: ChatRow, runState: ChatRunState, waiting = false): Chat {
     return {
       id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
       ...(isConfidentialChat(this.db, r.id) ? { confidential: true as const } : {}),
+      ...(waiting ? { waiting: true as const } : {}),
+      ...(this.unseen(r) ? { unseen: true as const } : {}),
       ...(this.mergeWaiting(r.id) ? { mergeWaiting: true as const } : {}),
     }
+  }
+  /** An answer finished after the person last had the chat on screen (never since it was made: after it was made). */
+  unseen(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>): boolean {
+    const row = this.db.query("SELECT MAX(COALESCE(updated_at, created_at)) AS t FROM messages WHERE chat_id = ? AND role = 'assistant' AND status <> 'streaming'").get(r.id) as { t: string | null } | null
+    return !!row?.t && iso(row.t) > iso(r.seen_at ?? r.created_at)
+  }
+  /** The person has the chat on screen now: everything finished so far is seen. */
+  markSeen(id: string, at = new Date().toISOString()) {
+    this.db.query('UPDATE chats SET seen_at = ? WHERE id = ? AND (seen_at IS NULL OR seen_at < ?)').run(at, id, at)
   }
   /** A merge chat made at the end of the welcome steps whose turn waits for its person to open it (docs/DECISIONS.md
    * "W5"; skills/share-merge.ts startOpenedMerge). A database without the table reads as none. */

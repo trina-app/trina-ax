@@ -30,7 +30,8 @@ export function listTime(iso: string, locale: Locale, yesterday: string): string
 
 export default function Rooms() {
   const t = useT()
-  // a phone's sign-in lands here (signedInHome): the owner who left the welcome steps unfinished goes to them instead
+  // a phone's sign-in lands here when the app opens on 대화 (lib/tabs.ts START_TAB): the owner who left the welcome
+  // steps unfinished goes to them instead
   const resuming = useResumeOnLanding((useLocation().state as { landing?: unknown } | null)?.landing === true)
   const locale = useLocale()
   const rooms = useRooms((s) => s.rooms)
@@ -56,7 +57,8 @@ export default function Rooms() {
       </div>
       <div className="mx-auto w-full max-w-2xl">
         <ul className="divide-y divide-line border-b border-line max-md:divide-y-0 max-md:border-b-0">
-          <li>
+          {/* computers only: a phone has the AI as its own tab (트리나), first in the tab bar */}
+          <li className="max-md:hidden">
             <Link to="/" className={row} data-testid="rooms-ai">
               <img src="/favicon.svg" alt="" aria-hidden className="size-10 shrink-0 rounded-full" />
               <span className="min-w-0 flex-1">

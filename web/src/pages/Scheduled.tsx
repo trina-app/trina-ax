@@ -493,10 +493,11 @@ export function ScheduledTask() {
     <div className="flex h-full flex-col overflow-y-auto">
       <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6" testId="scheduled-topline">
         <nav aria-label={t('files.breadcrumb')} className="flex min-w-0 items-center gap-1.5 text-sm">
-          <Link to="/scheduled" className="shrink-0 text-muted hover:text-ink">{t('settings.schedules')}</Link>
+          {/* phones: the top bar above says 예약 작업, with its ‹ (components/PhoneTopBar.tsx) */}
+          <Link to="/scheduled" className="shrink-0 text-muted hover:text-ink max-md:hidden">{t('settings.schedules')}</Link>
           {s && (
             <>
-              <span className="text-faint" aria-hidden>/</span>
+              <span className="text-faint max-md:hidden" aria-hidden>/</span>
               <TitleMenu
                 name={scheduleName(s, t)}
                 testId="schedule-menu"

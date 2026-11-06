@@ -46,7 +46,7 @@ function ownChat(rt: ChatRuntime, auth: AuthInfo, id: string, o: { deleted?: boo
 /** A chat as the API shows it: a stored connection secret of its person never shows in the title (a title made before
  * the key was saved, or a rename; QA B-W5-1). `hide`: one redactor for a whole list. */
 function chatOut(rt: ChatRuntime, r: ChatRow, hide: (s: string) => string = redactorFor(rt.ctx, r.user_id).hide): Chat {
-  const c = rt.store.toChat(r, rt.runState(r.id))
+  const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id))
   return { ...c, title: hide(c.title) }
 }
 
@@ -193,6 +193,15 @@ export const chatsRoutes: RouteModule = {
     })
 
     kit.handle(API.getChat, ({ params, auth }) => chatOut(rt, ownChat(rt, auth, params.id, { deleted: true })))
+    // the person has the chat on screen: its finished answers are seen; every window and device hears it (chat.updated)
+    kit.handle(API.markChatSeen, ({ params, auth }) => {
+      const chat = ownChat(rt, auth, params.id, { deleted: true })
+      const was = rt.store.unseen(chat)
+      rt.store.markSeen(chat.id)
+      // only a change is told; a chat in the trash is not in any sidebar (an 'updated' would put it back there)
+      if (was && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
+      return chatOut(rt, rt.store.chatRow(chat.id)!)
+    })
     kit.handle(API.getChatQueue, ({ params, auth }) => rt.queueSnapshot(ownChat(rt, auth, params.id, { deleted: true }).id))
 
     kit.handle(API.updateChat, ({ c, params, body, auth }) => {

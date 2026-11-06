@@ -15,6 +15,7 @@ import { api, API, errorText } from '../lib/api'
 import { platform } from '../lib/pwa'
 import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
+import { aiName } from '../lib/tabs'
 import { useUi } from '../store/ui'
 import { useEdgeFade, useFocusTrap } from './ui'
 import { contentQueryReady } from './FileContentSearch'
@@ -200,7 +201,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
 
   const actions: Row[] = useMemo(() => {
     const list: Row[] = [
-      { key: 'act:chat', kind: 'action', icon: MessageSquarePlus, title: t('sidebar.newChat'), href: '/' },
+      { key: 'act:chat', kind: 'action', icon: MessageSquarePlus, title: t('sidebar.askAi', { name: aiName(t) }), href: '/' },
       { key: 'act:project', kind: 'action', icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
       { key: 'act:schedule', kind: 'action', icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
     ]

@@ -127,7 +127,8 @@ export default function Skills() {
     <div className="flex h-full flex-col overflow-y-auto">
       <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
         <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="skills-header">
-          <h1 className="text-xl font-semibold tracking-tight">{t('skills.title')}</h1>
+          {/* phones: the top bar says the name (components/PhoneTopBar.tsx) */}
+          <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{t('skills.title')}</h1>
           {overview && <Tabs segmented value={current} onChange={setTab} items={tabs} label={t('skills.title')} panels={panels} />}
           {overview && current === 'skills' && (
             <div className="relative w-full sm:ml-auto sm:w-56">

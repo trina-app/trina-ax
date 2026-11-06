@@ -5,21 +5,23 @@
 // `onClose` goes back to that page. On a computer /settings opens on the profile, with the list beside it. On a phone it
 // is the 나 tab (BottomTabs.tsx opens /settings): it fills the screen above the tab bar (the bar is the way out, no ✕)
 // and opens on its list (no search box): the person's photo, name and title on top, which open the profile (the list's
-// own "프로필" row is left out there), then the sections, with MCP, app connectors and AI connections behind one
+// own "프로필" row is left out there), then what needs me: 알림함 with its unread count (the 알림 section, whose own row
+// is left out there) and, for admins, 관리자; then the sections, with MCP, app connectors and AI connections behind one
 // "더 보기" row at the end of their group (they open in place). A section on a phone has a ← back to the list and its
 // own name in the bar (its page keeps that heading for screen readers only, so the name is not said twice on screen;
 // "설정" stays the dialog's name). A page under a section (`page`:
 // /settings/account/delete, the account deletion request under the profile) keeps its section marked in the list, and
 // its way back goes to that section. Admin stays its own page.
 import clsx from 'clsx'
-import { ArrowLeft, ChevronDown, LogOut, Search, X } from 'lucide-react'
-import { Fragment, lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
+import { ArrowLeft, Bell, ChevronDown, LogOut, Search, Shield, X } from 'lucide-react'
+import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, API } from '../../lib/api'
 import { browserSettingsBridge } from '../../lib/desktop'
 import { useT } from '../../i18n'
 import { SETTINGS_GROUPS, sectionMatches, settingsTabs } from '../../pages/settingsTabs'
-import { useMeStrict } from '../../store/session'
+import { useInboxUnread } from '../../store/inbox'
+import { isAdmin, useMeStrict } from '../../store/session'
 import { IconButton, Spinner, inputCls, menuOpener, useFocusTrap, useMediaQuery } from '../ui'
 import { Avatar } from '../Avatar'
 import { BottomTabs } from '../BottomTabs'
@@ -32,6 +34,10 @@ const ADVANCED = new Set(['integrations', 'connectors', 'ai-apps', 'providers'])
 /** sections whose page starts with its own title row that stays (MCP's title beside its tabs, AI providers' card):
  * the phone's bar keeps "설정" there instead of saying the name twice */
 const OWN_TITLE = new Set(['integrations', 'providers'])
+/** sections a phone's list shows on top instead of in their group: the profile (the photo row) and 알림 (알림함) */
+const PHONE_TOP = new Set(['profile', 'notifications'])
+/** a row of the phone's list */
+const phoneRow = 'flex h-11 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2'
 
 let openedFrom: HTMLElement | null = null
 /** What gets the keyboard back when the dialog closes, said by whatever opens it when that is not what has focus by
@@ -51,6 +57,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   const t = useT()
   const me = useMeStrict()
   const logout = useLogout()
+  const inbox = useInboxUnread()
   // phones (below 768 px, the width of the phone top bar and tabs): the list first, its photo row, no search box
   const phone = useMediaQuery('(max-width: 767.98px)')
   const params = useParams()
@@ -97,8 +104,10 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
   const current = tab ?? 'profile'
-  // phones: the open section's name in the bar (not for a page under a section: that page has its own title)
+  // phones: the open section's name in the bar (not for a page under a section: that page has its own title); 알림 is
+  // reached from the 알림함 row there, so it keeps that name
   const section = tab && !page && !OWN_TITLE.has(tab) ? tabs.find((x) => x.id === tab) : undefined
+  const sectionName = section ? t(section.id === 'notifications' ? 'inbox.title' : section.label) : ''
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 md:p-6 dark:bg-black/60" onMouseDown={onClose}>
@@ -125,7 +134,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
           </h2>
           {section && (
             <p aria-hidden className="min-w-0 flex-1 truncate px-1 font-semibold md:hidden" data-testid="settings-section-title">
-              {t(section.label)}
+              {sectionName}
             </p>
           )}
           <IconButton label={t('common.close')} className="max-md:hidden" onClick={onClose} data-testid="settings-close">
@@ -157,23 +166,39 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
                 </span>
                 <span className="sr-only">{t('settings.profile')}</span>
               </Link>
+              {/* phones: what needs me, first: the Inbox with its count (the same count as on the 나 tab) and Admin */}
+              <div className="mb-3 space-y-0.5 md:hidden" data-testid="settings-phone-top">
+                <NavLink to="/settings/notifications" replace className={({ isActive }) => clsx(phoneRow, isActive && 'bg-hover font-medium')} data-testid="settings-inbox">
+                  <Bell size={16} className="shrink-0 text-muted" aria-hidden /> {t('inbox.title')}
+                  {inbox > 0 && (
+                    <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="settings-inbox-unread">
+                      <span aria-hidden>{inbox > 99 ? '99+' : inbox}</span>
+                      <span className="sr-only">{t('notifications.unread', { count: inbox })}</span>
+                    </span>
+                  )}
+                </NavLink>
+                {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
+                <PhonePushLine />
+                {isAdmin(me) && (
+                  <Link to="/admin" className={phoneRow} data-testid="settings-admin">
+                    <Shield size={16} className="shrink-0 text-muted" aria-hidden /> {t('sidebar.admin')}
+                  </Link>
+                )}
+              </div>
               {groups.map((g, i) => (
                 <div key={g[0]!.group} role="group" aria-labelledby={`settings-group-${g[0]!.group}`} className={clsx('space-y-0.5', i > 0 && 'mt-3')} data-testid={`settings-group-${g[0]!.group}`}>
                   <p id={`settings-group-${g[0]!.group}`} className="px-3 pb-1 text-xs text-faint">{t(`settings.group.${g[0]!.group}`)}</p>
                   {g.map((x) => (
-                    <Fragment key={x.id}>
-                      <NavLink
-                        to={`/settings/${x.id}`}
-                        replace
-                        className={({ isActive }) =>
-                          clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ((ADVANCED.has(x.id) && !more) || x.id === 'profile') && 'max-md:hidden')
-                        }
-                      >
-                        <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
-                      </NavLink>
-                      {/* the phone app with its notifications off in the phone's Settings: says so, with the way there */}
-                      {x.id === 'notifications' && <PhonePushLine />}
-                    </Fragment>
+                    <NavLink
+                      key={x.id}
+                      to={`/settings/${x.id}`}
+                      replace
+                      className={({ isActive }) =>
+                        clsx('flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm hover:bg-hover focus-visible:-outline-offset-2 max-md:h-11', (isActive || (x.id === 'profile' && !tab) || x.id === tab) && 'md:bg-hover md:font-medium', isActive && 'bg-hover font-medium', ((ADVANCED.has(x.id) && !more) || PHONE_TOP.has(x.id)) && 'max-md:hidden')
+                      }
+                    >
+                      <x.icon size={16} className="shrink-0 text-muted" aria-hidden /> {t(x.label)}
+                    </NavLink>
                   ))}
                   {/* phones: the rarer sections of this group open here, in place */}
                   {!more && g.some((x) => ADVANCED.has(x.id)) && (

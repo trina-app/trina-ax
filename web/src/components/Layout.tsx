@@ -1,17 +1,15 @@
 // App frame: sidebar (drawer on phones), the page, and the right-hand panel (artifact / file preview / browser),
 // which is a full-screen sheet below 768 px. Also: connection banner, keyboard shortcuts, the new-version reload.
 import clsx from 'clsx'
-import { Menu, MessageCirclePlus, MessageSquarePlus, ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
+import { ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { mayReloadNow } from '../lib/reload-guard'
-import { api, API } from '../lib/api'
 import { setNavigator } from '../lib/nav'
 import { closeSidePanel, keepsFilePanel, openArtifact, setSidePanel, typingOnPhone, useSidePanel } from '../lib/sidePanel'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
-import { accessChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { useMe } from '../store/session'
 import { useUi } from '../store/ui'
 import OfficeUpdateBanner from './OfficeUpdateBanner'
@@ -19,12 +17,13 @@ import ManagedNoticesBanner from './ManagedNoticesBanner'
 import ScheduleReviewBanner from './ScheduleReviewBanner'
 import SearchDialog from './SearchDialog'
 import Sidebar from './Sidebar'
-import { BottomTabs, hidesTabs } from './BottomTabs'
+import { BottomTabs } from './BottomTabs'
+import { PhoneTopBar } from './PhoneTopBar'
 import { PhonePushAsk } from './settings/PushNotifications'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
-import { IconButton, Spinner } from './ui'
+import { Spinner } from './ui'
 
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
 const FilePanel = lazy(() => import('./FilePanel'))
@@ -39,7 +38,6 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const autoOpen = useChats((s) => s.autoOpen)
-  const unread = useUnreadInbox()
   // the team chat rooms: the list (sidebar group, the phone tab's count) stays loaded while the app is open
   useRoomsSync()
 
@@ -134,31 +132,8 @@ export default function Layout() {
           </div>
         )}
         <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
-          {/* inside a room or an AI chat its own header (with its back arrow) is the only bar on a phone */}
-          <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 md:hidden', hidesTabs(location.pathname) && 'hidden')}>
-            {/* the Inbox count lives in the drawer: a dot on the menu button says that something is unread */}
-            <IconButton
-              label={unread > 0 ? `${t('sidebar.open')} (${t('notifications.unread', { count: unread })})` : t('sidebar.open')}
-              onClick={() => setDrawer(true)}
-              className="touch-hit relative"
-              data-testid="menu-open"
-            >
-              <Menu size={20} />
-              {unread > 0 && <span className="absolute top-1 right-1 size-2.5 rounded-full bg-accent ring-2 ring-canvas" aria-hidden data-testid="menu-unread" />}
-            </IconButton>
-            {/* the 대화 list: its own name here (no second title row on the page) and a new room chat (a DM or a group chat) instead of a new AI
-                chat (the AI chat is pinned on top of the list) */}
-            <span className="flex-1 truncate text-center text-sm font-semibold">{location.pathname === '/rooms' ? t('tabs.chats') : PRODUCT.displayName}</span>
-            {location.pathname === '/rooms' ? (
-              <IconButton label={t('rooms.newChat')} onClick={() => navigate('/rooms?new=1', { replace: true })} className="touch-hit" data-testid="topbar-new-dm">
-                <MessageCirclePlus size={20} />
-              </IconButton>
-            ) : (
-              <IconButton label={t('sidebar.newChat')} onClick={() => navigate('/')} className="touch-hit" data-testid="topbar-new-chat">
-                <MessageSquarePlus size={20} />
-              </IconButton>
-            )}
-          </div>
+          {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}
+          <PhoneTopBar />
           <div className="min-h-0 flex-1">
             {/* a page that cannot be loaded after a server update: here, with the sidebar still there (another page resets it) */}
             <ChunkErrorBoundary resetKey={location.pathname}>
@@ -167,7 +142,7 @@ export default function Layout() {
           </div>
           {/* the phone app's own question before the OS prompt (only while the OS has not been asked) */}
           <PhonePushAsk />
-          {/* phones: 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
+          {/* phones: 트리나 · 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
           <BottomTabs />
         </main>
         {panel && (
@@ -217,28 +192,6 @@ function DevModeBanner() {
       {t('dev.banner')}
     </div>
   )
-}
-
-/** The unread Inbox count for the phone top bar (the sidebar asks for it in the same way). Phones only: the wide
- * screen shows the count in the sidebar itself. */
-function useUnreadInbox() {
-  const [unread, setUnread] = useState(0)
-  const [phone, setPhone] = useState(() => typeof window !== 'undefined' && !!window.matchMedia && !window.matchMedia('(min-width: 768px)').matches)
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return
-    const mq = window.matchMedia('(min-width: 768px)')
-    const h = () => setPhone(!mq.matches)
-    mq.addEventListener?.('change', h)
-    return () => mq.removeEventListener?.('change', h)
-  }, [])
-  useEffect(() => {
-    if (!phone) return
-    const load = () => api.call(API.listNotifications, { query: { limit: 1 } }).then((r) => setUnread(r.unreadCount), () => {})
-    void load()
-    const offs = [notificationsChanged.on(() => void load()), reloadAsked.on(() => void load()), accessChanged.on(() => void load())]
-    return () => offs.forEach((off) => off())
-  }, [phone])
-  return unread
 }
 
 /** "다시 연결 중" while the socket is down; after 30 s "팀 서버에 연결할 수 없음" (answers on screen stay). */
