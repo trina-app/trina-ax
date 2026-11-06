@@ -74,7 +74,8 @@ const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.sl
 const formats = new Map<string, Intl.DateTimeFormat>()
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const clockFormat = (timeZone: string) => new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', weekday: 'short', hour: '2-digit', minute: '2-digit' })
-/** The weekday (0 Sunday … 6 Saturday) and the minute of the day at `now` in `timeZone` (an unknown zone: UTC). */
+/** The weekday (0 Sunday … 6 Saturday; -1 when it cannot be read, which is no weekend) and the minute of the day at
+ * `now` in `timeZone` (an unknown zone: UTC). */
 export function zonedClock(now: number, timeZone: string): { weekday: number; minute: number } {
   let f = formats.get(timeZone)
   if (!f) {
@@ -82,9 +83,9 @@ export function zonedClock(now: number, timeZone: string): { weekday: number; mi
     if (formats.size > 50) formats.clear()
     formats.set(timeZone, f)
   }
-  let weekday = 0, hour = 0, minute = 0
+  let weekday = -1, hour = 0, minute = 0
   for (const p of f.formatToParts(new Date(now))) {
-    if (p.type === 'weekday') weekday = Math.max(0, WEEKDAYS.indexOf(p.value))
+    if (p.type === 'weekday') weekday = WEEKDAYS.indexOf(p.value)
     else if (p.type === 'hour') hour = Number(p.value) % 24
     else if (p.type === 'minute') minute = Number(p.value)
   }

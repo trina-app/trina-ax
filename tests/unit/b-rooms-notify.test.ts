@@ -7,6 +7,7 @@ import crypto from 'node:crypto'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { roomsOf } from '../../server/src/rooms/service'
+import { noticeWanted } from '../../server/src/rooms/alerts'
 import { zonedClock } from '../../shared/src/api/room-alerts'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
@@ -148,6 +149,10 @@ test('a room\'s own level: PATCH notifyLevel (members only, strict), muted in st
   hub.clear()
   await nora.client.call('PATCH', '/api/notification-preferences', { scheduleSuccess: false })
   expect(hub.events.filter((e) => (e.data as any).data?.code === 'room_alerts_changed')).toEqual([])
+  // a new team time zone: everyone's windows read their rooms' alerts again (the quiet hours are read in it)
+  await owner.call('PATCH', '/api/admin/settings', { timeZone: 'Asia/Tokyo' })
+  expect(hub.events.filter((e) => (e.data as any).data?.code === 'room_alerts_changed').map((e) => e.target).sort()).toEqual(['olga', ada.id, nora.id, otto.id, hub.users[2]].sort())
+  expect((await nora.client.call('GET', '/api/rooms')).alerts.timeZone).toBe('Asia/Tokyo')
 })
 
 test('notices: my default × room kinds × mentions, and each room\'s own level winning over it', async () => {
@@ -223,6 +228,21 @@ test('notices: replies in threads I follow (and the switch for them), mentions i
   expect(notices(team.id, otto.id)).toEqual([])
   await reply(mia.client, team.id, root.id, 'to the room too', { alsoInRoom: true })
   expect(notices(team.id, otto.id)).toEqual(['room.dm'])
+  // its push is checked again when it is sent: otto does not follow the thread, so at 멘션만 it no longer goes
+  const ottoNotice = (h.ctx.db.query('SELECT id FROM room_notices WHERE user_id = ? AND room_id = ? AND read_at IS NULL').get(otto.id, team.id) as { id: string }).id
+  expect(noticeWanted(h.ctx.db, ottoNotice)).toBe(true)
+  await level(otto.client, team.id, 'mentions')
+  expect(noticeWanted(h.ctx.db, ottoNotice)).toBe(false)
+  await level(otto.client, team.id, null)
+  // nora follows: her notice of a reply still goes at 멘션만, and not inside her quiet hours (nothing that waited is pushed)
+  await reply(mia.client, team.id, root.id, 'for the followers')
+  const noraNotice = (h.ctx.db.query("SELECT n.id FROM room_notices n JOIN room_messages m ON m.id = n.source_id WHERE n.user_id = ? AND n.room_id = ? AND n.read_at IS NULL AND n.event_type = 'room.dm' AND m.thread_root_id IS NOT NULL").get(nora.id, team.id) as { id: string }).id
+  expect(noticeWanted(h.ctx.db, noraNotice)).toBe(true)
+  updateTeamSettings(h.ctx.db, { timeZone: 'Asia/Seoul' })
+  await prefs(nora.client, { quietHours: windowAround(Date.now(), 'Asia/Seoul') })
+  expect(noticeWanted(h.ctx.db, noraNotice)).toBe(false)
+  expect(noticeWanted(h.ctx.db, noraNotice, Date.now() + 3 * 3_600_000)).toBe(true)
+  await prefs(nora.client, { quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } })
   // in a DM at 멘션만, a reply in a thread I follow still counts (a mention-level alert)
   const dmRoot = await send(nora.client, dm.id, 'dm root')
   await level(nora.client, dm.id, 'mentions')

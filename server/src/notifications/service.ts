@@ -15,6 +15,7 @@ import { shareCovers, shareRow } from '../integrations/google-drive/shares'
 import { eventEnabled, getPreferences, roomAlertsChanged, savePreferences } from './preferences'
 import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
+import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -287,7 +288,7 @@ export class Notifications {
     this.signal(userId)
     // every room's level and the quiet hours may have changed: the person's windows read their rooms again
     if (roomAlertsChanged(before, result)) {
-      try { this.ctx.services.realtime.publish(userId, { type: 'notice', data: { level: 'info', code: 'room_alerts_changed', message: '' } }) }
+      try { this.ctx.services.realtime.publish(userId, ROOM_ALERTS_CHANGED) }
       catch { this.ctx.log.warn('room alerts signal failed') }
     }
     return result

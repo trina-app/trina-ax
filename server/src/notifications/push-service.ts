@@ -153,7 +153,7 @@ export class PushService {
     const row=this.ctx.db.query(`SELECT event_type,created_at FROM ${src.inbox} WHERE id=? AND user_id=? AND suppressed=0 AND read_at IS NULL ${src.only}`).get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
     const prefs=this.ctx.db.query('SELECT enabled_at FROM push_preferences WHERE user_id=?').get(sub.user_id) as {enabled_at:string}|null
     if(!row||row.created_at<sub.created_at||row.created_at<(prefs?.enabled_at??this.iso())||Date.parse(row.created_at)+TTL_MS<=this.o.now()||!eventEnabled(getPreferences(this.ctx.db,sub.user_id),row.event_type))return null
-    if(src.wanted&&!src.wanted(this.ctx.db,notificationId))return null
+    if(src.wanted&&!src.wanted(this.ctx.db,notificationId,this.o.now()))return null
     return{sub,event:row.event_type}
   }
   private enqueue(keys:string[]){

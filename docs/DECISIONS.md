@@ -8251,7 +8251,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
   `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
   notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
-  (`roomMessages`), turns both off; per room there is mute. An edit notifies nobody.
+  (`roomMessages`), turns both off; per room there is mute (amended 2026-11-06: a default of three, thread replies,
+  quiet hours and four levels per room, see "대화방 알림 설정"). An edit notifies nobody.
 - **People directory.** The room screens use `GET /api/people` and the photo address from feat/profile (merged into this
   branch): one `Avatar` (feat/profile's, `web/src/components/Avatar.tsx`), one people store (`web/src/store/people.ts`,
   with the lookups the rooms need) and one quiet handler for `profile_changed` (no toast; the people list, once read,
@@ -10032,7 +10033,8 @@ web app's rooms and settings); no server change.
   applies to it as to a browser), and the page does the rest. Checked in desktop Chromium and with unit tests; not yet
   on an iPhone or an Android phone.
 - **The switch**: Settings › Notifications, one row "알림 소리 · 이 기기에서만" under a hairline below the server's event
-  choices (it is this device's, in localStorage `mycel.roomSound`, on by default, kept at sign-out like the theme).
+  choices (since "대화방 알림 설정": the row 알림 소리 in the section 이 기기, and what rings follows the room's level and
+  quiet hours) (it is this device's, in localStorage `mycel.roomSound`, on by default, kept at sign-out like the theme).
   It is not disabled while a server choice saves and shows even when those could not be read. Turning it on plays
   the chime once; searching Settings for 소리 / sound finds it. In all five languages.
 - **Not in this step.** The personal Inbox (scheduled results, skill suggestions, approvals) has no event that says "a
@@ -10564,13 +10566,16 @@ the settings do too. Naming (the owner's rule): the people's side is **대화** 
   longer holds the run back). Nothing that waited is pushed when they end (Slack does the same). Only room alerts are
   quiet: a scheduled task's result or a connection that needs a sign-in still pushes at night (they are rare and the
   person asked for them; a later step can widen it).
-- **Pushes are checked again.** A push of a room notice is sent only while the room's level still asks for it
+- **Pushes are checked again.** A push of a room notice is sent only while the room's level still asks for it (a
+  message notice below 모든 메시지 only for a reply in a thread I still follow) and outside my quiet hours at that moment
   (`rooms/alerts.ts noticeWanted`, before and after each send, like the other eligibility checks), and a change of my
-  default cancels what waits for a retry (`cancelDisabledPushDeliveries`); a change on a room's bell aborts a push on its
-  way (`cancelPushUser`).
+  settings cancels what waits for a retry (`cancelDisabledPushDeliveries`); a change on a room's bell aborts a push on its
+  way (`cancelPushUser`). In a browser the service worker no longer checks a switch of its own for room codes (it used
+  `roomMessages`, now false for 받지 않음, and would have dropped the push of a room at its own level, which iOS punishes
+  by taking the subscription away): the server's check is the one, the worker still shows only a current, unread notice.
 - **The app follows changes.** A preference change that touches rooms sends `notice room_alerts_changed` to my own
-  windows; they read the rooms list again (levels, quiet hours). A room's own level answers with the room and
-  `room.updated` to my windows only.
+  windows, and a new team time zone (Admin › Team settings) sends it to everyone's; they read the rooms list again
+  (levels, quiet hours, the zone). A room's own level answers with the room and `room.updated` to my windows only.
 - **Settings › Notifications, lean.** No frames: the inbox stays first (on a phone this page is the 나 tab's 알림함 row,
   feat/phone-nav), then three plain sections under a hairline, **대화** → **작업·연결 알림** (scheduled task done /
   failed, connection sign-in, team skill suggestions) → **이 기기** (알림 소리, 기기 푸시 알림), one row per setting with
@@ -10593,6 +10598,13 @@ the settings do too. Naming (the owner's rule): the people's side is **대화** 
 - **The older apps.** `roomMessages` stays in the preferences (false = 받지 않음; true brings 받지 않음 back to `direct`;
   `roomLevel` wins when both come) and `muted` in `PATCH /api/rooms/:id` (true = 끄기, false brings 끄기 back to the
   default). `Room.muted` now means 끄기, as before; the grey badge and the 대화 tab's count go by it, not by 받지 않음.
+- **Independent review (2026-11-06) fixes.** The service worker's room switch (above); a change made while the page
+  read the settings again after a save was kept on screen but never sent (now every change is sent, in order, and a read
+  never overwrites what is being saved); a waiting push re-checked the thread reply without asking whether I still follow
+  it, and not the quiet hours at the moment of sending; a new team time zone left open windows on the old one; the bell
+  menu's heading was a stray element inside the menu (now its accessible name, shown once); an unreadable weekday read
+  as Sunday (now no weekend); Indonesian rows say "kamu" like the rest. Left as is: Korean notice and lock-screen texts
+  say 언급 where the new rows say 멘션 (the owner's words for the settings; the room screens use both already).
 - **Not in this step.** Quiet hours for the other notices; a schedule per weekday; "30분 동안 알림 끄기" (snooze); the
   phone app's own notification settings (the OS's) and the desktop app's OS notices (rooms do not use them).
 - **Tests.** `tests/unit/room-alerts.test.ts` (levels × kinds × defaults, the alert rule with mentions, followed and
@@ -10604,6 +10616,8 @@ the settings do too. Naming (the owner's rule): the people's side is **대화** 
   zone and the run after them pushing, pushes re-checked and cancelled), the permission matrix (`updateRoom` with
   `notifyLevel`, `updateNotificationPreferences` with the new fields), `web/test/unit/room-notify.test.tsx` (the sound
   with the server's levels, thread replies, quiet hours and an older server; the bell's four choices; the page's order,
-  rows and saves; an older server's one switch; `room_alerts_changed`), and the e2e specs `room-sound`,
+  rows and saves, changes made during a save or the read after it; an older server's one switch;
+  `room_alerts_changed`), `web/test/unit/push-worker.test.ts` (a room notice shows with the default 받지 않음), and the
+  e2e specs `room-sound`,
   `schedule-notifications` and `push` updated for switches and rows.
 - Version impact: **minor** (new settings and an additive migration; nothing removed).

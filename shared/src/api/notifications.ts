@@ -16,8 +16,8 @@ export const NotificationPreferences = z.object({
   quietHours: QuietHours.optional(),
 })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
-/** Events that can also go to OS push. Room notices (room.dm: a DM message or a reply in a thread I follow,
- * room.mention: an @mention) are kept in
+/** Events that can also go to OS push. Room notices (room.dm: a message for me, by the room's level: a DM or group chat
+ * message, any message of a room at 모든 메시지, a reply in a thread I follow; room.mention: an @mention) are kept in
  * room_notices with their own deliveries (room_push_deliveries); the rest in notification_inbox (push_deliveries). */
 export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention'])
 /** The room notices among them (server/src/rooms/notices.ts). */

@@ -68,7 +68,9 @@ export function Notifications() {
       ])
       if (generation !== life.current || seq !== sequence.current) return
       setItems(previous => after && previous ? [...new Map([...previous, ...inbox.items].map(item => [item.id, item])).values()] : inbox.items)
-      setPreferences(prefs); setCursor(inbox.nextCursor); setUnread(inbox.unreadCount); setError(null)
+      // while my changes are being saved, the switches show them, not a read from before the last one landed
+      if (!writing.current) setPreferences(prefs)
+      setCursor(inbox.nextCursor); setUnread(inbox.unreadCount); setError(null)
     } catch (e) { if (generation === life.current && seq === sequence.current) setError(errorText(e, locale, t('error.network'))) }
     // useT returns a fresh function; its translations change only with locale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,9 +93,13 @@ export function Notifications() {
       for (let body: Partial<NotificationPreferences> | null = patch; body; body = queued.current, queued.current = null) {
         await api.call(API.updateNotificationPreferences, { body })
       }
-      if (generation === life.current) await load()
-    } catch (e) { queued.current = null; if (generation === life.current) { setPreferences(before); setError(errorText(e, locale, t('error.network'))) } }
-    finally { writing.current = false }
+    } catch (e) {
+      queued.current = null; writing.current = false
+      if (generation === life.current) { setPreferences(before); setError(errorText(e, locale, t('error.network'))) }
+      return
+    }
+    writing.current = false
+    if (generation === life.current) await load()
   }
   const read = async (item: InboxNotification) => {
     if (item.readAt) return

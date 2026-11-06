@@ -57,7 +57,9 @@ export function RoomNotifySettings({ prefs, onChange }: { prefs: NotificationPre
  * whole and the two differ. */
 function QuietHoursRow({ quiet, onChange }: { quiet: QuietHours; onChange: (q: QuietHours) => void }) {
   const t = useT()
-  const tz = useMeStrict().server.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+  // the zone the server reads quiet hours in: the rooms list's (kept fresh by room_alerts_changed), else the team's from /me
+  const listed = useRooms((s) => s.alerts?.timeZone), team = useMeStrict().server.timeZone
+  const tz = listed ?? team ?? Intl.DateTimeFormat().resolvedOptions().timeZone
   const [start, setStart] = useState(quiet.start), [end, setEnd] = useState(quiet.end)
   useEffect(() => { setStart(quiet.start); setEnd(quiet.end) }, [quiet.start, quiet.end])
   const same = start === end

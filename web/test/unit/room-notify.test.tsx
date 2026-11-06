@@ -78,6 +78,8 @@ const status = useSession.getState().status
 const sent: { key: string; body: any }[] = []
 let prefs: NotificationPreferences
 let roomsList: Room[] = []
+/** while set, reading the preferences waits for it (a slow server) */
+let holdPrefs: Promise<void> | null = null
 const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } })
 const defaults = (): NotificationPreferences => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct', roomThreadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } })
 beforeAll(() => {
@@ -88,7 +90,7 @@ beforeAll(() => {
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null
     sent.push({ key, body })
     if (key === 'GET /api/notifications') return json({ items: [], nextCursor: null, unreadCount: 0 })
-    if (key === 'GET /api/notification-preferences') return json(prefs)
+    if (key === 'GET /api/notification-preferences') { if (holdPrefs) await holdPrefs; return json(prefs) }
     if (key === 'PATCH /api/notification-preferences') { prefs = { ...prefs, ...body }; return json(prefs) }
     if (key === 'GET /api/push') return json({ configured: false, enabled: false, publicKey: null, subscriptionId: null })
     if (key === 'GET /api/rooms') return json({ items: roomsList, alerts: ALERTS })
@@ -199,6 +201,34 @@ test('Settings › Notifications: 대화 → 작업·연결 알림 → 이 기�
     expect(m.find('notification-sound')).toBeTruthy()
     expect(m.find('push-notifications')).toBeTruthy()
   } finally { await m.unmount() }
+})
+
+test('changes made while one saves or while the page reads the settings again are all sent, in order', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me } } as never)
+  prefs = defaults()
+  roomsList = []
+  const m = await mount(<MemoryRouter><Notifications /></MemoryRouter>)
+  try {
+    await m.until(() => m.find('notification-thread-replies'), 'the rows')
+    const patches = () => sent.filter((s) => s.key === 'PATCH /api/notification-preferences').map((s) => s.body)
+    // the read after the first save is slow; the second change comes meanwhile
+    let release!: () => void
+    holdPrefs = new Promise<void>((r) => { release = r })
+    await press(m, 'notification-thread-replies')
+    await m.until(() => patches().length === 1, 'the first PATCH')
+    // the save is done and the page is reading the settings again (held): now the second change
+    await m.until(() => sent.findLastIndex((s) => s.key === 'GET /api/notification-preferences') > sent.findIndex((s) => s.key === 'PATCH /api/notification-preferences'), 'the read after the save')
+    await press(m, 'notification-room-level-all')
+    await m.until(() => patches().length === 2, 'the second PATCH')
+    holdPrefs = null
+    release()
+    await m.settle(50)
+    expect(patches()).toEqual([{ roomThreadReplies: false }, { roomLevel: 'all' }])
+    expect(prefs).toMatchObject({ roomThreadReplies: false, roomLevel: 'all' })
+    // what shows is what was chosen
+    expect((m.get('notification-room-level-all') as unknown as { checked: boolean }).checked).toBe(true)
+    expect((m.get('notification-thread-replies') as unknown as { checked: boolean }).checked).toBe(false)
+  } finally { holdPrefs = null; await m.unmount() }
 })
 
 test('an older server (one switch for rooms): one row, the old switch', async () => {

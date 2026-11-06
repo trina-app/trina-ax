@@ -125,7 +125,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
         <div
           ref={menu}
           role="menu"
-          aria-label={label}
+          aria-label={heading ?? label}
           className={clsx(
             'z-30 border border-line bg-surface shadow-lg md:absolute md:right-0 md:rounded-lg md:p-1',
             header || heading ? 'md:w-max md:min-w-44' : 'md:w-44',
@@ -134,7 +134,8 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           )}
         >
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(null))}</div>}
-          {heading && <p className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
+          {/* the menu's name (aria-label above), shown: not one of its items */}
+          {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
           {items.map((it) => (
             <button
               key={it.label}

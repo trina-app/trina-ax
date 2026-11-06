@@ -21,6 +21,7 @@ import { isParkedRow, isTeamDefaultFolder } from '../admin/folder-keep'
 import { createGroup, deleteGroup, listGroups, updateGroup } from '../admin/groups'
 import { explainEdit, explainFolder, explainNewPerson, explainPerson, explainTree } from '../admin/access-explain'
 import { BROWSER_POLICY_CHANGED, enginesEnabled, getTeamSettings, LOCALE_CHANGED, setEnginesEnabled, SPEECH_CHANGED, updateTeamSettings } from '../admin/settings'
+import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { credentialsOf } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
@@ -321,6 +322,8 @@ export const adminRoutes: RouteModule = {
       if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
       // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)
       if ('timeZone' in changed) { try { getChatRuntime(ctx).schedules.recomputeAll() } catch {} }
+      // ...and everyone's quiet hours are read in it: the web app's sound takes the zone from the rooms list again
+      if ('timeZone' in changed) ctx.services.realtime.publishEach(() => ROOM_ALERTS_CHANGED)
       if ('concurrency' in changed) getChatRuntime(ctx).schedule()
       // desktop apps re-read the browser policy from GET /api/me (off: "Allow all websites" goes back to asking)
       if ('browserAllowAll' in changed) ctx.services.realtime.publishEach(() => BROWSER_POLICY_CHANGED)
