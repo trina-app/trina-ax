@@ -298,5 +298,5 @@ test('a share recorded on a row that is not there, or not an object, changes not
   expect(getSetting(h.ctx.db, WELCOME_SETTING) ?? null).toBeNull()
   setSetting(h.ctx.db, WELCOME_SETTING, 'broken')
   recordShared(h.ctx, ownerId, [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고', recommended: true }])
-  expect(getSetting(h.ctx.db, WELCOME_SETTING)).toBe('broken')
+  expect(getSetting<unknown>(h.ctx.db, WELCOME_SETTING)).toBe('broken')
 })
