@@ -1,5 +1,5 @@
 // Admin Home (/admin): what needs attention first (an engine that is on but broken, or not set up while it is the
-// team default or nothing else works; people who cannot use AI, an
+// team default; one line when no engine is set up; an engine at its limit when no people line says so; people who cannot use AI, an
 // AI connection or a service to sign in again, a disk filling up, a failed server check), then one card per area with
 // its state in a few words, each opening its page. It reads only what the admin pages already read, with the same
 // ranges (Usage: the last 30 days, as Admin > Usage opens); an area that cannot be read says so on its card and the
@@ -112,13 +112,19 @@ export default function Home() {
   const noAiEnds = noAiPeople.map((u) => users.data?.noAiUntil?.[u.id])
   const noAiEnd = noAiEnds.length && noAiEnds.every(Boolean) ? (noAiEnds as string[]).sort().at(-1) : undefined
   const openInvites = invites.data?.filter((i) => !i.usedAt && Date.parse(i.expiresAt) > Date.now()).length ?? 0
-  // An engine that is on but never set up (notSetUp) is not a problem while another engine answers: a team on Claude
-  // alone has nothing to fix. It is when it is the team default or when no engine works; a broken engine (error,
-  // untested version, failed lockdown, a refused API key) always is. A connection that stopped working has its own line
+  // An engine that is on but never set up (notSetUp) is not a problem while another engine is set up (answers, or only
+  // waits for a limit to end): a team on Claude alone has nothing to fix. It is when it is the team default; when no
+  // engine is set up at all, one line says so instead of one per engine. A broken engine (error, untested version,
+  // failed lockdown, a refused API key) always has its own line. A connection that stopped working has its own line
   // below (badCredentials).
-  const anyEngineOk = !!engines.data?.engines.some((e) => e.enabled && e.status === 'ok')
-  const badEngines = engines.data?.engines.filter((e) => e.enabled && e.status !== 'ok'
-    && (!anyEngineOk || e.id === engines.data?.defaultEngine || !notSetUp(e))) ?? []
+  const onEngines = engines.data?.engines.filter((e) => e.enabled) ?? []
+  const anyEngineSetUp = onEngines.some((e) => e.status === 'ok' || e.status === 'limited')
+  const badEngines = onEngines.filter((e) => e.status !== 'ok' && e.status !== 'limited'
+    && (notSetUp(e) ? anyEngineSetUp && e.id === engines.data?.defaultEngine : true))
+  const noEngine = !!engines.data && !anyEngineSetUp && onEngines.some(notSetUp)
+  // An engine at its limit: the people line (or a credential over its limit) already says it; else one line of its own.
+  const limitCovered = noAi.length > 0 || (credentials.data ?? []).some((c) => !c.disabled && c.state === 'over_limit')
+  const limitedEngines = limitCovered ? [] : onEngines.filter((e) => e.status === 'limited')
   const badCredentials = credentials.data?.filter((c) => !c.disabled && CREDENTIAL_PROBLEMS.includes(c.state)) ?? []
   const badServices = services.data?.filter((s) => s.status !== 'connected') ?? []
   const storageBad = !!storage.data && (storage.data.level !== 'ok' || storage.data.writesRefused)
@@ -134,6 +140,10 @@ export default function Home() {
 
   const attention: { key: string; text: string; to: string; actions?: ReactNode; job?: string | null }[] = [
     ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/providers' })),
+    ...(noEngine ? [{ key: 'no-engine', text: t('adminHome.noEngine'), to: '/admin/providers' }] : []),
+    ...limitedEngines.map((e) => ({ key: `engine-${e.id}`, to: '/admin/providers', text: e.limitedUntil
+      ? t('adminHome.engineLimit', { name: e.label, time: formatShortDateTime(e.limitedUntil, locale) })
+      : t('adminHome.engineLimitNoTime', { name: e.label }) })),
     ...(noAi.length ? [{ key: 'no-ai', to: '/admin/providers', text: noAiEnd
       ? t('adminHome.noAiLimit', { count: noAi.length, names: names(noAi), time: formatShortDateTime(noAiEnd, locale) })
       : t('adminHome.noAi', { count: noAi.length, names: names(noAi) }) }] : []),
@@ -217,7 +227,7 @@ export default function Home() {
             meta={names(active.map((u) => u.name))}
           />
           {/* the engines and the accounts they use are one page (AI providers) */}
-          <Area id="providers" to="/admin/providers" icon={Cpu} title={t('admin.providers')} state={engines} problems={badEngines.length + badCredentials.length + (noAi.length ? 1 : 0)}
+          <Area id="providers" to="/admin/providers" icon={Cpu} title={t('admin.providers')} state={engines} problems={badEngines.length + (noEngine ? 1 : 0) + limitedEngines.length + badCredentials.length + (noAi.length ? 1 : 0)}
             line={[defaultEngine && t('adminHome.default', { engine: defaultEngine }), t('adminHome.connections', { count: credentials.data?.length ?? 0 })].filter(Boolean).join(' · ')}
             meta={names(engines.data?.engines.filter((e) => e.enabled).map((e) => e.label) ?? [])}
           />
