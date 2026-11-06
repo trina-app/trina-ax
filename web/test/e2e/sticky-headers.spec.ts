@@ -120,7 +120,8 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
         const first = (await page.getByTestId('new-chat').boundingBox())!
         expect(first.y).toBeGreaterThanOrEqual(0)
       } else {
-        expect((await page.getByRole('button', { name: t['sidebar.open'] }).boundingBox())!.y).toBeGreaterThanOrEqual(0)
+        // Admin is a page under the 나 tab: its top bar has ‹ (no ☰ there)
+        expect((await page.getByTestId('topbar-back').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       }
       expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
     }

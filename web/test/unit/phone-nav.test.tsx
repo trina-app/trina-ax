@@ -45,6 +45,7 @@ const roomsBefore = useRooms.getState()
 const chatsBefore = { chats: useChats.getState().chats, requests: useChats.getState().requests }
 const inboxBefore = useInbox.getState().unread
 const drawerBefore = useUi.getState().drawerOpen
+const historyBefore = Object.getOwnPropertyDescriptor(globalThis, 'history')
 let inboxCount = 0
 beforeAll(() => {
   installDom()
@@ -71,7 +72,8 @@ afterEach(() => {
   useInbox.setState({ unread: inboxBefore })
   useUi.setState({ drawerOpen: drawerBefore })
   inboxCount = 0
-  delete (globalThis as Record<string, unknown>).history
+  if (historyBefore) Object.defineProperty(globalThis, 'history', historyBefore)
+  else delete (globalThis as Record<string, unknown>).history
 })
 
 /** The markup of a client render (the stores' and the language's current state; a server render reads their first) */
@@ -84,7 +86,7 @@ async function rendered(ui: ReactNode): Promise<string> {
 }
 
 /** history.state as React Router's browser history writes it: idx 0 is the document's first entry */
-const historyAt = (idx: number) => ((globalThis as Record<string, unknown>).history = { state: { usr: null, key: 'k', idx } })
+const historyAt = (idx: number) => Object.defineProperty(globalThis, 'history', { configurable: true, writable: true, value: { state: { usr: null, key: 'k', idx } } })
 
 describe('which tab an address belongs to', () => {
   test('the four tabs and their lists', async () => {

@@ -28,7 +28,7 @@ export function PhoneTopBar() {
   const home = path === '/' && !new URLSearchParams(search).has('project')
   const rooms = path === '/rooms'
   const titleKey = pageTitleKey(path)
-  const title = home || path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
+  const title = path === '/' ? aiName(t) : rooms ? t('tabs.chats') : titleKey ? t(titleKey) : ''
   return (
     <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-1 md:hidden" data-testid="phone-topbar">
       {home ? (

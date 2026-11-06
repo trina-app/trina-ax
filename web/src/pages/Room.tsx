@@ -34,11 +34,12 @@ export default function RoomPage() {
 
 function RoomNotFound() {
   const t = useT()
+  const backLink = useBackLink()
   return (
     <div className="flex h-full flex-col justify-center" data-testid="room-not-found">
       <EmptyState title={t('rooms.notFound')}>
         <p>{t('rooms.notFoundHint')}</p>
-        <Link to="/rooms" replace className="mt-3 inline-block font-medium text-accent-text underline">
+        <Link to="/rooms" replace onClick={backLink} className="mt-3 inline-block font-medium text-accent-text underline">
           {t('rooms.back')}
         </Link>
       </EmptyState>

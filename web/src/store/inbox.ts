@@ -10,16 +10,21 @@ export const useInbox = create<{ unread: number }>(() => ({ unread: 0 }))
 
 let watchers = 0
 let stop: (() => void) | null = null
+/** the newest read wins: an older answer that arrives late is dropped */
+let asked = 0
 
 function load() {
+  const n = ++asked
   api.call(API.listNotifications, { query: { limit: 1 } }).then(
-    (r) => useInbox.setState({ unread: r.unreadCount }),
+    (r) => n === asked && useInbox.setState({ unread: r.unreadCount }),
     () => {},
   )
 }
 
 function watch(): () => void {
   if (watchers++ === 0) {
+    // nothing on screen counted it meanwhile (another account may have signed in): no old count until the read
+    useInbox.setState({ unread: 0 })
     load()
     const offs = [notificationsChanged.on(load), reloadAsked.on(load), accessChanged.on(load)]
     stop = () => offs.forEach((off) => off())
