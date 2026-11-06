@@ -8791,3 +8791,162 @@ environment image (another developer; handoff below).
   from its parts); a proof without a picture is type and light (the references had a real chart and real customer
   messages); one AI pass writes the copy (the references' copy was edited by hand); the beds are library music cut to
   the grid, not scored to the edit, and no person has listened to the nine sounds in the videos yet.
+
+## D2 — The first result is the company's intro deck (feat/onboarding-deck, 2026-11-06)
+
+The owner, after the promo video round: "그냥 소개서를 만들어주는거는 어때 슬라이드 형식으로? 회사 웹사이트를 보고?", then
+"리서치하고 계획해서 해보긴 하자", with the standing bar "퀄리티 개 좋아야 해" (a plain bullet PPT was rejected outright). Then:
+"지금 상태로 일단 넣고 그다음 바꾸자" — this section describes what went in; the quality work still open is under "Next".
+Placement: Team AX core (onboarding, the chat tool, the artifact panel, two downloads). The letter: "D" for deck; "D2" is a
+section of its own, not a follow-up of D (the company profile), though the deck is built from that profile.
+
+### The owner's three decisions (the plan's recommendations), each one constant
+- **Pretendard is embedded in the PowerPoint file** (`EMBED_FONTS`, `intro-deck/pptx.ts`): Regular and Bold as the
+  family "Pretendard", ExtraBold as "Pretendard ExtraBold" (how Pretendard names its static faces), each whole, as
+  `ppt/fonts/*.fntdata` (an EOT header and the TrueType font, uncompressed, `intro-deck/eot.ts`), listed in
+  `p:embeddedFontLst`. Measured: the three fonts add 3.5 MB deflated; a deck with pictures is 3.6–6.3 MB.
+- **The look follows the brand colour** (`fittingThemes`, `intro-deck/theme.ts`): a colour that carries white type at
+  4.5:1 → `brand`; a vivid one that does not → `ink`; light, muted, grey or none → `paper`. The AI may pick another
+  look that fits; one that does not is replaced and the answer says so.
+- **No product mark on the slides**: nothing is drawn; the PDF's metadata names its maker (typst) only.
+
+### Slots, not design
+- `intro_deck` (C's registry, offered in every chat; the pack skill "회사 소개서" / "Company profile" uses it), input
+  `IntroDeckInput` (`shared/src/api/intro-deck.ts`, strict): title, company, website, brand colour, logo, theme,
+  `audience` (from the skill form; order and tone only, never a fact), 1–8 `sources`, and 6–10 slides of eleven kinds in
+  a fixed order: cover, about, needs, offer, numbers, products (up to twice), process, proof (names, a quote or a case),
+  history (turning points or certifications), contact last; one scene between the third slide and contact. Cover,
+  about, offer and contact are required. The AI never writes HTML, XML or typst.
+- **Checks** (`intro-deck/spec.ts`, every problem at once, the promo video's helpers reused from
+  `promo-video/spec.ts`): the order; every number on a slide written in the sources as a whole number, each stat exactly
+  as written; names (customers, partners, certifications, people) as written after NFKC, whitespace aside (a "name,
+  company" may have its parts apart); a quote word for word; email, phone, address and website as written in the
+  sources or the saved profile; "최고, 1위, 유일, 최초, No.1, best-in-class…" only when the sources use them; pictures
+  from a brand folder, PNG/JPEG/WebP by their bytes, each once, the logo only in `logo`, big enough for their place
+  (full bleed: landscape 1.3–2.4:1 and ≥ 1,600 px wide; half a slide ≥ 800 px on the short side; a card ≥ 400 px); no
+  full stop at the end of a headline; every line fits (below); no slide over 40 % text. A source whose SHA-256 is one of
+  the files this tool gave out (`intro_decks.pptx_sha256 / pdf_sha256`; the builds are byte-for-byte repeatable: no
+  clock inside) is refused, so a deck put back into the team folder never proves its own numbers. First failure: fix
+  every problem and call once more; second: stop and say why in one sentence; a third call is refused.
+- **Speaker notes** written by the server: each number and name on the slide with the file it stands in and the words
+  around it ("출처: 회사 소개.md — '…'"), so a salesperson can check before sending.
+
+### One layout, three outputs
+- `layout.ts` turns the checked slots and the theme into a display list (text with its lines already broken, pictures
+  with one crop rectangle per placement, solid or gradient rectangles, hairlines); every decision is made there once:
+  the variant of each slide (cover A full-bleed photo with scrims / B split / C type-only; offer A with a half-slide
+  picture / B ledger rows; products A picture cards / B tinted cards; proof A name wall / B pull quote / C before → action
+  → result; history A ledger / B certification list; numbers in one row, or two to a row for long figures), sizes,
+  crops, grounds (paper and brand never put three dark slides in a row: the numbers go light), vertical balance under
+  the title.
+- **The grid**: 1920 × 1080, margins 120 / 104 / 96, 12 columns with 40 px gutters; the eyebrow and the title in the
+  same place on every content slide. Pretendard only, weights 400 / 700 / 800; display 112 (128 type-only cover), title
+  64, card head 40, body 32 (16 pt), label 24 (+0.12 em), numbers up to 188 with the unit at 0.45×. Hairlines, no boxes
+  around body text except the tinted product cards, one corner radius per deck (paper 0, ink and brand 16). A starred
+  key phrase shows in the accent only on the cover, the about statement and the closing line (one accent per content
+  slide: its eyebrow).
+- **Fitting** (`text.ts`): lines break only at spaces (keep-all), balanced so no line ends with a lone one-character
+  word ("결정할 / 수" counts as longer), measured with Pretendard's advance widths (`promo-video/metrics.ts`, weight 400
+  added from the bundled static Regular TTF; its Bold reads within 1/1000 em of the Chromium-measured 700 row), each
+  line ≤ 1/1.1 of its box (Noto Sans KR's Hangul is 6.5 % wider; Malgun Gothic unmeasured). A text too long steps down
+  one size, then it is a problem with the slot named and the characters a line holds.
+- **The preview** (`html.ts`): absolutely placed elements on a stage scaled by container units, each line its own
+  `white-space: pre` element, every text escaped, pictures by team path (the panel inlines them), Pretendard from
+  `/vendor/fonts/pretendard.css` (a new file, family "Pretendard Web", the same woff2; `promo-video.css` stays for saved
+  videos). It pages: ← → / PageUp PageDown / Home End, a 40 px swipe, a click on the left or right third, a slim bar
+  ‹ 3 / 9 › with an `aria-live` counter, 160 ms slide-and-fade (none with reduced motion), each slide
+  `aria-roledescription` in the team's language; under 560 px every slide stands in one scrolling column. It shows once
+  the font is there (at most 1.5 s). The panel shows no code tab, copy, page download or "save to the team folder" for it
+  (the deck must not become team material by accident) and one [받기 ▾] with "PowerPoint (.pptx)" and "PDF".
+- **The PowerPoint file** (`pptx.ts`): our own writer on `files/zip-write.ts`, not pptxgenjs (it writes the GB2312
+  charset on every `<a:ea>`, has no gradients, no line-break control and no font embedding; unmaintained since
+  2025-06). One master, one blank layout, theme fonts Pretendard with 맑은 고딕 as the Hangul script font; one text box
+  per paragraph, our breaks as `<a:br/>`, exact line spacing, `lang` per team language with the Hangul charset (-127),
+  `eaLnBrk="0"` (inferred from the documentation; unverified in PowerPoint), one-line labels `wrap="none"`, boxes 12 %
+  wider than their column into the gutter (a viewer's wider substitute face must not break a Hangul word); pictures with
+  `srcRect` from the layout's crop; speaker notes; `docProps` with the title and no author. **Gradients are pictures**:
+  Apple's renderer (Quick Look, the Mac and iPhone preview of an attachment) drew a `gradFill`'s transparent stops as
+  opaque black over the cover photo, so scrims and the ink glow are small PNGs with alpha stretched to their rectangle
+  (measured fix; a plan deviation from "rects with gradFill").
+- **The PDF** (`typst.ts`): each line `place`d at its baseline in its own unconstrained box (typst breaks Hangul between
+  syllables and must never wrap), pictures in clipped boxes offset by the crop, gradients native, every string a typst
+  string literal in code mode. Run like `make_file`: isolated, `--root` the work folder, `--font-path` the bundled
+  Pretendard (and Noto Sans CJK on Linux), `typstJobs()`, 120 s. Measured: 0.1–0.55 s for 7–10 slides on this Mac,
+  71 KB (no pictures) to 2.7 MB.
+- **Fonts shipped**: the static Pretendard 1.3.9 TTFs (Regular, Bold, ExtraBold; 8 MB) in `resources/fonts/pretendard/`,
+  copied into every Linux bundle's `fonts/`; typst uses the same TTFs (no separate OTFs: one set of files instead of the
+  plan's two). The notice names all four Pretendard files; `BUNDLED_FONTS` now always asks for it in a Linux bundle.
+
+### Downloads and storage
+- `GET /api/intro-decks/:id` (title, theme, slide count, `pptx: true`, `pdf` only where typst and the fonts are),
+  `/pptx`, `/pdf`; the chat's owner only. Built on demand from `intro_decks` (migration 235: `artifact_id, chat_id,
+  user_id, spec, pptx_sha256, pdf_sha256, created_at`), never from the artifact's HTML, with the pictures the chat's owner
+  can read at build time (one no longer readable makes that slide type-only). Kept as `<data>/intro-decks/<artifact
+  id>.pptx|.pdf`; removed when the chat is purged (`forgetIntroDecks`). Not saved into team files.
+
+### The welcome step
+- The first result runs "/intro-deck 우리 회사 소개서 만들어 줘" with the same material as before (the owner's upload or
+  회사 소개.md, the brand images folder) in a chat titled "우리 회사 소개서" (five locales); the general pack records
+  `introDeckPath` (installed on its own once for a row recorded before the skill); [팀에 공유] carries `/intro-deck`, so
+  members' runs count for the 7-day goal. Promo video and card news stay installed.
+- **The video hook, not built**: `deckToPromoInput` (`intro-deck/promo.ts`, tested) maps a checked deck to the promo
+  video's slots; `ResultSuggestion` has `deck-video`, never returned while `DECK_VIDEO_SUGGESTION = false`. When on: the
+  video line first under the first deck, then the [팀에 공유] bar. The owner said 10 s; the video is 18.5 s.
+
+### The gate (2026-11-06, real AI on this Mac's Claude Code login, dev servers with their relays)
+- Six teams: a large manufacturer's site, a café on its own site, a Korean B2B SaaS, ax.trina.app, an English SaaS, and
+  a 20-page company PDF uploaded without a website. Website reading 36–42 s. From the first-result button to the deck on
+  screen: 35, 36, 48, 64, 77, 85 s (p50 ≈ 56 s; the upload case slowest); answer done 2–10 s later. Looks chosen: paper ×2
+  (no brand colour, a near-black logo colour), brand ×2 (navy, violet), ink ×2 (orange, amber).
+- 4 of 6 needed the one rewrite (target ≤ 1 in 4): three from layout limits (a 7-digit figure in a 4-up row, a full web
+  address on the contact slide, a long product body in a four-card row: all three relaxed since: figures go two to a row,
+  addresses show without "https://", four-card bodies take four lines) and two from facts (a quote not word for word; a
+  person written with their outlet). After the relaxing, the three layout problems lay out without a problem.
+- PPTX on the first click 131–328 ms (then 5 ms from the cache), PDF 120–550 ms.
+- Looked at every slide at full size (HTML, PDF, LibreOffice with and without Pretendard, Quick Look) next to the plan's
+  reference decks. Found and fixed during the gate: Quick Look's opaque gradients (above); titles accented on every
+  slide (accent now cover/about/closing only); a photo's own lettering under the cover headline and the scene line
+  (stronger scrims where the type sits); a pill whose text wrapped in a substitute font.
+
+- **A browser walk** (390 × 844, then 1440 × 900, a fresh team, AI on): setup → the website → "자료 없이 만들게요" → the
+  deck opened by itself as a full-screen sheet 66.5 s later (one rewrite of about 35 s included); arrows, Home/End, the
+  › button, a swipe and a right-third click page it on a computer; both downloads came through (a 4.9 MB .pptx, a
+  7-page PDF); [팀에 공유] → the invite message. Fixed after it: product card names on one line across the row.
+- **Found by the tests, fixed**: a company name without a logo longer than about eight Hangul syllables did not fit its
+  one line on the cover and contact slides (it now takes two lines in a wider box); the secondary type on some brand
+  grounds fell under 4.5:1 (dim is now held at 4.5:1 and mute at 3:1 on every ground); a typst path that does not exist
+  offered the PDF; "previous" was not disabled on the first slide.
+
+### Verified and not
+- Verified here: the PPTX opens in LibreOffice 26.8 and Quick Look, and python-pptx reads and saves it. **The embedded
+  fonts load in LibreOffice**: with no Pretendard on the system its PDF export uses Pretendard-Regular, -Bold and
+  -ExtraBold taken from the file (`pdffonts`), and the same deck written without embedding falls back to Linux
+  Libertine; the PDF in typst/pdftoppm; the HTML in Chrome. LibreOffice adds a space between Hangul and Latin or
+  digits ("30 년"); it is LibreOffice's Asian-text spacing, not in the file.
+- **Not verified on this Mac**: PowerPoint (Windows or Mac) actually loading the embedded fonts and honouring
+  `eaLnBrk="0"`; Keynote; the Google Slides import. Without Pretendard, Apple's renderers (Quick Look, Keynote) set the
+  Hangul in a serif face (AppleMyungjo; tried: panose, pitchFamily, the theme's Hangul font — only an installed font's
+  name changes it), and lines may break inside words there; the PDF is the format that looks the same everywhere.
+
+### Rejected
+- pptxgenjs (above). python-pptx (Python packages on every customer server). LibreOffice (375–469 MB, and it dropped the
+  Hangul without the font). HTML → PDF with Chrome (no Chrome on hosted Linux). A designer's master .pptx filled with
+  pptx-automizer (PPTX only: the preview and the PDF would need a second design, and its overflow cannot be measured).
+
+### Next (quality work still open)
+- Covers and section slides with more character: a type-only cover is a logo, a bar and a headline; the references use
+  stronger typographic devices and real product imagery.
+- Pictures: the website's pictures are often banners with lettering or small; crop to the subject, recolour or drop
+  them; a logo that is an app icon on its own dark square reads small on the ink ground (crop to its mark).
+- Apple's and Google's renderers without Pretendard (serif fallback); measure Malgun Gothic and check PowerPoint for
+  Windows with the embedded fonts and `eaLnBrk`; a person on the team to open one deck in PowerPoint and Keynote.
+- Rewrite rate: fewer first-try failures (the skill's limits per slot, quotes and attributions); a failed first call
+  shows as a red failed step under the answer although the second call made the deck.
+- On a phone the stacked slides' small type (labels, page numbers) is about 4 px; on a computer the panel leaves empty
+  space under the 16:9 stage, and the keys work only after a click inside the frame.
+- A WebP picture or logo (the website reading keeps small WebP files as they are) shows in PowerPoint 365 and
+  LibreOffice but as an empty box in Quick Look; convert WebP to PNG or JPEG when the PowerPoint file is built (needs a
+  decoder on hosted Linux, which has no ffmpeg). The contact slide's offer pill can overflow its pill in a wider
+  substitute face.
+- The toast when a picture became type-only at download time (the info answer could say how many).
+- The video hook (`DECK_VIDEO_SUGGESTION`) and pictures from an uploaded PPTX's `ppt/media/`.
