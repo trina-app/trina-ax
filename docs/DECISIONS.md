@@ -126,7 +126,7 @@
 - **링크 주소**: 초대 `<origin>/invite/<token>`, 재설정 `<origin>/reset-password/<token>`(D가 이 경로를 쓴다). origin은 요청의 Origin이 이 서버·`publicOrigins`일 때 그것, 아니면 `publicOrigins[0]`, 아니면 요청 주소.
 - **초대 기본 유효 기간 7일**(1·5번 탭; 계약 기본값 72시간을 168시간으로). 1회용(동시 수락도 한 번만), 사용한 초대는 취소할 수 없다. 취소한 초대는 목록에서 뺀다. admin 역할 초대는 owner만.
 - **첫 owner 만들기**: `POST /api/setup`(설정 토큰, 사용자가 0명일 때만, 즉시 트랜잭션 안에서 다시 확인)과 CLI `bun run admin create-owner --username … --name … --team … < 비밀번호`(비밀번호는 stdin으로만). 성공하면 설정 토큰 파일을 지운다. 기본 폴더 `shared/`(everyone 쓰기)·`skills/`(everyone 읽기, admin 역할 쓰기)와 `groups/`·`projects/`·`users/<owner>/`를 만든다.
-- **역할 규칙**: admin을 만들고·바꾸고·지우고·초기화하는 것은 owner만. **계정 삭제는 owner만**(4번 탭 `DELETE /api/admin/users/:id` "owner만"): admin은 member를 비활성화하고 비밀번호를 초기화하는 데까지다. 계약(`auth: 'owner'`), 서버 함수 `deleteUser`, 화면(삭제 버튼은 owner에게만) 세 곳에서 막는다. 전에는 owner가 아닌 admin도 member 계정을 지울 수 있었다(세션 종료·채팅·메모리 정리·개인 폴더 이동). owner 계정은 관리 API로 바꾸거나 지울 수 없고(넘기기만, 비밀번호 재확인), 자기 역할·상태는 바꿀 수 없다. 아이디는 대소문자 구분 없이 유일.
+- **역할 규칙**: admin을 만들고·바꾸고·지우고·초기화하는 것은 owner만. **계정 삭제는 2026-11-06 owner 결정으로 admin도 한다**: admin은 member 계정(활성·비활성)을 지울 수 있고, admin 계정은 owner만 지운다(그 전에는 4번 탭 "owner만"대로 owner만 지웠다). 계약은 `auth: 'admin'`이고 역할은 서버 `guard()`가 본다. 화면은 그 행을 관리할 수 있는 사람(다른 동작과 같은 조건)에게 삭제를 보인다. 누가 지우든 개인 폴더는 owner 개인 폴더로 간다. owner 계정은 관리 API로 바꾸거나 지울 수 없고(넘기기만, 비밀번호 재확인), 자기 계정은 지울 수 없으며 자기 역할·상태도 바꿀 수 없다. 아이디는 대소문자 구분 없이 유일.
 - **계정 삭제는 묘비(tombstone)**: 바로 비활성 + 세션 종료 + 엔진 세션 초기화, 아이디(username)는 풀어서 다시 쓸 수 있게 하고 `users.id`(개인 폴더 이름)는 다시 쓰지 않는다. 채팅·메모리는 `chatTrashRetentionDays`(기본 7일) 뒤 정리하고, 사용량(turns)과 감사 기록의 이름은 남긴다. 개인 폴더는 `transfer`(기본)면 owner 개인 폴더 아래 `보관된 계정/<id>/`(팀 기본 언어)로 옮기고 `.attachments/`는 지운다. `delete`면 함께 지운다. 2번 탭의 "`보관/<이름>/` + owner만 쓰기 규칙"은 admin이 규칙과 상관없이 `users/` 밖 전부 쓰기라 owner 전용이 되지 않으므로, owner 개인 폴더 안에 두는 쪽을 골랐다.
 - **그룹 폴더 이름은 그룹 이름 그대로**(`groups/마케팅`), 이름 규칙에 걸리면 `groups/group-<id 끝 8자리>`. 그룹 이름을 바꿔도 폴더 이름은 그대로다(폴더 이름 바꾸기는 파일 API가 `folders.path`를 고친다). 그룹을 지우면 그 그룹 규칙과 예산이 지워지고 폴더는 남는다. 그래서 새 그룹은 이미 있는 폴더(디스크나 `folders`, 대소문자·유니코드 형태 무시)를 쓰지 않고 `<이름>-2`처럼 새 폴더를 만든다: 옛 그룹 폴더의 파일을 새 그룹이 이어받지 않게.
 - **폴더 경로는 디스크의 실제 이름으로 저장**: 관리자가 `PROJECTS/Apollo`라고 써도 권한 함수와 같은 걷기로 `projects/apollo`를 찾는다. `users/`·`users/**`·`.system`, 파일, 심볼릭 링크, 이름 규칙 위반은 거부. 같은 대상 규칙 두 번, 없는 그룹·사람은 400. 규칙 전부 지우기(`DELETE /api/admin/folders/:id`)는 `folders` 행까지 지우고 디스크 폴더는 남긴다.
@@ -8591,8 +8591,9 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Not deployed.
 - **App Review screens**: a native "offline" / "cannot reach your team" screen with Try again and Change team address
   (Korean and English by the phone's language). Account deletion starts inside the app: Settings › Profile › 계정 삭제
-  opens `/settings/account/delete` ("계정 삭제 요청"). Admins create accounts and only the owner deletes them, so the
-  person confirms and the owner (only the owner: admins cannot act on it) gets an in-app notice (no OS push) that opens
+  opens `/settings/account/delete` ("계정 삭제 요청"). The request is for the owner (since 2026-11-06 an admin may
+  delete a member's account too, see 역할 규칙 in A, but is not told of requests), so the
+  person confirms and the owner (only the owner) gets an in-app notice (no OS push) that opens
   Admin › Members at that person. Removing that person works as for anyone: the account goes and the personal files
   are archived for the owner (they are not deleted). The owner cannot ask (409; hand over the role first). Requests are
   idempotent, audited, at most five a day (migration 244).

@@ -12,14 +12,21 @@ const svg = fs.readFileSync(path.join(WEB, 'public', 'favicon.svg'), 'utf8')
 // edges match the mark (Trina: warm black #14110f). The logo's accent would hide its orange spark.
 const tile = svg.match(/<rect\b[^>]*\bfill="(#[0-9a-f]{3,8})"/i)?.[1]
 if (!tile) throw new Error('favicon.svg: no <rect fill="#…"> tile to use as the maskable background')
+// the mark's own scale inside favicon.svg's tile (its first scale(…)); full-bleed icons size the mark from it
+const markScale = Number(svg.match(/scale\(([\d.]+)\)/)?.[1] ?? 1)
+/** Full-bleed icons: the mark at this share of the square. The Trina mark reaches 0.45 of its box from the centre
+ * (its side corners), so at 0.82 it ends at 0.37 of the icon, inside the 0.40 safe circle of maskable icons (an Android
+ * mask can be a circle); macOS's Dock and iOS cut a rounder square and show it whole. It was 0.56, which left the
+ * logo small in the Dock with a wide black frame. */
+const FULL_BLEED_MARK = 0.82
 const out = path.join(WEB, 'public', 'icons')
 fs.mkdirSync(out, { recursive: true })
 
 const browser = await chromium.launch()
 const page = await browser.newPage()
 async function render(name: string, size: number, maskable: boolean) {
-  // maskable icons keep the logo inside the 80 % safe zone on a full-bleed background
-  const inner = maskable ? Math.round(size * 0.72) : size
+  // maskable icons keep the logo inside the 80 % safe zone on a full-bleed background (the tile's colour around it)
+  const inner = maskable ? Math.round(size * FULL_BLEED_MARK / markScale) : size
   const radius = maskable ? 0 : Math.round(size * 0.22)
   await page.setViewportSize({ width: size, height: size })
   await page.setContent(`<html><body style="margin:0;width:${size}px;height:${size}px;display:grid;place-items:center;background:${maskable ? tile : 'transparent'}">
