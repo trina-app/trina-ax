@@ -47,9 +47,9 @@ export default function ConnectorConnections() {
     {items && <>
       {!configured && items.length > 0 && <p className="text-sm text-muted">{t('connectors.disabled')}</p>}
       {resource && <div className="rounded-xl border border-line p-4"><p className="mb-1 text-sm font-medium">{t('connectors.address')}</p><code className="break-all text-sm">{resource}</code></div>}
-      {/* no connected app: the same empty state as the MCP tab (no frame around it); when the server has no connectors,
-          it says why. With the Slack line under it, only how to add one (when the server has connectors) */}
-      {items.length === 0 && !slack && <div data-testid="connectors-empty">
+      {/* no connected app: the same dashed empty card as the MCP tab (no frame on phones); when the server has no
+          connectors, it says why. With the Slack line under it, only how to add one (when the server has connectors) */}
+      {items.length === 0 && !slack && <div className="md:rounded-xl md:border md:border-dashed md:border-line" data-testid="connectors-empty">
         <EmptyState icon={<Plug size={26} aria-hidden />} title={t('connectors.empty')}>
           <p>{t(configured ? 'connectors.emptyHint' : 'connectors.disabled')}</p>
         </EmptyState>

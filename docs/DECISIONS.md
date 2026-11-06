@@ -9725,8 +9725,7 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   [다시 보내기] on phones) in place; reached as "달성했어요 · names ×". Above the greeting it read as a label of the
   greeting, and opening it moved the box. A project's new chat ("/?project=") shows neither, on every width.
 - **The folders are one row**, "내 AI가 볼 수 있는 폴더 5개 ›", that opens the list in a sheet; whether the AI may write a
-  folder is an icon, with the words once under the list (also on the desktop card, where "쓰기 가능" was on every
-  folder). **Two examples** as plain rows with an arrow up to the box: the first and the third (one to look, one to
+  folder is an icon, with the words once under the list (the desktop card keeps "쓰기 가능" on each folder). **Two examples** as plain rows with an arrow up to the box: the first and the third (one to look, one to
   write). Frequent questions, popular skills and the no-AI card lose their frames.
 - **The message box is a room's box on phones**: attach and voice inside it, the round accent send (Enter makes a new
   line there). The row under it stays only for the engine picker (not moved: that would change how an engine is

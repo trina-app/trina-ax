@@ -232,9 +232,9 @@ function AccessLegend({ folders }: { folders: ShownFolder[] }) {
  * Folders reached through a group or project rule (groups/마케팅, projects/x) are listed by their path.
  * users/ itself is only a way to reach personal folders, so the card shows the person's own folder (users/<id>,
  * where the AI saves by default) in its place, and the examples name team folders first.
- * Whether the AI may write a folder is an icon on it, and the words once under them (not "쓰기 가능" on every folder).
- * Phones (below 768px): no card, one row "내 AI가 볼 수 있는 폴더 5개 ›" that opens the list in a sheet, and two of the
- * examples as plain rows; from 768px the card with the folders and the three examples as boxes.
+ * Phones (below 768px): no card, one row "내 AI가 볼 수 있는 폴더 5개 ›" that opens the list in a sheet (whether the AI
+ * may write a folder is an icon on it, the words once under the list), and two of the examples as plain rows; from
+ * 768px the card with the folders (each with its "쓰기 가능" / "읽기 전용") and the three examples as boxes.
  */
 function FirstTime({ onExample }: { onExample: (text: string) => void }) {
   const t = useT()
@@ -294,12 +294,14 @@ function FirstTime({ onExample }: { onExample: (text: string) => void }) {
               <li key={f.key} className="inline-flex items-center gap-1.5 rounded-lg bg-subtle px-2.5 py-1.5 text-sm" title={f.title}>
                 <Folder size={14} className="text-accent-text" aria-hidden />
                 {f.name}
-                <Access write={f.write} />
+                <span className="inline-flex items-center gap-0.5 text-xs text-faint">
+                  {f.write ? <Pencil size={11} aria-hidden /> : <Lock size={11} aria-hidden />}
+                  {t(f.write ? 'files.canWrite' : 'files.readOnly')}
+                </span>
               </li>
             ))}
           </ul>
           {none}
-          <AccessLegend folders={shown} />
         </section>
       )}
       {/* phones: two plain rows with an arrow up to the box (the first and the third: one to look, one to write); from
