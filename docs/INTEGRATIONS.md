@@ -24,13 +24,20 @@ has a public origin for it: `server.json` `appConnectors: true` with `tunnel.hos
 `--public-host HOST --app-connectors`), or the environment variable `MYCEL_REMOTE_MCP_ORIGIN`, which wins when it is
 set. Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` scope also
 `write`, `edit`, `upload_file` and `create_upload_link`. All of them use the person's current folder permissions.
+With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_list`, `group_create`, `group_update` and
+`group_delete` (`remote-mcp/groups.ts`).
 
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
+- Group tools: offered on the consent page only to an owner or admin, as a checkbox that is off; a member's request
+  for `mcp:admin` is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
+  their grants for good. The changes call the Admin › Groups server functions (same checks, same audit lines plus
+  `via: 'connector'`) and answer with who now opens or loses which folders.
 
-Details: docs/DECISIONS.md "App connectors: upload_file for binary files" and "App connectors: one-time upload links".
+Details: docs/DECISIONS.md "App connectors: upload_file for binary files", "App connectors: one-time upload links" and
+"App connectors: group management for owners and admins, scope mcp:admin".
 
 Code: `server/src/integrations/connections/` (`store.ts` rows and secrets, `net.ts` requests, `mcp.ts` the MCP client,
 `oauth.ts` sign-in, `service.ts` the operations, `tools.ts` the AI's tools, `hide.ts` hiding secrets a service sends

@@ -9868,3 +9868,63 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   invite, `?next`) or a later click on Home. Home shows nothing until the progress is read on such a landing, so it
   does not flash first; a failed read stays on Home.
 
+## App connectors: group management for owners and admins, scope mcp:admin (feat/mcp-groups, 2026-11-06)
+
+- **Problem.** The remote MCP connector gives a person's Claude nine file tools and nothing for the team's groups. An
+  admin who works in Claude must switch to Admin › Groups to add someone to a group. Group membership decides folder
+  access (`policy/access.ts`), so this is the first admin power exposed to an AI client; until now `tools.ts` said
+  admin tools are never imported.
+- **Decision.** A new OAuth scope `mcp:admin` (`policy.ts` `ADMIN_SCOPE`) and five connector-only tools in
+  `remote-mcp/groups.ts`, listed only with that scope and only while the person is an active owner or admin:
+  `people_list` and `groups_list` (read-only), `group_create {name, description?, members?}`,
+  `group_update {group, name?, description?, add?, remove?}` and `group_delete {group}`. People are named by username
+  (any case) or id, a group by name (any case) or id. Annotations: the lists `readOnlyHint`; update and delete
+  `destructiveHint`; create neither (it only adds); all `openWorldHint: false`. `description` is not in the brief: it
+  is there because Admin › Groups has it.
+- **Consent.** `mcp:admin` is in `scopes_supported`, never in the default (`scopes()` without a scope is `mcp:read`), and
+  never added to an existing grant (a refresh can only narrow). The consent page shows it only to an owner or admin
+  (`RemoteOAuth.consent` leaves it out for anyone else), as a checkbox that is off: "팀 그룹 관리도 허용해요 (팀장·관리자만)"
+  with a plain line on what it allows, in the five locales. The decision body has a new optional `admin`; the grant
+  gets the scope only with `admin: true`. Why a checkbox: an app that asks for every advertised scope would otherwise
+  give group management to every admin who only wanted files. Why dropped, not refused, for a member: the request
+  comes before sign-in, so the same app asks the same scopes for everyone; refusing (`invalid_scope`) would stop every
+  member from connecting such an app. RFC 6749 3.3 lets the server grant less than asked, and the token answer's
+  `scope` already says what was granted. This matches `mcp:write`, which a member also gets without a check at consent:
+  what a scope allows is decided at each call.
+- **Role re-check.** `tools/list` and every group tool call read the person's role and status now (`isTeamAdmin`,
+  `principal()`), not at consent. A grant whose person is not an active owner or admin does not list the tools, and a
+  call is refused ("Only an owner or admin can manage groups") and takes `mcp:admin` off that grant. Admin › Members
+  takes it off every grant of a person made member or disabled (`dropAdminScope` in `updateUser`, next to their
+  invites and reset links), so being made admin again does not bring it back; they connect again and tick it. Audit
+  `remote_mcp.scope_dropped`. A disabled person's sessions end, so their grants stop working anyway.
+- **Same rules as the web.** The tools call the functions the admin routes call: `createGroupAs`, and the new
+  `updateGroupAs` and `deleteGroupAs` that `updateGroup` / `deleteGroup` now wrap (`admin/groups.ts`). So name checks
+  (unique in any case), the member check, the group's own folder `groups/<name>/` with "this group writes", the
+  H7 handling (`afterAccessChange`: fresh AI sessions for people who lose read, notices, rooms) and the template offers
+  are the web's. The web's refusals come back in its words (`HttpError` message, English). `group_update` turns add and
+  remove into the full member list the web sends, read with no await before the change. Admin › Groups asks for no
+  password (endpoints `auth: 'admin'`, no `ReauthDialog`; delete has a confirm), so the connector asks none either; the
+  tool descriptions tell Claude to ask the person before a destructive change.
+- **Audit.** The web's lines (`group.create`, `group.update`, `group.delete`, `folder.access_lost`) with the same
+  fields plus `via: 'connector'`, the actor being the person. Plus `remote_mcp.tool` `{tool, ok, via: 'connector', group,
+  members | added, removed, renamed | name | count}`, and `{ok: false, reason: 'not_admin'}` for a refused role.
+- **Access words.** Each change answers in plain text with who now opens or loses which folders: "READER (reader): now
+  opens groups/Design (write)", "loses groups/Design (had write)", "projects/x is now read (was write)", or "nobody opens
+  or loses a folder" (with a line that owners and admins open every team folder). It is `accessChanges` in
+  `admin/folders.ts`, `readLosses` in both directions: the same deciding folders and `RuleSet.access` before and after
+  the change. Why not `access-edit.ts` `editPreview`: it previews one folder's new rules for the same people; a
+  membership change keeps the rules and changes the people, which is what `readLosses` already compares for H7.
+- **Limits.** The connector's 120 calls per person per minute and the per-grant queue (at most 4 waiting) apply. Group
+  changes: 20 per person per minute (`group-change-user`, refused calls count). Inputs: names 1–100 characters
+  (`GroupBody`), references up to 200, at most 200 people per list. Answers: `people_list` 300 people (`query`
+  narrows), `groups_list` 100 groups with 50 members and 20 rules each (one group asked for: 500 members), access
+  words 30 people with 6 folders each, then counts.
+- **Tests.** `tests/unit/remote-mcp-groups.test.ts` (never a default, offered to owners and admins only and off unless
+  ticked, annotations; a member never offered or granted it, refused even with the scope in the row, refresh cannot add
+  it; existing grants keep their nine tools; an admin demoted in Admin › Members or in the database loses it on the next
+  call and for good, disabled ends the connection; both lists; create, update and delete with the web's audit fields
+  plus `via`, the folder, rule and access words; unknown groups and people, name taken, nothing to change, invalid
+  input; input size, change rate and bounded words), `tests/unit/remote-mcp-http.test.ts` (through the app: the consent
+  body's `admin`, a strict body, `tools/list` and `tools/call` over `/mcp`).
+- **Docs.** `docs/site/agents/mcp-connector.md`, `docs/INTEGRATIONS.md` ("App connectors") and this entry.
+

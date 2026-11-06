@@ -325,7 +325,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/connectors/remote/requests/:id` | Signed in | Inspect an OAuth request, bound to this user and login session. |
-| `POST` | `/api/connectors/remote/requests/:id` | Signed in | Explicitly allow or deny an external app connection. |
+| `POST` | `/api/connectors/remote/requests/:id` | Signed in | Explicitly allow or deny an external app connection. `admin`: also grant the asked mcp:admin scope (group management; owners and admins only, off unless true). |
 | `GET` | `/api/connectors/remote` | Signed in | List only this user’s external connections. |
 | `DELETE` | `/api/connectors/remote/:id` | Signed in | Revoke an own external connection and all of its tokens. |
 

@@ -35,6 +35,26 @@ test('connector consent requires a decision and sends only the chosen decision b
   expect(decisions).toEqual([{ allow: true }])
 })
 
+test('group management (mcp:admin) is a separate checkbox, off unless ticked', async ({ page }) => {
+  await reset(page)
+  const decisions: unknown[] = []
+  await page.route('**/api/connectors/remote/requests/*', route => {
+    if (route.request().method() === 'POST') { decisions.push(route.request().postDataJSON()); return route.fulfill({ json: { redirectUrl: 'https://claude.ai/api/mcp/auth_callback?code=synthetic-code' } }) }
+    return route.fulfill({ json: { ...consent, scopes: ['mcp:read', 'mcp:admin', 'offline_access'] } })
+  })
+  await page.context().route('https://claude.ai/**', route => route.fulfill({ contentType: 'text/html', body: '<p>Synthetic callback only</p>' }))
+  await signIn(page)
+  await page.goto('/connectors/authorize?id=' + id)
+  const pane = page.getByTestId('connector-consent')
+  await expect(pane.getByTestId('connector-admin')).toContainText('팀 그룹 관리도 허용해요')
+  await expect(pane.locator('li')).toHaveCount(2)
+  await expect(pane.getByTestId('connector-admin-check')).not.toBeChecked()
+  await pane.getByTestId('connector-admin-check').check()
+  await pane.getByTestId('connector-allow').click()
+  await expect(page).toHaveURL('https://claude.ai/api/mcp/auth_callback?code=synthetic-code')
+  expect(decisions).toEqual([{ allow: true, admin: true }])
+})
+
 test('connector denial and malformed requests cannot silently authorize', async ({ page }) => {
   await reset(page)
   const decisions: unknown[] = []

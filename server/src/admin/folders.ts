@@ -261,6 +261,32 @@ export function readLosses(before: AccessState, after: AccessState, extraPaths: 
   return out
 }
 
+export interface AccessChange { path: string; before: Access; after: Access }
+
+/**
+ * readLosses() in both directions: for every person present in both states, each deciding folder where their access
+ * is not what it was (gained, lost, read <-> write), top-most only (a folder below one with the same change is left
+ * out). The same deciding folders and the same permission function as readLosses(); nothing is saved. The connector's
+ * group tools say this in words after a change.
+ */
+export function accessChanges(before: AccessState, after: AccessState): Map<string, AccessChange[]> {
+  const paths = decidingPaths(before, after)
+  const afterBy = new Map(after.principals.map((p) => [p.id, p]))
+  const out = new Map<string, AccessChange[]>()
+  for (const pb of before.principals) {
+    const pa = afterBy.get(pb.id)
+    if (!pa) continue
+    const changed: AccessChange[] = []
+    for (const p of paths) {
+      const s = segsOf(p), b = before.rules.access(pb, s), a = after.rules.access(pa, s)
+      if (a !== b) changed.push({ path: p, before: b, after: a })
+    }
+    const top = changed.filter((c) => !changed.some((d) => d !== c && d.before === c.before && d.after === c.after && (d.path === '' || c.path.startsWith(d.path + '/'))))
+    if (top.length) out.set(pb.id, top)
+  }
+  return out
+}
+
 /**
  * H7: the person's chats start a fresh engine session at the next turn (the stashed session may hold file contents
  * they can no longer read; the conversation continues from the DB history). Returns how many chats were reset.
@@ -278,8 +304,9 @@ export function chatsWithEngineSession(db: Database, userId: string): number {
  * After any change that can narrow access (rules, group membership, role): reset the engine sessions of people who
  * lost read access somewhere, tell their open windows, and return who lost what (for the audit record).
  * `created`: folders made on disk by this same request (a new rule folder): nobody knew them before the change.
+ * `via`: where the change came from when not the web screens (the audit line says so).
  */
-export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[] }): { userId: string; paths: string[]; chatsReset: number }[] {
+export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[]; via?: string }): { userId: string; paths: string[]; chatsReset: number }[] {
   const after = captureState(ctx.db)
   const losses = readLosses(before, after)
   const out: { userId: string; paths: string[]; chatsReset: number }[] = []
@@ -306,7 +333,7 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
     if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
-  if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out } })
+  if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)
   syncRoomsNow(ctx)
   // a Drive shared with the team stops when its admin is disabled, deleted or no longer an admin

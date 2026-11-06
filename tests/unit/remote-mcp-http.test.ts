@@ -125,3 +125,27 @@ test('an upload link from tools/call works through the app with curl-like PUT: n
   expect(Buffer.compare(fs.readFileSync(path.join(f.h.ctx.config.teamRoot, 'shared/big.bin')), data)).toBe(0)
   expect((await put()).status).toBe(404)
 })
+test('through the app: group management only when ticked on the consent page, then listed and callable over /mcp', async () => {
+  const f = await fixture('groups')
+  const request = async () => {
+    const a = await f.fetch('/oauth/authorize?' + new URLSearchParams({ client_id: f.client.client_id, redirect_uri: redirect, resource: base + '/mcp', response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), scope: 'mcp:read mcp:admin' }))
+    return '/api/connectors/remote/requests/' + new URL(a.headers.get('location')!).searchParams.get('id')!
+  }
+  const ask = async (decision: Record<string, unknown>) => {
+    const url = await request()
+    expect((await (await f.api('GET', url)).json() as any).scopes).toEqual(['mcp:read', 'mcp:admin'])
+    const code = new URL((await (await f.api('POST', url, decision)).json() as any).redirectUrl).searchParams.get('code')!
+    return await (await f.post('/oauth/token', { client_id: f.client.client_id, code, grant_type: 'authorization_code', code_verifier: verifier, redirect_uri: redirect, resource: base + '/mcp' })).json() as any
+  }
+  expect((await ask({ allow: true })).scope).toBe('mcp:read')
+  expect((await ask({ allow: true, admin: false })).scope).toBe('mcp:read')
+  expect((await f.api('POST', await request(), { allow: true, admin: 'yes' })).status).toBe(400)
+  const on = await ask({ allow: true, admin: true })
+  expect(on.scope).toBe('mcp:read mcp:admin')
+  const list = await (await f.rpc(on.access_token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json() as any
+  expect(list.result.tools.map((t: any) => t.name)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list', 'people_list', 'groups_list', 'group_create', 'group_update', 'group_delete'])
+  const made = await (await f.rpc(on.access_token, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'group_create', arguments: { name: 'Http group' } } })).json() as any
+  expect(made.result.isError).toBeUndefined()
+  expect(made.result.content[0].text).toContain('Created group "Http group"')
+  expect((await f.owner.call('GET', '/api/admin/groups')).items.map((g: any) => g.name)).toEqual(['Http group'])
+})

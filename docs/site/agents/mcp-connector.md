@@ -47,7 +47,7 @@ your own account such as **Google Drive**, is **Settings › App connectors** ([
 | OAuth discovery | `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` |
 | OAuth endpoints | `/oauth/authorize`, `/oauth/token`, `/oauth/register`, `/oauth/revoke` |
 | Client registration | Dynamic (RFC 7591), public clients, PKCE `S256` |
-| Scopes | `mcp:read`, `mcp:write`, `offline_access` |
+| Scopes | `mcp:read`, `mcp:write`, `mcp:admin`, `offline_access` |
 
 ## Tools
 
@@ -55,7 +55,26 @@ your own account such as **Google Drive**, is **Settings › App connectors** ([
 |---|---|
 | `mcp:read` | `list`, `glob`, `grep`, `read`, `skills_list` |
 | `mcp:write` | also `write`, `edit`, `upload_file`, `create_upload_link` |
+| `mcp:admin` | also `people_list`, `groups_list`, `group_create`, `group_update`, `group_delete` (owners and admins only) |
 
 - `upload_file` takes base64 bytes in the call. Use it for small files, up to about 50 KB.
 - `create_upload_link` returns a one-time `PUT <origin>/connector-uploads/<token>` address for a larger file: at most 50 MiB, valid 10 minutes, one path. Upload with `curl -T "<local file>" "<url>"`.
 - Saving to a wider audience is refused. File and skill contents are untrusted data.
+
+## Group management (owners and admins)
+
+An owner or admin can let their Claude manage the team's groups, as in **Admin › Groups**. When the app asks for `mcp:admin`, the sign-in page shows **Also allow managing the team's groups**, off by default. Members never see it and never get the scope.
+
+| Tool | What it does |
+|---|---|
+| `people_list` | Active people with name, username, role and groups (`query` narrows the list). |
+| `groups_list` | Each group with its folder, its members and the folder rules that name it (`group` shows one). |
+| `group_create` | `{name, description?, members?}`: a new group and its folder `groups/<name>/`, which the group writes. |
+| `group_update` | `{group, name?, description?, add?, remove?}`: rename it or add and take out people. |
+| `group_delete` | `{group}`: deletes the group and the folder rules that name it. The folder and its files stay. |
+
+- People are named by username or id, a group by name or id.
+- Each change answers with who now opens or loses which folders.
+- The same checks and audit log entries as Admin › Groups apply. The audit entries say they came from the connector.
+- The role is checked on every call. A person made member or disabled loses group management on all their connections, and being made admin again does not bring it back: connect again and tick the box.
+- At most 20 group changes per person per minute.

@@ -1,6 +1,9 @@
 import crypto from 'node:crypto'
 export const MCP_PATH = '/mcp'
-export const SCOPES = ['mcp:read', 'mcp:write', 'offline_access'] as const
+export const SCOPES = ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'] as const
+/** The team-admin tools (groups). Only an active owner or admin can be granted it, only when they tick it on the
+ * consent page, and every call checks their current role again (oauth.ts isTeamAdmin, tools.ts). Never a default. */
+export const ADMIN_SCOPE = 'mcp:admin'
 export const ACCESS_MS = 60 * 60_000, GRANT_MS = 30 * 86400_000, REQUEST_MS = 10 * 60_000, CODE_MS = 5 * 60_000
 export const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
 export const secret = (prefix = '') => prefix + crypto.randomBytes(32).toString('base64url')

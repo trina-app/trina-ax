@@ -44,7 +44,7 @@ export default function AiApps() {
     catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
     finally { writing.current = false; if (generation === life.current) setBusy(null) }
   }
-  const label = (scope: string) => scope === 'mcp:write' ? t('connectors.write') : scope === 'offline_access' ? t('connectors.offline') : t('connectors.read')
+  const label = (scope: string) => scope === 'mcp:write' ? t('connectors.write') : scope === 'offline_access' ? t('connectors.offline') : scope === 'mcp:admin' ? t('connectors.admin') : t('connectors.read')
   const on = configured && !!resource
   const isAdmin = me.user.role === 'owner' || me.user.role === 'admin'
   const [openApp, setOpenApp] = useState<AiApp | null>(null)
