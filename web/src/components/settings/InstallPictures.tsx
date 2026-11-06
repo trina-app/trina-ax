@@ -1,9 +1,10 @@
-// Settings > Apps: the steps of adding the app to a phone's home screen, each with a small picture of the screen and the
-// place to tap. The pictures are drawn with HTML so their words follow the five languages and their colours follow the
-// theme; they repeat what the caption says, so screen readers skip them. They show this team's own address and icon.
-// iOS 26: Safari's default layout has no share button in sight, it is in the ⋯ menu next to the address bar (older
-// systems and the other Safari layouts show it in the toolbar: the caption says so).
-import { ChevronLeft, ChevronRight, MoreHorizontal, MoreVertical, Share, SquarePlus, X } from 'lucide-react'
+// Settings > Apps: the steps of installing the app, each with a small picture of the screen and the place to tap or
+// click: a phone's home screen (iPhone, Android) and a computer (Chrome or Edge from the address bar, Safari on a Mac
+// from File → Add to Dock). The pictures are drawn with HTML so their words follow the five languages and their colours
+// follow the theme; they repeat what the caption says, so screen readers skip them. They show this team's own address
+// and icon. iOS 26: Safari's default layout has no share button in sight, it is in the ⋯ menu next to the address bar
+// (older systems and the other Safari layouts show it in the toolbar: the caption says so).
+import { ChevronLeft, ChevronRight, Minus, MonitorDown, MoreHorizontal, MoreVertical, Share, Square, SquarePlus, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { PRODUCT } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
@@ -244,6 +245,180 @@ export function InstallPictures({ platform }: { platform: PicturePlatform }) {
           <p className="mt-2 flex gap-1.5 break-keep text-xs leading-relaxed text-muted">
             <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-soft font-semibold text-accent-text">{i + 1}</span>
             <span className="min-w-0">{t(s.caption)}</span>
+          </p>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+// ---------------- a computer ----------------
+
+/** a computer's screen: wider than a phone's */
+function Screen({ children, desk }: { children: ReactNode; desk?: boolean }) {
+  return (
+    <div aria-hidden="true" className={`relative flex aspect-[16/10] w-full select-none flex-col overflow-hidden rounded-lg border-2 border-line-strong/50 text-[9px] leading-tight text-ink shadow-sm ${desk ? 'bg-subtle' : 'bg-canvas'}`}>
+      {children}
+    </div>
+  )
+}
+
+/** a browser's tab and toolbar; `install`: the install icon at the end of the address bar (Chrome and Edge) */
+function BrowserBar({ install, target }: { install?: boolean; target?: boolean }) {
+  return (
+    <>
+      <div className="flex items-end gap-1 bg-subtle px-1.5 pt-1">
+        <span className="flex min-w-0 max-w-[55%] items-center gap-1 rounded-t-md bg-surface px-1.5 py-1">
+          <TeamIcon className="size-2.5 shrink-0 rounded-sm" />
+          <span className="truncate">{PRODUCT.displayName}</span>
+        </span>
+      </div>
+      <div className="flex items-center gap-1 border-b border-line bg-surface px-1.5 py-1">
+        <ChevronLeft size={10} className="shrink-0 text-muted" />
+        <ChevronRight size={10} className="shrink-0 text-muted" />
+        <span className="flex min-w-0 flex-1 items-center gap-1 rounded-full bg-subtle py-0.5 pr-0.5 pl-2">
+          <span className="min-w-0 flex-1 truncate text-muted">{host()}</span>
+          {install && <span className={`flex size-4 shrink-0 items-center justify-center rounded-full ${target ? TARGET : 'text-muted'}`}><MonitorDown size={10} /></span>}
+        </span>
+        <MoreVertical size={10} className="shrink-0 text-muted" />
+      </div>
+    </>
+  )
+}
+
+function ChromeAddress() {
+  return (
+    <Screen>
+      <BrowserBar install target />
+      <Page />
+    </Screen>
+  )
+}
+
+function ChromeInstall({ t }: { t: Translate }) {
+  return (
+    <Screen>
+      <BrowserBar install />
+      <Page />
+      <div className="absolute top-[42%] right-2 flex w-[64%] flex-col gap-1.5 rounded-lg border border-line bg-surface p-1.5 shadow-md">
+        <span className="font-semibold">{t('apps.mockInstallApp')}</span>
+        <span className="flex items-center gap-1.5">
+          <TeamIcon className="size-5 shrink-0 rounded" />
+          <span className="min-w-0">
+            <span className="block truncate font-semibold">{PRODUCT.displayName}</span>
+            <span className="block truncate text-[8px] text-muted">{host()}</span>
+          </span>
+        </span>
+        <span className="flex items-center justify-end gap-1">
+          <span className="px-1 text-muted">{t('apps.mockCancel')}</span>
+          <span className={`rounded-full px-2 py-0.5 ${TARGET}`}>{t('apps.mockInstall')}</span>
+        </span>
+      </div>
+    </Screen>
+  )
+}
+
+export type ComputerOs = 'mac' | 'windows' | 'other'
+
+/** the installed app: its own window without an address bar, and its icon in the Dock (Mac) or the taskbar (Windows) */
+function AppWindow({ os }: { os: ComputerOs }) {
+  const icons = (
+    <>
+      {Array.from({ length: 3 }, (_, i) => <span key={i} className="size-3.5 rounded bg-line" />)}
+      <span className={`flex rounded p-0.5 ${TARGET}`}><TeamIcon className="size-3.5 rounded" /></span>
+    </>
+  )
+  return (
+    <Screen desk>
+      <div className={`mx-[9%] mt-[5%] flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line bg-canvas shadow-sm ${os === 'other' ? 'mb-[5%]' : ''}`}>
+        <span className="flex items-center gap-1 border-b border-line bg-surface px-1.5 py-1">
+          {os === 'mac' && <span className="flex shrink-0 gap-0.5">{['bg-danger/70', 'bg-warn/70', 'bg-ok/70'].map((c) => <span key={c} className={`size-1.5 rounded-full ${c}`} />)}</span>}
+          <TeamIcon className="size-2.5 shrink-0 rounded-sm" />
+          <span className="min-w-0 flex-1 truncate">{PRODUCT.displayName}</span>
+          {os === 'windows' && <span className="flex shrink-0 items-center gap-1 text-muted"><Minus size={8} /><Square size={7} /><X size={8} /></span>}
+        </span>
+        <Page />
+      </div>
+      {os === 'mac' && <span className="mx-auto my-1 flex items-center gap-1 rounded-md border border-line bg-surface px-1 py-0.5">{icons}</span>}
+      {os === 'windows' && <span className="mt-1 flex items-center justify-center gap-1 border-t border-line bg-surface py-0.5">{icons}</span>}
+    </Screen>
+  )
+}
+
+/** Safari on a Mac: the menu bar's File menu open on Add to Dock… */
+function SafariFileMenu({ t }: { t: Translate }) {
+  return (
+    <Screen>
+      <span className="flex items-center gap-2 border-b border-line bg-surface px-1.5 py-0.5">
+        <span className="font-semibold">Safari</span>
+        <span className={`rounded px-1 ${TARGET}`}>{t('apps.mockFile')}</span>
+        <span className="text-muted">{t('apps.mockEdit')}</span>
+        <span className="text-muted">{t('apps.mockView')}</span>
+      </span>
+      <div className="flex items-center gap-1 border-b border-line bg-subtle px-1.5 py-1">
+        <span className="min-w-0 flex-1 truncate rounded-md bg-surface px-2 py-0.5 text-center text-muted">{host()}</span>
+      </div>
+      <Page />
+      <div className="absolute top-4 left-8 flex w-[52%] flex-col rounded-md border border-line bg-surface p-0.5 shadow-md">
+        <Rows />
+        <Row>{t('apps.mockAddToDock')}</Row>
+        <Rows />
+      </div>
+    </Screen>
+  )
+}
+
+function SafariAdd({ t }: { t: Translate }) {
+  return (
+    <Screen>
+      <span className="flex items-center gap-2 border-b border-line bg-surface px-1.5 py-0.5"><span className="font-semibold">Safari</span></span>
+      {/* the page behind the sheet, dimmed: only the sheet is read */}
+      <div className="flex min-h-0 flex-1 flex-col opacity-30"><Page /></div>
+      <div className="absolute inset-x-[16%] top-[22%] flex flex-col gap-1.5 rounded-lg border border-line bg-surface p-1.5 shadow-md">
+        <span className="flex items-center gap-1.5">
+          <TeamIcon className="size-6 shrink-0 rounded-md" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate rounded border border-line px-1 py-0.5">{PRODUCT.displayName}</span>
+            <span className="mt-0.5 block truncate text-[8px] text-muted">{host()}</span>
+          </span>
+        </span>
+        <span className="flex items-center justify-end gap-1">
+          <span className="rounded px-1.5 py-0.5 text-muted">{t('apps.mockCancel')}</span>
+          <span className={`rounded px-2 py-0.5 ${TARGET}`}>{t('apps.mockAdd')}</span>
+        </span>
+      </div>
+    </Screen>
+  )
+}
+
+/** what opens the installed app next time, by computer */
+const OPEN_AGAIN: Record<ComputerOs, MessageKey> = { mac: 'apps.desktopShot3Mac', windows: 'apps.desktopShot3Windows', other: 'apps.desktopShot3Other' }
+
+export type ComputerFlow = 'chromium' | 'safari'
+
+/** A computer's steps with pictures: Chrome or Edge (the address bar's install icon), or Safari on a Mac (File → Add
+ * to Dock). The last picture is the app in its own window, in the Dock or the taskbar. */
+export function ComputerPictures({ flow, os }: { flow: ComputerFlow; os: ComputerOs }) {
+  const t = useT()
+  const steps: { caption: MessageKey; picture: ReactNode }[] = flow === 'safari'
+    ? [
+        { caption: 'apps.safariShot1', picture: <SafariFileMenu t={t} /> },
+        { caption: 'apps.safariShot2', picture: <SafariAdd t={t} /> },
+        { caption: 'apps.safariShot3', picture: <AppWindow os="mac" /> },
+      ]
+    : [
+        { caption: 'apps.desktopShot1', picture: <ChromeAddress /> },
+        { caption: 'apps.desktopShot2', picture: <ChromeInstall t={t} /> },
+        { caption: OPEN_AGAIN[os], picture: <AppWindow os={os} /> },
+      ]
+  return (
+    <ol className="mt-3 grid max-w-3xl gap-x-3 gap-y-4 sm:grid-cols-3" data-testid={`install-steps-${flow}`}>
+      {steps.map((s, i) => (
+        <li key={s.caption} className="max-w-[280px] min-w-0 sm:max-w-none">
+          {s.picture}
+          <p className="mt-2 flex gap-1.5 break-keep text-xs leading-relaxed text-muted">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-soft font-semibold text-accent-text">{i + 1}</span>
+            <span className="min-w-0">{t(s.caption, { product: PRODUCT.displayName })}</span>
           </p>
         </li>
       ))}
