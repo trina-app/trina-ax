@@ -3,13 +3,14 @@
 // events keep it current, and after a reconnect that the server could not resume (reset/resync) everything is
 // reloaded from REST.
 import { create } from 'zustand'
-import { CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
+import { CARD_NEWS_ARTIFACT_KEY, DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, uuidv7, type Attachment, type Chat, type ChatQueueSnapshot, type EngineId, type Message, type ServerEvent, type ServerEventData, type TurnConnectBody, type TurnConnectResult, type TurnRequest, type TurnStarted } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from '../lib/api'
 import { applyCreated, applyDelta, applyDone, applyStep, emptyThread, markLocal, mergeFresh, mergeTurnStarted, optimisticUserMessage, prependPage, type Delta, type Thread } from './thread'
 
 const PAGE = 50
-/** Artifacts that are the whole answer of their skill: the panel opens them by itself once they are saved. */
-const OPENS_BY_ITSELF = new Set<string>([PROMO_ARTIFACT_KEY, CARD_NEWS_ARTIFACT_KEY])
+/** Artifacts that are the whole answer of their skill: the panel opens them by itself once they are saved (the intro
+ * deck, the promo video, the card news). */
+const OPENS_BY_ITSELF = new Set<string>([DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, CARD_NEWS_ARTIFACT_KEY])
 /** Keep retrying a send that failed on the network for this long (same clientMessageId: the server dedupes). */
 export const SEND_RETRY_MS = 30_000
 
@@ -45,7 +46,8 @@ interface ChatsState {
   liveArtifacts: Record<string, Record<string, LiveArtifact>>
   /** bumped when a chat's saved artifacts changed (artifact panel / cards refetch) */
   artifactsRev: Record<string, number>
-  /** artifact the panel should open by itself (the AI started writing one, or a promo video or a card news was saved) */
+  /** artifact the panel should open by itself (the AI started writing one, or an intro deck, a promo video or a card news
+   * was saved) */
   autoOpen: { chatId: string; key: string; at: number } | null
 
   loadChats: (reset?: boolean) => Promise<void>
@@ -547,8 +549,9 @@ export const useChats = create<ChatsState>((set, get) => {
             liveArtifacts: { ...s.liveArtifacts, [d.chatId]: { ...(s.liveArtifacts[d.chatId] ?? {}), [d.key]: live } },
             artifactsRev: d.status === 'done' ? { ...s.artifactsRev, [d.chatId]: (s.artifactsRev[d.chatId] ?? 0) + 1 } : s.artifactsRev,
             // the panel opens by itself when the AI starts writing (Claude parity). The team server sends no "writing"
-            // previews yet, only the saved artifact: a promo video or a card news opens when it is saved, since it is the
-            // whole answer (the welcome steps' first result and every later run, docs/DECISIONS.md "W2", "V")
+            // previews yet, only the saved artifact: an intro deck, a promo video or a card news opens when it is saved,
+            // since it is the whole answer (the welcome steps' first result and every later run, docs/DECISIONS.md "W2",
+            // "V", "D2")
             autoOpen: !prev && (d.status === 'writing' || OPENS_BY_ITSELF.has(d.key)) ? { chatId: d.chatId, key: d.key, at: Date.now() } : s.autoOpen,
           }))
           return

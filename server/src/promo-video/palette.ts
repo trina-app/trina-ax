@@ -13,7 +13,7 @@ const rgbOf = (hex: string): Rgb => { const n = Number.parseInt(hex.slice(1), 16
 const hexOf = ([r, g, b]: Rgb) => '#' + [r, g, b].map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('')
 export const rgba = (hex: string, a: number) => { const [r, g, b] = rgbOf(hex); return `rgba(${r},${g},${b},${Math.round(a * 1000) / 1000})` }
 
-function hsl(hex: string): [number, number, number] {
+export function hsl(hex: string): [number, number, number] {
   const [r, g, b] = rgbOf(hex).map((v) => v / 255) as Rgb
   const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2
   if (max === min) return [0, 0, l]
@@ -22,7 +22,7 @@ function hsl(hex: string): [number, number, number] {
   const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4
   return [h / 6, s, l]
 }
-function fromHsl(h: number, s: number, l: number): string {
+export function fromHsl(h: number, s: number, l: number): string {
   if (s === 0) return hexOf([l * 255, l * 255, l * 255])
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q
   const f = (t: number) => { t = ((t % 1) + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p }
@@ -72,7 +72,7 @@ export interface Palette {
 
 const PAPER = '#f4f1ea'
 
-function lightTo(color: string, bg: string, ratio: number, minL = 0.5): string {
+export function lightTo(color: string, bg: string, ratio: number, minL = 0.5): string {
   const [h, s] = hsl(color)
   let [, , l] = hsl(color)
   l = Math.max(l, minL)
