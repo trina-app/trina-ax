@@ -43,9 +43,15 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // the add dialog takes the gateway's key format and names the gateway (engine.anthropicGateway; never its address)
   const gateway = () => { const g = anthropicGateway(ctx.config); return g ? { label: gatewayLabel(g) } : null }
   kit.handle(API.listCredentials, ({ c }) => ({ items: listCredentials(cc(), loc(c)), memberOwn: memberOwnAllowed(ctx.db), sharedSubscriptions: sharedSubscriptionsAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], pricesAsOf: PRICES_AS_OF, anthropicGateway: gateway() }))
+  // the provider check inside a create or a replace takes seconds: whoever asked must still be an active owner or admin
+  // when the write happens (demoted, disabled or deleted meanwhile: refused, nothing written)
+  const stillTeamAdmin = (userId: string) => () => {
+    const u = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(userId) as { role: string; status: string; deleted_at: string | null } | null
+    if (!u || u.deleted_at || u.status !== 'active' || (u.role !== 'owner' && u.role !== 'admin')) fail('forbidden')
+  }
   kit.handle(API.createCredential, async ({ c, body, auth }) => {
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.create', loc(c))
-    const r = await createCredential(cc(), { kind: body.kind, label: body.label, secret, assignments: body.assignments, priority: body.priority, ownerUserId: null, actor: auth.user.id, acknowledgedPlanNotice: body.acknowledgedPlanNotice, moveFrom: body.moveFrom }, loc(c))
+    const r = await createCredential(cc(), { kind: body.kind, label: body.label, secret, assignments: body.assignments, priority: body.priority, ownerUserId: null, actor: auth.user.id, acknowledgedPlanNotice: body.acknowledgedPlanNotice, moveFrom: body.moveFrom, ensure: stillTeamAdmin(auth.user.id) }, loc(c))
     changed()
     return r
   })
@@ -56,7 +62,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   })
   kit.handle(API.replaceCredentialSecret, async ({ c, params, body, auth }) => {
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.replace', loc(c))
-    const r = await replaceSecret(cc(), params.id, secret, auth.user.id, loc(c))
+    const r = await replaceSecret(cc(), params.id, secret, auth.user.id, loc(c), stillTeamAdmin(auth.user.id))
     changed()
     return r
   })

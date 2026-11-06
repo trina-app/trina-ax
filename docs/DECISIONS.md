@@ -11246,3 +11246,26 @@ An independent review found one hole and several gaps. What changed, and why:
   must be refused at the password (or by its rate limit), a member for the role, so a refusal for the wrong reason does
   not pass.
 
+### Review round 3 of "Admins connect the team's AI too" (2026-11-07)
+
+- **The key is bound to the whole address, path included.** On a gateway that serves many tenants under one host (for
+  example `/v1/{account}/{gateway}/…`) an origin is not an address. The key file now holds `{"key","url"}` with the
+  normalised address (scheme, host, port, path, query; no trailing slash, no fragment), and `readApiEngine` returns the key
+  only for exactly that address. The "a changed address needs a key of its own, or null" rule uses the same comparison, for
+  the owner too (a path change without a key is a 400). Key files of this change's earlier commits (origin-bound) and the
+  older bare ones are bound to the address that was set the first time they are rewritten. The key file is written before
+  the settings, so a failed key write never leaves an older key readable for a new address.
+- **An address an admin set stays "the admin's" whoever saves next.** `setBy` is kept while the address is unchanged (an
+  owner changing only the model does not make it trusted); only an owner who sets a new address makes it theirs.
+- **An admin sets https addresses only**, at save and before each call (and the per-call public check stays). The check and
+  the connection resolve a name separately, and Bun's fetch has its own DNS cache, so a name can be re-pointed in between;
+  with https the TLS name check still stops a request to an internal host. http (a local Ollama, a LAN address) stays the
+  owner's.
+- **The role is read again after every wait.** The API-engine save re-reads who asks (role, status) after the DNS
+  lookups and before the write; creating or replacing a team connection from the admin routes does the same inside
+  the write, after the provider check (`ensure`). A sign-in already did.
+- **Stopping a sign-in follows the document.** The owner may stop anyone's sign-in; an admin a team sign-in or a member's
+  own; an admin's own only the owner; the owner's own nobody else. A stop that does not happen because the sign-in is
+  saving its token (409) is neither recorded nor told.
+- **No notice for a save that changes nothing** (the same address, model, name, and no new key).
+

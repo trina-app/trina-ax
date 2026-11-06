@@ -345,14 +345,25 @@ class Logins {
     const l = this.all.get(loginId)
     const others = anyLogin && !!l && personal === false
     if (!l || (l.userId !== userId && !others) || (!others && personal !== undefined && l.personal !== personal)) return fail('not_found')
-    if (l.userId !== userId && l.endedAt === null) {
-      audit(this.cc.db, { actor: userId, action: 'credential.login_cancel', target: loginId, detail: { by: 'other_admin', kind: l.kind, starter: l.userId, personal: l.personal } })
-      if (l.personal) noticeMember(this.cc, l.userId, userId, 'personal_login_stopped', l.label)
+    // someone else's: a team sign-in by the owner or any admin; a member's own by the owner or an admin; an admin's own only
+    // by the owner; the owner's own by nobody else (docs/PERMISSIONS.md)
+    const other = l.userId !== userId
+    if (other && l.personal) {
+      const role = (id: string) => (this.cc.db.query('SELECT role FROM users WHERE id = ?').get(id) as { role: string } | null)?.role
+      const mine = role(userId), theirs = role(l.userId)
+      if (!(mine === 'owner' || (mine === 'admin' && theirs === 'member'))) return fail('forbidden', ct('loginNotYours', locale))
     }
     // a token that is being checked and stored right now finishes: 409, the result comes in a moment (the screen keeps
-    // the dialog and says so, instead of closing it and the connection appearing later)
+    // the dialog and says so, instead of closing it and the connection appearing later); nothing is said or recorded for
+    // a stop that did not happen
     if (l.storing) return fail('conflict', ct('loginStoring', locale))
-    if (l.endedAt === null) { l.cancel(); this.end(l, 'cancelled', null) }
+    if (l.endedAt === null) {
+      if (other) {
+        audit(this.cc.db, { actor: userId, action: 'credential.login_cancel', target: loginId, detail: { by: 'other_admin', kind: l.kind, starter: l.userId, personal: l.personal } })
+        if (l.personal) noticeMember(this.cc, l.userId, userId, 'personal_login_stopped', l.label)
+      }
+      l.cancel(); this.end(l, 'cancelled', null)
+    }
   }
 }
 

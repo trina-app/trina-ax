@@ -56,13 +56,18 @@ export async function checkApiEngineUrl(cfg: Pick<AppConfig, 'mode'> & Partial<P
   }
 }
 
-/** PUT /api/admin/engines/api-config by an admin (not the owner) on an install that allows any address: the address must
- * be a public one (same classification as the cloud's and web_fetch's: no private, loopback, link-local, CGNAT or
- * reserved address), http or https. A private address (a local Ollama) stays the owner's to set (403). */
-export async function checkApiEngineUrlForAdmin(url: string, message: string, o: { lookup?: Lookup } = {}): Promise<void> {
-  try { await assertPublicHttps(url, { ...o, allowHttp: true }) } catch (e) {
+/** PUT /api/admin/engines/api-config by an admin (not the owner): the address must be https and a public one (same
+ * classification as the cloud's and web_fetch's: no private, loopback, link-local, CGNAT or reserved address). https,
+ * because the TLS name check is what still protects an internal host if a name is re-pointed between this check and the
+ * connection (the check and the connection resolve the name separately). http, and a private address (a local Ollama),
+ * stay the owner's to set (403). */
+export async function checkApiEngineUrlForAdmin(url: string, messages: { owner: string; https: string }, o: { lookup?: Lookup } = {}): Promise<void> {
+  let https = false
+  try { https = new URL(url).protocol === 'https:' } catch {}
+  if (!https) fail('forbidden', messages.https, { fields: { 'body.baseUrl': 'https_required' } })
+  try { await assertPublicHttps(url, o) } catch (e) {
     if (!(e instanceof EgressError)) throw e
-    fail('forbidden', message, { fields: { 'body.baseUrl': 'owner_only_address' } })
+    fail('forbidden', messages.owner, { fields: { 'body.baseUrl': 'owner_only_address' } })
   }
 }
 
@@ -76,14 +81,14 @@ export function apiEnginePublicOnly() { return publicOnly }
 /**
  * fetch for the API engine. Never follows a redirect (a public address could answer 307 to 127.0.0.1, the LAN or
  * 169.254.169.254; the error is the failure). In the cloud every call's address is checked first (public https only).
- * `publicCheck`: the address was set by an admin, not the owner: on any install it must be a public address (http or
- * https) at the moment of every call too, as a name can be re-pointed after it was saved.
+ * `publicCheck`: the address was set by an admin, not the owner: on any install it must be an https address that is
+ * public at the moment of every call too, as a name can be re-pointed after it was saved.
  */
 export function apiEngineFetch(base: typeof fetch = fetch, o: { publicCheck?: boolean } = {}): typeof fetch {
   const guarded = async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     if (publicOnly) await assertPublicHttps(url, { lookup: lookupOverride })
-    else if (o.publicCheck) await assertPublicHttps(url, { lookup: lookupOverride, allowHttp: true })
+    else if (o.publicCheck) await assertPublicHttps(url, { lookup: lookupOverride })
     return base(input, { ...init, redirect: 'error' })
   }
   return guarded as typeof fetch

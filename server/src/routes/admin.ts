@@ -35,7 +35,7 @@ import { ENGINE_CHOICE_CHANGED, codexOffHere, engineOn, limitFallbackAvailable, 
 import { connectedFolders, ConnectedError, type ConnectedRow } from '../team-files/connected'
 import { listSkillManagers, setSkillManager } from '../skills/managers'
 import { listSkillChanges } from '../skills/changes'
-import { hasStoredApiKey, originOf, readApiEngine, writeApiEngine } from '../engine/api-agent'
+import { addressOf, hasStoredApiKey, readApiEngine, writeApiEngine } from '../engine/api-agent'
 import { getChatRuntime } from '../chat/runtime'
 import { registerCredentialRoutes } from './credentials'
 import { registerTeamLinkRoutes } from './team-links'
@@ -237,35 +237,50 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.putApiEngine, async ({ c, body, auth }) => {
       const locale = c.get('locale')
       await checkApiEngineUrl(ctx.config, body.baseUrl, locale) // the hosted cloud: https to public addresses only
-      const norm = body.baseUrl.replace(/\/+$/, '')
-      // An admin (not the owner) does not set an address on a private network, on this server or link-local; an address
-      // that is already set stays as it is (a model change). The check waits for DNS, so what is "already set" is read
-      // again after every wait, and the decision below (the key rule) is made from a read with no wait before the write.
+      // who is asking, read again every time it matters (the checks below wait for DNS): an owner demoted, or an admin
+      // disabled or deleted, meanwhile is who they are now
+      const actorNow = (): 'owner' | 'admin' => {
+        const u = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { role: string; status: string; deleted_at: string | null } | null
+        if (!u || u.deleted_at || u.status !== 'active' || (u.role !== 'owner' && u.role !== 'admin')) fail('forbidden')
+        return u!.role as 'owner' | 'admin'
+      }
+      const wanted = addressOf(body.baseUrl)
+      // An admin (not the owner) does not set an address on a private network, on this server or link-local, nor an http
+      // one; an address that is already set stays as it is (a model change). The check waits for DNS, so what is "already
+      // set" and who asks are read again after every wait, and the decisions below (the key rule) are made from a read with
+      // no wait before the write.
       let validated: string | null = null
+      let role = actorNow()
       for (;;) {
         const now = readApiEngine(ctx.config.dataDir)
-        if (auth.user.role !== 'owner' && !(now && now.baseUrl === norm) && validated !== norm) {
-          await checkApiEngineUrlForAdmin(body.baseUrl, msg('apiAddressOwnerOnly', locale))
-          validated = norm
+        if (role !== 'owner' && !(now && addressOf(now.baseUrl) === wanted) && validated !== wanted) {
+          await checkApiEngineUrlForAdmin(body.baseUrl, { owner: msg('apiAddressOwnerOnly', locale), https: msg('apiAddressNeedsHttps', locale) })
+          validated = wanted
+          role = actorNow()
           continue
         }
         break
       }
-      // from here to the write nothing waits: the stored key belongs to the address it was made for (it is stored with
-      // that address, and read back only for it), and a new address never inherits it: the caller sends a key for the
-      // new address, or null. (An admin could otherwise point the engine at their own server and collect it.)
+      role = actorNow()
+      // from here to the write nothing waits: the stored key belongs to the whole address it was made for (it is stored
+      // with it, and read back only for it: not for another host, port or path), and a new address never inherits it: the
+      // caller sends a key for the new address, or null. (An admin could otherwise point the engine at their own server, or
+      // at another tenant's path on the same gateway, and collect it.)
       const old = readApiEngine(ctx.config.dataDir)
-      const sameAddress = !!old && originOf(old.baseUrl) === originOf(body.baseUrl)
+      const sameAddress = !!old && addressOf(old.baseUrl) === wanted
       if (!sameAddress && body.key === undefined && hasStoredApiKey(ctx.config.dataDir)) {
         fail('validation', msg('apiKeyForNewAddress', locale), { fields: { 'body.key': 'a key for the new address is required' } })
       }
-      // who set the address: an admin's (or one the admin left as it was) is checked to be a public one before every call
-      const setBy = auth.user.role === 'owner' ? 'owner' : old && old.baseUrl === norm && old.setBy !== 'admin' ? 'owner' : 'admin'
+      // who set the address: an address an admin set stays checked to be a public https one before every call, whoever
+      // saves it next; only an owner who sets a NEW address makes it theirs
+      const setBy: 'owner' | 'admin' = sameAddress ? (old!.setBy === 'admin' ? 'admin' : 'owner') : role === 'owner' ? 'owner' : 'admin'
+      const nothingChanged = sameAddress && old!.model === body.model && (body.label === undefined || (body.label.trim() || body.model) === old!.label) && setBy === (old!.setBy ?? 'owner')
+        && (body.key === undefined || (body.key === null && !hasStoredApiKey(ctx.config.dataDir)))
       writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, setBy, ...(body.key !== undefined ? { key: body.key } : {}) })
       audit(ctx.db, { actor: auth.user.id, action: 'engines.api', target: 'api', detail: { baseUrl: body.baseUrl, model: body.model, key: body.key === undefined ? 'kept' : body.key ? 'set' : 'removed' } })
       engineCache.forget('api')
       // an admin's change is told to the owner(s): who and the model, never the key (credentials/store.ts noticeOwners)
-      noticeOwners(credentialsOf(ctx), auth.user.id, 'engine', `${hostOf(body.baseUrl)}, ${body.model}`, { model: body.model, host: hostOf(body.baseUrl) })
+      if (!nothingChanged) noticeOwners(credentialsOf(ctx), auth.user.id, 'engine', `${hostOf(body.baseUrl)}, ${body.model}`, { model: body.model, host: hostOf(body.baseUrl) })
       try { (getChatRuntime(ctx).engines as { reset?: () => void }).reset?.() } catch {}
       return apiConfigOut()
     })

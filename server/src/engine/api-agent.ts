@@ -54,41 +54,50 @@ export const API_GROUNDING_RULES = [
 export function apiEngineConfPath(dataDir: string) { return path.join(dataDir, 'engine-api.json') }
 export function apiEngineKeyPath(dataDir: string) { return path.join(dataDir, 'secrets', 'api-engine.key') }
 
-/** scheme + host + port of an address (what a key belongs to); the text itself when it is not an address */
+/** scheme + host + port of an address; the text itself when it is not an address */
 export function originOf(u: string): string { try { return new URL(u).origin } catch { return u } }
+/** The whole address a key belongs to: scheme, host, port, path and query, without a trailing slash and without a
+ * fragment. The path counts: a gateway serves many tenants under one host (`/v1/{account}/{gateway}/…`). */
+export function addressOf(u: string): string {
+  try { const x = new URL(u); return (x.origin + x.pathname.replace(/\/+$/, '') + x.search) } catch { return u.replace(/\/+$/, '') }
+}
 
 /**
- * The key file holds the key AND the address it was made for: {"key":"…","origin":"https://api.example.com"}. A key
- * is only ever read back for that same origin (readApiEngine), so no sequence of saves, however they interleave, can
- * leave one address holding a key made for another. An older file (the bare key) is bound to the address that was set
- * when it is first rewritten (writeApiEngine); until then it is read for the address that is set.
+ * The key file holds the key AND the whole address it was made for: {"key":"…","url":"https://host/v1/acct"}. A key is
+ * only ever read back for that same address (readApiEngine), so no sequence of saves, however they interleave, can leave
+ * another address, another path on the same host included, holding it. Older files are bound the first time they are
+ * rewritten (writeApiEngine): a bare key, and {"key","origin"} from earlier builds of this change; until then they are
+ * read for the address that is set (bare) or for that origin.
  */
-function readKeyFile(dataDir: string): { key: string; origin: string | null } | null {
+interface StoredKey { key: string; url: string | null; origin: string | null }
+function readKeyFile(dataDir: string): StoredKey | null {
   let raw: string
   try { raw = fs.readFileSync(apiEngineKeyPath(dataDir), 'utf8').trim() } catch { return null }
   if (!raw) return null
   if (raw.startsWith('{')) {
     try {
-      const j = JSON.parse(raw) as { key?: unknown; origin?: unknown }
-      if (typeof j.key === 'string' && j.key.trim() && typeof j.origin === 'string') return { key: j.key.trim(), origin: j.origin }
+      const j = JSON.parse(raw) as { key?: unknown; url?: unknown; origin?: unknown }
+      if (typeof j.key !== 'string' || !j.key.trim()) return null
+      if (typeof j.url === 'string') return { key: j.key.trim(), url: j.url, origin: null }
+      if (typeof j.origin === 'string') return { key: j.key.trim(), url: null, origin: j.origin }
     } catch {}
     return null
   }
-  return { key: raw, origin: null }
+  return { key: raw, url: null, origin: null }
 }
 
 /** Is a key stored (whatever address it is for)? */
 export function hasStoredApiKey(dataDir: string): boolean { return readKeyFile(dataDir) !== null }
 
 /** The configured API engine, or null (not set up, or the file is broken). The key comes back only for the address it
- * was stored for: another address gets `key: null`. */
+ * was stored for: another address, or another path at the same host, gets `key: null`. */
 export function readApiEngine(dataDir: string): ApiEngineConf | null {
   try {
     const j = JSON.parse(fs.readFileSync(apiEngineConfPath(dataDir), 'utf8')) as Partial<ApiEngineConf>
     if (typeof j.baseUrl !== 'string' || !/^https?:\/\//.test(j.baseUrl) || typeof j.model !== 'string' || !j.model) return null
     const stored = readKeyFile(dataDir)
-    const key = stored && (stored.origin === null || stored.origin === originOf(j.baseUrl)) ? stored.key : null
-    return { baseUrl: j.baseUrl.replace(/\/+$/, ''), model: j.model, label: typeof j.label === 'string' && j.label.trim() ? j.label.trim().slice(0, 40) : j.model, key,
+    const ok = !!stored && (stored.url !== null ? stored.url === addressOf(j.baseUrl) : stored.origin !== null ? stored.origin === originOf(j.baseUrl) : true)
+    return { baseUrl: j.baseUrl.replace(/\/+$/, ''), model: j.model, label: typeof j.label === 'string' && j.label.trim() ? j.label.trim().slice(0, 40) : j.model, key: ok ? stored!.key : null,
       ...((j as { setBy?: unknown }).setBy === 'admin' ? { setBy: 'admin' as const } : {}) }
   } catch { return null }
 }
@@ -97,14 +106,16 @@ export function writeApiEngine(dataDir: string, c: { baseUrl: string; model: str
   const keyPath = apiEngineKeyPath(dataDir)
   const was = readApiEngine(dataDir)
   const stored = readKeyFile(dataDir)
-  fs.writeFileSync(apiEngineConfPath(dataDir), JSON.stringify({ baseUrl: c.baseUrl, model: c.model, label: c.label ?? '', ...(c.setBy === 'admin' ? { setBy: 'admin' } : {}) }, null, 2), { mode: 0o600 })
-  const put = (key: string, origin: string) => { fs.mkdirSync(path.dirname(keyPath), { recursive: true, mode: 0o700 }); fs.writeFileSync(keyPath, JSON.stringify({ key, origin }), { mode: 0o600 }) }
+  const put = (key: string, url: string) => { fs.mkdirSync(path.dirname(keyPath), { recursive: true, mode: 0o700 }); fs.writeFileSync(keyPath, JSON.stringify({ key, url }), { mode: 0o600 }) }
+  // The key file first, then the settings: if writing the key fails, the address has not moved, and an older key
+  // (bare, or bound to an origin) is never left readable for a new one.
   if (c.key === null || c.key === '') fs.rmSync(keyPath, { force: true })
-  else if (c.key !== undefined) put(c.key.trim(), originOf(c.baseUrl))
-  else if (stored && stored.origin === null) {
-    // an older bare key: it belongs to the address that was set until now, and to no other
-    if (was && was.key) put(stored.key, originOf(was.baseUrl)); else fs.rmSync(keyPath, { force: true })
+  else if (c.key !== undefined) put(c.key.trim(), addressOf(c.baseUrl))
+  else if (stored && stored.url === null) {
+    // an older key file: it belongs to the address that was set until now, and to no other
+    if (was && was.key) put(stored.key, addressOf(was.baseUrl)); else fs.rmSync(keyPath, { force: true })
   }
+  fs.writeFileSync(apiEngineConfPath(dataDir), JSON.stringify({ baseUrl: c.baseUrl, model: c.model, label: c.label ?? '', ...(c.setBy === 'admin' ? { setBy: 'admin' } : {}) }, null, 2), { mode: 0o600 })
 }
 
 type Rpc = (msg: unknown) => Promise<any>

@@ -21,6 +21,7 @@ import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } fr
 // ---------------- fake providers ----------------
 const hits: { path: string; headers: Record<string, string> }[] = []
 let answer: Record<string, number> = {}
+let delayMs = 0
 const stolen: string[] = []
 const other = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) { stolen.push(new URL(req.url).pathname); return new Response('ok') } })
 const fake = Bun.serve({
@@ -28,6 +29,7 @@ const fake = Bun.serve({
   async fetch(req) {
     const u = new URL(req.url)
     hits.push({ path: u.pathname, headers: Object.fromEntries(req.headers) })
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs))
     const status = answer[u.pathname] ?? 200
     if (status === 307) return new Response(null, { status: 307, headers: { location: `http://127.0.0.1:${other.port}/steal` } })
     return Response.json({ ok: status < 300 }, { status })
@@ -502,13 +504,16 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     const stub = (async (url: string, init: RequestInit) => { seen.push(`${url} ${init.redirect}`); return new Response('{}') }) as unknown as typeof fetch
     await apiEngineFetch(stub)('http://127.0.0.1:9/v1/models')
     expect(seen).toEqual(['http://127.0.0.1:9/v1/models error'])
-    // an admin's address: a private one is refused before anything is sent, a public one goes (http too)
+    // an admin's address: a private one and an http one are refused before anything is sent, a public https one goes
     seen.length = 0
-    await expect(apiEngineFetch(stub, { publicCheck: true })('http://127.0.0.1:9/v1/models')).rejects.toThrow(/private|local|reserved/)
-    await expect(apiEngineFetch(stub, { publicCheck: true })('http://169.254.169.254/latest')).rejects.toThrow()
+    await expect(apiEngineFetch(stub, { publicCheck: true })('http://127.0.0.1:9/v1/models')).rejects.toThrow(/https/)
+    await expect(apiEngineFetch(stub, { publicCheck: true })('https://10.0.0.5/v1/models')).rejects.toThrow(/private|local|reserved/)
+    await expect(apiEngineFetch(stub, { publicCheck: true })('https://169.254.169.254/latest')).rejects.toThrow(/private|local|reserved/)
     expect(seen).toEqual([])
-    await apiEngineFetch(stub, { publicCheck: true })('http://93.184.216.34/v1/models')
-    expect(seen).toEqual(['http://93.184.216.34/v1/models error'])
+    await expect(apiEngineFetch(stub, { publicCheck: true })('http://93.184.216.34/v1/models')).rejects.toThrow(/https/)
+    expect(seen).toEqual([])
+    await apiEngineFetch(stub, { publicCheck: true })('https://93.184.216.34/v1/models')
+    expect(seen).toEqual(['https://93.184.216.34/v1/models error'])
     // who set it is kept: an admin's address stays checked, the owner's is not
     const dir = h.ctx.config.dataDir
     await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:9/v1', model: 'm', label: 'x', key: null, password: OWNER_PW })
@@ -517,6 +522,92 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     expect(readApiEngine(dir)?.setBy).toBeUndefined()
     await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://93.184.216.34/v1', model: 'm2', label: 'x', key: null, password: adminPw })
     expect(readApiEngine(dir)?.setBy).toBe('admin')
+    // an owner who changes only the model leaves an admin\'s address the admin\'s (still checked at every call); a NEW address is theirs
+    await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://93.184.216.34/v1/', model: 'm3', label: 'x', password: OWNER_PW })
+    expect(readApiEngine(dir)).toMatchObject({ model: 'm3', setBy: 'admin' })
+    await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://93.184.216.34/v2', model: 'm3', label: 'x', key: null, password: OWNER_PW })
+    expect(readApiEngine(dir)?.setBy).toBeUndefined()
+  })
+  test('the key belongs to the whole address, path included: another tenant\'s path on the same gateway never gets it (regression: review round 3)', async () => {
+    const dir = h.ctx.config.dataDir
+    const OWNER_URL = 'https://93.184.216.34/v1/OWNERACCT/gw/openai'
+    const K = 'owner-key-' + 'a'.repeat(24)
+    await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: OWNER_URL, model: 'm', label: 'x', key: K, password: OWNER_PW })
+    // the same host and port, another tenant\'s path, no key: refused for the admin, and for the owner too; nothing written
+    for (const [c, pw] of [[admin, adminPw], [owner, OWNER_PW]] as const) {
+      const r = await c.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://93.184.216.34/v1/ATTACKER/gw/custom-x', model: 'm', label: 'x', password: pw })
+      expect(r.status).toBe(400)
+      expect(r.body.error.fields['body.key']).toBeDefined()
+    }
+    expect(readApiEngine(dir)).toMatchObject({ baseUrl: OWNER_URL, key: K })
+    // a trailing slash, nothing else: the same address
+    expect((await admin.try('PUT', '/api/admin/engines/api-config', { baseUrl: OWNER_URL + '/', model: 'm2', label: 'x', password: adminPw })).status).toBe(200)
+    expect(readApiEngine(dir)).toMatchObject({ model: 'm2', key: K })
+    // if another path were written anyway, the key is not read for it, and not for the old path from a third address either
+    writeApiEngine(dir, { baseUrl: 'https://93.184.216.34/v1/ATTACKER/gw/custom-x', model: 'm', label: 'x' })
+    expect(readApiEngine(dir)).toMatchObject({ key: null })
+    writeApiEngine(dir, { baseUrl: OWNER_URL, model: 'm', label: 'x' })
+    expect(readApiEngine(dir)?.key).toBe(K)
+    // keys from earlier builds of this change: bound to the address that is set, the first time they are rewritten
+    fs.writeFileSync(apiEngineKeyPath(dir), JSON.stringify({ key: 'origin-bound-' + 'd'.repeat(20), origin: 'https://93.184.216.34' }))
+    expect(readApiEngine(dir)?.key).toBe('origin-bound-' + 'd'.repeat(20))
+    writeApiEngine(dir, { baseUrl: 'https://93.184.216.34/v1/OTHER', model: 'm', label: 'x' })
+    expect(readApiEngine(dir)?.key).toBeNull() // bound to the address that was set (OWNER_URL), not to the new path
+    expect(JSON.parse(fs.readFileSync(apiEngineKeyPath(dir), 'utf8'))).toMatchObject({ url: OWNER_URL })
+    writeApiEngine(dir, { baseUrl: OWNER_URL, model: 'm', label: 'x', key: null })
+  })
+  test('an admin cannot set an http address (https keeps a re-pointed name from reaching an internal host), nor keep one through the per-call check', async () => {
+    const r = await admin.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://93.184.216.34/v1', model: 'm', label: 'x', key: null, password: adminPw })
+    expect(r.status).toBe(403)
+    expect(r.body.error.fields['body.baseUrl']).toBe('https_required')
+    expect(r.body.error.message).toContain('https')
+    // the owner may (a local Ollama, a plain LAN address)
+    expect((await owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://93.184.216.34/v1', model: 'm', label: 'x', key: null, password: OWNER_PW })).status).toBe(200)
+  })
+  test('an admin\'s save that changes nothing tells the owner nothing', async () => {
+    await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: PUBLIC, model: 'same', label: 'Same', key: null, password: adminPw })
+    told.length = 0
+    await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: PUBLIC, model: 'same', label: 'Same', password: adminPw })
+    await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: PUBLIC + '/', model: 'same', password: adminPw })
+    expect(mine()).toHaveLength(0)
+    await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: PUBLIC, model: 'other', label: 'Same', password: adminPw })
+    expect(mine()).toHaveLength(1)
+  })
+  test('the role is read again after every wait: an admin disabled or demoted during the DNS lookup or the provider check writes nothing', async () => {
+    const dir = h.ctx.config.dataDir
+    const realLookup = dns.lookup
+    ;(dns as any).lookup = async (host: string, o: unknown) => {
+      if (host === 'slow.example') { await new Promise((r) => setTimeout(r, 300)); return [{ address: '93.184.216.36', family: 4 }] }
+      return realLookup(host, o as never)
+    }
+    const setRole = (role: string) => h.ctx.db.query('UPDATE users SET role = ? WHERE id = ?').run(role, adminId)
+    try {
+      await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: PUBLIC, model: 'before', label: 'x', key: null, password: OWNER_PW })
+      const pending = admin.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://slow.example/v1', model: 'late', label: 'x', key: null, password: adminPw })
+      await new Promise((r) => setTimeout(r, 100))
+      setRole('member')
+      const r = await pending
+      expect(r.status).toBe(403)
+      expect(readApiEngine(dir)).toMatchObject({ baseUrl: PUBLIC, model: 'before' })
+      setRole('admin')
+      // the provider check of a create takes a moment; the person is a member by the time it ends
+      delayMs = 300
+      const before = (h.ctx.db.query('SELECT COUNT(*) AS n FROM engine_credentials').get() as { n: number }).n
+      const create2 = adminCreate('anthropic-api-key', AKEY('latewrite'), { label: 'Late write' })
+      await new Promise((r) => setTimeout(r, 100))
+      setRole('member')
+      expect((await create2).status).toBe(403)
+      expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM engine_credentials').get() as { n: number }).n).toBe(before)
+      setRole('admin')
+      const cid = (await create(owner, 'anthropic-api-key', AKEY('latereplace'))).body.id
+      const rep = admin.try('POST', `/api/admin/credentials/${cid}/secret`, { sealed: await sealed(AKEY('latereplace2'), 'credential.replace'), password: adminPw })
+      await new Promise((r) => setTimeout(r, 100))
+      setRole('member')
+      expect((await rep).status).toBe(403)
+      setRole('admin')
+      delayMs = 0
+      await owner.try('DELETE', `/api/admin/credentials/${cid}`)
+    } finally { delayMs = 0; setRole('admin'); ;(dns as any).lookup = realLookup }
   })
   test('the stored key never goes to a new address: a changed address needs a key of its own (or null), the check sends nothing old', async () => {
     const seen: { auth: string | null; path: string }[] = []
@@ -531,8 +622,11 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
       for (const key of [undefined, 'attacker-' + 'k'.repeat(20), null]) {
         const r = await admin.try('PUT', '/api/admin/engines/api-config', { baseUrl: B, model: 'm', label: 'x', password: adminPw, ...(key !== undefined ? { key } : {}) })
         expect(r.status).toBe(403)
-        expect(r.body.error.fields['body.baseUrl']).toBe('owner_only_address')
+        expect(r.body.error.fields['body.baseUrl']).toBe('https_required') // http, and a private address besides
       }
+      const priv = await admin.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://10.0.0.5/v1', model: 'm', label: 'x', key: null, password: adminPw })
+      expect(priv.status).toBe(403)
+      expect(priv.body.error.fields['body.baseUrl']).toBe('owner_only_address')
       expect(await owner.call('GET', '/api/admin/engines/api-config')).toMatchObject({ baseUrl: A, hasKey: true })
       // an admin may still change the model at the address that is set (a private address already there is left alone)
       expect(await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: A, model: 'm2', label: 'x', password: adminPw })).toMatchObject({ baseUrl: A, model: 'm2', hasKey: true })

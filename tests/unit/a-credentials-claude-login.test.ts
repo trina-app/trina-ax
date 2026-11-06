@@ -444,6 +444,42 @@ describe('Claude sign-in started by an admin', () => {
     expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
   })
 
+  test('who may stop whose personal sign-in: the owner anyone\'s, an admin a member\'s, nobody the owner\'s or an admin\'s but the owner; a stop that does not happen (saving its token) is not recorded or told', async () => {
+    const setRole = (id: string, role: string) => h.ctx.db.query('UPDATE users SET role = ? WHERE id = ?').run(role, id)
+    const stop = (user: string, id: string) => h.req(user, `/api/admin/credential-logins/${id}`, { method: 'DELETE' })
+    const stopped = (id: string) => (h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'credential.login_cancel' AND target = ?").get(id) as { n: number }).n
+    const notices = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM credential_change_notices WHERE action = 'personal_login_stopped'").get() as { n: number }).n
+    try {
+      // an admin\'s own sign-in (alice is made an admin for this): another admin may not stop it, the owner may
+      setRole('alice', 'admin')
+      const adminsOwn = await logins().start({ userId: 'alice', locale: 'en', personal: true, kind: 'anthropic-oauth', label: 'admins own', assignments: [], priority: 100 })
+      await waiting(alice, adminsOwn.loginId)
+      expect((await stop('carol', adminsOwn.loginId)).status).toBe(403)
+      expect(stopped(adminsOwn.loginId)).toBe(0)
+      // while it is saving its token, even the owner\'s stop does not happen: 409, nothing recorded, nothing told
+      const l = logins().all.get(adminsOwn.loginId)!
+      l.storing = true
+      const before = notices()
+      expect((await stop('dana', adminsOwn.loginId)).status).toBe(409)
+      expect(stopped(adminsOwn.loginId)).toBe(0)
+      expect(notices()).toBe(before)
+      l.storing = false
+      expect((await stop('dana', adminsOwn.loginId)).status).toBe(204)
+      expect(stopped(adminsOwn.loginId)).toBe(1)
+      await final(alice, adminsOwn.loginId)
+      expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+      setRole('alice', 'member')
+      // the owner\'s own: an admin may not stop it
+      const ownersOwn = await logins().start({ userId: 'dana', locale: 'en', personal: true, kind: 'anthropic-oauth', label: 'owners own', assignments: [], priority: 100 })
+      await waiting(dana, ownersOwn.loginId)
+      expect((await stop('carol', ownersOwn.loginId)).status).toBe(403)
+      expect(stopped(ownersOwn.loginId)).toBe(0)
+      expect((await h.req('dana', `/api/me/credential-logins/${ownersOwn.loginId}`, { method: 'DELETE' })).status).toBe(204)
+      await final(dana, ownersOwn.loginId)
+      expect(await waitFor(() => leftovers().length === 0, { timeoutMs: 10_000 })).toBe(true)
+    } finally { setRole('alice', 'member') }
+  })
+
   test('an admin made a member (or disabled) while signing in: the sign-in is stopped, and one already past the code stores nothing', async () => {
     try {
       // demoted by the owner (the real route) while it waits for the code: stopped now
