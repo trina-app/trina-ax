@@ -267,6 +267,12 @@ export class ChatRuntime {
     return this.queued.find((s) => s.chatId === chatId)?.turnId ?? null
   }
   execFor(turnId: string): TurnExec | undefined { return this.running.get(turnId) }
+  /** The AI of this chat waits for the person: an open card every window shows (a card for one desktop window only
+   * is that window's, not the chat list's). */
+  waitsForPerson(chatId: string): boolean {
+    const turnId = this.activeTurn(chatId)
+    return !!turnId && !!this.execFor(turnId)?.openRequests().some((r) => !r.window)
+  }
   execForMessage(messageId: string): TurnExec | undefined {
     for (const e of this.running.values()) if (e.spec.assistantId === messageId) return e
     return undefined
@@ -637,7 +643,7 @@ export class ChatRuntime {
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
     // a room's AI session is not one of the person's chats (no sidebar entry)
     if (r?.room_id) return
-    const chat = r ? this.store.toChat(r, this.runState(chatId)) : null
+    const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId)) : null
     // never a stored connection secret of the person in the title (QA B-W5-1)
     if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)
     this.hub.publish(userId, { type: 'chat.updated', data: { chatId, change, chat } })

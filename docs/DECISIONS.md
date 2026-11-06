@@ -10111,24 +10111,45 @@ page, so the phone's back opened the chat again). The owner approved four tabs. 
   in a chat, a room and a page, from inside and from outside).
 - Version impact: **minor** (a new phone navigation; no API change).
 
-## Desktop sidebar: rooms first (proposal, feat/phone-nav, 2026-11-06; not approved yet)
+## Desktop sidebar: rooms first (feat/phone-nav, 2026-11-06)
 
-넣을 곳: Team AX core (`web/src/components/Sidebar.tsx`, `rooms/SidebarRooms.tsx`), 이유: the owner's principle that chat
-rooms matter more than the AI's session history ("follow Slack almost entirely") applies to the computer's sidebar too.
-A prototype in its own commit, so it can be dropped or changed after the owner has seen the screenshots.
+넣을 곳: Team AX core (`web/src/components/Sidebar.tsx`, `rooms/SidebarRooms.tsx`, `chat/ChatState.tsx`; the chat list's
+`waiting` / `unseen` and `POST /api/chats/:id/seen` in `server/src/chat/` and `routes/chats.ts`, migration 251), 이유:
+the owner's principle that chat rooms matter more than the AI's session history ("follow Slack almost entirely")
+applies to the computer's sidebar too. Approved by the owner after the prototype's screenshots ("ㄱㄱ").
 
 - **Before:** the product's name, seven rows (새 채팅, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬) plus 관리자, then
   대화방 (eight rows, unread ones beyond them, "모두 보기"), then 최근 채팅 by date. With a dozen rooms the AI chats were
   below the fold at 1440×900.
-- **Proposal:** the team's name on top (the account line no longer repeats it); one row for 새 채팅 (with ⇧⌘O) and a
-  search icon (⌘K in its tooltip); one row of icons whose names are their tooltips: 파일, 프로젝트, 예약 작업, 팀 스킬,
-  알림함 (the count on the bell), 관리자 for owners and admins; then **대화방 as the main, uncapped list** (rooms, group
-  chats, DMs by latest activity, unread in bold with the count, ⊕ new conversation); then **"트리나 채팅"** (the AI's
-  name), foldable and remembered, with the five latest AI chats and "모두 보기" for the whole history with its filters
-  (choosing a filter opens it too). A chat whose AI waits for me shows "답변 필요" (the running chats on screen ask for
-  their open cards once); a chat whose answer finished while I was elsewhere gets a dot until it is opened (this window
-  only for now: the server keeps no per-chat "seen" mark).
+- **Now (768 px and wider):** the team's name on top (the account line no longer repeats it); one row for 새 채팅 (with
+  ⇧⌘O) and a search icon (⌘K); one row of icons: 파일, 프로젝트, 예약 작업, 팀 스킬, 알림함 (the count on the bell), 관리자
+  for owners and admins only. Each icon is a link named by its label (the Inbox's name carries the count, so a screen
+  reader says it), reached by Tab with the focus ring, and shows its name as a tooltip on hover and on keyboard focus
+  (a native `title` shows on hover only). Then **대화방, the main list with no cap** (rooms, group chats, DMs by latest
+  activity, unread in bold with the count, a long name cut with the whole of it on hover, ⊕ new conversation); then
+  **"트리나 채팅"** (the AI's name: `aiName`, the product's name in the core edition) with the five latest AI chats and
+  "모두 보기" for the whole history with its filters (choosing a filter opens it too; "접기" goes back). Both groups fold,
+  remembered in this browser (`mycel.sidebar.rooms`, `mycel.sidebar.recents`).
+- **Many rooms: the sidebar scrolls as one, and the AI chats' heading stays at the bottom edge while they are below the
+  fold** (sticky, a hairline above it then); a click there brings them up, opening them if folded. Chosen over pinning
+  the AI chats at the bottom: pinned, five rows and "모두 보기" would take a fixed fifth of the height from the rooms on a
+  1280×800 screen, and the whole history would need a second scrolling area inside the sidebar. Scrolling as one is
+  Slack's way; the sticky heading keeps the AI one click away with 60 rooms.
+- **"답변 필요" and the new-answer dot come from the chat list, no request per chat.** `Chat.waiting`: the AI waits for
+  the person (an open card every window shows; a card for one desktop window is that window's). `Chat.unseen`: an
+  answer finished after the person last had the chat on screen. Both are optional fields (additive) on every Chat the
+  API returns, and `chat.updated` is published when a card opens or closes and after `POST /api/chats/:id/seen`, so every
+  window and device follows. The chat page marks the chat seen while it is on screen and the window visible; the dot
+  never shows on the chat on screen.
+- **Seen state: there was none on the server, so it is new and additive.** Migration 251 adds `chats.seen_at` (chats
+  belong to one person, so one column is that person's mark) and sets it to the migration time on every existing chat,
+  so no old chat gets a dot after the update; a chat with no mark counts its answers after it was made. `unseen` is the
+  newest finished assistant message (done, error or stopped) later than the mark. Older builds ignore the column.
+  Rejected: a per-window mark in the browser (gone on reload, wrong on another device).
 - **Removed:** seven text rows (two rows instead), the product's name on top, the team name in the account line, 팀
   스킬's own count (the Inbox has the suggestion), the cap on rooms and its "모두 보기", the AI chats' date groups and
   filter in the default view (behind "모두 보기").
-- Not decided: whether the AI chats should fold by default; a server-side "seen" mark for finished answers.
+- The phone's drawer keeps its own layout ("Phone navigation: four tabs"); it gets the same dots.
+- Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
+  case for the new route.
+- Version impact: **minor** (a new endpoint, two optional fields, one additive migration).

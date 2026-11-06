@@ -958,9 +958,15 @@ export class MockServer {
           : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
       this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
       pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      // like the server: the chat list says the AI waits for the person (Chat.waiting) while the card is open
+      const waits = this.chats.find((c) => c.id === chatId)!
+      waits.waiting = true
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits } })
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      delete waits.waiting
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits } })
       if (request.kind === 'dev_env_site' && answer === 'always') {
         const mine = this.devEnvSites.get(user.id) ?? { sites: [], full: false }
         if (!mine.sites.some((x) => x.host === request.host)) mine.sites.push({ host: request.host, createdAt: now() })
@@ -1212,6 +1218,8 @@ export class MockServer {
     const chat = this.chats.find((c) => c.id === chatId)!
     chat.runState = 'idle'
     chat.updatedAt = now()
+    // like the server (migration 251): an answer that finished is unseen until the person has the chat on screen
+    chat.unseen = true
     if (!chat.title) chat.title = prompt.slice(0, 30)
     this.queueRevision++
     pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
@@ -1375,6 +1383,14 @@ export class MockServer {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       chat.deletedAt = now()
       return { id: chat.id, deletedAt: chat.deletedAt, purgeAt: new Date(Date.now() + 7 * 86400_000).toISOString() }
+    },
+    markChatSeen: (c) => {
+      const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (chat.unseen) {
+        delete chat.unseen
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
+      return chat
     },
     restoreChat: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)

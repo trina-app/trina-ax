@@ -71,6 +71,21 @@ function ChatView({ chatId }: { chatId: string }) {
   const choose = canChooseEngine(me)
   const actions = useChatActions()
   const title = chat?.title || t('chat.untitled')
+  // an answer finished here since I last had it on screen (Chat.unseen; the sidebar's dot): on screen now, so seen, in
+  // every window and on every device (the server tells them). Again when the window comes back while it is unseen.
+  const unseen = !!(chatFromList ?? chat)?.unseen
+  useEffect(() => {
+    if (!unseen) return
+    let sent = false
+    const seen = () => {
+      if (sent || document.hidden) return
+      sent = true
+      api.call(API.markChatSeen, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => { sent = false })
+    }
+    seen()
+    document.addEventListener('visibilitychange', seen)
+    return () => document.removeEventListener('visibilitychange', seen)
+  }, [unseen, chatId, upsertChat])
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
   }, [chatFromList])

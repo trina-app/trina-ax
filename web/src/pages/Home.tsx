@@ -168,7 +168,7 @@ export function RecentChats() {
             <Link to={`/c/${c.id}`} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink hover:bg-hover" data-testid="home-recent">
               <ChatStateDot chat={c} />
               <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
-              <NeedsAnswerLabel chatId={c.id} />
+              <NeedsAnswerLabel chat={c} />
               <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
             </Link>
           </li>

@@ -1,9 +1,10 @@
-// Left sidebar, sized like Claude's (280 px, 14 px rows of 32 px, 16 px icons). PROTOTYPE (desktop, not approved yet;
-// docs/DECISIONS.md "Desktop sidebar: rooms first"): the team's name on top, one row for a new AI chat and search, one
-// row of icons with tooltips (files, projects, scheduled, team skills, inbox with its count, admin), then the rooms as
+// Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons), rooms first (docs/DECISIONS.md "Desktop
+// sidebar: rooms first"): the team's name on top, one row for a new AI chat and search, one row of icons with tooltips
+// (files, projects, scheduled, team skills, the inbox with its count, admin for owners and admins), then the rooms as
 // the main, uncapped list (rooms/SidebarRooms.tsx), then the AI's chats ("트리나 채팅": the five latest, "모두 보기" for
-// the whole history with its filters; a dot on a chat that waits for me or finished while I was elsewhere), and the
-// account menu (the person's email or ID, Settings, Usage (their own, in
+// the whole history with its filters; "답변 필요" and dots from the chat list itself, chat/ChatState.tsx). The sidebar
+// scrolls as one, like Slack's; while the AI chats are below the fold their heading stays at the bottom edge, and a
+// click there brings them up. Both groups fold, remembered in this browser. Then the account menu (the person's email or ID, Settings, Usage (their own, in
 // Settings), Appearance, Deleted chats, Sign out), which opens above the profile line. Below 768 px it is the 트리나
 // tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top, 검색, 프로젝트, 예약
 // 작업, 팀 스킬, the recent chats, and 삭제한 채팅 at the bottom. New chat is the 트리나 tab itself, the Inbox and Admin
@@ -20,16 +21,15 @@ import { aiName } from '../lib/tabs'
 import { useLogout } from '../lib/logout'
 import { platform } from '../lib/pwa'
 import { useLocale, useT, type MessageKey } from '../i18n'
-import { mergeOpenRequests, useChats } from '../store/chats'
+import { useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
-import { useUnseenChatsWatch } from '../store/unseenChats'
 import { Avatar } from './Avatar'
 import { useChatActions } from './chat/chatActions'
 import { ChatStateDot, isUnused, NeedsAnswerLabel } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
-import { IconButton, useMediaQuery } from './ui'
+import { useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 
 /** shortcut hints in the keys of this computer (the handlers take ⌘ and Ctrl alike, Layout.tsx) */
@@ -87,7 +87,7 @@ const remember = (key: string, v: string) => {
   }
 }
 const OPEN_KEY = 'mycel.sidebar.recents'
-/** PROTOTYPE (desktop sidebar): AI chats shown before "모두 보기" */
+/** a computer: AI chats shown before "모두 보기" */
 const LATEST = 5
 
 export default function Sidebar() {
@@ -95,7 +95,6 @@ export default function Sidebar() {
   // the column beside the page (a computer) or the phone's drawer: the drawer keeps the phone's own layout
   const wide = useMediaQuery('(min-width: 768px)')
   const [allChats, setAllChats] = useState(false)
-  useUnseenChatsWatch()
   const me = useMeStrict()
   const chats = useChats((s) => s.chats)
   const loaded = useChats((s) => s.chatsLoaded)
@@ -145,16 +144,25 @@ export default function Sidebar() {
   // a computer: the five latest AI chats unless the whole history is open (or filtered)
   const used = useMemo(() => chats.filter((c) => !isUnused(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [chats])
   const full = !wide || allChats || changed.length > 0
-  // PROTOTYPE: a running chat may be waiting for my answer (an ask card), which the list does not say: ask once per
-  // running chat on screen, so its row shows "답변 필요" without opening it
-  const running = used.slice(0, LATEST).filter((c) => c.runState !== 'idle').map((c) => c.id).join(',')
+  // a computer: the AI chats' heading stays at the bottom edge while they are below the fold (many rooms); `stuck` is
+  // when it does (a hairline above it then), and a click on it brings them up instead of folding them
+  const scroller = useRef<HTMLDivElement>(null)
+  const aiTop = useRef<HTMLDivElement>(null)
+  const [stuck, setStuck] = useState(false)
   useEffect(() => {
-    if (!wide || !running) return
-    for (const id of running.split(',')) {
-      const before = new Set(Object.keys(useChats.getState().requests))
-      api.call(API.listTurnRequests, { params: { id } }).then((r) => useChats.setState((s) => ({ requests: mergeOpenRequests(s.requests, id, r.items, before) })), () => {})
+    if (!wide || !scroller.current || !aiTop.current || typeof IntersectionObserver === 'undefined') return setStuck(false)
+    const io = new IntersectionObserver(([e]) => setStuck(!!e && !e.isIntersecting && e.boundingClientRect.top >= (e.rootBounds?.bottom ?? Infinity) - 1), { root: scroller.current })
+    io.observe(aiTop.current)
+    return () => io.disconnect()
+  }, [wide])
+  const toggleRecents = () => {
+    if (stuck) {
+      if (!recentsOpen) setRecentsOpen((remember(OPEN_KEY, 'open'), true))
+      aiTop.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      return
     }
-  }, [wide, running])
+    setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
+  }
 
   const close = () => setDrawer(false)
   // unread inbox notifications: a count next to "Inbox" (the list itself is in Settings > Notifications)
@@ -192,13 +200,14 @@ export default function Sidebar() {
         </div>
       )}
 
-      <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide}>
+      <div ref={scroller} className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide} data-testid="sidebar-scroll">
         {/* the team chat rooms (people with people), above the AI chats; not in the phone drawer: the 대화 tab is
             where they are there */}
         {wide && <SidebarRooms onNavigate={close} all />}
-        <div className="group/recents flex items-center gap-1 pr-1 pl-3">
+        <div ref={aiTop} aria-hidden />
+        <div className={clsx('group/recents flex items-center gap-1', wide ? 'sticky bottom-0 z-10 -mx-2 bg-subtle pr-3 pl-5' : 'pr-1 pl-3', stuck && 'border-t border-line py-1')} data-testid="recents-head" data-stuck={stuck || undefined}>
           <h2 className="text-xs font-medium text-faint">
-            <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={() => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
+            <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
               {wide ? t('sidebar.aiChats', { name: aiName(t) }) : t('sidebar.recents')}
               <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
             </button>
@@ -280,13 +289,14 @@ export default function Sidebar() {
   )
 }
 
-/** PROTOTYPE (desktop sidebar): the seven rows of before in two. A new AI chat (with its shortcut) and search share one
- * row; files, projects, scheduled tasks, team skills, the Inbox (its count on the bell) and Admin are one row of icons
- * whose names are their tooltips. Team skills has no count of its own: a suggestion is an Inbox notice already. */
+/** A computer: the seven rows of before in two. A new AI chat (with its shortcut) and search share one row; files,
+ * projects, scheduled tasks, team skills, the Inbox (its count on the bell) and Admin (owners and admins) are one row of
+ * icons. Each icon is a link with its name as its label (the Inbox's with the count, so a screen reader says it) and a
+ * tooltip on hover and on keyboard focus. Team skills has no count of its own: a suggestion is an Inbox notice already. */
 function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat: () => void; onSearch: () => void }) {
   const t = useT()
   const me = useMeStrict()
-  const icon = ({ isActive }: { isActive: boolean }) => clsx('relative flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink', isActive && 'bg-hover text-ink')
+  const icon = ({ isActive }: { isActive: boolean }) => clsx('group/tip relative flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink', isActive && 'bg-hover text-ink')
   const items: { to: string; label: string; icon: ReactNode; testId: string; badge?: number; onClick?: (e: ReactMouseEvent<HTMLAnchorElement>) => void }[] = [
     { to: '/files', label: t('sidebar.files'), icon: <FolderOpen size={17} aria-hidden />, testId: 'nav-files' },
     { to: '/projects', label: t('sidebar.projects'), icon: <FolderKanban size={17} aria-hidden />, testId: 'nav-projects' },
@@ -295,6 +305,7 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
     { to: '/settings/notifications', label: t('inbox.title'), icon: <Bell size={17} aria-hidden />, testId: 'nav-inbox', badge: unread, onClick: (e) => settingsOpenedFrom(e.currentTarget) },
     ...(isAdmin(me) ? [{ to: '/admin', label: t('sidebar.admin'), icon: <Shield size={17} aria-hidden />, testId: 'nav-admin' }] : []),
   ]
+  const search = `${t('sidebar.search')} (${onMac() ? '⌘K' : 'Ctrl+K'})`
   return (
     <div className="space-y-1 px-2">
       <div className="flex items-center gap-1">
@@ -302,24 +313,43 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
           <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.newChat')}</span>
           <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
         </button>
-        <IconButton label={`${t('sidebar.search')} (${onMac() ? '⌘K' : 'Ctrl+K'})`} onClick={onSearch} className="size-9 shrink-0" data-testid="nav-search">
-          <Search size={16} />
-        </IconButton>
+        <button type="button" aria-label={search} onClick={onSearch} className="group/tip relative flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink" data-testid="nav-search">
+          <Search size={16} aria-hidden />
+          <Tip text={search} end />
+        </button>
       </div>
       <div className="flex items-center gap-0.5" data-testid="nav-icons">
-        {items.map((x) => (
-          <NavLink key={x.to} to={x.to} className={icon} aria-label={x.label} title={x.label} onClick={x.onClick} data-testid={x.testId}>
+        {items.map((x, i) => (
+          <NavLink key={x.to} to={x.to} className={icon} aria-label={x.badge ? `${x.label}, ${t('notifications.unread', { count: x.badge })}` : x.label} onClick={x.onClick} data-testid={x.testId}>
             {x.icon}
             {!!x.badge && (
-              <span className="absolute top-0.5 left-1/2 ml-1 min-w-4 rounded-full bg-accent px-1 text-center text-nano leading-4 font-medium text-accent-ink" data-testid="inbox-unread">
-                <span aria-hidden>{x.badge > 99 ? '99+' : x.badge}</span>
-                <span className="sr-only">{t('notifications.unread', { count: x.badge })}</span>
+              <span aria-hidden className="absolute top-0.5 left-1/2 ml-1 min-w-4 rounded-full bg-accent px-1 text-center text-nano leading-4 font-medium text-accent-ink" data-testid="inbox-unread">
+                {x.badge > 99 ? '99+' : x.badge}
               </span>
             )}
+            <Tip text={x.label} start={i === 0} end={i === items.length - 1} />
           </NavLink>
         ))}
       </div>
     </div>
+  )
+}
+
+/** The name under an icon button, on hover and on keyboard focus (a native title shows on hover only, late). The button's
+ * own label says the same, so this is for the eye only. At the row's ends it lines up with the icon's edge instead of
+ * its middle, so it stays inside the sidebar. */
+function Tip({ text, start, end }: { text: string; start?: boolean; end?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={clsx(
+        'pointer-events-none absolute top-full z-30 mt-1.5 rounded-md bg-ink px-2 py-1 text-xs whitespace-nowrap text-canvas opacity-0 shadow-sm transition-opacity group-hover/tip:opacity-100 group-hover/tip:delay-300 group-focus-visible/tip:opacity-100',
+        start ? 'left-0' : end ? 'right-0' : 'left-1/2 -translate-x-1/2',
+      )}
+      data-testid="nav-tip"
+    >
+      {text}
+    </span>
   )
 }
 
@@ -360,7 +390,7 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
         {/* the AI waits for me (ask_user / site / connect_service card), an answer runs, a deck finished meanwhile */}
         <ChatStateDot chat={chat} />
         <span className="truncate">{chat.title || t('chat.untitled')}</span>
-        <NeedsAnswerLabel chatId={chat.id} />
+        <NeedsAnswerLabel chat={chat} />
       </NavLink>
       <button
         type="button"
@@ -512,7 +542,7 @@ function AccountMenu() {
         data-testid="account-menu"
       >
         <Avatar user={me.user} size={24} />
-        {/* PROTOTYPE (desktop sidebar): the team's name is on top of the sidebar now, not said twice here */}
+        {/* the team's name is on top of the sidebar (a computer), not said twice here */}
         <span className="flex min-w-0 flex-1 items-baseline gap-1">
           <span className="truncate text-sm font-medium">{me.user.name}</span>
         </span>

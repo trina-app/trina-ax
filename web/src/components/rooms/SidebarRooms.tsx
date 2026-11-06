@@ -25,7 +25,8 @@ const rememberedOpen = () => {
   }
 }
 
-/** `all`: PROTOTYPE (desktop sidebar, not approved yet): every room, no "모두 보기" (rooms are the sidebar's main list) */
+/** `all`: every room, no "모두 보기" (a computer's sidebar, where the rooms are the main list; docs/DECISIONS.md "Desktop
+ * sidebar: rooms first") */
 export function SidebarRooms({ onNavigate, all }: { onNavigate: () => void; all?: boolean }) {
   const t = useT()
   const rooms = useRooms((s) => s.rooms)
@@ -106,7 +107,10 @@ function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
         data-testid="sidebar-room"
       >
         <RoomIcon room={room} size={20} />
-        <span className="truncate">{title}</span>
+        {/* a long name is cut; the whole of it on hover */}
+        <span className="truncate" title={title}>
+          {title}
+        </span>
         {room.muted && (
           <>
             <BellOff size={12} className="shrink-0 text-faint" aria-hidden />
