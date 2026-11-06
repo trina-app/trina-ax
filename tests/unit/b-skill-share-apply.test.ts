@@ -237,7 +237,7 @@ describe('skill shares over the API', () => {
     expect(first).toContain('````markdown\n---\nname: todo-list')
     expect(first).toContain('keep ``` fences')
     // the chat is the person's ordinary chat (listed), and the team skill is untouched until a confirmation
-    expect((await h.api('dana').call(API.listChats, { query: {} })).items.map((c) => c.id)).toContain(row.chatId)
+    expect((await h.api('dana').call(API.listChats, { query: {} })).items.map((c) => c.id)).toContain(row.chatId!)
     await waitFor(() => (h.ctx.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'assistant' AND status != 'streaming'").get(row.chatId!) ? true : null), { timeoutMs: 30_000 })
     expect(fs.readFileSync(team, 'utf8')).toBe(before)
   })

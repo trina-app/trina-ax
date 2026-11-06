@@ -147,7 +147,7 @@ const RUNS_CODE: RegExp[] = [
   /(?:^|[^\w.-])\.\/[^\s`'"()/]+\.(?:sh|bash|zsh|py|m?js|cjs|ts|rb|pl|php|ps1)\b/im,
   /```[ \t]*(?:bash|sh|zsh|fish|shell|console|shellscript|shell-session|terminal|python3?|py|javascript|js|node|typescript|ts|ruby|rb|perl|php|powershell|ps1|pwsh|bat|cmd)\b/i,
   /!`[^`\n]+`/,
-  /\b(?:run|execute|invoke)\b[^\n.]{0,40}\b(?:script|python|bash|node|command line|terminal)\b/i,
+  /\b(?:run|execute|invoke)\b[^\n.]{0,40}\b(?:python|bash|node|shell|command line|terminal)\b/i,
   /스크립트[^\n.]{0,20}(?:실행|돌려|돌리)/,
 ]
 /** Whether a SKILL.md tells the AI to run code (a command, a script, one of the skill's own script files by name). */
@@ -385,7 +385,7 @@ export function cleanTools(tools: CreateSkillShare['tools']): ShareTool[] {
   const out: ShareTool[] = []
   for (const t of tools ?? []) {
     const name = oneLine(t.name, 80)
-    if (!name || out.some((o) => fold(o.name) === fold(name))) continue
+    if (!name || secretKind(name) || out.some((o) => fold(o.name) === fold(name))) continue
     let u: URL
     try { u = new URL(t.url.trim()) } catch { continue }
     if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash || addressHasSecret(t.url) || addressHasSecret(u.href)) continue
@@ -399,7 +399,7 @@ export function cleanTools(tools: CreateSkillShare['tools']): ShareTool[] {
 
 const KIND = /^[A-Za-z0-9 _.-]{1,40}$/
 /** A project folder's own name (never a full path). */
-const projectName = (v: string | undefined) => { const s = oneLine(v, 200); const b = s.split(/[\\/]/).filter(Boolean).pop() ?? ''; return b ? oneLine(b, 100) : null }
+const projectName = (v: string | undefined) => { const s = oneLine(v, 200); const b = s.split(/[\\/]/).filter(Boolean).pop() ?? ''; return b && !secretKind(b) ? oneLine(b, 100) : null }
 
 /** A candidate as it is before the AI's judgement (and when there is none): excluded as checked, else under 그 밖에
  * (a path on the computer, a command, or not judged); merged by default into a team skill of the same name. */
@@ -416,7 +416,8 @@ function before(c: Omit<ShareCandidate, 'group' | 'reason' | 'detail' | 'action'
  */
 export function checkShare(body: CreateSkillShare, team: readonly TeamSkillRef[]): CheckedShare {
   const used = new Set<string>()
-  const take = (raw: string) => { const n = freeName(validSkillName(raw), (x) => used.has(x)); used.add(n); return n }
+  // a name that is itself a key is never kept, not even as a folder name
+  const take = (raw: string) => { const n = freeName(validSkillName(secretKind(raw) ? '' : raw), (x) => used.has(x)); used.add(n); return n }
   const candidates: ShareCandidate[] = []
   const files = new Map<string, StagedFile[]>()
   const sameName = (name: string) => { const t = team.find((s) => sameSkillName(s.name, name)); return t ? { path: t.path, title: t.title } : null }
@@ -441,7 +442,7 @@ export function checkShare(body: CreateSkillShare, team: readonly TeamSkillRef[]
     candidates, files,
     rule: body.rule ? cleanRuleInput(body.rule.text) : null,
     tools: cc ? cleanTools(body.tools) : [],
-    where: oneLine(body.where, 100) || null,
+    where: (() => { const w = oneLine(body.where, 100); return w && !secretKind(w) ? w : null })(),
     projects: cc && body.projects !== undefined ? body.projects : null,
   }
 }

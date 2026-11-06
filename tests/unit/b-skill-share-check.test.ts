@@ -87,6 +87,16 @@ describe('secrets', () => {
     }
   })
 
+  test('a name, a project, a place or a tool name that is itself a key is never kept', () => {
+    const r = checkShare(share([skill(SLACK, [{ path: 'SKILL.md', text: md('x') }], { origin: 'project', project: `/Users/alex/${SLACK}` })], {
+      source: 'claude_code', where: SLACK, excluded: [{ name: SLACK, reason: 'secret' }], tools: [{ name: SLACK, url: 'https://mcp.example/mcp', auth: 'oauth' }],
+    }), [])
+    expect(r.candidates.map((c) => [c.name, c.project])).toEqual([['skill', null], ['skill-2', null]])
+    expect(r.where).toBeNull()
+    expect(r.tools).toEqual([])
+    expect(JSON.stringify({ ...r, files: [...r.files.entries()] }).toLowerCase()).not.toContain(SLACK.toLowerCase())
+  })
+
   test('a secret file name, at any depth, excludes the skill with its kind', () => {
     for (const [p, kind] of [['.env', 'env'], ['config/.env.local', 'env'], ['keys/server.pem', 'private-key'], ['id_ed25519', 'private-key'], ['id_rsa.pub', 'private-key'],
       ['.npmrc', 'npm'], ['.netrc', 'netrc'], ['credentials.json', 'credentials'], ['x/.credentials.json', 'credentials'], ['cert.p12', 'private-key'], ['.aws/config', 'credentials']] as const) {
@@ -121,6 +131,7 @@ describe('scripts, plugin, size, not a skill', () => {
     expect(files!.some((f) => f.data.toString().includes('print'))).toBe(false)
     expect(needsScripts('Write the report. The node of the tree is …', [])).toBe(false)
     expect(needsScripts('Python developers like it.', [])).toBe(false)
+    expect(needsScripts('Run the script past the client before the shoot.', [])).toBe(false)
   })
 
   test('plugin: excluded without looking; too big: a file over 128 KB (in bytes) or over 1 MB in all', () => {
