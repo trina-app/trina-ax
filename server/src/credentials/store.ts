@@ -86,6 +86,8 @@ export function makeCredCtx(o: {
 }
 
 const ctxs = new WeakMap<AppContext, CredCtx>()
+/** The credential context if this server already made one (nothing is created: no keys, no folders). */
+export const existingCredentialsOf = (ctx: AppContext): CredCtx | undefined => ctxs.get(ctx)
 /** The credential context of a running server (one per AppContext). */
 export function credentialsOf(ctx: AppContext): CredCtx {
   let c = ctxs.get(ctx)
@@ -108,6 +110,50 @@ export function credentialsOf(ctx: AppContext): CredCtx {
 
 export function admins(db: Database): string[] {
   return (db.query("SELECT id FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
+}
+
+/** What changed, for the notice (the inbox row's `action`, and the text that goes with it) */
+export type ChangeAction = 'added' | 'replaced' | 'removed' | 'disabled' | 'reassigned' | 'zero_limit' | 'shared_on' | 'engine' | 'personal_disabled' | 'personal_removed' | 'personal_login_stopped'
+const CHANGE_TEXT: Record<ChangeAction, keyof typeof CT> = {
+  added: 'nAdminAdded', replaced: 'nAdminReplaced', removed: 'nAdminRemoved', disabled: 'nAdminDisabled', reassigned: 'nAdminReassigned',
+  zero_limit: 'nAdminZeroLimit', shared_on: 'nAdminSharedOn', engine: 'nAdminEngine', personal_disabled: 'nPersonalDisabled', personal_removed: 'nPersonalRemoved', personal_login_stopped: 'nPersonalLoginStopped',
+}
+/** One change, told to `to`: a live notice now (cc.notify, the channel the connection notices use) and a row in their
+ * inbox for when they are away (credential_change_notices). Who and what only; `subject` is a connection's name or the
+ * engine's address and model, never a token or key. Never throws. */
+function tellChange(cc: CredCtx, to: string[], who: string, action: ChangeAction, subject: string, vars: Record<string, string>, link: string | null) {
+  try {
+    const at = new Date(cc.now()).toISOString()
+    for (const id of to) {
+      cc.db.query("INSERT INTO credential_change_notices(id,user_id,event_type,source_id,actor_name,action,subject,created_at,suppressed) VALUES(?,?,?,?,?,?,?,?,0)")
+        .run(crypto.randomUUID(), id, 'credential.change', crypto.randomUUID(), who, action, subject.slice(0, 200), at)
+      cc.publish(id, { type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+    }
+    cc.notify({ level: 'info', code: 'credential_admin_change', message: ctAll(CHANGE_TEXT[action], { who, label: subject, ...vars }), ...(link ? { link } : {}) }, to)
+  } catch (e) { cc.log.warn('could not tell about a change to the AI connections', { err: e }) }
+}
+/**
+ * Someone who is not the owner changed the team's AI (a connection added, replaced, removed, switched off, given to
+ * other people or a zero limit; shared subscriptions turned on; the API engine settings): every active owner is told,
+ * live and in their inbox. The owner's own changes send nothing. A person who was an admin a moment ago (demoted while
+ * a sign-in ran) is not the owner either, so they are told too.
+ */
+export function noticeOwners(cc: CredCtx, actor: string | null, action: ChangeAction, subject: string, vars: Record<string, string> = {}) {
+  try {
+    if (!actor) return
+    const who = cc.db.query('SELECT name, role FROM users WHERE id = ?').get(actor) as { name: string; role: string } | null
+    if (!who || who.role === 'owner') return
+    const owners = (cc.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
+    if (owners.length) tellChange(cc, owners, who.name, action, subject, vars, '/admin/credentials')
+  } catch (e) { cc.log.warn('could not tell the owner about a change to the AI connections', { err: e }) }
+}
+/** The owner or an admin switched off or removed a member's own connection: that member is told (live and in the inbox). */
+export function noticeMember(cc: CredCtx, member: string, actor: string, action: 'personal_disabled' | 'personal_removed' | 'personal_login_stopped', label: string) {
+  try {
+    if (member === actor) return
+    const who = (cc.db.query('SELECT name FROM users WHERE id = ?').get(actor) as { name: string } | null)?.name
+    if (who) tellChange(cc, [member], who, action, label, {}, '/settings/credentials')
+  } catch (e) { cc.log.warn('could not tell a member about a change to their AI connection', { err: e }) }
 }
 
 /** notice for one connection and code at most once an hour */

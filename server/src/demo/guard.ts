@@ -32,7 +32,7 @@ const personaById = (ctx: AppContext, id: unknown) => typeof id === 'string' && 
 /** Refuse what a demo server must not do (see the head of this file). No-op without MYCEL_DEMO. */
 export function demoGuard(ctx: AppContext, ep: Endpoint, i: { params: Record<string, string>; body: unknown; auth: AuthInfo | null; locale: Locale }): void {
   if (!ctx.config.demo) return
-  if (ep.auth === 'owner-reauth' || ep === API.setSpeechKey) fail('forbidden', T.reauth[i.locale])
+  if (ep.auth === 'owner-reauth' || ep.auth === 'admin-reauth' || ep === API.setSpeechKey) fail('forbidden', T.reauth[i.locale])
   const body = (i.body ?? {}) as Record<string, unknown>
   // the seed's first change, from the temporary password to the demo password, is the only one
   if (ep === API.changePassword && i.auth && isDemoPersona(ctx, i.auth.user.username) && !i.auth.user.mustChangePassword) fail('forbidden', T.persona[i.locale])

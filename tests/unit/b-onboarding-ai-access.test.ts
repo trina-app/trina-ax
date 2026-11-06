@@ -1,7 +1,7 @@
 // Onboarding stream A: the way out of "no AI". GET /api/me/ai-access says which button fits (owner connects for the
-// team; a member connects their own while the team allows it; anyone else asks the owner), POST /api/me/ai-access/request
-// tells the owner(s) once (a second click changes nothing), only someone without AI who is not the owner can ask, the
-// owner's notice carries a name and nothing else, and it counts as read once the member can use AI.
+// team, and so does an admin; a member connects their own while the team allows it; anyone else asks the owner),
+// POST /api/me/ai-access/request tells the owner(s) and the admins once (a second click changes nothing), only someone
+// without AI who is not the owner or an admin can ask, the notice carries a name and nothing else, and it counts as read once the member can use AI.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import path from 'node:path'
 import { setSetting } from '../../server/src/admin/settings'
@@ -31,20 +31,21 @@ describe('which button', () => {
     expect((await h.client().try('GET', '/api/me/ai-access')).status).toBe(401)
     expect((await h.client().try('POST', '/api/me/ai-access/request')).status).toBe(401)
   })
-  test('owner connects for the team; a member connects their own while allowed; otherwise asks; an admin cannot add a team connection', async () => {
+  test('owner connects for the team; a member connects their own while allowed; otherwise asks; an admin connects for the team like the owner', async () => {
     expect(await access(owner)).toEqual({ usable: false, action: 'connect_team', requested: false })
     expect(await access(mia.client)).toEqual({ usable: false, action: 'connect_own', requested: false })
-    expect((await access(admin)).action).toBe('connect_own')
+    expect((await access(admin)).action).toBe('connect_team')
     setSetting(h.ctx.db, MEMBER_OWN_KEY, false)
     expect((await access(mia.client)).action).toBe('ask_owner')
-    expect((await access(admin)).action).toBe('ask_owner')
+    expect((await access(admin)).action).toBe('connect_team')
     expect((await access(owner)).action).toBe('connect_team')
   })
 })
 
 describe('asking the owner', () => {
-  test('the owner cannot ask', async () => {
+  test('the owner and an admin cannot ask', async () => {
     expect((await owner.try('POST', '/api/me/ai-access/request')).status).toBe(403)
+    expect((await admin.try('POST', '/api/me/ai-access/request')).status).toBe(403)
   })
   test('one notice per owner however often it is clicked; the owner sees a name and a link; others hear nothing', async () => {
     const a = await mia.client.call('POST', '/api/me/ai-access/request')
@@ -57,8 +58,11 @@ describe('asking the owner', () => {
     expect(n).toHaveLength(1)
     expect(n[0]).toMatchObject({ sourceId: mia.id, link: 'admin_credentials', requester: { name: 'MIA' }, readAt: null })
     expect(JSON.stringify(n[0])).not.toContain('noa')
-    // an admin is not the owner: nothing in their inbox
-    expect(((await admin.call('GET', '/api/notifications')).items as any[]).some((i) => i.eventType === 'onboarding.ai_request')).toBe(false)
+    // an admin can connect the team's AI too: the same notice, with the same name, in their inbox; other members hear nothing
+    const adminNotices = ((await admin.call('GET', '/api/notifications')).items as any[]).filter((i) => i.eventType === 'onboarding.ai_request')
+    expect(adminNotices).toHaveLength(1)
+    expect(adminNotices[0]).toMatchObject({ sourceId: mia.id, link: 'admin_credentials', requester: { name: 'MIA' }, readAt: null })
+    expect(((await noa.client.call('GET', '/api/notifications')).items as any[]).some((i) => i.eventType === 'onboarding.ai_request')).toBe(false)
     // another member asks on their own
     await noa.client.call('POST', '/api/me/ai-access/request')
     expect(await ownerNotices()).toHaveLength(2)
@@ -103,7 +107,7 @@ describe('the hosting service\'s trial AI credit (streams B and Z)', () => {
       // used up: nothing answers; each person gets their button, and the line says why first
       chargeHostedChat(h.ctx.db, 5)
       expect(await access(owner)).toEqual({ usable: false, action: 'connect_team', requested: false, trial: 'used' })
-      expect(await access(admin)).toMatchObject({ usable: false, action: 'ask_owner', trial: 'used' })
+      expect(await access(admin)).toMatchObject({ usable: false, action: 'connect_team', trial: 'used' })
       setSetting(h.ctx.db, MEMBER_OWN_KEY, true)
       expect(await access(noa.client)).toMatchObject({ usable: false, action: 'connect_own', trial: 'used' })
       setSetting(h.ctx.db, MEMBER_OWN_KEY, false)

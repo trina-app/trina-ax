@@ -118,18 +118,19 @@ test('a member never gets mcp:admin, whatever the app asked or the body says, an
   expect(f.audits('remote_mcp.tool').at(-1)!.detail).toEqual({ tool: 'group_create', ok: false, via: 'connector', reason: 'not_admin' })
 })
 
-test('existing grants are unaffected: an admin\'s grant without mcp:admin keeps its nine tools and a refresh cannot add it', async () => {
+test('existing grants are unaffected: an admin\'s grant without mcp:admin keeps its ten tools and a refresh cannot add it', async () => {
   const f = await setup('existing')
   // a grant as the consent before this change made it: the asked scopes, no mcp:admin (the person approved seeing less)
   const old = await f.connect(f.owner.cookie!, 'mcp:read mcp:write offline_access', {})
   f.h.ctx.db.query('UPDATE remote_mcp_grants SET scopes = ? WHERE id = ?').run(JSON.stringify(['mcp:read', 'mcp:write', 'offline_access']), old.grant().id)
-  const nine = ['list', 'glob', 'grep', 'read', 'write', 'edit', 'upload_file', 'create_upload_link', 'skills_list']
-  expect(f.names(old.token)).toEqual(nine)
+  // the write scope's ten: the files, the skills list and share_skills (a proposal only, skills/share.ts), no group tools
+  const ten = ['list', 'glob', 'grep', 'read', 'write', 'edit', 'upload_file', 'create_upload_link', 'skills_list', 'share_skills']
+  expect(f.names(old.token)).toEqual(ten)
   expect(text(await f.call(old.token, 'groups_list'))).toContain('no permission')
   expect(() => f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: old.refresh, scope: ALL, resource: f.oauth.resource() })).toThrow('invalid_scope')
   const next = f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: old.refresh, resource: f.oauth.resource() })
   expect(next.scope).toBe('mcp:read mcp:write offline_access')
-  expect(f.names(next.access_token)).toEqual(nine)
+  expect(f.names(next.access_token)).toEqual(ten)
 })
 
 test('an admin demoted after granting loses the group tools on the next call, for good', async () => {

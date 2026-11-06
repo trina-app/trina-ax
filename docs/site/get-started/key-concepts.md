@@ -9,8 +9,8 @@ Trina AX has a few building blocks. Every other page uses these words.
 
 | Role | Can do |
 |---|---|
-| **Owner** | Everything an admin can, plus team-level choices such as AI connections, updates and restores. |
-| **Admin** | Manage members, groups, folder permissions, engines and team settings. Admins cannot read other people's chats. |
+| **Owner** | Everything an admin can, plus team-level choices such as updates, restores, removing members and the team name. |
+| **Admin** | Manage members, groups, folder permissions, the team's AI connections and engines, and team settings. Admins cannot read other people's chats. |
 | **Member** | Chat with the AI, use files and skills they may open, and keep personal folders and skills. |
 
 A **group** is a set of people, such as Sales or Finance. Folder rules can name groups or people.

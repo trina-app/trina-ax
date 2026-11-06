@@ -113,8 +113,8 @@ export function withoutAi(ctx: Ctx, o: AccessOptions = {}): { ids: string[]; unt
 }
 
 /** What a person without a usable AI connection can do about it (the button in the chat error and the banner above the
- * composer, web/src/lib/aiAccess.ts). The owner connects one for the team; a member (an admin too: only the owner adds
- * team connections, credentials routes) connects their own while the team allows it; anyone else asks the owner. */
+ * composer, web/src/lib/aiAccess.ts). The owner and admins connect one for the team (both change the team's connections, credentials routes); a member
+ * connects their own while the team allows it; anyone else asks the owner or an admin. */
 export type AiAction = 'connect_team' | 'connect_own' | 'ask_owner'
 export interface AiAccess {
   /** false: nothing answers this person now (always true when engines sign in on their own, authMode other than managed) */
@@ -126,7 +126,7 @@ export interface AiAccess {
 }
 export function aiAccessFor(ctx: Ctx, p: Person, memberOwn: boolean, o: AccessOptions = {}): AiAccess {
   const usable = !isManaged(ctx.config) || canUseAi(ctx, p, o)
-  const action: AiAction = p.role === 'owner' ? 'connect_team' : memberOwn ? 'connect_own' : 'ask_owner'
+  const action: AiAction = p.role === 'owner' || p.role === 'admin' ? 'connect_team' : memberOwn ? 'connect_own' : 'ask_owner'
   if (usable || !enginesAnswering(ctx, p, o.problems).some((e) => e !== 'api')) return { usable, action }
   const trial = hostedChatState(ctx.db, o.now ?? new Date())
   return trial === 'used' || trial === 'ended' ? { usable, action, trial } : { usable, action }

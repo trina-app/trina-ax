@@ -52,6 +52,7 @@ const WHO: Record<Endpoint['auth'], string> = {
   admin: 'Admin',
   owner: 'Owner',
   'owner-reauth': 'Owner + password',
+  'admin-reauth': 'Admin + password',
 }
 
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim()
@@ -87,6 +88,7 @@ export function apiReferenceMarkdown(): string {
     '| Admin | An admin or the owner |',
     '| Owner | The owner only |',
     '| Owner + password | The owner, who enters their password again (updates, restores) |',
+    '| Admin + password | An admin or the owner, who enters their own password again (the team\'s AI connections) |',
     '',
   ]
   for (const [key, eps] of groups) {

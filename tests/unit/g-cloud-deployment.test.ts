@@ -182,7 +182,7 @@ describe('Team AX Cloud refuses what the operator owns (UX-07, SEC-02)', () => {
     expect((await owner.try('POST', '/api/admin/connected/00000000-0000-7000-8000-000000000000/sync')).status).toBe(409)
   })
   test('the API engine address must be public https', async () => {
-    const r = await owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama' })
+    const r = await owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama', password: OWNER_PW })
     expect(r.status).toBe(400)
     expect(r.body.error.fields['body.baseUrl']).toBe('not_public_https')
   })
@@ -190,7 +190,7 @@ describe('Team AX Cloud refuses what the operator owns (UX-07, SEC-02)', () => {
     h.ctx.config.deployment = 'self'
     try {
       expect((await owner.call('GET', '/api/admin/connected')).available).toBe(true)
-      const r = await owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama' })
+      const r = await owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama', password: OWNER_PW })
       expect(r.status).toBe(200)
       const up = await owner.try('POST', '/api/admin/update', { password: OWNER_PW })
       expect(up.body.error?.message ?? '').not.toContain(`${PRODUCT.displayName} Cloud`)
