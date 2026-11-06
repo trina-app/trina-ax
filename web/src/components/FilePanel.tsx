@@ -6,7 +6,7 @@
 // loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
 // server keeps their version and saves this one as a conflict copy, which the panel then opens.
 import clsx from 'clsx'
-import { Download, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
+import { Download, FileText, FolderOpen, Loader2, MoreHorizontal, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import Papa from 'papaparse'
 import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -150,6 +150,22 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   }, [])
 
   const download = () => (file.source === 'team' ? startDownload(fileUrl(file.path), file.name) : saveBlob(file.blob, file.name))
+  // phones: "add to chat", "open in Files" and "download" sit behind one ⋯ (a computer keeps them as icons)
+  const teamPath = file.source === 'team' ? file.path : null
+  const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
+  const openInFiles = () => teamPath && navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+  const canDownload = error?.kind !== 'missing'
+  const extra = !!addToChat || file.source === 'team' || canDownload
+  const [menu, setMenu] = useState(false)
+  const menuBox = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!menu) return
+    menuBox.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    const outside = (ev: MouseEvent) => !menuBox.current?.contains(ev.target as Node) && setMenu(false)
+    document.addEventListener('mousedown', outside)
+    return () => document.removeEventListener('mousedown', outside)
+  }, [menu])
+  const menuItem = 'flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm -outline-offset-2 hover:bg-hover focus:bg-hover'
 
   return (
     <aside aria-label={t('preview.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="file-panel">
@@ -176,8 +192,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
             </button>
           )}
-          {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && chatAttach.target && (
-            <IconButton label={t('files.addToChatNamed', { title: chatAttach.target.title })} onClick={() => chatAttach.addToChat([file.path])} data-testid="file-add-to-chat">
+          {addToChat && (
+            <IconButton label={t('files.addToChatNamed', { title: addToChat.title })} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">
               <Paperclip size={16} />
             </IconButton>
           )}
@@ -187,14 +203,40 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </IconButton>
           )}
           {file.source === 'team' && (
-            <IconButton label={t('preview.openInFiles')} onClick={() => navigate(`/files?path=${encodeURIComponent(parentPath(file.path))}&select=${encodeURIComponent(file.name)}`)}>
+            <IconButton label={t('preview.openInFiles')} className="max-md:hidden" onClick={openInFiles}>
               <FolderOpen size={16} />
             </IconButton>
           )}
-          {error?.kind !== 'missing' && (
-            <IconButton label={t('common.download')} onClick={download}>
+          {canDownload && (
+            <IconButton label={t('common.download')} className="max-md:hidden" onClick={download}>
               <Download size={16} />
             </IconButton>
+          )}
+          {extra && (
+            <div ref={menuBox} className="relative md:hidden" onKeyDown={(e) => { if (e.key === 'Escape' && menu) { e.stopPropagation(); setMenu(false); menuBox.current?.querySelector<HTMLElement>('button')?.focus() } }}>
+              <IconButton label={t('files.actionsFor', { name: file.name })} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((v) => !v)} data-testid="file-panel-more">
+                <MoreHorizontal size={16} />
+              </IconButton>
+              {menu && (
+                <div role="menu" aria-label={t('files.actionsFor', { name: file.name })} className="absolute top-full right-0 z-30 mt-1 w-60 rounded-lg border border-line bg-surface p-1 shadow-lg" onClick={() => setMenu(false)}>
+                  {addToChat && (
+                    <button role="menuitem" type="button" className={menuItem} onClick={addToChat.add}>
+                      <Paperclip size={15} className="shrink-0" aria-hidden /> <span className="min-w-0 truncate">{t('files.addToChatNamed', { title: addToChat.title })}</span>
+                    </button>
+                  )}
+                  {file.source === 'team' && (
+                    <button role="menuitem" type="button" className={menuItem} onClick={openInFiles}>
+                      <FolderOpen size={15} className="shrink-0" aria-hidden /> {t('preview.openInFiles')}
+                    </button>
+                  )}
+                  {canDownload && (
+                    <button role="menuitem" type="button" className={menuItem} onClick={download}>
+                      <Download size={15} className="shrink-0" aria-hidden /> {t('common.download')}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           <IconButton label={t('common.close')} onClick={onClose}>
             <X size={16} />
