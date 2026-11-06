@@ -9731,5 +9731,8 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
 - **The message box is a room's box on phones**: attach and voice inside it, the round accent send (Enter makes a new
   line there). The row under it stays only for the engine picker (not moved: that would change how an engine is
   picked; a later option is the "+" menu).
-- **Honorifics:** a name that already ends with one (대표님, 김민지 씨, 田中様) gets no second 님 / さん from a text
-  (i18n `format`).
+- **Honorifics:** a name that already ends with one (대표님, 김민지 씨, 田中様) gets no second 님 / さん from a text,
+  with or without a space before it ("{name} 님에게 답장" reads "대표님에게 답장"); a Korean particle right after it
+  takes the name's last sound ("김민지 씨가"). One helper for the app's texts (i18n `format`) and the team server's
+  texts with a name (Slack's "{name}님의 질문", notices, cards): `shared/src/honorific.ts`. A name with 님 inside it
+  ("김님희") keeps the text's own.

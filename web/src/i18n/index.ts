@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import { getDesktopBridge, PRODUCT } from '@mycel/shared'
 import { DEFAULT_LOCALE, LOCALE_NAMES, LOCALE_ORDER, asLocale, type Locale } from '@mycel/shared/api'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 import { PLURAL_PATTERN, fillPlurals, pluralNames } from '@mycel/shared/plural'
 import { RECENT_LOCALE_KEY, SIGN_IN_LOCALE_KEY } from './recovery-locale'
 import { en } from './en'
@@ -40,24 +41,16 @@ export function koRo(value: string): string {
   return '(으)로'
 }
 
-/** A name that already ends with an honorific: Korean 님 or 씨 ("대표님", "김민지 씨"), Japanese さん, 様, さま, 殿, 先生, 氏,
- * くん, ちゃん ("田中様"). English, Spanish and Indonesian texts add none after a name. */
-export const HONORIFIC_END = /(님|씨|さん|様|さま|殿|先生|氏|くん|ちゃん)$/
-
-/** True when the name already carries an honorific, so a text's own 님 / さん after it is left out. */
-export const hasHonorific = (name: string) => HONORIFIC_END.test(name.trim())
-
 export function format(template: string, callerParams?: Params, locale: string = DEFAULT_LOCALE): string {
   const params: Params = { ...PRODUCT_PARAMS, ...callerParams }
-  // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts).
-  // After a value: "(으)로" as it is read (koRo), and the text's own honorific (님, さん) left out when the name has one
-  // already: "{name}님" with 대표님 reads "대표님", never "대표님님".
-  return fillPlurals(template, params, locale).replace(/\{(\w+)\}(\(으\)로|님|さん)?/g, (all, k: string, after?: string) => {
+  // "{n, plural, one {# step} other {# steps}}": the form for the number in this language (shared/src/plural.ts); the
+  // text's own honorific (님, さん) left out when the name has one already, with or without a space before it:
+  // "{name}님" and "{name} 님" with 대표님 read "대표님", never "대표님님" (shared/src/honorific.ts); after a value,
+  // "(으)로" as it is read (koRo)
+  return dropDoubleHonorifics(fillPlurals(template, params, locale), params).replace(/\{(\w+)\}(\(으\)로)?/g, (all, k: string, ro?: string) => {
     if (params[k] === undefined) return all
     const v = String(params[k])
-    if (after === '(으)로') return v + (locale === 'ko' ? koRo(v) : after)
-    if (after) return hasHonorific(v) ? v : v + after
-    return v
+    return ro ? v + (locale === 'ko' ? koRo(v) : ro) : v
   })
 }
 

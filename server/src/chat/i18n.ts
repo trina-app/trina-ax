@@ -3,6 +3,7 @@
 import { CHAT_ERROR_MESSAGES, type ApiErrorBody, type ChatErrorReason, type Locale } from '@mycel/shared/api'
 import { STEP_TEXT } from '@mycel/shared'
 import { fillPlurals } from '@mycel/shared/plural'
+import { dropDoubleHonorifics } from '@mycel/shared/honorific'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -157,8 +158,9 @@ export const TEXT = {
 } satisfies Record<string, T>
 
 export function tr(key: keyof typeof TEXT, locale: Locale, vars: Record<string, string> = {}): string {
-  // a count first ("{n, plural, one {# person} other {# people}}", shared/src/plural.ts), then the plain values
-  let s = fillPlurals(TEXT[key][locale] ?? TEXT[key].en, vars, locale)
+  // a count first ("{n, plural, one {# person} other {# people}}", shared/src/plural.ts), no second honorific after a
+  // name that has one ("{by} 님" with 대표님, shared/src/honorific.ts), then the plain values
+  let s = dropDoubleHonorifics(fillPlurals(TEXT[key][locale] ?? TEXT[key].en, vars, locale), vars)
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v)
   return s
 }

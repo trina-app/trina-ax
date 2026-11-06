@@ -191,6 +191,19 @@ describe('translations', () => {
     // a name in the middle of a sentence, and a value that is not filled in stays as written
     expect(translate('ko', 'goal.waitingMany', { name: '팀장님', n: 2, skill: "'광고 문구'는" })).toBe("팀장님 외 2명이 들어왔지만 '광고 문구'는 아직이에요.")
     expect(format('{name}님', {}, 'ko')).toBe('{name}님')
+    // with a space before the honorific ("{name} 님"), as in about 18 Korean and 9 Japanese texts
+    expect(translate('ko', 'rooms.replyTo', { name: '대표님' })).toBe('대표님에게 답장')
+    expect(translate('ko', 'notifications.event.room.dmNamed', { name: '대표님' })).toBe('대표님이 메시지를 보냈어요.')
+    expect(translate('ko', 'rooms.replyTo', { name: '김님희' })).toBe('김님희 님에게 답장')
+    expect(translate('ko', 'notifications.event.room.dmNamed', { name: '김님희' })).toBe('김님희 님이 메시지를 보냈어요.')
+    expect(translate('ko', 'rooms.replyTo', { name: '이민준' })).toBe('이민준 님에게 답장')
+    // the particle after it follows the name's last sound: 씨 ends in a vowel
+    expect(translate('ko', 'notifications.event.room.dmNamed', { name: '김민지 씨' })).toBe('김민지 씨가 메시지를 보냈어요.')
+    expect(translate('ko', 'demo.start', { name: '김민지 씨' })).toBe('김민지 씨로 시작하기')
+    expect(translate('ko', 'demo.start', { name: '대표님' })).toBe('대표님으로 시작하기')
+    expect(translate('ja', 'accessView.who.person', { name: '田中様' })).toBe('田中様')
+    expect(translate('ja', 'accessView.membersLinkFor', { name: '山田さん' })).toBe('山田さんが見られるフォルダー')
+    expect(translate('ja', 'accessView.membersLinkFor', { name: '山田' })).toBe('山田 さんが見られるフォルダー')
     // English, Spanish and Indonesian add no honorific of their own: the name stays as it is
     expect(translate('en', 'home.greeting', { name: '대표님' })).toBe('How can I help you, 대표님?')
     expect(translate('id', 'home.greeting', { name: 'Bapak Budi' })).toBe('Halo Bapak Budi, ada yang bisa aku bantu?')
@@ -200,12 +213,12 @@ describe('translations', () => {
     const src = path.resolve(import.meta.dir, '../../src')
     // the one place that must recognise a Korean file name: conflict copies made by a Korean team ("충돌 사본")
     // and the Korean object and topic particles after a skill's name (을 / 를, 은 / 는: grammar, not text;
-    // lib/teamGoal.ts objectParticle, topicParticle), "(으)로" after a filled-in value (i18n/index.ts koRo) and the
-    // honorifics a name may already end with (i18n/index.ts HONORIFIC_END)
+    // lib/teamGoal.ts objectParticle, topicParticle) and "(으)로" after a filled-in value (i18n/index.ts koRo); the
+    // honorifics a name may already end with are in shared/src/honorific.ts
     const allowed: Record<string, RegExp> = {
       'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/,
       'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/,
-      'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로님씨][^\uAC00-\uD7A3]*)+$/,
+      'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로][^\uAC00-\uD7A3]*)+$/,
     }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {
