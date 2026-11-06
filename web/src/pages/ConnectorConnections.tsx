@@ -8,6 +8,7 @@ import { APP_CONNECTORS } from '../lib/connectors'
 import { useT } from '../i18n'
 import { DriveCard } from '../components/integrations/DriveConnector'
 import { useDriveConnection } from '../components/settings/DriveConnection'
+import { SlackAccount } from '../components/settings/SlackAccount'
 
 export default function ConnectorConnections() {
   const t = useT()
@@ -29,6 +30,8 @@ export default function ConnectorConnections() {
       <ul ref={grid} className="grid gap-3 sm:grid-cols-2" data-testid="app-connectors">
         {APP_CONNECTORS.map((a) => (a.id === 'google-drive' ? <DriveCard key={a.id} s={drive} /> : null))}
       </ul>
+      {/* Slack (main's Slack connector): the person's own Slack link, under the app cards; its sign-in comes back here (?slack=) */}
+      <SlackAccount />
     </section>
   )
 }

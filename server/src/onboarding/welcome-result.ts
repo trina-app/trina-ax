@@ -1,20 +1,21 @@
-// The welcome steps' first result: the company's card news (docs/DECISIONS.md "N — The first result is the company's
-// card news"). POST /api/onboarding/welcome/first-result (the owner, who walks the steps):
+// The welcome steps' first result: the company's intro deck (docs/DECISIONS.md "D2 — The first result is the company's
+// intro deck"; the promo video of "V" and the card news of "N" before it, both still installed with the general pack).
+// POST /api/onboarding/welcome/first-result (the owner, who walks the steps):
 //   1. the team's start if it is missing (the general pack and the team's group with its brand folder, welcome.ts);
-//   2. "/card-news": the pack's skill, added on its own once for a row recorded before the skill existed;
+//   2. "/intro-deck": the pack's skill, added on its own once for a row recorded before the skill existed;
 //   3. the pictures the website reading collected (brand-assets.ts) go into the brand images folder, as the owner's
 //      saves (versions, file events, the folder rules), each once;
 //   4. no file from the owner: 회사 소개.md in the brand folder, written from the saved company profile and the text of
 //      the pages the server opened, each part under its source (no AI here: nothing is invented); one already there is
 //      kept as it is (someone may have edited it);
-//   5. a new chat of the owner titled after the result ("우리 회사 홍보 카드뉴스", a title the AI does not rename).
-// No picture is made here or in that chat: with too few pictures the skill uses its type-only cards (docs/DECISIONS.md
-// "N", Higgsfield taken out).
-// The page then attaches the files and sends "/card-news …" like any message of the owner's (pages/Welcome.tsx), so
-// the turn is an ordinary skill run (the goal, the receipt and the transcript need nothing new).
+//   5. a new chat of the owner titled after the result ("우리 회사 소개서", a title the AI does not rename).
+// No picture is made here or in that chat: a slide without a fitting picture is made in its type-only version.
+// The page then attaches the files and sends "/intro-deck …" like any message of the owner's (pages/Welcome.tsx), so
+// the turn is an ordinary skill run (the goal, the receipt and the transcript need nothing new); the deck opens beside
+// the chat by itself (its artifact key, web/src/store/chats.ts).
 import fs from 'node:fs'
 import path from 'node:path'
-import { GENERAL_CARDNEWS_SKILL, profileName, type FirstResultStarted, type Locale, type StartFirstResult } from '@mycel/shared/api'
+import { GENERAL_DECK_SKILL, profileName, type FirstResultStarted, type Locale, type StartFirstResult } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AuthInfo } from '../services'
 import type { ChatRuntime } from '../chat/runtime'
@@ -25,22 +26,22 @@ import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { freeName } from '../team-files/place'
-import { assetDir, stagedAssets, type BrandAssetRow } from './brand-assets'
+import { assetDir, BRAND_PAGE_TEXT_MAX, pageLines, stagedAssets, type BrandAssetRow } from './brand-assets'
 import { readCompanyProfile } from './profile'
 import { installPackSkill } from './skill-packs'
-import { brandFoldersOf, cardNewsSkill, readWelcome, setupWelcomeTeam } from './welcome'
+import { brandFoldersOf, introDeckSkill, readWelcome, setupWelcomeTeam } from './welcome'
 
 const TEXT = {
-  title: { ko: '우리 회사 홍보 카드뉴스', en: 'Promo cards for our company', id: 'Kartu berita perusahaan kami', ja: '会社紹介カードニュース', es: 'Tarjetas de presentación de la empresa' },
+  title: { ko: '우리 회사 소개서', en: 'Our company profile', id: 'Profil perusahaan kami', ja: '会社紹介資料', es: 'Presentación corporativa' },
   intro: { ko: '회사 소개.md', en: 'Company intro.md', id: 'Profil perusahaan.md', ja: '会社紹介.md', es: 'Presentación de la empresa.md' },
   logo: { ko: '로고', en: 'logo', id: 'logo', ja: 'ロゴ', es: 'logotipo' },
   image: { ko: '홈페이지', en: 'website', id: 'situs', ja: 'サイト', es: 'sitio' },
   blocked: {
-    ko: '카드뉴스 스킬을 넣지 못했어요. 폴더 권한을 확인해 주세요.',
-    en: 'The promo cards skill could not be added. Check the folder permissions.',
-    id: 'Skill kartu berita tidak bisa ditambahkan. Periksa izin folder.',
-    ja: 'カードニュースのスキルを追加できませんでした。フォルダーの権限を確認してください。',
-    es: 'No se pudo añadir la habilidad de tarjetas. Revise los permisos de la carpeta.',
+    ko: '회사 소개서 스킬을 넣지 못했어요. 폴더 권한을 확인해 주세요.',
+    en: 'The company profile skill could not be added. Check the folder permissions.',
+    id: 'Skill profil perusahaan tidak bisa ditambahkan. Periksa izin folder.',
+    ja: '会社紹介資料のスキルを追加できませんでした。フォルダーの権限を確認してください。',
+    es: 'No se pudo añadir la habilidad de presentación corporativa. Revise los permisos de la carpeta.',
   },
   noMaterial: {
     ko: '아직 회사 소개가 없어요. 앞 단계에서 홈페이지를 읽거나 회사 소개 자료를 올려 주세요.',
@@ -69,6 +70,8 @@ const MD: Record<Locale, { head: (name: string) => string; lead: (site: string) 
 
 /** All of the website text that goes into 회사 소개.md, at most. */
 const INTRO_PAGES_MAX_CHARS = 12_000
+/** One page's text in 회사 소개.md, at most (its first lines: the page's own headings and paragraphs). */
+const INTRO_PAGE_MAX_CHARS = 2_000
 
 /** The latest website draft chat of this person that collected something (images or page text), or null. */
 export function latestDraftChat(ctx: Pick<AppContext, 'db'>, userId: string): string | null {
@@ -81,11 +84,9 @@ export function latestDraftChat(ctx: Pick<AppContext, 'db'>, userId: string): st
   } catch { return null }
 }
 
-/** Page text for a Markdown quote: links reduced to their words, headings and blank runs tidied, each line quoted. */
-function quote(text: string): string {
-  return text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/^#+\s*/gm, '').replace(/\n{3,}/g, '\n\n').trim()
-    .split('\n').map((l) => (l.trim() ? `> ${l.trim()}` : '>')).join('\n')
-}
+/** Page lines as Markdown quotes: each line its own quote (a blank line between, never an empty "> ") so a heading and
+ * a paragraph do not run together. */
+const quote = (lines: readonly string[]): string => lines.map((l) => `> ${l}`).join('\n\n')
 
 /** 회사 소개.md from the profile (the person confirmed it) and the pages the server opened (quoted, with their address). */
 export function introMarkdown(o: { locale: Locale; name: string; profile: ReturnType<typeof readCompanyProfile>; pages: Pick<BrandAssetRow, 'url' | 'title' | 'text'>[] }): string {
@@ -107,17 +108,25 @@ export function introMarkdown(o: { locale: Locale; name: string; profile: Return
     section(t.avoid, p.avoid, 'avoid')
     section(t.colors, p.colors?.join(', '))
   }
+  // each page's own words (brand-assets.ts pageLines: no menu, no blank or repeated lines; rows kept before that are
+  // tidied the same way), a line another page said already left out (the site's footer, a slogan on every page)
   let used = 0
-  const pages = o.pages.filter((x) => x.text?.trim())
+  const said = new Set<string>()
+  const pages: { pg: (typeof o.pages)[number]; lines: string[] }[] = []
+  for (const pg of o.pages) {
+    const room = INTRO_PAGES_MAX_CHARS - used
+    if (room < 200) break
+    const lines = pageLines(pg.text ?? '', BRAND_PAGE_TEXT_MAX).filter((l) => !said.has(l.normalize('NFC').toLowerCase()))
+    for (const l of lines) said.add(l.normalize('NFC').toLowerCase())
+    // its first lines up to the page's share (a first line longer than that is cut with "…")
+    const kept = pageLines(lines.join('\n'), Math.min(room, INTRO_PAGE_MAX_CHARS))
+    if (!kept.length) continue
+    used += kept.reduce((n, l) => n + l.length + 1, 0)
+    pages.push({ pg, lines: kept })
+  }
   if (pages.length) {
     out.push(`## ${t.pages}`, '')
-    for (const pg of pages) {
-      const room = INTRO_PAGES_MAX_CHARS - used
-      if (room < 200) break
-      const text = pg.text!.slice(0, room)
-      used += text.length
-      out.push(`### ${(pg.title ?? '').replace(/\s+/g, ' ').trim() || pg.url}`, '', `${t.source}: ${pg.url}`, '', quote(text), '')
-    }
+    for (const { pg, lines } of pages) out.push(`### ${(pg.title ?? '').replace(/\s+/g, ' ').trim() || pg.url}`, '', `${t.source}: ${pg.url}`, '', quote(lines), '')
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
 }
@@ -185,7 +194,7 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
   if (!p?.general || !p.teamGroup?.brandFolder) p = setupWelcomeTeam(ctx, userId, locale).progress
   const group = p.teamGroup
   if (!group || !p.general) throw new HttpError('conflict', TEXT.blocked[locale])
-  const skillPath = cardNewsSkill(ctx, userId, () => installPackSkill(ctx, userId, 'general', 'card-news'))
+  const skillPath = introDeckSkill(ctx, userId, () => installPackSkill(ctx, userId, 'general', 'intro-deck'))
   if (!skillPath) throw new HttpError('conflict', TEXT.blocked[locale])
   const team = teamDefaultLocale(ctx.db)
   const { brandFolder, imagesFolder } = brandFoldersOf(ctx, userId, group.folder, group.brandFolder)
@@ -215,5 +224,5 @@ export function startFirstResult(ctx: AppContext, rt: ChatRuntime, auth: AuthInf
     .run(id, userId, TEXT.title[locale], engine, model ?? null, now, now)
   audit(ctx.db, { actor: userId, action: 'onboarding.first_result', target: id, detail: { files: files.length, intro: !!intro, images: images.length } })
   rt.publishChat(userId, id, 'created')
-  return { chatId: id, title: TEXT.title[locale], skillPath: skillPath ?? GENERAL_CARDNEWS_SKILL, files, intro, imagesFolder, images }
+  return { chatId: id, title: TEXT.title[locale], skillPath: skillPath ?? GENERAL_DECK_SKILL, files, intro, imagesFolder, images }
 }

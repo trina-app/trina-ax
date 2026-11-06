@@ -28,6 +28,10 @@ export const Me = z.object({
     /** may pick the engine / model (composer, retry with another model, own default): owner and admins always, others
      * when Admin > AI engines allows them. Absent (older server) = admins only. */
     canChooseEngine: z.boolean().optional(),
+    /** the profile line (Settings › Profile): absent while empty; the photo is at /api/people/:id/avatar?v=<avatarVersion> */
+    title: z.string().optional(),
+    status: z.string().optional(),
+    avatarVersion: z.number().int().positive().optional(),
   }),
   groups: z.array(z.object({ id: Uuid7, name: z.string() })),
   team: z.object({

@@ -7,7 +7,7 @@
 // apart from people, activity and the server (App connectors: what this server offers members, AppConnectors.tsx). Home (/admin) comes first: what needs attention, then one line per area
 // (Home.tsx).
 import clsx from 'clsx'
-import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, KeyRound, Plug, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, KeyRound, MessagesSquare, Plug, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
@@ -24,6 +24,7 @@ const Integrations = lazy(() => import('./Integrations'))
 const AppConnectors = lazy(() => import('./AppConnectors'))
 const AiApps = lazy(() => import('./AiApps'))
 const Plugins = lazy(() => import('./Plugins'))
+const Slack = lazy(() => import('./Slack'))
 const TeamSettingsPage = lazy(() => import('./TeamSettings'))
 const Usage = lazy(() => import('./Usage'))
 const Audit = lazy(() => import('./Audit'))
@@ -51,6 +52,8 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
       { id: 'app-connectors', label: 'connectors.title', icon: Plug },
       { id: 'ai-apps', label: 'aiApps.title', icon: Bot },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
+      // the owner's: the Slack connector acts as each linked person (docs/SLACK.md)
+      { id: 'slack', label: 'slack.admin.title', icon: MessagesSquare, ownerOnly: true },
     ],
   },
   {
@@ -128,6 +131,7 @@ export default function AdminLayout() {
             {section === 'app-connectors' && <AppConnectors />}
             {section === 'ai-apps' && <AiApps />}
             {section === 'plugins' && <Plugins />}
+            {section === 'slack' && <Slack />}
             {section === 'usage' && <Usage />}
             {section === 'audit' && <Audit />}
             {section === 'settings' && <TeamSettingsPage />}

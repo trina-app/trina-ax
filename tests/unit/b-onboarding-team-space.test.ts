@@ -12,7 +12,7 @@ import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { packInstalled } from '../../server/src/onboarding/tenant-status'
 import { getSetting } from '../../server/src/admin/settings'
-import { GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_TASKS_SKILL, WelcomeProgress } from '@mycel/shared/api'
+import { GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, GENERAL_TASKS_SKILL, WelcomeProgress } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -37,10 +37,11 @@ test('the general pack and the team group with its folders, once; the owner in i
   // the operator's count sees the general pack too (TenantStatus.onboarding.packInstalled)
   expect(packInstalled(root)).toBe(true)
   expect(r.outcome).toBe('installed')
-  expect(r.install.skills.map((s: any) => [s.path, s.status])).toEqual([[GENERAL_TASKS_SKILL, 'created'], [GENERAL_BRIEF_SKILL, 'created'], [GENERAL_CARDNEWS_SKILL, 'created']])
+  expect(r.install.skills.map((s: any) => [s.path, s.status])).toEqual([[GENERAL_TASKS_SKILL, 'created'], [GENERAL_BRIEF_SKILL, 'created'], [GENERAL_CARDNEWS_SKILL, 'created'], [GENERAL_PROMO_SKILL, 'created'], [GENERAL_DECK_SKILL, 'created']])
   expect(r.install.folders).toEqual([])
   expect(fs.readFileSync(path.join(root, GENERAL_TASKS_SKILL), 'utf8')).toBe(SKILL_PACKS.general.skills.ko!['meeting-tasks']!)
-  expect(r.progress.general).toMatchObject({ tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL })
+  // the first result's intro deck, and the promo video and the card news (still installed), are recorded with the pack
+  expect(r.progress.general).toMatchObject({ tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL })
   // the group is named after the team; its folder and the meeting notes folder (in the team language) are there
   const g = r.progress.teamGroup
   expect(g).toMatchObject({ name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록' })
@@ -61,7 +62,9 @@ test('the general pack and the team group with its folders, once; the owner in i
   expect(general.map((s) => [s.name, s.title, s.inputs?.map((i) => i.name)])).toEqual([
     ['card-news', '카드뉴스', ['topic', 'channel', 'files']],
     ['doc-brief', '핵심 정리', ['scope', 'files']],
+    ['intro-deck', '회사 소개서', ['topic', 'audience', 'files']],
     ['meeting-tasks', '할 일 정리', ['scope', 'files']],
+    ['promo-video', '홍보 영상', ['topic', 'channel', 'files']],
   ])
   expect(skillIssues(h.ctx.files, member)).toEqual([])
   expect(skillIssues(h.ctx.files, h.ctx.files.principal(ownerId))).toEqual([])

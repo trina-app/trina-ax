@@ -25,7 +25,12 @@ export async function signIn(page: Page, who = OWNER) {
   await page.getByTestId('login-username').fill(who.username)
   await page.getByTestId('login-password').fill(who.password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByTestId('composer-input')).toBeVisible()
+  // a phone lands on the 대화 list (App.tsx AfterSignIn); the tests start from Home either way
+  await expect(page.getByTestId('composer-input').or(page.getByTestId('rooms-page'))).toBeVisible()
+  if (await page.getByTestId('rooms-page').isVisible()) {
+    await page.goto('/')
+    await expect(page.getByTestId('composer-input')).toBeVisible()
+  }
 }
 
 /** Errors other than the expected 401 of GET /api/me before signing in. */

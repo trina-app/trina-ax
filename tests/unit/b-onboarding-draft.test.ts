@@ -367,6 +367,36 @@ describe('draft turns', () => {
     expect(r.content.split(',')).toContain('remember')
     expect(r.content.split(',')).toContain('skill')
   })
+
+  test('a draft chat is not in the chat list, its search, the frequent questions or the chat list events; its reading still works', async () => {
+    const sock = await h.ws('carol')
+    await sock.next('hello')
+    try {
+      const plain = await h.api('carol').call(API.createChat, { body: { title: '회사 소개 초안 메모' } })
+      await sock.next('chat.updated', (f) => f.data.chatId === plain.id)
+      // the same website again: the same first message twice (a frequent question if these chats counted)
+      const r = await h.api('carol').call(API.startProfileDraft, { body: { website: 'www.acme.co.kr' } })
+      // its answer's events still come: the profile step watches them for its lines
+      await sock.next('message.done', (f) => f.data.chatId === r.chatId, 30_000)
+      expect(sock.frames.some((f) => f.type === 'chat.updated' && f.data.chatId === r.chatId)).toBe(false)
+      const list = async (q?: string) => (await h.api('carol').call(API.listChats, { query: q ? { q } : {} })).items.map((c) => c.id)
+      expect(await list()).toContain(plain.id)
+      for (const q of [undefined, '초안', 'acme.co.kr']) {
+        const ids = await list(q)
+        expect(ids, q).not.toContain(r.chatId)
+        expect(ids, q).not.toContain(chatId)
+      }
+      expect(await list('초안')).toEqual([plain.id])
+      const frequent = await h.api('carol').call(API.frequentQuestions)
+      expect(frequent.items.filter((x) => x.question.includes('acme.co.kr'))).toEqual([])
+      // read by id as before
+      expect((await settled('carol', r.chatId)).status).toBe('done')
+      expect((await h.api('carol').call(API.getChat, { params: { id: r.chatId } })).id).toBe(r.chatId)
+      // an ordinary chat still sends its events
+      await send(plain.id, 'hi')
+      await sock.next('chat.updated', (f) => f.data.chatId === plain.id && f.data.change === 'updated')
+    } finally { sock.close() }
+  })
 })
 
 describe('draft turns with the real web_fetch (a local server stands in for the web)', () => {

@@ -28,6 +28,8 @@ export interface Row {
   last_used_at: string | null; version: number; created_at: string; updated_at: string
   /** JSON list of the service's tool names turned off (migration 328); every other tool is on */
   disabled_tools: string
+  /** a member's own connection made from an admin's template (templates.ts, migration 333); null otherwise */
+  template_id?: string | null
 }
 export interface FlowRow {
   id: string; integration_id: string; integration_version: number; user_id: string; session_id: string; state_hash: string
@@ -137,10 +139,19 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
  * allows personal connections. Team: an access rule must match; being an admin is not one. */
 export function mayUse(db: Database, row: Row, userId: string): boolean {
   if (!activeUser(db, userId)) return false
-  if (row.scope === 'personal') return row.owner_user_id === userId && personalOn(db)
+  if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))
   return !!db.query(`SELECT 1 FROM integration_access a WHERE a.integration_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
     OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?))) LIMIT 1`).get(row.id, userId, userId)
+}
+
+/** Is this person among the people an admin's template is for (templates.ts)? A template that is gone covers nobody.
+ * A member's connection made from it is usable only while this holds (and the team's switch for members' own
+ * connections does not apply: the admin registered the service). */
+export function templateCovers(db: Database, templateId: string, userId: string): boolean {
+  return !!db.query(`SELECT 1 FROM integration_template_access a WHERE a.template_id = ? AND (a.subject_type = 'everyone'
+    OR (a.subject_type = 'user' AND a.subject_id = ?)
+    OR (a.subject_type = 'group' AND a.subject_id IN (SELECT group_id FROM group_members WHERE user_id = ?))) LIMIT 1`).get(templateId, userId, userId)
 }
 
 /** The active people a connection's results may reach today (read scope of a chat, chat/read-scope.ts). */
@@ -154,7 +165,10 @@ export function usersOf(db: Database, id: string): Set<string> {
 /** Connections the person may use in a chat now, personal first. */
 export function usable(db: Database, userId: string): Row[] {
   if (!activeUser(db, userId)) return []
-  const personal = personalOn(db) ? db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(userId) as Row[] : []
+  // a member's own connections while the team allows them; the ones made from an admin's template while it covers them
+  const on = personalOn(db)
+  const personal = (db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(userId) as Row[])
+    .filter((r) => (r.template_id ? templateCovers(db, r.template_id, userId) : on))
   const team = (db.query(`${selectRows(db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(db, r, userId))
   return [...personal, ...team]
 }
@@ -203,13 +217,15 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
   const manage = row.scope === 'personal' ? row.owner_user_id === viewer.id : isAdmin(viewer.role)
   const creator = row.created_by ? db.query('SELECT id, name FROM users WHERE id = ?').get(row.created_by) as { id: string; name: string } | null : null
   return {
-    id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
+    // made from an admin's template: the bare address even to its member (a query there is the admin's, never theirs)
+    id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage && !row.template_id ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
     lastError: reasonText(row.last_error, locale),
     tools: ((off) => savedTools(db, row).map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, enabled: !off.has(t.name) })))(disabledTools(row)),
     ...toolsTotalOf(db, row),
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,
+    templateId: row.template_id ?? null,
   }
 }
 

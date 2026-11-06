@@ -33,7 +33,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
+  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
@@ -45,8 +45,8 @@ import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/sr
 import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
-import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTool } from '@mycel/shared/api'
-import { SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
+import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
+import { normalizeWebsite, SkillsOverview, type AccessFolderKind, type AccessTreeResponse, type FolderAccessResponse, type FolderEditPreview, type PersonAccessResponse } from '@mycel/shared/api'
 import { RuleSet, type Access } from '../../../server/src/policy/access'
 import { byPerson, folderInput, MAX_VIA, navigation, pageByPath, pageByPerson, ruleFolderOf, segsOf, shownPath, shownSegs, summarize, withoutOwnFolder } from '../../../server/src/admin/access-rows'
 import { ruledAnswer, treeAnswer, type TreeMark, type TreeSource } from '../../../server/src/admin/access-tree'
@@ -108,6 +108,15 @@ const enc = new TextEncoder()
 const dec = new TextDecoder()
 
 const OWNER_PASSWORD = 'correct horse battery'
+/** the general pack's card news as the server installs it (resources/skill-packs/general/ko/card-news), its form included:
+ * a member who joins with the first result's invite lands on it */
+const CARDNEWS_TEXT = '---\nname: card-news\ndescription: 카드뉴스 — 회사 소개서나 자료를 읽고 정사각형 카드뉴스 5장을 만들어요.\nmetadata:\n  title: 카드뉴스\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 소개 전체"}, {"name": "channel", "label": "어디에 올릴까요", "type": "choice", "default": "instagram", "options": [{"value": "instagram", "label": "인스타그램"}, {"value": "linkedin", "label": "링크드인"}, {"value": "blog", "label": "블로그"}]}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 카드뉴스\n'
+/** the general pack's promo video (resources/skill-packs/general/ko/promo-video), its form included: the welcome steps'
+ * first result of docs/DECISIONS.md "V", still installed */
+const PROMO_TEXT = '---\nname: promo-video\ndescription: 홍보 영상 — 회사 소개서나 자료를 읽고 팀 브랜드 폴더의 사진과 브랜드 색으로 세로형 홍보 영상을 만들어요.\nmetadata:\n  title: 홍보 영상\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 소개 전체"}, {"name": "channel", "label": "어디에 올릴까요", "type": "choice", "default": "instagram", "options": [{"value": "instagram", "label": "인스타그램"}, {"value": "linkedin", "label": "링크드인"}, {"value": "website", "label": "홈페이지"}]}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 홍보 영상\n'
+/** the general pack's intro deck (resources/skill-packs/general/ko/intro-deck), its form included: the welcome steps'
+ * first result since docs/DECISIONS.md "D2"; a member who joins with its invite lands on it */
+const DECK_TEXT = '---\nname: intro-deck\ndescription: 회사 소개서 — 회사 소개 자료나 홈페이지에서 읽은 내용으로 팀 브랜드 폴더의 사진과 브랜드 색을 써서 회사 소개서 슬라이드를 만들어요.\nmetadata:\n  title: 회사 소개서\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 전체"}, {"name": "audience", "label": "누구에게 보낼까요", "placeholder": "예: 제조업 고객사 · 비워 두면 누구에게나"}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 회사 소개서\n'
 
 /** like server/src/admin/settings.ts LOCALE_CHANGED */
 const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
@@ -137,6 +146,9 @@ export class MockServer {
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
+  /** the saved company profile, and the website readings (server/src/onboarding/draft.ts, short: no chat of the list) */
+  companyProfile: import('@mycel/shared/api').CompanyProfile | null = null
+  profileDrafts = new Map<string, { userId: string; website: string; reads: number }>()
   /** the suggestion under answers a test set, and the ones closed */
   resultSuggestion: import('@mycel/shared/api').ResultSuggestion | null = null
   closedSuggestions = new Set<string>()
@@ -206,6 +218,8 @@ export class MockServer {
   integrationFlows = new Map<string, { flow: IntegrationFlow; integrationId: string; userId: string; polls: number }>()
   /** an admin's requests to members to connect a service as their own (like server/src/integrations/connections/requests.ts) */
   integrationRequests: (IntegrationRequest & { integrationId: string | null })[] = []
+  /** an admin's templates each member connects with their own key (like server/src/integrations/connections/templates.ts) */
+  integrationTemplates: (Omit<IntegrationTemplate, 'connected'> & { version: number })[] = []
   /** Team AX Cloud (server/src/system/deployment.ts): /__test/cloud switches it on until the next reset */
   cloud = false
   /** the 7-day team goal Home shows owners and admins (onboarding G): none unless /__test/team-goal sets one */
@@ -269,6 +283,8 @@ export class MockServer {
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
+    this.companyProfile = null
+    this.profileDrafts = new Map()
     this.resultSuggestion = null
     this.closedSuggestions = new Set()
     this.skillDrafts = new Map()
@@ -309,6 +325,7 @@ export class MockServer {
     this.integrationSecrets.clear()
     this.integrationFlows.clear()
     this.integrationRequests = []
+    this.integrationTemplates = []
     this.settings = defaultSettings()
     this.teamIcon = null
     this.speechKey = { set: false, hint: null, updatedAt: null }
@@ -834,6 +851,24 @@ export class MockServer {
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       prompt += ` answered:${JSON.stringify(answer)}`
     }
+    if (/connecttemplate/i.test(prompt)) {
+      // like server/src/chat/connect-service.ts: the connect card for an admin's template this person has not connected
+      // (the person's own key, the template's address); it stays until the turn's time for it runs out
+      const t = this.integrationTemplates.find((x) => this.templateCovers(x, user) && !this.integrations.some((y) => y.templateId === x.id && y.ownerId === user.id))
+      if (t) {
+        const requestId = 'ct1'
+        const request: TurnRequest = {
+          kind: 'connect_service', requestId, target: 'service', name: t.name, scope: 'personal',
+          service: { kind: t.kind, url: t.url, host: new URL(t.url).host, auth: t.auth, authHeader: t.authHeader }, template: { id: t.id, version: t.version },
+          why: `You asked for your ${t.name} pages.`, expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }
+        this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+        pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+        await Promise.race([new Promise((r) => this.pendingAsk.set(turnId, r)), sleep(60_000)])
+        this.openAsks.delete(turnId)
+        pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      }
+    }
     if (/sendcard/i.test(prompt)) {
       // like server/src/integrations/connections/tools.ts gate: everything a connected service is sent, where it goes first
       const requestId = 'w1'
@@ -906,6 +941,33 @@ export class MockServer {
       this.artifacts.push(a)
       const { content: _c, ...summary } = a
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key, type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+    }
+    if (/^\/promo-video\b/.test(prompt)) {
+      // like the team server (server/src/promo-video/tool.ts): the promo video arrives saved, with no "writing" previews
+      const content = '<!DOCTYPE html><html lang="ko"><body><div class="pv"><h1>조용한 책상 선풍기</h1></div></body></html>'
+      const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === PROMO_ARTIFACT_KEY).length + 1
+      const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: PROMO_ARTIFACT_KEY, version, type: 'html', title: 'Acme 홍보 영상', language: null, content, createdAt: now() }
+      this.artifacts.push(a)
+      const { content: _c, ...summary } = a
+      pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+    }
+    if (/^\/intro-deck\b/.test(prompt)) {
+      // like the team server (server/src/intro-deck/): the intro deck arrives saved, with no "writing" previews
+      const content = '<!DOCTYPE html><html lang="ko"><body><section class="slide" aria-roledescription="slide"><h1>조용한 책상 선풍기</h1></section></body></html>'
+      const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === DECK_ARTIFACT_KEY).length + 1
+      const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: DECK_ARTIFACT_KEY, version, type: 'html', title: 'Acme 회사 소개서', language: null, content, createdAt: now() }
+      this.artifacts.push(a)
+      const { content: _c, ...summary } = a
+      pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+    }
+    if (/^\/card-news\b/.test(prompt)) {
+      // like the team server (server/src/tools/artifact.ts): the card news arrives saved, with no "writing" previews
+      const content = '<!DOCTYPE html><html lang="ko"><body><section class="card"><h1>조용한 책상 선풍기</h1></section></body></html>'
+      const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === CARD_NEWS_ARTIFACT_KEY).length + 1
+      const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: CARD_NEWS_ARTIFACT_KEY, version, type: 'html', title: 'Acme 카드뉴스', language: null, content, createdAt: now() }
+      this.artifacts.push(a)
+      const { content: _c, ...summary } = a
+      pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
     }
     const capped = /cap-tools/i.test(prompt) ? 'tool_limit' as const : /cap-time/i.test(prompt) ? 'time_limit' as const : null
     // the time limit stops a step that is still running (a long read): like turn.ts, it ends paused, not failed;
@@ -1035,6 +1097,18 @@ export class MockServer {
     },
     logout: () => ({ cookie: `${DEV_SESSION_COOKIE}=; Path=/; Max-Age=0`, body: undefined }),
     me: (c) => this.me(c.user, ''),
+    // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
+    // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
+    listRooms: () => ({ items: [] }),
+    // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
+    // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
+    mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
+    slackAdmin: () => ({
+      enabled: true, tokens: true, workspace: { teamId: 'T0ACME', name: 'Acme', url: 'https://acme.slack.com' }, botName: 'trina', appId: 'A0ACME',
+      state: 'connected', lastError: null, linkOrigin: 'http://127.0.0.1', linked: 0, manifest: '{}', createUrl: 'https://api.slack.com/apps?new_app=1',
+      signIn: false, redirectUrl: null,
+    }),
+    listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name })) }),
     updateMe: (c) => {
       const u = c.user as User & { prefs?: Me['user']['prefs'] }
       if (c.body.name) u.name = c.body.name
@@ -1514,6 +1588,16 @@ export class MockServer {
       return { items: keys.map((key) => ({ key, versions: this.artifacts.filter((a) => a.chatId === c.params.id && a.key === key).sort((a, b) => b.version - a.version).map(({ content, ...s }) => ({ ...s, size: content.length })) })) }
     },
     getArtifact: (c) => this.artifacts.find((a) => a.id === c.params.id) ?? fail('not_found', 404),
+    // a promo video's state (server/src/promo-video/render.ts): the mock never makes the MP4, so no button
+    getPromoVideo: (c) => {
+      const a = this.artifacts.find((x) => x.id === c.params.id && x.key === PROMO_ARTIFACT_KEY) ?? fail('not_found', 404)
+      return { artifactId: a.id, chatId: a.chatId, title: a.title, style: PROMO_STYLES[0], duration: 18.5, mp4: { available: false, state: 'none' as const, seconds: null, bytes: null } }
+    },
+    // an intro deck's info (server/src/intro-deck/): the mock never builds the files, so neither download is offered
+    getIntroDeck: (c) => {
+      const a = this.artifacts.find((x) => x.id === c.params.id && x.key === DECK_ARTIFACT_KEY) ?? fail('not_found', 404)
+      return { artifactId: a.id, chatId: a.chatId, title: a.title ?? '', theme: 'paper' as const, slides: 1, pptx: false, pdf: false }
+    },
     getJob: (c) => this.jobs.get(c.params.id!) ?? fail('not_found', 404),
     cancelJob: (c) => {
       const j = this.jobs.get(c.params.id!) ?? fail('not_found', 404)
@@ -1639,7 +1723,26 @@ export class MockServer {
     getAiAccess: (c) => ({ usable: true, action: c.user.role === 'owner' ? 'connect_team' : 'ask_owner', requested: false }),
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
     trialCredit: () => ({ credit: null }),
-    getCompanyProfile: () => ({ profile: null }),
+    getCompanyProfile: () => ({ profile: this.companyProfile }),
+    saveCompanyProfile: (c) => (this.companyProfile = { ...(c.body as import('@mycel/shared/api').CompanyProfileInput), updatedAt: now() }),
+    // the website reading (server/src/onboarding/draft.ts, short): running for its first read, then a draft made from the
+    // team's name; like the server, its chat is not in the chat list (server/src/chat/internal-chats.ts)
+    startProfileDraft: (c) => {
+      const b = c.body as import('@mycel/shared/api').StartProfileDraft
+      const website = b.website ? normalizeWebsite(b.website) ?? '' : ''
+      const id = uuidv7()
+      this.profileDrafts.set(id, { userId: c.user.id, website, reads: 0 })
+      return { status: 201, body: { chatId: id, website, site: website ? new URL(website).host.replace(/^www\./, '') : null } }
+    },
+    getProfileDraft: (c) => {
+      const d = this.profileDrafts.get(c.params.chatId)
+      if (!d || d.userId !== c.user.id) fail('not_found', 404)
+      const base = { website: d!.website, error: null, steps: [], writing: false, assets: { images: 0, logo: false, colors: ['#1b6e3a'] } }
+      if (++d!.reads < 2) return { ...base, status: 'running', draft: null, writing: true }
+      const team = this.settings.teamName
+      return { ...base, status: 'done', draft: { website: d!.website, name: team, oneLine: `${team}는 조용한 책상 선풍기를 만들어요`, products: '책상 선풍기', audience: '작은 사무실', tone: ['친근한'], avoid: '',
+        sources: d!.website ? [{ field: 'oneLine', url: d!.website, excerpt: '조용한 책상 선풍기' }] : [] } }
+    },
     // the welcome steps (server/src/onboarding/welcome.ts, the same rules in short): one record, the pack once
     getWelcome: () => ({ progress: this.welcome }),
     updateWelcome: (c) => {
@@ -1685,12 +1788,12 @@ export class MockServer {
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
       let install = null
       if (!p.general) {
-        const skills = [['meeting-tasks', GENERAL_TASKS_SKILL, '할 일 정리'], ['doc-brief', GENERAL_BRIEF_SKILL, '핵심 정리'], ['card-news', GENERAL_CARDNEWS_SKILL, '카드뉴스']] as const
+        const skills = [['meeting-tasks', GENERAL_TASKS_SKILL, '할 일 정리'], ['doc-brief', GENERAL_BRIEF_SKILL, '핵심 정리'], ['card-news', GENERAL_CARDNEWS_SKILL, '카드뉴스'], ['promo-video', GENERAL_PROMO_SKILL, '홍보 영상'], ['intro-deck', GENERAL_DECK_SKILL, '회사 소개서']] as const
         for (const [name, path, title] of skills) {
           for (const d of ['skills/general', `skills/general/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-          if (!this.files.has(path)) this.putFile(path, `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
+          if (!this.files.has(path)) this.putFile(path, path === GENERAL_CARDNEWS_SKILL ? CARDNEWS_TEXT : path === GENERAL_PROMO_SKILL ? PROMO_TEXT : path === GENERAL_DECK_SKILL ? DECK_TEXT : `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
         }
-        p.general = { at, tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL }
+        p.general = { at, tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL }
         install = { pack: 'general' as const, locale: this.settings.defaultLocale, skills: skills.map(([name, path]) => ({ name, path, status: 'created' as const })), folders: [] }
       }
       if (!p.teamGroup) {
@@ -1713,8 +1816,9 @@ export class MockServer {
       p.updatedAt = at
       return { progress: p, install, outcome: install ? 'installed' : 'already' }
     },
-    // the first result, the company card news (server/src/onboarding/welcome.ts, short): the owner's files in the brand
-    // folder, or a 회사 소개.md written there; a new chat of the owner's; the card news skill once for an older row.
+    // the first result, the company intro deck (server/src/onboarding/welcome-result.ts, short): the owner's files in
+    // the brand folder, or a 회사 소개.md written there; a new chat of the owner's; the intro deck skill once for an
+    // older row.
     // The mock collects no website images (images: []).
     startFirstResult: (c) => {
       const at = now()
@@ -1723,10 +1827,10 @@ export class MockServer {
       if (!p || !p.general || !g?.brandFolder) fail('conflict', 409, '팀 폴더가 아직 없어요. 시작 설정을 다시 열어 주세요.')
       const files = (c.body as import('@mycel/shared/api').StartFirstResult).files
       for (const f of files) if (this.files.get(f)?.type !== 'file' || !f.startsWith(g!.brandFolder! + '/')) fail('not_found', 404)
-      if (!p!.general!.cardNewsPath) {
-        for (const d of ['skills/general', 'skills/general/card-news']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-        if (!this.files.has(GENERAL_CARDNEWS_SKILL)) this.putFile(GENERAL_CARDNEWS_SKILL, '---\nname: card-news\ndescription: 카드뉴스\nmetadata:\n  title: 카드뉴스\n---\n# 카드뉴스\n')
-        p!.general = { ...p!.general!, cardNewsPath: GENERAL_CARDNEWS_SKILL }
+      if (!p!.general!.introDeckPath) {
+        for (const d of ['skills/general', 'skills/general/intro-deck']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
+        if (!this.files.has(GENERAL_DECK_SKILL)) this.putFile(GENERAL_DECK_SKILL, DECK_TEXT)
+        p!.general = { ...p!.general!, introDeckPath: GENERAL_DECK_SKILL }
       }
       const imagesFolder = `${g!.brandFolder}/${this.localized(BRAND_IMAGES_FOLDER)}`
       this.files.set(imagesFolder, this.files.get(imagesFolder) ?? { type: 'folder', mtime: at })
@@ -1735,9 +1839,9 @@ export class MockServer {
         intro = `${g!.brandFolder}/회사 소개.md`
         this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p!.site ? ` · ${p!.site}` : ''}\n`)
       }
-      const chat = (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 홍보 카드뉴스' } }) as { body: Chat }).body
+      const chat = (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 소개서' } }) as { body: Chat }).body
       p!.updatedAt = at
-      return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.cardNewsPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
+      return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.introDeckPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
     },
     // the one suggestion under a result (server/src/onboarding/suggestions.ts): none unless a test sets one
     // (/__test/result-suggestion); closing one keeps it closed
@@ -2243,6 +2347,68 @@ export class MockServer {
       Object.assign(r, { state: 'withdrawn', endedAt: now() })
       return this.requestView(r)
     },
+    // like server/src/integrations/connections/templates.ts: no key in a template; only members it is for see or connect it
+    listIntegrationTemplates: (c) => ({
+      items: this.integrationTemplates.filter((t) => this.templateCovers(t, c.user)).map((t) => {
+        const mine = this.integrations.find((x) => x.templateId === t.id && x.ownerId === c.user.id)
+        const { access: _a, createdAt: _c, updatedAt: _u, ...rest } = t
+        return { ...rest, url: new URL(t.url).origin + new URL(t.url).pathname, connection: mine ? this.integrationView(mine, c.user) : null }
+      }),
+    }),
+    connectIntegrationTemplate: (c) => {
+      const t = this.integrationTemplates.find((x) => x.id === c.params.id && this.templateCovers(x, c.user)) ?? fail('not_found', 404, '이 템플릿은 나에게 공유되지 않았어요.')
+      // the template as the member saw it: changed since, 409 (templates.ts connect)
+      if (c.body.version !== t.version) fail('conflict', 409, '이 템플릿이 바뀌었어요. 다시 확인하고 연결해 주세요.')
+      if (t.auth !== 'oauth' && !c.body.secret) fail('validation', 400, '키가 아직 없어요. 키를 넣어 주세요.', { 'body.secret': 'required' })
+      const mine = this.integrations.find((x) => x.templateId === t.id && x.ownerId === c.user.id)
+      if (mine) {
+        if (c.body.secret) { this.integrationSecrets.set(mine.id, c.body.secret); this.checkIntegration(mine) }
+        if (c.body.writePolicy) mine.writePolicy = c.body.writePolicy
+        return this.integrationView(mine, c.user)
+      }
+      return this.addIntegration(c.user, { kind: t.kind, name: t.name, url: t.url, auth: t.auth, authHeader: t.authHeader, notes: t.notes, writePolicy: c.body.writePolicy ?? 'ask', ...(c.body.secret ? { secret: c.body.secret } : {}) }, 'personal', t.id)
+    },
+    listTeamIntegrationTemplates: () => ({ items: [...this.integrationTemplates].sort((a, b) => a.name.localeCompare(b.name)).map((t) => this.templateView(t)) }),
+    createIntegrationTemplate: (c) => {
+      if (privateHost(new URL(c.body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
+      const t = {
+        id: uuidv7(), kind: c.body.kind, name: c.body.name, url: c.body.url, auth: c.body.auth, authHeader: c.body.auth === 'header' ? c.body.authHeader ?? null : null,
+        notes: c.body.notes ?? null, access: c.body.access ?? { everyone: true, groups: [], users: [] }, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), updatedAt: now(), version: 1,
+      }
+      this.integrationTemplates.push(t)
+      return { status: 201, body: this.templateView(t) }
+    },
+    updateIntegrationTemplate: (c) => {
+      const t = this.integrationTemplates.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const auth = c.body.auth ?? t.auth
+      const authHeader = auth === 'header' ? (c.body.authHeader !== undefined ? c.body.authHeader : t.authHeader) : null
+      const moved = (c.body.url !== undefined && c.body.url !== t.url) || auth !== t.auth || authHeader !== t.authHeader
+      Object.assign(t, { ...(c.body.name !== undefined ? { name: c.body.name } : {}), ...(c.body.url !== undefined ? { url: c.body.url } : {}), auth, authHeader, ...(c.body.notes !== undefined ? { notes: c.body.notes } : {}), ...(c.body.access ? { access: c.body.access } : {}), updatedAt: now(), version: t.version + 1 })
+      // a new address or sign-in method drops every member's key; a member it no longer covers loses theirs
+      for (const x of this.integrations.filter((y) => y.templateId === t.id)) {
+        if (moved || !this.templateCovers(t, this.users.find((u) => u.id === x.ownerId)!)) { this.integrations = this.integrations.filter((y) => y.id !== x.id); this.integrationSecrets.delete(x.id) }
+        else Object.assign(x, { name: t.name, notes: t.notes })
+      }
+      return this.templateView(t)
+    },
+    // like templates.ts members: who it is for, connected (when) / not connected / key stopped working; never a key
+    listIntegrationTemplateMembers: (c) => {
+      const t = this.integrationTemplates.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      return {
+        items: this.users.filter((u) => u.status === 'active' && this.templateCovers(t, u)).sort((a, b) => a.name.localeCompare(b.name)).map((u) => {
+          const x = this.integrations.find((y) => y.templateId === t.id && y.ownerId === u.id)
+          if (!x || !this.integrationSecrets.has(x.id)) return { user: { id: u.id, name: u.name }, state: 'not_connected' as const, since: null }
+          return { user: { id: u.id, name: u.name }, state: x.status === 'needs_auth' ? 'stopped' as const : x.status === 'error' ? 'error' as const : 'connected' as const, since: x.createdAt }
+        }),
+      }
+    },
+    deleteIntegrationTemplate: (c) => {
+      if (!this.integrationTemplates.some((x) => x.id === c.params.id)) fail('not_found', 404)
+      this.integrationTemplates = this.integrationTemplates.filter((x) => x.id !== c.params.id)
+      for (const x of this.integrations.filter((y) => y.templateId === c.params.id)) this.integrationSecrets.delete(x.id)
+      this.integrations = this.integrations.filter((y) => y.templateId !== c.params.id)
+      return undefined
+    },
 
     // Admin > Plugins (web/test/mock/plugins.ts)
     listPlugins: (c) => this.plugins.list(c.user.locale ?? 'ko', this.settings.defaultLocale),
@@ -2283,7 +2449,7 @@ export class MockServer {
       const x = this.schedules.find((y) => y.id === c.params.id && y.userId === c.user.id) ?? fail('not_found', 404)
       if (x.needsReview) throw new Fail('conflict', 409, '이 예약 작업은 확인 카드 없이 만들어져서 멈춰 뒀어요.', undefined, { reason: 'schedule_review' })
       if (/budget/.test(x.title)) fail('budget_exceeded', 429, '오늘 AI 사용 한도를 다 썼어요. 내일 오전 12:00부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.')
-      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `⏰ ${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+      const chat: Chat = { id: uuidv7(), projectId: x.projectId, title: `${x.title} · ${now().slice(0, 10)}`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
       this.chats.push(chat)
       this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'created', chat } })
       x.lastChatId = chat.id
@@ -2454,7 +2620,18 @@ export class MockServer {
     return { configured, source: configured ? 'app' as const : 'none' as const, canSetUp: true, blocked: null,
       redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0 }
   }
+  templateCovers(t: { access: IntegrationAccess }, u: User): boolean {
+    return t.access.everyone || t.access.users.includes(u.id) || t.access.groups.some((g) => u.groupIds.includes(g))
+  }
+  templateView(t: Omit<IntegrationTemplate, 'connected'> & { version: number }): IntegrationTemplate {
+    const { version: _v, ...rest } = t
+    return { ...rest, connected: this.integrations.filter((x) => x.templateId === t.id && this.integrationSecrets.has(x.id)).length }
+  }
   integrationAllows(x: MockIntegration, u: User): boolean {
+    if (x.scope === 'personal' && x.templateId) {
+      const t = this.integrationTemplates.find((y) => y.id === x.templateId)
+      return x.ownerId === u.id && !!t && this.templateCovers(t, u)
+    }
     if (x.scope === 'personal') return x.ownerId === u.id
     const a = x.access ?? NO_ACCESS
     return a.everyone || a.users.includes(u.id) || a.groups.some((g) => u.groupIds.includes(g))
@@ -2466,12 +2643,12 @@ export class MockServer {
     if (x.scope === 'team' && u.role === 'member') fail('forbidden', 403)
     return x
   }
-  addIntegration(u: User, body: IntegrationInput, scope: 'personal' | 'team'): Integration {
+  addIntegration(u: User, body: IntegrationInput, scope: 'personal' | 'team', templateId: string | null = null): Integration {
     if (privateHost(new URL(body.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
     // like the server: "run without asking" is for team connections only
     if (scope === 'personal' && body.writePolicy === 'allow') fail('validation', 400, '"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', { 'body.writePolicy': 'team connections only' })
     const siblings = this.integrations.filter((y) => (scope === 'team' ? y.scope === 'team' : y.ownerId === u.id))
-    if (siblings.length >= (scope === 'team' ? 50 : 20)) fail('conflict', 409, '연결을 더 만들 수 없어요.')
+    if (!templateId && siblings.filter((y) => !y.templateId).length >= (scope === 'team' ? 50 : 20)) fail('conflict', 409, '연결을 더 만들 수 없어요.')
     const base = body.slug ?? (body.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'conn')
     let slug = base
     for (let n = 2; siblings.some((y) => y.slug === slug); n++) slug = base.slice(0, 12 - String(n).length) + n
@@ -2479,7 +2656,7 @@ export class MockServer {
       id: uuidv7(), scope, kind: body.kind, name: body.name, slug, url: body.url, auth: body.auth, authHeader: body.auth === 'header' ? body.authHeader ?? null : null,
       account: null, notes: body.kind === 'http' ? body.notes ?? null : null, writePolicy: body.writePolicy, status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null,
       access: scope === 'team' ? body.access ?? NO_ACCESS : null, createdBy: { id: u.id, name: u.name }, createdAt: now(), updatedAt: now(), lastUsedAt: null,
-      ownerId: scope === 'personal' ? u.id : null, checks: 0, disabledTools: [],
+      ownerId: scope === 'personal' ? u.id : null, checks: 0, disabledTools: [], templateId,
     }
     if (body.secret && (body.auth === 'bearer' || body.auth === 'header')) this.integrationSecrets.set(x.id, body.secret)
     this.integrations.push(x)
@@ -2488,6 +2665,8 @@ export class MockServer {
   }
   patchIntegration(u: User, id: string, b: IntegrationPatch): Integration {
     const x = this.manageableIntegration(u, id)
+    // made from an admin's template: only the member's key and the write rule are theirs (templates.ts)
+    if (x.templateId) for (const k of ['name', 'url', 'auth', 'authHeader', 'notes', 'access'] as const) if (b[k] !== undefined) fail('validation', 400, '팀이 정한 항목이라 바꿀 수 없어요.', { [`body.${k}`]: 'set by the template' })
     if (b.writePolicy === 'allow' && x.scope !== 'team') fail('validation', 400, '"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', { 'body.writePolicy': 'team connections only' })
     if (b.access && x.scope !== 'team') fail('validation', 400, '사용할 사람은 팀 연결에만 정해요.', { 'body.access': 'team connections only' })
     const auth = b.auth ?? x.auth

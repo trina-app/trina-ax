@@ -2,7 +2,7 @@
 // hwp_render and schedule_create showed as "hwp_render" / "schedule_create"). The web app redraws a stored label in the
 // language on screen (localizeStep), so an answer run in Korean reads in English after a switch.
 import { describe, expect, test } from 'bun:test'
-import { FILE_TOOLS, FILE_STEP_VERB, localizeStep, stepLabel } from '@mycel/shared'
+import { FILE_TOOLS, FILE_STEP_VERB, localizeStep, placeName, stepLabel, stepPlace } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { C_TOOL_NAMES } from '../../server/src/tools/index'
 import { FILE_MOVE_TOOL_NAMES } from '../../server/src/tools/file-moves'
@@ -12,7 +12,7 @@ import { DRIVE_TOOL_NAMES } from '../../server/src/tools/drive'
 const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es']
 const NONE = new Set<string>()
 // set_title has no step (the new title shows in the sidebar); connected services label their own tools
-const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
+const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, 'search', 'generate_video', 'promo_video', 'intro_deck', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
 const INPUT: Record<string, Record<string, unknown>> = {
   hwp_render: { source: 'qa-hwp/report.hwpx', page: 2, format: 'png' },
   schedule_create: { title: 'Weekly digest', prompt: 'x', repeat: 'weekly', time: '09:00', weekday: 1 },
@@ -22,6 +22,8 @@ const INPUT: Record<string, Record<string, unknown>> = {
   drive_list: { folderId: '1AbC' },
   drive_read: { fileId: '1XyZ' },
   generate_video: { prompt: 'a cat on a sofa' },
+  promo_video: { title: 'Acme promo video' },
+  intro_deck: { title: 'Acme 회사 소개서' },
   skill: { name: '견적서 작성' },
   find_skills: { query: '견적' },
   find_tools: { query: 'upscale video' },
@@ -65,6 +67,40 @@ describe('step labels of the built-in tools', () => {
       const ko = stepLabel(tool, INPUT[tool] ?? {}, 'ko', NONE)
       for (const L of LOCALES) expect(localizeStep({ kind: 'tool', tool, label: ko }, L).label).toBe(stepLabel(tool, INPUT[tool] ?? {}, L, NONE))
     }
+  })
+})
+
+describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
+  const shown = (tool: string, label: string, L: Locale) => stepPlace({ tool }, localizeStep({ kind: 'tool', tool, label }, L).label, L)
+  test('the brand images folder, the brand folder, the meeting notes folder, the team\'s folder; the path for the tooltip', () => {
+    expect(shown('read', '파일 읽기 · groups/Acme/브랜드/이미지/홈페이지-6.jpg', 'ko')).toEqual({ label: '파일 읽기 · 브랜드 이미지 폴더 › 홈페이지-6.jpg', path: 'groups/Acme/브랜드/이미지/홈페이지-6.jpg' })
+    expect(shown('read', '파일 읽기 · groups/Acme/브랜드/회사 소개.md', 'ko').label).toBe('파일 읽기 · 브랜드 폴더 › 회사 소개.md')
+    expect(shown('list', '폴더 보기 · groups/Acme/브랜드/이미지', 'ko').label).toBe('폴더 보기 · 브랜드 이미지 폴더')
+    expect(shown('read', 'Read · groups/Acme/회의록/2026/11-05.md', 'en').label).toBe('Read · Meeting notes folder › 2026 › 11-05.md')
+    expect(shown('write', '파일 저장 · groups/Acme 2/plan.md', 'ko').label).toBe('파일 저장 · Acme 2 폴더 › plan.md')
+    // an English team's folders, a Korean screen: the names match in any language and are said in the screen's
+    expect(shown('read', 'Read · groups/Acme/Brand/Images/hero.png', 'ko').label).toBe('파일 읽기 · 브랜드 이미지 폴더 › hero.png')
+    expect(shown('read', 'Read · groups/Acme/Brand/Images/hero.png', 'ja').label).toBe('読み取り · ブランド画像フォルダー › hero.png')
+    // macOS writes Hangul decomposed: still the brand folder
+    expect(shown('read', `Read · groups/Acme/${'브랜드'.normalize('NFD')}/a.md`, 'en').label).toBe('Read · Brand folder › a.md')
+  })
+
+  test('the person\'s own folder, their attachments, the shared folder; edit_files keeps "+N", search its words', () => {
+    expect(shown('read', 'Read · users/0192f/.attachments/0193a/견적서.pdf', 'ko').label).toBe('파일 읽기 · 첨부한 파일 › 견적서.pdf')
+    expect(shown('write', 'Save · users/0192f/drafts/plan.md', 'es').label).toBe('Guardar · Mi carpeta › drafts › plan.md')
+    expect(shown('read', 'Read · shared/fruit.md', 'id').label).toBe('Baca berkas · Folder bersama › fruit.md')
+    expect(shown('edit_files', 'Edit files · shared/a.md +29', 'en')).toEqual({ label: 'Edit files · Shared folder › a.md +29', path: 'shared/a.md' })
+    expect(shown('hwp_render', 'View HWP page · groups/Acme/brief.hwpx #2', 'en').label).toBe('View HWP page · Acme folder › brief.hwpx #2')
+    expect(shown('grep', 'Search "fee · 2%" · shared/', 'en').label).toBe('Search "fee · 2%" · Shared folder')
+  })
+
+  test('anything else stays as it is, without a path', () => {
+    for (const [tool, label] of [
+      ['read', 'Read · marketing/plan.md'], ['read', 'Read · groups'], ['list', 'List · /'], ['save_url', 'Download file · https://acme.example/shared/a.pdf'],
+      ['skill', 'Use skill · shared/notes'], ['artifact', 'Artifact · groups/Acme/x'], ['read', 'Read'], ['read', 'Read · shared//a.md'],
+    ] as const) expect(stepPlace({ tool }, label, 'en')).toEqual({ label })
+    expect(stepPlace({}, 'Thinking', 'en')).toEqual({ label: 'Thinking' })
+    expect(placeName('https://acme.example/a', 'en')).toBeNull()
   })
 })
 

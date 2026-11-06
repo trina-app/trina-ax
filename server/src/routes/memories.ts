@@ -96,8 +96,13 @@ export const memoriesRoutes: RouteModule = {
     const scheduleOut = (s: ScheduleRow) => ({ id: s.id, title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday, day: s.day, date: s.date,
       projectId: s.project_id, enabled: !!s.enabled, resumeBlockedReason: rt.schedules.resumeBlockedReason(s), nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id,
       templateId: s.template_id, templateVersion: s.template_version, sourcePath: s.template_source_path, outputPath: s.template_output_path,
-      pendingDueAt: s.pending_due_at, retryAt: s.retry_at, deferredCount: s.deferred_count, lastOutcome: rt.schedules.lastOutcome(s.user_id, s.id),
+      pendingDueAt: s.pending_due_at, retryAt: s.retry_at, deferredCount: s.deferred_count, ...lastOf(s),
       needsReview: needsReview(s), reviewSince: s.review_since })
+    /** the last run's result, and for a run that needed the owner's own key for a template, which one */
+    function lastOf(s: ScheduleRow) {
+      const lastOutcome = rt.schedules.lastOutcome(s.user_id, s.id)
+      return { lastOutcome, lastNeed: lastOutcome === 'needs_key' ? rt.schedules.lastNeed(s.user_id, s.id) : null }
+    }
     kit.handle(API.listScheduleTemplates, () => ({ items: [...SCHEDULE_TEMPLATES], timeZone: rt.timeZone }))
     kit.handle(API.createScheduleFromTemplate, ({ auth, body }) => scheduleOut(createFromTemplate(ctx, rt, auth.user.id, body)))
     kit.handle(API.listSchedules, ({ auth }) => ({ items: rt.schedules.list(auth.user.id).map(scheduleOut), timeZone: rt.timeZone }))

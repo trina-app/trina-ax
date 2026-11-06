@@ -160,7 +160,7 @@ export default function AccessPeople() {
               </Field>
             </div>
             <fieldset>
-              <legend className="mb-1.5 text-[13px] font-medium text-ink">{t('admin.groups')}</legend>
+              <legend className="mb-1.5 text-label font-medium text-ink">{t('admin.groups')}</legend>
               <GroupChecks groups={groups.data ?? []} value={shown.groupIds} onChange={(g) => choose({ groupIds: g })} />
             </fieldset>
           </div>

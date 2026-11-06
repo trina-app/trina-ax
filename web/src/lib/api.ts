@@ -24,14 +24,20 @@ export function loadWindowId(): string {
     const v = sessionStorage.getItem(WINDOW_KEY)
     if (v && /^[A-Za-z0-9_-]{8,64}$/.test(v)) return v
   } catch { /* storage blocked: a fresh id per load */ }
-  return renewWindowId()
+  // not renewWindowId(): this runs while windowIdValue below is still being initialised (a fresh tab has no stored id,
+  // and assigning it then threw "Cannot access 'windowIdValue' before initialization")
+  return storeNewWindowId()
+}
+
+function storeNewWindowId(): string {
+  const id = randomId()
+  try { sessionStorage.setItem(WINDOW_KEY, id) } catch { /* ignore */ }
+  return id
 }
 
 export function renewWindowId(): string {
-  const id = randomId()
-  try { sessionStorage.setItem(WINDOW_KEY, id) } catch { /* ignore */ }
-  windowIdValue = id
-  return id
+  windowIdValue = storeNewWindowId()
+  return windowIdValue
 }
 
 let windowIdValue = typeof window === 'undefined' ? randomId() : loadWindowId()

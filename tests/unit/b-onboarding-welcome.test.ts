@@ -234,3 +234,24 @@ test('a row from the three-step version whose team step was put off: that "later
   // the row is never rewritten for it
   expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).teamSkipped).toBeUndefined()
 })
+
+test('the AI step (docs/DECISIONS.md "W2"): absent until shown, skipped while needed, done stays done; it never holds back finishing; only the owner writes it', async () => {
+  const { owner, ada, mia } = await setup()
+  let p = (await owner.call('PATCH', '/api/onboarding/welcome', {})).progress
+  // an owner whose AI answered from the start never has it
+  expect(p.steps.ai).toBeUndefined()
+  // only the owner records it (the steps are the owner's)
+  expect((await ada.client.try('PATCH', '/api/onboarding/welcome', { step: { id: 'ai', state: 'skipped' } })).status).toBe(403)
+  expect((await mia.client.try('PATCH', '/api/onboarding/welcome', { step: { id: 'ai', state: 'skipped' } })).status).toBe(403)
+  p = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'ai', state: 'skipped' } })).progress
+  expect(p.steps.ai).toBe('skipped')
+  p = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'ai', state: 'done' } })).progress
+  expect(p.steps.ai).toBe('done')
+  p = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'ai', state: 'skipped' } })).progress
+  expect(p.steps.ai).toBe('done')
+  // finishing without files ("자료 없이 해 볼게요" of an older row) puts off the open steps, never the AI step
+  const fresh = await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
+  expect(fresh.progress.steps).toMatchObject({ ai: 'done', profile: 'skipped', result: 'skipped', invite: 'skipped' })
+  expect(fresh.progress.finishedAt).not.toBeNull()
+  expect(WelcomeProgress.safeParse(fresh.progress).success).toBe(true)
+})
