@@ -252,7 +252,7 @@ for pair in "enroll:$ENROLL_BIN" "link:$LINK_BIN"; do
 done
 cp -a "$HERE/customize.sh" "$HERE/files" "$STAGE/"
 # the dev environment on srt, image part (customize.sh --srt, default <stage>/dev-env-srt): only the install files
-SRT_FILES=(install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap devenv.rules.in devenv.slice.in README.md)
+SRT_FILES=(install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in README.md)
 mkdir -p "$STAGE/dev-env-srt"
 for f in "${SRT_FILES[@]}"; do
   [[ -f "$REPO/scripts/dev-env/srt/$f" ]] || die "missing scripts/dev-env/srt/$f"
