@@ -27,7 +27,7 @@ export const skillsLink = (item: Pick<InboxNotification, 'code' | 'sourceId'>) =
  * opens its Connect as ?template=. */
 export const integrationsLink = (item: Pick<InboxNotification, 'sourceId' | 'template' | 'needsKey'>) => {
   const template = item.template?.id ?? item.needsKey?.templateId
-  return template ? `/settings/integrations?template=${encodeURIComponent(template)}` : `/settings/integrations?request=${encodeURIComponent(item.sourceId)}`
+  return template ? `/settings/connectors?template=${encodeURIComponent(template)}` : `/settings/connectors?request=${encodeURIComponent(item.sourceId)}`
 }
 
 export type DevEnvEndReason = 'timeout' | 'oom' | 'stopped' | 'idle' | 'disk' | 'setting' | 'expired' | 'lost'

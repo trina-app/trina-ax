@@ -121,7 +121,7 @@ export default function Home() {
     ...badEngines.map((e) => ({ key: `engine-${e.id}`, text: item(e.label, t(`engines.status.${e.status}`)), to: '/admin/providers' })),
     ...(noAi.length ? [{ key: 'no-ai', text: t('adminHome.noAi', { count: noAi.length, names: names(noAi) }), to: '/admin/providers' }] : []),
     ...badCredentials.map((c) => ({ key: `credential-${c.id}`, text: item(c.label, t(`credentials.state.${c.state}`)), to: '/admin/providers?engine=claude-code' })),
-    ...badServices.map((s) => ({ key: `service-${s.id}`, text: item(s.name, t(`integrations.status.${s.status}`)), to: '/admin/integrations' })),
+    ...badServices.map((s) => ({ key: `service-${s.id}`, text: item(s.name, t(`integrations.status.${s.status}`)), to: '/admin/connectors' })),
     ...(storageBad && storage.data ? [{ key: 'storage', text: t('adminHome.storage', { percent: Math.round(storage.data.percent) }), to: '/admin/system' }] : []),
     ...failedChecks.map((c) => ({ key: `check-${c.id}`, text: c.label, to: '/admin/system' })),
     ...(newVersion && upd ? [{
@@ -204,7 +204,7 @@ export default function Home() {
             line={[defaultEngine && t('adminHome.default', { engine: defaultEngine }), t('adminHome.connections', { count: credentials.data?.length ?? 0 })].filter(Boolean).join(' · ')}
             meta={names(engines.data?.engines.filter((e) => e.enabled).map((e) => e.label) ?? [])}
           />
-          <Area id="integrations" to="/admin/integrations" icon={Cable} title={t('admin.integrations')} state={services} problems={badServices.length}
+          <Area id="integrations" to="/admin/connectors" icon={Cable} title={t('admin.integrations')} state={services} problems={badServices.length}
             line={t('adminHome.services', { count: services.data?.length ?? 0 })}
             meta={names(services.data?.map((s) => s.name) ?? [])}
           />

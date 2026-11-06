@@ -11,13 +11,13 @@ import { realErrors, reset, signIn, watchConsole } from './helpers'
 const t = DICTS.en
 const ADMIN: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
-  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins']],
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
 const SETTINGS: [string, MessageKey[]][] = [
   ['account', ['settings.profile', 'settings.security', 'settings.usage', 'settings.memory']],
-  ['connections', ['settings.providers', 'integrations.title', 'connectors.title', 'aiApps.title']],
+  ['connections', ['settings.providers', 'integrations.title', 'aiApps.title']],
   ['app', ['notifications.title', 'settings.apps', 'settings.about']],
 ]
 
@@ -39,7 +39,7 @@ test('Admin: four groups, Providers first in Connections, no AI group and no AI 
   await expect(menu.getByRole('link', { name: 'AI engines' })).toHaveCount(0)
   await expect(menu.getByRole('link', { name: 'AI providers' })).toHaveCount(0)
   await expect(menu.getByRole('group')).toHaveCount(ADMIN.length)
-  for (const path of ['/admin/members', '/admin/providers', '/admin/integrations', '/admin/app-connectors', '/admin/settings']) {
+  for (const path of ['/admin/members', '/admin/providers', '/admin/connectors', '/admin/settings']) {
     await page.goto(path)
     await expect(page.getByTestId('admin-content').getByTestId('page-scope').first()).toHaveText(t['scope.team'])
   }

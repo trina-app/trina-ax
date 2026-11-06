@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 export const OWNER = { username: 'olga', password: 'correct horse battery' }
 
@@ -35,3 +35,11 @@ export async function signIn(page: Page, who = OWNER) {
 
 /** Errors other than the expected 401 of GET /api/me before signing in. */
 export const realErrors = (errors: string[]) => errors.filter((e) => !/status of 401/.test(e))
+
+/** A field of the add-connection dialog that sits under its collapsed "Advanced" (type, sign-in, write rule, who connects,
+ * who may use it): opens Advanced first when it is closed. `root`: the page or the dialog. */
+export async function adv(root: Page | Locator, testId: string): Promise<Locator> {
+  const toggle = root.getByTestId('integration-advanced')
+  if ((await toggle.count()) && (await toggle.first().getAttribute('aria-expanded')) === 'false') await toggle.first().click()
+  return root.getByTestId(testId)
+}

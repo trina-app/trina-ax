@@ -15,7 +15,7 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   // no card or empty list for requests on the page: asking is in Add connection's menu
   await expect(page.getByText('아직 보낸 요청이 없어요')).toHaveCount(0)
   await expect(page.getByTestId('integration-request')).toHaveCount(0)
@@ -42,6 +42,7 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   const res = await sent
   expect(res.request().postDataJSON()).toEqual({ userId: 'bob', kind: 'http', name: 'Ledger', url: 'https://api.ledger.example/v1', auth: 'header', authHeader: 'X-API-Key', notes: 'GET /entries lists entries' })
   const link = ((await res.json()) as { link: string }).link
+  // the server's link still says integrations: Settings sends it on to Connectors with the request open
   expect(link).toMatch(/\/settings\/integrations\?request=[0-9a-f-]+$/)
   // sent: the popup closes with a short note, and the focus is back on the menu's button
   await expect(dialog).toHaveCount(0)
@@ -89,7 +90,7 @@ test('ask, connect with the member\'s own key, see it connected; the key never r
   // the admin sees it connected, and nothing of the key or the member's connection
   await page.context().clearCookies()
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await expect(page.getByTestId('integration-request').filter({ hasText: 'Ledger' })).toHaveAttribute('data-state', 'connected')
   await expect(page.locator('body')).not.toContainText(KEY)
   for (const p of ['/api/admin/integration-requests', '/api/admin/integrations']) expect(await (await page.request.get(p)).text()).not.toContain(KEY)
@@ -107,7 +108,7 @@ test('withdrawn and declined requests: the member\'s link says what became of it
   }
   const gone = await make('Board', 'https://mcp.board.example/mcp')
   await make('Wiki', 'https://mcp.wiki.example/mcp')
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await page.getByTestId('integration-request').filter({ hasText: 'Board' }).getByTestId('integration-request-withdraw').click()
   await page.getByRole('dialog').getByRole('button', { name: '철회' }).click()
   // withdrawn: the row goes (the admin did it), with a short note
@@ -116,7 +117,7 @@ test('withdrawn and declined requests: the member\'s link says what became of it
 
   await page.context().clearCookies()
   await signIn(page, BOB)
-  await page.goto(`/settings/integrations?request=${gone.id}`)
+  await page.goto(`/settings/connectors?request=${gone.id}`)
   await expect(page.getByTestId('integrations-asked-note')).toContainText('관리자가 Board 연결 요청을 철회했어요.')
   const wiki = page.getByTestId('integration-asked').filter({ hasText: 'Wiki' })
   // a sign-in: the token goes to the address's host, even when the sign-in page is the real service's
@@ -131,7 +132,7 @@ test('withdrawn and declined requests: the member\'s link says what became of it
 
   await page.context().clearCookies()
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await expect(page.getByTestId('integration-request').filter({ hasText: 'Wiki' })).toHaveAttribute('data-state', 'declined')
   const declined = page.getByTestId('integration-request').filter({ hasText: 'Wiki' })
   await expect(declined.getByTestId('integration-request-chip')).toHaveText('거절됨 · Bob')
@@ -150,7 +151,7 @@ test('Add connection menu: ask a member in a popup, the request is a row, withdr
   const errors = watchConsole(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await page.getByTestId('integration-add-more').click()
   // the menu works from the keyboard: Esc closes it and returns to its button
   await page.keyboard.press('Escape')
@@ -180,7 +181,7 @@ test('Add connection menu: ask a member in a popup, the request is a row, withdr
   // the Team connection item opens the team dialog, like the main button
   await page.getByTestId('integration-add-more').click()
   await page.getByTestId('integration-add-team').click()
-  await expect(page.getByRole('dialog').getByRole('heading', { name: '팀 연결 추가' })).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: '팀 커넥터 추가' })).toBeVisible()
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
 
@@ -191,7 +192,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await signIn(page)
     const r = await page.request.post('/api/admin/integration-requests', { headers: { [CSRF_HEADER]: '1' }, data: { userId: 'bob', kind: 'mcp', name: 'Board', url: 'https://mcp.board.example/mcp', auth: 'oauth' } })
     expect(r.status()).toBe(201)
-    await page.goto('/admin/integrations')
+    await page.goto('/admin/connectors')
     await expect(page.getByTestId('integration-request')).toHaveCount(1)
     const axe = async () => {
       const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()

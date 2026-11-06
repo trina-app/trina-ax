@@ -74,7 +74,7 @@ test('Admin › System at 1280: the server facts are one row each, every value o
 test('Admin › MCP: the help line is under the title, before the list', async ({ page }) => {
   await reset(page)
   await signIn(page)
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   const note = page.getByTestId('team-integrations-note')
   await expect(note).toHaveText(t['integrations.admin.desc'])
   const header = await box(page.getByTestId('connectors-header'))
