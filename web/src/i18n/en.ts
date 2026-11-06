@@ -292,6 +292,7 @@ export const en: Record<MessageKey, string> = {
   'skills.popularCount': '{uses, plural, one {# use} other {# uses}} · {users, plural, one {# person} other {# people}}',
   'home.inProject': "Chats here use this project's folder and instructions",
   'home.foldersTitle': 'Folders your AI can see',
+  'home.foldersCount': '{n, plural, one {# folder} other {# folders}} your AI can see',
   'home.myFolder': 'My folder',
   'home.noFolders': "You can't see any team folders yet. You can still chat about files in your own folder and files you attach.",
   'home.example1': 'List what is in the {folder} folder',

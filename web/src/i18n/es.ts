@@ -283,6 +283,7 @@ export const es: Record<MessageKey, string> = {
   'skills.popularCount': "{uses, plural, one {# uso} other {# usos}} · {users, plural, one {# persona} other {# personas}}",
   'home.inProject': "Los chats de aquí usan la carpeta y las instrucciones de este proyecto",
   'home.foldersTitle': "Carpetas que su IA puede ver",
+  'home.foldersCount': "{n, plural, one {# carpeta} other {# carpetas}} que su IA puede ver",
   'home.myFolder': "Mi carpeta",
   'home.noFolders': "Aún no puede ver carpetas del equipo. Puede conversar sobre archivos de su propia carpeta y los que adjunte.",
   'home.example1': "Enumere el contenido de la carpeta {folder}",

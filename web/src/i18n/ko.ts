@@ -291,6 +291,7 @@ export const ko = {
   'skills.popularCount': '{uses}회 · {users}명',
   'home.inProject': '이 프로젝트의 폴더와 지침으로 대화해요',
   'home.foldersTitle': '내 AI가 볼 수 있는 폴더',
+  'home.foldersCount': '내 AI가 볼 수 있는 폴더 {n}개',
   'home.myFolder': '내 폴더',
   'home.noFolders': '아직 볼 수 있는 팀 폴더가 없어요. 내 폴더의 파일과 첨부한 파일로 대화할 수 있어요.',
   'home.example1': '{folder} 폴더에 어떤 파일이 있는지 정리해 줘',

@@ -283,6 +283,7 @@ export const ja: Record<MessageKey, string> = {
   'skills.popularCount': "{uses, plural, one {#回使用} other {#回使用}} · {users, plural, one {#人} other {#人}}",
   'home.inProject': "ここのチャットは、このプロジェクトのフォルダーと指示を使用します",
   'home.foldersTitle': "AIが参照できるフォルダー",
+  'home.foldersCount': "AIが参照できるフォルダー {n, plural, one {#件} other {#件}}",
   'home.myFolder': "自分のフォルダー",
   'home.noFolders': "まだチームフォルダーを参照できません。自分のフォルダー内のファイルや添付ファイルについてはチャットできます。",
   'home.example1': "{folder}フォルダーの内容を一覧にしてください",

@@ -292,6 +292,7 @@ export const id: Record<MessageKey, string> = {
   'skills.popularCount': '{uses} kali · {users} orang',
   'home.inProject': 'Chat di sini memakai folder dan instruksi proyek ini',
   'home.foldersTitle': 'Folder yang bisa dilihat AI kamu',
+  'home.foldersCount': '{n} folder yang bisa dilihat AI kamu',
   'home.myFolder': 'Folder saya',
   'home.noFolders': 'Belum ada folder tim yang bisa kamu lihat. Kamu tetap bisa ngobrol soal file di folder pribadimu dan file yang kamu lampirkan.',
   'home.example1': 'Rangkum isi folder {folder}',
