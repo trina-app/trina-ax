@@ -1,11 +1,12 @@
-// The "대화방" group in the sidebar, above the AI chats: my rooms (a group's rooms, 전체, DMs) by latest activity, one
-// count pill each for what I have not read ("@" instead when one of them mentions me; grey in a muted room), and "+"
-// for a new 1:1 chat.
-// Folds like Recents (remembered in this browser). Gone on a server without rooms (the list could not be read).
+// The "대화" group in the computer's sidebar, above 트리나 기록: my rooms (a group's rooms, 전체, group chats, DMs) by
+// latest activity, one count pill each for what I have not read ("@" instead when one of them mentions me; grey in a
+// muted room), and "+" for a new conversation. The five latest show, and beyond them every room with something unread
+// and the room on screen; "더 보기 (N)" opens the rest in place ("접기" closes it), remembered in this browser like the
+// fold. Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useId, useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { roomBadge, roomUnread } from '../../lib/rooms'
@@ -14,39 +15,50 @@ import { PeoplePicker } from './PeoplePicker'
 import { RoomIcon, useRoomTitle } from './RoomIcon'
 
 const OPEN_KEY = 'mycel.sidebar.rooms'
-/** rows shown before "모두 보기" (the rooms page lists every one) */
-const SHOWN = 8
+/** the whole list opened ("더 보기"), remembered in this browser like the fold */
+const ALL_KEY = 'mycel.sidebar.roomsAll'
+/** rooms shown before "더 보기" (docs/DECISIONS.md "Desktop sidebar: rooms first") */
+export const ROOMS_SHOWN = 5
 
-const rememberedOpen = () => {
+const remembered = (key: string, fallback: string) => {
   try {
-    return localStorage.getItem(OPEN_KEY) !== 'closed'
+    return localStorage.getItem(key) ?? fallback
   } catch {
-    return true
+    return fallback
+  }
+}
+const remember = (key: string, v: string) => {
+  try {
+    localStorage.setItem(key, v)
+  } catch {
+    /* not kept */
   }
 }
 
-/** `all`: every room, no "모두 보기" (a computer's sidebar, where the rooms are the main list; docs/DECISIONS.md "Desktop
- * sidebar: rooms first") */
-export function SidebarRooms({ onNavigate, all }: { onNavigate: () => void; all?: boolean }) {
+/** The rooms a capped list shows, in their order (latest activity first): the first `n`, and beyond them every room with
+ * something I have not read (messages, thread replies, a mention) and the room on screen. */
+export function shownRooms<R extends Pick<Room, 'id' | 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread'>>>(rooms: R[], n: number, openId: string | null): R[] {
+  return rooms.filter((r, i) => i < n || roomUnread(r) > 0 || r.mentioned || r.id === openId)
+}
+
+export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   const t = useT()
   const rooms = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
   const failed = useRooms((s) => s.failed)
-  const [open, setOpen] = useState(rememberedOpen)
+  const [open, setOpen] = useState(() => remembered(OPEN_KEY, 'open') !== 'closed')
+  const [all, setAll] = useState(() => remembered(ALL_KEY, 'no') === 'yes')
   const [picking, setPicking] = useState(false)
   const listId = useId()
+  // the room on screen stays in the list (/rooms/:id, and its threads)
+  const openId = /^\/rooms\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
   if (failed && !rooms.length) return null
-  const toggle = () =>
-    setOpen((v) => {
-      try {
-        localStorage.setItem(OPEN_KEY, v ? 'closed' : 'open')
-      } catch {
-        /* not kept */
-      }
-      return !v
-    })
-  // unread rooms stay in sight even past the first rows
-  const shown = all ? rooms : rooms.filter((r, i) => i < SHOWN || roomUnread(r) > 0)
+  const toggle = () => setOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
+  const showAll = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAll(v))
+  // the five latest, and beyond them what needs me and the room on screen; "더 보기 (N)" opens the rest in place
+  const capped = shownRooms(rooms, ROOMS_SHOWN, openId)
+  const shown = all ? rooms : capped
+  const more = rooms.length - capped.length
   return (
     <div className="mb-3" data-testid="sidebar-rooms">
       <div className="flex items-center gap-1 pr-1 pl-3">
@@ -65,11 +77,11 @@ export function SidebarRooms({ onNavigate, all }: { onNavigate: () => void; all?
         {shown.map((r) => (
           <RoomRow key={r.id} room={r} onNavigate={onNavigate} />
         ))}
-        {shown.length < rooms.length && (
+        {more > 0 && (
           <li>
-            <Link to="/rooms" onClick={onNavigate} className="flex h-8 items-center rounded-lg px-3 text-xs text-muted hover:bg-hover">
-              {t('rooms.showAll')}
-            </Link>
+            <button type="button" aria-expanded={all} onClick={() => showAll(!all)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-more">
+              {all ? t('common.less') : t('sidebar.showMore', { n: more })}
+            </button>
           </li>
         )}
       </ul>

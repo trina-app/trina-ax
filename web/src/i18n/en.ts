@@ -3366,6 +3366,7 @@ export const en: Record<MessageKey, string> = {
   "tabs.back": "Back",
   "sidebar.aiChats": "{name} history",
   "sidebar.newAnswer": "New answer",
+  "sidebar.showMore": "Show more ({n})",
   "tabs.chats": "Chats",
   "tabs.files": "Files",
   "tabs.me": "Me",

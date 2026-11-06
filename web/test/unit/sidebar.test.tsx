@@ -96,13 +96,11 @@ describe('a computer', () => {
       expect(ko('rooms.title')).toBe('대화')
       expect(m.get('new-chat').textContent?.trim()).toStartWith(ko('sidebar.askAi', { name: aiName }))
       for (const id of ['new-chat', 'nav-search', 'nav-icons', 'rooms-toggle', 'recents-toggle', 'ai-chats-all']) expect(m.get(id).textContent).not.toMatch(/채팅/)
-      // two panes: the rooms scroll on their own, the AI history is pinned under them with a hairline
-      const rooms = m.get('sidebar-rooms-pane'), ai = m.get('sidebar-ai-pane')
-      expect(rooms.querySelector('[data-testid="sidebar-rooms"]')).not.toBeNull()
-      expect(ai.querySelector('[data-testid="recents-toggle"]')).not.toBeNull()
-      expect(m.html().indexOf('data-testid="sidebar-rooms-pane"')).toBeLessThan(m.html().indexOf('data-testid="sidebar-ai-pane"'))
-      expect(rooms.getAttribute('class')).toContain('overflow-y-auto')
-      expect(ai.getAttribute('class')).toContain('border-t')
+      // one scroll holds both sections (nothing pinned)
+      const scroll = m.get('sidebar-scroll')
+      expect(scroll.querySelector('[data-testid="sidebar-rooms"]')).not.toBeNull()
+      expect(scroll.querySelector('[data-testid="recents-toggle"]')).not.toBeNull()
+      expect(m.find('sidebar-ai-pane')).toBeNull()
       // the product's name is not the sidebar's title any more
       expect(m.get('sidebar-team').textContent).not.toContain(PRODUCT.displayName)
     } finally {
@@ -141,14 +139,58 @@ describe('a computer', () => {
     }
   })
 
-  test('every room, however many (no "모두 보기"); a long name is cut with the whole of it on hover', async () => {
+  test('대화: the five latest, every room with something unread and the room on screen; "더 보기 (N)" opens the rest in place, remembered', async () => {
     const long = '신제품 출시 태스크포스 (마케팅·디자인·영업·콘텐츠전략파트 합동) 2026 상반기'
-    useRooms.setState({ rooms: [room({ name: long }), ...Array.from({ length: 59 }, (_, i) => room({ name: `팀 ${i}` }))], loaded: true, failed: null })
+    const list = [room({ name: long }), ...Array.from({ length: 59 }, (_, i) => room({ name: `팀 ${i + 1}` }))]
+    list[7] = { ...list[7]!, unreadCount: 2 }
+    list[20] = { ...list[20]!, threadsUnread: 1 }
+    list[30] = { ...list[30]!, mentioned: true, unreadCount: 1 }
+    useRooms.setState({ rooms: list, loaded: true, failed: null })
+    const names = (m: Awaited<ReturnType<typeof render>>) => m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-room"]').map((a) => a.getAttribute('href'))
+    // the room on screen (the 51st) stays in the list too
+    let m = await render(`/rooms/${list[50]!.id}`)
+    try {
+      expect(names(m)).toEqual([0, 1, 2, 3, 4, 7, 20, 30, 50].map((i) => `/rooms/${list[i]!.id}`))
+      expect(m.get('rooms-more').textContent).toBe(ko('sidebar.showMore', { n: 51 }))
+      expect(m.get('rooms-more').getAttribute('aria-expanded')).toBe('false')
+      expect(m.html()).toContain(`title="${long}"`)
+      await m.click('rooms-more')
+      expect(names(m).length).toBe(60)
+      expect(m.get('rooms-more').textContent).toBe(ko('common.less'))
+      expect(localStorage.getItem('mycel.sidebar.roomsAll')).toBe('yes')
+    } finally {
+      await m.unmount()
+    }
+    // a reload keeps it open; "접기" closes it again
+    m = await render()
+    try {
+      expect(names(m).length).toBe(60)
+      await m.click('rooms-more')
+      expect(names(m)).toEqual([0, 1, 2, 3, 4, 7, 20, 30].map((i) => `/rooms/${list[i]!.id}`))
+      expect(localStorage.getItem('mycel.sidebar.roomsAll')).toBe('no')
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('트리나 기록 opened in full stays so after a reload (this browser)', async () => {
+    localStorage.setItem('mycel.sidebar.recentsAll', 'yes')
     const m = await render()
     try {
-      expect(m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-room"]').length).toBe(60)
-      expect(m.html()).not.toContain(`>${ko('rooms.showAll')}</a>`)
-      expect(m.html()).toContain(`title="${long}"`)
+      expect(m.find('ai-chats-latest')).toBeNull()
+      expect(m.get('recents-list').querySelectorAll('a[href^="/c/"]').length).toBe(8)
+      expect(m.find('ai-chats-less')).not.toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('no "더 보기" while every room is in sight', async () => {
+    useRooms.setState({ rooms: [room({ name: '하나' }), room({ name: '둘' }), room({ name: '셋' })], loaded: true, failed: null })
+    const m = await render()
+    try {
+      expect(m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-room"]').length).toBe(3)
+      expect(m.find('rooms-more')).toBeNull()
     } finally {
       await m.unmount()
     }
@@ -162,8 +204,10 @@ describe('a computer', () => {
       await m.click('ai-chats-all')
       expect(m.find('ai-chats-latest')).toBeNull()
       expect(m.get('recents-list').querySelectorAll('a[href^="/c/"]').length).toBe(8)
+      expect(localStorage.getItem('mycel.sidebar.recentsAll')).toBe('yes')
       await m.click('ai-chats-less')
       expect(m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').length).toBe(5)
+      expect(localStorage.getItem('mycel.sidebar.recentsAll')).toBe('no')
     } finally {
       await m.unmount()
     }

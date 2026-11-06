@@ -1,7 +1,8 @@
 // The computer's sidebar in a real browser (docs/DECISIONS.md "Desktop sidebar: rooms first"): its order, the icon row
 // by keyboard (focus ring, tooltip on focus, the Inbox count in its name), Admin for owners only, both groups folded
-// across a reload, two panes with 60 rooms (대화 scrolls on its own, 트리나 기록 pinned at the bottom), and "답변 필요" /
-// the new-answer dot that come from the chat list (they survive a reload, and no request is made per chat).
+// across a reload, 60 rooms in one scroll (대화 capped at five plus every unread room and the room on screen, "더 보기 (N)"
+// for the rest, remembered), and "답변 필요" / the new-answer dot that come from the chat list (they survive a reload,
+// and no request is made per chat).
 import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
@@ -106,56 +107,55 @@ test('both groups fold and stay folded after a reload', async ({ page }) => {
   await expect(s.getByTestId('sidebar-room').first()).toBeVisible()
 })
 
-for (const size of [{ width: 1440, height: 900, rooms: 11 }, { width: 1280, height: 800, rooms: 8 }]) {
-  test(`60 rooms at ${size.width}: two panes, 대화 scrolls on its own and 트리나 기록 stays pinned at the bottom`, async ({ page }) => {
+for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {
+  test(`60 rooms at ${size.width}: one scroll; 대화 shows the five latest, every unread room and the room on screen, "더 보기 (N)" the rest, remembered`, async ({ page }) => {
     await page.setViewportSize(size)
     await reset(page)
-    await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(60) } }) : r.fallback()))
+    const list = rooms(60)
+    await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: list } }) : r.fallback()))
     await signIn(page)
     await someChats(page, 7)
     await page.reload()
     const s = side(page)
-    await expect(s.getByTestId('sidebar-room')).toHaveCount(60)
+    // the five latest, and the eight unread rooms beyond them (every seventh has 2 unread)
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(13)
+    await expect(s.getByTestId('rooms-more')).toHaveText(t['sidebar.showMore'].replace('{n}', '47'))
     const first = s.getByTestId('sidebar-room').first()
     await expect(first.locator('[title]')).toHaveAttribute('title', /합동\) 2026 상반기/)
-    // the long name is cut inside the row, nothing runs out of the 280 px sidebar
     expect((await first.boundingBox())!.width).toBeLessThanOrEqual(280)
-    const roomsPane = s.getByTestId('sidebar-rooms-pane'), aiPane = s.getByTestId('sidebar-ai-pane')
+    // one scroll: nothing pinned, the AI history follows the rooms
+    await expect(s.getByTestId('sidebar-ai-pane')).toHaveCount(0)
+    const scroll = s.getByTestId('sidebar-scroll')
+    const aiHead = s.getByTestId('recents-toggle')
+    const inSight = async () => scroll.evaluate((pane) => {
+      const b = pane.getBoundingClientRect()
+      const seen = (q: Element) => { const r = q.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1 }
+      return { rooms: [...pane.querySelectorAll('[data-testid="sidebar-room"]')].filter(seen).length, ai: [...pane.querySelectorAll('[data-testid="ai-chats-latest"] a[href^="/c/"]')].filter(seen).length }
+    })
+    test.info().annotations.push({ type: 'in sight', description: `${size.width}×${size.height} with 13 rooms: ${JSON.stringify(await inSight())}` })
+    await aiHead.scrollIntoViewIfNeeded()
     await expect(s.getByTestId('ai-chats-latest').getByRole('link')).toHaveCount(5)
-    await expect(s.getByTestId('ai-chats-latest')).toBeInViewport()
-    await expect(s.getByTestId('ai-chats-all')).toBeInViewport()
-    // the AI pane sits on the account line, under the rooms pane, with a hairline between them
-    const r = (await roomsPane.boundingBox())!, a = (await aiPane.boundingBox())!, acct = (await s.getByTestId('account-menu').boundingBox())!
-    expect(Math.round(r.y + r.height)).toBeLessThanOrEqual(Math.round(a.y) + 1)
-    expect(a.y + a.height).toBeLessThanOrEqual(acct.y)
-    expect(await aiPane.evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe('1px')
-    // a useful number of rooms is in sight (reported: 1440×900 and 1280×800)
-    const inSight = await roomsPane.evaluate((pane) => { const b = pane.getBoundingClientRect(); return [...pane.querySelectorAll('[data-testid="sidebar-room"]')].filter((x) => { const q = x.getBoundingClientRect(); return q.top >= b.top - 1 && q.bottom <= b.bottom + 1 }).length })
-    test.info().annotations.push({ type: 'rooms in sight', description: `${size.width}×${size.height}: ${inSight}` })
-    expect(inSight).toBeGreaterThanOrEqual(size.rooms)
-    // the rooms scroll; the AI pane does not move
-    await roomsPane.evaluate((e) => { e.scrollTop = e.scrollHeight })
-    await expect(s.getByTestId('sidebar-room').last()).toBeInViewport()
-    expect((await aiPane.boundingBox())!.y).toBe(a.y)
-    await expect(s.getByTestId('ai-chats-latest')).toBeInViewport()
-    // folded: just its heading, and the rooms get the room
-    await s.getByTestId('recents-toggle').click()
-    await expect(s.getByTestId('recents-toggle')).toHaveAttribute('aria-expanded', 'false')
-    expect((await aiPane.boundingBox())!.height).toBeLessThan(48)
-    expect((await roomsPane.boundingBox())!.height).toBeGreaterThan(r.height + 150)
-    await s.getByTestId('recents-toggle').click()
-    // the whole history scrolls inside its pane (at most about half the height); the rooms keep the rest
+    // "더 보기": the rest in place, and still so after a reload
+    await scroll.evaluate((e) => { e.scrollTop = 0 })
+    await s.getByTestId('rooms-more').click()
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(60)
+    await expect(s.getByTestId('rooms-more')).toHaveText(t['common.less'])
+    await page.reload()
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(60)
+    // the room on screen stays when the list closes again
+    await s.getByTestId('sidebar-room').nth(30).click()
+    await expect(page).toHaveURL(new RegExp(`/rooms/${list[30]!.id}`))
+    await s.getByTestId('rooms-more').click()
+    await expect(s.getByTestId('sidebar-room')).toHaveCount(14)
+    await expect(s.getByTestId('sidebar-room').nth(9)).toHaveAttribute('href', `/rooms/${list[30]!.id}`)
+    // 트리나 기록's 모두 보기 stays open after a reload too
+    await page.goto('/')
+    await aiHead.scrollIntoViewIfNeeded()
     await s.getByTestId('ai-chats-all').click()
     await expect(s.getByTestId('ai-chats-less')).toBeAttached()
-    const tall = (await aiPane.boundingBox())!
-    expect(tall.height).toBeLessThanOrEqual(size.height * 0.56)
-    expect((await roomsPane.boundingBox())!.height).toBeGreaterThan(100)
-    // the filter menu opens upward from the pinned heading and stays inside the window
-    await s.getByTestId('recents-filter').click()
-    const menu = (await page.getByTestId('recents-filter-menu').boundingBox())!
-    expect(menu.y + menu.height).toBeLessThanOrEqual(size.height)
-    expect(menu.y).toBeGreaterThanOrEqual(0)
-    await page.keyboard.press('Escape')
+    await page.reload()
+    await expect(s.getByTestId('ai-chats-less')).toBeAttached()
+    await expect(s.getByTestId('ai-chats-latest')).toHaveCount(0)
     expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0)
   })
 }

@@ -1,10 +1,12 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons), people first (docs/DECISIONS.md "Desktop
 // sidebar: rooms first"): the team's name on top, one row for "트리나에게 묻기" (a new AI chat) and search, one row of icons
-// with tooltips (files, projects, scheduled, team skills, the inbox with its count, admin for owners and admins), then two
-// stacked panes with a hairline between them: "대화" (the rooms, every one; rooms/SidebarRooms.tsx) scrolls on its own,
-// and "트리나 기록" (the AI's history: the five latest and "모두 보기" for the whole of it with its filters; "답변 필요" and
-// dots from the chat list itself, chat/ChatState.tsx) is pinned to the bottom, so it never sinks under many rooms. People
-// and the AI never share a word: no bare "채팅" here. Both fold, remembered in this browser. Then the account menu (the
+// with tooltips (files, projects, scheduled, team skills, the inbox with its count, admin for owners and admins), then one
+// scroll with two capped sections: "대화" (rooms/SidebarRooms.tsx: the five latest rooms, every room with something unread
+// and the room on screen, "더 보기 (N)" for the rest) and "트리나 기록" (the AI's history: the five latest, every chat that
+// waits for me or has an unseen answer, "모두 보기" for the whole of it with its filters; "답변 필요" and dots from the
+// chat list itself, chat/ChatState.tsx), so the AI never sinks under many rooms. People and the AI never share a word:
+// no bare "채팅" here. Each folds, and each one's whole list stays open or closed, remembered in this browser. Then the
+// account menu (the
 // person's email or ID, Settings, Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens
 // above the profile line. Below 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on
 // Home): the AI's name on top, 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat
@@ -88,6 +90,7 @@ const remember = (key: string, v: string) => {
   }
 }
 const OPEN_KEY = 'mycel.sidebar.recents'
+const ALL_KEY = 'mycel.sidebar.recentsAll'
 /** a computer: AI chats shown before "모두 보기" */
 const LATEST = 5
 
@@ -95,7 +98,9 @@ export default function Sidebar() {
   const t = useT()
   // the column beside the page (a computer) or the phone's drawer: the drawer keeps the phone's own layout
   const wide = useMediaQuery('(min-width: 768px)')
-  const [allChats, setAllChats] = useState(false)
+  // the whole history opened ("모두 보기"), remembered in this browser like the fold
+  const [allChats, setAllChatsState] = useState(() => remembered(ALL_KEY, ['yes', 'no'] as const, 'no') === 'yes')
+  const setAllChats = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAllChatsState(v))
   const me = useMeStrict()
   const chats = useChats((s) => s.chats)
   const loaded = useChats((s) => s.chatsLoaded)
@@ -185,87 +190,9 @@ export default function Sidebar() {
         </div>
       )}
 
-      {wide ? (
-        <>
-          {/* 대화: every room, scrolling on its own */}
-          <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2" data-testid="sidebar-rooms-pane">
-            <SidebarRooms onNavigate={close} all />
-          </div>
-          {/* 트리나 기록: pinned to the bottom edge, with a hairline above it; at most about half the height (the whole
-              history behind "모두 보기" scrolls inside it) */}
-          <div className="scroll-thin max-h-[55%] shrink-0 overflow-y-auto overscroll-contain border-t border-line px-2 pt-2 pb-2" onScroll={peek.hide} data-testid="sidebar-ai-pane">
-            <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
-              <h2 className="text-xs font-medium text-faint">
-                <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
-                  {t('sidebar.aiChats', { name: aiName(t) })}
-                  <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
-                </button>
-              </h2>
-              {changed.length > 0 && (
-                <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
-                  <span aria-hidden>·</span>
-                  <span className="truncate">{changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])).join(', ')}</span>
-                  <button type="button" onClick={() => setView(DEFAULT_VIEW)} aria-label={t('sidebar.filter.clear')} title={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
-                    <X size={11} aria-hidden />
-                  </button>
-                </span>
-              )}
-              <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
-            </div>
-            <div id={listId} hidden={!recentsOpen} data-testid="recents-list">
-              {!loaded && <Loader2 size={16} className="mx-auto mt-4 animate-spin text-faint" aria-label={t('common.loading')} />}
-              {loaded && !chats.some((c) => !isUnused(c)) && <p className="px-3 py-2 text-sm text-faint">{t('sidebar.noChats')}</p>}
-              {loaded && chats.some((c) => !isUnused(c)) && !groups.length && (
-                <p className="px-3 py-2 text-sm text-faint" data-testid="recents-no-match">
-                  {t('sidebar.filter.none')}
-                </p>
-              )}
-              {!full && (
-                <ul data-testid="ai-chats-latest">
-                  {latest.map((c) => (
-                    <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
-                  ))}
-                </ul>
-              )}
-              {!full && (used.length > latest.length || cursor) && (
-                <button type="button" onClick={() => setAllChats(true)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-all">
-                  {t('rooms.showAll')}
-                </button>
-              )}
-              {full && groups.map(([key, { label, items }]) => (
-                <div key={key || 'all'} className="mb-2">
-                  {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
-                  <ul>
-                    {items.map((c) => (
-                      <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
-                    ))}
-                  </ul>
-                </div>
-              ))}
-              {full && cursor && (
-                <button
-                  type="button"
-                  className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-muted hover:bg-hover"
-                  disabled={more}
-                  onClick={async () => {
-                    setMore(true)
-                    await loadChats(false).catch(() => {})
-                    setMore(false)
-                  }}
-                >
-                  {more ? t('common.loading') : t('sidebar.more')}
-                </button>
-              )}
-              {wide && allChats && (
-                <button type="button" onClick={() => setAllChats(false)} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-less">
-                  {t('common.less')}
-                </button>
-              )}
-            </div>
-          </div>
-        </>
-      ) : (
-        <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide} data-testid="sidebar-scroll">
+      {/* one scroll, like Slack's: 대화 (a computer) and 트리나 기록, each capped at five with the rest behind its button */}
+      <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide} data-testid="sidebar-scroll">
+        {wide && <SidebarRooms onNavigate={close} />}
         <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
           <h2 className="text-xs font-medium text-faint">
             <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
@@ -334,8 +261,7 @@ export default function Sidebar() {
             </button>
           )}
         </div>
-        </div>
-      )}
+      </div>
       {peek.card}
       {wide ? (
         <AccountMenu />
