@@ -120,7 +120,8 @@ characters (and the note no hidden characters).
 
 Code: `server/src/integrations/connections/templates.ts`, `schedule-needs.ts`, `server/src/notifications/service.ts`
 (offerTemplates), `server/src/chat/connect-service.ts`, migrations `333_c_integration_templates.sql` and
-`334_c_integration_template_notices.sql`; web: `web/src/components/integrations/TemplatesView.tsx`. Tests:
+`334_c_integration_template_notices.sql`, `336_c_integration_template_policy.sql` (a template or its rule changing
+advances the safe-operations policy generation); web: `web/src/components/integrations/TemplatesView.tsx`. Tests:
 `tests/unit/c-integration-templates.test.ts`, `tests/unit/c-template-chat-schedule.test.ts`,
 `web/test/e2e/integration-templates.spec.ts`.
 
