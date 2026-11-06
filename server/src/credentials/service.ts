@@ -14,7 +14,7 @@ import { candidates, familyOfKind, MEMBER_OWN_KEY, memberOwnAllowed } from './re
 import { SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
 import {
-  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
+  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
   type CredCtx, type CredMeta, type CredRow, type Secrets,
 } from './store'
 import { formatProblem, verifySecret } from './validate'
@@ -175,6 +175,7 @@ export async function createCredential(cc: CredCtx, i: CreateInput, locale: Loca
       cc.notify({ level: 'info', code: 'credential_moved_to_team', message: ctAll(theirs ? 'nMovedToTeam' : 'nMovedToTeamNotYours', { label: from.label, team: i.label }), link: '/settings/credentials' }, [member])
     }
   }
+  if (!i.ownerUserId) noticeOwners(cc, i.actor, 'nAdminAdded', { label: i.label })
   return toCredential(cc, row, locale)
 }
 
@@ -202,6 +203,7 @@ export async function replaceSecret(cc: CredCtx, id: string, secret: string, act
   }))()
   const r = getRow(cc.db, id)!
   audit(cc.db, { actor, action: 'credential.secret_replaced', target: id, detail: { kind, ...(r.hint ? { hint: r.hint } : {}), verified: check.result === 'ok' } })
+  if (!r.owner_user_id) noticeOwners(cc, actor, 'nAdminReplaced', { label: r.label })
   return toCredential(cc, r, locale)
 }
 
@@ -227,6 +229,7 @@ export function updateCredential(cc: CredCtx, id: string, b: UpdateInput, actor:
     if (sets.length) cc.db.query(`UPDATE engine_credentials SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...args, new Date(cc.now()).toISOString(), id)
     if (b.assignments) { setAssignments(cc, id, b.assignments); changed.push('assignments') }
   })()
+  if (changed.includes('disabled') && b.disabled && !row.owner_user_id) noticeOwners(cc, actor, 'nAdminDisabled', { label: b.label ?? row.label })
   if (changed.length) audit(cc.db, { actor, action: 'credential.update', target: id, detail: {
     changed, ...(b.assignments ? { assignmentsBefore: before, assignmentsAfter: assignmentsOf(cc, id) } : {}), ...(b.spendLimit ? { spendLimit: b.spendLimit } : {}) } })
   return toCredential(cc, getRow(cc.db, id)!, locale)
@@ -239,6 +242,7 @@ export function deleteCredential(cc: CredCtx, id: string, actor: string, onlyOwn
   cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(id)
   cc.cache.delete(id)
   audit(cc.db, { actor, action: 'credential.delete', target: id, detail: { kind: row.kind, label: row.label, scope: row.owner_user_id ? 'personal' : 'team' } })
+  if (!row.owner_user_id) noticeOwners(cc, actor, 'nAdminRemoved', { label: row.label })
 }
 
 /** POST /api/admin/credentials/:id/check: ask the provider again (no tokens spent). */

@@ -97,7 +97,7 @@ export class Notifications {
   integrationRequest(userId: string, requestId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'integration.request', requestId, createdAt, true)
   }
-  /** A member without AI asks this owner to connect one. The source is the member's id only; a second ask is a no-op
+  /** A member without AI asks this owner or admin to connect one. The source is the member's id only; a second ask is a no-op
    * (UNIQUE row, migration 231). Shown always. */
   onboardingAiRequest(ownerId: string, memberId: string, createdAt = new Date().toISOString()) {
     // a settled or read row from an earlier ask is armed again (unread, new time) instead of being swallowed by the unique row

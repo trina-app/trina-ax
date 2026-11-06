@@ -72,7 +72,7 @@ const quietLink = 'font-medium text-ink underline decoration-line-strong underli
 /**
  * The welcome step's way to connect (and Home's card for the owner): the ways at once, one stack of equal rows. The
  * first is the main button ("Claude 구독 연결", marked 추천), the others bordered; each opens the dialog on its way. Under
- * them one quiet line to the AI engines page for other providers (OpenRouter …). The team's connection: the owner's.
+ * them one quiet line to the AI engines page for other providers (OpenRouter …). The team's connection: the owner's or an admin's.
  */
 export function ConnectAiPanel({ disabled }: { disabled?: boolean }) {
   const t = useT()
@@ -172,8 +172,8 @@ export function ConnectAiButton({ personal = false, size = 'sm', quiet, label, .
 /**
  * Home while no AI answers this person (docs/DECISIONS.md "Y — Home shows one thing at a time"): ONE card in place of
  * the top row (the welcome steps' "continue" row, the goal card) and of the suggestions, which would all fail. The
- * owner: the welcome step's own heading and way to connect. Anyone else (an admin too: only the owner adds the team's
- * connections): "팀장이 AI를 연결하면 바로 쓸 수 있어요" with [팀장에게 알리기] (one notice per owner, then "알렸어요"),
+ * owner and admins: the welcome step's own heading and way to connect. Anyone else: "팀장이 AI를 연결하면 바로 쓸 수 있어요"
+ * with [팀장에게 알리기] (one notice per owner and admin, then "알렸어요"),
  * and, where the team allows personal connections, a quiet "내 AI 연결하기" under it.
  */
 export function NoAiCard() {

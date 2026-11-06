@@ -1,13 +1,15 @@
 // Admin > AI connections over HTTP (docs/DECISIONS.md "AI 연결" 3.8/3.9): adding a Claude subscription token or an
 // API key sealed in the browser (web/src/lib/seal.ts) and checked without spending tokens against fake providers
 // (200 = verified, 401 = refused and not saved, anything else = saved "checked on the first question"), the plan
-// notice (D23), the same token twice (409), the password again, owner-only changes, members' own connections, the
+// notice (D23), the same token twice (409), the password again, the owner's and the admins' changes (an admin's is told
+// to the owner, the owner's is not), members' own connections, the
 // server's allowed kinds (D22). S-8 (no secret in any response, audit entry or log line), S-10 (sealing: no plain
 // secret field, purpose, replay, key id), S-13 (redirects of the provider check are not followed).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { SealingKey } from '@mycel/shared/api'
 import { PRODUCT } from '../../shared/src/product'
 import { createLogger } from '../../server/src/log'
+import { credentialsOf, markInvalid, markNeedsReconnect } from '../../server/src/credentials/store'
 import { sealSecret } from '../../web/src/lib/seal'
 import { addMember, harness, OWNER_PW, withOwner, type Client, type Harness } from './a-lib'
 
@@ -37,13 +39,16 @@ const lines: string[] = []
 let h: Harness
 let owner: Client
 let admin: Client
+let adminId = ''
+let adminPw = ''
 let member: { client: Client; id: string }
 let key: SealingKey
 beforeAll(async () => {
   h = await harness('cred-api', { engine: { authMode: 'managed', modelUpstreams: { anthropic: up, openai: up + '/v1' } } },
     { log: createLogger({ level: 'debug', sink: (l) => lines.push(l) }) })
   owner = await withOwner(h)
-  admin = (await addMember(h, owner, { username: 'adam', role: 'admin' })).client
+  const adam = await addMember(h, owner, { username: 'adam', role: 'admin' })
+  admin = adam.client; adminId = adam.id; adminPw = adam.password
   member = await addMember(h, owner, { username: 'mia', role: 'member' })
   key = await owner.call('GET', '/api/credentials/sealing-key')
 })
@@ -90,7 +95,8 @@ describe('adding connections (checked without spending tokens)', () => {
     hits.length = 0
     expect((await create(owner, 'anthropic-oauth', CLAUDE('sharing-off'))).status).toBe(403)
     expect(hits).toEqual([])
-    expect((await admin.try('PATCH', '/api/admin/credential-settings', { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })).status).toBe(403)
+    // an admin has the owner's say here, and the same rule: the risk must be acknowledged
+    expect((await admin.try('PATCH', '/api/admin/credential-settings', { sharedSubscriptions: true })).status).toBe(400)
     expect((await member.client.try('PATCH', '/api/admin/credential-settings', { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })).status).toBe(403)
     expect((await owner.try('PATCH', '/api/admin/credential-settings', { memberOwn: false, sharedSubscriptions: true })).status).toBe(400)
     expect(await owner.call('GET', '/api/admin/credentials')).toMatchObject({ memberOwn: true, sharedSubscriptions: false })
@@ -149,22 +155,23 @@ describe('adding connections (checked without spending tokens)', () => {
     expect((await create(owner, 'anthropic-api-key', AKEY('dup'))).status).toBe(201)
     expect((await create(owner, 'anthropic-api-key', AKEY('dup'))).status).toBe(409)
   })
-  test('only the owner, with the password: admins and members 403, a wrong password 403', async () => {
-    expect((await create(admin, 'anthropic-api-key', AKEY('byadmin'))).status).toBe(403)
+  test('the owner and admins, with their own password: members 403, a wrong password 403 (an admin cannot use the owner\'s)', async () => {
     expect((await create(member.client, 'anthropic-api-key', AKEY('bymember'))).status).toBe(403)
     expect((await create(owner, 'anthropic-api-key', AKEY('wrongpw'), { password: 'nope' })).status).toBe(403)
+    expect((await create(admin, 'anthropic-api-key', AKEY('adminwrongpw'))).status).toBe(403) // the owner's password, typed by an admin
+    expect((await create(admin, 'anthropic-api-key', AKEY('adminnopw'), { password: undefined })).status).toBe(400) // no password at all
   })
 })
 
 describe('changing, checking, removing', () => {
   let id = ''
   beforeAll(async () => { id = (await create(owner, 'anthropic-oauth', CLAUDE('change'))).body.id })
-  test('rename, order, switch off, assign, monthly limit: owner only', async () => {
+  test('rename, order, switch off, assign, monthly limit: owner and admins, not members', async () => {
     const groups = await owner.call('POST', '/api/admin/groups', { name: 'design', memberIds: [member.id] })
     const r = await owner.call('PATCH', `/api/admin/credentials/${id}`, { label: 'Design Max', priority: 5, assignments: [{ subjectType: 'group', subjectId: groups.id }], spendLimit: { usd: null, tokens: 1000000, action: 'warn' } })
     expect(r).toMatchObject({ label: 'Design Max', priority: 5, assignments: [{ subjectType: 'group', subjectId: groups.id, name: 'design' }], spendLimit: { usd: null, tokens: 1000000, action: 'warn' } })
     expect((await owner.call('PATCH', `/api/admin/credentials/${id}`, { disabled: true })).state).toBe('disabled')
-    expect((await admin.try('PATCH', `/api/admin/credentials/${id}`, { label: 'x' })).status).toBe(403)
+    expect((await member.client.try('PATCH', `/api/admin/credentials/${id}`, { label: 'x' })).status).toBe(403)
     expect((await owner.try('PATCH', `/api/admin/credentials/${id}`, { assignments: [{ subjectType: 'group', subjectId: 'nope' }] })).status).toBe(400)
     await owner.call('PATCH', `/api/admin/credentials/${id}`, { disabled: false, assignments: [] })
   })
@@ -182,8 +189,8 @@ describe('changing, checking, removing', () => {
     expect((await admin.call('POST', `/api/admin/credentials/${id}/check`)).state).toBe('ok')
     expect((await member.client.try('POST', `/api/admin/credentials/${id}/check`)).status).toBe(403)
   })
-  test('remove: owner only; gone afterwards', async () => {
-    expect((await admin.try('DELETE', `/api/admin/credentials/${id}`)).status).toBe(403)
+  test('remove: not a member; gone afterwards', async () => {
+    expect((await member.client.try('DELETE', `/api/admin/credentials/${id}`)).status).toBe(403)
     expect((await owner.try('DELETE', `/api/admin/credentials/${id}`)).status).toBe(204)
     expect((await owner.try('DELETE', `/api/admin/credentials/${id}`)).status).toBe(404)
   })
@@ -196,6 +203,122 @@ describe('changing, checking, removing', () => {
   })
 })
 
+describe('admins change the team\'s AI like the owner; the owner is told, but not of their own changes', () => {
+  const told: { to: string[] | undefined; code: string; message: Record<string, string> }[] = []
+  let ownerId = ''
+  beforeAll(async () => {
+    const cc = credentialsOf(h.ctx)
+    const real = cc.notify
+    cc.notify = (n, to) => { told.push({ to, code: n.code, message: n.message as Record<string, string> }); real(n, to) }
+    ownerId = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
+  })
+  const mine = () => told.filter((t) => t.code === 'credential_admin_change')
+  const adminCreate = async (kind: string, secret: string, extra: Record<string, unknown> = {}) =>
+    admin.try('POST', '/api/admin/credentials', { kind, label: 'Adam ' + kind, sealed: await sealed(secret), password: adminPw, ...(kind === 'anthropic-oauth' ? { acknowledgedPlanNotice: true } : {}), ...extra })
+  let id = ''
+
+  test('an admin adds a connection with their own password: the owner gets one notice (who and what, no key)', async () => {
+    told.length = 0
+    const secret = AKEY('byadmin2')
+    const r = await adminCreate('anthropic-api-key', secret)
+    expect(r.status).toBe(201)
+    id = r.body.id
+    expect(r.body).toMatchObject({ scope: 'team', label: 'Adam anthropic-api-key' })
+    expect(mine()).toHaveLength(1)
+    expect(mine()[0]!.to).toEqual([ownerId])
+    expect(mine()[0]!.message.en).toBe("ADAM added the team AI connection 'Adam anthropic-api-key'.")
+    expect(JSON.stringify(told)).not.toContain(secret)
+    // the actor in the Activity log is the admin
+    expect(h.ctx.db.query("SELECT actor_id AS actor FROM audit_log WHERE action = 'credential.create' AND target = ?").get(id)).toEqual({ actor: adminId })
+  })
+  test('an admin renames, assigns and switches off (the owner is told only of the switch-off), replaces and removes one the owner added', async () => {
+    const ownersId = (await create(owner, 'anthropic-api-key', AKEY('byowner2'))).body.id
+    told.length = 0
+    expect((await admin.call('PATCH', `/api/admin/credentials/${ownersId}`, { label: 'Renamed by admin', priority: 7 })).label).toBe('Renamed by admin')
+    expect(mine()).toHaveLength(0)
+    expect((await admin.call('PATCH', `/api/admin/credentials/${ownersId}`, { disabled: true })).state).toBe('disabled')
+    expect(mine()).toHaveLength(1)
+    expect(mine()[0]!.message.en).toBe("ADAM turned off the team AI connection 'Renamed by admin'.")
+    // the new key needs the admin's own password
+    const noPw = await admin.try('POST', `/api/admin/credentials/${ownersId}/secret`, { sealed: await sealed(AKEY('adminswap'), 'credential.replace'), password: OWNER_PW })
+    expect(noPw.status).toBe(403)
+    const rep = await admin.try('POST', `/api/admin/credentials/${ownersId}/secret`, { sealed: await sealed(AKEY('adminswap'), 'credential.replace'), password: adminPw })
+    expect(rep.status).toBe(200)
+    expect(mine()).toHaveLength(2)
+    expect(mine()[1]!.message.en).toContain('replaced the token or key')
+    expect((await admin.try('DELETE', `/api/admin/credentials/${ownersId}`)).status).toBe(204)
+    expect(mine()).toHaveLength(3)
+    expect(mine()[2]!.message.en).toBe("ADAM removed the team AI connection 'Renamed by admin'.")
+    expect(mine().every((m) => m.to!.length === 1 && m.to![0] === ownerId)).toBe(true)
+  })
+  test('the owner changes and removes one an admin added; their own changes tell nobody', async () => {
+    told.length = 0
+    expect((await owner.call('PATCH', `/api/admin/credentials/${id}`, { label: 'Owner renamed', disabled: true })).state).toBe('disabled')
+    const rep = await owner.try('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(AKEY('ownerswap'), 'credential.replace'), password: OWNER_PW })
+    expect(rep.status).toBe(200)
+    const made = await create(owner, 'anthropic-api-key', AKEY('ownermade'))
+    expect(made.status).toBe(201)
+    expect((await owner.try('DELETE', `/api/admin/credentials/${made.body.id}`)).status).toBe(204)
+    expect((await owner.try('DELETE', `/api/admin/credentials/${id}`)).status).toBe(204)
+    expect(mine()).toHaveLength(0)
+  })
+  test('a member is refused on every one of these; the admin stays the actor in the Activity log', async () => {
+    const aid = (await adminCreate('anthropic-api-key', AKEY('byadmin3'))).body.id
+    expect(h.ctx.db.query("SELECT actor_id AS actor FROM audit_log WHERE action = 'credential.create' AND target = ?").get(aid)).toEqual({ actor: adminId })
+    const m = member.client
+    expect((await m.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: await sealed(AKEY('m1')), password: 'river stone lamp 7' })).status).toBe(403)
+    expect((await m.try('PATCH', `/api/admin/credentials/${aid}`, { disabled: true })).status).toBe(403)
+    expect((await m.try('POST', `/api/admin/credentials/${aid}/secret`, { sealed: await sealed(AKEY('m2'), 'credential.replace'), password: 'river stone lamp 7' })).status).toBe(403)
+    expect((await m.try('DELETE', `/api/admin/credentials/${aid}`)).status).toBe(403)
+    expect((await m.try('POST', '/api/admin/credential-logins', { kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 1, acknowledgedPlanNotice: true, password: 'river stone lamp 7' })).status).toBe(403)
+    expect((await m.try('GET', '/api/admin/credential-logins/nope')).status).toBe(403)
+    expect((await m.try('DELETE', '/api/admin/credential-logins/nope')).status).toBe(403)
+    expect((await m.try('POST', '/api/admin/credential-logins/nope/code', { sealed: await sealed(AKEY('m3')) })).status).toBe(403)
+    expect((await m.try('PATCH', '/api/admin/credential-settings', { memberOwn: true })).status).toBe(403)
+    expect((await m.try('GET', '/api/admin/engines/api-config')).status).toBe(403)
+    expect((await m.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'http://127.0.0.1:1/v1', model: 'm', label: 'x' })).status).toBe(403)
+    expect((await admin.try('DELETE', `/api/admin/credentials/${aid}`)).status).toBe(204)
+  })
+  test('a refused or disconnected team connection is told to the owner and every admin (not to members)', async () => {
+    const cid = (await create(owner, 'anthropic-api-key', AKEY('refusedlater'))).body.id
+    told.length = 0
+    markInvalid(credentialsOf(h.ctx), cid, 'upstream_401', 401)
+    markNeedsReconnect(credentialsOf(h.ctx), cid, 'refresh_failed')
+    const codes = told.map((t) => t.code)
+    expect(codes).toContain('credential_rejected')
+    expect(codes).toContain('credential_needs_reconnect')
+    for (const t of told.filter((x) => x.code !== 'credential_admin_change')) {
+      expect(t.to).toContain(ownerId)
+      expect(t.to).toContain(adminId)
+      expect(t.to).not.toContain(member.id)
+    }
+    await owner.try('DELETE', `/api/admin/credentials/${cid}`)
+  })
+  test('an admin changes the settings of the team\'s connections (members\' own)', async () => {
+    expect(await admin.call('PATCH', '/api/admin/credential-settings', { memberOwn: true })).toMatchObject({ memberOwn: true })
+  })
+  test('an admin edits the API engine settings; the owner is told (never the key); the owner\'s own edit tells nobody', async () => {
+    told.length = 0
+    const keyText = 'engine-key-' + 'q'.repeat(24)
+    const body = { baseUrl: 'http://127.0.0.1:9/v1', model: 'team-model', label: 'Team API', key: keyText }
+    const r = await admin.call('PUT', '/api/admin/engines/api-config', body)
+    expect(r).toEqual({ baseUrl: body.baseUrl, model: 'team-model', label: 'Team API', hasKey: true })
+    expect(await admin.call('GET', '/api/admin/engines/api-config')).toEqual(r)
+    expect(mine()).toHaveLength(1)
+    expect(mine()[0]!.to).toEqual([ownerId])
+    expect(mine()[0]!.message.en).toBe('ADAM changed the team API engine settings (team-model).')
+    expect(JSON.stringify(told)).not.toContain(keyText)
+    expect(h.ctx.db.query("SELECT actor_id AS actor FROM audit_log WHERE action = 'engines.api' ORDER BY rowid DESC").get()).toEqual({ actor: adminId })
+    expect(JSON.stringify(h.ctx.db.query('SELECT detail FROM audit_log WHERE action = ?').all('engines.api'))).not.toContain(keyText)
+    told.length = 0
+    expect(await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'owner-model', label: 'Team API' })).toMatchObject({ model: 'owner-model', hasKey: true })
+    expect(mine()).toHaveLength(0)
+    // and the other way round: the admin may change what the owner set
+    expect(await admin.call('PUT', '/api/admin/engines/api-config', { baseUrl: body.baseUrl, model: 'back', label: 'Team API', key: null })).toMatchObject({ model: 'back', hasKey: false })
+    expect(mine()).toHaveLength(1)
+  })
+})
+
 describe('members\' own connections', () => {
   const mine = async (secret: string) => member.client.try('POST', '/api/me/credentials', { kind: 'anthropic-api-key', label: 'mine', sealed: await sealed(secret) })
   test('on by default; an explicit owner opt-out is preserved and enforced', async () => {
@@ -203,7 +326,7 @@ describe('members\' own connections', () => {
     expect(await owner.call('PATCH', '/api/admin/credential-settings', { memberOwn: false })).toEqual({ memberOwn: false, sharedSubscriptions: true })
     expect((await member.client.call('GET', '/api/me/credentials')).allowed).toBe(false)
     expect((await mine(AKEY('mine0'))).status).toBe(403)
-    expect((await admin.try('PATCH', '/api/admin/credential-settings', { memberOwn: true })).status).toBe(403)
+    expect((await member.client.try('PATCH', '/api/admin/credential-settings', { memberOwn: true })).status).toBe(403)
     expect(await owner.call('PATCH', '/api/admin/credential-settings', { memberOwn: true })).toEqual({ memberOwn: true, sharedSubscriptions: true })
   })
   test('a member adds, sees and removes their own; nobody else\'s', async () => {
@@ -230,7 +353,7 @@ describe('S-8: secrets never come back (responses, audit, logs)', () => {
     const rows = h.ctx.db.query('SELECT secret_enc FROM engine_credentials').all() as { secret_enc: string }[]
     for (const c of CANARIES) for (const r of rows) expect(r.secret_enc).not.toContain(c)
     const actions = (h.ctx.db.query("SELECT DISTINCT action FROM audit_log WHERE action LIKE 'credential.%'").all() as { action: string }[]).map((a) => a.action).sort()
-    expect(actions).toEqual(['credential.check', 'credential.create', 'credential.delete', 'credential.secret_replaced', 'credential.settings', 'credential.update'])
+    expect(actions).toEqual(['credential.check', 'credential.create', 'credential.delete', 'credential.rejected', 'credential.secret_replaced', 'credential.settings', 'credential.update'])
   })
 })
 

@@ -153,8 +153,10 @@ describe('Claude sign-in for the team', () => {
     }
     // sealed for adding a connection, not for this: 400
     expect((await postCode('dana', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE, 'credential.create')).status).toBe(400)
-    // a member, an admin, or the members' path: they cannot reach the owner's sign-in
-    expect((await postCode('carol', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(403)
+    // another admin, or the members' path: they cannot reach this person's sign-in (only its starter can)
+    expect((await postCode('carol', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(404)
+    expect((await h.req('carol', `/api/admin/credential-logins/${s.loginId}`)).status).toBe(404)
+    expect((await postCode('alice', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(403)
     expect((await postCode('alice', 'me', s.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(404)
     expect((await h.req('alice', `/api/me/credential-logins/${s.loginId}`)).status).toBe(404)
     expect(logins().get(s.loginId, 'dana').state).toBe('code')
@@ -351,6 +353,47 @@ describe('a member\'s own Claude sign-in over HTTP', () => {
       expect(await final(alice, r.loginId)).toMatchObject({ state: 'failed', reason: 'policy_changed' })
       expect(secretOf(credentialsOf(h.ctx), getRow(h.ctx.db, own.id) as never)).toEqual(before)
     } finally { setSetting(h.ctx.db, MEMBER_OWN_KEY, true); setFake({}) }
+  })
+})
+
+describe('Claude sign-in started by an admin', () => {
+  let carol: TestSocket
+  beforeAll(async () => { carol = await h.ws('carol', { windowId: 'win-carol-cl' }); await carol.next('hello') })
+  afterAll(() => carol?.close())
+  const adminToken = 'sk-ant-oat01-' + 'carolAdminToken'.repeat(6)
+
+  test('end to end over HTTP: the address and the state go to the admin who started it, not to the owner; the owner is told', async () => {
+    setFake({ FAKE_CLAUDE_TOKEN: adminToken })
+    try {
+      const ownerFramesBefore = dana.frames.length
+      // the password again is the admin's own: the owner's is refused for her
+      const wrong = await h.req('carol', '/api/admin/credential-logins', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'anthropic-oauth', label: 'Carol Claude', assignments: [], priority: 100, acknowledgedPlanNotice: true, password: 'not-her-password' }) })
+      expect(wrong.status).toBe(403)
+      const started = logins().start({ userId: 'carol', locale: 'en', personal: false, kind: 'anthropic-oauth', label: 'Carol Claude', assignments: [], priority: 100 })
+      const s = await started
+      const w = await waiting(carol, s.loginId)
+      expect(w).toMatchObject({ kind: 'anthropic-oauth', url: FAKE_CLAUDE_URL })
+      // the owner cannot read, answer or cancel an admin's sign-in, and does not see its frames
+      expect((await h.req('dana', `/api/admin/credential-logins/${s.loginId}`)).status).toBe(404)
+      expect((await postCode('dana', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)).status).toBe(404)
+      expect((await h.req('dana', `/api/admin/credential-logins/${s.loginId}`, { method: 'DELETE' })).status).toBe(404)
+      // the admin reads it (GET), pastes the code (sealed), and the connection is stored for the team
+      expect((await h.req('carol', `/api/admin/credential-logins/${s.loginId}`)).status).toBe(200)
+      const r = await postCode('carol', 'admin', s.loginId, FAKE_CLAUDE_GOOD_CODE)
+      expect(r.status).toBe(200)
+      const done = await final(carol, s.loginId)
+      expect(done.state).toBe('done')
+      expect(done.credential).toMatchObject({ kind: 'anthropic-oauth', label: 'Carol Claude', scope: 'team', state: 'ok' })
+      expect(getRow(h.ctx.db, done.credential!.id)!.created_by).toBe('carol')
+      expect(dana.frames.slice(ownerFramesBefore).some((f) => f.type === 'credential.login')).toBe(false)
+      // the owner got a short notice: who and what, never the token
+      const notice = await dana.next('notice', (f) => f.data.code === 'credential_admin_change', 10_000)
+      expect(notice.data.message).toContain('Carol Park')
+      expect(notice.data.message).toContain('Carol Claude')
+      expect(JSON.stringify(dana.frames)).not.toContain(adminToken)
+      expect(everything()).not.toContain(adminToken)
+      expect(leftovers()).toEqual([])
+    } finally { setFake({}) }
   })
 })
 

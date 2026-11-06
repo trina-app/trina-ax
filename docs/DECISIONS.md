@@ -1219,7 +1219,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **D9 Codex는 진짜 토큰을 받지 않는다**: 턴의 `CODEX_HOME/auth.json`은 가짜(접근 토큰·API 키 자리 = 이 턴의 프록시 토큰, refresh 자리 = `teamax-no-refresh`, account_id = `teamax-<sha256(연결 id)[:12]>`, 서명 없는 id_token에 진짜 플랜 종류만). 공급자 `teamax`(이름은 PRODUCT.displayName, "OpenAI"가 아님)가 `http://127.0.0.1:<proxy>/codex/<chatgpt|openai>`로 보내고, 프록시가 진짜 Authorization·ChatGPT-Account-ID(또는 키)를 넣는다. Codex 턴의 CONNECT 터널은 없앴다(`connect.ts`의 `codexTurns`는 F1·옛 구성에서만). `chatgpt_base_url`·갱신 주소도 프록시로: `/codex/backend/wham/config/bundle`은 `{}`, 그 밖 배경 호출은 404(Codex 0.163이 ChatGPT 턴마다 부르는 `accounts/check`·`settings/user`는 경고 없이), `/codex/oauth/token`은 400 invalid_grant + 감사.
 - **D10 갱신은 서버가**: 연결별 single-flight, 회전된 refresh token을 같은 트랜잭션에서 먼저 저장한 뒤 새 접근 토큰을 쓴다. `invalid_grant`·`refresh_token_*`·401이면 `needs_reconnect`. 일시 실패는 그 요청만 502. 하루 한 번 8일 넘게 안 쓴 연결을 갱신.
 - **D12 봉인**: 브라우저(`web/src/lib/seal.ts`)가 서버 공개키(`<secrets>/credential-sealing.jwk`, P-256)로 ECDH + HKDF-SHA256(info `mycel-seal-v1|<kid>`) + AES-256-GCM으로 봉인. 평문 `{secret, nonce, purpose}`: purpose가 엔드포인트와 다르면 거부, 같은 nonce는 10분 안에 두 번 받지 않음. 계약에 봉인 안 된 비밀값 필드가 없다. `crypto.subtle`이 없는 화면(LAN의 http)은 "https에서만"이라고 말한다.
-- **D13 권한**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
+- **D13 권한 (대체됨: 맨 아래 「관리자도 팀 AI 연결을 한다」)**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
 - **D14 상태는 연결별**: 401 → 그 연결만 `invalid`(ChatGPT는 갱신 1번·재전송 1번 뒤), 긴 429 → 그 연결만 `limited_until`(DB, 재시작해도 유지). 프록시 전역 `limitedUntil`은 없앴다.
 - **D15 넘기기**: 묶인 연결이 한도·거절·월 한도에 걸리면 같은 계열 다음 연결로 새 시도(최대 2번, Claude는 새 세션, 단계·알림·감사 `engine.credential_switch`). 없으면 `rate_limited`일 때만 `limitFallback`(Claude→Codex, Codex 연결이 있을 때만), 그다음 오류.
 - **D16 비용**: `credentials/prices.ts`(2026-10-22 정가). API 키만 계산, 구독은 0(토큰은 셈). 모르는 모델은 계열 최대값 + 서버 시작 뒤 모델마다 한 번 감사.
@@ -10515,3 +10515,57 @@ default skills, accepting that they become public here, leaving out anything int
   third-party generators that need paid credits.
 - Rejected: shipping the Korean lint script (a pack is one SKILL.md, and the checks are in the text); making the HR
   pack a default (labour-law forms only some teams need, and wrong for teams outside Korea).
+
+## Admins connect the team's AI too (2026-11-06, product owner)
+
+**Decision.** The owner and admins have the same powers over the team's AI connections and the team API engine
+settings (Admin › Providers). Before, only the owner could add, replace, rename, order, assign, limit, switch off or
+remove a team connection, start a ChatGPT or Claude sign-in, change the two team switches ("members' own connections",
+"shared subscriptions") or edit the API engine; admins could only list and re-check. Members' own connections
+(`/api/me/credentials`) are unchanged: they are theirs alone.
+
+**Why.** An admin is who keeps the team running day to day, and a refused or expired connection is an admin's job to
+fix. "Tell the owner" was a dead end when the owner is not around, and the product owner asked for it.
+
+- **Re-auth: `admin-reauth`.** A new auth level next to `owner-reauth`, in the auth layer only (`shared/src/api/endpoint.ts`,
+  `server/src/http/route.ts`): the caller must be an admin or the owner, and the body carries `password`, checked
+  against the caller's **own** password (same rate limit as every re-entry). `createCredential`,
+  `replaceCredentialSecret` and `startCredentialLogin` use it (so does "Move it to the team", which is an add). The
+  rest (`updateCredential`, `deleteCredential`, the sign-in's get / cancel / code, `updateCredentialSettings`,
+  `getApiEngine`, `putApiEngine`) are plain `admin`. A demo server refuses `admin-reauth` like `owner-reauth`.
+  Nothing of member deletion (`deleteUser`, `owner-reauth`) was touched.
+- **Either may change what the other added.** There is no per-row "who may" check: a connection is the team's. Audit
+  lines keep the actor as before (`created_by` and `audit_log.actor_id` are the admin).
+- **The owner hears of an admin's change.** When an admin adds, replaces, removes or switches off a team connection
+  (including through a Claude or ChatGPT sign-in), or saves the API engine settings, each active owner gets one short
+  in-app notice (`credential_admin_change`, link Admin › Providers): who, what, and the connection's name or the model.
+  Never a token or key. It uses the channel the connection notices already use (`CredCtx.notify`, the live `notice`
+  event); no new channel. The owner's own changes send nothing. Renames, ordering, assigning and limits send nothing
+  (too noisy, and not a change of what answers).
+- **A sign-in belongs to who started it.** `credentialLogins` already keyed a sign-in, its address, its state events and
+  the code step by the starter's user id (404 for anyone else, the owner included), so an admin's Claude sign-in
+  works end to end with no change to it, the launcher or native code. Only one sign-in runs at a time on a server.
+- **Owner-specific assumptions found, and what changed.**
+  - *Who is told of a refused, expiring, limited or disconnected connection:* already the owner and admins
+    (`admins()` in `credentials/store.ts`). Unchanged.
+  - *"AI access requests"* (`requestAiAccess`, a member without AI): went to owners only. Now to the owner(s) and the
+    admins (`onboarding.ai_request` rows per person; the same name-and-link notice; settled together when the member
+    can use AI). An admin or owner cannot ask (403).
+  - *The button for "no AI"* (`aiAccessFor`): an admin got `connect_own` / `ask_owner`. Now `connect_team`, like the
+    owner: the Home card, the banner above the composer and the chat error offer the connect dialog. The chat error's
+    separate "tell the owner" words for admins are gone (`aiConnect.error.admin.*`).
+  - *Admin › Providers:* the buttons, the connection menu, the reconnect button, the two switches and the API engine
+    form were hidden unless `isOwner`; now `isAdmin` (owner or admin).
+  - *Left owner-only, on purpose:* the owner's setup checklist on Admin Home and the welcome steps (they walk through
+    backups and System, which stay the owner's, and belong to the owner's onboarding progress); member deletion,
+    updates, restores, the team name, transfer of ownership.
+  - *Members' own connections:* admin endpoints could already switch off or delete a member's personal connection for
+    the owner. Admins get the same (one rule: the team's policy), they still never see a secret.
+- **Hosted / managed installs.** No owner-only rule there turned out to be about billing or a provider-managed
+  connection. What a hosted server restricts stays as it is, and it never depended on the role: the hosting
+  service's trial AI credit is not a connection row (nobody edits it here), the allowed kinds come from
+  `engine.credentialKinds`, and the API engine address must be public https (`apiEngineAnyUrl`). All of these apply to
+  admins exactly as to the owner.
+- **Rejected:** a lighter re-auth for admins, or none (a connection is the team's money and access; the password
+  again stays); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
+  to other admins too (the owner is the one who answers for the team, and admins see the change in Activity log).

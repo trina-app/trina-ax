@@ -122,8 +122,8 @@ describe('Home without AI', () => {
     } finally { await m.unmount() }
   })
 
-  test('a member (an admin too): "팀장이 AI를 연결하면 바로 쓸 수 있어요" alone; their own connection only where allowed', async () => {
-    for (const [role, action] of [['member', 'ask_owner'], ['admin', 'connect_own']] as const) {
+  test('a member: "팀장이 AI를 연결하면 바로 쓸 수 있어요" alone; their own connection only where allowed (an admin connects for the team, like the owner)', async () => {
+    for (const [role, action] of [['member', 'ask_owner'], ['member', 'connect_own']] as const) {
       signIn(role)
       access = { usable: false, action, requested: false }
       const m = await home()

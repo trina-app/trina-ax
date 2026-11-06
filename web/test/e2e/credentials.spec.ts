@@ -5,6 +5,8 @@
 // fallback), and the https-only note where the browser cannot seal.
 // The mock opens the sealed values with the server's real sealing code, so a value sealed wrongly fails here.
 import { expect, test } from '@playwright/test'
+import { CSRF_HEADER } from '@mycel/shared/api'
+import { DICTS } from '../../src/i18n'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 
 const TOKEN = 'sk-ant-oat01-' + 'e2e'.repeat(15)
@@ -217,4 +219,59 @@ test('where the browser cannot seal (no crypto.subtle: http on a LAN address), a
   await page.getByTestId('provider-add-claude').click()
   await expect(page.getByTestId('credential-https-only')).toContainText('https')
   await expect(page.getByTestId('credential-submit')).toBeDisabled()
+})
+
+// An admin who is not the owner connects the team's AI like the owner does (docs/DECISIONS.md "Admins connect the team's
+// AI too"): the same Add account, the menu (switch off, remove) and the API engine form, with their own password again.
+test('an admin sees and uses the Providers buttons: adds a key with their own password, switches it off, removes it, saves the API engine', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  expect((await page.request.patch('/api/admin/users/bob', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' } })).ok()).toBe(true)
+  await page.evaluate(() => localStorage.clear())
+  await page.context().clearCookies()
+  const BOB = { username: 'bob', password: 'bob password 1' }
+  await signIn(page, BOB)
+  await page.goto('/admin/providers')
+  await expect(page.getByTestId('provider-add-claude')).toBeVisible()
+  await expect(page.getByTestId('provider-add-codex')).toBeVisible()
+
+  // the owner's password is not the admin's: the server says so; their own works
+  await page.getByTestId('provider-add-claude').click()
+  await page.getByTestId('kind-anthropic-api-key').check()
+  await page.getByTestId('credential-label').fill('관리자 키')
+  await page.getByTestId('credential-secret').fill(KEY)
+  await page.getByTestId('credential-password').fill(OWNER.password)
+  await page.getByTestId('credential-submit').click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
+  const added = page.waitForRequest((r) => r.url().endsWith('/api/admin/credentials') && r.method() === 'POST')
+  await page.getByTestId('credential-password').fill(BOB.password)
+  await page.getByTestId('credential-submit').click()
+  expect((await added).postDataJSON()).toMatchObject({ label: '관리자 키', password: BOB.password })
+  const rows = page.getByTestId('credentials-claude').getByTestId('credential-row')
+  await expect(rows).toHaveCount(1)
+  await expect(page.getByTestId('credentials-claude')).toContainText('…WXYZ')
+
+  // the row's menu: switch off, then remove
+  await rows.first().getByTestId('credential-menu').click()
+  const off = page.waitForRequest((r) => /\/api\/admin\/credentials\/[^/]+$/.test(r.url()) && r.method() === 'PATCH')
+  await page.getByRole('menuitem', { name: '끄기' }).click()
+  expect((await off).postDataJSON()).toEqual({ disabled: true })
+  await rows.first().getByTestId('credential-menu').click()
+  await page.getByRole('menuitem', { name: '삭제' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '삭제' }).click()
+  await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
+
+  // the API engine form is theirs too
+  await page.goto('/admin/providers?engine=api')
+  const form = page.locator('[data-engine="api"]').getByTestId('api-engine-form')
+  await expect(form).toBeVisible()
+  await form.getByLabel(DICTS.ko['engines.api.preset']).selectOption('openrouter')
+  const saved = page.waitForRequest((r) => r.method() === 'PUT' && /\/api\/admin\/engines\/api-config$/.test(r.url()))
+  await form.getByRole('button', { name: '저장', exact: true }).click()
+  expect((await saved).postDataJSON()).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1' })
+
+  // and the switches of the team's AI settings
+  await page.goto('/admin/settings#ai')
+  await expect(page.getByTestId('shared-subscriptions-setting').getByRole('checkbox')).toBeEnabled()
 })

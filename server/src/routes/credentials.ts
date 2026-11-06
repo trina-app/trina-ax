@@ -1,7 +1,8 @@
-// AI connections (contract: shared/src/api/credentials.ts), registered by the admin route module (owner A). Admins
-// see the team's connections; only the owner changes them (adding and replacing a secret ask for the password again,
-// the RouteKit checks it; so does "Move it to the team", which is an add with moveFrom); members manage their own
-// connections while the team allows them. Request bodies are never
+// AI connections (contract: shared/src/api/credentials.ts), registered by the admin route module (owner A). The owner
+// and admins change the team's connections alike (adding and replacing a secret, and starting a sign-in, ask the
+// person for their own password again: auth 'admin-reauth', the RouteKit checks it; so does "Move it to the team",
+// which is an add with moveFrom); an admin's change is told to the owner (credentials/store.ts noticeOwners). Members
+// manage their own connections while the team allows them (/api/me/credentials). Request bodies are never
 // written to the audit log here (credentials/service.ts writes field names, kinds, labels, hints only).
 import { API, type Locale } from '@mycel/shared/api'
 import { anthropicGateway, gatewayLabel, isManaged } from '../app-config'
@@ -15,7 +16,7 @@ import { sharedSubscriptionsAllowed } from '../credentials/policy'
 import {
   checkCredential, createCredential, deleteCredential, listCredentials, myCredentials, replaceSecret, setCredentialSettings, unsealOrFail, updateCredential,
 } from '../credentials/service'
-import { credentialsOf } from '../credentials/store'
+import { admins, credentialsOf } from '../credentials/store'
 import { ct } from '../credentials/i18n'
 import { trialCredit } from '../credentials/hosted-chat'
 import { engineStatusCache } from '../admin/engines'
@@ -75,7 +76,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // Only turns that answer with AI connections (managed mode) ever use it.
   kit.handle(API.trialCredit, () => ({ credit: isManaged(ctx.config) ? trialCredit(ctx.db, new Date()) : null }))
 
-  // ChatGPT and Claude sign-ins (the team's: owner + password; one's own: while the team allows personal connections).
+  // ChatGPT and Claude sign-ins (the team's: owner or admin + their password; one's own: while the team allows personal connections).
   // The Claude code: only from the person who started that sign-in (404 for anyone else, before it is opened), sealed
   // like a token (its own purpose)
   const submitCode = async (id: string, userId: string, sealed: Parameters<typeof unsealOrFail>[1], locale: Locale) => {
@@ -91,7 +92,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // ---------------- one's own connections ----------------
   const ownAllowed = (locale: Locale) => { if (!memberOwnAllowed(ctx.db)) fail('forbidden', ct('memberOwnOff', locale)) }
   kit.handle(API.myCredentials, ({ c, auth }) => ({ allowed: memberOwnAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], items: myCredentials(cc(), auth.user.id, loc(c)), anthropicGateway: gateway() }))
-  // onboarding: the person's way out of "no AI" (credentials/access.ts aiAccessFor) and the one request to the owner(s)
+  // onboarding: the person's way out of "no AI" (credentials/access.ts aiAccessFor) and the one request to the owner(s) and admins
   const accessOf = (auth: { user: { id: string; role: string } }) => {
     const person = { id: auth.user.id, role: auth.user.role }
     return { person, ...aiAccessFor(ctx, person, memberOwnAllowed(ctx.db)) }
@@ -102,11 +103,11 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   })
   kit.handle(API.requestAiAccess, ({ c, auth }) => {
     const { person, usable } = accessOf(auth)
-    if (person.role === 'owner' || usable) fail('forbidden', ct('aiRequestNotNeeded', loc(c)))
+    if (person.role === 'owner' || person.role === 'admin' || usable) fail('forbidden', ct('aiRequestNotNeeded', loc(c)))
     const n = notificationsOf(ctx)
     if (n.aiRequested(person.id)) return { requested: true as const, already: true }
-    const owners = ctx.db.query("SELECT id FROM users WHERE role='owner' AND status='active' AND deleted_at IS NULL").all() as { id: string }[]
-    for (const o of owners) n.onboardingAiRequest(o.id, person.id)
+    // the owner(s) and the admins: all of them can connect the team's AI
+    for (const id of admins(ctx.db)) n.onboardingAiRequest(id, person.id)
     return { requested: true as const, already: false }
   })
   kit.handle(API.createMyCredential, async ({ c, body, auth }) => {

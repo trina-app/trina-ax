@@ -2,8 +2,8 @@
 // page, and /admin/engines and /admin/credentials lead here): one quiet row per engine (Claude Code, Codex, API, …): its
 // state as a chip, one dim line (how it signs in · its models · when it was checked), what is missing in one line,
 // check again and the on/off switch. Under it, the provider's accounts in the order they are used, with Add account (the
-// owner; the AI connection dialogs of Credentials.tsx, for this provider's kinds only). The row opens in place for the
-// rest: the longer explanation, the version and every model, and the owner's API engine form (address, model, key;
+// owner or an admin; the AI connection dialogs of Credentials.tsx, for this provider's kinds only). The row opens in place for the
+// rest: the longer explanation, the version and every model, and the API engine form (owner and admins) (address, model, key;
 // ?engine=api opens that row). The team's AI settings (defaults, who picks the engine, members' own accounts, usage
 // limits) are in Team settings (TeamAiSettings.tsx); the old ?tab=team address opens them there (AdminLayout.tsx).
 import clsx from 'clsx'
@@ -14,7 +14,7 @@ import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { isOwner, useMeStrict } from '../../store/session'
+import { isAdmin, useMeStrict } from '../../store/session'
 import { Badge, Button, Field, IconButton, Switch, inputCls } from '../../components/ui'
 import { AdminPageHeader, Loadable, OneLine, useAction, useLoad } from './common'
 import { ENGINE_FAMILY, ProviderAccounts, useTeamCredentials } from './Credentials'
@@ -54,7 +54,7 @@ export default function Engines() {
                   key={e.id}
                   e={e}
                   accounts={ENGINE_FAMILY[e.id] && <ProviderAccounts tc={tc} fam={ENGINE_FAMILY[e.id]!} />}
-                  owner={isOwner(me)}
+                  owner={isAdmin(me)}
                   initiallyOpen={params.get('engine') === e.id}
                   checking={checking === e.id}
                   onCheck={() => void check(e.id)}
@@ -118,7 +118,7 @@ function EngineRow({ e, accounts, owner, initiallyOpen, checking, onCheck, onTog
           <p className="mt-0.5 truncate pl-5 text-xs text-faint" title={meta}>{meta}</p>
           {apiNotSet ? (
             <p className="mt-1 pl-5 text-xs text-warn" data-testid="engine-detail">
-              {t(owner ? 'adminux.engines.apiNotSetHint' : 'adminux.engines.apiNotSetOwner')}{' '}
+              {t('adminux.engines.apiNotSetHint')}{' '}
               {owner && !open && (
                 <button type="button" className="font-medium text-accent-text underline" onClick={() => {
                   setOpen(true)
@@ -172,7 +172,7 @@ const API_PRESETS = [
   { id: 'ollama', label: 'Ollama (this Mac)', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b' },
 ] as const
 
-/** The team's API engine settings (owner): address, model, display name, key (never shown again once saved). */
+/** The team's API engine settings (owner and admins): address, model, display name, key (never shown again once saved). */
 function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   const t = useT()
   const act = useAction()

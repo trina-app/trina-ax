@@ -1,8 +1,8 @@
 // The accounts the team's AI answers with (docs/DECISIONS.md "AI 연결" 3.13) — Claude subscription tokens, API keys,
 // ChatGPT sign-ins — shown inside each provider's row in Admin › AI providers (pages/admin/Engines.tsx; it was a page of
 // its own, Admin > AI connections, and /admin/credentials leads there): their state, who uses them, this month's use and
-// the order they are tried in. Admins see and re-check; only the owner adds, replaces, orders, assigns, limits,
-// switches off and removes (adding and replacing ask for the password again). Tokens and keys are sealed in the browser
+// the order they are tried in. The owner and admins alike add, replace, order, assign, limit,
+// switch off, remove and re-check them (adding and replacing ask for the person's own password again). Tokens and keys are sealed in the browser
 // before they are sent (lib/seal.ts) and never shown again. Settings › AI providers (MyCredentials) is a member's own
 // accounts by provider, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
@@ -14,7 +14,7 @@ import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { isOwner, useMeStrict } from '../../store/session'
+import { isAdmin, useMeStrict } from '../../store/session'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
@@ -55,7 +55,8 @@ export type Family = 'claude' | 'codex'
 export function useTeamCredentials() {
   const t = useT()
   const me = useMeStrict()
-  const owner = isOwner(me)
+  // the owner and admins change the team's AI connections alike (docs/DECISIONS.md "Admins connect the team's AI too")
+  const owner = isAdmin(me)
   const act = useAction()
   const actOk = useActionOk()
   const state = useLoad(() => api.call(API.listCredentials))

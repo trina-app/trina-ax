@@ -80,7 +80,7 @@ export function enforceAuth(ep: Endpoint, auth: AuthInfo | null) {
   if (!auth) fail('unauthorized')
   if (auth!.user.mustChangePassword && !ep.allowWhilePasswordChange) fail('password_change_required')
   const role = auth!.user.role
-  if (ep.auth === 'admin' && role !== 'admin' && role !== 'owner') fail('forbidden')
+  if ((ep.auth === 'admin' || ep.auth === 'admin-reauth') && role !== 'admin' && role !== 'owner') fail('forbidden')
   if ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && role !== 'owner') fail('forbidden')
 }
 
@@ -139,7 +139,7 @@ export class RouteKit {
       // demo mode (MYCEL_DEMO): no owner password re-checks, the demo people's accounts stay as seeded
       if (this.ctx.config.demo) demoGuard(this.ctx, ep, { params: params as Record<string, string>, body, auth, locale: c.get('locale') })
 
-      if (ep.auth === 'owner-reauth') {
+      if (ep.auth === 'owner-reauth' || ep.auth === 'admin-reauth') {
         const pw = (body as { password?: unknown } | undefined)?.password
         if (typeof pw !== 'string' || !(await this.ctx.services.sessions.verifyPassword(auth!.user.id, pw, c.get('info')))) {
           // in words: the bare 'forbidden' text ("you do not have permission") sent owners looking for a missing right

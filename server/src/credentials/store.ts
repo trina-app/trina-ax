@@ -110,6 +110,22 @@ export function admins(db: Database): string[] {
   return (db.query("SELECT id FROM users WHERE role IN ('owner','admin') AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
 }
 
+/**
+ * An admin changed the team's AI (a connection added, replaced, removed or switched off; the API engine settings): the
+ * owner(s) get a short in-app notice (the same `cc.notify` channel as a refused or limited connection) saying who and
+ * what, never a token or key. The owner's own changes send nothing. Never throws.
+ */
+export function noticeOwners(cc: CredCtx, actor: string | null, key: 'nAdminAdded' | 'nAdminReplaced' | 'nAdminRemoved' | 'nAdminDisabled' | 'nAdminEngine', vars: Record<string, string>) {
+  try {
+    if (!actor) return
+    const who = cc.db.query("SELECT name FROM users WHERE id = ? AND role = 'admin'").get(actor) as { name: string } | null
+    if (!who) return
+    const owners = (cc.db.query("SELECT id FROM users WHERE role = 'owner' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)
+    if (!owners.length) return
+    cc.notify({ level: 'info', code: 'credential_admin_change', message: ctAll(key, { who: who.name, ...vars }), link: '/admin/credentials' }, owners)
+  } catch (e) { cc.log.warn('could not tell the owner about an admin\'s AI change', { err: e }) }
+}
+
 /** notice for one connection and code at most once an hour */
 export function notifyOnce(cc: CredCtx, credentialId: string, n: Notice, to?: string[], everyMs = 3600_000) {
   const k = `${credentialId}|${n.code}`
