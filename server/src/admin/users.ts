@@ -226,6 +226,7 @@ export function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, pers
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
     // and templates' rules (an id nobody can see any more would block every later change of that rule)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
     // the person had asked for this (Settings › Profile › 계정 삭제 요청): the request is handled
     requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()

@@ -29,5 +29,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'room.dm': case 'room.mention': return p.roomMessages !== false
     // a person asks the owner to delete their account (shown always, Notifications.deletionRequest)
     case 'account.deletion_request': return true
+    // a Drive shared with the team stopped and needs an admin's new sign-in (shown always, Notifications.driveShareReconnect)
+    case 'drive.share_reconnect': return true
   }
 }

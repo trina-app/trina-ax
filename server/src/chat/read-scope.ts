@@ -9,6 +9,8 @@
 //                        personal external-service connection returned
 //   {type:'integration', id}  what a team external-service connection returned: its viewers are the active people its
 //                        access rules allow today (integrations/connections/store.ts)
+//   {type:'drive_share', id}  what a Google Drive an admin shares with the team returned: its viewers are the active
+//                        people its rule includes today (integrations/google-drive/shares.ts)
 //   {type:'room', id, fromSeq}  messages of a team chat room the AI got as context there (rooms/ai.ts), the oldest of
 //                        them at seq fromSeq: its viewers are the room's members today who could see that message
 //                        (they were in the room before it)
@@ -23,8 +25,9 @@
 import type { Database } from 'bun:sqlite'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { getRow, usersOf } from '../integrations/connections/store'
+import { shareRow, shareUsers } from '../integrations/google-drive/shares'
 
-export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
+export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'drive_share'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
 export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : s.type === 'name' ? `name:${s.path}` : `${s.type}:${s.id}`)
@@ -78,6 +81,7 @@ function activePeople(db: Database): Principal[] {
 function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principal[]): Set<string> {
   if (s.type === 'user') return new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
   if (s.type === 'integration') return usersOf(db, s.id)
+  if (s.type === 'drive_share') return shareRow(db, s.id) ? shareUsers(db, s.id) : new Set()
   if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq)
   if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((p) => rules.canList(p, segs)).map((p) => p.id)) }
   let segs: string[] = []
@@ -130,6 +134,7 @@ export function sourceLabel(db: Database, s: ReadSource, me: string, text: { min
   if (s.type === 'user') return s.id === me ? text.mine : `users/${s.id}/`
   if (s.type === 'name') { const segs = nameSegs(s.path); return segs[0] === 'users' && segs[1] === me ? text.mine : segs.length ? segs.join('/') : text.root }
   if (s.type === 'integration') return getRow(db, s.id)?.name ?? '?'
+  if (s.type === 'drive_share') return shareRow(db, s.id)?.name ?? 'Google Drive'
   const row = db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
   return row ? (row.path === '' ? text.root : row.path + '/') : '?'
 }
