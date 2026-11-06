@@ -8,7 +8,8 @@
 // The attach button opens a small menu: upload from this computer, or add files of the team folder (TeamFilePicker),
 // which are attached as references (POST /api/attachments/team-file) and shown as chips with a folder icon. Team
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
-// "/" at the start lists the team skills (SkillMenu).
+// "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
+// as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
 // Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach and voice inside it on the left, a round send on
 // the right; the row under it keeps only the engine picker, for people who may choose one.
 // Text that looks like a key or password waits for "Send anyway" (SecretWarning): a message goes to the AI provider
@@ -40,6 +41,8 @@ import { useSkillMenu } from './SkillMenu'
 import TeamFilePicker from './TeamFilePicker'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { SkillChip } from './SkillChip'
+import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
+import { fromWire } from '../../lib/roomRefs'
 
 interface Pending {
   id: string
@@ -121,10 +124,17 @@ export default function Composer({
   // chat's recording never goes to an outside speech service
   const voiceChatId = isUuid7(draftId) ? draftId : null
   const confidential = useConfidentialChat(voiceChatId)
-  const [text, setText] = useState(() => initialText ?? readDraft(userId, draftId))
+  // the draft is kept as it is sent: "#" tokens with their rooms' ids, shown in the box as "#<title>" (lib/roomRefs.ts)
+  const [initial] = useState(() => fromWire(initialText ?? readDraft(userId, draftId)))
+  const [text, setText] = useState(initial.text)
   // the chosen skill's chip (taken out with its X: the question then goes without the skill)
   const [chosen, setChosen] = useState(skill ?? null)
   const skillMenu = useSkillMenu(text, setText)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  const roomMenu = useRoomRefMenu({ text, setText, input: taRef, initial: initial.picked })
+  const wired = roomMenu.wire(text)
+  const tokens = roomMenu.ranges.length > 0
+  const [scrollTop, setScrollTop] = useState(0)
   // the chips live outside the component too (lib/teamAttach stash): leaving the page and coming back, or adding
   // files one at a time from the file screen, keeps what was attached for this draft until it is sent or removed
   const [files, setFilesState] = useState<Pending[]>(() => restoreChips(userId, draftId))
@@ -162,7 +172,6 @@ export default function Composer({
   const attachMenuRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const camRef = useRef<HTMLInputElement>(null)
-  const taRef = useRef<HTMLTextAreaElement>(null)
   const recorder = useRecorder()
   const answeringId = useId()
 
@@ -179,7 +188,7 @@ export default function Composer({
     },
   }), [running, sending, transcribing, recorder.state])
 
-  useEffect(() => writeDraft(userId, draftId, text), [userId, text, draftId])
+  useEffect(() => writeDraft(userId, draftId, wired), [userId, wired, draftId])
   // a non-empty draft or an upload means "don't reload the page by yourself" after an update
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   useEffect(() => (files.some((f) => f.status === 'uploading') ? markBusy('upload') : undefined), [files])
@@ -343,8 +352,9 @@ export default function Composer({
     if (answering) {
       // a failure (the question was answered in another window or closed meanwhile) keeps the text and says why
       try {
-        await answering.onAnswer(text)
+        await answering.onAnswer(wired)
         setText('')
+        roomMenu.reset()
         writeDraft(userId, draftId, '')
       } catch (e) {
         setError(errorText(e, locale, t('error.network')))
@@ -354,11 +364,13 @@ export default function Composer({
       return
     }
     // the chip is the command: "/<name> question" (the space after the name keeps it a command, as the "/" menu writes it)
-    const body = chosen ? `/${chosen.name} ${text}`.trimEnd() : text
+    // a "#" room goes as its token (its id), so the AI reads exactly that room
+    const body = chosen ? `/${chosen.name} ${wired}`.trimEnd() : wired
     const atts = ready.map((f) => f.attachment!)
     try {
       await onSend(body, atts)
       setText('')
+      roomMenu.reset()
       setChosen(null)
       writeDraft(userId, draftId, '')
       setFiles((p) => p.filter((f) => f.status !== 'done'))
@@ -678,6 +690,7 @@ export default function Composer({
         ) : (
           <>
             {skillMenu.menu}
+            {roomMenu.list}
             {answering && (
               <div className="space-y-0.5 px-5 pt-3 text-xs">
                 <p id={answeringId} className="flex items-center gap-1.5 text-muted" data-testid="composer-answering">
@@ -697,34 +710,45 @@ export default function Composer({
             )}
             <div className={clsx('flex items-end gap-1 pr-2', phone && 'pl-1.5')}>
               {phone && <div className="flex shrink-0 items-center pb-1.5">{attachControls}</div>}
-              <textarea
-                ref={taRef}
-                rows={1}
-                value={text}
-                aria-label={t('composer.label')}
-                aria-describedby={answering ? `${answeringId} ${answeringId}-secrets` : undefined}
-                onChange={(e) => setText(e.target.value)}
-                onPaste={(e) => {
-                  const pasted = Array.from(e.clipboardData.files)
-                  if (pasted.length) {
-                    e.preventDefault()
-                    void addFiles(pasted)
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (skillMenu.onKeyDown(e)) return
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                    // phones: Enter makes a new line (send with the button)
-                    if (window.matchMedia?.('(pointer: coarse)').matches) return
-                    e.preventDefault()
-                    void submit()
-                  }
-                }}
-                placeholder={hint}
-                disabled={transcribing}
-                className={clsx('block max-h-[240px] min-w-0 flex-1 resize-none bg-transparent pb-3 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3')}
-                data-testid="composer-input"
-              />
+              {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
+                  text box keeps Korean input, selection and spell check */}
+              <div className="relative min-w-0 flex-1">
+                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('pb-3 text-reading leading-reading', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3')} />}
+                <textarea
+                  ref={taRef}
+                  rows={1}
+                  value={text}
+                  aria-label={t('composer.label')}
+                  aria-describedby={answering ? `${answeringId} ${answeringId}-secrets` : undefined}
+                  {...roomMenu.inputProps}
+                  onChange={(e) => {
+                    setText(e.target.value)
+                    roomMenu.track()
+                  }}
+                  onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+                  onPaste={(e) => {
+                    const pasted = Array.from(e.clipboardData.files)
+                    if (pasted.length) {
+                      e.preventDefault()
+                      void addFiles(pasted)
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (skillMenu.onKeyDown(e)) return
+                    if (roomMenu.onKeyDown(e)) return
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                      // phones: Enter makes a new line (send with the button)
+                      if (window.matchMedia?.('(pointer: coarse)').matches) return
+                      e.preventDefault()
+                      void submit()
+                    }
+                  }}
+                  placeholder={hint}
+                  disabled={transcribing}
+                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-3 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  data-testid="composer-input"
+                />
+              </div>
               <div className={clsx('flex shrink-0 items-center gap-1', phone && !running && !answering ? 'pb-1' : 'pb-2')}>
                 {answering
                   ? canSend && (
