@@ -186,7 +186,9 @@ export async function openAppSettings(): Promise<void> {
   if (turn !== epoch) throw cancelled()
   const config = mobileApp()
   if (!config?.capabilities.includes(PUSH_PERMISSION_CAPABILITY)) throw new Error('mobile_unavailable')
-  await request({ ...envelope(config), type: 'open-settings' }, config, 10_000)
+  // Not awaited: the app answers when it is back, which may be long after the person left for the phone's Settings,
+  // and that is no failure. Coming back checks the permission again (lib/mobile-push.ts).
+  void request({ ...envelope(config), type: 'open-settings' }, config, 600_000).catch(() => {})
 }
 /** The page's look for the app's status bar (appearance-v1): when the bridge comes, when the theme changes, and again
  * after every session reset (a send that the reset fenced off is not lost). Not tied to a session: the latest look

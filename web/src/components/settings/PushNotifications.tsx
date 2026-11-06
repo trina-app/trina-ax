@@ -75,7 +75,7 @@ export function PushNotifications() {
     {/* the phone app: one status line and one action */}
     {settings && app && (settings.native?.available ? <>
       <p className="text-sm" data-testid="phone-push-status">{t(view.status)}</p>
-      {view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => setFailed(true))} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
+      {view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
         : view.action === 'disable' ? <Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>
           : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>}
     </> : <p className="text-sm text-muted">{t('push.notConfigured')}</p>)}

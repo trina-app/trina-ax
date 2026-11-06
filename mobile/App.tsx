@@ -5,7 +5,7 @@ import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
 import { getLocales } from 'expo-localization'
 import { createContext, useContext, useEffect, useRef, useState, type ComponentType, type RefAttributes, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, Appearance, AppState, BackHandler, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, Alert, Appearance, AppState, BackHandler, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { FileTransfers, MobileReceiver, StuckLoad, stillStuck } from './src/bridge'
@@ -17,6 +17,8 @@ import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Inse
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
 import { offlineError, stringsFor } from './src/strings'
 import { checkTeam, parseTeamAddress, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
+import { ReinstallSignOut, reinstallDone, wasReinstalled } from './src/install'
+import { reinstallDeps } from './src/files'
 import type { TeamAddress } from './src/address'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
@@ -36,6 +38,35 @@ type PageLook = { dark: boolean; system: boolean }
 function windowLook(page: PageLook | null) {
   if (Platform.OS === 'ios') Appearance.setColorScheme(!page || page.system ? 'unspecified' : page.dark ? 'dark' : 'light')
 }
+/** The phone's look, read from the OS each time it may have changed: on mount, when the app comes back and when the OS
+ * says so. React Native's useColorScheme keeps a cached value that only the OS's change event updates, and Android
+ * sends none to an activity created again after BACK, so the bands around an older team's page kept the old look. */
+interface AppearanceModule extends TurboModule { getColorScheme(): string | null }
+const NativeAppearance = TurboModuleRegistry.get<AppearanceModule>('Appearance')
+const osScheme = (): string | null => { try { return NativeAppearance?.getColorScheme() ?? Appearance.getColorScheme() ?? null } catch { return Appearance.getColorScheme() ?? null } }
+function usePhoneScheme(): string | null {
+  const [scheme, setScheme] = useState(osScheme)
+  useEffect(() => {
+    const read = () => setScheme(osScheme())
+    read()
+    const change = Appearance.addChangeListener(read)
+    const active = AppState.addEventListener('change', state => { if (state === 'active') read() })
+    return () => { change.remove(); active.remove() }
+  }, [])
+  return scheme
+}
+/** Android draws edge to edge (target SDK 36), so the window no longer shrinks for the keyboard: a screen lifts itself
+ * by the keyboard's height (React Native reports it without the navigation bar under it). 0 on iOS. */
+function useAndroidKeyboard(): number {
+  const [keyboard, setKeyboard] = useState(0)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return
+    const show = Keyboard.addListener('keyboardDidShow', e => setKeyboard(e.endCoordinates.height))
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboard(0))
+    return () => { show.remove(); hide.remove() }
+  }, [])
+  return keyboard
+}
 const bootstrap = (config: MobileConfig, ready = false) => `if(window.top===window.self){Object.defineProperty(window,'mycelMobile',{value:Object.freeze(${JSON.stringify(config)}),configurable:true});${ready ? "window.dispatchEvent(new Event('mycel:mobile-ready'));" : ''}}true;`
 
 export default function App() {
@@ -43,9 +74,12 @@ export default function App() {
   // A tapped notification's path on the current team, with a counter so the same path can be opened twice.
   const [opened, setOpened] = useState<{ path: string; n: number } | null>(null)
   const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null), padsAtLaunch = useRef<string | null>(null)
+  // deleted and installed again: the team address (keychain) is still there, the session the WebView kept is ended once
+  // (one object for the whole launch, so switching teams and back never signs out again)
+  const signOut = useRef<ReinstallSignOut | null>(null)
   // the page's look (appearance-v1): status bar text and the native screens follow it; null until a page said
   const [page, setPage] = useState<PageLook | null>(null)
-  const dark = isDark(page?.dark ?? null, useColorScheme())
+  const dark = isDark(page?.dark ?? null, usePhoneScheme())
   useEffect(() => windowLook(page), [page])
   useEffect(() => {
     try { clearDownloadCache() } catch { /* a later operation reports an inaccessible cache */ }
@@ -54,6 +88,8 @@ export default function App() {
     void retryRemovals(devices).catch(() => {})
     void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam()]).then(async ([origin, chosen, pads]) => {
       since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads
+      const deps = reinstallDeps()
+      if (await wasReinstalled(deps, { ios: Platform.OS === 'ios', hasTeam: !!origin }).catch(() => false) && origin) signOut.current = new ReinstallSignOut(origin, () => reinstallDone(deps), () => Crypto.randomUUID())
       device.current = origin ? (await currentDevice(devices, origin).catch(() => null))?.deviceId ?? null : null
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
@@ -65,7 +101,7 @@ export default function App() {
   return <SafeAreaProvider><Look.Provider value={dark ? DARK : LIGHT}>{Platform.OS === 'android' && <><StatusBar style={dark ? 'light' : 'dark'} /><NavigationBar style={dark ? 'light' : 'dark'} /></>}
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup onDone={async address => { await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true; setOpened(null); setTeam(address) }} />
-      : <TeamWeb key={team.origin} address={team} pads={padsAtLaunch.current === team.origin} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+      : <TeamWeb key={team.origin} address={team} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
         onChangeTeam={async () => {
           hasTeam.current = false; device.current = null; forgetDelivered()
           // remove this phone from the team it leaves (now, or at a later start if that server cannot be reached)
@@ -93,8 +129,9 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
     } catch { setError(t.saveFailed) }
     finally { setBusy(false) }
   }
-  const i = useSafeAreaInsets(), c = useContext(Look)
-  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={[s.fill, s.setup]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+  // iOS: KeyboardAvoidingView; Android: the form is lifted by the keyboard (it covered the Connect button)
+  const i = useSafeAreaInsets(), c = useContext(Look), keyboard = useAndroidKeyboard()
+  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: keyboard ? keyboard + i.bottom : i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={[s.fill, s.setup]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <Text style={[s.title, { color: c.ink }]}>{product.name}</Text><Text style={[s.hint, { color: c.muted }]}>{t.setupHint}</Text>
     <TextInput style={[s.input, { borderColor: c.field, backgroundColor: c.surface, color: c.ink }]} value={value} onChangeText={setValue} placeholder={t.setupPlaceholder} placeholderTextColor={c.field}
       autoCapitalize="none" autoCorrect={false} keyboardAppearance={c === DARK ? 'dark' : 'light'}
@@ -106,7 +143,7 @@ function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) 
   </KeyboardAvoidingView></View>
 }
 type Failure = 'offline' | 'unreachable'
-function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; pads: boolean; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => Promise<void> }) {
+function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; pads: boolean; signOut: ReinstallSignOut | null; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => Promise<void> }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
@@ -157,16 +194,9 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
   // (Android's navigation mode). While the app pads the page it sends zero, so the page never pads twice.
   const insetJs = insetScript(pageInsets(selfPadded, insets))
   useEffect(() => { web.current?.injectJavaScript(insetJs) }, [insetJs])
-  // Android draws edge to edge (target SDK 36), so the window no longer shrinks for the keyboard and the page's message
-  // box stayed under it. The app lifts the page by the keyboard (React Native reports its height without the navigation
-  // bar under it); the page then sees a short viewport and drops its own bottom inset (web/src/lib/viewport.ts).
-  const [keyboard, setKeyboard] = useState(0)
-  useEffect(() => {
-    if (Platform.OS !== 'android') return
-    const show = Keyboard.addListener('keyboardDidShow', e => setKeyboard(e.endCoordinates.height))
-    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboard(0))
-    return () => { show.remove(); hide.remove() }
-  }, [])
+  // Android: the page is lifted by the keyboard (its message box stayed under it); the page then sees a short viewport
+  // and drops its own bottom inset (web/src/lib/viewport.ts)
+  const keyboard = useAndroidKeyboard()
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active') web.current?.injectJavaScript("window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('mycel:mobile-foreground'));true;")
@@ -174,13 +204,15 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
     return () => sub.remove()
   }, [])
   const clear = () => { navigation.current++; cleanup.current = r.disable(); return cleanup.current }
-  async function loaded(url: string) {
+  /** Installs the bridge on the page that has loaded; false when it did not (a newer load, a failure, not the team). */
+  async function loaded(url: string): Promise<boolean> {
     const generation = navigation.current
     await cleanup.current
     const random = await Crypto.getRandomBytesAsync(32)
-    if (generation !== navigation.current || loadFailed.current || !sameTeam(address.origin, url)) return
+    if (generation !== navigation.current || loadFailed.current || !sameTeam(address.origin, url)) return false
     r.activate({ ...r.config, nonce: Array.from(random, b => b.toString(16).padStart(2, '0')).join(''), generation: r.config.generation + 1 })
     web.current?.injectJavaScript(bootstrap(r.config, true))
+    return true
   }
   async function changeTeam() { await clear(); await onChangeTeam() }
   function external(url: string) {
@@ -193,8 +225,11 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
   const fail = (kind: Failure) => { ready.current = false; stuck.current.cancel(); void clear(); setFailed(kind) }
   /** The page has arrived: install the bridge; a page that does not confirm it pads itself gets the app's padding. */
   function settle(url: string) {
-    void loaded(url).then(() => {
-      ready.current = !loadFailed.current
+    void loaded(url).then(installed => {
+      ready.current = installed && !loadFailed.current
+      // after a reinstall: only on this team's own page, the one on screen, whose bridge was just installed
+      const end = ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current) : null
+      if (end) web.current?.injectJavaScript(end)
       const page = navigation.current
       setTimeout(() => {
         if (page !== navigation.current || !ready.current || padRef.current.confirmed || !padRef.current.selfPadded) return
@@ -249,6 +284,8 @@ function TeamWeb({ address, pads, opened, onDevice, onAppearance, onChangeTeam }
       onLoadEnd={event => { stuck.current.cancel(); settle(event.nativeEvent.url) }}
       onNavigationStateChange={state => { currentUrl.current = state.url; setCanBack(state.canGoBack); if (sameTeam(address.origin, state.url)) setPathname(new URL(state.url).pathname) }}
       onMessage={event => {
+        // the reinstall sign-out's answer (its one-time token), not a bridge message
+        if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {
           if (!reply) return
           const script = (reply.nextGeneration ? bootstrap(r.config) : '') + `window.dispatchEvent(new CustomEvent('mycel:mobile',{detail:${JSON.stringify(reply)}}));true;`

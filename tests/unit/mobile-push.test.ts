@@ -352,3 +352,146 @@ test('Android stuck load: the bridge comes back only on the page that was loadin
   expect(stillStuck({ saved: page, current: page, origin, ready: false, failed: false })).toBe(true)
   expect(stillStuck({ saved: 'https://evil.example/', current: 'https://evil.example/', origin, ready: false, failed: false })).toBe(false)
 })
+
+test('Android: turned off in the phone\'s Settings reads as denied; before the first question as undetermined', async () => {
+  const { permissionFrom } = await import('../../mobile/src/permission')
+  // Android 13+ reports "denied, may ask" before the first question and after the person turned it off
+  expect(permissionFrom({ status: 'denied', canAskAgain: true, android: true, askedBefore: false })).toBe('undetermined')
+  expect(permissionFrom({ status: 'denied', canAskAgain: true, android: true, askedBefore: true })).toBe('denied')
+  expect(permissionFrom({ status: 'denied', canAskAgain: false, android: true, askedBefore: false })).toBe('denied')
+  expect(permissionFrom({ status: 'granted', canAskAgain: true, android: true, askedBefore: true })).toBe('granted')
+  // iOS says it plainly
+  expect(permissionFrom({ status: 'undetermined', canAskAgain: true, android: false, askedBefore: true })).toBe('undetermined')
+  expect(permissionFrom({ status: 'denied', canAskAgain: false, android: false, askedBefore: true })).toBe('denied')
+})
+
+test('a reinstall (keychain id kept, files gone) asks for the sign-out until it got an answer; an update or a first install does not', async () => {
+  const { wasReinstalled, reinstallDone, MAX_SIGN_OUT_LAUNCHES } = await import('../../mobile/src/install')
+  const make = (id: string | null, file: boolean, writable = true) => {
+    let key = id, exists = file, tries: string | null = null
+    const deps = {
+      keychain: { get: async () => key, set: async (v: string | null) => { key = v } },
+      tries: { get: async () => tries, set: async (v: string | null) => { tries = v } },
+      marker: { exists: () => exists, create: () => { if (!writable) throw new Error('read-only'); exists = true }, remove: () => { exists = false } },
+      newId: () => 'install-1',
+    }
+    return { deps, state: () => ({ key, exists, tries }) }
+  }
+  const ios = { ios: true, hasTeam: true }
+  const reinstall = make('install-0', false)
+  expect(await wasReinstalled(reinstall.deps, ios)).toBe(true)
+  expect(reinstall.state().exists).toBe(false) // no marker until the sign-out got its answer
+  expect(await wasReinstalled(reinstall.deps, ios)).toBe(true) // the server did not answer: the next launch tries again
+  await reinstallDone(reinstall.deps)
+  expect(reinstall.state()).toEqual({ key: 'install-0', exists: true, tries: null })
+  expect(await wasReinstalled(reinstall.deps, ios)).toBe(false)
+  // a server that never answers: given up after a few launches
+  const unreachable = make('install-0', false)
+  for (let i = 0; i < MAX_SIGN_OUT_LAUNCHES; i++) expect(await wasReinstalled(unreachable.deps, ios)).toBe(true)
+  expect(await wasReinstalled(unreachable.deps, ios)).toBe(false)
+  expect(unreachable.state().exists).toBe(true)
+  const update = make(null, false) // from a build that wrote neither, or a first install
+  expect(await wasReinstalled(update.deps, ios)).toBe(false)
+  expect(update.state()).toMatchObject({ key: 'install-1', exists: true })
+  expect(await wasReinstalled(make('install-0', true).deps, ios)).toBe(false) // an ordinary launch
+  expect(await wasReinstalled(make('install-0', false, false).deps, ios)).toBe(false) // cannot write the marker: never act
+})
+
+test('a normal update whose marker cannot be written saves no id, so the next launch signs nobody out', async () => {
+  const { wasReinstalled } = await import('../../mobile/src/install')
+  let key: string | null = null, exists = false, writable = false
+  const deps = {
+    keychain: { get: async () => key, set: async (v: string | null) => { key = v } },
+    tries: { get: async () => null, set: async () => {} },
+    marker: { exists: () => exists, create: () => { if (!writable) throw new Error('disk full'); exists = true }, remove: () => { exists = false } },
+    newId: () => 'install-1',
+  }
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: true })).toBe(false)
+  expect(key).toBeNull() // no id without the marker
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: true })).toBe(false) // the next launch: still no reinstall
+  writable = true
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: true })).toBe(false)
+  expect(key as string | null).toBe('install-1'); expect(exists).toBe(true)
+})
+
+test('a reinstall with no team saved writes the marker at once: a sign-in made later is never signed out', async () => {
+  const { wasReinstalled } = await import('../../mobile/src/install')
+  let exists = false, tries: string | null = '2'
+  const deps = {
+    keychain: { get: async () => 'install-0', set: async () => {} },
+    tries: { get: async () => tries, set: async (v: string | null) => { tries = v } },
+    marker: { exists: () => exists, create: () => { exists = true }, remove: () => { exists = false } },
+    newId: () => 'install-1',
+  }
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: false })).toBe(false)
+  expect(exists).toBe(true); expect(tries as string | null).toBeNull()
+  expect(await wasReinstalled(deps, { ios: true, hasTeam: true })).toBe(false) // the next launch, signed in: nothing
+})
+
+test('Android never takes the reinstall path, whatever the storage says', async () => {
+  const { wasReinstalled } = await import('../../mobile/src/install')
+  let touched = false
+  const deps = {
+    keychain: { get: async () => { touched = true; return 'install-0' }, set: async () => { touched = true } },
+    tries: { get: async () => null, set: async () => { touched = true } },
+    marker: { exists: () => { touched = true; return false }, create: () => { touched = true }, remove: () => { touched = true } },
+    newId: () => 'install-1',
+  }
+  expect(await wasReinstalled(deps, { ios: false, hasTeam: true })).toBe(false)
+  expect(touched).toBe(false)
+})
+
+test('the reinstall sign-out: once per launch, only on the team page saved at launch, done only on the server answer', async () => {
+  const { ReinstallSignOut, MAX_SIGN_OUT_PAGES } = await import('../../mobile/src/install')
+  let finished = 0, n = 0
+  const a = 'https://a.example', b = 'https://b.example'
+  const s = new ReinstallSignOut(a, async () => { finished++ }, () => `token-${++n}`)
+  // not another team, not another origin's URL on screen
+  expect(s.script(b, `${b}/rooms`)).toBeNull()
+  expect(s.script(a, 'https://evil.example/')).toBeNull()
+  const first = s.script(a, `${a}/rooms`)!
+  expect(first).toContain(JSON.stringify(`${a}/api/auth/logout`)) // the team's own origin, never a relative URL
+  expect(first).toContain('"token-1"')
+  // a forged or stale answer is not taken; a server error leaves it for the next page load
+  expect(s.answer(JSON.stringify({ signOut: 'token-0', status: 204 }))).toBe(false)
+  expect(s.answer(JSON.stringify({ signOut: 'token-1', status: 503 }))).toBe(true)
+  expect(finished).toBe(0)
+  const second = s.script(a, `${a}/`)!
+  expect(s.answer(JSON.stringify({ signOut: 'token-2', status: 204 }))).toBe(true)
+  expect(finished).toBe(1); expect(s.finished).toBe(true)
+  expect(second).toContain('"token-2"')
+  // the person signs in, switches to B and back to A: never signed out again in this launch
+  expect(s.script(a, `${a}/rooms`)).toBeNull()
+  // 401 (there was no session) also counts; at most a few page loads per launch
+  let m = 0
+  const quiet = new ReinstallSignOut(a, async () => { m++ }, () => 't')
+  expect(quiet.script(a, `${a}/`)).not.toBeNull()
+  expect(quiet.answer(JSON.stringify({ signOut: 't', status: 401 }))).toBe(true)
+  expect(m).toBe(1)
+  const capped = new ReinstallSignOut(a, async () => {}, () => 'x')
+  for (let i = 0; i < MAX_SIGN_OUT_PAGES; i++) expect(capped.script(a, `${a}/`)).not.toBeNull()
+  expect(capped.script(a, `${a}/`)).toBeNull()
+})
+test('Android team-address screen: the form is lifted by the keyboard (it covered the Connect button)', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  // the setup screen pads itself by the keyboard on Android (KeyboardAvoidingView only works on iOS here)
+  expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)\s+return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
+})
+
+test('Android: the look around an older team page is read from the OS each time, not a stale cache', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  // the cached useColorScheme is gone; the scheme is read again on mount, on foreground and on change
+  expect(app).not.toContain('useColorScheme(')
+  expect(app).toContain("NativeAppearance?.getColorScheme()")
+  expect(app).toMatch(/AppState\.addEventListener\('change', state => \{ if \(state === 'active'\) read\(\) \}\)/)
+})
+
+test('the reinstall sign-out is injected only after the bridge went on this team page, and its answer is not a bridge message', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  expect(app).toContain('async function loaded(url: string): Promise<boolean>')
+  expect(app).toContain('ready.current = installed && !loadFailed.current')
+  expect(app).toContain('ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current) : null')
+  expect(app).toContain('if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return')
+  // one object for the launch (not a flag per team page)
+  expect(app).toContain('signOut={signOut.current}')
+})

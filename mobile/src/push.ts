@@ -10,8 +10,11 @@ import { onceEvery, PushRefused } from './bridge'
 import { parseTeamAddress } from './address'
 import type { DeviceDeps, Slot } from './device'
 import { tappedNotificationPath, type PushEnvironment, type PushPermission, type PushToken } from './protocol'
+import { permissionFrom } from './permission'
 
 export const CHANNEL_ID = 'default'
+// set once this app has asked the OS (src/permission.ts: Android tells "not asked yet" from "turned off" by it)
+const ASKED = 'team-ax.push-asked'
 let asking: Promise<PushToken> | null = null
 
 /** Built with push: iOS always (aps-environment entitlement); Android only when the build has an FCM config file. */
@@ -28,12 +31,14 @@ async function environment(): Promise<PushEnvironment> {
   return env === 'development' ? 'sandbox' : env === 'production' ? 'production' : __DEV__ ? 'sandbox' : 'production'
 }
 
-/** What the OS says about notifications for this app, without asking (push-permission-v1). Not 'granted' only:
- * Android 13+ reports 'denied' with canAskAgain before the first question, and iOS 'undetermined' covers provisional. */
+/** What the OS says about notifications for this app, without asking (push-permission-v1); iOS 'undetermined' covers
+ * provisional. Android after the person turned notifications off in Settings reads as denied (src/permission.ts). */
 export async function notificationPermission(): Promise<PushPermission> {
   if (!pushBuilt()) throw new PushRefused('push_unavailable')
   const status = await Notifications.getPermissionsAsync()
-  return status.status === 'granted' ? 'granted' : status.canAskAgain ? 'undetermined' : 'denied'
+  const askedBefore = Platform.OS === 'android' && status.status !== 'granted' && status.canAskAgain
+    && (await SecureStore.getItemAsync(ASKED).catch(() => null) === '1' || !!(await devices.current.get().catch(() => null)))
+  return permissionFrom({ status: status.status, canAskAgain: status.canAskAgain, android: Platform.OS === 'android', askedBefore })
 }
 
 const settingsOnce = onceEvery(3000)
@@ -56,6 +61,7 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
     // Android 13+ shows the permission dialog only once a channel exists.
     if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync(CHANNEL_ID, { name: channelName, importance: Notifications.AndroidImportance.HIGH })
     let status = await Notifications.getPermissionsAsync()
+    await SecureStore.setItemAsync(ASKED, '1').catch(() => {})
     // Not 'undetermined' only: Android 13+ reports 'denied' (canAskAgain) before the first question, because
     // notifications are off until the person allows them. iOS says canAskAgain=false once the person has answered.
     if (status.status !== 'granted' && status.canAskAgain) status = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: false, allowSound: true } })
