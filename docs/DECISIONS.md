@@ -9890,3 +9890,31 @@ Placement: Team AX core (Home, the message box, the goal card). From 768px Home 
   after its last change (at most 5 minutes after the first), one folder at a time below people's work, plus a check of
   every folder after the start and each night. The 2026-11-01 semantic-index lesson (1.9 GB, most cores) is why CodeGraph
   runs with two parse workers (~0.7 GB on 673 files) and pauses as long as each run between folders.
+
+## Google Drive on hosted teams: sign-in through the hosting service (feat/drive-broker, 2026-11-06)
+
+넣을 곳: Trina AX core (`server/src/integrations/google-drive/broker.ts`, contract `shared/src/cloud-protocol/drive-broker.ts`)
++ trina-cloud `src/drive-broker/`, 이유: a hosted team's address is made automatically and Google accepts only exact
+return addresses, so one Google client with one return address on the hosting service's console must serve them all.
+Details: `docs/GOOGLE-DRIVE.md` "Hosted teams"; control plane side: trina-cloud `docs/drive-broker.md`.
+
+- **Off unless the operator sets `MYCEL_GOOGLE_DRIVE_BROKER_URL`**, and only on a hosted server without a Google client
+  of its own. Every push to `dev` installs itself on a test server, and the control plane side is not deployed yet:
+  without the variable nothing calls out and nothing changes. A server with its own `client.json` keeps the direct
+  flow, unchanged (its tests are unchanged).
+- **Drive turns on only after the control plane answers** a signed `/status` (at start, then every 10 minutes, every
+  minute while it says no), so a hosted team never shows a Connect that fails.
+- **Identity = the relay team key** (Ed25519, timestamp, nonce, body hash), which the control plane recorded at enroll.
+  Chosen over a new broker token (a new secret to deliver and rotate). The nonce is there because Ed25519 is
+  deterministic: two equal calls in one millisecond would otherwise be one signature, and the second a "replay".
+- **The browser comes back to this server's own callback** with `state` and a one-time `handoff`, never a Google code
+  or token; the callback keeps the direct flow's check that the same signed-in person is in the browser. The handoff
+  is redeemed with this flow's PKCE verifier.
+- **The refresh token stays here, sealed by the control plane** (associated data = the team's id there) and sealed
+  again in the Drive store. Chosen over keeping refresh tokens in the control plane (one store of every team's Drive
+  access) and over giving the raw token (each team server would need the client secret).
+- **`begin()` next to `authorize()`**: the hosting service's sign-in is asynchronous; `authorize()` stays synchronous for
+  the direct flow and its callers. The routes call `begin()`.
+- **`source: "service"`** in `GET /api/admin/google-drive` (new enum value, additive) with one line in five languages,
+  brand-neutral ("the hosting service").
+- Version impact: **minor** (a new, opt-in way to sign in; nothing changes without the variable).

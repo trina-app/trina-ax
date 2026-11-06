@@ -1008,6 +1008,7 @@ export const id: Record<MessageKey, string> = {
   "appConnectors.setUpAction": "Atur",
   "appConnectors.replace": "Ganti",
   "appConnectors.byServer": "Diatur di pengaturan server.",
+  "appConnectors.byService": "Masuk Google disediakan oleh layanan hosting. Tidak ada yang perlu diatur atau diunggah.",
   "drive.waitingShort": "Menunggu Google…",
   "drive.privacyShort": "AI lalu bisa mencari dan membaca file yang bisa dibuka akun ini.",
   "driveSetup.title": "Atur Google Drive",

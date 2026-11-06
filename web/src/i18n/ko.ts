@@ -1007,6 +1007,7 @@ export const ko = {
   "appConnectors.setUpAction": "설정",
   "appConnectors.replace": "바꾸기",
   "appConnectors.byServer": "서버 설정에서 정한 값이에요.",
+  "appConnectors.byService": "Google 로그인은 호스팅 서비스가 제공해요. 따로 설정하거나 올릴 파일이 없어요.",
   "drive.waitingShort": "Google을 기다리는 중…",
   "drive.privacyShort": "연결하면 AI가 이 계정으로 열 수 있는 파일을 찾고 읽을 수 있어요.",
   "driveSetup.title": "Google Drive 설정",

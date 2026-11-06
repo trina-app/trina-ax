@@ -984,6 +984,7 @@ export const ja: Record<MessageKey, string> = {
   "appConnectors.setUpAction": "設定",
   "appConnectors.replace": "置き換え",
   "appConnectors.byServer": "サーバーの設定で指定されています。",
+  "appConnectors.byService": "Google ログインはホスティングサービスが提供します。設定やアップロードは必要ありません。",
   "drive.waitingShort": "Google を待っています…",
   "drive.privacyShort": "AI はこのアカウントで開けるファイルを検索して読めるようになります。",
   "driveSetup.title": "Google Drive を設定",

@@ -21,7 +21,7 @@ export const DRIVE_TOOL_NAMES = ['drive_search', 'drive_list', 'drive_read'] as 
  * checked again before and after each call. */
 export function registerDriveTools(ctx: AppContext, reg: ToolRegistry): boolean {
   if (reg.has('drive_search')) return true
-  const available = () => !!googleDriveOf(ctx).config
+  const available = () => googleDriveOf(ctx).enabled
   function turn(t: ToolCtx) {
     if (t.signal?.aborted) throw new DriveError('cancelled', 409)
     const r = ctx.db.query(`SELECT t.chat_id FROM turns t JOIN chats c ON c.id=t.chat_id JOIN users u ON u.id=t.user_id

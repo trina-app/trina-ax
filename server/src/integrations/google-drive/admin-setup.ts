@@ -14,6 +14,9 @@
 // The redirect URI is always https://<tunnel.host>/api/integrations/google-drive/callback; a downloaded file must list it.
 //
 // The client secret never leaves the server: not in a response, the audit log (only "drive.client_set"), or a log line.
+//
+// A hosted server has no client of its own: it signs in through the hosting service (broker.ts), shown as source
+// 'service' once the hosting service answers that it serves this team.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -34,9 +37,10 @@ export const driveRedirectUri = (ctx: AppContext) => (ctx.config.tunnel?.host ? 
 
 export function driveAdminStatus(ctx: AppContext): DriveAdminStatus {
   const svc = googleDriveOf(ctx)
-  const configured = !!svc.config
-  const byApp = configured && getSetting<string>(ctx.db, DRIVE_CLIENT_BY_APP) === svc.key && !svc.clientFromEnv
-  const source = !configured ? 'none' : byApp ? 'app' : 'server'
+  const configured = svc.enabled
+  const byApp = !!svc.config && getSetting<string>(ctx.db, DRIVE_CLIENT_BY_APP) === svc.key && !svc.clientFromEnv
+  // 'service': a hosted server signs in through the hosting service (broker.ts): nothing to set up or upload here
+  const source = !configured ? 'none' : svc.mode === 'broker' ? 'service' : byApp ? 'app' : 'server'
   const redirectUri = driveRedirectUri(ctx)
   const blocked = isHosted(ctx.config) ? 'hosted' : svc.clientFromEnv || source === 'server' ? 'server' : !redirectUri ? 'public_host' : null
   const connectedMembers = configured

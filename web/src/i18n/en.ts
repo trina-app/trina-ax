@@ -1008,6 +1008,7 @@ export const en: Record<MessageKey, string> = {
   "appConnectors.setUpAction": "Set up",
   "appConnectors.replace": "Replace",
   "appConnectors.byServer": "Set in the server's own setup.",
+  "appConnectors.byService": "Google sign-in comes from the hosting service. Nothing to set up or upload.",
   "drive.waitingShort": "Waiting for Google…",
   "drive.privacyShort": "The AI can then search and read the files this account can open.",
   "driveSetup.title": "Set up Google Drive",

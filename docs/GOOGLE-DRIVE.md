@@ -60,6 +60,39 @@ On Linux, the installer does this: `sudo ./install-linux.sh repair --public-host
 
 The redirect URI must be HTTPS with exactly that callback path and no credentials, query, or fragment. Register the exact URI with the organization's Google OAuth web client. The requested scope is only `https://www.googleapis.com/auth/drive.readonly`; it is a restricted scope. Deployment needs its own consent-screen, test-user/production, Workspace administrator, and any applicable Google verification decisions. “Internal” is an organization-owned Google project/app setting, not a blanket exception for all company software. See Google's [OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server), [Drive authorization scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth), and [OAuth policies](https://developers.google.com/identity/protocols/oauth2/policies).
 
+## Hosted teams: sign-in through the hosting service
+
+A hosted team gets its address (`<team>.<team domain>`) automatically, and Google accepts only exact return addresses, so
+a Google client per team does not scale. Instead the hosting service's control plane holds ONE Google client with ONE
+return address on its console host and signs in for every hosted team (`server/src/integrations/google-drive/broker.ts`;
+wire contract `shared/src/cloud-protocol/drive-broker.ts`, MIT; control plane: trina-cloud `docs/drive-broker.md`).
+
+**When.** Only when the operator sets `MYCEL_GOOGLE_DRIVE_BROKER_URL` (the control plane's console origin, for example
+`https://account.trina.app`; https, or http to this machine) on a hosted server (`deployment: "hosted"`) that has NO
+Google client of its own (no `client.json`, no `MYCEL_GOOGLE_DRIVE_CLIENT_FILE`). Without the variable nothing changes:
+the server makes no call to the hosting service. A server with its own client keeps the direct flow above, unchanged.
+Even with the variable, Drive turns on only after the control plane answers that it serves this team (a signed
+`/status`, at start, then every 10 minutes, every minute while it says no). Admin › Connectors › Google Drive then shows
+`source: "service"` ("Google sign-in comes from the hosting service. Nothing to set up or upload."), and the members'
+switch and team shares work as described above.
+
+**Flow.** `POST /api/integrations/google-drive/authorize` (and the share authorize) asks the control plane to start
+(`begin()`): the same flow row, state and PKCE verifier as the direct flow, but the control plane makes the Google
+address. Google returns to the control plane, which sends the browser to this server's own callback with `state` and a
+one-time `handoff` (never a Google code or token). The callback checks the same signed-in person in the browser as the
+direct flow, then redeems the handoff with this flow's verifier. Refresh and revoke go to the control plane, never to
+Google's token endpoint.
+
+**Trust boundaries.**
+- Every call to the control plane is signed with this server's relay team key (`<data>/relay/team-key.pem`, Ed25519,
+  with a timestamp and a nonce). The control plane serves only the key it recorded for a hosted team at enroll.
+- The control plane sends the browser only to this team's own address (its records, never a request field).
+- The refresh token this server keeps is sealed by the control plane with this team's id as associated data: useless to
+  Google without the control plane's client secret, and refused for any other team. It is sealed again here like a
+  direct token. A start answer that is not `https://accounts.google.com/...` is refused.
+- Folder limits, audiences, stop sharing and an admin who leaves work exactly as above: only where the tokens come from
+  changes.
+
 ## Authentication and privacy boundaries
 
 `POST /api/integrations/google-drive/authorize` creates a 10-minute flow bound to the authenticated team user and session. State is random and stored hashed; the PKCE S256 verifier is encrypted. Authorization uses offline access and consent. Starting another flow supersedes earlier pending flows. Polling, cancellation, and explicit account confirmation require the original live session. Connecting displays the Google account before confirmation and never returns tokens through the API.

@@ -984,6 +984,7 @@ export const es: Record<MessageKey, string> = {
   "appConnectors.setUpAction": "Configurar",
   "appConnectors.replace": "Reemplazar",
   "appConnectors.byServer": "Definido en la configuración del servidor.",
+  "appConnectors.byService": "El inicio de sesión de Google lo ofrece el servicio de alojamiento. No hay nada que configurar ni subir.",
   "drive.waitingShort": "Esperando a Google…",
   "drive.privacyShort": "La IA podrá buscar y leer los archivos que esta cuenta puede abrir.",
   "driveSetup.title": "Configurar Google Drive",
