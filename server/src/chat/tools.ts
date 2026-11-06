@@ -109,9 +109,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   if (exec.devEnv) {
     const person = turnPerson(exec)
     add(boxShellTool({
+      queueStep: boxShellQueueStep(exec),
       ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
       redact: (s) => exec.redact(s),
-      queueStep: boxShellQueueStep(exec),
       confirm: async (question, options, details) => (person.choose
         ? person.choose(question, options, { details: [{ label: 'Changes', text: details.join('\n') }] })
         : (await person.confirm(question, options[0]!.label, options[1]!.label, { details: [{ label: 'Changes', text: details.join('\n') }] })) ? options[0]!.value : null),
