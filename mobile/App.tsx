@@ -5,7 +5,7 @@ import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
 import { getLocales } from 'expo-localization'
 import { createContext, useContext, useEffect, useRef, useState, type ComponentType, type RefAttributes, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, Appearance, AppState, BackHandler, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native'
+import { ActivityIndicator, Alert, Appearance, AppState, BackHandler, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { FileTransfers, MobileReceiver, StuckLoad, stillStuck } from './src/bridge'
@@ -36,6 +36,23 @@ type PageLook = { dark: boolean; system: boolean }
 function windowLook(page: PageLook | null) {
   if (Platform.OS === 'ios') Appearance.setColorScheme(!page || page.system ? 'unspecified' : page.dark ? 'dark' : 'light')
 }
+/** The phone's look, read from the OS each time it may have changed: on mount, when the app comes back and when the OS
+ * says so. React Native's useColorScheme keeps a cached value that only the OS's change event updates, and Android
+ * sends none to an activity created again after BACK, so the bands around an older team's page kept the old look. */
+interface AppearanceModule extends TurboModule { getColorScheme(): string | null }
+const NativeAppearance = TurboModuleRegistry.get<AppearanceModule>('Appearance')
+const osScheme = (): string | null => { try { return NativeAppearance?.getColorScheme() ?? Appearance.getColorScheme() ?? null } catch { return Appearance.getColorScheme() ?? null } }
+function usePhoneScheme(): string | null {
+  const [scheme, setScheme] = useState(osScheme)
+  useEffect(() => {
+    const read = () => setScheme(osScheme())
+    read()
+    const change = Appearance.addChangeListener(read)
+    const active = AppState.addEventListener('change', state => { if (state === 'active') read() })
+    return () => { change.remove(); active.remove() }
+  }, [])
+  return scheme
+}
 /** Android draws edge to edge (target SDK 36), so the window no longer shrinks for the keyboard: a screen lifts itself
  * by the keyboard's height (React Native reports it without the navigation bar under it). 0 on iOS. */
 function useAndroidKeyboard(): number {
@@ -57,7 +74,7 @@ export default function App() {
   const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null), padsAtLaunch = useRef<string | null>(null)
   // the page's look (appearance-v1): status bar text and the native screens follow it; null until a page said
   const [page, setPage] = useState<PageLook | null>(null)
-  const dark = isDark(page?.dark ?? null, useColorScheme())
+  const dark = isDark(page?.dark ?? null, usePhoneScheme())
   useEffect(() => windowLook(page), [page])
   useEffect(() => {
     try { clearDownloadCache() } catch { /* a later operation reports an inaccessible cache */ }

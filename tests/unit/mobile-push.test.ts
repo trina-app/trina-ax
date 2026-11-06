@@ -359,3 +359,11 @@ test('Android team-address screen: the form is lifted by the keyboard (it covere
   expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)\s+return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
 })
 
+
+test('Android: the look around an older team page is read from the OS each time, not a stale cache', () => {
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  // the cached useColorScheme is gone; the scheme is read again on mount, on foreground and on change
+  expect(app).not.toContain('useColorScheme(')
+  expect(app).toContain("NativeAppearance?.getColorScheme()")
+  expect(app).toMatch(/AppState\.addEventListener\('change', state => \{ if \(state === 'active'\) read\(\) \}\)/)
+})
