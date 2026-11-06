@@ -33,6 +33,9 @@ function usePickerGroups(): PickGroup[] | null {
   const me = useMe()
   const role = me?.user.role
   const mine = me?.groups
+  // a member's groups are found by their team rooms: read again once the rooms list is there (the picker can open
+  // before it, from /rooms?new=1)
+  const teamRooms = useRooms((s) => s.rooms.filter((r) => r.kind === 'team').map((r) => `${r.groupId}:${r.id}`).sort().join(','))
   const [groups, setGroups] = useState<PickGroup[] | null>(null)
   useEffect(() => {
     let live = true
@@ -51,7 +54,7 @@ function usePickerGroups(): PickGroup[] | null {
     return () => {
       live = false
     }
-  }, [role, mine])
+  }, [role, mine, teamRooms])
   return groups
 }
 
@@ -157,7 +160,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
           {groupRows.length > 0 && (
             <>
               <p className={label}>{t('rooms.picker.groups')}</p>
-              <ul data-testid="picker-groups">
+              <ul className="divide-y divide-line" data-testid="picker-groups">
                 {groupRows.map((g) => (
                   <li key={g.id}>
                     <label className={row} data-testid="picker-group">
@@ -177,7 +180,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
             </>
           )}
           {shown.length > 0 && (
-            <ul data-testid="people-list">
+            <ul className="divide-y divide-line" data-testid="people-list">
               {shown.map((p) => (
                 <li key={p.id}>
                   <label className={row} data-testid="people-row">

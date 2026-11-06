@@ -67,7 +67,7 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
               const p = byId[user.id]
               const name = p?.name ?? user.name
               return (
-                <li key={user.id} className={row} data-testid="room-member">
+                <li key={user.id} className={clsx(row, 'group')} data-testid="room-member">
                   <Avatar user={{ ...user, name, avatarVersion: p?.avatarVersion }} size={32} />
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-baseline gap-1 text-sm">
@@ -81,6 +81,9 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
                     <MenuButton
                       label={t('rooms.info.memberMenu', { name })}
                       testId="room-member-menu"
+                      // computers: on hover or focus, like a message's "…" (one per row would repeat down the list);
+                      // touch screens: always there
+                      buttonClassName="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
                       items={[{ label: t('rooms.info.remove'), icon: <UserMinus size={14} aria-hidden />, danger: true, onSelect: () => void remove(user.id, name), testId: 'room-member-remove' }]}
                     />
                   )}

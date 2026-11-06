@@ -9943,8 +9943,10 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
 - **UI, lean.** No new cards or boxes. The room header's name (and its member count beside it) opens the room's info,
   the existing members dialog: the name row (a tap edits it in place, for those who may; empty brings the default back,
   said under the field), 초대하기 (group chats; DMs: a new group chat), the members (나 and 방장 marked; "…" › 내보내기 on
-  a row for the manager and owners or admins in it, with a confirm), and 대화방 나가기 last (group chats, with a confirm).
-  The separate "멤버 N명" button is gone (its job is the title's). The picker is one list: a search box, a small 그룹
+  a row for the manager and owners or admins in it, with a confirm; on computers the "…" shows on hover or focus, like
+  a message's), and 대화방 나가기 last (group chats, with a confirm). "멤버 N명" is no longer a button of its own: it
+  sits beside the name inside the title's button. Checked at 1440 and 390×844, light and dark, ko and en; the phone
+  type audit (`web/scripts/type-audit.ts`, which now opens a DM's info too) flags nothing on the room screens. The picker is one list: a search box, a small 그룹
   section above 사람, rows with a round tick at the end, and in the footer how many are ticked and one primary action
   (대화하기 / 그룹 대화 만들기 / 초대하기), with the name field above it only for two or more. "새 1:1 대화" is "새 대화". A
   group chat's mark is two speech bubbles.

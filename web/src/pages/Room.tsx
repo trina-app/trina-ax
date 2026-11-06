@@ -169,16 +169,15 @@ function RoomView({ roomId }: { roomId: string }) {
         )}
         {/* the name opens the room's info (its name, 초대하기, the members, 나가기); beside it how many are in it, and
             for a DM the other person's title (직함) small under their name, as the people list shows it */}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="flex min-w-0 text-base font-medium text-ink">
-            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-1.5 rounded-md px-1 text-left hover:bg-hover" data-testid="room-members-button">
+            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover" data-testid="room-members-button">
               <span className="truncate" data-testid="room-title">
                 {room ? title(room) : ''}
               </span>
               {room && room.kind !== 'dm' && (
-                <span className="shrink-0 text-xs font-normal text-faint tabular-nums" data-testid="room-member-count">
-                  {room.memberCount}
-                  <span className="sr-only">, {t('rooms.members', { n: room.memberCount })}</span>
+                <span className="shrink-0 text-xs font-normal text-faint" data-testid="room-member-count">
+                  {t('rooms.members', { n: room.memberCount })}
                 </span>
               )}
             </button>
@@ -191,7 +190,7 @@ function RoomView({ roomId }: { roomId: string }) {
         </div>
         {/* the room's one setting, right here (a menu of one item is one tap too many): the bell shows how it is now */}
         {room && (
-          <IconButton label={room.muted ? t('rooms.unmute') : t('rooms.mute')} className="touch-hit ml-auto" onClick={() => void toggleMute()} data-testid="room-mute">
+          <IconButton label={room.muted ? t('rooms.unmute') : t('rooms.mute')} className="touch-hit shrink-0" onClick={() => void toggleMute()} data-testid="room-mute">
             {room.muted ? <BellOff size={16} aria-hidden /> : <Bell size={16} aria-hidden />}
           </IconButton>
         )}
