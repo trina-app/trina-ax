@@ -174,6 +174,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
     <RoomMenu
       room={room}
       label={t('rooms.menu.rowLabel', { name: title })}
+      title={title}
       className="absolute inset-y-0 right-3 flex items-center sm:right-5"
       buttonClassName={clsx('hover:bg-surface', ROW_MENU_BUTTON)}
       openSignal={menu.openSignal}

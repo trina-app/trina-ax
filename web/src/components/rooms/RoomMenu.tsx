@@ -64,9 +64,10 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
 /**
  * The "⋯" and its menu. `onNotify`: the header's bell opens for 알림 설정; without it (a row) the level menu is its own,
  * opened in the same place. `openSignal`: a long press opened it (a sheet on a phone); `openRequest`: a right-click.
- * `label`: the button's name for a screen reader (a row says which room); the tooltip says "더 보기".
+ * `label`: the button's name for a screen reader (a row says which room); the tooltip says "더 보기". `title`: a row's
+ * room name on top of a phone's sheet (the header's menu needs none: the name is right above it).
  */
-export function RoomMenu({ room, onNotify, openSignal, openRequest, label, className, buttonClassName, testId = 'room-menu' }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; className?: string; buttonClassName?: string; testId?: string }) {
+export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title, className, buttonClassName, testId = 'room-menu' }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; testId?: string }) {
   const t = useT()
   const [notify, setNotify] = useState(0)
   const items = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)))
@@ -82,6 +83,7 @@ export function RoomMenu({ room, onNotify, openSignal, openRequest, label, class
         openSignal={openSignal}
         openRequest={openRequest}
         testId={testId}
+        sheetTitle={title}
       />
       {/* a row's own level menu, where its "⋯" opens (the button is the row's "⋯": this one has none) */}
       {!onNotify && <RoomNotifyMenu room={room} bare openRequest={notify} className="absolute right-1.5 bottom-0" />}

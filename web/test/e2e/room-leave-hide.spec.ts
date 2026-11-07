@@ -162,6 +162,8 @@ test.describe('phone', () => {
     await row.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
     const sheet = page.getByRole('menu')
     await expect(sheet.getByRole('menuitem')).toHaveText(['알림 설정', '링크 복사', '숨기기'])
+    // the room it is about, on top of the sheet (the row is under the scrim)
+    await expect(sheet.getByTestId('menu-sheet-title')).toHaveText('개발팀')
     // a sheet from the bottom, 48px rows, the room still on screen under it (no room opened by the finger lifting)
     const box = (await sheet.boundingBox())!
     expect(Math.round(box.y + box.height)).toBeGreaterThanOrEqual(840)
@@ -181,17 +183,20 @@ test.describe('phone', () => {
 })
 
 // ---------------- screenshots for review (SHOTS_DIR) ----------------
-test('screenshots: header menus, a sidebar row menu, the hidden section, the phone sheet (1440 and 390, light and dark)', async ({ page }) => {
-  const dir = process.env.SHOTS_DIR
-  test.skip(!dir, 'SHOTS_DIR not set')
-  test.setTimeout(240_000)
-  fs.mkdirSync(dir!, { recursive: true })
-  const shot = (name: string) => page.screenshot({ path: path.join(dir!, `${name}.png`) })
+const shots = (page: Page) => {
+  const dir = process.env.SHOTS_DIR!
+  fs.mkdirSync(dir, { recursive: true })
+  return (name: string) => page.screenshot({ path: path.join(dir, `${name}.png`) })
+}
+
+test('screenshots at 1440: header menus by kind, a sidebar row and its menu, the hidden section (light and dark)', async ({ page }) => {
+  test.skip(!process.env.SHOTS_DIR, 'SHOTS_DIR not set')
+  test.setTimeout(180_000)
+  const shot = shots(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
   await start(page)
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
-    // computers
-    await page.setViewportSize({ width: 1440, height: 900 })
     for (const [id, name] of [[GROUP, 'group'], [DM, 'dm'], [TEAM, 'team']] as const) {
       await page.goto(`/rooms/${id}`)
       await expect(page.getByTestId('room-message')).toHaveCount(1)
@@ -212,26 +217,40 @@ test('screenshots: header menus, a sidebar row menu, the hidden section, the pho
     if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
     await page.getByTestId('rooms-row').first().hover()
     await shot(`1440-${scheme}-rooms-hidden`)
-    // phones
-    await page.setViewportSize({ width: 390, height: 844 })
-    await page.goto('/rooms')
-    await expect(page.getByTestId('rooms-hidden-row')).toHaveCount(1)
-    await shot(`390-${scheme}-rooms-hidden`)
-    const row = page.getByTestId('rooms-row').filter({ hasText: '개발팀' })
-    await row.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
-    await page.waitForTimeout(650)
-    await row.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
-    await expect(page.getByRole('menu')).toBeVisible()
-    await shot(`390-${scheme}-longpress-sheet`)
-    await page.mouse.click(195, 100)
-    for (const [id, name] of [[DM, 'dm'], [GROUP, 'group']] as const) {
-      await page.goto(`/rooms/${id}`)
-      await expect(page.getByTestId('room-message')).toHaveCount(1)
-      await shot(`390-${scheme}-room-${name}`)
-      await page.getByTestId('room-menu').click()
-      await expect(page.getByRole('menu')).toBeVisible()
-      await shot(`390-${scheme}-header-${name}`)
-      await page.keyboard.press('Escape')
-    }
   }
+})
+
+test.describe('phone screenshots', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  test('screenshots at 390: the 대화 list with its hidden section, a long-press sheet, a room\'s top bar and its menu (light and dark)', async ({ page }) => {
+    test.skip(!process.env.SHOTS_DIR, 'SHOTS_DIR not set')
+    test.setTimeout(180_000)
+    const shot = shots(page)
+    await start(page)
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+      await page.goto('/rooms')
+      const toggle = page.getByTestId('rooms-hidden-toggle')
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
+      await expect(page.getByTestId('rooms-hidden-row')).toHaveCount(1)
+      await shot(`390-${scheme}-rooms-hidden`)
+      const row = page.getByTestId('rooms-row').filter({ hasText: '개발팀' })
+      await row.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
+      await page.waitForTimeout(650)
+      await row.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
+      await expect(page.getByRole('menu')).toBeVisible()
+      await shot(`390-${scheme}-longpress-sheet`)
+      await page.waitForTimeout(450)
+      await page.keyboard.press('Escape')
+      for (const [id, name] of [[DM, 'dm'], [GROUP, 'group']] as const) {
+        await page.goto(`/rooms/${id}`)
+        await expect(page.getByTestId('room-message')).toHaveCount(1)
+        await shot(`390-${scheme}-room-${name}`)
+        await page.getByTestId('room-menu').click()
+        await expect(page.getByRole('menu')).toBeVisible()
+        await shot(`390-${scheme}-header-${name}`)
+        await page.keyboard.press('Escape')
+      }
+    }
+  })
 })
