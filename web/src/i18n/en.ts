@@ -1513,6 +1513,7 @@ export const en: Record<MessageKey, string> = {
   'folders.pageDesc': 'Who can see and change each team folder: by folder, or by person.',
   'groups.new': 'New group',
   'groups.edit': 'Edit group',
+  'groups.you': 'You',
   'groups.name': 'Group name',
   'groups.description': 'Description',
   'groups.members': 'Members',

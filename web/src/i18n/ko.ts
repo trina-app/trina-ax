@@ -1512,6 +1512,7 @@ export const ko = {
   'folders.pageDesc': '팀 폴더마다 누가 보고 고칠 수 있는지, 폴더별 또는 사람별로 봐요.',
   'groups.new': '새 그룹',
   'groups.edit': '그룹 수정',
+  'groups.you': '나',
   'groups.name': '그룹 이름',
   'groups.description': '설명',
   'groups.members': '구성원',

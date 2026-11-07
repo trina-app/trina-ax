@@ -1485,6 +1485,7 @@ export const ja: Record<MessageKey, string> = {
   'folders.pageDesc': "チームの各フォルダーを誰が見て変更できるかを、フォルダー別または人別に確認します。",
   'groups.new': "新しいグループ",
   'groups.edit': "グループを編集",
+  'groups.you': '自分',
   'groups.name': "グループ名",
   'groups.description': "説明",
   'groups.members': "メンバー",

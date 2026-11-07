@@ -1485,6 +1485,7 @@ export const es: Record<MessageKey, string> = {
   'folders.pageDesc': "Quién puede ver y cambiar cada carpeta del equipo: por carpeta o por persona.",
   'groups.new': "Nuevo grupo",
   'groups.edit': "Editar grupo",
+  'groups.you': 'Usted',
   'groups.name': "Nombre del grupo",
   'groups.description': "Descripción",
   'groups.members': "Miembros",
