@@ -12742,20 +12742,27 @@ reference; a product and privacy review cut the first plan down to this.
   fields can hold paths, addresses and engine stderr. `route` is the Hono pattern (`/api/files/:id`), never the path.
   Only error lines are reported: warnings are too noisy, and turn failures log engine stderr as a field, which stays out.
 - **Scrubbing removes rather than masks by shape alone.** Messages keep the first line, cut to 300 characters; quoted text,
-  paths, file names, addresses, long ids, numbers and non-ASCII text are replaced. The code's own messages are English,
-  so other letters came from a person. Limit: a plain English word cannot be recognised as a name.
+  secrets after a key name (`access_token=`, `client_secret:`, `passwd=`, `Authorization: Bearer …`), URLs, emails,
+  paths, IPv4 and IPv6 addresses, anything with a dot inside a word (every host and file name, whatever its ending), long
+  ids, numbers and non-ASCII text are replaced. The code's own messages are English, so other letters came from a person.
+  Limit: plain English words cannot be recognised as a name ("Q3 Sales Report.pdf" leaves "Q3 Sales [name]").
 - **Browser errors go through the team server.** A signed-in `POST /api/client-errors` takes them and the same scrubber runs
   there. The CSP stays as it is, the browser holds no key, and only frames in the app's own `/assets/` keep a file name, so
-  the team's address never leaves. The web app sends only the first part of the page path: the rest can hold a file path
-  or a token. Errors on the sign-in page are not reported: an open endpoint would be a relay to Sentry.
+  the team's address never leaves. A frame keeps its file name only when it is a build file under the page's own origin
+  (`assets/<name>.js`): an extension's `chrome-extension://…/assets/` is not ours. Function names with anything but code
+  characters become "?". The web app sends only the first part of the page path: the rest can hold a file path or a
+  token. Errors on the sign-in page are not reported: an open endpoint would be a relay to Sentry.
 - **Sentry records a country.** It works out `user.geo` from the address that posts the report, and `sdk.settings.infer_ip:
   never` did not stop it (tried against a real project). The IP itself is not stored. Accepted: the server posts every
   report, browser errors too, so it is the server's country and never a person's.
 - **Crash handlers exist only while reports are on,** because a listener is what stops the default crash. They send the
   error, wait at most 2 seconds and exit with code 1, as before, so the supervisor restarts the server the same way.
-- **Limits:** a repeat within a minute is dropped, at most 30 reports a minute per project, and Sentry's 429 and
-  `X-Sentry-Rate-Limits` pause sending. A signed-in person can crowd out real browser reports up to that limit; nobody
-  can raise the volume, and only servers with a key are affected.
+  Every step is guarded: a log line that throws (a full disk) once left the server running without exiting.
+- **Limits:** one error (class, message start and first frames, so an id in a message does not make it new) once a
+  minute; at most 30 reports in any 60 seconds (a sliding window: a fixed one let twice that through at its edge), but a
+  crash always goes; a clock set back does not pause sending. Sentry's 429 and the error entries of
+  `X-Sentry-Rate-Limits` pause it, at most an hour; an entry for transactions does not. Browser reports: 10 per person
+  per 10 minutes, the rest dropped quietly, so one account cannot use up the quota and silence the server's own reports.
 - Rejected: opening the CSP to Sentry (each browser would hold the key and post directly); a Bun bump for the SDK;
   session replay (it would capture screens with chats and files); web source maps in this change (uploading needs a
   secret, and the `dev-build.yml` build job has none by design: a follow-up with the release owner).

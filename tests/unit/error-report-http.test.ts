@@ -1,6 +1,6 @@
 // POST /api/client-errors and server.errorReports in GET /api/me, through the real routes and session.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import { ErrorReporter, parseDsn, setErrorReports } from '../../server/src/system/error-report'
+import { _resetClientReportsForTest, ErrorReporter, parseDsn, setErrorReports } from '../../server/src/system/error-report'
 import { Client, harness, withOwner, type Harness } from './a-lib'
 
 const report = { type: 'TypeError', message: "cannot read '/team/board/plan.md'", stack: 'TypeError: x\n    at f (https://acme.trina.app/assets/index-abc.js:1:2)', page: '/files' }
@@ -22,7 +22,7 @@ describe('browser error reports over HTTP', () => {
     h = await harness('error-report-http')
     owner = await withOwner(h)
   })
-  afterEach(() => { setErrorReports(NONE); bodies.length = 0 })
+  afterEach(() => { setErrorReports(NONE); bodies.length = 0; _resetClientReportsForTest() })
   afterAll(() => h.close())
 
   test('off: not found, and the web app is not told to send', async () => {
@@ -72,5 +72,12 @@ describe('browser error reports over HTTP', () => {
     await Bun.sleep(10)
     expect(bodies[0]).not.toContain('SECRET_PROMPT_TEXT')
     expect(bodies[0]).not.toContain('/secret')
+  })
+
+  test('one person is held to their own limit: the rest are taken and dropped quietly', async () => {
+    on()
+    for (let i = 0; i < 15; i++) expect((await owner.raw('POST', '/api/client-errors', { ...report, message: `boom ${i}` })).status).toBe(204)
+    await Bun.sleep(20)
+    expect(bodies).toHaveLength(10)
   })
 })

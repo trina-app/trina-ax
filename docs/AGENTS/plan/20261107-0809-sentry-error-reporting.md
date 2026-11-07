@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 08:09
 - Branch: `feat/sentry-error-reporting`
-- Status: in progress
+- Status: done
 - Where: this repo, `server/src/system/`, `server/src/log.ts` and `web/src/lib/`. Why: a common, off-by-default hook
   that any install can use; nothing here is specific to one customer.
 - Version impact: minor (new optional `MYCEL_*` settings and a new optional HTTP endpoint; nothing changes without them)
@@ -73,4 +73,11 @@ development server after merge.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Differences:
+
+- A separate review found gaps that were fixed before the PR: a crash handler that did not exit when the log could not
+  be written, scrubbing gaps (secret key names, IPv6, hosts and file names of any ending), browser frame names and
+  extensions, a sliding window instead of a fixed one, crashes past the minute limit, and a limit of 10 browser reports
+  per person per 10 minutes.
+- Sentry adds the country of the server that posted a report; the SDK setting that should stop it did not.
+- Tested against real Sentry projects on Bun 1.3.12: events arrive, alerts fire, crashes still exit with code 1.

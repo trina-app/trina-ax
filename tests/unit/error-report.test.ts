@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { routePath } from 'hono/route'
 import type { AppConfig } from '../../server/src/app-config'
 import { createLogger, silentLogger } from '../../server/src/log'
-import { buildEvent, errorReportsFrom, ErrorReporter, logLineInput, parseDsn, parseStack, reportCrashes, scrubText, type ErrorInput } from '../../server/src/system/error-report'
+import { _resetClientReportsForTest, buildEvent, clientReportAllowed, errorReportsFrom, ErrorReporter, logLineInput, parseDsn, parseStack, pauseSeconds, reportCrashes, scrubText, type ErrorInput } from '../../server/src/system/error-report'
 
 const DSN = 'https://abc123@o1.ingest.us.sentry.io/42'
 const cfg = (o: Partial<AppConfig> = {}) => ({ mode: 'prod', ...o }) as AppConfig
@@ -56,10 +56,18 @@ describe('scrubbing a message', () => {
     ["ENOENT: no such file or directory, open '/team/finance/salaries.xlsx'", 'ENOENT: no such file or directory, open [text]'],
     ['cannot read /Users/minjun/Documents/plan.md', 'cannot read [path]'],
     ['cannot open C:\\Users\\minjun\\plan.md', 'cannot open [path]'],
-    ['failed to parse budget-2026.xlsx today', 'failed to parse [file] today'],
+    ['failed to parse budget-2026.xlsx today', 'failed to parse [name] today'],
+    ['cannot open server.key or notes.rtf', 'cannot open [name] or [name]'],
+    ['Q3 Sales Report.numbers is locked', 'Q3 Sales [name] is locked'],
     ['mail to minjun.kim@acme.co.kr bounced', 'mail to [email] bounced'],
     ['fetch https://acme.trina.app/api?token=abc failed', 'fetch [url] failed'],
-    ['getaddrinfo ENOTFOUND acme.trina.app', 'getaddrinfo ENOTFOUND [host]'],
+    ['getaddrinfo ENOTFOUND acme.trina.app', 'getaddrinfo ENOTFOUND [name]'],
+    ['connect to alice-macbook.local and db.internal and acme.de and API.ACME.COM', 'connect to [name] and [name] and [name] and [name]'],
+    ['host Potenlab.trina.app is down', 'host [name] is down'],
+    ['connect ECONNREFUSED fe80::1ff:fe23:4567:890a', 'connect ECONNREFUSED [ip]'],
+    ['refused access_token=abc123def456 and client_secret=s3 and refresh_token: r1', 'refused access_token=[redacted] and client_secret=[redacted] and refresh_token=[redacted]'],
+    ['login passwd=x1 pwd=y2', 'login passwd=[redacted] pwd=[redacted]'],
+    ['header Authorization: Bearer abc123def', 'header Authorization=[redacted]'],
     ['connect ECONNREFUSED 10.1.2.3', 'connect ECONNREFUSED [ip]'],
     ['bad header Bearer abcdefghijklmnop', 'bad header Bearer [redacted]'],
     ['login failed password=hunter2', 'login failed password=[redacted]'],
@@ -92,6 +100,25 @@ describe('stack frames', () => {
       { filename: 'hono/compose.js', function: 'run', lineno: 3, colno: 1, in_app: false },
       { filename: 'server/main.js', function: 'save', lineno: 10, colno: 5, in_app: true },
     ])
+  })
+
+  test('a browser frame keeps a build file name only, and an extension is never ours', () => {
+    const files = parseStack([
+      '    at a (https://acme.trina.app/assets/ 김민준 alice@example.com hunter2:1:1)',
+      '    at b (chrome-extension://abc/assets/inject.js:1:1)',
+      '    at c (https://acme.trina.app/assets/index-abc.js:1:1)',
+    ].join('\n'), '', true)
+    expect(files.map((f) => [f.filename, f.in_app])).toEqual([['assets/index-abc.js', true], ['[external]', false], ['[external]', false]])
+  })
+
+  test('a function name with spaces or other characters is not sent', () => {
+    expect(parseStack('    at alice@example.com hunter2 (/a/b.js:1:1)', '', false)[0]!.function).toBe('?')
+  })
+
+  test('a very long line is not read as a frame, and stays fast', () => {
+    const start = performance.now()
+    expect(parseStack(`    at ${'f'.repeat(1_000_000)} (/a/b.js:1:1)`, '', false)).toEqual([])
+    expect(performance.now() - start).toBeLessThan(200)
   })
 
   test('a frame in a file that is not code hides the name', () => {
@@ -140,7 +167,7 @@ describe('the canary: what may not leave', () => {
   })
 
   test('values in a wrong shape are dropped, not sent', () => {
-    const e = event({ type: 'Error: minjun.kim@acme.co.kr', message: 'x', method: 'minjun', route: '/api/files/board plan.xlsx', page: '/files/board-plan' })
+    const e = event({ type: 'potenlab.trina.app', message: 'x', method: 'minjun', route: '/api/files/board plan.xlsx', page: '/files/board-plan' })
     expect(e.tags).toEqual({})
     expect((e.exception as { values: { type: string }[] }).values[0]!.type).toBe('Error')
   })
@@ -174,6 +201,44 @@ describe('sending', () => {
     r.capture({ message: 'boom' })
     await r.flush(100)
     expect(s.bodies).toHaveLength(2)
+  })
+
+  test('a storm cannot pass twice the limit across the edge of a minute', async () => {
+    let t = 1_000_000
+    const s = fakeSentry(), r = reporter(s.send, () => t)
+    for (let i = 0; i < 30; i++) r.capture({ message: `early ${i}` })
+    t += 59_500
+    for (let i = 0; i < 30; i++) r.capture({ message: `late ${i}` })
+    await r.flush(100)
+    expect(s.bodies).toHaveLength(30)
+  })
+
+  test('a crash is sent even when the minute is full', async () => {
+    const t = 1_000_000
+    const s = fakeSentry(), r = reporter(s.send, () => t)
+    for (let i = 0; i < 40; i++) r.capture({ message: `e${i}` })
+    r.capture({ type: 'TypeError', message: 'the crash', fatal: true })
+    await r.flush(100)
+    expect(s.events().at(-1)).toMatchObject({ level: 'fatal' })
+  })
+
+  test('a clock set back does not stop reports for the length of the jump', async () => {
+    let t = 10_000_000
+    const s = fakeSentry(), r = reporter(s.send, () => t)
+    for (let i = 0; i < 30; i++) r.capture({ message: `e${i}` })
+    t -= 3_600_000
+    r.capture({ message: 'after the clock moved' })
+    await r.flush(100)
+    expect(s.bodies).toHaveLength(31)
+  })
+
+  test('errors that differ only in an id in the message are one error, by type, message start and frames', async () => {
+    const s = fakeSentry(), r = reporter(s.send, () => 1_000_000)
+    const stack = (id: string) => `Error: lookup failed ${'x'.repeat(100)} ${id}\n    at find (/app/server/main.js:1:1)`
+    r.capture({ type: 'Error', message: `lookup failed ${'x'.repeat(100)} 1`, stack: stack('1') })
+    r.capture({ type: 'Error', message: `lookup failed ${'x'.repeat(100)} 2`, stack: stack('2') })
+    await r.flush(100)
+    expect(s.bodies).toHaveLength(1)
   })
 
   test('a storm stops at the minute limit', async () => {
@@ -285,6 +350,52 @@ describe('a crash', () => {
     proc.emit('uncaughtException', new Error('one'))
     proc.emit('uncaughtException', new Error('two'))
     await Bun.sleep(20)
+    expect(s.bodies).toHaveLength(1)
+  })
+})
+
+describe("Sentry's rate limit answer", () => {
+  test('only entries for errors, or for every category, count; the longest wins', () => {
+    expect(pauseSeconds('60:transaction:key, 2700:error:organization', 200, null)).toBe(2700)
+    expect(pauseSeconds('3600:transaction:key', 200, null)).toBeNull()
+    expect(pauseSeconds('120::organization', 200, null)).toBe(120)
+    expect(pauseSeconds('30:error;default:key', 200, null)).toBe(30)
+  })
+  test('a 429 without the header waits as Retry-After says, else a minute', () => {
+    expect(pauseSeconds(null, 429, '90')).toBe(90)
+    expect(pauseSeconds(null, 429, null)).toBe(60)
+    expect(pauseSeconds(null, 200, '90')).toBeNull()
+  })
+  test('a limit on transactions only does not pause error reports', async () => {
+    let t = 1_000_000
+    const s = fakeSentry({ status: 200, headers: { 'x-sentry-rate-limits': '3600:transaction:key' } }), r = reporter(s.send, () => t)
+    r.capture({ message: 'one' }); await r.flush(100)
+    t += 1_000
+    r.capture({ message: 'two' }); await r.flush(100)
+    expect(s.bodies).toHaveLength(2)
+  })
+})
+
+describe('browser reports per person', () => {
+  test('ten in ten minutes for each person, then dropped; others are not affected', () => {
+    _resetClientReportsForTest()
+    const t = 5_000_000
+    for (let i = 0; i < 10; i++) expect(clientReportAllowed('u1', t + i)).toBe(true)
+    expect(clientReportAllowed('u1', t + 20)).toBe(false)
+    expect(clientReportAllowed('u2', t + 20)).toBe(true)
+    expect(clientReportAllowed('u1', t + 10 * 60_000 + 1)).toBe(true)
+  })
+})
+
+describe('a crash while the log cannot be written', () => {
+  test('the process still ends with code 1', async () => {
+    const proc = Object.assign(new EventEmitter(), { code: null as number | null, exit(c: number) { this.code = c } })
+    const s = fakeSentry()
+    const broken = { ...silentLogger, error() { throw new Error('ENOSPC: no space left on device') } }
+    reportCrashes(reporter(s.send), broken, proc as never)
+    expect(() => proc.emit('unhandledRejection', new Error('boom'))).not.toThrow()
+    await Bun.sleep(20)
+    expect(proc.code).toBe(1)
     expect(s.bodies).toHaveLength(1)
   })
 })

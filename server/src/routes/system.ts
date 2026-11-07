@@ -12,7 +12,7 @@ import type { JobService } from '../services'
 import { BackupError } from '../system/backup'
 import { connectInfo } from '../system/connect-info'
 import { ConnectionChangeError, connectionStatus, modeOf, saveClaimCodeFor, saveConnectionMode } from '../system/connection'
-import { webErrorReporter } from '../system/error-report'
+import { clientReportAllowed, webErrorReporter } from '../system/error-report'
 import { runExport } from '../system/export'
 import { redactorFor } from '../integrations/connections/redact'
 import { LocalJobService } from '../system/job-runner'
@@ -90,11 +90,11 @@ export const systemRoutes: RouteModule = {
     }
     const release = () => { ops().unlock() }
 
-    // only while a key is set; the body stays small, and the reporter's own limits hold whoever sends it
-    kit.handle(API.reportClientError, ({ body }) => {
+    // only while a key is set; a small body, a limit per person (over it: dropped quietly), then the reporter's own limits
+    kit.handle(API.reportClientError, ({ body, auth }) => {
       const reporter = webErrorReporter()
       if (!reporter) return fail('not_found')
-      reporter.capture(body)
+      if (clientReportAllowed(auth.user.id)) reporter.capture(body)
     }, { jsonLimit: 8 * 1024 })
     kit.handle(API.health, ({ c, auth }): Health => {
       let dbOk = true

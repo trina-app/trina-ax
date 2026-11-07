@@ -18,13 +18,14 @@ export function reportPage(pathname: string): string {
   return /^[a-z0-9-]{1,32}$/.test(first) ? `/${first}` : '/'
 }
 
-/** Only the app's own code: an error from a browser extension or a pasted script is not ours to look at. */
-export function reportableError(e: unknown): e is Error {
-  return e instanceof Error && !!e.stack?.includes('/assets/') && !isChunkLoadError(e)
+/** Only the app's own code, from this page's own address: an error from a browser extension (which has its own /assets/)
+ *  or a pasted script is not ours to look at. */
+export function reportableError(e: unknown, origin: string = location.origin): e is Error {
+  return e instanceof Error && !!e.stack?.includes(`${origin}/assets/`) && !isChunkLoadError(e)
 }
 
-export function reportError(e: unknown, pathname = location.pathname): void {
-  if (!enabled || sent >= MAX_PER_PAGE_LOAD || !reportableError(e)) return
+export function reportError(e: unknown, pathname = location.pathname, origin = location.origin): void {
+  if (!enabled || sent >= MAX_PER_PAGE_LOAD || !reportableError(e, origin)) return
   const key = `${e.name}|${e.message}`
   if (seen.has(key)) return
   seen.add(key)

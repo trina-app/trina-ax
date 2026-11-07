@@ -275,6 +275,6 @@ export const SYSTEM = {
   updateConnection: endpoint({ method: 'PUT', path: '/api/admin/connection', auth: 'owner-reauth', owner: 'G', body: UpdateConnectionBody, response: ConnectionStatus, summary: 'Change the connection mode.' }),
   storage: endpoint({ method: 'GET', path: '/api/admin/storage', auth: 'admin', owner: 'G', response: StorageStatus, summary: 'Storage use of the team disk (statfs), what uses it, the plan\'s disk when there is one.' }),
   plan: endpoint({ method: 'GET', path: '/api/admin/plan', auth: 'admin', owner: 'G', response: PlanStatus, summary: 'The plan (plan.json): limits, what the team uses of them, where to change it. null without a plan file.' }),
-  reportClientError: endpoint({ method: 'POST', path: '/api/client-errors', auth: 'user', owner: 'G', body: ClientErrorReport, response: empty, summary: 'A browser error for the error reports; not found while they are off' }),
+  reportClientError: endpoint({ method: 'POST', path: '/api/client-errors', auth: 'user', owner: 'G', status: 204, body: ClientErrorReport, response: empty, summary: 'A browser error for the error reports; not found while they are off' }),
   managedNotices: endpoint({ method: 'GET', path: '/api/managed/notices', auth: 'user', owner: 'G', response: ManagedNotices, summary: 'The operator\'s notices (notices.json) meant for the caller\'s role, in the caller\'s language.' }),
 } as const

@@ -11,11 +11,17 @@ import { isHosted } from './deployment'
 const MAX_SCRUB_INPUT = 1000
 const MAX_MESSAGE = 300
 const MAX_FRAMES = 40
+/** a stack line longer than this is not a frame: the frame pattern is slow on a very long line */
+const MAX_FRAME_LINE = 500
 const MAX_PER_MINUTE = 30
 const REPEAT_WINDOW_MS = 60_000
 const SEND_TIMEOUT_MS = 5_000
 const CRASH_FLUSH_MS = 2_000
 const DEFAULT_PAUSE_MS = 60_000
+const MAX_PAUSE_MS = 3_600_000
+/** browser reports per signed-in person: one person must not use up the project's quota */
+const CLIENT_REPORTS = 10
+const CLIENT_WINDOW_MS = 10 * 60_000
 
 export interface SentryTarget { url: string; key: string }
 
@@ -29,26 +35,28 @@ export function parseDsn(dsn: string): SentryTarget | null {
   return { url: `https://${u.host}${u.pathname.slice(0, cut)}/api/${project}/envelope/`, key: u.username }
 }
 
-const DOCUMENT = /\b[\w.-]+\.(?:pdf|docx?|xlsx?|pptx?|hwpx?|csv|tsv|txt|md|json|ya?ml|png|jpe?g|gif|webp|svg|mp[34]|mov|wav|m4a|zip|html?|db|sqlite)\b/gi
-const HOST = /\b(?:[a-z0-9-]+\.){2,}[a-z]{2,}\b|\b[a-z0-9-]+\.(?:com|net|org|app|io|kr|co|dev|ai|team|cloud|jp)\b/g
-/** In this order: quoted text first, because it is where a value usually sits, and "password='a b'" would leave "b". */
+const SECRET_NAME = 'pass(?:word|phrase|wd)?|pwd|(?:access_|refresh_|id_)?token|(?:client_)?secret|api[_-]?key|authorization|cookie|session|sid'
+/** In this order: quoted text first, because it is where a value usually sits ("password='a b'" would leave "b"), and
+ *  "Bearer x" before "authorization: …", which would otherwise take the word Bearer as the value and leave the token. */
 const SCRUB: readonly [RegExp, string][] = [
   [/(?<![A-Za-z0-9])'[^']*(?:'|$)|"[^"]*(?:"|$)|`[^`]*(?:`|$)/g, '[text]'],
-  [/\b(pass(?:word|phrase)?|token|secret|api[_-]?key|authorization|cookie)\b\s*[:=]\s*\S+/gi, '$1=[redacted]'],
   [/\bBearer\s+\S+/gi, 'Bearer [redacted]'],
+  [new RegExp(`(?<![A-Za-z0-9])(${SECRET_NAME})(?![A-Za-z0-9])\\s*[:=]\\s*(?:Bearer \\[redacted\\]|\\S+)`, 'gi'), '$1=[redacted]'],
   [/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]'],
   [/[^\s@<>()]+@[^\s@<>()]+\.[A-Za-z]{2,}/g, '[email]'],
   [/\S*[\\/]\S*/g, '[path]'],
-  [DOCUMENT, '[file]'],
   [/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[ip]'],
-  [HOST, '[host]'],
+  [/(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])/gi, '[ip]'],
+  // a host or a file of any kind: whatever has a dot inside a word (acme.trina.app, alice-macbook.local, plan.key)
+  [/\b[\w-]+(?:\.[\w-]+)+\b/g, '[name]'],
   [/\b[A-Za-z0-9_-]{20,}\b/g, '[id]'],
   [/\+?\d[\d ().-]{5,}\d/g, '[number]'],
   // the code's own messages are English: other letters here came from a person (a name, a file, a chat)
   [/[^\x00-\x7F]+/g, '[text]'],
 ]
 
-/** A message with what a person typed or owns taken out. It cannot recognise a plain English word as a name. */
+/** A message with what a person typed or owns taken out. It cannot recognise plain English words as a name: a file
+ *  called "Q3 Sales Report.pdf" leaves "Q3 Sales [name]". */
 export function scrubText(s: string): string {
   let out = s.split('\n', 1)[0]!.slice(0, MAX_SCRUB_INPUT)
   for (const [re, to] of SCRUB) out = out.replace(re, to)
@@ -60,12 +68,16 @@ export interface Frame { filename: string; function: string; lineno: number; col
 const FRAME_V8 = /^\s*at (?:async )?(?:(.+?) \()?(.+?):(\d+):(\d+)\)?\s*$/
 const FRAME_GECKO = /^(.*?)@(.+?):(\d+):(\d+)$/
 const CODE_FILE = /\.(?:ts|tsx|js|jsx|mjs|cjs)$/
+const EXTENSION = /^(?:chrome|moz|safari|safari-web|ms-browser)-extension:|^webkit-masked-url:/
+const EXTERNAL = { filename: '[external]', in_app: false }
 
-/** A browser frame: only the app's own build files, without the team's address. */
+/** A browser frame: only the app's own build files, by their build name, without the team's address. */
 function browserFile(raw: string): { filename: string; in_app: boolean } {
+  if (EXTENSION.test(raw)) return EXTERNAL
   const at = raw.indexOf('/assets/')
-  if (at < 0) return { filename: '[external]', in_app: false }
-  return { filename: raw.slice(at + 1).split(/[?#]/, 1)[0]!, in_app: true }
+  if (at < 0) return EXTERNAL
+  const name = raw.slice(at + 1).split(/[?#]/, 1)[0]!
+  return /^assets\/[\w.-]{1,120}\.m?js$/.test(name) ? { filename: name, in_app: true } : EXTERNAL
 }
 
 /** A server frame: the last two parts of the name, because the install folder can hold a person's name. */
@@ -76,19 +88,23 @@ function serverFile(raw: string): { filename: string; in_app: boolean } {
   return { filename: clean.split(/[\\/]/).slice(-2).join('/'), in_app: !clean.includes('node_modules') }
 }
 
+/** What comes after the message: a message can hold lines that look like frames (a tool's output). */
+function afterMessage(stack: string, message: string): string {
+  const at = message ? stack.indexOf(message) : -1
+  return at >= 0 ? stack.slice(at + message.length) : stack
+}
+
 /** Sentry's order: the oldest call first. */
 export function parseStack(stack: string, message: string, browser: boolean): Frame[] {
-  // a message can hold lines that look like frames (a tool's output): read only what comes after it
-  const at = message ? stack.indexOf(message) : -1
-  const lines = (at >= 0 ? stack.slice(at + message.length) : stack).split('\n')
   const frames: Frame[] = []
-  for (const line of lines) {
+  for (const line of afterMessage(stack, message).split('\n')) {
+    if (line.length > MAX_FRAME_LINE) continue
     const m = FRAME_V8.exec(line) ?? (browser ? FRAME_GECKO.exec(line) : null)
     if (!m) continue
     const fn = m[1] ?? ''
     frames.push({
       ...(browser ? browserFile(m[2]!) : serverFile(m[2]!)),
-      function: /^[\w$.<>[\] ]{1,100}$/.test(fn) ? fn : '?',
+      function: /^[\w$.<>]{1,80}$/.test(fn) ? fn : '?',
       lineno: Number(m[3]),
       colno: Number(m[4]),
     })
@@ -138,13 +154,31 @@ export function buildEvent(i: ErrorInput, o: EventOptions): Record<string, unkno
     tags: tagsOf(i),
     exception: {
       values: [{
-        type: i.type && /^[A-Za-z_$][\w$.]{0,79}$/.test(i.type) ? i.type : 'Error',
+        type: i.type && /^[A-Za-z_$][\w$]{0,79}$/.test(i.type) ? i.type : 'Error',
         value: scrubText(i.message),
         ...(frames.length ? { stacktrace: { frames } } : {}),
         mechanism: { type: o.logger, handled: !i.fatal },
       }],
     },
   }
+}
+
+/** Seconds to wait from Sentry's answer, or null. X-Sentry-Rate-Limits lists "seconds:categories:scope" entries; only
+ *  those for errors (or for every category) apply here. */
+export function pauseSeconds(limits: string | null, status: number, retryAfter: string | null): number | null {
+  if (limits) {
+    let wait = 0
+    for (const entry of limits.split(',')) {
+      const [secs = '', cats = ''] = entry.trim().split(':')
+      const n = Number.parseInt(secs, 10)
+      const list = cats.split(';').filter(Boolean)
+      if (Number.isFinite(n) && (list.length === 0 || list.includes('error') || list.includes('default'))) wait = Math.max(wait, n)
+    }
+    if (wait > 0) return wait
+  }
+  if (status !== 429) return null
+  const n = Number.parseInt(retryAfter ?? '', 10)
+  return Number.isFinite(n) ? n : DEFAULT_PAUSE_MS / 1000
 }
 
 export interface ReporterOptions {
@@ -159,8 +193,7 @@ export interface ReporterOptions {
 export class ErrorReporter {
   private inflight = new Set<Promise<void>>()
   private recent = new Map<string, number>()
-  private minute = 0
-  private sentThisMinute = 0
+  private sentAt: number[] = []
   private pausedUntil = 0
   private send: typeof fetch
   private now: () => number
@@ -173,6 +206,8 @@ export class ErrorReporter {
   capture(input: ErrorInput): void {
     try {
       const now = this.now()
+      // a clock set back must not leave sending paused for its whole jump
+      if (this.pausedUntil - now > MAX_PAUSE_MS) this.pausedUntil = 0
       if (now < this.pausedUntil || !this.admit(input, now)) return
       const event = buildEvent(input, { release: this.o.release, environment: this.o.environment, logger: this.o.logger, browser: this.o.logger === 'web', now })
       const sending: Promise<void> = this.post(event, now).catch(() => {}).finally(() => { this.inflight.delete(sending) })
@@ -189,18 +224,16 @@ export class ErrorReporter {
     clearTimeout(timer)
   }
 
-  /** Repeats of one error in a minute, and more than the minute's share, stay out: a storm must not eat the quota. */
+  /** A repeat of one error in a minute, and more than MAX_PER_MINUTE in any minute, stay out: a storm must not use up
+   *  the quota. A crash always goes: it is the one report that explains the restart. */
   private admit(i: ErrorInput, now: number): boolean {
-    const key = `${i.type}|${i.logLine}|${i.message.slice(0, 100)}|${i.stack?.split('\n', 3).join('|')}`
-    const last = this.recent.get(key)
-    if (last !== undefined && now - last < REPEAT_WINDOW_MS) return false
-    if (now - this.minute >= 60_000) {
-      this.minute = now
-      this.sentThisMinute = 0
-      for (const [k, at] of this.recent) if (now - at >= REPEAT_WINDOW_MS) this.recent.delete(k)
-    }
-    if (this.sentThisMinute >= MAX_PER_MINUTE) return false
-    this.sentThisMinute++
+    const frames = i.stack ? afterMessage(i.stack, i.message).split('\n').filter((l) => /^\s*at /.test(l)).slice(0, 2).join('|') : ''
+    const key = `${i.type}|${i.logLine}|${i.message.slice(0, 100)}|${frames.slice(0, 400)}`
+    this.sentAt = this.sentAt.filter((t) => t <= now && now - t < 60_000)
+    for (const [k, at] of this.recent) if (at > now || now - at >= REPEAT_WINDOW_MS) this.recent.delete(k)
+    if (this.recent.has(key)) return false
+    if (!i.fatal && this.sentAt.length >= MAX_PER_MINUTE) return false
+    this.sentAt.push(now)
     this.recent.set(key, now)
     return true
   }
@@ -216,11 +249,8 @@ export class ErrorReporter {
       body: `${JSON.stringify(header)}\n{"type":"event"}\n${JSON.stringify(event)}\n`,
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     })
-    const limited = res.headers.get('x-sentry-rate-limits')
-    if (res.status === 429 || limited) {
-      const seconds = Number.parseInt(limited ?? res.headers.get('retry-after') ?? '', 10)
-      this.pausedUntil = this.now() + (Number.isFinite(seconds) ? seconds * 1000 : DEFAULT_PAUSE_MS)
-    }
+    const wait = pauseSeconds(res.headers.get('x-sentry-rate-limits'), res.status, res.headers.get('retry-after'))
+    if (wait !== null) this.pausedUntil = this.now() + Math.min(wait * 1000, MAX_PAUSE_MS)
     await res.body?.cancel()
   }
 }
@@ -236,6 +266,20 @@ export function logLineInput(msg: string, fields?: Record<string, unknown>): Err
     route: text(fields?.route),
   }
 }
+
+const clientSent = new Map<string, number[]>()
+
+/** Browser reports from one person in the last CLIENT_WINDOW_MS. Over the limit they are dropped quietly. */
+export function clientReportAllowed(userId: string, now: number = Date.now()): boolean {
+  const recent = (clientSent.get(userId) ?? []).filter((t) => t <= now && now - t < CLIENT_WINDOW_MS)
+  const ok = recent.length < CLIENT_REPORTS
+  if (ok) recent.push(now)
+  if (clientSent.size >= 10_000 && !clientSent.has(userId)) clientSent.clear()
+  clientSent.set(userId, recent)
+  return ok
+}
+
+export function _resetClientReportsForTest(): void { clientSent.clear() }
 
 export interface ErrorReports {
   server: ErrorReporter | null
@@ -275,16 +319,17 @@ interface CrashTarget {
 }
 
 /** The process still ends with code 1 as it does without these handlers, so its supervisor restarts it the same way.
- * They exist only while reports are on: a listener is what stops the default crash. */
+ * They exist only while reports are on: a listener is what stops the default crash. Each step is guarded, because a
+ * step that throws here (the log on a full disk) would otherwise leave a broken server running. */
 export function reportCrashes(reporter: ErrorReporter, log: Logger, proc: CrashTarget = process): void {
   let dying = false
   const die = (what: string) => (e: unknown) => {
     if (dying) return
     dying = true
     const err = e instanceof Error ? e : new Error(what)
-    reporter.capture({ type: err.name, message: err.message, stack: err.stack, fatal: true, logLine: what })
-    log.error(what, { err })
-    void reporter.flush(CRASH_FLUSH_MS).finally(() => proc.exit(1))
+    try { reporter.capture({ type: err.name, message: err.message, stack: err.stack, fatal: true, logLine: what }) } catch { /* exit anyway */ }
+    try { log.error(what, { err }) } catch { /* exit anyway */ }
+    void reporter.flush(CRASH_FLUSH_MS).catch(() => {}).finally(() => proc.exit(1))
   }
   proc.on('uncaughtException', die('uncaught exception'))
   proc.on('unhandledRejection', die('unhandled rejection'))
