@@ -163,7 +163,7 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose }: { ch
                   />
                 ))}
                 {hidden > 0 && (
-                  <li className="flex items-center gap-2.5 py-2.5 text-sm text-muted" data-testid="share-room-hidden">
+                  <li className="flex items-center gap-3 py-2.5 text-sm text-muted" data-testid="share-room-hidden">
                     <Lock size={16} className="shrink-0 text-faint" aria-hidden />
                     {t('shareRoom.hidden', { n: hidden })}
                   </li>
@@ -287,13 +287,21 @@ function FileRow({ file, others, on, full, onChange }: { file: AnswerShareFile; 
   const caption = file.attach === 'yes' ? (on ? t('shareRoom.attachWiden', { n: file.unable }) : t('shareRoom.linkOnly')) : file.attach === 'too_big' ? t('shareRoom.tooBig') : file.unable > 0 ? t('shareRoom.linkOnly') : null
   return (
     <li className="flex items-center gap-3 py-2.5" data-testid="share-room-file" data-path={file.path}>
-      <FileText size={16} className="shrink-0 self-start text-faint mt-0.5" aria-hidden />
+      <FileText size={16} className="mt-0.5 shrink-0 self-start text-faint" aria-hidden />
       <div className="min-w-0 flex-1">
         <p id={`${id}-name`} className="truncate text-sm font-medium text-ink" title={file.path}>{file.name}</p>
+        {/* who can open it, then what the switch does: each wraps as one piece on a phone, never mid-phrase */}
         <p id={`${id}-about`} className="text-xs leading-5 break-keep text-muted" data-testid="share-room-file-status">
-          {file.unable === 0 && <Check size={12} strokeWidth={2.5} className="mr-1 inline-block align-[-0.1em] text-ok" aria-hidden />}
-          {status}
-          {caption && <span data-testid="share-room-file-caption"> · {caption}</span>}
+          <span className="inline-block">
+            {file.unable === 0 && <Check size={12} strokeWidth={2.5} className="mr-1 inline-block align-[-0.1em] text-ok" aria-hidden />}
+            {status}
+          </span>
+          {caption && (
+            <>
+              {' · '}
+              <span className="inline-block" data-testid="share-room-file-caption">{caption}</span>
+            </>
+          )}
         </p>
       </div>
       {file.attach === 'yes' && (
