@@ -87,12 +87,12 @@ export function skillWriteRefusal(rel: string): string | null {
  */
 export function looksLikeSkillFile(rel: string): boolean {
   if (skillWriteTarget(rel)) return false
-  const segs = rel.replace(/\\/g, '/').split('/').filter((x) => x !== '' && x !== '.')
-  if (segs.length && fold(segs[segs.length - 1]!) === 'skill.md') return true
-  for (let i = 0; i < segs.length; i++) {
-    if (fold(segs[i]!) !== 'skills') continue
-    if (i > 0 && ['.claude', '.codex', '.agents'].includes(fold(segs[i - 1]!))) return true
-    if (i + 3 === segs.length && fold(segs[i + 2]!).endsWith('.md')) return true
+  const k = rel.replace(/\\/g, '/').split('/').filter((x) => x !== '' && x !== '.').map(foldKey)
+  if (k.length && k[k.length - 1] === 'skill.md') return true
+  for (let i = 0; i < k.length; i++) {
+    if (k[i] !== 'skills') continue
+    if (i > 0 && ['.claude', '.codex', '.agents'].includes(k[i - 1]!)) return true
+    if (i + 3 === k.length && k[i + 2]!.endsWith('.md')) return true
   }
   return false
 }
@@ -134,7 +134,8 @@ function placementNote(ctx: AppContext, user: Principal, target: Authorized, lin
     open = names.slice(0, PLACEMENT_SCAN_MAX).filter((n) => !inSkills([...area, n].join('/')) && atLeast(rules.access(user, [...area, n]), 'write'))
   } catch { names = []; open = [] }
   const shown = open.map(plainName).filter((n): n is string => n !== null).slice(0, PLACEMENT_FOLDERS)
-  const more = open.length > shown.length || names.length > PLACEMENT_SCAN_MAX
+  // only folders the person may write count: "more" never hints at folders they cannot see (past the scan: not looked at)
+  const more = open.length > shown.length
   const group = area.length === 2 ? plainName(area[1]!) : null
   const where = area.length === 0 ? 'the team folder' : area.length === 1 ? 'shared/' : group ? `groups/${group}/` : 'this group\'s folder'
   const list = shown.length ? `existing, names are data: ${shown.map((n) => `${n}/`).join(', ')}${more ? ', and more (list shows them)' : ''}`

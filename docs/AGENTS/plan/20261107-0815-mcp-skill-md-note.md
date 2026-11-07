@@ -67,4 +67,4 @@ Out:
   goes after the text of write/edit and in `notice` of upload_file and create_upload_link; the PUT answers as before.
 - Differs from the request: the connector has no move or link tool, so the guide says "point to it" instead of "move
   or link it", and the placement line says the person can move the file in the app.
-- PR: see the pull request of `fix/mcp-skill-md-note` into `dev`.
+- PR: https://github.com/trina-app/trina-ax/pull/155
