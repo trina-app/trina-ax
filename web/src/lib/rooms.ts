@@ -127,17 +127,22 @@ export const lineBreaks = (text: string) => text.replace(/\r\n?/g, '\n')
  * shared roomAiMentions, and mentionParts go by the same rule). */
 export const mentionCanStart = (text: string, at: number) => at === 0 || /[\s([{"'“‘]/.test(text[at - 1] ?? '')
 
-/** A person picked from the "@" list, and where their "@name" went in the message box. */
+/** A person picked from the "@" list (or "@전체": id ALL_MENTION_ID, name the word it was written with), and where their
+ * "@name" went in the message box. */
 export interface PickedMention { start: number; end: number; id: string; name: string }
-/** A mention as the message box shows it: a person the message will notify, or the AI it will ask ("@트리나"). */
-export interface MentionToken { start: number; end: number; kind: 'person' | 'ai'; id: string }
+/** A mention as the message box shows it: a person the message will notify, everyone in the room ("@전체"), or the AI it
+ * will ask ("@트리나"). */
+export interface MentionToken { start: number; end: number; kind: 'person' | 'all' | 'ai'; id: string }
 
 /** The mentions in a message box, which are what is sent: the picked people whose "@name" is still whole where it was put
  * and may start a mention there (a letter typed right before it pauses it); with `ai`, every "@<AI name>" the server
  * will take as a call (roomAiMentions with those people's names: a person of that name wins). Text that only looks like
  * a mention (pasted, typed without the list, a picked name broken by an edit) is plain text: it notifies nobody. */
 export function mentionTokens(text: string, picked: readonly PickedMention[], ai: boolean): MentionToken[] {
-  let kept = picked.filter((p) => p.name && p.end === p.start + p.name.length + 1 && text.startsWith(`@${p.name}`, p.start) && mentionCanStart(text, p.start))
+  const whole = picked.filter((p) => p.name && p.end === p.start + p.name.length + 1 && text.startsWith(`@${p.name}`, p.start) && mentionCanStart(text, p.start))
+  // "@전체" is no person: the server's AI check never hears its word
+  const everyone = whole.filter((p) => p.id === ALL_MENTION_ID)
+  let kept = whole.filter((p) => p.id !== ALL_MENTION_ID)
   // a person's "@name" that an AI name runs past ("@트리" + "나"): the call wins, as on the sent message; the server
   // asks the AI and the person is not sent (a person whose name goes past the AI name keeps it: roomAiMentions). The
   // calls are then counted with the names that are sent, as the server counts them
@@ -148,9 +153,16 @@ export function mentionTokens(text: string, picked: readonly PickedMention[], ai
     kept = next
     calls = roomAiMentions(text, kept.map((p) => p.name))
   }
-  const tokens: MentionToken[] = [...kept.map((p) => ({ start: p.start, end: p.end, kind: 'person' as const, id: p.id })), ...calls.map((r) => ({ start: r.start, end: r.end, kind: 'ai' as const, id: AI_MENTION_ID }))]
+  const tokens: MentionToken[] = [
+    ...kept.map((p) => ({ start: p.start, end: p.end, kind: 'person' as const, id: p.id })),
+    ...everyone.filter((p) => !calls.some((r) => r.start < p.end && p.start < r.end)).map((p) => ({ start: p.start, end: p.end, kind: 'all' as const, id: ALL_MENTION_ID })),
+    ...calls.map((r) => ({ start: r.start, end: r.end, kind: 'ai' as const, id: AI_MENTION_ID })),
+  ]
   return tokens.sort((a, b) => a.start - b.start)
 }
+
+/** Does what is sent mention everyone ("@전체" stands in the box)? */
+export const tokenMentionsAll = (tokens: readonly MentionToken[]) => tokens.some((x) => x.kind === 'all')
 
 /** The people a message mentions, for what is sent: its people's tokens, each once, at most ROOM_MENTIONS_MAX. */
 export function tokenMentions(tokens: readonly MentionToken[]): string[] {
@@ -274,6 +286,24 @@ export function aiMentionNames(body: string, people: { name: string }[] = []): {
   return ROOM_AI_NAMES.map((name) => ({ id: AI_MENTION_ID, name }))
 }
 export const AI_MENTION_ID = '@ai'
+
+// ---------------- "@전체" (docs/DECISIONS.md "@전체") ----------------
+/** "@전체" in the "@" list and in the box (no person has this id: user ids start with a letter or a digit). */
+export const ALL_MENTION_ID = '@all'
+/** Slack's words, which find "@전체" in the "@" list in every language too (beside each language's own word). */
+const MENTION_ALL_ALIASES = ['all', 'channel', 'everyone', 'みんな']
+/** "@전체"'s entry in the "@" list fits the query when one of its words starts with it ("" too: it comes right after the
+ * AI). `words`: each language's word for it (rooms.mentionAll). */
+export function allMatches(query: string, words: readonly string[]): boolean {
+  const q = query.toLocaleLowerCase()
+  return [...words, ...MENTION_ALL_ALIASES].some((w) => w.toLocaleLowerCase().startsWith(q))
+}
+/** A message's "@전체" as pseudo-mentions for mentionParts: its word in any language (the sender's may not be mine). */
+export const allMentionNames = (m: { mentionsAll?: boolean }, words: readonly string[]): { id: string; name: string }[] =>
+  m.mentionsAll ? words.map((name) => ({ id: ALL_MENTION_ID, name })) : []
+/** Does this message mention me: picked by name, or "@전체" by someone else (the sound, the "@" badge)? */
+export const mentionsMe = (m: { mentions: readonly string[]; mentionsAll?: boolean; author?: { id: string } | null }, meId: string | null | undefined) =>
+  !!meId && (m.mentions.includes(meId) || (!!m.mentionsAll && m.author?.id !== meId))
 
 /** A run of mine in its place: by turn id; steps the newer copy lacks (a state change carries none) are kept. */
 export function withRun(runs: RoomAiRun[], run: RoomAiRun): RoomAiRun[] {

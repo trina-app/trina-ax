@@ -5,7 +5,7 @@
 //   rule (shared room-alerts.ts roomAlert, docs/DECISIONS.md "대화방 알림 설정") with the room's level the server sends
 //   (Room.notify.level: my own for the room, else my default for its kind) and my thread-replies switch and quiet hours
 //   (the rooms list's alerts). By default: every message in a DM or a group chat, a message that mentions me in a team
-//   room or the everyone room, a reply in a thread I follow (RoomMessage.following) or that mentions me; plus an AI
+//   room or the everyone room (by name, or "@전체" from someone else), a reply in a thread I follow (RoomMessage.following) or that mentions me; plus an AI
 //   answer to my own question (my private preview, or the answer that went to the room). Reactions never ring (they
 //   are no room.message). Never: a room at 끄기 (or a default of 받지 않음), inside my quiet hours, my own messages, event
 //   lines, deleted messages, a message seen before (a replay after a reconnect, the copy of a preview I posted), or the
@@ -25,6 +25,7 @@
 //   silently when one of them takes care of the sound (web/pwa/sw.js).
 // - The switch (Settings › Notifications, "알림 소리") is this device's only, in localStorage; on by default.
 import { inQuietHours, roomAlert, roomLevel, uuidv7Time, type Room, type RoomAlertSettings, type RoomMessage } from '@mycel/shared/api'
+import { mentionsMe } from './rooms'
 
 /** at most one sound this often, all rooms and tabs together */
 export const COALESCE_MS = 3000
@@ -41,7 +42,7 @@ export const LAST_KEY = 'mycel.roomSound.last'
 export const VIEW_KEY = 'mycel.roomSound.view'
 const LOCK_NAME = 'mycel.roomSound'
 
-export type RingMessage = Pick<RoomMessage, 'id' | 'seq' | 'authorKind' | 'author' | 'askedBy' | 'visibility' | 'mentions' | 'createdAt' | 'deletedAt'> & Partial<Pick<RoomMessage, 'threadRootId' | 'alsoInRoom' | 'following'>> & { event?: unknown }
+export type RingMessage = Pick<RoomMessage, 'id' | 'seq' | 'authorKind' | 'author' | 'askedBy' | 'visibility' | 'mentions' | 'createdAt' | 'deletedAt'> & Partial<Pick<RoomMessage, 'threadRootId' | 'alsoInRoom' | 'following' | 'mentionsAll'>> & { event?: unknown }
 
 export interface RingInput {
   roomId: string
@@ -81,7 +82,7 @@ export function shouldRing(i: RingInput): boolean {
   if (m.visibility !== 'room') return false
   // the server's rule for its notices: a mention, a reply in a thread I follow, and at 모든 메시지 any message of the room
   return roomAlert({
-    level, mentioned: m.mentions.includes(meId), reply: !!m.threadRootId, alsoInRoom: !!m.alsoInRoom,
+    level, mentioned: mentionsMe(m, meId), reply: !!m.threadRootId, alsoInRoom: !!m.alsoInRoom,
     following: !!m.following, threadReplies: i.alerts?.threadReplies ?? true,
   }) !== null
 }

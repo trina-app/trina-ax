@@ -21,7 +21,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
-import { aiMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
+import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
@@ -37,7 +37,7 @@ import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
-import { pickedInMessage, useMentionMenu } from './useMentionMenu'
+import { MENTION_ALL_WORDS, pickedInMessage, useEveryone, useMentionMenu } from './useMentionMenu'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -256,8 +256,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   // a mention is the name as it was typed: the person's name now (the directory) and as the member list has it, so
   // "@Ben" still stands out after Ben renamed himself
   const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
-  // "@트리나" stands out like a person's name (the server asked the AI for it)
-  const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...aiMentionNames(m.body, mentioned)]), [m.body, mentioned, ai])
+  // "@트리나" stands out like a person's name (the server asked the AI for it), "@전체" too (it mentions everyone)
+  const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...aiMentionNames(m.body, mentioned)]), [m, mentioned, ai])
   const [press, setPress] = useState(0)
   const pressedAt = useRef(0)
   const menuOn = !deleted && !editing && (m.visibility === 'room' || removable)
@@ -327,7 +327,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
             <p className="text-reading leading-reading break-words whitespace-pre-wrap text-ink">
               {parts.map((p, i) =>
                 p.userId ? (
-                  <span key={i} className={clsx('font-medium text-accent-text', p.userId === meId && 'rounded bg-accent-soft px-0.5')}>
+                  <span key={i} className={clsx('font-medium text-accent-text', (p.userId === meId || (p.userId === ALL_MENTION_ID && m.author?.id !== meId)) && 'rounded bg-accent-soft px-0.5')} data-mention={p.userId === ALL_MENTION_ID ? 'all' : undefined}>
                     {p.text}
                   </span>
                 ) : (
@@ -520,16 +520,19 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
   const [draft, setDraft] = useState(body0)
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
-  // the mentions it has stand out as they do on the message, and stay mentions while they are whole
-  const [picked] = useState(() => pickedInMessage(body0, initial))
-  const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked })
+  // the mentions it has stand out as they do on the message (its "@전체" too), and stay mentions while they are whole
+  const [picked] = useState(() => pickedInMessage(body0, [...initial, ...allMentionNames(m, MENTION_ALL_WORDS)]))
+  // "@전체" where the room offers it, or kept where the message has it already (an edit notifies nobody)
+  const offered = useEveryone(roomId, members, meId)
+  const everyone = offered ?? (m.mentionsAll ? { count: members.filter((x) => x.id !== meId).length } : null)
+  const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked, everyone })
   const save = async () => {
     const body = draft.trim()
     if (!body || busy) return
     if (body === body0) return onDone()
     setBusy(true)
     try {
-      await useRooms.getState().edit(roomId, m.id, body, mention.mentions())
+      await useRooms.getState().edit(roomId, m.id, body, mention.mentions(), mention.mentionsAll())
       onDone()
     } catch (e) {
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })

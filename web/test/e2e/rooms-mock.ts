@@ -10,7 +10,7 @@ let seq = 100
 
 export interface MockRoom {
   /** the bodies of POST /api/rooms/:id/messages, in order */
-  sent: { body: string; mentions: string[]; threadRootId?: string | null }[]
+  sent: { body: string; mentions: string[]; mentionsAll?: boolean; threadRootId?: string | null }[]
   /** the reactions put on or taken off (PUT …/reactions), in order */
   reacted: { messageId: string; emoji: string; on: boolean }[]
 }
@@ -19,14 +19,15 @@ export interface MockRoom {
  * more contract fields as they are (reactions, a thread's summary, …). */
 export interface MockMessage { id: string; author: { id: string; name: string }; body: string; mentions?: string[]; threadRootId?: string; extra?: Record<string, unknown> }
 
-export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[] }): Promise<MockRoom> {
+/** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat) */
+export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm' }): Promise<MockRoom> {
   const state: MockRoom = { sent: [], reacted: [] }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
   const members = [{ id: 'olga', name: 'Olga' }, ...o.members]
-  const message = (m: { id: string; author: { id: string; name: string } | null; body: string; mentions?: string[]; threadRootId?: string; extra?: Record<string, unknown> }, n: number) => ({
+  const message = (m: { id: string; author: { id: string; name: string } | null; body: string; mentions?: string[]; mentionsAll?: boolean; threadRootId?: string; extra?: Record<string, unknown> }, n: number) => ({
     id: m.id, roomId: ROOM_ID, seq: n, authorKind: 'user', author: m.author, askedBy: null, visibility: 'room', body: m.body, replyTo: null,
-    mentions: m.mentions ?? [], files: [], createdAt: at(n), editedAt: null, deletedAt: null,
+    mentions: m.mentions ?? [], ...(m.mentionsAll ? { mentionsAll: true } : {}), files: [], createdAt: at(n), editedAt: null, deletedAt: null,
     ...(m.threadRootId ? { threadRootId: m.threadRootId } : {}), ...(m.extra ?? {}),
   })
   const all = (o.messages ?? []).map((m, i) => message(m, i + 1))
@@ -34,7 +35,7 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
   const replies = (root: string) => all.filter((m) => (m as { threadRootId?: string }).threadRootId === root)
   const last = Math.max(0, ...messages.map((m) => m.seq))
   const room = {
-    id: ROOM_ID, kind: 'group', name: '디자인 리뷰', canRename: true, managerId: 'olga', groupId: null, memberCount: members.length,
+    id: ROOM_ID, kind: o.kind ?? 'group', name: o.kind === 'all' || o.kind === 'dm' ? null : '디자인 리뷰', canRename: true, managerId: 'olga', groupId: null, memberCount: members.length,
     peers: o.members.slice(0, 4), lastSeq: last, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false,
     lastReadSeq: last, lastMessage: null, muted: false, createdAt: at(-60), activityAt: at(messages.length),
   }
@@ -67,7 +68,7 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
       state.sent.push(b)
       const n = ++seq
       const id = `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
-      return route.fulfill(json(message({ id, author: { id: 'olga', name: 'Olga' }, body: b.body, mentions: b.mentions }, n), 201))
+      return route.fulfill(json(message({ id, author: { id: 'olga', name: 'Olga' }, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll }, n), 201))
     }
     return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
   })

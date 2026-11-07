@@ -222,6 +222,9 @@ export const RoomMessage = z.object({
   replyTo: RoomQuote.nullable(),
   /** the members this message mentions (from what the sender picked; only people in the room) */
   mentions: z.array(UserId),
+  /** "@전체" (everyone): the sender picked it from the "@" list, so the message mentions every member who can see it but
+   * its sender (docs/DECISIONS.md "@전체"). Absent: no (older servers never send it) */
+  mentionsAll: z.boolean().optional(),
   files: z.array(RoomFile),
   createdAt: IsoTime,
   editedAt: IsoTime.nullable(),
@@ -375,6 +378,9 @@ export const SendRoomMessageBody = z.object({
   /** a thread reply that also goes to the room's timeline ("대화방에도 보내기"); only with threadRootId */
   alsoInRoom: z.boolean().optional(),
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).default([]),
+  /** "@전체" picked from the "@" list: notify every member who can see the message as a mention (never the text alone). In
+   * the everyone room only an owner or admin may (403 otherwise) */
+  mentionsAll: z.boolean().optional(),
   /** uploaded first with POST /api/rooms/:id/files */
   fileIds: z.array(Uuid7).max(ROOM_FILES_MAX).default([]),
   /** client-made id: sending the same one again (after a reconnect) returns the first message */
@@ -383,6 +389,8 @@ export const SendRoomMessageBody = z.object({
 export const EditRoomMessageBody = z.object({
   body: z.string().min(1).max(ROOM_MESSAGE_MAX),
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).default([]),
+  /** the message keeps (or gets) "@전체"; an edit notifies nobody */
+  mentionsAll: z.boolean().optional(),
 }).strict()
 export const MarkRoomReadBody = z.object({ seq: z.number().int().nonnegative() }).strict()
 /** my position and badge after a read; mentioned: an unread message or followed reply still mentions me (older servers
@@ -408,7 +416,7 @@ export const ROOMS = {
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it.' }),
-  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions and files; DMs, group chats, mentions and followed threads notify.' }),
+  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @전체 for everyone: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
   reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: 'Put one of the fixed reactions on a message I can see, or take mine off. Never notifies.' }),

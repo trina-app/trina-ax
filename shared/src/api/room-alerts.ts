@@ -7,8 +7,9 @@
 // - My default (Settings › Notifications › 대화, "알림 받을 메시지"): 'direct' (1:1 and group chats: every message; team
 //   rooms and the everyone room: what mentions me), 'all' (every message of every room I am in) or 'none' (nothing).
 // - A room's own level (the room's bell): 'all', 'mentions' or 'off'; none set = my default for its kind.
-// - A mention of me, and a reply in a thread I follow (when "내가 참여한 스레드의 답글" is on), count at every level but
-//   'off' (and 'none', which is 'off' for every room without a level of its own).
+// - A mention of me ("@전체" from someone else counts as one), and a reply in a thread I follow (when "내가 참여한
+//   스레드의 답글" is on), count at every level but 'off' (and 'none', which is 'off' for every room without a level of
+//   its own).
 // - Quiet hours ("방해 금지 시간"): no push and no sound; the notice and the badges stay.
 import { z } from 'zod'
 

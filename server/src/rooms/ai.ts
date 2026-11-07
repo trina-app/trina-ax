@@ -233,12 +233,12 @@ export class RoomAi implements RoomTurns {
     const fold: MessageRow[] = []
     if (q && pointsBack(asked?.content ?? '')) {
       // every one at most ROOM_FOLD_WINDOW_MS before the question; the run ends at someone else's message, an earlier
-      // @-question, or a message of the asker's that was meant for someone (a mention, a quoted reply)
+      // @-question, or a message of the asker's that was meant for someone (a mention, "@전체", a quoted reply)
       const askedAt = Date.parse(q.created_at)
       for (const m of rows) {
         if (m.author_kind !== 'user' || m.author_id !== o.userId || questions.has(m.id)) break
         if (askedAt - Date.parse(m.created_at) > ROOM_FOLD_WINDOW_MS) break
-        if (m.reply_to_id || parseMentions(m.mentions).length) break
+        if (m.reply_to_id || parseMentions(m.mentions).length || m.mentions_all) break
         fold.push(m)
       }
     }
