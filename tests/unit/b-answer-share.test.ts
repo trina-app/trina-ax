@@ -21,7 +21,8 @@ import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { answerCutLine } from '../../server/src/chat/answer-share'
 import { readMigrations } from '../../server/src/db'
-import { addSources, sourceKey, type ReadSource } from '../../server/src/chat/read-scope'
+import { addSources, type ReadSource } from '../../server/src/chat/read-scope'
+import { SourceLog } from '../../server/src/files/sources'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -471,9 +472,9 @@ describe('linked files: a row each, the switch, attaching', () => {
     const body = { roomId: rooms.marketing, clientMessageId: cm() }
     const r = await share('alice', a, body)
     expect(r.json).toMatchObject({ status: 'confirm', files: [{ path: at, attach: 'yes', unable: 1 }], provenance: null })
-    // an older client cannot attach: it is told about both
+    // an older client cannot attach: it is told about both, the file's place too
     expect(r.json.people).toBe(1)
-    expect(r.json.places).toEqual([])
+    expect(r.json.places).toEqual([{ kind: 'mine' }])
   })
 
   test('only files of this answer that may go: anything else is refused, nothing sent', async () => {
@@ -543,6 +544,100 @@ describe('linked files: a row each, the switch, attaching', () => {
     await expect(files.fromTeamFile('alice', rooms.marketing, 'groups/marketing/budget-link.md')).rejects.toMatchObject({ code: 'not_found' })
     await expect(files.fromTeamFile('alice', rooms.finance, 'shared/glossary.md')).rejects.toMatchObject({ code: 'not_found' })
     await expect(files.fromTeamFile('bob', rooms.all, BRIEF)).rejects.toMatchObject({ code: 'not_found' })
+  })
+})
+
+describe('review: what the check does not read, does not miss, and what it costs', () => {
+  test('a folder link: everyone may list it, no question; some may not, a row nobody attaches', async () => {
+    expect((await share('alice', answer('alice', `[폴더](/files/view?path=groups/marketing)`), { roomId: rooms.marketing })).json.status).toBe('sent')
+    const r = await share('alice', answer('alice', `[폴더](/files/view?path=groups/marketing)`), { roomId: rooms.all })
+    expect(r.json).toMatchObject({ status: 'confirm', files: [{ name: 'marketing', path: 'groups/marketing', missing: false, attach: 'no', unable: 1 }], provenance: null })
+    // a folder I cannot list reads like a missing file
+    const hidden = await share('alice', answer('alice', `[폴더](/files/view?path=groups/finance)`), { roomId: rooms.marketing })
+    expect(hidden.json.files).toEqual([{ name: '', missing: true, attach: 'hidden', unable: 1 }])
+  })
+
+  test('more links than rows: the rest is one row nothing is told about, so the last link is not sent unasked', async () => {
+    const open = Array.from({ length: 100 }, (_, i) => { const p = `shared/overflow/g${i}.md`; put(p, `${i}\n`); return link(p) })
+    put('users/alice/private-101.md', 'x\n')
+    const r = await share('alice', answer('alice', [...open, link('users/alice/private-101.md')].join('\n')), { roomId: rooms.marketing })
+    expect(r.json.status).toBe('confirm')
+    expect(r.json.files.length).toBeLessThanOrEqual(100)
+    expect(r.json.files.at(-1)).toEqual({ name: '', missing: true, attach: 'hidden', unable: 1 })
+  })
+
+  test('every ten linked files past the first take one more send: no cheap probe of who opens what', async () => {
+    const rs = roomsOf(h.ctx)
+    const t = clock + 3_600_000
+    rs.clock = () => t
+    try {
+      const paths = Array.from({ length: 25 }, (_, i) => { const p = `users/bob/probe/f${i}.md`; put(p, `${i}\n`); return p })
+      const a = answer('bob', paths.map((p) => link(p)).join('\n'))
+      // 3 sends each (1 + 2 for links 11–25): six checks fit the burst of 20, the seventh does not
+      for (let i = 0; i < 6; i++) expect((await share('bob', a, { roomId: rooms.all })).json.status).toBe('confirm')
+      expect((await share('bob', a, { roomId: rooms.all })).status).toBe(429)
+    } finally {
+      // the budget refills between requests again for the tests after this one
+      clock = t + 3_600_000
+      rs.clock = () => (clock += 10_000)
+    }
+  })
+
+  test('a file moved on this branch keeps its hash: the move covers my note like a copy', async () => {
+    const id = crypto.randomUUID().slice(0, 8)
+    const text = `메모 ${id}\n`, own = `users/alice/notes-${id}.md`, to = `shared/moved/${id}.md`
+    const s1 = put(own, text)
+    const a = answer('alice', '옮겼어요', { read: [{ path: own, sha256: s1 }], scope: [{ type: 'user', id: 'alice' }], listed: true })
+    fs.rmSync(path.join(h.ctx.files.fx.root, ...own.split('/')))
+    put(to, text)
+    const db = h.ctx.db
+    const turnId = uuidv7()
+    db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, message_id) VALUES (?, ?, 'alice', 'claude-code', 'done', ?)").run(turnId, a.chatId, a.answerId)
+    db.query("INSERT INTO file_events (turn_id, user_id, path, action, detail) VALUES (?, 'alice', ?, 'delete', ?)").run(turnId, own, JSON.stringify({ movedTo: to, folder: false }))
+    db.query("INSERT INTO file_events (turn_id, user_id, path, action, detail) VALUES (?, 'alice', ?, 'create', ?)").run(turnId, to, JSON.stringify({ movedFrom: own, folder: false }))
+    expect((await share('alice', a, { roomId: rooms.all })).json.status).toBe('sent')
+  })
+
+  test("what made an attachable file is read only from my own chats: another person's chat tells nothing", async () => {
+    // erin's AI read her conversations, then saved a file in groups/marketing that alice may open and bob may not
+    const at = `groups/marketing/erin-made-${crypto.randomUUID().slice(0, 6)}.md`
+    answer('erin', '만들었어요', { scope: [{ type: 'room', id: rooms.group }], saved: [{ path: at, sha256: put(at, '# erin\n') }] })
+    const r = await share('alice', answer('alice', `파일: ${link(at)}`, { scope: [], listed: true }), { roomId: rooms.all })
+    expect(r.json).toMatchObject({ status: 'confirm', files: [{ attach: 'yes', unable: 1 }], provenance: null })
+    // made by my own confidential chat: what made it is not known
+    const mine = `users/alice/conf-${crypto.randomUUID().slice(0, 6)}.md`
+    const made = answer('alice', '만들었어요', { saved: [{ path: mine, sha256: put(mine, '# conf\n') }] })
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(made.chatId)
+    const conf = await share('alice', answer('alice', `파일: ${link(mine)}`, { scope: [], listed: true }), { roomId: rooms.marketing })
+    expect(conf.json).toMatchObject({ status: 'confirm', provenance: { unknown: true } })
+  })
+
+  test('my choice of files changes the line: asked again for that choice (not as a change), then it goes', async () => {
+    const at = 'users/alice/read-choice.md'
+    const s1 = put(at, '# 읽고 링크한 파일\n')
+    const a = answer('alice', `읽었어요: ${link(at)}`, { read: [{ path: at, sha256: s1 }], scope: [{ type: 'user', id: 'alice' }], listed: true })
+    const body = { roomId: rooms.marketing, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    expect(ask.json).toMatchObject({ status: 'confirm', provenance: null })
+    // the switch off: the file's place comes into the line
+    const choice = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: [] })
+    expect(choice.json).toMatchObject({ status: 'confirm', reason: 'choice', provenance: { people: 1, places: [{ kind: 'mine' }] } })
+    const sent = await share('alice', a, { ...body, confirmKey: choice.json.confirmKey, attach: [] })
+    expect(sent.json.status).toBe('sent')
+    expect(sent.json.message.files).toEqual([])
+    // something changed meanwhile is "changed"
+    const b = answer('alice', '내 메모', { read: ['users/alice/notes.md'] })
+    expect((await share('alice', b, { roomId: rooms.marketing, confirmKey: 'stale' })).json.reason).toBe('changed')
+  })
+
+  test('a file seen with two contents in one turn is not taken as listed (the list keeps the last hash)', () => {
+    const log = new SourceLog()
+    log.note('finance/b.md', 'read', { agent: null, sha256: 'a'.repeat(64) })
+    expect(log.has('finance/b.md')).toBe(true)
+    log.note('finance/b.md', 'grep', { agent: null })
+    expect(log.has('finance/b.md')).toBe(true)
+    log.note('finance/b.md', 'read', { agent: null, sha256: 'b'.repeat(64) })
+    expect(log.has('finance/b.md')).toBe(false)
   })
 })
 

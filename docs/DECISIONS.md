@@ -12373,7 +12373,10 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
     when nobody else can. A file I cannot open now is never named and its count is everyone else ("missing": gone and not
     mine read the same, `attach: 'hidden'`); the app shows them as "내가 열 수 없는 파일 {n}개". A row some cannot open
     gets a **첨부** switch, on by default ("첨부하면 {n}명이 더 보게 돼요"; off: "링크만 가요"; over 50 MB: "50MB가 넘어
-    첨부할 수 없어요"); at most 10 are on. Attached, `RoomFiles.fromTeamFile` copies the file as my room upload, with my
+    첨부할 수 없어요"); at most 10 are on. A folder link (the app opens it on the files screen) is a row of who may list
+    it, never attached. At most 100 rows: past them the rest of the links is one more row nothing is told about
+    (everyone else counted), so no link goes unasked. A member's check is the rules on the path I resolved (the file on
+    disk is the same for everyone), not a walk per member. Attached, `RoomFiles.fromTeamFile` copies the file as my room upload, with my
     read access checked again at that moment (a folder, a link, a hard-linked or quarantined file and one I may not read
     all answer 404 like a missing one), through the upload's own `create()` path and limits (50 MB, the storage check,
     photo metadata cut out), before `Rooms.send`; copies that do not go are removed. Only rows of this answer that may go
@@ -12385,9 +12388,13 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
     Sources: the files every answer on the branch read (`message_sources`, each with the sha256 it had), the session
     scope's rooms, connections, shared Drives, in-app browser and every file-type source the source lists do not record
     (below), and for an attached AI-made file what the turn that made it used (its branch's files and its chat's scope;
-    the newest content event of the file with its current hash names the turn). Left out: material every member can read;
+    the newest content event of the file with its current hash names the turn), only when that turn is in one of my own
+    chats: another person's chat is never read (what it used would tell me who they talk to; review), and my own
+    confidential chat counts as not known. Left out: material every member can read;
     **the hash rule**: a file whose identical content (the same sha256) a turn on this branch saved to a place every
-    member can open now, where that copy is still there with that hash (a file read without a sha256 is never left out);
+    member can open now, where that copy is still there with that hash (a file read without a sha256 is never left out;
+    a file moved on the branch, whose move records no hash, is looked at by its hash now; a copy I cannot open myself is
+    not looked at);
     and linked files being attached (their row says who more will see them). An answer the scope does not describe
     (another branch, an earlier session) gives "이 답이 참고한 자료를 다 알 수 없어요" instead of a count of everyone. A chat
     that read rooms with no room in its scope (`rooms_seen`) still counts everyone else.
@@ -12396,7 +12403,8 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
     them; a card names all three "my folder" once. A scope started by this build is stored as `{sources, v: 2,
     unlisted}`: `unlisted` keeps the file-type sources (folder, top, own folder) that came at least once from something
     other than a read the answer's source list records (an attachment, project instructions, a skill, make_file's inputs,
-    search hits without a passage, more files than the list holds). Only the listed ones are replaced by their files'
+    search hits without a passage, more files than the list holds, a file seen with two contents in one turn, whose list
+    keeps the last hash only, and reads under skills/ and .system, which the check does not take from the list). Only the listed ones are replaced by their files'
     rows (and so by the hash rule); unlisted ones count as they are. An older scope (no `v`) counts every source as
     before, the safe side: its "my folder" may have been the browser or a connection.
   - **The buttons and exits.** "첨부해서 보내기" when a switch is on, else "보내기": the focused default, also when only the
@@ -12406,13 +12414,17 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
     (SHA-256) with a random secret of this server process over the room, the answer, the members, each source with who
     misses it, the rows with who cannot open each and what each may attach. Sent back with the request, it goes; any
     change (a member swapped for another with the same count, someone lost access, a file moved, the server restarted)
-    is a new key and the person is asked again ("그 사이 못 여는 사람이 늘었어요"). No id is in it. The switches the person
-    turns off are not part of it (a file left as a link only narrows what goes); the line is the one for the switches as
-    offered. Older clients keep `people`/`places`/`otherPlaces` and `confirm` = that number (nothing attached), with its
-    known limit: one person leaving and another joining between the question and the yes keeps the number.
+    is a new key and the person is asked again ("그 사이 못 여는 사람이 늘었어요", `reason: 'changed'`). No id is in it. The
+    key is for the line as it reads with the files the person chose: turning a switch off can bring that file's place
+    into the line (and an attached AI-made file brings what made it), so the same state with another line is asked again
+    for that choice (`reason: 'choice'`, no "changed" line), then it goes. Older clients keep `people`/`places`/
+    `otherPlaces` (for nothing attached) and `confirm` = that number (nothing attached), with its known limit: one person
+    leaving and another joining between the question and the yes keeps the number.
   - **Never who, nothing about existence, no free probe.** Counts only, never a person's name or id; a 1:1 or group
     conversation is never named. A file is named only when I can open it now. Every request, the check too, takes one of
-    my room sends first (the 429 budget). A confidential conversation is never shared.
+    my room sends first (the 429 budget), and one more for every ten linked files past the first (a row per file is a
+    count per file: an answer made to link many paths costs as many sends). A confidential conversation is never
+    shared.
   - **In the room.** A linked file a member cannot open shows its name after a lock; hover or keyboard focus says
     "권한이 없어 열 수 없어요", and so does a tap (a toast: touch has no tooltip). Nothing of the file is loaded. An AI
     answer in a room uses the same. An attached file's download button is named by what it shows (name, size) and then

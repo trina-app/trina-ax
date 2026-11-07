@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 08:48
 - Branch: `feat/share-to-room-files`
-- Status: in progress
+- Status: done
 - Where: this repo, Team AX core (`server/src/chat/answer-share.ts`, `server/src/chat/read-scope.ts`,
   `server/src/rooms/files.ts`, `shared/src/api/chats.ts`, `web/src/components/chat/ShareToRoom.tsx`). Why: chat, rooms,
   permissions and files are core (docs/REPOSITORY-RULES.md).
@@ -73,4 +73,20 @@ the answer-share, rooms, room files, read-scope and chats unit tests, `tests/sec
 
 ## Result
 
-Filled in at the end.
+Built as planned: access rows with the 첨부 switch and `RoomFiles.fromTeamFile`, the provenance line with the hash
+rule, the `confirmKey`, the read scope's `via` and its record of unlisted file sources, the lock in room messages, the
+toast and the audit count, in five languages, with server, web unit and e2e tests (1440 and 390 px, axe).
+
+Differs from the plan:
+
+- The read scope keeps, besides `via`, which file-type sources did not come from reads the answer's source list records
+  (`{sources, v: 2, unlisted}`): without it, inputs that are not in the list (make_file's sources, attachments, project
+  instructions, skills) would have dropped out of the provenance line. A turn of the branch that never ended counts every
+  place of the scope.
+- The `confirmKey` binds the attach offers, not the switches the person turns off (a file left as a link only narrows
+  what goes).
+- The new e2e found an existing axe problem in rooms: an attached file's download button was named differently from what
+  it shows; it now reads its name and size, then "내려받기".
+- "이미 보냄" is not done: a room message does not record which answer it came from; it needs a column.
+
+PR: see the pull request of branch `feat/share-to-room-files`.

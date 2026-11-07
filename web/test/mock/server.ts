@@ -1546,7 +1546,7 @@ export class MockServer {
       const attach = [...new Set((c.body.attach ?? []) as string[])]
       if (rows.some((r) => r.unable > 0) || provenance) {
         const yes = c.body.confirmKey === confirmKey || (c.body.confirmKey === undefined && (c.body.confirm ?? 0) >= others)
-        if (!yes) return { status: 'confirm', people: others, places: provenance?.places ?? [], otherPlaces: !!provenance?.otherPlaces || rows.some((r) => r.missing), files: rows, provenance, confirmKey }
+        if (!yes) return { status: 'confirm', people: others, places: provenance?.places ?? [], otherPlaces: !!provenance?.otherPlaces || rows.some((r) => r.missing), files: rows, provenance, confirmKey, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
         if (attach.length > ROOM_FILES_MAX || attach.some((p) => !may.has(p))) fail('validation', 400)
       }
       // the team files it links to that I may open (a viewer's own check, like an AI answer in a room)

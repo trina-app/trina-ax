@@ -10,7 +10,8 @@ import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
 // ---------------- an answer sent to a room ("대화방에 보내기") ----------------
-/** at most this many linked files are listed in a "confirm" (the answer's links beyond it are not checked one by one) */
+/** at most this many rows in a "confirm": past it the rest of the answer's links is one more row nothing is told about
+ * (everyone else counted) */
 export const ANSWER_SHARE_FILES_MAX = 100
 export const ShareAnswerToRoomBody = z.object({
   roomId: Uuid7,
@@ -79,6 +80,9 @@ export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
     files: z.array(AnswerShareFile).max(ANSWER_SHARE_FILES_MAX),
     provenance: AnswerShareProvenance.nullable(),
     confirmKey: z.string(),
+    /** asked again after a confirmKey: `changed`, something changed meanwhile (the app says so); `choice`, the same state,
+     * but the files I chose to attach change the provenance line (shown for that choice) */
+    reason: z.enum(['changed', 'choice']).optional(),
   }),
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>

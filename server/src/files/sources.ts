@@ -23,7 +23,7 @@ export const SOURCE_LOCS_MAX = 20
 /** files kept per answer: an answer that read more keeps the first ones */
 export const SOURCE_FILES_MAX = 500
 
-interface Entry { path: string; via: Set<SourceVia>; locs: Map<string, SourceLoc>; sha256: string | null; main: boolean; sub: boolean }
+interface Entry { path: string; via: Set<SourceVia>; locs: Map<string, SourceLoc>; sha256: string | null; main: boolean; sub: boolean; changed?: true }
 
 /** The files one turn's agents read or saw passages of, in the order first seen. */
 export class SourceLog {
@@ -42,6 +42,8 @@ export class SourceLog {
     }
     e.via.add(via)
     if (o.agent) e.sub = true; else e.main = true
+    // seen with two contents in one turn (read, changed, read again): the list keeps the last hash only
+    if (o.sha256 && e.sha256 && o.sha256 !== e.sha256) e.changed = true
     if (o.sha256) e.sha256 = o.sha256
     for (const l of o.locs ?? []) {
       if (!l || e.locs.size >= SOURCE_LOCS_MAX) continue
@@ -50,8 +52,9 @@ export class SourceLog {
     }
   }
   get size() { return this.files.size }
-  /** is this path in the list (it will be saved with the answer) */
-  has(path: string): boolean { return this.files.has(path) }
+  /** is this path in the list (it will be saved with the answer) with one content: a file seen with two hashes in this
+   * turn is not, as the list keeps only the last ("대화방에 보내기" goes by that hash, chat/read-scope.ts) */
+  has(path: string): boolean { const e = this.files.get(path); return !!e && !e.changed }
   entries(): readonly Entry[] { return [...this.files.values()] }
 }
 

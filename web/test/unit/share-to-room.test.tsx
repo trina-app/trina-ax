@@ -321,6 +321,28 @@ test('the send again carries the key and the files switched on, with the same id
   }
 })
 
+test('a line that changed with my own choice of files is shown as it now reads, without "changed meanwhile"', async () => {
+  serve()
+  signIn()
+  answers = [
+    { body: confirm({ files: [files.mine] }) },
+    { body: confirm({ files: [files.mine], provenance: { people: 5, places: [{ kind: 'mine' }], otherPlaces: false }, confirmKey: 'key-2', reason: 'choice' }) },
+  ]
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await toConfirm()
+  try {
+    await tick(m, switches(m)[0]!)
+    await m.click('share-room-confirm-send')
+    await m.until(() => m.find('share-room-provenance'), 'the line for my choice')
+    expect(m.find('share-room-again')).toBeNull()
+    expect(switches(m).map((x) => x.checked)).toEqual([false])
+    expect(m.get('share-room-confirm-send').textContent).toBe(en('shareRoom.send'))
+    expect(shares()[1]!.body).toMatchObject({ confirmKey: 'key-1', attach: [] })
+  } finally {
+    await m.unmount()
+  }
+})
+
 test('취소, ✕ and Esc all go back to the list with the room and the note; ✕ and Esc on the list close it', async () => {
   serve()
   signIn()

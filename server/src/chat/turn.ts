@@ -1467,10 +1467,12 @@ export class TurnExec {
     if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
     // reads the answer's source list records (with their sha256: "대화방에 보내기" goes by those files) apart from the
-    // rest (make_file's inputs, search hits without a passage, more than the list holds), which stay counted as they are
+    // rest (make_file's inputs, search hits without a passage, more than the list holds, a file seen with two contents,
+    // skills/ and .system, which "대화방에 보내기" does not take from the list), which stay counted as they are
     const log = this.files.sources
-    const inLog = [...paths].filter((p) => log.has(p))
-    const add: ReadSource[] = [...[...paths].filter((p) => !log.has(p)), ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
+    const inList = (p: string) => log.has(p) && !/^(skills|\.system)(\/|$)/.test(p)
+    const inLog = [...paths].filter(inList)
+    const add: ReadSource[] = [...[...paths].filter((p) => !inList(p)), ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
     for (const p of listed ?? []) add.push({ type: 'name', path: p })
     paths.clear()
     names?.clear()

@@ -29,7 +29,7 @@ import { Button, inputCls, Modal, Spinner, Switch, useMediaQuery } from '../ui'
 import { ROOM_OPTION_CLS, RoomOptionLabel } from './RoomRefMenu'
 
 /** the server's "confirm"; `seq`: one more each time it asks (each is a step of its own); `again`: it asked again after
- * my yes (something changed meanwhile) */
+ * my yes because something changed meanwhile (not when only my choice of files changed its line) */
 interface Ask { room: Room; files: AnswerShareFile[]; provenance: AnswerShareProvenance | null; confirmKey: string; seq: number; again: boolean }
 
 /** The switches a new "confirm" starts with: the files that may go, on, the first ROOM_FILES_MAX; asked again, my own
@@ -92,7 +92,9 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose }: { ch
       const r = await useRooms.getState().shareAnswer(chatId, messageId, { roomId: to.id, ...(n ? { note: n } : {}), ...(yes ?? {}), clientMessageId: sendId.current.id })
       if (r.status === 'confirm') {
         setAttach(startAttach(r.files, yes && ask ? { files: ask.files, on: attach } : undefined))
-        setAsk((a) => ({ room: to, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: !!yes }))
+        // asked again: said so when something changed meanwhile; a line that changed with my own choice of files is only
+        // shown as it now reads
+        setAsk((a) => ({ room: to, files: r.files, provenance: r.provenance, confirmKey: r.confirmKey, seq: (a?.seq ?? 0) + 1, again: !!yes && r.reason !== 'choice' }))
         setBusy(false)
         return
       }
