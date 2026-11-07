@@ -599,8 +599,9 @@ func cmdCredentialsEscrowOut(e *env, args []string) (int, error) {
 var orKeyRE = regexp.MustCompile(`^sk-or-[A-Za-z0-9_-]{16,200}$`)
 
 // hosted-speech-key-set < { key: "sk-or-…" | null }: the hosting service's speech-to-text key for this team (hosted
-// voice input and video sound, 10 free hours a month), kept by admin.js hosted-speech-key encrypted with the
-// credentials vault. The key goes only on admin.js's stdin: never in an argument, an error or the answer { ok, set }.
+// voice input and video sound, the plan's free hours a month: plan.json speechFreeHours, else 10), kept by admin.js
+// hosted-speech-key encrypted with the credentials vault. The key goes only on admin.js's stdin: never in an argument,
+// an error or the answer { ok, set }.
 // No restart: the server reads it at its next speech request.
 func cmdHostedSpeechKeySet(e *env, args []string) (int, error) {
 	t := newTenant(e, "hosted-speech-key-set")

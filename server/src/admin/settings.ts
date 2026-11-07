@@ -80,7 +80,7 @@ export function getTeamSettings(db: Database): TeamSettingsT {
     // Equal endpoints keep updates closed and let the admin read, replace or clear the setting.
     else if (r.key === 'updateWindow') out[r.key] = '00:00-00:00'
   }
-  // not chosen: voice input goes through OpenRouter once there is a key for it, the hosting service's (a hosted team, 10
+  // not chosen: voice input goes through OpenRouter once there is a key for it, the hosting service's (a hosted team, its plan's
   // free hours a month) or the team's own (a team's own server: saving the key turns it on, removing it turns it off).
   // Nothing is stored for it, and an admin's choice, "off" too, always wins
   if (!rows.some((r) => r.key === 'speechProvider') && db.query('SELECT 1 FROM settings WHERE key IN (?, ?)').get(HOSTED_SPEECH_KEY_SETTING, SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'

@@ -565,7 +565,7 @@ export const SMALL_SERVER_CORES = 2
  * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one
  * (too slow; frames still go), off for OpenRouter with the team's own key (team files' sound would go to a third party
  * the team did not pick for it) and on for OpenRouter with the hosting service's key (`hostedKey`: the hosted plan's
- * speech-to-text, zero data retention, 10 free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
+ * speech-to-text, zero data retention, the plan's free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
  * the server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice
  * always wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
 export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number, hostedKey = false): boolean =>

@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -97,5 +98,78 @@ func TestControlPlaneFields(t *testing.T) {
 	}
 	if _, err := Parse([]byte(strings.Replace(cp, `"maxActiveMembers":12,"display":{"name":{"ko":"팀","en":"Team","id":"Tim"}}`, `"maxActiveMembers":null,"display":null`, 1))); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// speechFreeHours (the hosting service's free speech-to-text hours a month): absent or null is the server's default,
+// whole hours 1-1000 are accepted, as by shared/src/cloud-protocol PlanFile.
+func TestSpeechFreeHours(t *testing.T) {
+	base := `{"format":1,"plan":"team","maxConcurrency":3,"memoryMiB":4096,"cpuCores":3,"diskGiB":50`
+	p, err := Parse([]byte(base + `}`))
+	if err != nil || p.SpeechFreeHours != nil {
+		t.Fatalf("absent: %v %+v", err, p)
+	}
+	if p, err = Parse([]byte(base + `,"speechFreeHours":null}`)); err != nil || p.SpeechFreeHours != nil {
+		t.Fatalf("null: %v %+v", err, p)
+	}
+	for _, h := range []int{1, 50, 100, 200, 1000} {
+		p, err := Parse([]byte(base + `,"speechFreeHours":` + itoa(h) + `}`))
+		if err != nil || p.SpeechFreeHours == nil || *p.SpeechFreeHours != h {
+			t.Fatalf("%d: %v %+v", h, err, p)
+		}
+	}
+	for _, bad := range []string{`0`, `-1`, `1001`, `1.5`, `"50"`, `true`} {
+		if _, err := Parse([]byte(base + `,"speechFreeHours":` + bad + `}`)); err == nil {
+			t.Errorf("accepted speechFreeHours %s", bad)
+		}
+	}
+}
+
+// The contract's vectors (shared/src/cloud-protocol/vectors/vectors.json): every plan.json the control plane may send
+// (apply-plan's stdin, the enroll answer's plan) parses here, and a plan the contract refuses is refused here too.
+func TestContractVectors(t *testing.T) {
+	b, err := os.ReadFile("../../../shared/src/cloud-protocol/vectors/vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type cmd struct {
+		Command string          `json:"command"`
+		Stdin   json.RawMessage `json:"stdin"`
+		Why     string          `json:"why"`
+	}
+	var v struct {
+		TenantCommands struct {
+			Allowed []cmd `json:"allowed"`
+			Refused []cmd `json:"refused"`
+		} `json:"tenantCommands"`
+		Enroll struct {
+			Plan json.RawMessage `json:"plan"`
+		} `json:"enroll"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(v.Enroll.Plan); err != nil {
+		t.Fatalf("enroll plan: %v", err)
+	}
+	n := 0
+	for _, c := range v.TenantCommands.Allowed {
+		if c.Command == "apply-plan" {
+			n++
+			if _, err := Parse(c.Stdin); err != nil {
+				t.Errorf("allowed plan refused: %v", err)
+			}
+		}
+	}
+	for _, c := range v.TenantCommands.Refused {
+		if c.Command == "apply-plan" && c.Why == "stdin schema" {
+			n++
+			if _, err := Parse(c.Stdin); err == nil {
+				t.Errorf("refused plan accepted: %s", c.Stdin)
+			}
+		}
+	}
+	if n < 4 {
+		t.Fatalf("only %d plan vectors", n)
 	}
 }
