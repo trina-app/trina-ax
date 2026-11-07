@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 09:06
 - Branch: `fix/pwa-icon-team-logo-size`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`shared/src/team-icon.ts`, `server/src/routes/web-static.ts`, the web app's team settings).
   Why: the tab icon and the installed web app (PWA) are core features of every team server (see
   docs/REPOSITORY-RULES.md)
@@ -62,4 +62,8 @@ Docker; `web/test/e2e/team-icon.spec.ts`.
 
 ## Result
 
-Filled in at the end.
+Built as planned in PR https://github.com/trina-app/trina-ax/pull/159. Differences from the plan:
+
+- After review, the install pictures in Settings › Apps follow the rule too. So do the visible line of the logo row
+  (not only the hint), the Korean team guide and the API reference summary.
+- DECISIONS records the Chrome on macOS caveat: a logo that passes is still drawn inset on a tile.
