@@ -165,7 +165,9 @@ pk_os_identity() {
     id=$(. "$osr" && echo "${ID:-}"); ver=$(. "$osr" && echo "${VERSION_ID:-}")
   fi
   [ ! -r "$mid" ] || m=$(tr -cd '0-9a-f' < "$mid")
-  printf '%s-%s/%s' "$(printf '%s' "$id" | tr -cd 'A-Za-z0-9._-')" "$(printf '%s' "$ver" | tr -cd 'A-Za-z0-9._-')" "$m" | cut -c1-128
+  # no cut: GNU cut ends its output with a newline, BSD cut does not; the name has no newline on any system
+  local s; s=$(printf '%s-%s/%s' "$(printf '%s' "$id" | tr -cd 'A-Za-z0-9._-')" "$(printf '%s' "$ver" | tr -cd 'A-Za-z0-9._-')" "$m")
+  printf '%s' "${s:0:128}"
 }
 # conditions a package may name ("when"): true here?
 pk__userns_restricted() {

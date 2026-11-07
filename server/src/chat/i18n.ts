@@ -183,8 +183,7 @@ export const TEXT = {
   sharedChatDeleteNo: t('공유 채팅은 만든 사람이나 프로젝트를 고칠 수 있는 사람만 지울 수 있어요.', 'Only the person who made a shared chat, or someone who can edit its project, can delete it.', 'Hanya pembuat obrolan bersama, atau orang yang bisa mengubah proyeknya, yang bisa menghapusnya.', "共有チャットを削除できるのは、作成した人かプロジェクトを編集できる人だけです。", "Solo quien creó un chat compartido, o quien puede editar su proyecto, puede eliminarlo."),
   sharedProjectPersonal: t('개인 프로젝트의 채팅은 공유할 수 없어요.', 'Chats of a personal project cannot be shared.', 'Obrolan proyek pribadi tidak bisa dibagikan.', "個人プロジェクトのチャットは共有できません。", "Los chats de un proyecto personal no se pueden compartir."),
   sharedProjectSafeOps: t('안전 작업 모드에서는 채팅을 공유할 수 없어요.', 'Chats cannot be shared while safe operations mode is on.', 'Obrolan tidak bisa dibagikan saat mode operasi aman aktif.', "安全作業モードではチャットを共有できません。", "No se pueden compartir chats mientras el modo de operaciones seguras está activado."),
-  sharedReadConfirm: t(
-    'AI가 {sources}을(를) 읽으려고 해요. 이 채팅을 보는 프로젝트 사람 {n}명 중 {m}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.',
+  sharedReadConfirm: t('AI가 {sources}을(를) 읽으려고 해요. 이 채팅을 보는 프로젝트 사람 {n}명 중 {m}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.',
     'The AI wants to read {sources}. Of the {n, plural, one {# person} other {# people}} in the project who see this chat, {m} cannot see this place. If it does, everyone sees the content in this chat.',
     'AI ingin membaca {sources}. Dari {n} orang proyek yang melihat obrolan ini, {m} tidak bisa melihat tempat ini. Jika dibaca, semua orang melihat isinya di obrolan ini.',
     "AIが{sources}を読もうとしています。このチャットを見るプロジェクトの{n}人のうち{m}人はこの場所を見られません。読むと、全員がこのチャットで内容を見ることになります。",
