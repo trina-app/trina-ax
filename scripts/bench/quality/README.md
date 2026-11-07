@@ -96,8 +96,13 @@ about 20% of each core, so this is the best case of such a server, not its avera
 |---|---|---|---|---|---|---|
 | [keyword, this Mac](results/2026-11-07-keyword-mac.md) | 47.3% | 38.7% | 0.419 | 83% / 90% / 63% | 547 pieces/s | 15.6 / 32.8 ms |
 | [keyword, Docker 2 CPUs 4 GB](results/2026-11-07-keyword-docker-2cpu.md) | 47.3% | 38.7% | 0.419 | 83% / 90% / 63% | 465 pieces/s | 14.6 / 30.4 ms |
+| [combined, this Mac](results/2026-11-07-combined-mac.md) (keyword in the same run: as above) | 51.3% | 42.0% | 0.463 | 87% / 93% / 73% | 8.1 pieces/s embedded (6 threads) | 32.5 / 82.9 ms (keyword 20.3 / 64.1, worker) |
+| [combined, Docker 2 CPUs 4 GB](results/2026-11-07-combined-docker-2cpu.md) (the Mac's vectors) | 51.3% | 42.0% | 0.463 | 87% / 93% / 73% | 2.7 pieces/s embedded (server settings: 1 thread, batches of 4) | 35.5 / 87.5 ms (keyword 26.3 / 76.4, worker) |
 
-Paraphrase and cross are 0% for keyword-only, as built. Combined: not run yet (wave 2 not merged).
+Paraphrase and cross are 0% for keyword-only, as built; combined reaches 3.3% and 0% on the full set (70% and 13% at 50
+files). The model alone (no fusion) puts the expected file in its top 8 for paraphrase 4/30, cross 1/30, filename
+29/30, table 27/30 and exact 20/30, with the question embedded from its words joined or as typed alike: the fusion
+with keyword hits takes filename from 29 to 22.
 
 ## Metrics
 

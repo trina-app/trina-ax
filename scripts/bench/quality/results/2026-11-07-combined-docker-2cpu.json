@@ -1,0 +1,7816 @@
+{
+ "label": "2 CPUs 4 GB; vectors from the Mac run; model downloaded in the container; embedding pace on 400 pieces at the server's settings",
+ "date": "2026-11-07T14:22:45.526Z",
+ "commit": "c51e4066",
+ "machine": {
+  "platform": "linux",
+  "arch": "arm64",
+  "cpu": "unknown",
+  "cores": 2,
+  "memoryGb": 7.7,
+  "bun": "1.3.12",
+  "cpuMax": "200000 100000",
+  "memoryMax": "4294967296"
+ },
+ "settings": {
+  "words": "message",
+  "limit": 45,
+  "top": 8,
+  "passage": 1500,
+  "sizes": [
+   3049
+  ],
+  "modesAsked": [
+   "keyword",
+   "combined"
+  ],
+  "modesRun": [
+   "keyword",
+   "combined"
+  ],
+  "bootstrap": 10000,
+  "dueMs": 120000,
+  "embedThreads": 1,
+  "embedBatch": 4,
+  "embedPriority": "background",
+  "searchedIn": "DocSearchWorker"
+ },
+ "corpus": {
+  "questions": 150,
+  "targets": 49,
+  "distractors": 3000,
+  "distractorsKo": 1500,
+  "distractorsEn": 1500,
+  "failedDistractors": 0,
+  "chunks": 22096,
+  "bytes": 0
+ },
+ "cost": {
+  "index": {
+   "files": 3049,
+   "pieces": 22096,
+   "seconds": null,
+   "piecesPerSecond": null,
+   "filesPerSecond": null,
+   "diskMb": 188
+  },
+  "peakRssMb": {
+   "setup": 178,
+   "index": 182,
+   "model": 529,
+   "embed-sample": 529,
+   "embed": 499,
+   "prepare": 499,
+   "query-keyword": 1264,
+   "query-combined": 1299,
+   "report": 1295
+  },
+  "maxRssMb": 1299,
+  "query": {
+   "full (3049)": {
+    "keyword": {
+     "p50": 26.25,
+     "p95": 76.38,
+     "max": 219.78
+    },
+    "combined": {
+     "p50": 35.48,
+     "p95": 87.53,
+     "max": 152.61
+    }
+   }
+  }
+ },
+ "meaning": {
+  "asked": true,
+  "ready": true,
+  "modelDownloadMs": 4392,
+  "embedSample": {
+   "pieces": 400,
+   "ms": 146978,
+   "perSecond": 2.7,
+   "threads": 1,
+   "batch": 4,
+   "peakMiB": 746,
+   "loadPeakMiB": 0
+  },
+  "warmMs": 5481,
+  "byMeaningHits": 1950,
+  "ignored": false
+ },
+ "sizes": [
+  {
+   "name": "full (3049)",
+   "files": 3049,
+   "chunks": 22096,
+   "prepMs": 8
+  }
+ ],
+ "metrics": {
+  "full (3049)": {
+   "keyword": {
+    "overall": {
+     "n": 150,
+     "r8Count": 71,
+     "top1Count": 58,
+     "r8": 0.473,
+     "top1": 0.387,
+     "mrr": 0.419
+    },
+    "paraphrase": {
+     "n": 30,
+     "r8Count": 0,
+     "top1Count": 0,
+     "r8": 0,
+     "top1": 0,
+     "mrr": 0
+    },
+    "exact": {
+     "n": 30,
+     "r8Count": 25,
+     "top1Count": 22,
+     "r8": 0.833,
+     "top1": 0.733,
+     "mrr": 0.766
+    },
+    "table": {
+     "n": 30,
+     "r8Count": 27,
+     "top1Count": 22,
+     "r8": 0.9,
+     "top1": 0.733,
+     "mrr": 0.802
+    },
+    "cross": {
+     "n": 30,
+     "r8Count": 0,
+     "top1Count": 0,
+     "r8": 0,
+     "top1": 0,
+     "mrr": 0
+    },
+    "filename": {
+     "n": 30,
+     "r8Count": 19,
+     "top1Count": 14,
+     "r8": 0.633,
+     "top1": 0.467,
+     "mrr": 0.528
+    },
+    "ko": {
+     "n": 75,
+     "r8Count": 35,
+     "top1Count": 27,
+     "r8": 0.467,
+     "top1": 0.36,
+     "mrr": 0.399
+    },
+    "en": {
+     "n": 75,
+     "r8Count": 36,
+     "top1Count": 31,
+     "r8": 0.48,
+     "top1": 0.413,
+     "mrr": 0.439
+    }
+   },
+   "combined": {
+    "overall": {
+     "n": 150,
+     "r8Count": 77,
+     "top1Count": 63,
+     "r8": 0.513,
+     "top1": 0.42,
+     "mrr": 0.463
+    },
+    "paraphrase": {
+     "n": 30,
+     "r8Count": 1,
+     "top1Count": 0,
+     "r8": 0.033,
+     "top1": 0,
+     "mrr": 0.014
+    },
+    "exact": {
+     "n": 30,
+     "r8Count": 26,
+     "top1Count": 22,
+     "r8": 0.867,
+     "top1": 0.733,
+     "mrr": 0.776
+    },
+    "table": {
+     "n": 30,
+     "r8Count": 28,
+     "top1Count": 22,
+     "r8": 0.933,
+     "top1": 0.733,
+     "mrr": 0.818
+    },
+    "cross": {
+     "n": 30,
+     "r8Count": 0,
+     "top1Count": 0,
+     "r8": 0,
+     "top1": 0,
+     "mrr": 0.004
+    },
+    "filename": {
+     "n": 30,
+     "r8Count": 22,
+     "top1Count": 19,
+     "r8": 0.733,
+     "top1": 0.633,
+     "mrr": 0.704
+    },
+    "ko": {
+     "n": 75,
+     "r8Count": 38,
+     "top1Count": 32,
+     "r8": 0.507,
+     "top1": 0.427,
+     "mrr": 0.461
+    },
+    "en": {
+     "n": 75,
+     "r8Count": 39,
+     "top1Count": 31,
+     "r8": 0.52,
+     "top1": 0.413,
+     "mrr": 0.465
+    }
+   }
+  }
+ },
+ "comparison": {
+  "full (3049)": {
+   "overall": {
+    "r8": {
+     "delta": 0.04,
+     "ci95": [
+      0.007,
+      0.08
+     ],
+     "onlyKeyword": 1,
+     "onlyCombined": 7,
+     "mcnemarP": 0.0703
+    },
+    "top1": {
+     "delta": 0.033,
+     "ci95": [
+      -0.013,
+      0.08
+     ],
+     "onlyKeyword": 4,
+     "onlyCombined": 9,
+     "mcnemarP": 0.2668
+    },
+    "mrr": {
+     "delta": 0.044,
+     "ci95": [
+      0.009,
+      0.081
+     ]
+    }
+   },
+   "paraphrase": {
+    "r8": {
+     "delta": 0.033,
+     "ci95": [
+      0,
+      0.1
+     ],
+     "onlyKeyword": 0,
+     "onlyCombined": 1,
+     "mcnemarP": 1
+    },
+    "top1": {
+     "delta": 0,
+     "ci95": [
+      0,
+      0
+     ],
+     "onlyKeyword": 0,
+     "onlyCombined": 0,
+     "mcnemarP": 1
+    },
+    "mrr": {
+     "delta": 0.014,
+     "ci95": [
+      0.003,
+      0.028
+     ]
+    }
+   },
+   "exact": {
+    "r8": {
+     "delta": 0.033,
+     "ci95": [
+      0,
+      0.1
+     ],
+     "onlyKeyword": 0,
+     "onlyCombined": 1,
+     "mcnemarP": 1
+    },
+    "top1": {
+     "delta": 0,
+     "ci95": [
+      -0.133,
+      0.133
+     ],
+     "onlyKeyword": 2,
+     "onlyCombined": 2,
+     "mcnemarP": 1
+    },
+    "mrr": {
+     "delta": 0.01,
+     "ci95": [
+      -0.094,
+      0.113
+     ]
+    }
+   },
+   "table": {
+    "r8": {
+     "delta": 0.033,
+     "ci95": [
+      -0.067,
+      0.133
+     ],
+     "onlyKeyword": 1,
+     "onlyCombined": 2,
+     "mcnemarP": 1
+    },
+    "top1": {
+     "delta": 0,
+     "ci95": [
+      -0.133,
+      0.133
+     ],
+     "onlyKeyword": 2,
+     "onlyCombined": 2,
+     "mcnemarP": 1
+    },
+    "mrr": {
+     "delta": 0.016,
+     "ci95": [
+      -0.086,
+      0.107
+     ]
+    }
+   },
+   "cross": {
+    "r8": {
+     "delta": 0,
+     "ci95": [
+      0,
+      0
+     ],
+     "onlyKeyword": 0,
+     "onlyCombined": 0,
+     "mcnemarP": 1
+    },
+    "top1": {
+     "delta": 0,
+     "ci95": [
+      0,
+      0
+     ],
+     "onlyKeyword": 0,
+     "onlyCombined": 0,
+     "mcnemarP": 1
+    },
+    "mrr": {
+     "delta": 0.004,
+     "ci95": [
+      0,
+      0.013
+     ]
+    }
+   },
+   "filename": {
+    "r8": {
+     "delta": 0.1,
+     "ci95": [
+      0,
+      0.233
+     ],
+     "onlyKeyword": 0,
+     "onlyCombined": 3,
+     "mcnemarP": 0.25
+    },
+    "top1": {
+     "delta": 0.167,
+     "ci95": [
+      0.033,
+      0.3
+     ],
+     "onlyKeyword": 0,
+     "onlyCombined": 5,
+     "mcnemarP": 0.0625
+    },
+    "mrr": {
+     "delta": 0.176,
+     "ci95": [
+      0.086,
+      0.28
+     ]
+    }
+   },
+   "ko": {
+    "r8": {
+     "delta": 0.04,
+     "ci95": [
+      0,
+      0.093
+     ],
+     "onlyKeyword": 0,
+     "onlyCombined": 3,
+     "mcnemarP": 0.25
+    },
+    "top1": {
+     "delta": 0.067,
+     "ci95": [
+      0,
+      0.147
+     ],
+     "onlyKeyword": 1,
+     "onlyCombined": 6,
+     "mcnemarP": 0.125
+    },
+    "mrr": {
+     "delta": 0.062,
+     "ci95": [
+      0.018,
+      0.11
+     ]
+    }
+   },
+   "en": {
+    "r8": {
+     "delta": 0.04,
+     "ci95": [
+      -0.013,
+      0.093
+     ],
+     "onlyKeyword": 1,
+     "onlyCombined": 4,
+     "mcnemarP": 0.375
+    },
+    "top1": {
+     "delta": 0,
+     "ci95": [
+      -0.067,
+      0.067
+     ],
+     "onlyKeyword": 3,
+     "onlyCombined": 3,
+     "mcnemarP": 1
+    },
+    "mrr": {
+     "delta": 0.026,
+     "ci95": [
+      -0.028,
+      0.081
+     ]
+    }
+   }
+  }
+ },
+ "questions": [
+  {
+   "id": "x-en-01",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "service-agreement-acme-bluepeak.md"
+   ],
+   "words": "contract msa-2026-031 backups",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 12.41,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/service-agreement-acme-bluepeak.md",
+       "wiki/en/Allowance (money).txt",
+       "wiki/en/At-will employment.txt",
+       "wiki/en/E-procurement.txt",
+       "wiki/en/Employee stock option.txt",
+       "wiki/en/Employment agency.txt",
+       "wiki/en/Employment bond.txt",
+       "wiki/en/Employment contract in English law.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 17.91,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "acme/service-agreement-acme-bluepeak.md",
+       "wiki/en/Employee stock option.txt",
+       "wiki/en/Master service agreement.txt",
+       "wiki/en/Employment bond.txt",
+       "wiki/en/Criticism of Comcast.txt",
+       "wiki/en/Allowance (money).txt",
+       "wiki/en/Options backdating.txt",
+       "wiki/en/Cloud storage.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-02",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "acme-desk-release-notes-2026.md"
+   ],
+   "words": "fixed acme-1432",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 9.73,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/acme-desk-release-notes-2026.md",
+       "wiki/en/Fixed-term employment contract.txt",
+       "wiki/en/British Airways plc v Williams.txt",
+       "wiki/en/Compensation and benefits.txt",
+       "wiki/en/Dividend.txt",
+       "wiki/en/Gravity.txt",
+       "wiki/en/Lease.txt",
+       "wiki/en/Wi-Fi calling.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 15,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "acme/acme-desk-release-notes-2026.md",
+       "acme/nda-acme-northwind.txt",
+       "wiki/en/Balance sheet.txt",
+       "wiki/en/Chirality (chemistry).txt",
+       "wiki/en/Fixed-term employment contract.txt",
+       "acme/employment-contract-template.txt",
+       "wiki/en/British Airways plc v Williams.txt",
+       "acme/fire-safety-and-evacuation.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-03",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "it-asset-inventory-2026.csv"
+   ],
+   "words": "laptop it-0450",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 7.98,
+      "hits": 39,
+      "byMeaning": 0,
+      "top": [
+       "acme/it-asset-inventory-2026.csv",
+       "wiki/en/Fringe benefits tax (Australia).txt",
+       "wiki/en/Mac transition to Intel processors.txt",
+       "wiki/en/Mobile device management.txt",
+       "wiki/en/North Korean remote worker scheme.txt",
+       "wiki/en/Remote work.txt",
+       "wiki/en/Cloud computing.txt",
+       "wiki/en/End user.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 13.93,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "acme/it-asset-inventory-2026.csv",
+       "wiki/en/Mac transition to Intel processors.txt",
+       "wiki/en/IEEE 802.11.txt",
+       "wiki/en/Vendor lock-in.txt",
+       "wiki/en/Fringe benefits tax (Australia).txt",
+       "wiki/en/Revised NEO Personality Inventory.txt",
+       "wiki/en/Mobile device management.txt",
+       "wiki/ko/시간 기반 일회용 비밀번호.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-04",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "acme-sensor-v3-datasheet.md"
+   ],
+   "words": "battery life as-300",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 13.7,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/acme-sensor-v3-datasheet.md",
+       "wiki/en/Amazon Kindle devices.txt",
+       "wiki/en/Drill.txt",
+       "wiki/en/Kano model.txt",
+       "wiki/en/Carl Pei.txt",
+       "wiki/en/MacOS Monterey.txt",
+       "wiki/en/Nintendo video game consoles.txt",
+       "wiki/en/Speak Out Act.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 17.55,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "acme/acme-sensor-v3-datasheet.md",
+       "wiki/en/Drill.txt",
+       "wiki/en/Amazon Kindle devices.txt",
+       "wiki/en/Lighting control system.txt",
+       "wiki/en/Kano model.txt",
+       "wiki/en/Bluetooth mesh networking.txt",
+       "wiki/en/MacOS Monterey.txt",
+       "wiki/en/Video game console.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-05",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "nda-acme-northwind.txt"
+   ],
+   "words": "acme agree northwind sample inc",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 21.87,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/nda-acme-northwind.txt",
+       "acme/service-agreement-acme-bluepeak.md",
+       "wiki/en/City pop.txt",
+       "wiki/en/Motor unit recruitment.txt",
+       "wiki/en/Patient recruitment.txt",
+       "wiki/en/Printer tracking dots.txt",
+       "wiki/en/Employment contract in English law.txt",
+       "wiki/en/Acceptable use policy.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 24.32,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "acme/nda-acme-northwind.txt",
+       "acme/service-agreement-acme-bluepeak.md",
+       "acme/privacy-policy-acme-desk.html",
+       "acme/employment-contract-template.txt",
+       "wiki/en/Lift Our Voices.txt",
+       "acme/acme-desk-release-notes-2026.md",
+       "acme/partner-referral-program.md",
+       "acme/price-list-2026.csv"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-06",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "supply-contract-acme-hanbit.md"
+   ],
+   "words": "contract sc-2026-014",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 10.55,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/supply-contract-acme-hanbit.md",
+       "wiki/en/Allowance (money).txt",
+       "wiki/en/At-will employment.txt",
+       "wiki/en/E-procurement.txt",
+       "wiki/en/Employee stock option.txt",
+       "wiki/en/Employment agency.txt",
+       "wiki/en/Employment bond.txt",
+       "wiki/en/Employment contract in English law.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 25.42,
+      "hits": 45,
+      "byMeaning": 20,
+      "top": [
+       "acme/supply-contract-acme-hanbit.md",
+       "wiki/en/Employment contract in English law.txt",
+       "wiki/en/Employment agency.txt",
+       "wiki/en/Employment bond.txt",
+       "acme/service-agreement-acme-bluepeak.md",
+       "wiki/en/Criticism of Comcast.txt",
+       "wiki/en/Employment contract.txt",
+       "wiki/en/Allowance (money).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-07",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "사무실-와이파이-프린터-설정.txt"
+   ],
+   "words": "prn-3f-color",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 5.06,
+      "hits": 1,
+      "byMeaning": 0,
+      "top": [
+       "acme/사무실-와이파이-프린터-설정.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 14.71,
+      "hits": 45,
+      "byMeaning": 44,
+      "top": [
+       "acme/사무실-와이파이-프린터-설정.txt",
+       "wiki/en/Click chemistry.txt",
+       "wiki/en/Organofluorine chemistry.txt",
+       "wiki/en/Risograph.txt",
+       "wiki/en/Examples of data mining.txt",
+       "wiki/en/Page printer.txt",
+       "acme/it-asset-inventory-2026.csv",
+       "wiki/en/Hospital emergency codes.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-08",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "fire-safety-and-evacuation.txt"
+   ],
+   "words": "answers extension 2400",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 12.78,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/fire-safety-and-evacuation.txt",
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Birmingham New Street railway station.txt",
+       "wiki/en/Bitwarden.txt",
+       "wiki/en/Visual Studio Code.txt",
+       "wiki/en/Broad Street railway station (England).txt",
+       "wiki/en/Cork (city).txt",
+       "wiki/en/Cornell University.txt"
+      ]
+     },
+     "combined": {
+      "rank": 7,
+      "r8": true,
+      "top1": false,
+      "ms": 16.66,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Likert scale.txt",
+       "wiki/en/Call centre.txt",
+       "wiki/en/Kano model.txt",
+       "wiki/en/Magento.txt",
+       "wiki/en/Java version history.txt",
+       "acme/fire-safety-and-evacuation.txt",
+       "wiki/en/Birmingham New Street railway station.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-09",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "acme-desk-release-notes-2026.md"
+   ],
+   "words": "changed acme desk 4.2.0",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 29.91,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/acme-desk-release-notes-2026.md",
+       "acme/privacy-policy-acme-desk.html",
+       "acme/price-list-2026.csv",
+       "acme/price-list-2027.csv",
+       "acme/product-spec-acme-desk.md",
+       "wiki/en/GNOME.txt",
+       "wiki/en/Hot desking.txt",
+       "acme/acme-sensor-v3-datasheet.md"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 21.17,
+      "hits": 45,
+      "byMeaning": 7,
+      "top": [
+       "acme/acme-desk-release-notes-2026.md",
+       "acme/privacy-policy-acme-desk.html",
+       "acme/product-spec-acme-desk.md",
+       "acme/price-list-2026.csv",
+       "acme/acme-sensor-v3-datasheet.md",
+       "acme/price-list-2027.csv",
+       "acme/meeting-2026-10-product.md",
+       "acme/partner-referral-program.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-10",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "brand-guide.html"
+   ],
+   "words": "1f6feb",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 7.05,
+      "hits": 1,
+      "byMeaning": 0,
+      "top": [
+       "acme/brand-guide.html"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 15.89,
+      "hits": 45,
+      "byMeaning": 44,
+      "top": [
+       "acme/brand-guide.html",
+       "wiki/ko/QR 코드.txt",
+       "wiki/en/Federal Employees Retirement System.txt",
+       "wiki/en/Magnetoresistive RAM.txt",
+       "wiki/en/Java version history.txt",
+       "wiki/ko/백가신화.txt",
+       "wiki/en/Chemistry.txt",
+       "wiki/en/Valence (chemistry).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-11",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "vendor-evaluation-2026.md"
+   ],
+   "words": "talkspot sample monthly price quote",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 26.86,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/vendor-evaluation-2026.md",
+       "wiki/en/Incentive stock option.txt",
+       "wiki/en/Option (finance).txt",
+       "wiki/en/Market data.txt",
+       "wiki/en/Dedicated hosting service.txt",
+       "wiki/en/Inventory control.txt",
+       "wiki/en/Lease-option.txt",
+       "wiki/en/Timeshare.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 25.41,
+      "hits": 45,
+      "byMeaning": 12,
+      "top": [
+       "acme/vendor-evaluation-2026.md",
+       "acme/vendor-list.csv",
+       "wiki/en/Timeshare.txt",
+       "wiki/en/Dedicated hosting service.txt",
+       "wiki/en/Marketing.txt",
+       "acme/service-agreement-acme-bluepeak.md",
+       "acme/price-list-2026.csv",
+       "acme/it-asset-inventory-2026.csv"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-12",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "vendor-evaluation-2026.md"
+   ],
+   "words": "helpline example score price",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 63.27,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/vendor-evaluation-2026.md",
+       "wiki/en/Dividend yield.txt",
+       "wiki/en/Hedge (finance).txt",
+       "wiki/en/Option (finance).txt",
+       "wiki/en/Invoice price.txt",
+       "wiki/en/Lease-option.txt",
+       "wiki/en/List of highest-grossing films.txt",
+       "wiki/en/Market data.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 28.05,
+      "hits": 45,
+      "byMeaning": 9,
+      "top": [
+       "acme/vendor-evaluation-2026.md",
+       "wiki/en/Invoice price.txt",
+       "wiki/en/Credit history.txt",
+       "wiki/en/List of highest-grossing films.txt",
+       "wiki/en/Score! Educational Centers.txt",
+       "wiki/en/First call resolution.txt",
+       "wiki/en/Marketing.txt",
+       "wiki/en/California Psychological Inventory.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-13",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "service-agreement-acme-bluepeak.md"
+   ],
+   "words": "uptime bluepeak example co promise",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 32.01,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/service-agreement-acme-bluepeak.md",
+       "wiki/en/Contract.txt",
+       "wiki/en/Military recruitment.txt",
+       "wiki/en/Capital city.txt",
+       "wiki/en/Computer security.txt",
+       "wiki/en/Hot desking.txt",
+       "wiki/en/Incident management.txt",
+       "acme/privacy-policy-acme-desk.html"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 25.82,
+      "hits": 45,
+      "byMeaning": 18,
+      "top": [
+       "acme/service-agreement-acme-bluepeak.md",
+       "wiki/en/Web hosting service.txt",
+       "wiki/en/2026 Brazilian general election.txt",
+       "wiki/en/Acceptable use policy.txt",
+       "wiki/en/Cursor (company).txt",
+       "wiki/en/Contract.txt",
+       "wiki/en/Military recruitment.txt",
+       "wiki/en/MacOS Monterey.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-14",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "incident-report-2026-09.md"
+   ],
+   "words": "happened 2026-09-12",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 4,
+      "r8": true,
+      "top1": false,
+      "ms": 8.27,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Alternate history.txt",
+       "wiki/en/History.txt",
+       "wiki/en/Slough House (novel series).txt",
+       "acme/incident-report-2026-09.md",
+       "wiki/en/A Serbian Film.txt",
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Albert Einstein.txt",
+       "wiki/en/Ancient history.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 15.66,
+      "hits": 45,
+      "byMeaning": 21,
+      "top": [
+       "acme/incident-report-2026-09.md",
+       "wiki/en/Alternate history.txt",
+       "wiki/en/2026 in South Korea.txt",
+       "wiki/en/History.txt",
+       "acme/quarterly-okr-2026-q4.md",
+       "acme/sales-report-2026-q3.csv",
+       "wiki/en/Slough House (novel series).txt",
+       "wiki/ko/2026년.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-en-15",
+   "lang": "en",
+   "type": "exact",
+   "expectFiles": [
+    "vendor-list.csv"
+   ],
+   "words": "paperwork fictional contract renew",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 40.14,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/service-agreement-acme-bluepeak.md",
+       "acme/vendor-evaluation-2026.md",
+       "acme/vendor-list.csv",
+       "wiki/en/Fixed-term employment contract.txt",
+       "wiki/en/Lease.txt",
+       "wiki/en/Purchasing.txt",
+       "wiki/en/Tool (band).txt",
+       "wiki/en/Video game developer.txt"
+      ]
+     },
+     "combined": {
+      "rank": 2,
+      "r8": true,
+      "top1": false,
+      "ms": 25.51,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/en/Fixed-term employment contract.txt",
+       "acme/vendor-list.csv",
+       "wiki/en/Purchasing.txt",
+       "acme/vendor-evaluation-2026.md",
+       "wiki/en/Eltz Castle.txt",
+       "wiki/en/Video game developer.txt",
+       "wiki/en/At-will employment.txt",
+       "wiki/en/Employment contract in English law.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-01",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "재고현황-2026-10.csv"
+   ],
+   "words": "ab-05 재고",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 18,
+      "r8": false,
+      "top1": false,
+      "ms": 12.22,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/공급망 관리.txt",
+       "wiki/ko/공적 마스크.txt",
+       "wiki/ko/물류.txt",
+       "wiki/ko/선입 선출법과 후입 선출법.txt",
+       "wiki/ko/재고 감모.txt",
+       "wiki/ko/재고관리.txt",
+       "wiki/ko/재고순환.txt",
+       "wiki/ko/필립 모리스 인터내셔널.txt"
+      ]
+     },
+     "combined": {
+      "rank": 4,
+      "r8": true,
+      "top1": false,
+      "ms": 16.05,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "wiki/ko/재고 감모.txt",
+       "wiki/ko/재고관리.txt",
+       "wiki/ko/재고순환.txt",
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/대한민국의 소방.txt",
+       "wiki/ko/아이퀘스트.txt",
+       "acme/물류센터-이전-검토-보고서.md",
+       "wiki/ko/안다르.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-02",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "영업-파이프라인-2026-q4.csv"
+   ],
+   "words": "라온건설 건은 단계",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 4,
+      "r8": true,
+      "top1": false,
+      "ms": 14.82,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/기술 로드맵.txt",
+       "wiki/ko/소설.txt",
+       "wiki/ko/요소 (화학).txt",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "wiki/ko/광합성.txt",
+       "wiki/ko/야쿠섬.txt",
+       "wiki/ko/자이가르닉 효과.txt",
+       "wiki/ko/정보.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 25.86,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "acme/영업-파이프라인-2026-q4.csv",
+       "wiki/ko/기술 로드맵.txt",
+       "wiki/ko/레인보 테이블.txt",
+       "wiki/ko/소설.txt",
+       "wiki/ko/역사.txt",
+       "wiki/ko/라온시큐어.txt",
+       "wiki/ko/요소 (화학).txt",
+       "wiki/ko/광합성.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-03",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "supply-contract-acme-hanbit.md"
+   ],
+   "words": "sc-2026-014 계약 지체상금",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 51.08,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/supply-contract-acme-hanbit.md",
+       "wiki/ko/F(x).txt",
+       "wiki/ko/SK하이닉스.txt",
+       "wiki/ko/SM 엔터테인먼트.txt",
+       "wiki/ko/계약.txt",
+       "wiki/ko/고용.txt",
+       "wiki/ko/공급망 공격.txt",
+       "wiki/ko/구독 사업 모형.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 23.72,
+      "hits": 45,
+      "byMeaning": 20,
+      "top": [
+       "acme/supply-contract-acme-hanbit.md",
+       "wiki/ko/계약.txt",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "wiki/ko/대한민국 민법 제618조.txt",
+       "wiki/ko/부당이득.txt",
+       "wiki/ko/대한민국 민법 제623조.txt",
+       "wiki/ko/마스턴투자운용.txt",
+       "wiki/ko/해지.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-04",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "사무실-와이파이-프린터-설정.txt"
+   ],
+   "words": "acme-staff 와이파이 기기 대까지 연결돼",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 15.19,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/사무실-와이파이-프린터-설정.txt",
+       "wiki/ko/아이패드 (1세대).txt",
+       "wiki/ko/병렬 포트.txt",
+       "wiki/ko/와이파이 핫스팟.txt",
+       "wiki/ko/와이파이 얼라이언스.txt",
+       "wiki/ko/넥서스 7 (2013년).txt",
+       "wiki/ko/와이파이 7.txt",
+       "wiki/ko/대한항공.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 24.5,
+      "hits": 45,
+      "byMeaning": 7,
+      "top": [
+       "acme/사무실-와이파이-프린터-설정.txt",
+       "wiki/ko/와이파이 얼라이언스.txt",
+       "wiki/ko/와이파이 핫스팟.txt",
+       "wiki/ko/와이파이 7.txt",
+       "wiki/ko/IEEE 802.11.txt",
+       "wiki/ko/넥서스 7 (2013년).txt",
+       "wiki/ko/와이파이.txt",
+       "wiki/ko/와이파이 6.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-05",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "incident-report-2026-09.md"
+   ],
+   "words": "joon sample 맡은 후속 조치",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 116.44,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/incident-report-2026-09.md",
+       "wiki/ko/기술 로드맵.txt",
+       "acme/meeting-2026-10-product.md",
+       "wiki/ko/5·18 광주 민주화 운동.txt",
+       "wiki/ko/CS쉐어링.txt",
+       "wiki/ko/구글 문서도구.txt",
+       "wiki/ko/낙동강 방어선 전투.txt",
+       "wiki/ko/남북 전쟁.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 32.06,
+      "hits": 45,
+      "byMeaning": 20,
+      "top": [
+       "acme/incident-report-2026-09.md",
+       "wiki/ko/윤하.txt",
+       "wiki/ko/빈지노.txt",
+       "wiki/ko/기술 로드맵.txt",
+       "acme/meeting-2026-10-product.md",
+       "wiki/ko/제주항공 2216편 활주로 이탈 사고.txt",
+       "wiki/ko/5·18 광주 민주화 운동.txt",
+       "wiki/ko/지드래곤.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-06",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "it-asset-inventory-2026.csv"
+   ],
+   "words": "it-0533 상태",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 25.23,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/IEEE 1284.txt",
+       "wiki/ko/베르너 하이젠베르크.txt",
+       "wiki/ko/병가 (휴가).txt",
+       "wiki/ko/상태 기계 복제.txt",
+       "wiki/ko/섬망.txt",
+       "wiki/ko/소프트웨어 버전 작성.txt",
+       "wiki/ko/알고리즘.txt",
+       "wiki/ko/외상 후 스트레스 장애.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 24.99,
+      "hits": 45,
+      "byMeaning": 22,
+      "top": [
+       "wiki/ko/상태 기계 복제.txt",
+       "wiki/ko/공급망 공격.txt",
+       "wiki/ko/IEEE 1284.txt",
+       "wiki/ko/우분투.txt",
+       "wiki/ko/비트워든.txt",
+       "wiki/ko/베르너 하이젠베르크.txt",
+       "wiki/ko/XZ Utils.txt",
+       "wiki/ko/병가 (휴가).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-07",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "재고현황-2026-10.csv"
+   ],
+   "words": "as-200 단가",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 5.73,
+      "hits": 10,
+      "byMeaning": 0,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "acme/acme-sensor-v3-datasheet.md",
+       "wiki/ko/우에노역.txt",
+       "wiki/ko/코스트코.txt",
+       "wiki/ko/휴대용 콘솔 게임기.txt",
+       "wiki/ko/CJ대한통운.txt",
+       "wiki/ko/가족관계증명서 (2026년 드라마).txt",
+       "wiki/ko/싱글 (음악).txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 19.27,
+      "hits": 45,
+      "byMeaning": 35,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/휴대용 콘솔 게임기.txt",
+       "acme/acme-sensor-v3-datasheet.md",
+       "wiki/ko/캐논.txt",
+       "wiki/ko/우에노역.txt",
+       "wiki/ko/풀프레임 DSLR.txt",
+       "wiki/ko/코스트코.txt",
+       "wiki/ko/자동 초점.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-08",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "meeting-2026-10-product.md",
+    "meeting-2026-11-leadership.md"
+   ],
+   "words": "mina example 참석한 회의",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 47.62,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/meeting-2026-10-product.md",
+       "wiki/ko/김문수.txt",
+       "wiki/en/At-will employment.txt",
+       "wiki/en/Crisis management.txt",
+       "wiki/ko/김성태 (1958년).txt",
+       "wiki/ko/로마 가톨릭교회.txt",
+       "wiki/ko/유엔 안전 보장 이사회.txt",
+       "wiki/ko/유엔 헌장.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 33.47,
+      "hits": 45,
+      "byMeaning": 15,
+      "top": [
+       "acme/meeting-2026-10-product.md",
+       "wiki/ko/김문수.txt",
+       "wiki/ko/오피스.txt",
+       "wiki/ko/학명.txt",
+       "wiki/ko/대한민국 국회.txt",
+       "wiki/ko/김정은.txt",
+       "wiki/ko/유엔 헌장.txt",
+       "wiki/ko/비정상회담.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-09",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "acme-desk-release-notes-2026.md"
+   ],
+   "words": "4.1.0 버전 추가된 기능",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 86.65,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/마이크로소프트 엑셀.txt",
+       "wiki/ko/아이팟 터치.txt",
+       "wiki/ko/QR 코드.txt",
+       "wiki/ko/깃 (소프트웨어).txt",
+       "wiki/ko/블루투스.txt",
+       "wiki/ko/마인크래프트.txt",
+       "wiki/ko/버전 관리.txt",
+       "wiki/ko/소프트웨어 버전 작성.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 32.51,
+      "hits": 45,
+      "byMeaning": 8,
+      "top": [
+       "wiki/ko/윈도우 10 버전 역사.txt",
+       "wiki/ko/소프트웨어 버전 작성.txt",
+       "wiki/ko/버전 관리.txt",
+       "wiki/ko/USB.txt",
+       "wiki/ko/IOS.txt",
+       "wiki/ko/와이파이 7.txt",
+       "wiki/ko/챗GPT.txt",
+       "wiki/ko/젯브레인즈.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-10",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "service-agreement-acme-bluepeak.md"
+   ],
+   "words": "msa-2026-031 계약 효력",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 20.91,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/계약.txt",
+       "wiki/ko/고용.txt",
+       "wiki/ko/대한민국 민법 제622조.txt",
+       "wiki/ko/임대차.txt",
+       "wiki/ko/해지.txt",
+       "wiki/ko/SM 엔터테인먼트.txt",
+       "wiki/ko/근로계약서.txt",
+       "wiki/ko/대한민국 민법 제618조.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 32.9,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "wiki/ko/계약.txt",
+       "wiki/ko/대한민국 민법 제622조.txt",
+       "wiki/ko/SM 엔터테인먼트.txt",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "acme/supply-contract-acme-hanbit.md",
+       "wiki/ko/마스턴투자운용.txt",
+       "wiki/ko/2026년.txt",
+       "acme/회의록-2026-09-이사회.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-11",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "meeting-2026-11-leadership.md"
+   ],
+   "words": "sam fictional 맡은 일은",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 31.37,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/meeting-2026-11-leadership.md",
+       "wiki/en/Television film.txt",
+       "acme/vendor-evaluation-2026.md",
+       "wiki/en/24 (TV series).txt",
+       "wiki/en/Peaky Blinders (TV series).txt",
+       "wiki/en/Sex and the City.txt",
+       "wiki/en/The Dropout.txt",
+       "wiki/ko/지드래곤.txt"
+      ]
+     },
+     "combined": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 29.73,
+      "hits": 45,
+      "byMeaning": 20,
+      "top": [
+       "wiki/ko/브레이킹 배드.txt",
+       "wiki/ko/케나_ 브릿지 오브 스피릿.txt",
+       "acme/meeting-2026-11-leadership.md",
+       "wiki/en/Television film.txt",
+       "wiki/ko/SM 엔터테인먼트.txt",
+       "acme/vendor-evaluation-2026.md",
+       "wiki/ko/이수만.txt",
+       "wiki/en/24 (TV series).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-12",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "회의록-2026-09-이사회.md"
+   ],
+   "words": "스톡옵션 41 000주 명에게 줬어",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 74.91,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/회의록-2026-09-이사회.md",
+       "wiki/ko/동백림 사건.txt",
+       "wiki/ko/롯데월드타워.txt",
+       "wiki/ko/허경영.txt",
+       "wiki/ko/731부대.txt",
+       "wiki/en/Battle rifle.txt",
+       "wiki/en/Lend-Lease.txt",
+       "wiki/ko/순천시 (전남광주통합특별시).txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 39.51,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "acme/회의록-2026-09-이사회.md",
+       "wiki/ko/쿼타랩.txt",
+       "wiki/ko/나라야나 무르티.txt",
+       "wiki/ko/QR 코드.txt",
+       "wiki/ko/다니엘 에크.txt",
+       "wiki/ko/쿼타북.txt",
+       "wiki/ko/테라펙스.txt",
+       "wiki/ko/동백림 사건.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-13",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "meeting-2026-11-leadership.md"
+   ],
+   "words": "dana placeholder 참석한 회의",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 12,
+      "r8": false,
+      "top1": false,
+      "ms": 43.36,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/김문수.txt",
+       "wiki/ko/김성태 (1958년).txt",
+       "wiki/ko/로마 가톨릭교회.txt",
+       "wiki/ko/유엔 안전 보장 이사회.txt",
+       "wiki/ko/유엔 헌장.txt",
+       "wiki/ko/이명박.txt",
+       "wiki/ko/유엔.txt",
+       "wiki/ko/이승만.txt"
+      ]
+     },
+     "combined": {
+      "rank": 24,
+      "r8": false,
+      "top1": false,
+      "ms": 23.4,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "wiki/ko/김문수.txt",
+       "wiki/ko/대한민국 국회.txt",
+       "wiki/ko/오피스.txt",
+       "wiki/ko/생물 다양성 협약.txt",
+       "wiki/ko/유엔 헌장.txt",
+       "wiki/ko/유엔 인권 이사회.txt",
+       "wiki/ko/김정은.txt",
+       "wiki/ko/대한무역투자진흥공사.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-14",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "meeting-2026-10-product.md"
+   ],
+   "words": "ria demo 담당 일은",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 158.41,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/meeting-2026-10-product.md",
+       "wiki/en/2018 United States Senate elections.txt",
+       "wiki/en/2026 United States Senate elections.txt",
+       "wiki/en/Quantum mechanics.txt",
+       "wiki/ko/김정일.txt",
+       "wiki/en/2024 United States Senate elections.txt",
+       "wiki/en/Andrew Grove.txt",
+       "wiki/en/Blk71.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 41.49,
+      "hits": 45,
+      "byMeaning": 23,
+      "top": [
+       "acme/meeting-2026-10-product.md",
+       "wiki/en/2018 United States Senate elections.txt",
+       "wiki/ko/신속동료구조팀.txt",
+       "wiki/en/2026 United States Senate elections.txt",
+       "wiki/ko/젯브레인즈.txt",
+       "wiki/en/Quantum mechanics.txt",
+       "wiki/ko/시아 (가수).txt",
+       "wiki/ko/김정일.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "x-ko-15",
+   "lang": "ko",
+   "type": "exact",
+   "expectFiles": [
+    "재고현황-2026-10.csv"
+   ],
+   "words": "ak-01 재주문점 개야",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 20.6,
+      "hits": 1,
+      "byMeaning": 0,
+      "top": [
+       "acme/재고현황-2026-10.csv"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 17.77,
+      "hits": 45,
+      "byMeaning": 44,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/개리 (래퍼).txt",
+       "wiki/ko/수원역.txt",
+       "wiki/ko/롯데월드타워.txt",
+       "wiki/ko/남양유업.txt",
+       "wiki/ko/주성엔지니어링.txt",
+       "wiki/ko/LG전자.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-01",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "campaign-results-2026-h2.csv"
+   ],
+   "words": "spend ads september 2026",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 219.78,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/campaign-results-2026-h2.csv",
+       "wiki/en/2026 United States gubernatorial elections.txt",
+       "wiki/en/Tufts University.txt",
+       "wiki/en/Heated Rivalry (novel).txt",
+       "wiki/en/Proton Mail.txt",
+       "wiki/en/Tipalti.txt",
+       "wiki/en/Cloud storage.txt",
+       "wiki/en/2026 Brazilian general election.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 33.28,
+      "hits": 45,
+      "byMeaning": 9,
+      "top": [
+       "acme/campaign-results-2026-h2.csv",
+       "wiki/en/2026 United States Senate elections.txt",
+       "acme/quarterly-okr-2026-q4.md",
+       "wiki/en/Tufts University.txt",
+       "wiki/en/Search engine marketing.txt",
+       "wiki/en/Arc (web browser).txt",
+       "wiki/en/Marissa Mayer.txt",
+       "acme/it-asset-inventory-2026.csv"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-02",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "campaign-results-2026-h2.csv"
+   ],
+   "words": "cost signup trade",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 44.46,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/campaign-results-2026-h2.csv",
+       "wiki/en/Invoice price.txt",
+       "wiki/en/Search engine marketing.txt",
+       "wiki/en/Allowance (money).txt",
+       "wiki/en/Cap and dividend.txt",
+       "wiki/en/Expense.txt",
+       "wiki/en/Trade secret.txt",
+       "wiki/en/37signals.txt"
+      ]
+     },
+     "combined": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 24.23,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "wiki/en/Search engine marketing.txt",
+       "wiki/en/Invoice price.txt",
+       "acme/campaign-results-2026-h2.csv",
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Cap and dividend.txt",
+       "wiki/en/Trade secret.txt",
+       "wiki/en/Option (finance).txt",
+       "wiki/en/Timeshare.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-03",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "travel-policy.md"
+   ],
+   "words": "hotel cap night europe",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 46.08,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/travel-policy.md",
+       "wiki/en/The Shining (film).txt",
+       "wiki/en/Revenue management.txt",
+       "wiki/en/Sarah Palin.txt",
+       "wiki/en/Barcelona.txt",
+       "wiki/en/Travel agency.txt",
+       "wiki/en/Castling.txt",
+       "wiki/en/Panama City.txt"
+      ]
+     },
+     "combined": {
+      "rank": 12,
+      "r8": false,
+      "top1": false,
+      "ms": 30.55,
+      "hits": 45,
+      "byMeaning": 8,
+      "top": [
+       "wiki/en/Tourism.txt",
+       "wiki/en/Panama City.txt",
+       "wiki/en/Roman Kemp.txt",
+       "wiki/en/Perk (company).txt",
+       "wiki/en/The Shining (film).txt",
+       "wiki/en/Capital city.txt",
+       "wiki/en/Travel agency.txt",
+       "wiki/en/City.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-04",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "price-list-2026.csv"
+   ],
+   "words": "acme rooms add-on cost room 2026",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 31.34,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/price-list-2026.csv",
+       "acme/price-list-2027.csv",
+       "acme/quarterly-okr-2026-q4.md",
+       "wiki/en/Lease-by-room.txt",
+       "wiki/en/Secunderabad Junction railway station.txt",
+       "wiki/en/Auburn University.txt",
+       "wiki/en/Open plan.txt",
+       "wiki/en/Thompson Rivers University.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 29.64,
+      "hits": 45,
+      "byMeaning": 7,
+      "top": [
+       "acme/price-list-2026.csv",
+       "acme/price-list-2027.csv",
+       "acme/quarterly-okr-2026-q4.md",
+       "wiki/en/Auburn University.txt",
+       "acme/acme-sensor-v3-datasheet.md",
+       "wiki/en/Thompson Rivers University.txt",
+       "acme/privacy-policy-acme-desk.html",
+       "acme/acme-desk-release-notes-2026.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-05",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "sales-report-2026-q3.csv"
+   ],
+   "words": "busan revenue august 2026",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 22.57,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/sales-report-2026-q3.csv",
+       "wiki/en/2026 in South Korea.txt",
+       "wiki/en/Cursor (company).txt",
+       "wiki/en/Ramp (company).txt",
+       "wiki/en/Green Bay Packers, Inc..txt",
+       "wiki/en/2024 Missouri Proposition A.txt",
+       "wiki/en/Mountain Time Zone.txt",
+       "wiki/en/Revenue Commissioners.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 30.07,
+      "hits": 45,
+      "byMeaning": 9,
+      "top": [
+       "acme/sales-report-2026-q3.csv",
+       "wiki/en/2026 in South Korea.txt",
+       "wiki/en/Cursor (company).txt",
+       "acme/quarterly-okr-2026-q4.md",
+       "wiki/en/Green Bay Packers, Inc..txt",
+       "wiki/en/Ramp (company).txt",
+       "acme/customer-churn-analysis-2026.md",
+       "acme/meeting-2026-11-leadership.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-06",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "it-asset-inventory-2026.csv"
+   ],
+   "words": "thinkpad t14 cost",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 17.07,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/it-asset-inventory-2026.csv",
+       "wiki/en/AAA (video game industry).txt",
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Allowance (money).txt",
+       "wiki/en/Customer retention.txt",
+       "wiki/en/Dividend reinvestment plan.txt",
+       "wiki/en/Factoring (finance).txt",
+       "wiki/en/Inventory control.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 17.48,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "acme/it-asset-inventory-2026.csv",
+       "wiki/en/2024 Missouri Proposition A.txt",
+       "wiki/en/AAA (video game industry).txt",
+       "wiki/en/T-14 Armata.txt",
+       "wiki/en/Affiliate marketing.txt",
+       "acme/price-list-2026.csv",
+       "wiki/en/Amazon Kindle devices.txt",
+       "wiki/en/Allowance (money).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-07",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "vendor-list.csv"
+   ],
+   "words": "monthly cost email delivery vendor",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 23.24,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/vendor-list.csv",
+       "wiki/en/Managed services.txt",
+       "wiki/en/Vendor-managed inventory.txt",
+       "wiki/en/Call centre.txt",
+       "wiki/en/Application service provider.txt",
+       "wiki/en/Dedicated hosting service.txt",
+       "wiki/en/Subscription business model.txt",
+       "wiki/en/Warehouse management system.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 27.28,
+      "hits": 45,
+      "byMeaning": 2,
+      "top": [
+       "acme/vendor-list.csv",
+       "wiki/en/Managed services.txt",
+       "wiki/en/Email marketing.txt",
+       "wiki/en/Vendor-managed inventory.txt",
+       "acme/vendor-evaluation-2026.md",
+       "wiki/en/Vendor management system.txt",
+       "wiki/en/Dedicated hosting service.txt",
+       "wiki/en/Market data.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-08",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "sales-report-2026-q3.csv"
+   ],
+   "words": "month q3 2026 brought new customers seoul",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 43.94,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/sales-report-2026-q3.csv",
+       "acme/customer-churn-analysis-2026.md",
+       "acme/supply-contract-acme-hanbit.md",
+       "wiki/en/2026 in South Korea.txt",
+       "wiki/en/Global city.txt",
+       "wiki/en/Customer attrition.txt",
+       "acme/employment-contract-template.txt",
+       "acme/partner-referral-program.md"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 38.73,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "acme/sales-report-2026-q3.csv",
+       "wiki/en/2026 in South Korea.txt",
+       "acme/quarterly-okr-2026-q4.md",
+       "acme/customer-churn-analysis-2026.md",
+       "acme/customer-feedback-2026-q3.md",
+       "wiki/en/Klarna.txt",
+       "wiki/en/Perk (company).txt",
+       "wiki/en/Ramp (company).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-09",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "expense-policy.md"
+   ],
+   "words": "above amount taxi rides receipt",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 12,
+      "r8": false,
+      "top1": false,
+      "ms": 24.19,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Receipt.txt",
+       "wiki/en/Option (finance).txt",
+       "wiki/en/Per diem.txt",
+       "wiki/en/Uniform Invoice.txt",
+       "wiki/en/Allowance (money).txt",
+       "wiki/en/Dedicated hosting service.txt",
+       "wiki/en/Expense management.txt",
+       "wiki/en/Hawaiian Islands.txt"
+      ]
+     },
+     "combined": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 28.9,
+      "hits": 45,
+      "byMeaning": 9,
+      "top": [
+       "wiki/en/Receipt.txt",
+       "wiki/en/Uniform Invoice.txt",
+       "acme/expense-policy.md",
+       "wiki/en/Per diem.txt",
+       "wiki/en/Revenue stream.txt",
+       "wiki/en/Invoice.txt",
+       "wiki/en/Preferred stock.txt",
+       "wiki/en/Internal Revenue Service.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-10",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "customer-churn-analysis-2026.md"
+   ],
+   "words": "customers left because price after renewal increase",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 47.36,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Loyalty business model.txt",
+       "wiki/en/Cap and dividend.txt",
+       "wiki/en/Wachovia.txt",
+       "wiki/en/History of the hamburger.txt",
+       "wiki/en/Jack Welch.txt",
+       "wiki/en/Telecommunications tariff.txt",
+       "wiki/en/Revenue management.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 47.53,
+      "hits": 45,
+      "byMeaning": 3,
+      "top": [
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Loyalty business model.txt",
+       "wiki/en/Referral marketing.txt",
+       "wiki/en/Subscription business model.txt",
+       "wiki/en/Telecommunications tariff.txt",
+       "wiki/en/Customer attrition.txt",
+       "wiki/en/Revenue management.txt",
+       "wiki/en/List of highest-grossing films.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-11",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "vendor-evaluation-2026.md"
+   ],
+   "words": "weighted total chatterbox demo chat tool evaluation",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 43.17,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/vendor-evaluation-2026.md",
+       "acme/vendor-list.csv",
+       "wiki/en/Inventory control.txt",
+       "wiki/en/London Bridge station.txt",
+       "wiki/en/Malwarebytes (software).txt",
+       "wiki/en/VMware Workstation Player.txt",
+       "wiki/en/2010 United States House of Representatives elections.txt",
+       "wiki/en/2024 United States Senate elections.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 39.78,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "acme/vendor-evaluation-2026.md",
+       "acme/vendor-list.csv",
+       "wiki/en/Purchasing.txt",
+       "wiki/en/Malwarebytes (software).txt",
+       "wiki/en/Inventory.txt",
+       "wiki/en/Kano model.txt",
+       "wiki/en/ITIL security management.txt",
+       "wiki/en/Service-level objective.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-12",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "security-incident-runbook.md"
+   ],
+   "words": "first response time sev2 incident",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 47.7,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/security-incident-runbook.md",
+       "wiki/en/Traffic incident management.txt",
+       "wiki/en/Crisis management.txt",
+       "wiki/en/Chief information security officer.txt",
+       "wiki/en/Fire engine.txt",
+       "wiki/en/Incident management.txt",
+       "wiki/en/Coordinated Incident Management System.txt",
+       "wiki/en/Incident Command System.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 33.45,
+      "hits": 45,
+      "byMeaning": 12,
+      "top": [
+       "acme/security-incident-runbook.md",
+       "wiki/en/Oklahoma City bombing.txt",
+       "wiki/en/Coordinated Incident Management System.txt",
+       "wiki/en/Computer security incident management.txt",
+       "wiki/en/Traffic incident management.txt",
+       "wiki/en/Proton Mail.txt",
+       "wiki/en/Information security regulations.txt",
+       "wiki/en/Information security management.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-13",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "travel-policy.md"
+   ],
+   "words": "diem trip japan",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 16.02,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/travel-policy.md",
+       "wiki/en/Per diem.txt",
+       "wiki/en/Battle rifle.txt",
+       "wiki/en/Battle of Midway.txt",
+       "wiki/en/Fourth Taiwan Strait Crisis.txt",
+       "wiki/en/History of chemistry.txt",
+       "wiki/en/Battle of Iwo Jima.txt",
+       "wiki/en/Battle of Leyte Gulf.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 54.38,
+      "hits": 45,
+      "byMeaning": 9,
+      "top": [
+       "acme/travel-policy.md",
+       "wiki/en/Per diem.txt",
+       "wiki/en/Battle of Iwo Jima.txt",
+       "wiki/en/Incentive per diem.txt",
+       "wiki/en/Bleisure travel.txt",
+       "wiki/en/MakeMyTrip.txt",
+       "wiki/en/Unit Deployment Program.txt",
+       "wiki/en/Ngo Dinh Diem.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-14",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "price-list-2027.csv"
+   ],
+   "words": "acme sensor hardware cost unit 2027",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 2,
+      "r8": true,
+      "top1": false,
+      "ms": 34.33,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/price-list-2026.csv",
+       "acme/price-list-2027.csv",
+       "wiki/en/Lighting control system.txt",
+       "wiki/en/Video game console.txt",
+       "wiki/en/Lend-Lease.txt",
+       "acme/acme-sensor-v3-datasheet.md",
+       "wiki/en/Video games in the United States.txt",
+       "wiki/en/Battle command.txt"
+      ]
+     },
+     "combined": {
+      "rank": 2,
+      "r8": true,
+      "top1": false,
+      "ms": 32.9,
+      "hits": 45,
+      "byMeaning": 2,
+      "top": [
+       "acme/price-list-2026.csv",
+       "acme/price-list-2027.csv",
+       "acme/acme-sensor-v3-datasheet.md",
+       "wiki/en/List of sensors.txt",
+       "acme/acme-desk-release-notes-2026.md",
+       "acme/product-spec-acme-desk.md",
+       "wiki/en/Carbon dioxide sensor.txt",
+       "acme/meeting-2026-10-product.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-en-15",
+   "lang": "en",
+   "type": "table",
+   "expectFiles": [
+    "customer-churn-analysis-2026.md"
+   ],
+   "words": "churned customers moved competitor free tier",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 36.28,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Google Drive.txt",
+       "wiki/en/Subscription business model.txt",
+       "wiki/en/Loyalty business model.txt",
+       "wiki/en/Fleetwood Town F.C..txt",
+       "wiki/en/Product strategy.txt",
+       "wiki/en/Comcast.txt",
+       "wiki/en/Churn rate.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 49.15,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Gratis Internet.txt",
+       "wiki/en/Criticism of Comcast.txt",
+       "wiki/en/Churn rate.txt",
+       "wiki/en/37signals.txt",
+       "wiki/en/Customer attrition.txt",
+       "wiki/en/Fiverr.txt",
+       "wiki/en/Google Drive.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-01",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "부서별-예산-2027.csv"
+   ],
+   "words": "2027년 개발팀 인건비 예산",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 10.57,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/오세훈.txt",
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "acme/부서별-예산-2027.csv",
+       "wiki/ko/비디오 게임 개발자.txt",
+       "wiki/ko/케언 (비디오 게임).txt",
+       "wiki/ko/한국관광공사.txt",
+       "wiki/ko/MBC 금토 드라마.txt",
+       "wiki/ko/SBS 금토 드라마.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 26.88,
+      "hits": 45,
+      "byMeaning": 14,
+      "top": [
+       "acme/부서별-예산-2027.csv",
+       "acme/2027-채용-계획.csv",
+       "acme/meeting-2026-10-product.md",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "wiki/ko/2026년.txt",
+       "wiki/ko/앤트로픽.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/오세훈.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-02",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "부서별-예산-2027.csv"
+   ],
+   "words": "마케팅팀 2027년 예산 합계",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 2,
+      "r8": true,
+      "top1": false,
+      "ms": 16.68,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/한국관광공사.txt",
+       "acme/부서별-예산-2027.csv",
+       "wiki/ko/MBC 금토 드라마.txt",
+       "wiki/ko/SBS 금토 드라마.txt",
+       "wiki/ko/김문수.txt",
+       "wiki/ko/대한민국 국가정보원.txt",
+       "wiki/ko/대한민국 국회.txt",
+       "wiki/ko/몬트리올 광역급행철도.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 28.42,
+      "hits": 45,
+      "byMeaning": 14,
+      "top": [
+       "acme/부서별-예산-2027.csv",
+       "wiki/ko/MBC 금토 드라마.txt",
+       "acme/meeting-2026-10-product.md",
+       "wiki/ko/한국관광공사.txt",
+       "acme/물류센터-이전-검토-보고서.md",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "acme/2027-채용-계획.csv",
+       "wiki/ko/KBS 2TV 주말 드라마.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-03",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "재고현황-2026-10.csv"
+   ],
+   "words": "교체용 배터리 재고 수량",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 23.36,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/재고관리.txt",
+       "wiki/ko/B61 핵폭탄.txt",
+       "wiki/ko/대한민국의 소방.txt",
+       "wiki/ko/물류.txt",
+       "wiki/ko/알페온.txt",
+       "wiki/ko/공급망 관리.txt",
+       "wiki/ko/공적 마스크.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 22.62,
+      "hits": 45,
+      "byMeaning": 12,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/재고관리.txt",
+       "wiki/ko/재고 감모.txt",
+       "wiki/ko/전지.txt",
+       "wiki/ko/재고순환.txt",
+       "wiki/ko/B61 핵폭탄.txt",
+       "wiki/ko/대한민국의 소방.txt",
+       "wiki/ko/물류.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-04",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "재고현황-2026-10.csv"
+   ],
+   "words": "충전 허브 창고",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 11.99,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/USB.txt",
+       "wiki/ko/대구광역시.txt",
+       "wiki/ko/롯데마트.txt",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/구글 픽셀.txt",
+       "wiki/ko/기아 쏘울.txt",
+       "wiki/ko/대구역.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 22,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/코워킹.txt",
+       "wiki/ko/웹소설.txt",
+       "wiki/ko/이천 물류창고 화재.txt",
+       "wiki/ko/물류.txt",
+       "wiki/ko/전지.txt",
+       "wiki/ko/젯브레인즈.txt",
+       "wiki/ko/공급망 관리.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-05",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "2027-채용-계획.csv"
+   ],
+   "words": "백엔드 개발자 연봉 범위",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 31.71,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/2027-채용-계획.csv",
+       "wiki/ko/게임 디자인.txt",
+       "wiki/ko/깃허브.txt",
+       "wiki/ko/비디오 게임 개발자.txt",
+       "wiki/ko/비디오 게임 콘솔.txt",
+       "wiki/ko/비디오 게임.txt",
+       "wiki/ko/사이버 보안 연구원.txt",
+       "wiki/ko/여성과 비디오 게임.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 35.74,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "acme/2027-채용-계획.csv",
+       "wiki/ko/비디오 게임 개발자.txt",
+       "wiki/ko/사이버 보안 연구원.txt",
+       "wiki/ko/비디오 게임 프로그래머.txt",
+       "wiki/ko/SK하이닉스.txt",
+       "wiki/ko/깃허브.txt",
+       "wiki/ko/백도어.txt",
+       "wiki/ko/사람인 (기업).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-06",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "2027-채용-계획.csv"
+   ],
+   "words": "모바일 개발자 뽑아",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 8,
+      "r8": false,
+      "top1": false,
+      "ms": 19.3,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/비디오 게임 콘솔.txt",
+       "wiki/ko/안드로이드 (운영체제).txt",
+       "wiki/ko/검색 엔진 최적화.txt",
+       "wiki/ko/비디오 게임 개발자.txt",
+       "wiki/ko/페이스북.txt",
+       "wiki/ko/사람인 (기업).txt",
+       "wiki/ko/스마트폰.txt",
+       "acme/2027-채용-계획.csv"
+      ]
+     },
+     "combined": {
+      "rank": 2,
+      "r8": true,
+      "top1": false,
+      "ms": 38.36,
+      "hits": 45,
+      "byMeaning": 6,
+      "top": [
+       "wiki/ko/안드로이드 (운영체제).txt",
+       "acme/2027-채용-계획.csv",
+       "wiki/ko/사람인 (기업).txt",
+       "wiki/ko/비디오 게임 개발자.txt",
+       "wiki/ko/모바일 마케팅.txt",
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/웍스피어.txt",
+       "acme/meeting-2026-10-product.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-07",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "영업-파이프라인-2026-q4.csv"
+   ],
+   "words": "누리테크 예상 금액",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 29.08,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/영업-파이프라인-2026-q4.csv",
+       "wiki/ko/무인 항공기.txt",
+       "wiki/ko/배당.txt",
+       "wiki/ko/부당이득.txt",
+       "wiki/ko/SK하이닉스.txt",
+       "wiki/ko/몬트리올 광역급행철도.txt",
+       "wiki/ko/베네치아.txt",
+       "wiki/ko/부가가치세.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 26.43,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "acme/영업-파이프라인-2026-q4.csv",
+       "wiki/ko/상생결제.txt",
+       "wiki/ko/주성엔지니어링.txt",
+       "acme/복리후생-안내.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/대한민국 제19대 국회의원 선거.txt",
+       "acme/물류센터-이전-검토-보고서.md",
+       "wiki/ko/CJ대한통운.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-08",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "2026-10-월간-실적-보고.md"
+   ],
+   "words": "10월 유료 좌석 수는 석이야",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 33.89,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/2026-10-월간-실적-보고.md",
+       "wiki/ko/피렌체.txt",
+       "wiki/ko/하카타역.txt",
+       "wiki/ko/E스포츠.txt",
+       "wiki/ko/서울대학교.txt",
+       "wiki/ko/63빌딩.txt",
+       "wiki/ko/일제강점기.txt",
+       "wiki/ko/DLsite.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 47.87,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "acme/2026-10-월간-실적-보고.md",
+       "wiki/ko/서울역.txt",
+       "wiki/ko/63빌딩.txt",
+       "wiki/ko/대한항공.txt",
+       "wiki/ko/피렌체.txt",
+       "wiki/ko/롯데월드타워.txt",
+       "wiki/ko/하카타역.txt",
+       "wiki/ko/오세훈.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-09",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "물류센터-이전-검토-보고서.md"
+   ],
+   "words": "이천 후보지 임대료",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 12.16,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/물류센터-이전-검토-보고서.md",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/오피스.txt",
+       "wiki/ko/이천 물류창고 화재.txt",
+       "wiki/ko/광주 상무 FC.txt",
+       "wiki/ko/로젠.txt",
+       "wiki/ko/병조.txt",
+       "wiki/ko/전남 드래곤즈.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 20.79,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "acme/물류센터-이전-검토-보고서.md",
+       "wiki/ko/대한민국 제19대 국회의원 선거.txt",
+       "wiki/ko/경기도.txt",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/오세훈.txt",
+       "wiki/ko/김정일.txt",
+       "wiki/ko/롯데홈쇼핑.txt",
+       "wiki/ko/허경영.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-10",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "2026-하반기-고객만족도-조사-보고서.md"
+   ],
+   "words": "고객지원 응대 점수 하반기 점이",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 15.71,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/바카라 (카드 게임).txt",
+       "wiki/ko/클러스터 분석.txt",
+       "wiki/ko/테라펙스.txt",
+       "wiki/ko/G-TELP.txt",
+       "wiki/ko/음악 비디오 게임.txt",
+       "wiki/ko/가족관계증명서 (2026년 드라마).txt",
+       "wiki/ko/검색 엔진 최적화.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 35.61,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/CS쉐어링.txt",
+       "wiki/ko/테라펙스.txt",
+       "wiki/ko/고객 관계 관리.txt",
+       "acme/support-faq.txt",
+       "wiki/ko/인천 유나이티드 FC.txt",
+       "wiki/ko/바카라 (카드 게임).txt",
+       "wiki/ko/롯데홈쇼핑.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-11",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "사내-교육-프로그램-안내.md"
+   ],
+   "words": "개인정보 보호 교육 1년 받아",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 29,
+      "r8": false,
+      "top1": false,
+      "ms": 66.56,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/대한민국 개인정보보호위원회.txt",
+       "wiki/ko/정보통신망 이용촉진 및 정보보호 등에 관한 법률.txt",
+       "wiki/ko/소셜 네트워크 서비스에 관한 문제.txt",
+       "wiki/ko/대한민국 행정안전부.txt",
+       "wiki/ko/Gmail.txt",
+       "wiki/ko/정상혁 (1964년).txt",
+       "wiki/ko/김성태 (1958년).txt",
+       "wiki/ko/개인정보처리방침.txt"
+      ]
+     },
+     "combined": {
+      "rank": 8,
+      "r8": false,
+      "top1": false,
+      "ms": 68.53,
+      "hits": 45,
+      "byMeaning": 3,
+      "top": [
+       "wiki/ko/대한민국 개인정보보호위원회.txt",
+       "wiki/ko/정보통신망 이용촉진 및 정보보호 등에 관한 법률.txt",
+       "wiki/ko/한국교육학술정보원.txt",
+       "wiki/ko/개인정보의 보호에 관한 법률.txt",
+       "wiki/ko/개인정보처리방침.txt",
+       "wiki/ko/프라이버시.txt",
+       "wiki/ko/소셜 네트워크 서비스에 관한 문제.txt",
+       "acme/사내-교육-프로그램-안내.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-12",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "price-list-2027.csv"
+   ],
+   "words": "2027년 acme desk pro 요금",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 24.85,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/product-spec-acme-desk.md",
+       "acme/price-list-2026.csv",
+       "acme/price-list-2027.csv",
+       "acme/privacy-policy-acme-desk.html",
+       "acme/service-agreement-acme-bluepeak.md",
+       "acme/meeting-2026-10-product.md",
+       "acme/partner-referral-program.md",
+       "acme/travel-policy.md"
+      ]
+     },
+     "combined": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 23.27,
+      "hits": 45,
+      "byMeaning": 14,
+      "top": [
+       "acme/product-spec-acme-desk.md",
+       "acme/price-list-2026.csv",
+       "acme/price-list-2027.csv",
+       "acme/meeting-2026-10-product.md",
+       "acme/acme-desk-release-notes-2026.md",
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "acme/재고현황-2026-10.csv",
+       "acme/물류센터-이전-검토-보고서.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-13",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "holiday-calendar-2027.csv"
+   ],
+   "words": "2027년 설날 연휴",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 7,
+      "r8": true,
+      "top1": false,
+      "ms": 9.55,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/대체휴일제도.txt",
+       "wiki/ko/대한민국의 공휴일.txt",
+       "wiki/ko/새해 첫날.txt",
+       "wiki/ko/GS칼텍스.txt",
+       "wiki/ko/설날 (한국).txt",
+       "wiki/ko/추석.txt",
+       "acme/holiday-calendar-2027.csv",
+       "wiki/ko/경북대학교.txt"
+      ]
+     },
+     "combined": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 18.99,
+      "hits": 45,
+      "byMeaning": 13,
+      "top": [
+       "wiki/ko/대체휴일제도.txt",
+       "wiki/ko/대한민국의 공휴일.txt",
+       "acme/holiday-calendar-2027.csv",
+       "wiki/ko/설날 (한국).txt",
+       "wiki/ko/추석.txt",
+       "wiki/ko/MBC 금토 드라마.txt",
+       "wiki/ko/SBS 금토 드라마.txt",
+       "wiki/ko/새해 첫날.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-14",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "부서별-예산-2027.csv"
+   ],
+   "words": "2027년 영업2팀 마케팅비 잡혀",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 10.15,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/부서별-예산-2027.csv",
+       "wiki/ko/MBC 금토 드라마.txt",
+       "wiki/ko/SBS 금토 드라마.txt",
+       "wiki/ko/삼성 갤럭시 S7.txt",
+       "acme/물류센터-이전-검토-보고서.md",
+       "wiki/ko/미국 항공 우주국.txt",
+       "wiki/ko/율리우스 카이사르.txt",
+       "acme/meeting-2026-10-product.md"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 26.7,
+      "hits": 45,
+      "byMeaning": 18,
+      "top": [
+       "acme/부서별-예산-2027.csv",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "acme/물류센터-이전-검토-보고서.md",
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/2026년.txt",
+       "acme/meeting-2026-10-product.md",
+       "wiki/ko/KBS 2TV 주말 드라마.txt",
+       "wiki/ko/삼성전기.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "t-ko-15",
+   "lang": "ko",
+   "type": "table",
+   "expectFiles": [
+    "2026-10-월간-실적-보고.md"
+   ],
+   "words": "9월 비교해 10월 해지 고객사 수는",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 63.25,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/2026-10-월간-실적-보고.md",
+       "wiki/ko/잊힐 권리.txt",
+       "wiki/ko/롯데마트.txt",
+       "wiki/ko/삼성증권.txt",
+       "wiki/ko/일제강점기.txt",
+       "wiki/ko/임진왜란.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/중앙대학교.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 43.98,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "acme/2026-10-월간-실적-보고.md",
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/롯데마트.txt",
+       "wiki/ko/SBS 드라마 스페셜.txt",
+       "wiki/ko/귀혼.txt",
+       "wiki/ko/국가 고객 만족지수.txt",
+       "wiki/ko/마이크로소프트 윈도우.txt",
+       "wiki/ko/잊힐 권리.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-01",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "service-agreement-acme-bluepeak.md"
+   ],
+   "words": "호스팅 업체 계약 중간 해지하려면 전에",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 75.35,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/모바일 마케팅.txt",
+       "wiki/ko/물류.txt",
+       "wiki/ko/앤트로픽.txt",
+       "wiki/ko/PHP2Shell.txt",
+       "wiki/ko/몬트리올 광역급행철도.txt",
+       "wiki/ko/서비스 수준 협약서.txt",
+       "wiki/ko/고객.txt",
+       "wiki/ko/다운타임.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 42.99,
+      "hits": 45,
+      "byMeaning": 5,
+      "top": [
+       "wiki/ko/부정경쟁방지 및 영업비밀보호에 관한 법률.txt",
+       "wiki/ko/계약.txt",
+       "wiki/ko/해지.txt",
+       "wiki/ko/서비스 수준 협약서.txt",
+       "wiki/ko/근로계약서.txt",
+       "wiki/ko/공급망 관리.txt",
+       "wiki/ko/대한민국 민법 제622조.txt",
+       "wiki/ko/중소벤처기업진흥공단.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-02",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "service-agreement-acme-bluepeak.md"
+   ],
+   "words": "서비스 가동률 약속 낮으면 보상 받아",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 65.48,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/공급망 관리.txt",
+       "wiki/ko/케나_ 브릿지 오브 스피릿.txt",
+       "wiki/ko/계약.txt",
+       "wiki/ko/페이스북.txt",
+       "wiki/ko/인스타그램.txt",
+       "wiki/ko/케이뱅크.txt",
+       "wiki/ko/KB손해보험.txt",
+       "wiki/ko/소셜 네트워크 서비스에 관한 문제.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 40.09,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/ko/산업 재해.txt",
+       "wiki/ko/서비스 수준 협약서.txt",
+       "wiki/ko/정보통신망 이용촉진 및 정보보호 등에 관한 법률.txt",
+       "wiki/ko/계약.txt",
+       "wiki/ko/구독 사업 모형.txt",
+       "wiki/ko/연차사용촉진제도.txt",
+       "wiki/ko/삼성SDS.txt",
+       "wiki/ko/직무 만족.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-03",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "employment-contract-template.txt"
+   ],
+   "words": "수습 기간 퇴사하려면 전에 말해",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 102.64,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/수원 삼성 블루윙즈.txt",
+       "wiki/ko/김성태 (1958년).txt",
+       "wiki/ko/FC 서울.txt",
+       "wiki/ko/추미애.txt",
+       "wiki/ko/옌타이시.txt",
+       "wiki/ko/대한민국의 세무조사.txt",
+       "wiki/ko/제1차 세계 대전.txt",
+       "wiki/ko/FC 바르셀로나.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 35.89,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "wiki/ko/부정경쟁방지 및 영업비밀보호에 관한 법률.txt",
+       "wiki/ko/대한민국의 세무조사.txt",
+       "wiki/ko/연차사용촉진제도.txt",
+       "acme/hr-leave-policy.md",
+       "wiki/ko/해지.txt",
+       "wiki/ko/수원 삼성 블루윙즈.txt",
+       "acme/사내-교육-프로그램-안내.md",
+       "wiki/ko/김성태 (1958년).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-04",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "employment-contract-template.txt"
+   ],
+   "words": "초과 근무 수당 시급 퍼센트",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 45.32,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/노동절.txt",
+       "wiki/ko/최저임금.txt",
+       "wiki/ko/일용직.txt",
+       "wiki/ko/노동 시간.txt",
+       "wiki/ko/아르바이트.txt",
+       "wiki/ko/아랍에미리트의 노예제.txt",
+       "wiki/ko/직장의 신.txt",
+       "wiki/ko/병가 (휴가).txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 28.08,
+      "hits": 45,
+      "byMeaning": 8,
+      "top": [
+       "wiki/ko/최저임금.txt",
+       "wiki/ko/아르바이트.txt",
+       "wiki/ko/노동 시간.txt",
+       "wiki/ko/대한민국의 소방.txt",
+       "wiki/ko/병가 (휴가).txt",
+       "wiki/ko/직무 만족.txt",
+       "wiki/ko/직장의 신.txt",
+       "wiki/ko/일용직.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-05",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "employment-contract-template.txt"
+   ],
+   "words": "퇴사한 고객 접근하면 되는 기간",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 46.07,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/김성태 (1958년).txt",
+       "wiki/ko/고객.txt",
+       "wiki/ko/서비스 수준 협약서.txt",
+       "wiki/ko/고객 관계 관리.txt",
+       "wiki/ko/고객만족.txt",
+       "wiki/ko/부가가치세.txt",
+       "wiki/ko/모바일 마케팅.txt",
+       "wiki/ko/개인정보처리방침.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 39.2,
+      "hits": 45,
+      "byMeaning": 8,
+      "top": [
+       "wiki/ko/서비스 수준 협약서.txt",
+       "wiki/ko/고객.txt",
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/고객 관계 관리.txt",
+       "wiki/ko/계약.txt",
+       "wiki/ko/다운타임.txt",
+       "wiki/ko/부정경쟁방지 및 영업비밀보호에 관한 법률.txt",
+       "wiki/ko/근로계약서.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-06",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "travel-policy.md"
+   ],
+   "words": "미국 유럽 출장 하루 일비",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 58.28,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/리모트 워크.txt",
+       "wiki/ko/캐나다.txt",
+       "wiki/ko/노동 시간.txt",
+       "wiki/ko/E스포츠.txt",
+       "wiki/ko/스웨덴.txt",
+       "wiki/ko/구글.txt",
+       "wiki/ko/데이터 마이닝.txt",
+       "wiki/ko/미국.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 40.68,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/ko/리모트 워크.txt",
+       "wiki/ko/미국.txt",
+       "wiki/ko/노동 시간.txt",
+       "wiki/ko/최저임금.txt",
+       "wiki/ko/병가 (휴가).txt",
+       "wiki/ko/구글.txt",
+       "wiki/ko/노동절.txt",
+       "wiki/ko/비정규직.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-07",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "travel-policy.md"
+   ],
+   "words": "자가용 출장 가면 킬로미터당 받아",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 139.23,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/공지영.txt",
+       "wiki/ko/산업 재해.txt",
+       "wiki/ko/이동욱 (야구인).txt",
+       "wiki/ko/이택근.txt",
+       "wiki/ko/전준호 (1969년).txt",
+       "wiki/ko/KBO 리그.txt",
+       "wiki/ko/가네모토 도모아키.txt",
+       "wiki/ko/아소산.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 45.83,
+      "hits": 45,
+      "byMeaning": 20,
+      "top": [
+       "wiki/ko/산업 재해.txt",
+       "wiki/ko/김성태 (1958년).txt",
+       "wiki/ko/공지영.txt",
+       "wiki/ko/직장의 신.txt",
+       "wiki/ko/연차사용촉진제도.txt",
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/이동욱 (야구인).txt",
+       "wiki/ko/사회적 거리두기.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-08",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "acme-sensor-v3-datasheet.md"
+   ],
+   "words": "3세대 센서 배터리 오래",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 64.55,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/구글 픽셀.txt",
+       "wiki/ko/아이팟 터치.txt",
+       "wiki/ko/아이폰 14 프로.txt",
+       "wiki/ko/자동차 산업.txt",
+       "wiki/ko/API.txt",
+       "wiki/ko/베네데토 비냐.txt",
+       "wiki/ko/이미지 센서.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 28.7,
+      "hits": 45,
+      "byMeaning": 5,
+      "top": [
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/자동차 산업.txt",
+       "wiki/ko/베네데토 비냐.txt",
+       "wiki/ko/이미지 센서.txt",
+       "wiki/ko/전지.txt",
+       "wiki/ko/레인 센서.txt",
+       "wiki/ko/뉴욕.txt",
+       "wiki/ko/구글 픽셀.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-09",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "acme-sensor-v3-datasheet.md"
+   ],
+   "words": "센서 너머 감지해",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 63.94,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/자동 초점.txt",
+       "wiki/ko/API.txt",
+       "wiki/ko/관성항법장치.txt",
+       "wiki/ko/구글 픽셀.txt",
+       "wiki/ko/디지털 카메라.txt",
+       "wiki/ko/레인 센서.txt",
+       "wiki/ko/미러리스 카메라.txt",
+       "wiki/ko/삼성 갤럭시 A 시리즈.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 19.61,
+      "hits": 45,
+      "byMeaning": 9,
+      "top": [
+       "wiki/ko/레인 센서.txt",
+       "wiki/ko/센서.txt",
+       "wiki/ko/자동 초점.txt",
+       "wiki/ko/이미지 센서.txt",
+       "wiki/ko/관성항법장치.txt",
+       "wiki/ko/홀 센서.txt",
+       "wiki/ko/액티브 픽셀 센서.txt",
+       "wiki/ko/미러리스 카메라.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-10",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "privacy-policy-acme-desk.html",
+    "service-agreement-acme-bluepeak.md"
+   ],
+   "words": "고객사 계정 해지하면 개인 데이터 삭제돼",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 43.23,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/승차 공유 개인 정보.txt",
+       "wiki/ko/소셜 네트워크 서비스에 관한 문제.txt",
+       "wiki/ko/페이스북.txt",
+       "wiki/ko/소셜 네트워크 서비스의 개인정보 보호 문제.txt",
+       "wiki/ko/링크드인.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/라온시큐어.txt",
+       "wiki/ko/비밀번호 강도.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 42.3,
+      "hits": 45,
+      "byMeaning": 2,
+      "top": [
+       "wiki/ko/개인정보의 보호에 관한 법률.txt",
+       "wiki/ko/다운타임.txt",
+       "wiki/ko/소셜 네트워크 서비스에 관한 문제.txt",
+       "wiki/ko/페이스북.txt",
+       "wiki/ko/소셜 네트워크 서비스의 개인정보 보호 문제.txt",
+       "wiki/ko/보안 계정 관리자.txt",
+       "wiki/ko/라온시큐어.txt",
+       "wiki/ko/데이터 마이닝.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-11",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "partner-referral-program.md"
+   ],
+   "words": "파트너 수수료 첫해 퍼센트",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 55.36,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/이베이.txt",
+       "wiki/ko/코스트코.txt",
+       "wiki/ko/케이뱅크.txt",
+       "wiki/ko/인플루언서.txt",
+       "wiki/ko/탄소 배당.txt",
+       "wiki/ko/모나코.txt",
+       "wiki/ko/깃허브.txt",
+       "wiki/ko/뮤즈 (AI 에이전트).txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 23.69,
+      "hits": 45,
+      "byMeaning": 15,
+      "top": [
+       "wiki/ko/이베이.txt",
+       "wiki/ko/쿠팡.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "acme/부서별-예산-2027.csv",
+       "wiki/ko/엔비디아.txt",
+       "wiki/ko/애플.txt",
+       "wiki/ko/아이퀘스트.txt",
+       "acme/영업-파이프라인-2026-q4.csv"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-12",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "security-incident-runbook.md"
+   ],
+   "words": "보안 사고 나면 규제 기관 신고해",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 47.28,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/사이버 보안 연구원.txt",
+       "wiki/ko/챗GPT.txt",
+       "wiki/ko/한국원자력안전기술원.txt",
+       "wiki/ko/대한민국 중앙정보부.txt",
+       "wiki/ko/국가정보자원관리원.txt",
+       "wiki/ko/대한민국의 소방.txt",
+       "wiki/ko/리모트뷰.txt",
+       "wiki/ko/프라이버시.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 46.06,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/ko/사이버 보안 연구원.txt",
+       "wiki/ko/프라이버시.txt",
+       "wiki/ko/개인정보의 보호에 관한 법률.txt",
+       "wiki/ko/공급망 공격.txt",
+       "wiki/ko/보안 취약점.txt",
+       "wiki/ko/네트워크 보안.txt",
+       "wiki/ko/PR (마케팅).txt",
+       "wiki/ko/얀덱스.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-13",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "fire-safety-and-evacuation.txt"
+   ],
+   "words": "화재 대피 훈련 1년",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 23.5,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/소방 훈련.txt",
+       "wiki/ko/대왕코너 화재.txt",
+       "wiki/ko/경상북도 소방본부.txt",
+       "wiki/ko/메타폴리스.txt",
+       "wiki/ko/신속동료구조팀.txt",
+       "wiki/ko/의무소방대.txt",
+       "wiki/ko/충청남도 소방본부.txt",
+       "wiki/ko/윤희순.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 40.1,
+      "hits": 45,
+      "byMeaning": 8,
+      "top": [
+       "wiki/ko/소방 훈련.txt",
+       "wiki/ko/신속동료구조팀.txt",
+       "wiki/ko/경상남도 소방교육훈련장.txt",
+       "wiki/ko/의무소방대.txt",
+       "wiki/ko/대왕코너 화재.txt",
+       "wiki/ko/KB손해보험.txt",
+       "wiki/ko/2026년.txt",
+       "wiki/ko/한국소방안전협회.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-14",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "partner-referral-program.md"
+   ],
+   "words": "파트너 1년 고객 10곳 넘게 데려오면 수수료",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 41.57,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/케이뱅크.txt",
+       "wiki/ko/이베이.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/KB손해보험.txt",
+       "wiki/ko/삼성SDS.txt",
+       "wiki/ko/삼성증권.txt",
+       "wiki/ko/코스트코.txt",
+       "wiki/ko/LG화학.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 55.69,
+      "hits": 45,
+      "byMeaning": 6,
+      "top": [
+       "wiki/ko/이베이.txt",
+       "wiki/ko/쿠팡.txt",
+       "wiki/ko/렉스몬드.txt",
+       "wiki/ko/코스트코.txt",
+       "wiki/ko/래미안.txt",
+       "wiki/ko/아이퀘스트.txt",
+       "wiki/ko/공급망 관리.txt",
+       "acme/부서별-예산-2027.csv"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-ko-15",
+   "lang": "ko",
+   "type": "cross",
+   "expectFiles": [
+    "security-incident-runbook.md"
+   ],
+   "words": "보안 사고 사후 분석 보고서 써야",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 42.96,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/사이버 보안 연구원.txt",
+       "wiki/ko/공급망 공격.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/ISO_IEC 27000 시리즈.txt",
+       "wiki/ko/삼성SDS.txt",
+       "wiki/ko/김한수 (1992년).txt",
+       "wiki/ko/슈프리마.txt",
+       "wiki/ko/경상북도 소방본부.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 100.5,
+      "hits": 45,
+      "byMeaning": 4,
+      "top": [
+       "wiki/ko/사이버 보안 연구원.txt",
+       "wiki/ko/ISO_IEC 27000 시리즈.txt",
+       "wiki/ko/공급망 공격.txt",
+       "wiki/ko/최고경영자.txt",
+       "wiki/ko/보안.txt",
+       "wiki/ko/비밀번호 강도.txt",
+       "wiki/ko/재고 감모.txt",
+       "wiki/ko/PR (마케팅).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-01",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "2026-하반기-고객만족도-조사-보고서.md"
+   ],
+   "words": "surveyed customers complained slow mobile screens",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 46.11,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Electronic billing.txt",
+       "wiki/en/Customer attrition.txt",
+       "wiki/en/Wi-Fi calling.txt",
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Churn rate.txt",
+       "wiki/en/Customer satisfaction.txt",
+       "wiki/en/History of mass surveillance in the United Kingdom.txt",
+       "wiki/en/Mobile device management.txt"
+      ]
+     },
+     "combined": {
+      "rank": 8,
+      "r8": false,
+      "top1": false,
+      "ms": 35.57,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/en/Consumer Cellular.txt",
+       "wiki/en/Mobile device management.txt",
+       "wiki/en/Electronic billing.txt",
+       "wiki/en/Electromagnetic hypersensitivity.txt",
+       "wiki/en/Criticism of Comcast.txt",
+       "wiki/en/Video game development.txt",
+       "wiki/en/Search engine optimization.txt",
+       "acme/2026-하반기-고객만족도-조사-보고서.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-02",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "2026-하반기-고객만족도-조사-보고서.md"
+   ],
+   "words": "discount plan customers pay yearly",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 40.68,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Google Drive.txt",
+       "wiki/en/Dividend.txt",
+       "wiki/en/Employee stock ownership.txt",
+       "wiki/en/Employee stock purchase plan.txt",
+       "wiki/en/Employee benefits.txt",
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Accounts payable.txt",
+       "wiki/en/HM Revenue and Customs.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 33.75,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Employee stock purchase plan.txt",
+       "wiki/en/Revenue management.txt",
+       "acme/partner-referral-program.md",
+       "wiki/en/Employee compensation in the United States.txt",
+       "wiki/en/Accounts payable.txt",
+       "wiki/en/Revenue stream.txt",
+       "wiki/en/Customer attrition.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-03",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "물류센터-이전-검토-보고서.md"
+   ],
+   "words": "warehouse site relocation study recommend",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 30.7,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Password manager.txt",
+       "wiki/en/Patient recruitment.txt",
+       "wiki/en/Carphone Warehouse.txt",
+       "wiki/en/Privacy policy.txt",
+       "wiki/en/Chemist Warehouse.txt",
+       "wiki/en/MicroWarehouse.txt",
+       "wiki/en/Open University.txt",
+       "wiki/en/The Warehouse Group.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 37.79,
+      "hits": 45,
+      "byMeaning": 2,
+      "top": [
+       "wiki/en/Warehouse.txt",
+       "wiki/en/Carphone Warehouse.txt",
+       "wiki/en/Chemist Warehouse.txt",
+       "wiki/en/Referral economy.txt",
+       "wiki/en/Bonded warehouse.txt",
+       "wiki/en/Inventory management software.txt",
+       "wiki/en/List of warehouse districts.txt",
+       "wiki/en/The Warehouse Group.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-04",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "물류센터-이전-검토-보고서.md"
+   ],
+   "words": "moving warehouse cost",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 18.25,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Warehouse club.txt",
+       "wiki/en/Warehouse management system.txt",
+       "wiki/en/Inventory turnover.txt",
+       "wiki/en/Vendor-managed inventory.txt",
+       "wiki/en/Warehouse store.txt",
+       "wiki/en/Freight audit.txt",
+       "wiki/en/Inventory.txt",
+       "wiki/en/Remote work.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 31.59,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Warehouse management system.txt",
+       "wiki/en/Vendor-managed inventory.txt",
+       "wiki/en/Warehouse.txt",
+       "wiki/en/Warehouse club.txt",
+       "wiki/en/Warehouse store.txt",
+       "wiki/en/Aircraft lease.txt",
+       "wiki/en/Bonded warehouse.txt",
+       "wiki/en/Warehouse receipt.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-05",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "회의록-2026-09-이사회.md"
+   ],
+   "words": "employees received stock options september board meeting",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 42.7,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Stock option expensing.txt",
+       "wiki/en/Board of directors.txt",
+       "wiki/en/Employee compensation in the United States.txt",
+       "wiki/en/Employee stock ownership.txt",
+       "wiki/en/Employee stock option.txt",
+       "wiki/en/Options backdating.txt",
+       "wiki/en/Vesting.txt",
+       "wiki/en/Employment.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 50.58,
+      "hits": 45,
+      "byMeaning": 5,
+      "top": [
+       "wiki/en/Employee compensation in the United States.txt",
+       "wiki/en/Employee stock option.txt",
+       "wiki/en/Options backdating.txt",
+       "wiki/en/Employee stock ownership.txt",
+       "wiki/en/Restricted stock.txt",
+       "wiki/en/Employee stock ownership plan.txt",
+       "wiki/en/Jack Welch.txt",
+       "wiki/en/Incentive stock option.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-06",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "회의록-2026-09-이사회.md"
+   ],
+   "words": "pay dividend 2026",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 30.61,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Dividend policy.txt",
+       "wiki/en/Dividend.txt",
+       "wiki/en/Ex-dividend date.txt",
+       "wiki/en/Parental dividend.txt",
+       "wiki/en/Preferred stock.txt",
+       "wiki/en/Alaska Permanent Fund.txt",
+       "wiki/en/Dividend yield.txt",
+       "wiki/en/Klarna.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 29.82,
+      "hits": 45,
+      "byMeaning": 7,
+      "top": [
+       "wiki/en/Dividend.txt",
+       "wiki/en/Parental dividend.txt",
+       "wiki/en/Dividend yield.txt",
+       "wiki/en/Klarna.txt",
+       "wiki/en/Dividend discount model.txt",
+       "wiki/en/Dividend policy.txt",
+       "wiki/en/Alaska Permanent Fund.txt",
+       "wiki/en/Qualified dividend.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-07",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "코드리뷰-가이드.md"
+   ],
+   "words": "approvals request",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 30.16,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Dorothy Pérez.txt",
+       "wiki/en/Incident commander.txt",
+       "wiki/en/Internet privacy.txt",
+       "wiki/en/ITIL security management.txt",
+       "wiki/en/Privacy concerns with Google.txt",
+       "wiki/en/Rate limiting.txt",
+       "wiki/en/Same-origin policy.txt",
+       "wiki/en/E-procurement.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 24.36,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "wiki/en/Dorothy Pérez.txt",
+       "wiki/en/Internet privacy.txt",
+       "wiki/en/Rate limiting.txt",
+       "wiki/en/ITIL security management.txt",
+       "wiki/en/OpenLDAP.txt",
+       "wiki/en/Accounting software.txt",
+       "wiki/en/Employee Retirement Income Security Act of 1974.txt",
+       "wiki/en/Payment Card Industry Data Security Standard.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-08",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "코드리뷰-가이드.md"
+   ],
+   "words": "deploy production friday",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 29.69,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Interstellar (film).txt",
+       "wiki/en/Inventory management software.txt",
+       "wiki/en/Site reliability engineering.txt",
+       "wiki/en/T-14 Armata.txt",
+       "wiki/en/Battle rifle.txt",
+       "wiki/en/Lighting control system.txt",
+       "wiki/en/Star Trek_ The Original Series.txt",
+       "wiki/en/Warehouse 13.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 32.33,
+      "hits": 45,
+      "byMeaning": 13,
+      "top": [
+       "wiki/en/Unit Deployment Program.txt",
+       "wiki/en/Species – The Awakening.txt",
+       "wiki/en/Computer data storage.txt",
+       "wiki/en/T-14 Armata.txt",
+       "wiki/en/IF (film).txt",
+       "wiki/en/Public holidays in the United States.txt",
+       "wiki/en/Jawan (film).txt",
+       "wiki/en/Fourth Taiwan Strait Crisis.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-09",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "복리후생-안내.txt"
+   ],
+   "words": "monthly meal allowance",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 10.24,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Compensation and benefits.txt",
+       "wiki/en/Allowance (money).txt",
+       "wiki/en/Per diem.txt",
+       "wiki/en/Employee benefits.txt",
+       "wiki/en/National Service Secretariat (Ghana).txt",
+       "wiki/en/Social security in India.txt",
+       "acme/travel-policy.md",
+       "wiki/en/Temporary duty assignment.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 34.69,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/en/Employee benefits.txt",
+       "wiki/en/Social security in India.txt",
+       "wiki/en/Allowance (money).txt",
+       "wiki/en/Per diem.txt",
+       "wiki/en/Compensation and benefits.txt",
+       "wiki/en/Salary.txt",
+       "wiki/en/Unit Deployment Program.txt",
+       "wiki/en/Temporary duty assignment.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-10",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "주차-및-출입-안내.md"
+   ],
+   "words": "cost replace lost access card",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 35.05,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Electronic billing.txt",
+       "wiki/en/Laser printing.txt",
+       "wiki/en/East Grinstead railway station.txt",
+       "wiki/en/Read-only memory.txt",
+       "wiki/en/Cliftonville F.C..txt",
+       "wiki/en/Partnerized inventory management.txt",
+       "wiki/en/Battle of the Somme.txt",
+       "wiki/en/Computer security.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 56.02,
+      "hits": 45,
+      "byMeaning": 14,
+      "top": [
+       "wiki/en/Purchasing.txt",
+       "wiki/en/Visa requirements for United States citizens.txt",
+       "wiki/en/Social security in India.txt",
+       "wiki/en/Information security.txt",
+       "wiki/en/Credit history.txt",
+       "wiki/en/Criticism of Comcast.txt",
+       "wiki/en/Laser printing.txt",
+       "wiki/en/Electronic billing.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-11",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "주차-및-출입-안내.md"
+   ],
+   "words": "long visitors park free",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 21.31,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Phillip Island.txt",
+       "wiki/en/P.T. (video game).txt",
+       "wiki/en/Crystal Palace F.C..txt",
+       "wiki/en/Tottenham Hotspur F.C..txt",
+       "wiki/en/Avon Valley Railway.txt",
+       "wiki/en/Rikers Island.txt",
+       "wiki/en/East Grinstead railway station.txt",
+       "wiki/en/Galápagos Islands.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 56.29,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "wiki/en/Phillip Island.txt",
+       "wiki/en/Mountain Creek.txt",
+       "wiki/en/Wi-Fi hotspot.txt",
+       "wiki/en/Visa policy of Singapore.txt",
+       "wiki/en/Timeshare.txt",
+       "wiki/en/Gratis Internet.txt",
+       "wiki/en/Visa requirements for Mexican citizens.txt",
+       "wiki/en/APEC Business Travel Card.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-12",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "hr-leave-policy.md"
+   ],
+   "words": "sick days year",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 18.84,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Sick leave in the United States.txt",
+       "wiki/en/Sick leave.txt",
+       "wiki/en/Australian Fair Pay and Conditions Standard.txt",
+       "wiki/en/Federal Employees Retirement System.txt",
+       "wiki/en/Annual leave.txt",
+       "wiki/en/Holidays Act 2003.txt",
+       "wiki/en/List of minimum annual leave by country.txt",
+       "wiki/en/Sick building syndrome.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 33.7,
+      "hits": 45,
+      "byMeaning": 6,
+      "top": [
+       "wiki/en/Sick leave.txt",
+       "wiki/en/Sick leave in the United States.txt",
+       "wiki/en/Sick building syndrome.txt",
+       "wiki/en/Annual leave.txt",
+       "wiki/en/Holidays Act 2003.txt",
+       "wiki/en/Exhaustion disorder.txt",
+       "wiki/en/Families First Coronavirus Response Act.txt",
+       "wiki/en/Presenteeism.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-13",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "복리후생-안내.txt"
+   ],
+   "words": "10-year anniversary",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 15.02,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Kacey Musgraves.txt",
+       "wiki/en/List of Disney television series.txt",
+       "wiki/ko/윈도우 10 버전 역사.txt",
+       "wiki/en/List of Star Trek television series.txt",
+       "wiki/en/Public holidays in New Zealand.txt",
+       "wiki/en/Casper (film).txt",
+       "wiki/en/Ford Mustang (sixth generation).txt",
+       "wiki/en/Hangul Day.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 42.43,
+      "hits": 45,
+      "byMeaning": 18,
+      "top": [
+       "wiki/ko/윈도우 10 버전 역사.txt",
+       "wiki/en/Hangul Day.txt",
+       "wiki/ko/바람과 함께 사라지다 (영화).txt",
+       "wiki/en/Madonna albums discography.txt",
+       "wiki/en/Rice University.txt",
+       "wiki/en/Kacey Musgraves.txt",
+       "wiki/en/List of Disney television series.txt",
+       "wiki/en/List of Star Trek television series.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-14",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "부서별-예산-2027.csv"
+   ],
+   "words": "2027 personnel budget development",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 45.9,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Control (video game).txt",
+       "wiki/en/AAA (video game industry).txt",
+       "wiki/en/Video game development.txt",
+       "wiki/en/Building management.txt",
+       "wiki/en/Cloud computing.txt",
+       "wiki/en/Concord (video game).txt",
+       "wiki/en/Secunderabad Junction railway station.txt",
+       "wiki/en/Video game industry.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 74.01,
+      "hits": 45,
+      "byMeaning": 12,
+      "top": [
+       "acme/2027-채용-계획.csv",
+       "acme/roadmap-2027.md",
+       "wiki/en/2024 Missouri Proposition A.txt",
+       "acme/meeting-2026-11-leadership.md",
+       "wiki/en/Electronic invoicing.txt",
+       "acme/meeting-2026-10-product.md",
+       "acme/holiday-calendar-2027.csv",
+       "wiki/en/Iranian labour law.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c-en-15",
+   "lang": "en",
+   "type": "cross",
+   "expectFiles": [
+    "회의록-2026-09-이사회.md"
+   ],
+   "words": "next board meeting",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 16.7,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Green Bay Packers, Inc..txt",
+       "wiki/en/Secunderabad Junction railway station.txt",
+       "wiki/en/Advisory board.txt",
+       "wiki/en/Supervisory board.txt",
+       "wiki/en/Chair (officer).txt",
+       "wiki/en/Board of directors.txt",
+       "wiki/en/Marissa Mayer.txt",
+       "wiki/en/Michael Jackson albums discography.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 69.37,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/en/Supervisory board.txt",
+       "wiki/en/Board of directors.txt",
+       "wiki/en/Advisory board.txt",
+       "wiki/en/Green Bay Packers, Inc..txt",
+       "wiki/en/Marissa Mayer.txt",
+       "wiki/en/Chair (officer).txt",
+       "acme/meeting-2026-11-leadership.md",
+       "wiki/en/IEEE 802.11n.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-01",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "it-asset-inventory-2026.csv"
+   ],
+   "words": "asset inventory",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 18.6,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Content inventory.txt",
+       "wiki/en/Inventory.txt",
+       "wiki/en/Chart of accounts.txt",
+       "wiki/en/Inventory control.txt",
+       "wiki/en/Revenue recognition.txt",
+       "wiki/en/Balance sheet.txt",
+       "wiki/en/Net operating assets.txt",
+       "wiki/en/Purchasing.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 35.44,
+      "hits": 45,
+      "byMeaning": 2,
+      "top": [
+       "wiki/en/Inventory.txt",
+       "wiki/en/Content inventory.txt",
+       "wiki/en/Inventory control.txt",
+       "wiki/en/Chart of accounts.txt",
+       "wiki/en/Revenue recognition.txt",
+       "wiki/en/Debits and credits.txt",
+       "wiki/en/Inventory investment.txt",
+       "wiki/en/Purchasing.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-02",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "holiday-calendar-2027.csv"
+   ],
+   "words": "2027 holiday calendar",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 23,
+      "r8": false,
+      "top1": false,
+      "ms": 14.18,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Public holidays in the United States.txt",
+       "wiki/en/Hangul Day.txt",
+       "wiki/en/Public holidays in North Korea.txt",
+       "wiki/en/Public holidays in Singapore.txt",
+       "wiki/en/Buddha's Birthday.txt",
+       "wiki/en/Korean New Year.txt",
+       "wiki/en/National Foundation Day (Korea).txt",
+       "wiki/en/Public holiday.txt"
+      ]
+     },
+     "combined": {
+      "rank": 2,
+      "r8": true,
+      "top1": false,
+      "ms": 38.75,
+      "hits": 45,
+      "byMeaning": 5,
+      "top": [
+       "wiki/en/Public holidays in the United States.txt",
+       "acme/holiday-calendar-2027.csv",
+       "wiki/en/List of Disney television series.txt",
+       "acme/meeting-2026-11-leadership.md",
+       "acme/2027-채용-계획.csv",
+       "wiki/en/Public holidays in New Zealand.txt",
+       "acme/roadmap-2027.md",
+       "wiki/en/Annual leave.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-03",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "employment-contract-template.txt"
+   ],
+   "words": "employment contract template",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 23,
+      "r8": false,
+      "top1": false,
+      "ms": 16.08,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Termination of employment.txt",
+       "wiki/en/At-will employment.txt",
+       "wiki/en/Employment bond.txt",
+       "wiki/en/Employment contract in English law.txt",
+       "wiki/en/Employment.txt",
+       "wiki/en/First Employment Contract.txt",
+       "wiki/en/Iranian labour law.txt",
+       "wiki/en/Labour law in Bulgaria.txt"
+      ]
+     },
+     "combined": {
+      "rank": 7,
+      "r8": false,
+      "top1": false,
+      "ms": 33.35,
+      "hits": 45,
+      "byMeaning": 8,
+      "top": [
+       "wiki/en/Employment contract in English law.txt",
+       "wiki/en/Employment.txt",
+       "wiki/en/Termination of employment.txt",
+       "wiki/en/Employment agency.txt",
+       "wiki/en/Employment bond.txt",
+       "wiki/en/Iranian labour law.txt",
+       "acme/employment-contract-template.txt",
+       "wiki/en/Labour law in Bulgaria.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-04",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "acme-desk-release-notes-2026.md"
+   ],
+   "words": "acme desk release notes",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 28.05,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/acme-desk-release-notes-2026.md",
+       "wiki/en/HCL Notes.txt",
+       "acme/product-spec-acme-desk.md",
+       "acme/privacy-policy-acme-desk.html",
+       "wiki/en/Fedora Linux release history.txt",
+       "wiki/en/Magento.txt",
+       "wiki/en/Release notes.txt",
+       "acme/price-list-2026.csv"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 29.78,
+      "hits": 45,
+      "byMeaning": 8,
+      "top": [
+       "acme/acme-desk-release-notes-2026.md",
+       "acme/privacy-policy-acme-desk.html",
+       "acme/product-spec-acme-desk.md",
+       "acme/price-list-2026.csv",
+       "acme/price-list-2027.csv",
+       "wiki/en/HCL Notes.txt",
+       "wiki/en/GNOME.txt",
+       "acme/acme-sensor-v3-datasheet.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-05",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "vendor-list.csv"
+   ],
+   "words": "vendor spreadsheet",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 18.12,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Freight audit.txt",
+       "wiki/en/Warehouse management system.txt",
+       "wiki/en/Accounts payable.txt",
+       "wiki/en/Call centre.txt",
+       "wiki/en/Inventory control.txt",
+       "wiki/en/Smartcat.txt",
+       "wiki/en/Vendor lock-in.txt",
+       "wiki/en/Vendor management system.txt"
+      ]
+     },
+     "combined": {
+      "rank": 8,
+      "r8": false,
+      "top1": false,
+      "ms": 44.88,
+      "hits": 45,
+      "byMeaning": 2,
+      "top": [
+       "wiki/en/Vendor management system.txt",
+       "wiki/en/Vendor.txt",
+       "wiki/en/Vendor-managed inventory.txt",
+       "wiki/en/Vendor relationship management.txt",
+       "wiki/en/Accounts payable.txt",
+       "wiki/en/Inventory control.txt",
+       "wiki/en/Vendor lock-in.txt",
+       "acme/vendor-list.csv"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-06",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "sales-report-2026-q3.csv",
+    "sales-summary-2026-q3.html"
+   ],
+   "words": "q3 2026 sales report",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 37.98,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/List of best-selling video games.txt",
+       "wiki/en/AI-assisted software development.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "acme/it-asset-inventory-2026.csv",
+       "wiki/en/AAA (video game industry).txt",
+       "wiki/en/Black October (information security).txt",
+       "wiki/en/Bookkeeping.txt",
+       "wiki/en/List of best-selling video game franchises.txt"
+      ]
+     },
+     "combined": {
+      "rank": 14,
+      "r8": false,
+      "top1": false,
+      "ms": 67.24,
+      "hits": 45,
+      "byMeaning": 9,
+      "top": [
+       "acme/it-asset-inventory-2026.csv",
+       "acme/quarterly-okr-2026-q4.md",
+       "wiki/en/AI-assisted software development.txt",
+       "acme/customer-feedback-2026-q3.md",
+       "wiki/en/Lift Our Voices.txt",
+       "wiki/en/AAA (video game industry).txt",
+       "acme/campaign-results-2026-h2.csv",
+       "wiki/en/Klarna.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-07",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "security-incident-runbook.md"
+   ],
+   "words": "security incident runbook",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 57.22,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/security-incident-runbook.md",
+       "wiki/en/Computer security incident management.txt",
+       "wiki/en/Black October (information security).txt",
+       "wiki/en/Chief information security officer.txt",
+       "wiki/en/Incident management.txt",
+       "wiki/en/Information security regulations.txt",
+       "wiki/en/Information security standards.txt",
+       "wiki/en/Incident Command System.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 60.2,
+      "hits": 45,
+      "byMeaning": 5,
+      "top": [
+       "acme/security-incident-runbook.md",
+       "wiki/en/Computer security incident management.txt",
+       "wiki/en/Incident management.txt",
+       "wiki/en/Information security standards.txt",
+       "wiki/en/Incident Command System.txt",
+       "wiki/en/Information security regulations.txt",
+       "wiki/en/Black October (information security).txt",
+       "wiki/en/Chief information security officer.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-08",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "partner-referral-program.md"
+   ],
+   "words": "partner referral program",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 43.08,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/partner-referral-program.md",
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Referral marketing.txt",
+       "wiki/en/York University.txt",
+       "wiki/en/Recruitment.txt",
+       "wiki/en/Referral economy.txt",
+       "wiki/en/Bowie State University.txt",
+       "wiki/en/Cornell University.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 57.15,
+      "hits": 45,
+      "byMeaning": 7,
+      "top": [
+       "acme/partner-referral-program.md",
+       "wiki/en/Recruitment.txt",
+       "wiki/en/Referral economy.txt",
+       "wiki/en/Referral marketing.txt",
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Gratis Internet.txt",
+       "wiki/en/Patient recruitment.txt",
+       "wiki/en/Next Jump.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-09",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "campaign-results-2026-h2.csv"
+   ],
+   "words": "h2 2026 marketing campaign results",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 61.65,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Search engine optimization.txt",
+       "wiki/en/Content marketing.txt",
+       "wiki/en/Search engine marketing.txt",
+       "wiki/en/Viral marketing.txt",
+       "wiki/en/Referral marketing.txt",
+       "wiki/en/2026 United States Senate elections.txt",
+       "wiki/en/Click-through rate.txt",
+       "wiki/en/Colleen Hoover.txt"
+      ]
+     },
+     "combined": {
+      "rank": 8,
+      "r8": false,
+      "top1": false,
+      "ms": 71.11,
+      "hits": 45,
+      "byMeaning": 8,
+      "top": [
+       "wiki/en/Search engine marketing.txt",
+       "wiki/en/2026 United States Senate elections.txt",
+       "wiki/en/Content marketing.txt",
+       "wiki/en/Viral marketing.txt",
+       "wiki/en/2026 United States gubernatorial elections.txt",
+       "wiki/en/2026 Brazilian general election.txt",
+       "acme/it-asset-inventory-2026.csv",
+       "acme/campaign-results-2026-h2.csv"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-10",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "fire-safety-and-evacuation.txt"
+   ],
+   "words": "fire safety evacuation guide",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 61.6,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Fire drill.txt",
+       "wiki/en/Safety drill.txt",
+       "acme/fire-safety-and-evacuation.txt",
+       "wiki/en/Incident commander.txt",
+       "wiki/en/International SOS.txt",
+       "wiki/en/Battle of Britain (film).txt",
+       "wiki/en/B&B Complex fires.txt",
+       "wiki/en/Building management.txt"
+      ]
+     },
+     "combined": {
+      "rank": 2,
+      "r8": true,
+      "top1": false,
+      "ms": 105.08,
+      "hits": 45,
+      "byMeaning": 7,
+      "top": [
+       "wiki/en/Fire drill.txt",
+       "acme/fire-safety-and-evacuation.txt",
+       "wiki/en/Safety drill.txt",
+       "wiki/en/Incident commander.txt",
+       "wiki/en/Hospital emergency codes.txt",
+       "wiki/en/Dragon Bravo Fire.txt",
+       "wiki/en/Mass casualty incident.txt",
+       "wiki/en/B&B Complex fires.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-11",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "quarterly-okr-2026-q4.md"
+   ],
+   "words": "q4 2026 okrs",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 21.97,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/quarterly-okr-2026-q4.md",
+       "acme/campaign-results-2026-h2.csv",
+       "acme/it-asset-inventory-2026.csv",
+       "wiki/en/2026 United States Senate elections.txt",
+       "wiki/en/Andrew Grove.txt",
+       "wiki/en/Black October (information security).txt",
+       "wiki/en/Chelsea F.C..txt",
+       "wiki/en/FreeCAD.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 22.27,
+      "hits": 45,
+      "byMeaning": 13,
+      "top": [
+       "acme/quarterly-okr-2026-q4.md",
+       "acme/it-asset-inventory-2026.csv",
+       "acme/campaign-results-2026-h2.csv",
+       "wiki/ko/2026년.txt",
+       "wiki/ko/가족관계증명서 (2026년 드라마).txt",
+       "wiki/ko/2026년 미국 선거.txt",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "acme/2026-하반기-고객만족도-조사-보고서.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-12",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "office-lease-summary.txt"
+   ],
+   "words": "office lease",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 82.49,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Recoverable expense.txt",
+       "acme/meeting-2026-11-leadership.md",
+       "acme/office-lease-summary.txt",
+       "wiki/en/Brokeback Mountain.txt",
+       "wiki/en/Doctor Sleep (2019 film).txt",
+       "wiki/en/GNOME.txt",
+       "wiki/en/Fedora Linux release history.txt",
+       "wiki/en/Paranormal Activity.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 67.76,
+      "hits": 45,
+      "byMeaning": 20,
+      "top": [
+       "acme/office-lease-summary.txt",
+       "wiki/en/Recoverable expense.txt",
+       "acme/meeting-2026-11-leadership.md",
+       "wiki/en/Lease administration.txt",
+       "wiki/en/Operating lease.txt",
+       "wiki/en/Brokeback Mountain.txt",
+       "wiki/en/Doctor Sleep (2019 film).txt",
+       "wiki/en/Lease.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-13",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "price-list-2026.csv"
+   ],
+   "words": "2026 price",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 30.75,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/it-asset-inventory-2026.csv",
+       "wiki/en/Bitwarden.txt",
+       "wiki/en/Klarna.txt",
+       "acme/customer-churn-analysis-2026.md",
+       "acme/meeting-2026-11-leadership.md",
+       "acme/vendor-evaluation-2026.md",
+       "wiki/en/MakeMyTrip.txt",
+       "wiki/en/Television set.txt"
+      ]
+     },
+     "combined": {
+      "rank": 9,
+      "r8": false,
+      "top1": false,
+      "ms": 61.46,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "acme/it-asset-inventory-2026.csv",
+       "acme/customer-feedback-2026-q3.md",
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Klarna.txt",
+       "acme/meeting-2026-11-leadership.md",
+       "wiki/en/2026 United States Senate elections.txt",
+       "acme/campaign-results-2026-h2.csv",
+       "acme/quarterly-okr-2026-q4.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-14",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "nda-acme-northwind.txt"
+   ],
+   "words": "nda northwind",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 19.28,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Australian Fair Pay and Conditions Standard.txt",
+       "wiki/en/Chart of accounts.txt",
+       "wiki/en/Donda Academy.txt",
+       "wiki/en/Government Security Classifications Policy.txt",
+       "wiki/en/Information security standards.txt",
+       "wiki/en/IUCN Red List.txt",
+       "wiki/en/Lighting control system.txt",
+       "wiki/en/List of football clubs in England and Wales by year formed.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 32.28,
+      "hits": 45,
+      "byMeaning": 24,
+      "top": [
+       "acme/nda-acme-northwind.txt",
+       "wiki/en/Australian Fair Pay and Conditions Standard.txt",
+       "wiki/en/Northstar Travel Group.txt",
+       "wiki/en/2018 United States Senate elections.txt",
+       "wiki/en/Non-disclosure agreement.txt",
+       "wiki/en/Hazrat Nizamuddin railway station.txt",
+       "wiki/en/Chart of accounts.txt",
+       "wiki/en/Navan, Inc..txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-en-15",
+   "lang": "en",
+   "type": "filename",
+   "expectFiles": [
+    "customer-churn-analysis-2026.md"
+   ],
+   "words": "customer churn analysis",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 56.37,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Customer attrition.txt",
+       "wiki/en/Text mining.txt",
+       "wiki/en/Churn rate.txt",
+       "wiki/en/Examples of data mining.txt",
+       "wiki/en/Criticism of Comcast.txt",
+       "wiki/en/Customer analytics.txt",
+       "wiki/en/Revenue management.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 39.16,
+      "hits": 45,
+      "byMeaning": 6,
+      "top": [
+       "acme/customer-churn-analysis-2026.md",
+       "wiki/en/Customer attrition.txt",
+       "wiki/en/Churn rate.txt",
+       "wiki/en/Customer analytics.txt",
+       "wiki/en/Customer relationship management.txt",
+       "wiki/en/Performance indicator.txt",
+       "wiki/en/Subscription business model.txt",
+       "wiki/en/Customer success.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-01",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "부서별-예산-2027.csv"
+   ],
+   "words": "2027년 부서별 예산",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 38.02,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/MBC 금토 드라마.txt",
+       "wiki/ko/SBS 금토 드라마.txt",
+       "wiki/ko/김문수.txt",
+       "wiki/ko/대한민국 국가정보원.txt",
+       "wiki/ko/대한민국 국회.txt",
+       "wiki/ko/몬트리올 광역급행철도.txt",
+       "wiki/ko/세계보건기구.txt",
+       "wiki/ko/오세훈.txt"
+      ]
+     },
+     "combined": {
+      "rank": 11,
+      "r8": false,
+      "top1": false,
+      "ms": 134.74,
+      "hits": 45,
+      "byMeaning": 15,
+      "top": [
+       "wiki/ko/SBS 금토 드라마.txt",
+       "wiki/ko/MBC 금토 드라마.txt",
+       "acme/물류센터-이전-검토-보고서.md",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "acme/meeting-2026-10-product.md",
+       "wiki/ko/KBS 2TV 주말 드라마.txt",
+       "wiki/ko/레비차 라젬.txt",
+       "wiki/ko/의무소방대.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-02",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "재고현황-2026-10.csv"
+   ],
+   "words": "10월 재고 현황",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 32.04,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/용마로지스.txt",
+       "wiki/ko/지식정보보안산업협회.txt",
+       "wiki/ko/청산리 전투.txt",
+       "wiki/ko/대한민국의 공휴일.txt",
+       "wiki/ko/민주공화당 (대한민국).txt",
+       "wiki/ko/평택시.txt",
+       "wiki/ko/LG디스플레이.txt",
+       "wiki/ko/국가정보자원관리원.txt"
+      ]
+     },
+     "combined": {
+      "rank": 9,
+      "r8": false,
+      "top1": false,
+      "ms": 67.71,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "acme/물류센터-이전-검토-보고서.md",
+       "wiki/ko/광주광역시.txt",
+       "wiki/ko/재고순환.txt",
+       "wiki/ko/재고 감모.txt",
+       "wiki/ko/재고관리.txt",
+       "wiki/ko/용마로지스.txt",
+       "acme/2026-10-월간-실적-보고.md",
+       "wiki/ko/지식정보보안산업협회.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-03",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "2027-채용-계획.csv"
+   ],
+   "words": "2027 채용 계획 엑셀",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 2,
+      "r8": true,
+      "top1": false,
+      "ms": 33.02,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/미국 항공 우주국.txt",
+       "acme/2027-채용-계획.csv",
+       "wiki/ko/김성태 (1958년).txt",
+       "wiki/ko/평택시.txt",
+       "wiki/ko/수도권 전철 4호선.txt",
+       "wiki/ko/경상북도 소방본부.txt",
+       "wiki/ko/고려대학교.txt",
+       "wiki/ko/데이터 센터.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 57.35,
+      "hits": 45,
+      "byMeaning": 7,
+      "top": [
+       "acme/2027-채용-계획.csv",
+       "acme/holiday-calendar-2027.csv",
+       "wiki/ko/마이크로소프트 엑셀.txt",
+       "wiki/ko/SBS 금토 드라마.txt",
+       "wiki/ko/앤트로픽.txt",
+       "wiki/ko/웍스피어.txt",
+       "wiki/ko/2024년 미국 대통령 선거.txt",
+       "acme/roadmap-2027.md"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-04",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "영업-파이프라인-2026-q4.csv"
+   ],
+   "words": "4분기 영업 파이프라인",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 32.14,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/링크드인.txt",
+       "wiki/ko/고객 관계 관리.txt",
+       "wiki/ko/대구역.txt",
+       "wiki/ko/델라웨어주.txt",
+       "wiki/ko/레제프 타이이프 에르도안.txt",
+       "wiki/ko/삼성SDS.txt",
+       "wiki/ko/수원역.txt",
+       "wiki/ko/시나가와역.txt"
+      ]
+     },
+     "combined": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 28.39,
+      "hits": 45,
+      "byMeaning": 21,
+      "top": [
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/링크드인.txt",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "wiki/ko/고객 관계 관리.txt",
+       "wiki/ko/주성엔지니어링.txt",
+       "wiki/ko/대구역.txt",
+       "wiki/ko/티맥스소프트.txt",
+       "wiki/ko/델라웨어주.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-05",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "코드리뷰-가이드.md"
+   ],
+   "words": "코드 리뷰 가이드",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 46.8,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/코드리뷰-가이드.md",
+       "wiki/ko/오픈 소스.txt",
+       "wiki/ko/젯브레인즈.txt",
+       "wiki/ko/QR 코드.txt",
+       "wiki/ko/네이버.txt",
+       "wiki/ko/동적 프로그램 분석.txt",
+       "wiki/ko/바이브 코딩.txt",
+       "wiki/ko/분산 버전 관리.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 63.82,
+      "hits": 45,
+      "byMeaning": 2,
+      "top": [
+       "acme/코드리뷰-가이드.md",
+       "wiki/ko/젯브레인즈.txt",
+       "wiki/ko/보안 취약점.txt",
+       "wiki/ko/바이브 코딩.txt",
+       "wiki/ko/네이버.txt",
+       "wiki/ko/동적 프로그램 분석.txt",
+       "wiki/ko/앤트로픽.txt",
+       "wiki/ko/오픈 소스.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-06",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "복리후생-안내.txt"
+   ],
+   "words": "복리후생 안내문",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 3,
+      "r8": true,
+      "top1": false,
+      "ms": 3.06,
+      "hits": 12,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/대한민국 상법 제542조의9.txt",
+       "wiki/ko/불암산.txt",
+       "acme/복리후생-안내.txt",
+       "wiki/ko/고용.txt",
+       "wiki/ko/데이터베이스.txt",
+       "wiki/ko/도쿄 일렉트론.txt",
+       "wiki/ko/보상적 임금격차.txt",
+       "wiki/ko/엘비유세스 주식회사.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 18.59,
+      "hits": 45,
+      "byMeaning": 33,
+      "top": [
+       "acme/복리후생-안내.txt",
+       "wiki/ko/대한민국 상법 제542조의9.txt",
+       "wiki/ko/불암산.txt",
+       "wiki/ko/진성준.txt",
+       "wiki/ko/한국원자력안전기술원.txt",
+       "wiki/ko/고용.txt",
+       "wiki/ko/상태 기계 복제.txt",
+       "wiki/ko/데이터베이스.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-07",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "주차-및-출입-안내.md"
+   ],
+   "words": "주차 출입 안내",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 29.84,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/주차-및-출입-안내.md",
+       "wiki/ko/인천국제공항.txt",
+       "wiki/ko/주왕산.txt",
+       "wiki/ko/하카타역.txt",
+       "wiki/ko/엘비유세스 주식회사.txt",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/부산 도시철도.txt",
+       "wiki/ko/승강장.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 29.14,
+      "hits": 45,
+      "byMeaning": 6,
+      "top": [
+       "acme/주차-및-출입-안내.md",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/인천국제공항.txt",
+       "wiki/ko/승강장.txt",
+       "wiki/ko/하카타역.txt",
+       "wiki/ko/주차장.txt",
+       "wiki/ko/주왕산.txt",
+       "wiki/ko/쏘카.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-08",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "사내-교육-프로그램-안내.md"
+   ],
+   "words": "사내 교육 프로그램 안내 열어",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 76.38,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/사내-교육-프로그램-안내.md",
+       "wiki/ko/엘비유세스 주식회사.txt",
+       "wiki/ko/한국관광공사.txt",
+       "wiki/ko/유유테이진.txt",
+       "wiki/ko/문화방송.txt",
+       "wiki/ko/LG화학.txt",
+       "wiki/ko/강원대학교.txt",
+       "wiki/ko/경북대학교.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 125.88,
+      "hits": 45,
+      "byMeaning": 13,
+      "top": [
+       "acme/사내-교육-프로그램-안내.md",
+       "wiki/ko/엘비유세스 주식회사.txt",
+       "wiki/ko/유유테이진.txt",
+       "wiki/ko/국립순천대학교.txt",
+       "wiki/ko/G-TELP.txt",
+       "wiki/ko/조현병.txt",
+       "wiki/ko/아이퀘스트.txt",
+       "wiki/ko/삼성SDS.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-09",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "회의록-2026-09-이사회.md"
+   ],
+   "words": "9월 이사회 회의록",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 28.85,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/회의록-2026-09-이사회.md",
+       "wiki/ko/문화방송.txt",
+       "wiki/ko/유엔 회원국.txt",
+       "wiki/ko/KT.txt",
+       "wiki/ko/삼성전기.txt",
+       "wiki/ko/가톨릭관동대학교.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/얀덱스.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 152.61,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "acme/회의록-2026-09-이사회.md",
+       "wiki/ko/최고경영자.txt",
+       "wiki/ko/이사회.txt",
+       "wiki/ko/유엔의 개요.txt",
+       "wiki/ko/포스코.txt",
+       "wiki/ko/귀혼.txt",
+       "wiki/ko/대한민국 상법 제542조의9.txt",
+       "wiki/ko/유엔 헌장.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-10",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "물류센터-이전-검토-보고서.md"
+   ],
+   "words": "물류센터 보고서",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 23,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/물류센터-이전-검토-보고서.md",
+       "wiki/ko/2026년.txt",
+       "wiki/ko/GS칼텍스.txt",
+       "wiki/ko/노동 시간.txt",
+       "wiki/ko/렉스몬드.txt",
+       "wiki/ko/로젠.txt",
+       "wiki/ko/박중양.txt",
+       "wiki/ko/생태계.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 39.72,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "acme/물류센터-이전-검토-보고서.md",
+       "wiki/ko/로젠.txt",
+       "wiki/ko/렉스몬드.txt",
+       "wiki/ko/GS칼텍스.txt",
+       "wiki/ko/우체국물류지원단.txt",
+       "wiki/ko/용마로지스.txt",
+       "wiki/ko/쿠팡.txt",
+       "wiki/ko/CJ대한통운.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-11",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "2026-하반기-고객만족도-조사-보고서.md"
+   ],
+   "words": "하반기 고객 만족 조사 보고서",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 63.74,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/국가 고객 만족지수.txt",
+       "wiki/ko/렉스몬드.txt",
+       "wiki/ko/롯데홈쇼핑.txt",
+       "wiki/ko/마케팅.txt",
+       "wiki/ko/유유테이진.txt",
+       "wiki/ko/직무 만족.txt",
+       "wiki/ko/메가존클라우드.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 50.45,
+      "hits": 45,
+      "byMeaning": 5,
+      "top": [
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/국가 고객 만족지수.txt",
+       "wiki/ko/렉스몬드.txt",
+       "wiki/ko/유유테이진.txt",
+       "wiki/ko/직무 만족.txt",
+       "wiki/ko/SK텔링크.txt",
+       "wiki/ko/래미안.txt",
+       "wiki/ko/고객만족.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-12",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "2026-10-월간-실적-보고.md"
+   ],
+   "words": "10월 월간 실적 보고서",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 4,
+      "r8": true,
+      "top1": false,
+      "ms": 26.25,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/박중양.txt",
+       "wiki/ko/주성엔지니어링.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "acme/2026-10-월간-실적-보고.md",
+       "wiki/ko/윤상현 (정치인).txt",
+       "wiki/ko/노동 시간.txt",
+       "wiki/ko/노벨상.txt",
+       "wiki/ko/롯데마트.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 54.93,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "acme/2026-10-월간-실적-보고.md",
+       "wiki/ko/주성엔지니어링.txt",
+       "wiki/ko/731부대.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/동백림 사건.txt",
+       "wiki/ko/순천향대학교 부속 천안병원.txt",
+       "wiki/ko/세계도시.txt",
+       "wiki/ko/박중양.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-13",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "사무실-와이파이-프린터-설정.txt"
+   ],
+   "words": "와이파 프린터 설정 방법",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 21.93,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/사무실-와이파이-프린터-설정.txt",
+       "wiki/ko/IEEE 802.11.txt",
+       "wiki/ko/병렬 포트.txt",
+       "wiki/ko/와이파이 얼라이언스.txt",
+       "wiki/ko/와이파이 핫스팟.txt",
+       "wiki/ko/와이파이.txt",
+       "wiki/ko/프린터.txt",
+       "wiki/ko/CUPS.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 62.03,
+      "hits": 45,
+      "byMeaning": 2,
+      "top": [
+       "acme/사무실-와이파이-프린터-설정.txt",
+       "wiki/ko/IEEE 802.11.txt",
+       "wiki/ko/와이파이.txt",
+       "wiki/ko/와이파이 얼라이언스.txt",
+       "wiki/ko/프린터.txt",
+       "wiki/ko/병렬 포트.txt",
+       "wiki/ko/CUPS.txt",
+       "wiki/ko/와이파이 핫스팟.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-14",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "roadmap-2027.md"
+   ],
+   "words": "2027 로드맵",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 5.32,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/roadmap-2027.md",
+       "acme/2027-채용-계획.csv",
+       "acme/holiday-calendar-2027.csv",
+       "acme/meeting-2026-11-leadership.md",
+       "wiki/ko/MBC 금토 드라마.txt",
+       "wiki/ko/SBS 금토 드라마.txt",
+       "wiki/ko/국제 반도체 기술 로드맵.txt",
+       "wiki/ko/기술 로드맵.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 82.93,
+      "hits": 45,
+      "byMeaning": 14,
+      "top": [
+       "acme/roadmap-2027.md",
+       "acme/2027-채용-계획.csv",
+       "wiki/ko/기술 로드맵.txt",
+       "wiki/ko/국제 반도체 기술 로드맵.txt",
+       "acme/영업-파이프라인-2026-q4.csv",
+       "acme/holiday-calendar-2027.csv",
+       "acme/2026-하반기-고객만족도-조사-보고서.md",
+       "wiki/ko/미국 항공 우주국.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "f-ko-15",
+   "lang": "ko",
+   "type": "filename",
+   "expectFiles": [
+    "hr-leave-policy.md"
+   ],
+   "words": "휴가 규정",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 14.03,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "acme/hr-leave-policy.md",
+       "wiki/ko/대한민국의 공휴일.txt",
+       "wiki/ko/병가 (휴가).txt",
+       "wiki/ko/아랍에미리트의 노예제.txt",
+       "wiki/ko/연차사용촉진제도.txt",
+       "wiki/ko/유엔의 개요.txt",
+       "wiki/ko/최저임금.txt",
+       "wiki/ko/추미애.txt"
+      ]
+     },
+     "combined": {
+      "rank": 1,
+      "r8": true,
+      "top1": true,
+      "ms": 107.92,
+      "hits": 45,
+      "byMeaning": 5,
+      "top": [
+       "acme/hr-leave-policy.md",
+       "wiki/ko/연차사용촉진제도.txt",
+       "wiki/ko/병가 (휴가).txt",
+       "wiki/ko/유엔의 개요.txt",
+       "wiki/ko/대체휴일제도.txt",
+       "wiki/ko/대한민국의 공휴일.txt",
+       "wiki/ko/아랍에미리트의 노예제.txt",
+       "wiki/ko/최저임금.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-01",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "hr-remote-work.txt"
+   ],
+   "words": "often skip commute flat",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 12.55,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Defined benefit pension plan.txt",
+       "wiki/en/List of most expensive films.txt",
+       "wiki/en/Wheelchair.txt",
+       "wiki/en/Castle.txt",
+       "wiki/en/Ghosts (American TV series).txt",
+       "wiki/en/Lighting.txt",
+       "wiki/en/Mountain biking.txt",
+       "wiki/en/Mountain pass.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 87.53,
+      "hits": 45,
+      "byMeaning": 14,
+      "top": [
+       "wiki/en/Leave of absence.txt",
+       "wiki/en/Mountain pass.txt",
+       "wiki/en/University of Cambridge.txt",
+       "wiki/en/Cartoon physics.txt",
+       "wiki/en/Sick building syndrome.txt",
+       "wiki/en/Defined benefit pension plan.txt",
+       "wiki/en/List of most expensive films.txt",
+       "wiki/en/Train station.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-02",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "incident-report-2026-09.md"
+   ],
+   "words": "booking system fall last autumn",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 18.05,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Revenue management.txt",
+       "wiki/en/Lonely Mountain.txt",
+       "wiki/en/History of physics.txt",
+       "wiki/en/Wi-Fi calling.txt",
+       "wiki/en/KDS (company).txt",
+       "acme/acme-desk-release-notes-2026.md",
+       "wiki/en/Balmoral Castle.txt",
+       "wiki/en/Devil's Island.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 52.06,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "acme/acme-desk-release-notes-2026.md",
+       "wiki/en/KDS (company).txt",
+       "wiki/en/Perk (company).txt",
+       "wiki/en/Travel agency.txt",
+       "acme/service-agreement-acme-bluepeak.md",
+       "acme/privacy-policy-acme-desk.html",
+       "wiki/en/College recruiting.txt",
+       "wiki/en/Mountain man.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-03",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "nda-acme-northwind.txt"
+   ],
+   "words": "once negotiations wrap long bound firm secrets",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 35.23,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Cork (city).txt",
+       "wiki/en/Finance.txt",
+       "wiki/en/City.txt",
+       "wiki/en/Customer attrition.txt",
+       "wiki/en/List of rivers of Europe.txt",
+       "wiki/en/Trade secret.txt",
+       "wiki/en/Battle of Agincourt.txt",
+       "wiki/en/Employment contract in English law.txt"
+      ]
+     },
+     "combined": {
+      "rank": 6,
+      "r8": true,
+      "top1": false,
+      "ms": 48.24,
+      "hits": 45,
+      "byMeaning": 13,
+      "top": [
+       "wiki/en/Trade secret.txt",
+       "wiki/en/Cork (city).txt",
+       "wiki/en/Bain & Company.txt",
+       "wiki/en/Wachovia.txt",
+       "wiki/en/Finance.txt",
+       "acme/nda-acme-northwind.txt",
+       "wiki/en/Employment contract.txt",
+       "wiki/en/Non-disclosure agreement.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-04",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "office-lease-summary.txt"
+   ],
+   "words": "money hand landlord front premises",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 23.89,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Cloud computing.txt",
+       "wiki/en/Daniel Handler.txt",
+       "wiki/en/Debits and credits.txt",
+       "wiki/en/Lease audit.txt",
+       "wiki/en/Lease.txt",
+       "wiki/en/Video game.txt",
+       "wiki/en/Call centre.txt",
+       "wiki/en/Factoring (finance).txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 33.62,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/en/Lease.txt",
+       "wiki/en/Lease-option.txt",
+       "wiki/en/Receipt.txt",
+       "wiki/en/Recoverable expense.txt",
+       "wiki/en/Convict leasing.txt",
+       "wiki/en/NNN lease.txt",
+       "wiki/en/Lease-by-room.txt",
+       "wiki/en/At-will employment.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-05",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "product-spec-acme-desk.md"
+   ],
+   "words": "calls integration fire platform each sixty seconds",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 26.38,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Dunkirk (2017 film).txt",
+       "wiki/en/Fire engine.txt",
+       "wiki/en/Firefox version history.txt",
+       "wiki/en/Bitwarden.txt",
+       "wiki/en/Customer relationship management.txt",
+       "wiki/en/Forge (software).txt",
+       "wiki/en/Password Plus and Super Password.txt",
+       "wiki/en/List of Skydance television programs.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 84.92,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "wiki/en/International Technology Roadmap for Semiconductors.txt",
+       "wiki/en/Call centre.txt",
+       "wiki/en/First call resolution.txt",
+       "wiki/en/Australasian Inter-Service Incident Management System.txt",
+       "wiki/en/B&B Complex fires.txt",
+       "wiki/en/Dunkirk (2017 film).txt",
+       "wiki/en/Incident Command System.txt",
+       "wiki/en/Fire engine.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-06",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "support-faq.txt"
+   ],
+   "words": "emailed recovery url credentials stop",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 16.79,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Password manager.txt",
+       "wiki/en/Recoverable expense.txt",
+       "wiki/en/Login.txt",
+       "wiki/en/Christopher Vivell.txt",
+       "wiki/en/Endangered species.txt",
+       "wiki/en/List of television shows notable for negative reception.txt",
+       "wiki/en/XXX (film series).txt",
+       "wiki/en/Chinese fire drill.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 35.48,
+      "hits": 45,
+      "byMeaning": 14,
+      "top": [
+       "wiki/en/Login.txt",
+       "wiki/en/Password manager.txt",
+       "wiki/en/Recoverable expense.txt",
+       "wiki/en/Computer security incident management.txt",
+       "wiki/en/Criticism of Mozilla Corporation.txt",
+       "wiki/en/ID.me.txt",
+       "wiki/en/Password fatigue.txt",
+       "wiki/en/End user.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-07",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "customer-feedback-2026-q3.md"
+   ],
+   "words": "feature clients beg past season",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 22.64,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Faith Hill.txt",
+       "wiki/en/Series finale.txt",
+       "wiki/en/Devil's Island.txt",
+       "wiki/en/Liverpool F.C..txt",
+       "wiki/en/Mountain Creek.txt",
+       "wiki/en/Anthology series.txt",
+       "wiki/en/Criticism of Comcast.txt",
+       "wiki/en/Extended play.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 41.94,
+      "hits": 45,
+      "byMeaning": 18,
+      "top": [
+       "wiki/en/History of Gmail.txt",
+       "wiki/en/Alina Habba.txt",
+       "wiki/en/Series finale.txt",
+       "wiki/en/Faith Hill.txt",
+       "wiki/en/Privacy concerns with Facebook.txt",
+       "wiki/en/Gmail.txt",
+       "wiki/en/Upwork.txt",
+       "wiki/en/Devil's Island.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-08",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "expense-policy.md"
+   ],
+   "words": "deadline reimbursed bought",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 7.86,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Purchasing.txt",
+       "wiki/en/Stormy Daniels–Donald Trump scandal.txt",
+       "wiki/en/Vulnerability disclosure.txt",
+       "wiki/en/List of fan-owned sports teams.txt",
+       "wiki/en/Oklahoma City bombing.txt",
+       "wiki/en/Royal Bank of Canada.txt",
+       "wiki/en/2024 United States House of Representatives elections.txt",
+       "wiki/en/Balmoral Castle.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 19.59,
+      "hits": 45,
+      "byMeaning": 18,
+      "top": [
+       "wiki/en/Purchasing.txt",
+       "wiki/en/Dividend.txt",
+       "wiki/en/Ex-dividend date.txt",
+       "wiki/en/Temporary duty assignment.txt",
+       "wiki/en/Invoice price.txt",
+       "acme/service-agreement-acme-bluepeak.md",
+       "wiki/en/Stormy Daniels–Donald Trump scandal.txt",
+       "wiki/en/Option (finance).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-09",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "partner-referral-program.md"
+   ],
+   "words": "smallest reward affiliate cash",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 13.15,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Compensation and benefits.txt",
+       "wiki/en/Finance lease.txt",
+       "wiki/en/Net operating assets.txt",
+       "wiki/en/Referral marketing.txt",
+       "wiki/en/Revenue recognition.txt",
+       "wiki/en/Comcast.txt",
+       "wiki/en/Password Plus and Super Password.txt"
+      ]
+     },
+     "combined": {
+      "rank": 30,
+      "r8": false,
+      "top1": false,
+      "ms": 24.9,
+      "hits": 45,
+      "byMeaning": 6,
+      "top": [
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Bookkeeping.txt",
+       "wiki/en/Password Plus and Super Password.txt",
+       "wiki/en/Stock appreciation right.txt",
+       "wiki/en/Gratis Internet.txt",
+       "wiki/en/Warehouse store.txt",
+       "wiki/en/Balance sheet.txt",
+       "wiki/en/Vesting.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-10",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "security-incident-runbook.md"
+   ],
+   "words": "clients private soon lawyers",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 29.98,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Nerdio.txt",
+       "wiki/en/NatWest Group.txt",
+       "wiki/en/Alina Habba.txt",
+       "wiki/en/Bain & Company.txt",
+       "wiki/en/Defined benefit pension plan.txt",
+       "wiki/en/HUB International.txt",
+       "wiki/en/International SOS.txt",
+       "wiki/en/List of James Bond films.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 56.73,
+      "hits": 45,
+      "byMeaning": 14,
+      "top": [
+       "wiki/en/Alina Habba.txt",
+       "wiki/en/Privacy.txt",
+       "wiki/en/Stormy Daniels.txt",
+       "wiki/en/Privacy policy.txt",
+       "wiki/en/Higginbotham Insurance & Financial Services.txt",
+       "wiki/en/Privacy International.txt",
+       "wiki/en/Nerdio.txt",
+       "wiki/en/Cloud computing.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-11",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "employment-contract-template.txt"
+   ],
+   "words": "owns build while payroll",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 17.36,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/NNN lease.txt",
+       "wiki/en/Durham University.txt",
+       "wiki/en/Li-Fi.txt",
+       "wiki/en/London.txt",
+       "wiki/en/Columbia University.txt",
+       "wiki/en/Employee stock ownership plan.txt",
+       "wiki/en/Euston railway station.txt",
+       "wiki/en/Jack Welch.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 50.07,
+      "hits": 45,
+      "byMeaning": 13,
+      "top": [
+       "wiki/en/American Payroll Association.txt",
+       "wiki/en/Employee stock ownership plan.txt",
+       "wiki/en/PowerBuilder.txt",
+       "wiki/en/Vendor-managed inventory.txt",
+       "wiki/en/NNN lease.txt",
+       "wiki/en/Durham University.txt",
+       "wiki/en/Net lease.txt",
+       "wiki/en/Li-Fi.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-12",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "acme-sensor-v3-datasheet.md"
+   ],
+   "words": "new seat detector waterproof",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 14.45,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/1992 United States House of Representatives elections.txt",
+       "wiki/en/2022 United States House of Representatives elections.txt",
+       "wiki/en/2026 United States Senate elections.txt",
+       "wiki/en/By-election.txt",
+       "wiki/en/Capital city.txt",
+       "wiki/en/2010 United States House of Representatives elections.txt",
+       "wiki/en/2021 Israeli legislative election.txt",
+       "wiki/en/Auburn University.txt"
+      ]
+     },
+     "combined": {
+      "rank": 15,
+      "r8": false,
+      "top1": false,
+      "ms": 34.08,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "wiki/en/Mercedes-Benz W140.txt",
+       "wiki/en/Aircraft lease.txt",
+       "wiki/en/List of sensors.txt",
+       "wiki/en/Honda City.txt",
+       "wiki/en/MacOS Monterey.txt",
+       "wiki/en/1992 United States House of Representatives elections.txt",
+       "wiki/en/2022 United States House of Representatives elections.txt",
+       "wiki/en/Microsoft.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-13",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "privacy-policy-acme-desk.html"
+   ],
+   "words": "flog users advertisers",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 9,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Internet privacy.txt",
+       "wiki/en/Paid to click.txt",
+       "wiki/en/Click-through rate.txt",
+       "wiki/en/Privacy concerns with social networking services.txt",
+       "wiki/en/Contextual advertising.txt",
+       "wiki/en/History of Facebook.txt",
+       "wiki/en/Search engine marketing.txt",
+       "wiki/en/Social media marketing.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 35.79,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "wiki/en/Privacy concerns with social networking services.txt",
+       "wiki/en/Internet privacy.txt",
+       "wiki/en/Criticism of Mozilla Corporation.txt",
+       "wiki/en/Click-through rate.txt",
+       "wiki/en/Affiliate marketing.txt",
+       "wiki/en/Contextual advertising.txt",
+       "wiki/en/History of Gmail.txt",
+       "wiki/en/Gratis Internet.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-14",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "fire-safety-and-evacuation.txt"
+   ],
+   "words": "gather outside alarm goes",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 14.8,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Building automation.txt",
+       "wiki/en/Fire drill.txt",
+       "wiki/en/Television show.txt",
+       "wiki/en/Achill Island.txt",
+       "wiki/en/Barcelona.txt",
+       "wiki/en/Division (mathematics).txt",
+       "wiki/en/Elections in New Zealand.txt",
+       "wiki/en/Forgotten Island.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 80.57,
+      "hits": 45,
+      "byMeaning": 10,
+      "top": [
+       "wiki/en/Passive infrared sensor.txt",
+       "wiki/en/Building automation.txt",
+       "wiki/en/Fire drill.txt",
+       "wiki/en/Motion detector.txt",
+       "wiki/en/Occupancy sensor.txt",
+       "wiki/en/List of sensors.txt",
+       "wiki/en/Mountain gorilla.txt",
+       "wiki/en/Splash Mountain.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-en-15",
+   "lang": "en",
+   "type": "paraphrase",
+   "expectFiles": [
+    "quarterly-okr-2026-q4.md"
+   ],
+   "words": "goal trimming hosting expenses",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 12.13,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/en/Expense.txt",
+       "wiki/en/Gitea.txt",
+       "wiki/en/Working capital.txt",
+       "wiki/en/Dedicated hosting service.txt",
+       "wiki/en/Finance.txt",
+       "wiki/en/Accrual.txt",
+       "wiki/en/Brighton & Hove Albion F.C..txt",
+       "wiki/en/Chart of accounts.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 42.26,
+      "hits": 45,
+      "byMeaning": 11,
+      "top": [
+       "wiki/en/Per diem.txt",
+       "wiki/en/Employee benefits.txt",
+       "wiki/en/Recoverable expense.txt",
+       "wiki/en/KDS (company).txt",
+       "wiki/en/Expense management.txt",
+       "wiki/en/Web hosting service.txt",
+       "wiki/en/Dedicated hosting service.txt",
+       "wiki/en/Accounting software.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-01",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "복리후생-안내.txt"
+   ],
+   "words": "아이 생일 축하금 나와",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 15,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/이재명.txt",
+       "wiki/ko/신동 (가수).txt",
+       "wiki/ko/아이유.txt",
+       "wiki/ko/애플.txt",
+       "wiki/ko/이병헌.txt",
+       "wiki/ko/자동차 운전면허.txt",
+       "wiki/ko/지드래곤.txt",
+       "wiki/ko/귀혼.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 26.91,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "wiki/ko/성교.txt",
+       "wiki/ko/서영교.txt",
+       "wiki/ko/한 번 다녀왔습니다.txt",
+       "wiki/ko/예수.txt",
+       "wiki/ko/이재명.txt",
+       "wiki/ko/3·1절.txt",
+       "wiki/ko/신동 (가수).txt",
+       "wiki/ko/2026년.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-02",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "hr-leave-policy.md"
+   ],
+   "words": "웨딩 쉬는 날은",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 6.5,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/새해 첫날.txt",
+       "wiki/ko/뉴욕.txt",
+       "wiki/ko/독도.txt",
+       "wiki/ko/시드니.txt",
+       "wiki/ko/3·1절.txt",
+       "wiki/ko/기경옥.txt",
+       "wiki/ko/노동절.txt",
+       "wiki/ko/로스앤젤레스.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 23.71,
+      "hits": 45,
+      "byMeaning": 22,
+      "top": [
+       "wiki/ko/새해 첫날.txt",
+       "wiki/ko/3·1절.txt",
+       "wiki/ko/KBS 2TV 주말 드라마.txt",
+       "wiki/ko/뉴욕.txt",
+       "wiki/ko/추석.txt",
+       "wiki/ko/독도.txt",
+       "wiki/ko/귀혼.txt",
+       "wiki/ko/시드니.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-03",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "onboarding-checklist.md"
+   ],
+   "words": "새로 업무용 컴퓨터 받아",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 27.85,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/GNU 일반 공중 사용 허가서.txt",
+       "wiki/ko/병렬 포트.txt",
+       "wiki/ko/비디오 게임.txt",
+       "wiki/ko/비디오 게임의 역사.txt",
+       "wiki/ko/애플.txt",
+       "wiki/ko/페어차일드 반도체.txt",
+       "wiki/ko/물리학.txt",
+       "wiki/ko/인공지능.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 68.07,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "wiki/ko/클로드 (언어 모델).txt",
+       "wiki/ko/마이크로소프트 윈도우.txt",
+       "wiki/ko/GNU 일반 공중 사용 허가서.txt",
+       "wiki/ko/컴퓨터.txt",
+       "wiki/ko/병렬 포트.txt",
+       "wiki/ko/개인용 컴퓨터.txt",
+       "wiki/ko/비디오 게임.txt",
+       "wiki/ko/리모트 워크.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-04",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "meeting-2026-10-product.md",
+    "quarterly-okr-2026-q4.md"
+   ],
+   "words": "시험 사용자 모으기",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 17.08,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/챗GPT.txt",
+       "wiki/ko/마이크로소프트 엑셀.txt",
+       "wiki/ko/승차 공유 개인 정보.txt",
+       "wiki/ko/유은혜.txt",
+       "wiki/ko/관성항법장치.txt",
+       "wiki/ko/기아 스포티지.txt",
+       "wiki/ko/얀덱스.txt",
+       "wiki/ko/오버워치.txt"
+      ]
+     },
+     "combined": {
+      "rank": 15,
+      "r8": false,
+      "top1": false,
+      "ms": 35.61,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "wiki/ko/승차 공유 개인 정보.txt",
+       "wiki/ko/G-TELP.txt",
+       "wiki/ko/소셜 네트워크 서비스의 개인정보 보호 문제.txt",
+       "wiki/ko/챗GPT.txt",
+       "wiki/ko/사용자 (컴퓨팅).txt",
+       "wiki/ko/마이크로소프트 엑셀.txt",
+       "wiki/ko/소프트웨어 부하 테스트.txt",
+       "wiki/ko/팩시밀리.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-05",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "코드리뷰-가이드.md"
+   ],
+   "words": "주말 앞두고 늦게 서비스 올려",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 25.24,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/한준호 (정치인).txt",
+       "wiki/ko/CS쉐어링.txt",
+       "wiki/ko/SBS 8 뉴스.txt",
+       "wiki/ko/네이버페이.txt",
+       "wiki/ko/대한항공.txt",
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/소셜 네트워크 서비스의 개인정보 보호 문제.txt",
+       "wiki/ko/SK그룹.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 50.88,
+      "hits": 45,
+      "byMeaning": 15,
+      "top": [
+       "wiki/ko/메가존클라우드.txt",
+       "wiki/ko/전북대학교.txt",
+       "wiki/ko/구독 사업 모형.txt",
+       "wiki/ko/NHN.txt",
+       "wiki/ko/KBS 2TV 주말 드라마.txt",
+       "wiki/ko/쿠팡.txt",
+       "wiki/ko/유유테이진.txt",
+       "wiki/ko/삼성증권.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-06",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "주차-및-출입-안내.md"
+   ],
+   "words": "손님 자동차 동안 공짜 세워",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 35.73,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/인디애나주.txt",
+       "wiki/ko/후베이성.txt",
+       "wiki/ko/전지.txt",
+       "wiki/ko/관성항법장치.txt",
+       "wiki/ko/국내총생산.txt",
+       "wiki/ko/런던.txt",
+       "wiki/ko/자동차 운전면허.txt",
+       "wiki/ko/QR 코드.txt"
+      ]
+     },
+     "combined": {
+      "rank": 31,
+      "r8": false,
+      "top1": false,
+      "ms": 59.7,
+      "hits": 45,
+      "byMeaning": 9,
+      "top": [
+       "wiki/ko/인디애나주.txt",
+       "wiki/ko/자동차 운전면허.txt",
+       "wiki/ko/승차 공유 개인 정보.txt",
+       "wiki/ko/얀덱스.txt",
+       "wiki/ko/한국타이어앤테크놀로지.txt",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/김성태 (1958년).txt",
+       "wiki/ko/임대차.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-07",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "사내-교육-프로그램-안내.md"
+   ],
+   "words": "외국어 학원 다니면",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 7.83,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/오세훈.txt",
+       "wiki/ko/이승만.txt",
+       "wiki/ko/중앙대학교.txt",
+       "wiki/ko/홍문종 (정치인).txt",
+       "wiki/ko/서울대학교.txt",
+       "wiki/ko/교토시.txt",
+       "wiki/ko/뉴욕 대학교.txt",
+       "wiki/ko/세종대학교.txt"
+      ]
+     },
+     "combined": {
+      "rank": 19,
+      "r8": false,
+      "top1": false,
+      "ms": 25.05,
+      "hits": 45,
+      "byMeaning": 13,
+      "top": [
+       "wiki/ko/한국어.txt",
+       "wiki/ko/영어.txt",
+       "wiki/ko/7차 교육과정.txt",
+       "wiki/ko/국립순천대학교.txt",
+       "wiki/ko/강원대학교.txt",
+       "wiki/ko/불가리아.txt",
+       "wiki/ko/G-TELP.txt",
+       "wiki/ko/자동차 운전면허.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-08",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "2026-하반기-고객만족도-조사-보고서.md"
+   ],
+   "words": "이용사 담당자들 물어본 설문 제일 짜증 부분",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 22.11,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/쓰촨성.txt",
+       "wiki/ko/링크드인.txt",
+       "wiki/ko/소말리아의 노예제.txt",
+       "wiki/ko/시드니.txt",
+       "wiki/ko/이식 (컴퓨팅).txt",
+       "wiki/ko/비디오 게임 개발자.txt",
+       "wiki/ko/소련.txt",
+       "wiki/ko/소셜 네트워크 서비스의 개인정보 보호 문제.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 74.88,
+      "hits": 45,
+      "byMeaning": 19,
+      "top": [
+       "wiki/ko/소셜 네트워크 서비스의 개인정보 보호 문제.txt",
+       "wiki/ko/공지영.txt",
+       "wiki/ko/10·26 사건.txt",
+       "wiki/ko/쓰촨성.txt",
+       "wiki/ko/링크드인.txt",
+       "wiki/ko/중소벤처기업진흥공단.txt",
+       "wiki/ko/소말리아의 노예제.txt",
+       "wiki/ko/네이버.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-09",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "물류센터-이전-검토-보고서.md"
+   ],
+   "words": "창고 옮길 물건 내보내 쉬어",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 12.73,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/인공지능.txt",
+       "wiki/ko/코스트코.txt",
+       "wiki/ko/부동산.txt",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/물류.txt",
+       "wiki/ko/부당이득.txt",
+       "wiki/ko/이베이.txt",
+       "wiki/ko/이천 물류창고 화재.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 40.65,
+      "hits": 45,
+      "byMeaning": 15,
+      "top": [
+       "wiki/ko/물류.txt",
+       "wiki/ko/재고관리.txt",
+       "wiki/ko/가든파이브 사무실.txt",
+       "wiki/ko/이천 물류창고 화재.txt",
+       "wiki/ko/대한민국 민법 제618조.txt",
+       "acme/재고현황-2026-10.csv",
+       "wiki/ko/버전 관리.txt",
+       "wiki/ko/공급망 관리.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-10",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "회의록-2026-09-이사회.md"
+   ],
+   "words": "올해 주주들 이익 나눠",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 16.34,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/김정은.txt",
+       "wiki/ko/우선주.txt",
+       "wiki/ko/배당.txt",
+       "wiki/ko/이사회.txt",
+       "wiki/ko/이익 (회계).txt",
+       "wiki/ko/포이즌 필.txt",
+       "wiki/ko/신주발행.txt",
+       "wiki/ko/낙동강 방어선 전투.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 111.41,
+      "hits": 45,
+      "byMeaning": 16,
+      "top": [
+       "wiki/ko/배당.txt",
+       "wiki/ko/포이즌 필.txt",
+       "wiki/ko/우선주.txt",
+       "wiki/ko/마스턴투자운용.txt",
+       "wiki/ko/이자, 세금, 감가상각 및 무형자산의 상각 차감 전 이익.txt",
+       "wiki/ko/SK그룹.txt",
+       "wiki/ko/대한민국의 대기업.txt",
+       "wiki/ko/성과 지표.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-11",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "사무실-와이파이-프린터-설정.txt"
+   ],
+   "words": "손님용 인터넷 암호 바뀌어",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 18.26,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/네이버.txt",
+       "wiki/ko/데이터 센터.txt",
+       "wiki/ko/디지털 권리.txt",
+       "wiki/ko/보안 취약점.txt",
+       "wiki/ko/와이파이 핫스팟.txt",
+       "wiki/ko/케이뱅크.txt",
+       "wiki/ko/프라이버시.txt",
+       "wiki/ko/PHP2Shell.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 60.5,
+      "hits": 45,
+      "byMeaning": 6,
+      "top": [
+       "wiki/ko/네이버.txt",
+       "wiki/ko/와이파이 핫스팟.txt",
+       "wiki/ko/컴퓨터 보안.txt",
+       "wiki/ko/정보통신망 이용촉진 및 정보보호 등에 관한 법률.txt",
+       "wiki/ko/비트워든.txt",
+       "wiki/ko/보안 계정 관리자.txt",
+       "wiki/ko/IEEE 스토리지 보안 워킹 그룹.txt",
+       "wiki/ko/마이크로소프트 엑셀.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-12",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "hr-leave-policy.md"
+   ],
+   "words": "아파서 이틀 쉬면 병원 서류 내야",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 18.85,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/장덕.txt",
+       "wiki/ko/산업 재해.txt",
+       "wiki/ko/개리 (래퍼).txt",
+       "wiki/ko/기누가사 사치오.txt",
+       "wiki/ko/대한민국 제21대 대통령 선거.txt",
+       "wiki/ko/중앙대학교.txt",
+       "wiki/ko/낙동강 방어선 전투.txt",
+       "wiki/ko/롯데월드타워.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 61.53,
+      "hits": 45,
+      "byMeaning": 12,
+      "top": [
+       "wiki/ko/산업 재해.txt",
+       "wiki/ko/신해철.txt",
+       "wiki/ko/순천향대학교 부속 천안병원.txt",
+       "wiki/ko/닥터-X~외과의·다이몬 미치코~.txt",
+       "wiki/ko/추미애.txt",
+       "wiki/ko/장덕.txt",
+       "wiki/ko/병조.txt",
+       "wiki/ko/개리 (래퍼).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-13",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "2026-10-월간-실적-보고.md"
+   ],
+   "words": "지난달 장사 역대 제일",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 37.03,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/CJ제일제당.txt",
+       "wiki/ko/가네모토 도모아키.txt",
+       "wiki/ko/원희룡.txt",
+       "wiki/ko/경평대항축구전.txt",
+       "wiki/ko/김정일.txt",
+       "wiki/ko/나폴레옹 보나파르트.txt",
+       "wiki/ko/심상우.txt",
+       "wiki/ko/이명박.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 67.01,
+      "hits": 45,
+      "byMeaning": 17,
+      "top": [
+       "wiki/ko/소말리아의 노예제.txt",
+       "wiki/ko/도쿠가와 이에야스.txt",
+       "wiki/ko/장쉐량.txt",
+       "wiki/ko/CJ제일제당.txt",
+       "wiki/ko/제3보병사단 (대한민국).txt",
+       "wiki/ko/이재명.txt",
+       "wiki/ko/가네모토 도모아키.txt",
+       "wiki/ko/영웅시대 (2004년 드라마).txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-14",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "expense-policy.md"
+   ],
+   "words": "돈으 돌려받으려면 신청해",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 4.7,
+      "hits": 16,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/리처드 파인만.txt",
+       "wiki/ko/국내총생산.txt",
+       "wiki/ko/김유정 (소설가).txt",
+       "wiki/ko/나라야나 무르티.txt",
+       "wiki/ko/나혜석.txt",
+       "wiki/ko/대한민국의 소방.txt",
+       "wiki/ko/레일플러스.txt",
+       "wiki/ko/메이플스토리.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 24.34,
+      "hits": 45,
+      "byMeaning": 29,
+      "top": [
+       "wiki/ko/김유정 (소설가).txt",
+       "wiki/ko/리처드 파인만.txt",
+       "wiki/ko/법조윤리.txt",
+       "wiki/ko/국내총생산.txt",
+       "wiki/ko/정보통신망 이용촉진 및 정보보호 등에 관한 법률.txt",
+       "wiki/ko/대한민국 민법 제622조.txt",
+       "wiki/ko/나라야나 무르티.txt",
+       "wiki/ko/나혜석.txt"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "p-ko-15",
+   "lang": "ko",
+   "type": "paraphrase",
+   "expectFiles": [
+    "security-policy.html"
+   ],
+   "words": "기기 두고 왔을 보고해",
+   "results": {
+    "full (3049)": {
+     "keyword": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 17.31,
+      "hits": 45,
+      "byMeaning": 0,
+      "top": [
+       "wiki/ko/The Idiot's Lantern.txt",
+       "wiki/ko/키엔스.txt",
+       "wiki/ko/네온.txt",
+       "wiki/ko/와이파이 얼라이언스.txt",
+       "wiki/ko/전지.txt",
+       "wiki/ko/정보통신망 이용촉진 및 정보보호 등에 관한 법률.txt",
+       "wiki/ko/IOS.txt",
+       "wiki/ko/게임 중독.txt"
+      ]
+     },
+     "combined": {
+      "rank": null,
+      "r8": false,
+      "top1": false,
+      "ms": 51.32,
+      "hits": 45,
+      "byMeaning": 18,
+      "top": [
+       "wiki/ko/스티브 잡스.txt",
+       "wiki/ko/일본.txt",
+       "wiki/ko/바이러스 제로 _ 시큐리티 커뮤니티.txt",
+       "wiki/ko/The Idiot's Lantern.txt",
+       "wiki/ko/소나기 (소설).txt",
+       "wiki/ko/키엔스.txt",
+       "wiki/ko/이종혁 (성우).txt",
+       "wiki/ko/네온.txt"
+      ]
+     }
+    }
+   }
+  }
+ ]
+}
