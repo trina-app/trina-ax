@@ -155,6 +155,21 @@ describe('sign-in and sessions', () => {
     expect(me.user.prefs).toEqual({ theme: 'light', engine: 'codex' })
     expect(me.user.locale).toBe('id')
   })
+  test('the text size is one of the five steps, kept with the other preferences (no migration: prefs is JSON)', async () => {
+    const c = h.client()
+    await c.login('olga', OWNER_PW)
+    const before = (await c.call('GET', '/api/me')).user.prefs
+    let me = await c.call('PATCH', '/api/me', { prefs: { textSize: 'largest' } })
+    expect(me.user.prefs).toEqual({ ...before, textSize: 'largest' })
+    expect((await c.try('PATCH', '/api/me', { prefs: { textSize: 'huge' } })).status).toBe(400)
+    me = await c.call('PATCH', '/api/me', { prefs: { theme: 'dark' } })
+    expect(me.user.prefs.textSize).toBe('largest')
+    expect((await c.call('GET', '/api/me')).user.prefs.textSize).toBe('largest')
+    // a step this version does not know (stored by a later one) reads as none and hides nothing else
+    const id = (await c.call('GET', '/api/me')).user.id
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', textSize: 'huge' }), id)
+    expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
+  })
 })
 
 describe('password change and forced change', () => {

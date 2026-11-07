@@ -77,6 +77,9 @@ export const EngineId = z.enum(['claude-code', 'codex', 'api'])
 export type EngineId = z.infer<typeof EngineId>
 export const Theme = z.enum(['system', 'light', 'dark'])
 export type Theme = z.infer<typeof Theme>
+/** The person's text size (Settings > Profile), smallest to largest: the web app's root font size (web/src/lib/textSize.ts). */
+export const TextSize = z.enum(['small', 'default', 'large', 'larger', 'largest'])
+export type TextSize = z.infer<typeof TextSize>
 
 // ---------------- errors ----------------
 /** Stable machine codes. `message` is in the user's language (see errors.ts). */

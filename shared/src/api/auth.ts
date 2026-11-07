@@ -1,7 +1,7 @@
 // Sign-in, the signed-in person, invites, first-run setup. Owner: A (server/src/routes/auth.ts).
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { ClientKind, DEFAULT_LOCALE, EngineId, IsoTime, Locale, Ok, Role } from './common'
+import { ClientKind, DEFAULT_LOCALE, EngineId, IsoTime, Locale, Ok, Role, TextSize } from './common'
 import { endpoint, empty } from './endpoint'
 import { TEAM_ICON_VERSION_RE } from '../team-icon'
 import { Session, UserPrefs, UserRef } from './entities'
@@ -166,7 +166,7 @@ export const UpdateMeBody = z.object({
   locale: Locale.nullable().optional(),
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
-  prefs: UserPrefs.extend({ engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
+  prefs: UserPrefs.extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
 })
 
 /** GET /api/me/usage: the signed-in person's own usage in a period of the team's time zone (today, this week from

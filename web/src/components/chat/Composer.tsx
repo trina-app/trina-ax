@@ -43,6 +43,7 @@ import { SecretWarning, useSecretHold } from './SecretWarning'
 import { SkillChip } from './SkillChip'
 import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
 import { fromWire } from '../../lib/roomRefs'
+import { useTextSize } from '../../lib/textSize'
 
 interface Pending {
   id: string
@@ -209,13 +210,15 @@ export default function Composer({
 
   const hint = transcribing ? t('voice.transcribing') : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
-  // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same
+  // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
+  // person's text size changes (Settings > Profile, over this page)
+  const textSize = useTextSize()
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
-  }, [text, hint])
+  }, [text, hint, textSize])
 
   useEffect(() => {
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
