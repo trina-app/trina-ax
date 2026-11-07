@@ -2,6 +2,10 @@
 
 <!-- What problem does this solve, and what changes for the user? Link an issue if applicable. -->
 
+## Plan
+
+<!-- The plan written before the work: docs/AGENTS/plan/<timestamp>-<feature>.md (docs/AGENTS/README.md). Not needed for typo fixes and dependency or version bumps. -->
+
 ## Validation
 
 <!-- Commands run and results, or why a check does not apply. For docs, check links and any example commands. -->
