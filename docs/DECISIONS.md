@@ -13344,3 +13344,61 @@ person's folder and only said that everyone could see the amounts; the person ha
   in each state, the detail), `steps-paused` and `steps-subtasks` updated, `web/test/e2e/chat.spec.ts` (mock
   "wrong-guess" and "save-fails").
 - Version impact: **minor** (a visible UI change; no API, setting or data change).
+
+## 뜻으로도 찾는 지식 그래프 — search by meaning in the knowledge graph, on by default (feat/knowledge-graph-meaning, 2026-11-07, product owner)
+
+Plan: [20261107-0819-knowledge-graph-fast-answers](AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md), waves 2
+and 3. This entry replaces the 2026-10-21 "뜻으로 찾기" tool and the 2026-11-01 "Search by meaning off by default"
+entries. Their tool is removed.
+
+- **The owner's choices:**
+  - Embeddings, on the team's own server only ("A the team own server yes").
+  - Always combined with keyword search.
+  - `multilingual-e5-small`, downloaded on first use.
+  - Admins see nothing ("admin doesnt need to see the embeding just automatically turn it on by default").
+  - On by default only if a quality test written before any run shows the combined search better overall and not worse
+    on any type of question.
+  - Keep it simple.
+- **The quality test passed, narrowly** (`scripts/bench/quality/`):
+  - The test: 150 questions (75 Korean, 75 English; 30 each of paraphrase, exact, table, cross-language and file name),
+    over 49 made-up Acme documents plus 3,000 Wikipedia articles (22,096 pieces).
+  - Recall@8 47.3% → 51.3% (+4.0 points, bootstrap 95% interval +0.7 to +8.0; McNemar 1 question lost, 7 gained,
+    p = 0.07). MRR 0.419 → 0.463.
+  - No type got worse by Recall@8, first place or MRR. Exact 83 → 87%, table 90 → 93%, file name 63 → 73% (first place
+    47 → 63%).
+  - Paraphrase (0 → 3%) and cross-language (0 → 0%) barely moved at that size. Meaning alone puts the right file in its
+    first 8 for 4 of 30 paraphrases and 1 of 30 cross-language questions: the model is the limit.
+  - In a small folder it does what was hoped. At 50 files: 59% → 76% overall, paraphrases 0 → 70%.
+  - So it is on by default, as the rule says, and the numbers are kept here rather than oversold.
+- **Why the lookup before the model does not use meaning:**
+  - With meaning on, almost every message with one distinctive word got a few loosely related files by meaning.
+  - e5 scores unrelated text 0.77–0.85 against 0.81–0.84 for related text, so no threshold separates them.
+  - `knowledge_explore` and the Files search use meaning; the lookup asks with `meaningOnly: false` and then does not
+    ask the worker for meaning at all (review must-fix).
+- **The query model has its own thread.** Opening it blocked the search worker for 0.7–0.8 s, so a 200 ms lookup got
+  nothing. A cold model is never waited for, and it unloads after 15 idle minutes. On macOS the process keeps about
+  350 MB after unloading, which the allocator holds for reuse; Linux was not measured.
+- **Indexing:**
+  - A separate process below people's work: one ONNX thread, batches of 4.
+  - It rests three times each batch's time (at most about a quarter of one core), because `nice` does not stop the
+    burstable CPU credits of 2-vCPU cloud servers from draining.
+  - It starts with 1.5 GB available (Linux: the tightest cgroup limit counts too), is stopped above 800 MB, pauses
+    while any answer runs or waits, and has a 15-minute ready limit and a 2-minute batch limit.
+  - Only a piece the model itself refused alone is marked; a kill or crash never marks one.
+  - Measured: about 3 pieces per second on an M-series Mac. In a 2-CPU, 4 GB container: 2.7 per second, at most
+    746 MB. About 9 hours for 22,000 pieces with the rest.
+- **Hosting plans:**
+  - Off by default where `mycel-ctl apply-plan` set limits. The whole server runs in about 1.3–1.8 GB there, and the
+    embedding process (600–800 MB) and the query model would share it with converters.
+  - `knowledgeGraph.meaning: true` turns it on.
+  - This differs from the earlier answer that hosted teams get it too (a review must-fix).
+- **Reviews:**
+  - The first review found two must-fix problems: the lookup before the model asked for meaning it threw away (waiting
+    on a cold model, losing keyword slots), and a passage with no length cap (one huge sheet name stopped indexing for
+    good).
+  - The should-fix round, all fixed: no wait on a cold model; the scan yields; the rest cycle; the model disposed in
+    its thread; failing pieces skipped.
+  - The second review found the hosting-plan must-fix, plus a killed process being reused, temporary failures marking
+    pieces for good, a stuck download, missed scans repeating, and the web e2e downloading the model. All fixed.
+- **Removed:** the `search` tool, `server/src/search/semantic.ts` and `MYCEL_SEMANTIC`. Their `<data>/semantic.db` is
+  deleted on start. The model files and the bundled runtime stay, because the new embedder uses them.

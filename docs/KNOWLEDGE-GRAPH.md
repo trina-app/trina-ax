@@ -34,12 +34,15 @@ The document index lives in `<data>/knowledge-graph/documents/`; turning the doc
 CodeGraph makes the code map: [github.com/colbymchenry/codegraph](https://github.com/colbymchenry/codegraph), MIT license.
 It is an optional tool on the server. Without it the code part is off; documents work anyway.
 
-Code: `server/src/knowledge-graph/` (service, docs-port, documents/, mirror, runner, tool), `server/src/routes/knowledge-graph.ts`,
+Code: `server/src/knowledge-graph/` (service, docs-port, documents/, meaning/, mirror, runner, tool), `server/src/routes/knowledge-graph.ts`,
 `shared/src/api/knowledge-graph.ts`, `web/src/pages/admin/KnowledgeGraph.tsx`. Tests:
 `tests/unit/c-knowledge-graph.test.ts`, `tests/unit/c-knowledge-graph-docs.test.ts`, the documents module's own tests,
 `tests/unit/c-kg-lookup.test.ts`, `tests/unit/c-kg-lookup-security.test.ts`, `tests/unit/b-chat-document-lookup.test.ts`,
-`tests/unit/file-content-search-documents.test.ts`, `tests/security/lib/knowledge-graph-cases.ts`,
-`web/test/e2e/admin-knowledge-graph.spec.ts`. The benchmark for document questions: `scripts/bench/`.
+`tests/unit/file-content-search-documents.test.ts`, `tests/unit/c-kg-meaning-index.test.ts`,
+`tests/unit/c-kg-meaning-search.test.ts`, `tests/unit/c-kg-meaning-search-lookup.test.ts`,
+`tests/unit/semantic-db-removed.test.ts`, `tests/security/lib/knowledge-graph-cases.ts`,
+`web/test/e2e/admin-knowledge-graph.spec.ts`. The benchmark for document questions: `scripts/bench/`; the search
+quality test: `scripts/bench/quality/`.
 
 ## Install CodeGraph
 
@@ -249,6 +252,7 @@ nothing is added.
 - No lookup for the API engine (trial credit too), confidential chats, drafts, skill-share judging and merging,
   scheduled runs (template runs included: nobody is there to answer a card), demo replays, team rooms, or turns without
   `knowledge_explore`. Slack turns keep it: a card there waits for the person.
+- It searches by words only (`meaningOnly: false`, below): a match by meaning alone is not named in front of a message.
 
 ## The Files search
 
@@ -260,6 +264,68 @@ were.
 
 The screen shows "관련 문서" with the document rows above the line matches only when there are any. A click opens the file
 at that place. The field is absent when the documents part is off, so older apps keep working.
+
+## Search by meaning
+
+The document index also finds passages by what they mean, on the team's own server. Nothing leaves the server except the
+one download of the model.
+
+- **Model:** `multilingual-e5-small` (MIT, 384 dimensions).
+  - The files are pinned to one revision and checked against their SHA-256.
+  - The model is downloaded once (about 120 MB) into `<data>/models`, or read from a host's shared `$MYCEL_MODELS_DIR/semantic`
+    when every file there matches.
+  - The download goes to a temp file created exclusively, and only checked files are loaded.
+  - A person's search never downloads.
+- **Switch:** `knowledgeGraph.meaning` in `server.json` (see [CONFIGURATION.md](CONFIGURATION.md)).
+  - Absent: on, except on servers with a hosting plan (`mycel-ctl apply-plan`), where the whole server runs inside a
+    memory limit of about 1.3–1.8 GB.
+  - `true`: on everywhere.
+  - `false`: off.
+  - Nothing in Admin.
+- **Vectors:**
+  - Each piece is embedded as `<file name> · <heading>` and then its text (the heading at most 120 characters, the whole
+    at most 2,000).
+  - The vector is stored as 384 bytes of int8 in `documents.db` (`chunks.vec`). An empty value marks a piece the model
+    refused.
+  - When a file is indexed again, its pieces are embedded again.
+- **Indexing** runs in a separate process (`meaning/embed-worker.ts`, built as `kg-embed-worker.js`), below people's work:
+  - It uses one ONNX thread and batches of 4, and rests three times as long as each batch took, so it uses at most about
+    a quarter of one core. That spares the CPU credits of small cloud servers.
+  - It starts only with about 1.5 GB of memory available. On Linux that is the smaller of `MemAvailable` and the
+    tightest cgroup limit above the server.
+  - It is stopped above about 800 MB of its own memory.
+  - It pauses while anyone's answer is running or waiting.
+  - It has 15 minutes to get ready (download and load) and 2 minutes per batch.
+  - A failing batch is tried again, then one piece at a time. A piece is marked only when the model refused that piece
+    alone; a crash or a kill never marks one.
+  - Measured on an M-series Mac at full speed: about 3 pieces per second at about 0.6 GB. In a 2-CPU, 4 GB container:
+    2.7 pieces per second, at most 746 MB. With the rest, that is about 0.7 a second: a first pass over 22,000
+    pieces takes about 9 hours there, longer on a slower server. Keyword search works the whole time.
+- **Search:**
+  - Results are always combined with the keyword results by rank (reciprocal rank fusion, k = 60). Meaning results are
+    never used alone.
+  - A piece found only by meaning is at most a weak match.
+  - The search worker holds the vectors (about 38 MB per 100,000 pieces) and runs the query's model in its own thread.
+  - A cold model is never waited for: the search answers with keywords and the model loads for the next one.
+  - The scan yields every 20,000 vectors, and stops early when a scan would not fit the time left.
+  - The model unloads after 15 idle minutes.
+  - Every hit still passes the asking person's access check on the main thread.
+- **Who uses it:** `knowledge_explore` and the Files search use meaning. The lookup before the model does not: e5 rates
+  unrelated text nearly as close as related text (0.77–0.85 against 0.81–0.84), so meaning-only matches would add
+  file names to almost every message.
+- **Quality** (`scripts/bench/quality/`):
+  - The test: 150 Korean and English questions written before any run, over 49 made-up office documents plus 3,000
+    Wikipedia articles.
+  - Overall, Recall@8 (the right file among the first 8 results) went from 47.3% (keyword only) to 51.3% combined:
+    exact 83 → 87%, tables 90 → 93%, file names 63 → 73%.
+  - No type of question got worse.
+  - Paraphrases and cross-language questions stay near 0% at that size. The model finds them in small folders: at 50
+    files, combined is 76% overall and 70% for paraphrases.
+- **The older search by meaning is gone:**
+  - The `search` tool and `MYCEL_SEMANTIC` were removed. The tool searched by meaning alone and was off by default
+    since 2026-11-01.
+  - Its `<data>/semantic.db` is deleted once on start.
+  - The downloaded model stays and is used by this one.
 
 ## Admin › Team settings › Knowledge graph
 

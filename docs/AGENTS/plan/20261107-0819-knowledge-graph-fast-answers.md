@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-07 08:19
 - Branch: `feat/knowledge-graph-fast-answers` (wave 1, PR #165); `feat/knowledge-graph-meaning` (waves 2 and 3, stacked
   on wave 1)
-- Status: in progress (wave 1 in PR #165; waves 2 and 3 being built)
+- Status: built (wave 1 in PR #165; waves 2 and 3 on `feat/knowledge-graph-meaning`), in review
 - Where: this repo, `server/src/knowledge-graph/`, `server/src/chat/` (prompt, turn), `server/src/mcp/`, the Files
   search (`server/src/routes/files.ts`, `web/src/components/FileContentSearch.tsx`), and the old `server/src/search/`
   it replaces. Why: chat, files and the AI belong in the Team AX core (docs/REPOSITORY-RULES.md).
@@ -220,3 +220,21 @@ Wave 1 (built 2026-11-07; waves 2 and 3 are still to come):
   - The 7 s and 25,000-token targets were set from the dev server, whose fixed prompt is smaller than this Mac's. The
     dev-server run (step 8) waits for a test account and the owner's OK.
 - PR: https://github.com/trina-app/trina-ax/pull/165
+
+Waves 2 and 3 (built 2026-11-07, branch `feat/knowledge-graph-meaning`, stacked on wave 1):
+
+- **Built as planned,** with five changes:
+  1. The lookup before the model does not use meaning.
+  2. Servers with a hosting plan keep meaning off unless set.
+  3. The indexing rests three times each batch's time.
+  4. The query model runs in its own thread and is never waited for when cold.
+  5. CP949 needed no new code (the index already decoded it).
+- **Quality test** (150 questions, 49 made-up documents plus 3,000 Wikipedia articles): the rule passed, narrowly.
+  - Recall@8 47.3% → 51.3%, not worse on any type.
+  - File names gained most (63 → 73%).
+  - Paraphrase and cross-language barely moved at that size; at 50 files, paraphrases went 0 → 70%.
+  - So search by meaning is on by default.
+- **Two reviews:** three must-fix items (meaning asked for before the model, uncapped passages, hosting-plan memory)
+  and the should-fix items, all fixed.
+- **The old `search` tool and `MYCEL_SEMANTIC` are removed;** `semantic.db` is deleted on start.
+- PR: to be linked.
