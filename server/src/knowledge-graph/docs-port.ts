@@ -6,7 +6,18 @@
 import type { SourceLoc } from '@mycel/shared/api'
 
 export interface DocFileState { size: number; mtimeMs: number; failed: string | null }
-export interface DocHit { rootId: string; relPath: string; loc: SourceLoc | null; snippet: string; score: number }
+/** snippet: about 300 characters around the match, on one line. passage: when the search asked for one, up to that many
+ * characters of the piece around the match with its line breaks, to answer from (an index without it: the snippet). */
+export interface DocHit { rootId: string; relPath: string; loc: SourceLoc | null; snippet: string; passage?: string; score: number }
+export interface DocSearchOptions {
+  rootIds: string[]
+  limit: number
+  /** also a passage of up to this many characters per hit */
+  passage?: number
+  /** only files under this folder of the root (relative to it); only given when rootIds is that one root. A narrowing
+   * for speed: the caller still filters every hit by its own path. */
+  prefix?: string
+}
 /** why two documents are linked: kind is folder · mention · link · terms · people · code; detail is made only from the
  * two documents' own names and text */
 export interface DocLink { rootId: string; relPath: string; reason: { kind: string; detail: string } }
@@ -22,7 +33,7 @@ export interface DocIndexPort {
   update(rootId: string, relPath: string, file: { bytes: Uint8Array | null; size: number; mtimeMs: number }, o?: { signal?: AbortSignal }): Promise<{ ok: true; chunks: number } | { ok: false; reason: string }>
   remove(rootId: string, relPath: string): void
   dropRoot(rootId: string): void
-  search(query: string, o: { rootIds: string[]; limit: number }): Promise<DocHit[]> | DocHit[]
+  search(query: string, o: DocSearchOptions): Promise<DocHit[]> | DocHit[]
   related(rootId: string, relPath: string, o: { rootIds: string[]; limit: number }): Promise<DocLink[]> | DocLink[]
   stats(rootId: string): DocStats
   diskBytes(): number
