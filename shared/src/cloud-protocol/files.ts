@@ -34,6 +34,8 @@ export const PlanLimits = z.object({
   resources: PlanResources,
   maxConcurrency: z.number().int().min(1).max(16),
   maxActiveMembers: z.number().int().min(1).nullable(),
+  /** PlanFile.speechFreeHours of the plan (absent: the server's default) */
+  speechFreeHours: z.number().int().min(1).max(1000).nullish(),
 })
 export type PlanLimits = z.infer<typeof PlanLimits>
 
@@ -68,11 +70,14 @@ export const PlanFile = z.object({
    * and support (a mail address or a URL) point */
   links: z.object({ account: HttpsUrl, status: HttpsUrl, support: z.string().min(3).max(200) }).nullable().default(null),
   /** the hosting service's free speech-to-text hours a team a calendar month (Korea time), one pool for voice input and
-   * video and audio reads (server/src/credentials/hosted-speech.ts; docs/DECISIONS.md "Hosted speech-to-text"); null =
-   * the server's default, 10. Whole hours, 1–1000: the Go reader's range (native/internal/plan). A team without the
-   * hosting service's speech key has no free hours whatever this says. Written only to a tenant whose kit
-   * (`rootVersion`) knows the field: an older mycel-ctl refuses a plan.json with a key it does not know */
-  speechFreeHours: z.number().int().min(1).max(1000).nullable().default(null),
+   * video and audio reads (server/src/credentials/hosted-speech.ts; docs/DECISIONS.md "Hosted speech-to-text hours per
+   * plan"); absent or null = the server's default, 10. Whole hours, 1–1000: the Go reader's range (native/internal/plan).
+   * A team without the hosting service's speech key has no free hours whatever this says.
+   * ORDER: an older mycel-ctl refuses a whole plan.json with this key, even as null (the Go reader refuses unknown
+   * keys). Leave the key out (no default here, so parsing never adds it) unless the tenant's kit is newer than
+   * 0.4.0-beta.10: TenantStatus.rootVersion for apply-plan, EnrollRequest.kitVersion for the enroll answer's plan
+   * ("unknown" counts as older). */
+  speechFreeHours: z.number().int().min(1).max(1000).nullish(),
 })
 export type PlanFile = z.infer<typeof PlanFile>
 export type PlanFileInput = z.input<typeof PlanFile>

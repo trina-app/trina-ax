@@ -186,7 +186,8 @@ describe('cloud-protocol: files and release', () => {
     const p = PlanFile.parse(w1)
     expect(p.maxActiveMembers).toBeNull()
     expect(p.display).toBeNull()
-    expect(p.speechFreeHours).toBeNull()
+    // a field added later has no default: parsing a plan without it does not add it (an older Go reader refuses the key)
+    expect('speechFreeHours' in p).toBe(false)
     expect(PlanFile.parse(V.enroll.plan).maxActiveMembers).toBe(12)
     expect(PlanFile.safeParse({ ...w1, maxConcurrency: 17 }).success).toBe(false)
     // the hosting service's free speech-to-text hours a month: whole hours, the Go reader's range 1-1000

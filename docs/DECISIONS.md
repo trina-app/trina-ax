@@ -11819,8 +11819,9 @@ Owner decision: the free speech-to-text hours of a hosted team depend on its pla
 Business 200** a team a month (until now 10 on every plan). The rest of "Hosted speech-to-text" stays: one pool for
 voice input and video and audio reads, the month in Korea time, the team's own key first and never counted.
 
-- **The number is a plan.json field.** `PlanFile.speechFreeHours` (optional, whole hours 1–1000, `null` or absent = 10,
-  `HOSTED_SPEECH_DEFAULT_FREE_HOURS`); the control plane writes it per plan. `hostedSpeechFreeHours()` reads the current
+- **The number is a plan.json field.** `PlanFile.speechFreeHours` (optional with no default, whole hours 1–1000, `null`
+  or absent = 10, `HOSTED_SPEECH_DEFAULT_FREE_HOURS`; also in `PlanLimits`, the control plane's `plans.limits_json`);
+  the control plane writes it per plan. `hostedSpeechFreeHours()` reads the current
   plan at every check, so the usage in Team settings (`freeSec`), the refusal before a request, the cap on what one
   answer can count and the read's note use one number. A plan change applies within a minute (system/limits.ts reads
   plan.json again when it changes) to the month's count as it stands: a move down below what was used refuses the next
@@ -11833,25 +11834,32 @@ voice input and video and audio reads, the month in Korea time, the team's own k
   the owner's words; prices and plans belong to the private repositories (REPOSITORY-RULES); every other per-plan value
   (seats, memory, backups) is already a plan.json field and the dev environment is derived from the plan's resources.
   The server never branches on the id, and the hours change without a server release.
-- **Order: the Go reader refuses unknown keys.** `native/internal/plan` decodes plan.json with `DisallowUnknownFields`,
-  so a mycel-ctl from before this release refuses a whole plan.json with `speechFreeHours` (`apply-plan` exits 1, the
-  previous plan stays in force; the reason `dev-env.json` is a file of its own). This release's reader takes the field
-  with the same range (vectors: two allowed, three refused `apply-plan` plans; `TestContractVectors` parses every plan
-  of the vectors with the Go reader). The control plane therefore writes the field only to a tenant whose
-  `rootVersion` (TenantStatus) is this release or later and leaves it out for older ones, which keep 10 hours until they
-  update. The team server ignores keys it does not know, so a newer plan.json never stops an older app.
-- **The dollar backstop.** The monthly dollar limit on each hosted OpenRouter key is set by the control plane when it
-  makes the key (`POST /keys`), outside this repository. OpenRouter's prices for `openai/whisper-large-v3-turbo` on
+- **Order: the Go reader refuses unknown keys.** `native/internal/plan` (mycel-ctl apply-plan, the launcher, mycel-boxd)
+  decodes plan.json with `DisallowUnknownFields`, so a kit of 0.4.0-beta.10 or older refuses a whole plan.json with
+  `speechFreeHours`, even as `null` (`apply-plan` exits 1 and the previous plan stays in force; in an enroll answer the
+  enroll fails; the reason `dev-env.json` is a file of its own). This release's reader takes the field with the same
+  range (vectors: two allowed, three refused `apply-plan` plans; `TestContractVectors` parses every plan of the vectors
+  with the Go reader). So the field has no zod default (a plan parsed and written again does not gain the key), and the
+  control plane writes it only to a tenant whose kit is newer than 0.4.0-beta.10: `TenantStatus.rootVersion` for
+  apply-plan, `EnrollRequest.kitVersion` for the plan in an enroll answer (`""`, read as unknown, counts as older).
+  Older tenants keep 10 hours until they update. The launcher and boxd are root files like mycel-ctl and root files
+  never go back to an older version, so the same gate covers them. The team server ignores keys it does not know, so a
+  newer plan.json never stops an older app. The rule is in `shared/src/cloud-protocol/README.md` too.
+- **The dollar backstop.** The monthly dollar limit on each hosted OpenRouter key is the control plane's (it sets it
+  when it makes the key), outside this repository. OpenRouter's prices for `openai/whisper-large-v3-turbo` on
   2026-11-07 (`/api/v1/models/openai/whisper-large-v3-turbo/endpoints`): DeepInfra $0.012 an hour of sound, Groq $0.04.
   A month of the plan's hours costs $0.60 / $1.20 / $2.40 (Starter / Team / Business) through DeepInfra and $2 / $4 /
   $8 if all of it went to Groq (Free: $0.12 / $0.40). Groq bills at least 10 s a request (its answer's `usage.seconds`),
-  so short voice clips through Groq cost more than they count. Recommended limit: the all-Groq month × 1.5, $3 / $6 /
-  $12 (Free $0.60). A limit under the plan's hours stops the team with "hosted transcription is not available" before
-  its hours are used.
+  so short voice clips through Groq cost more than they count. The limit has to cover the plan's hours: the keys made
+  so far were sized for 10 hours, so the control plane raises the limit of every existing key and on every plan change,
+  together with `speechFreeHours`. A limit under the plan's hours stops the team with "hosted transcription is not
+  available" before its hours are used. The figures themselves are the hosting console's.
 - **Texts.** The refusal (`SPEECH_FREE_USED(hours)`, voice input) and the read's note (`media-text.ts` `freeUsed`,
   `{hours}`) name the plan's hours in all five languages; Team settings › Voice input already shows the server's
   `freeSec`. Admin and security docs list the per-plan hours.
 - Tests: `c-speech-hosted` (50 / 100 / 200 and no plan, no field or null = 10; the usage view; voice input going on past
   10 hours on a 50-hour plan and refused at 50 in five languages; a read's note with 200; a plan change mid-month; one
-  answer capped at the plan's month), `g-limits` and `cloud-protocol` (the field's range, read from the file), Go
-  `TestSpeechFreeHours` and `TestContractVectors`, `media-transcripts-switch` (the usage line with 50 / 100 / 200).
+  answer capped at the plan's month), `g-limits` and `cloud-protocol` (the field's range, no default, read from the
+  file), Go `TestSpeechFreeHours` and `TestContractVectors`; `media-transcripts-switch` checks the usage line with 50 /
+  100 / 200 (its code already took the hours from the server's `freeSec`).
+- **Left as is.** With 1 hour the texts read "1 free hours" (no plan uses 1).

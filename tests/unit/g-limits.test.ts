@@ -37,9 +37,10 @@ describe('plan file', () => {
     // the Go reader's range (native/internal/plan): a plan mycel-ctl apply-plan would refuse is refused here too
     expect(Plan.safeParse({ format: 1, plan: 'x', maxConcurrency: 2, memoryMiB: 2048, cpuCores: 2, diskGiB: 20, turnPidsMax: 32 }).success).toBe(false)
   })
-  test('speechFreeHours (the hosting service\'s free speech-to-text hours a month): whole hours 1-1000 as in Go, else null', () => {
+  test('speechFreeHours (the hosting service\'s free speech-to-text hours a month): whole hours 1-1000 as in Go, or null / absent', () => {
     const p = { format: 1, plan: 'x', maxConcurrency: 2, memoryMiB: 2048, cpuCores: 2, diskGiB: 20 }
-    expect(Plan.parse(p).speechFreeHours).toBeNull()
+    // absent stays absent (no default: a plan parsed and written again must not gain the key an older kit refuses)
+    expect('speechFreeHours' in Plan.parse(p)).toBe(false)
     expect(Plan.parse({ ...p, speechFreeHours: null }).speechFreeHours).toBeNull()
     for (const h of [1, 50, 100, 200, 1000]) expect(Plan.parse({ ...p, speechFreeHours: h }).speechFreeHours).toBe(h)
     for (const h of [0, -1, 1001, 1.5, '50', true]) expect(Plan.safeParse({ ...p, speechFreeHours: h }).success).toBe(false)
