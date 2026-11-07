@@ -5,18 +5,27 @@ import { EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common
 import { endpoint, empty } from './endpoint'
 import { SealedSecret } from './credentials'
 import { Chat, Message, MessageSources, Project } from './entities'
-import { ANSWER_NOTE_MAX, RoomMessage } from './rooms'
+import { ANSWER_NOTE_MAX, ROOM_FILES_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
 // ---------------- an answer sent to a room ("대화방에 보내기") ----------------
+/** at most this many rows in a "confirm": past it the rest of the answer's links is one more row nothing is told about
+ * (everyone else counted) */
+export const ANSWER_SHARE_FILES_MAX = 100
 export const ShareAnswerToRoomBody = z.object({
   roomId: Uuid7,
   /** one line before the answer ("한마디 덧붙이기"); newlines become spaces */
   note: z.string().max(ANSWER_NOTE_MAX).optional(),
-  /** send even though some members cannot open what the answer used: the number of people the person said yes to (the
-   * last "confirm"'s `people`). More people than that now (someone joined, or lost access): "confirm" again */
+  /** older clients: send even though some members cannot open what the answer used, as the number of people the person
+   * said yes to (the last "confirm"'s `people`). More people than that now: "confirm" again. Nothing is attached */
   confirm: z.number().int().positive().optional(),
+  /** the last "confirm"'s `confirmKey`: the person saw that state and said yes. Anything changed since (a member swapped
+   * for another, someone lost access, a file moved): "confirm" again with a new key */
+  confirmKey: z.string().min(1).max(200).optional(),
+  /** linked files to send with the message as copies (room files): only paths of the last "confirm"'s `files` whose
+   * `attach` is 'yes'; my read access is checked again when they are copied */
+  attach: z.array(RelPath).max(ROOM_FILES_MAX).optional(),
   /** client-made id: sending the same one again returns the first message */
   clientMessageId: z.string().min(8).max(64),
 }).strict()
@@ -34,11 +43,47 @@ export const AnswerSharePlace = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('conversation') }),
 ])
 export type AnswerSharePlace = z.infer<typeof AnswerSharePlace>
+/** One file the answer links to or shows, as the person sending may be told. */
+export const AnswerShareFile = z.object({
+  /** its name; '' when `missing` (never named: I cannot open it now) */
+  name: z.string(),
+  /** its team path, only when I may open it now */
+  path: RelPath.optional(),
+  /** I cannot open it now: gone or not mine to open read the same, and it is never named */
+  missing: z.boolean(),
+  /** yes: it can go with the message as a copy (the switch, on by default); no: not needed (everyone can open it) or not
+   * a file to copy; too_big: over 50 MB; hidden: I cannot open it (`missing`) */
+  attach: z.enum(['yes', 'no', 'too_big', 'hidden']),
+  /** members of the room (not me) who cannot open it now; for a `missing` file, everyone else (nothing is told) */
+  unable: z.number().int().nonnegative(),
+})
+export type AnswerShareFile = z.infer<typeof AnswerShareFile>
+/** The answer carries content from material some members cannot see. */
+export const AnswerShareProvenance = z.object({
+  /** members (not me) who cannot see some of it */
+  people: z.number().int().positive(),
+  /** where it came from, named only where I may look myself */
+  places: z.array(AnswerSharePlace),
+  /** more such places that are not named */
+  otherPlaces: z.boolean(),
+  /** what this answer used is not all known (it is not on the chat's current branch): `people` is everyone else */
+  unknown: z.literal(true).optional(),
+})
+export type AnswerShareProvenance = z.infer<typeof AnswerShareProvenance>
 export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
   z.object({ status: z.literal('sent'), message: RoomMessage, cut: z.boolean() }),
-  /** nothing sent: `people` members of the room (not me) could not open something the answer used; `places` names what
-   * I may open myself, `otherPlaces`: more that I cannot (never named) */
-  z.object({ status: z.literal('confirm'), people: z.number().int().positive(), places: z.array(AnswerSharePlace), otherPlaces: z.boolean() }),
+  /** nothing sent. `files`: every file the answer links to (a row each); `provenance`: content from material some members
+   * cannot see (null: none); `confirmKey`: send it with the same request to go ahead. Older clients read `people` (the
+   * members, not me, who cannot open a linked file or see some of that material), `places` and `otherPlaces` */
+  z.object({
+    status: z.literal('confirm'), people: z.number().int().positive(), places: z.array(AnswerSharePlace), otherPlaces: z.boolean(),
+    files: z.array(AnswerShareFile).max(ANSWER_SHARE_FILES_MAX),
+    provenance: AnswerShareProvenance.nullable(),
+    confirmKey: z.string(),
+    /** asked again after a confirmKey: `changed`, something changed meanwhile (the app says so); `choice`, the same state,
+     * but the files I chose to attach change the provenance line (shown for that choice) */
+    reason: z.enum(['changed', 'choice']).optional(),
+  }),
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
 
@@ -239,7 +284,7 @@ export const CHATS = {
   listMessages: endpoint({ method: 'GET', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', query: ListMessagesQuery, response: MessagesPage, summary: 'Active branch of the conversation, paged backwards.' }),
   sendMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', status: 202, body: SendMessageBody, response: TurnStarted, summary: 'Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat.' }),
-  shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote). When some members could not open what the answer used, it first answers "confirm" with how many and which places (never who); sent again with confirm = that number it posts. Rate-limited and notified like any message; audited.' }),
+  shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited.' }),
   messageSources: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files the AI read or saw passages of for this answer, each checked against the viewer\'s access now (no name or path for the others).' }),
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),

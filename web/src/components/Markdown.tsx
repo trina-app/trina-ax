@@ -5,7 +5,7 @@ import 'katex/dist/katex.min.css'
 import clsx from 'clsx'
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 import { fromHtml } from 'hast-util-from-html'
-import { Check, ChevronRight, Copy, Download, FileText, ImageOff, ExternalLink } from 'lucide-react'
+import { Check, ChevronRight, Copy, Download, FileText, ImageOff, ExternalLink, Lock } from 'lucide-react'
 import { createContext, memo, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link } from 'react-router-dom'
@@ -20,6 +20,7 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { openTeamFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
+import { toast } from '../store/ui'
 import { useCopy, useEdgeFade } from './ui'
 import { Tooltip } from './Tooltip'
 
@@ -232,8 +233,9 @@ const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]
 
 // ---------------- links and images ----------------
 /** Team files this viewer may open, where the text is shown to people with different access (an AI answer in a team
- * chat room: RoomMessage.openable). Inside it, a link or picture of any other team file is plain text: no chip to
- * click, no picture loaded. Absent (null), as in the person's own chats, every team link is a chip. */
+ * chat room: RoomMessage.openable). Inside it, a link or picture of any other team file is its name with a lock
+ * (LockedFile): no chip to open, no picture loaded. Absent (null), as in the person's own chats, every team link is a
+ * chip. */
 const OpenableFiles = createContext<ReadonlySet<string> | null>(null)
 const openableOk = (set: ReadonlySet<string> | null, path: string) => !set || set.has(path.replace(/^\/+|\/+$/g, ''))
 
@@ -242,7 +244,7 @@ const openableOk = (set: ReadonlySet<string> | null, path: string) => !set || se
  *  download button there). No frame, divider or button of its own: it reads like a word and wraps like one. */
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
-  if (!openableOk(useContext(OpenableFiles), path)) return <span data-testid="team-file-text">{children}</span>
+  if (!openableOk(useContext(OpenableFiles), path)) return <LockedFile>{children}</LockedFile>
   const canPreview = previewKind(path) !== null
   return (
     <button
@@ -258,12 +260,34 @@ function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; ch
   )
 }
 
+/** A team file this viewer may not open (a room message's link or picture): its name after a lock, where a link would be.
+ * Hover or keyboard focus says why ("권한이 없어 열 수 없어요"); a tap or click says it too (a toast: touch has no
+ * tooltip). Nothing of the file is loaded and nothing says whether it exists. */
+function LockedFile({ children }: { children: ReactNode }) {
+  const t = useT()
+  const why = t('rooms.fileNoAccess')
+  return (
+    <Tooltip label={why} description>
+      <button
+        type="button"
+        onClick={() => toast({ level: 'info', text: why })}
+        className="not-prose inline cursor-default rounded-sm text-left text-muted [overflow-wrap:anywhere]"
+        data-testid="team-file-text"
+      >
+        <Lock className="mr-0.5 inline-block size-[0.9em] shrink-0 align-[-0.1em]" aria-hidden data-testid="team-file-lock" />
+        {children}
+        <span className="sr-only"> ({why})</span>
+      </button>
+    </Tooltip>
+  )
+}
+
 /** An image on the team server (answers, shared browser screenshots). A click opens the preview panel. */
 export function TeamImage({ path, alt, className }: { path: string; alt?: string; className?: string }) {
   const t = useT()
   const [failed, setFailed] = useState(false)
   const openable = useContext(OpenableFiles)
-  if (!openableOk(openable, path)) return <span className="text-faint" data-testid="team-file-text">[{alt || baseName(path) || t('md.image')}]</span>
+  if (!openableOk(openable, path)) return <LockedFile>{alt || baseName(path) || t('md.image')}</LockedFile>
   if (!isDisplayableImagePath(path) || failed)
     return (
       <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path)}>

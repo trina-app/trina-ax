@@ -7,13 +7,17 @@
 // "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason;
 // at the time limit a step still running ends paused), "multi" with "ask" (a question with several answers),
 // "sub-agent" (a sub-task step with its sub-agent's steps under it, Step.parentId), "stop-cut" (a step still running
-// when the person presses Stop ends stopped, Step.stopped);
+// when the person presses Stop ends stopped, Step.stopped), "wrong-guess" (a read of a file name that does not exist
+// fails, then the AI finds and reads the right file), "save-fails" (the AI's last step, a save, fails);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image; "long list"
 // gets a list of 400 lines, more than one room message holds (comes in big pieces).
-// "대화방에 보내기" (shareAnswerToRoom): to a room of POST /__test/rooms; an answer with recorded sources ("sources")
-// first answers "confirm" (the room's other members, the folders of those files, more that nobody may open) until sent
-// with confirm: that many people or more. The rooms answer their own reads (the room, its messages, members, AI, read)
-// from what was sent.
+// "대화방에 보내기" (shareAnswerToRoom): to a room of POST /__test/rooms; like server/src/chat/answer-share.ts, short: a row
+// per linked file (one in a person's own folder or finance/ nobody else in the room opens; one I cannot open is only
+// counted) and, for an answer with recorded sources ("sources"), the provenance line (the room's other members, the
+// folders of those files I may open, more that I cannot), with a confirmKey; sent with that key (POST
+// /__test/share-changed makes the next one stale: asked again) or an older client's confirm = that many people, the linked
+// files asked for go as room files. "share files" answers with a quote in my folder, a shared file and one nobody opens.
+// The rooms answer their own reads (the room, its messages, members, AI, read) from what was sent.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
 // boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
@@ -49,7 +53,7 @@ import type { KnowledgeGraphStatus, LocalSpeechTool, SourceLoc } from '@mycel/sh
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerShareBody, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
@@ -61,7 +65,7 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, isAppIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
@@ -232,6 +236,8 @@ export class MockServer {
   roomMessages = new Map<string, RoomMessage[]>()
   /** a shared answer's clientMessageId → its room message (the same id sent again gets it back) */
   sharedByClientId = new Map<string, RoomMessage>()
+  /** POST /__test/share-changed: a "confirm" key given before this is stale (something changed meanwhile) */
+  shareEpoch = 0
   messages: Message[] = []
   artifacts: Artifact[] = []
   /** intro decks built in round 2 (newest last) and the time per build step (POST /__test/deck-pace) */
@@ -410,6 +416,7 @@ export class MockServer {
     this.rooms = []
     this.roomMessages = new Map()
     this.sharedByClientId = new Map()
+    this.shareEpoch = 0
     this.sources.clear()
     this.messages = []
     this.artifacts = []
@@ -858,7 +865,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, ...(this.teamIcon && isAppIcon(this.teamIcon) ? { appIcon: true as const } : {}), voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -1030,6 +1037,28 @@ export class MockServer {
       const s2 = step({ id: 's2', kind: 'web_search', tool: 'WebSearch', label: 'Web search "team ax"', status: 'ok', endedAt: now(), sources: [{ title: 'Example result', url: 'https://example.com/a' }, { title: 'Poisoned result', url: 'javascript:top.document.title="pwned-search"' }] })
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
+    }
+    if (/wrong-guess/i.test(prompt)) {
+      // the AI guesses a file name that does not exist, then finds the right file: a failed step it got past
+      // (docs/DECISIONS.md "A failed step the AI got past is not red")
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const guess = step({ id: 'g1', kind: 'tool', tool: 'read', label: '파일 읽기 · shared/company/acme-profile.md' })
+      put(guess)
+      await sleep(slow ? 600 : 60)
+      put({ ...guess, status: 'error', endedAt: now() })
+      const found = step({ id: 'g2', kind: 'tool', tool: 'glob', label: '파일 찾기 "*profile*" · shared/company/' })
+      put(found)
+      await sleep(slow ? 600 : 60)
+      put({ ...found, status: 'ok', endedAt: now() })
+      put(step({ id: 'g3', kind: 'tool', tool: 'read', label: '파일 읽기 · shared/company/acme-company-profile.md', status: 'ok', endedAt: now() }))
+    }
+    if (/save-fails/i.test(prompt)) {
+      // the last thing the AI does, a save, fails and nothing after it works: a failure nobody got past (red)
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const save = step({ id: 'f1', kind: 'tool', tool: 'write', label: '파일 저장 · shared/company/summary.md' })
+      put(save)
+      await sleep(60)
+      put({ ...save, status: 'error', endedAt: now() })
     }
     if (/devqueue/i.test(prompt)) await this.devQueueTurn(chatId, user, prompt, assistant, pub, step)
     if (/sub-agent/i.test(prompt)) {
@@ -1274,6 +1303,8 @@ export class MockServer {
         ? 'Sorting the applications into the table.\n\n- Read 20 of 40 so far\n- Scored each one against the job description\n- Saved the first half to the shared sheet\n\nThe rest are still in the folder; this answer stopped before reaching them.'
       : /long list/i.test(prompt)
         ? `캠페인 아이디어를 모았어요.\n\n${Array.from({ length: 400 }, (_, i) => `- 아이디어 ${i + 1}: 지역 매장과 함께하는 주말 이벤트, 참가 고객에게 다음 구매 할인 쿠폰`).join('\n')}\n`
+      : /share files/i.test(prompt)
+        ? `견적서를 만들었어요: [acme-quote.md](/files/view?path=${encodeURIComponent(`users/${user.id}/quotes/acme-quote.md`)}). 용어는 [glossary.md](/files/view?path=shared%2Fglossary.md)에, 원가는 [payroll.csv](/files/view?path=secret%2Fpayroll.csv)에 있어요.`
       : /sources/i.test(prompt)
         ? '매출은 [report.pdf · p.4](/files/view?path=docs%2Fsources%2Freport.pdf&page=4)에 있어요. 채널별 금액은 [budget.xlsx · 시트 \'매출\' A40:C44](/files/view?path=docs%2Fsources%2Fbudget.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A40:C44)을 보면 돼요.'
       : /^\/intro-deck\b/.test(prompt)
@@ -1325,7 +1356,11 @@ export class MockServer {
       this.sources.set(assistant.id, list)
       assistant.sourceCount = list.length
     }
-    if (/files/i.test(prompt)) {
+    if (/share files/i.test(prompt)) {
+      this.putFile(`users/${user.id}/quotes/acme-quote.md`, '# Acme 견적서\n단가 12,000원\n')
+      this.putFile('shared/glossary.md', '# Glossary\n')
+    }
+    if (/files/i.test(prompt) && !/share files/i.test(prompt)) {
       this.putFile('marketing/report.md', '# Report\n')
       assistant.files = { saved: [{ path: 'marketing/report.md', action: 'create' }], conflicts: [{ path: 'marketing/plan.md', copyPath: 'marketing/plan (충돌 사본 - AI).md' }], rejected: [{ path: 'finance/2026/q3.csv', reason: 'read only' }] }
       pub({ type: 'files.changed', data: { changes: [{ path: 'marketing/report.md', action: 'create', by: null, turnId }] } })
@@ -1531,8 +1566,8 @@ export class MockServer {
       }
       return { files, unavailable }
     },
-    // "대화방에 보내기": like server/src/chat/answer-share.ts, short. An answer with recorded sources asks first: the room's
-    // other members, the folders of the sources the person may open, and that there is more nobody is named for
+    // "대화방에 보내기": like server/src/chat/answer-share.ts, short. A row per linked file; an answer with recorded
+    // sources has the provenance line (the room's other members, the folders of the sources I may open, more I cannot)
     shareAnswerToRoom: (c) => {
       const m = this.messages.find((x) => x.id === c.params.messageId && x.chatId === c.params.id && x.role === 'assistant') ?? fail('not_found', 404)
       const room = this.rooms.find((r) => r.id === c.body.roomId) ?? fail('not_found', 404)
@@ -1540,27 +1575,40 @@ export class MockServer {
       const list = this.roomMessages.get(room.id) ?? []
       const again = this.sharedByClientId.get(c.body.clientMessageId)
       if (again) return { status: 'sent', message: again, cut: !!again.sharedAnswer?.cut }
-      const used = this.sources.get(m.id) ?? []
-      // confirm: how many people the person said yes to; more than that now asks again
-      const people = Math.max(1, room.memberCount - 1)
-      if (used.length && !((c.body.confirm ?? 0) >= people)) {
-        const mine = used.filter((f) => this.access(f.path, c.user) !== 'none')
-        const folders = [...new Set(mine.map((f) => f.path.split('/').slice(0, -1).join('/')))]
-        return { status: 'confirm', people, places: folders.map((path) => ({ kind: 'folder', path })), otherPlaces: mine.length < used.length }
-      }
       const { body, at, cut } = answerShareBody(c.body.note, m.content, '…(이하 생략) 전체는 내 트리나 기록에서')
+      const others = Math.max(1, room.memberCount - 1)
+      // a person's own folder and finance/ are closed to the room's other members; anything else here they open
+      const rows: AnswerShareFile[] = answerFilePaths(body.slice(at), 100).map((p) => {
+        const f = this.files.get(p)
+        if (f?.type !== 'file' || this.access(p, c.user) === 'none') return { name: '', missing: true, attach: 'hidden', unable: others }
+        const unable = p.startsWith('users/') || p.startsWith('finance/') ? others : 0
+        return { name: p.slice(p.lastIndexOf('/') + 1), path: p, missing: false, attach: !unable ? 'no' : f.data!.byteLength > SMALL_UPLOAD_MAX ? 'too_big' : 'yes', unable }
+      })
+      const used = this.sources.get(m.id) ?? []
+      const mine = used.filter((f) => this.access(f.path, c.user) !== 'none')
+      const folders = [...new Set(mine.map((f) => f.path.split('/').slice(0, -1).join('/')))]
+      const provenance = used.length ? { people: others, places: folders.map((path) => ({ kind: 'folder' as const, path })), otherPlaces: mine.length < used.length } : null
+      const confirmKey = `mock-${room.id}-${this.shareEpoch}`
+      const may = new Set(rows.filter((r) => r.attach === 'yes').map((r) => r.path!))
+      const attach = [...new Set((c.body.attach ?? []) as string[])]
+      if (rows.some((r) => r.unable > 0) || provenance) {
+        const yes = c.body.confirmKey === confirmKey || (c.body.confirmKey === undefined && (c.body.confirm ?? 0) >= others)
+        if (!yes) return { status: 'confirm', people: others, places: provenance?.places ?? [], otherPlaces: !!provenance?.otherPlaces || rows.some((r) => r.missing), files: rows, provenance, confirmKey, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
+        if (attach.length > ROOM_FILES_MAX || attach.some((p) => !may.has(p))) fail('validation', 400)
+      }
       // the team files it links to that I may open (a viewer's own check, like an AI answer in a room)
       const linked = [...body.matchAll(/[?&]path=([^&)\s#]+)/g)].map((x) => decodeURIComponent(x[1]!))
       const openable = [...new Set(linked)].filter((p) => this.files.get(p)?.type === 'file' && this.access(p, c.user) !== 'none')
+      const files: RoomFile[] = (may.size ? attach : []).map((p) => ({ id: uuidv7(), name: p.slice(p.lastIndexOf('/') + 1), size: this.files.get(p)!.data!.byteLength, mime: mimeOf(p) ?? 'application/octet-stream', kind: 'text', thumb: false }))
       const seq = Math.max(room.lastSeq, 0, ...list.map((x) => x.seq)) + 1
       const message = RoomMessage.parse({
         id: uuidv7(), roomId: room.id, seq, authorKind: 'user', author: { id: c.user.id, name: c.user.name }, askedBy: null, visibility: 'room', body, replyTo: null,
-        mentions: [], files: [], createdAt: now(), editedAt: null, deletedAt: null, sharedAnswer: { at, cut }, openable,
+        mentions: [], files, createdAt: now(), editedAt: null, deletedAt: null, sharedAnswer: { at, cut }, openable,
       })
       list.push(message)
       this.roomMessages.set(room.id, list)
       this.sharedByClientId.set(c.body.clientMessageId, message)
-      Object.assign(room, { lastSeq: seq, lastReadSeq: seq, activityAt: message.createdAt, lastMessage: { id: message.id, seq, author: message.author, excerpt: body.slice(0, 120), fileCount: 0, deleted: false, createdAt: message.createdAt } })
+      Object.assign(room, { lastSeq: seq, lastReadSeq: seq, activityAt: message.createdAt, lastMessage: { id: message.id, seq, author: message.author, excerpt: body.slice(0, 120), fileCount: files.length, deleted: false, createdAt: message.createdAt } })
       this.publish({ type: 'room.message', data: { roomId: room.id, message } })
       return { status: 'sent', message, cut }
     },
@@ -3702,6 +3750,10 @@ export class MockServer {
       // me); each one is sent like the server's room.updated
       this.rooms = (body.rooms as unknown[]).map((r) => Room.parse(r))
       for (const r of this.rooms) this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
+    }
+    else if (p === '/__test/share-changed') {
+      // something changed since the last "confirm" (someone joined, lost access): its key is stale
+      this.shareEpoch++
     }
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
