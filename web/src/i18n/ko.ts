@@ -474,6 +474,13 @@ export const ko = {
   'files.addedSome': '{n}개를 추가했고 {failed}개는 추가하지 못했어요.',
 
   'voice.start': '음성으로 입력',
+  'voice.startHold': '음성 입력 (Space 길게)',
+  'voice.holdSpace': 'Space를 떼면 끝나요 · Esc 취소',
+  'voice.holdTouch': '손을 떼면 끝나요 · 밀어서 취소',
+  'voice.tryHold': '다음엔 입력창에서 Space를 길게 눌러 보세요',
+  'voice.left': '{time} 남음',
+  'voice.liveTranscribing': '텍스트로 바꾸는 중',
+  'voice.liveInserted': '텍스트를 넣었어요',
   'voice.cancel': '녹음 취소',
   'voice.done': '녹음 끝내기',
   'voice.recording': '녹음 중',
@@ -485,6 +492,7 @@ export const ko = {
   'voice.empty': '알아들은 말이 없어요. 다시 녹음해 주세요.',
   'voice.offAdmin': "음성 입력이 꺼져 있어요. 관리 › 팀 설정에서 켤 수 있어요.",
   'voice.confidential': "기밀 대화에서는 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않아서 음성 입력을 쓸 수 없어요. 글로 입력해 주세요.",
+  'voice.confidentialRoom': "모든 대화가 기밀로 다뤄지는 동안에는 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않아서 대화방에서 음성 입력을 쓸 수 없어요. 글로 입력해 주세요.",
 
   'steps.label': '작업 단계',
   'steps.summary': '작업 {n}단계',

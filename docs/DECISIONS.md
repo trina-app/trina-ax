@@ -12002,3 +12002,60 @@ subscription was refused (`validation`) and the web ask left Edge out.
 - **Web.** The ask line shows in Edge like in any browser (`isEdge` is gone). The `browserService` reason stays for a
   push service the server still does not take, and names Edge among the browsers to use.
 
+## Voice input in rooms, and hold Space to talk (feat/voice-rooms-hold-space, 2026-11-07, product owner)
+
+- **Where.** The mic is in Ask Trina (as before), a room's box and a thread's box (ThreadPanel uses RoomComposer), under
+  the same team switch (Admin › Team settings › Voice input; `micState`). The words go into the box as text, appended as
+  before, and are never sent by themselves; rooms get text, not voice messages. No new setting.
+- **One piece for both boxes.** `web/src/lib/voiceInput.ts` is the state machine without React or the page (idle →
+  waiting → starting → recording (hold | toggle | press) → transcribing), unit-tested on a clock of its own;
+  `web/src/lib/useVoiceInput.ts` runs it with the recorder, the upload (`kind: 'transcribe'`, with `chatId` only in an
+  AI chat) and `waitForJob`; `web/src/components/VoiceBar.tsx` has the bar, the mic, the live region and the job label.
+- **Rooms and the server.** A room's recording names no chat. The server already treats that as a new chat
+  (`confidentialDictation(null)` = `safeOpsEnabled()`, tested in `c-speech-confidential`), so rooms need no server change
+  and no migration. The box says so first: `voiceBlockedInRoom(me)` = `me.server.allChatsConfidential &&
+  me.team.voiceInputOutside` shows a note for rooms (`voice.confidentialRoom`) instead of recording.
+- **Hold Space** (computers only: `(hover: hover) and (pointer: fine)`; never on touch, where a long Space moves the
+  caret on an iPhone). Only from the box's own key handler, after its "/", "#" or "@" list (each now says `open`), while
+  the mic shows. A plain Space (no repeat, no `isComposing` or keyCode 229, no modifier, no selection) waits 400 ms. Empty
+  box: the Space is held back; box with text: the first Space types and its repeats are held back, and at 400 ms that one
+  space is taken back (as Claude Code does). Any other key, letting go, or the window losing the focus before 400 ms ends
+  the wait and a held-back Space is typed (through `execCommand('insertText')`, so the caret, undo and the mention layer
+  follow; a plain value change when the browser has none), so typing is unchanged. The space taken back may be a
+  Japanese IME's full-width one. Letting go transcribes (Space let go before an allowed microphone was even on recorded
+  nothing: no job); Esc cancels, while transcribing too (the upload and the wait are aborted and the job is
+  cancelled), when it is aimed at the page, this box or its bar and no menu or dialog is open anywhere (Esc closes
+  those; Safari and Firefox leave the focus on the page when a menu opens on a click), never at a list or another box,
+  except during a Space hold; the window losing the focus or the tab hidden while held transcribes. Keys are read on `window` (capture) because the bar replaces the box; a held
+  Space never scrolls the page. Space let go while the browser asks for the microphone (`navigator.permissions` says it
+  is not granted yet) keeps it recording until ✓; when it was already allowed, the recording ends as soon as it is on.
+- **The mic.** A click toggles, as before. On touch screens a finger on the mic records at once: let go within 400 ms (a
+  tap) and it records until ✓; held, letting go transcribes; sliding 64 px away cancels; a finger let go while the
+  browser asks keeps it recording. The mic gives way to the bar under the finger, so its pointer events are read on the
+  mic itself (WebKit keeps sending them to the removed element) and on `window`, once each, and the click the tap makes
+  is swallowed for 600 ms so it never lands on ✕ or ✓. `touch-action: none`, no callout, no context menu on the mic.
+  One recording at a time: while one box records or transcribes, the other boxes on screen (a room's and its thread's)
+  keep their mic disabled and Space a Space.
+- **Cap.** 5 minutes per recording; the time left shows in the last 30 s; at the cap what was recorded is transcribed.
+- **On screen.** The bar as before (✕, red dot, level, timer, ✓) with one short line: "Space를 떼면 끝나요 · Esc 취소" in a
+  Space hold, "손을 떼면 끝나요 · 밀어서 취소" in a finger hold, and in a clicked recording on a computer "다음엔 입력창에서
+  Space를 길게 눌러 보세요" until this browser has held Space once (`localStorage` `mycel.voice.holdUsed`). The mic's
+  name on computers is "음성 입력 (Space 길게)". While transcribing the mic has a spinner and the box is `readOnly` with
+  `aria-busy` (not disabled: the focus stays in it). No toast, coach mark or placeholder change for teaching it.
+- **The job's own label.** While the job runs, its `job.progress` message and percentage show (an empty box as its
+  placeholder, a box with text in a line over it), e.g. "음성 인식 모델 내려받는 중 (488 MB, 처음 한 번만) · 23%" on a
+  server that downloads its whisper model for the first recording; without one, "받아쓰는 중…" as before.
+- **Accessibility.** A polite live region (always in the page) says 녹음 중, 텍스트로 바꾸는 중 and 텍스트를 넣었어요;
+  errors stay in the `role="alert"` line under the box, which a screen reader reads at once. The bar is a labelled group
+  (its old `role="status"` on a div read the timer and had its label on the div). A recording that ends with ✓ puts the
+  focus on ✓ (a keyboard start has somewhere to go). The focus goes back to the box after a recording (to where the
+  caret was after a cancel), except after a finger's cancel on a phone (no keyboard popping up), and never away from
+  another field the person went on typing in while the words were on their way. While recording the mic is only
+  `aria-disabled` (a tablet keeps it in sight under the finger, which must keep its events).
+  Ping and level movement only with `motion-safe:`.
+- Tests: `web/test/unit/voice.test.ts` (the room block; the hold: 400 ms, repeats, IME 229 and composing, modifiers, an
+  open list, a selection, empty against non-empty box, letting go early, another key, Esc while recording and
+  transcribing, the window losing the focus, the 5-minute cap, the permission question, a refused place; the finger:
+  tap, hold, slide, the question; the job label), `web/test/e2e/voice.spec.ts` (hold Space in Ask Trina and in a room and
+  a thread, a short tap and fast typing, Shift+Space, Esc, the job label, a click in a room with the hint, the room's
+  confidential note, a finger on a phone through Chromium's touch events).

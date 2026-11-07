@@ -475,6 +475,13 @@ export const id: Record<MessageKey, string> = {
   'files.addedSome': '{n} ditambahkan; {failed} tidak bisa ditambahkan.',
 
   'voice.start': 'Input suara',
+  'voice.startHold': 'Input suara (tahan Spasi)',
+  'voice.holdSpace': 'Lepas Spasi untuk selesai · Esc untuk batal',
+  'voice.holdTouch': 'Angkat jari untuk selesai · Geser untuk batal',
+  'voice.tryHold': 'Lain kali, tahan Spasi di kotak pesan',
+  'voice.left': 'sisa {time}',
+  'voice.liveTranscribing': 'Mengubah ke teks',
+  'voice.liveInserted': 'Teks ditambahkan',
   'voice.cancel': 'Batalkan rekaman',
   'voice.done': 'Selesai merekam',
   'voice.recording': 'Merekam',
@@ -486,6 +493,7 @@ export const id: Record<MessageKey, string> = {
   'voice.empty': 'Tidak ada suara yang dikenali. Coba rekam lagi.',
   'voice.offAdmin': "Input suara nonaktif. Aktifkan di Admin › Pengaturan tim.",
   'voice.confidential': "Input suara tidak tersedia di percakapan rahasia: rekaman tidak dikirim ke layanan suara luar (OpenRouter). Silakan ketik saja.",
+  'voice.confidentialRoom': "Input suara tidak tersedia di ruang obrolan selama semua percakapan dirahasiakan: rekaman tidak dikirim ke layanan suara luar (OpenRouter). Silakan ketik saja.",
 
   'steps.label': 'Langkah kerja',
   'steps.summary': '{n} langkah',

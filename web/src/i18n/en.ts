@@ -475,6 +475,13 @@ export const en: Record<MessageKey, string> = {
   'files.addedSome': '{n} added; {failed} could not be added.',
 
   'voice.start': 'Voice input',
+  'voice.startHold': 'Voice input (hold Space)',
+  'voice.holdSpace': 'Release Space to finish · Esc to cancel',
+  'voice.holdTouch': 'Lift to finish · Slide away to cancel',
+  'voice.tryHold': 'Next time, hold Space in the message box',
+  'voice.left': '{time} left',
+  'voice.liveTranscribing': 'Converting to text',
+  'voice.liveInserted': 'Text added',
   'voice.cancel': 'Cancel recording',
   'voice.done': 'Finish recording',
   'voice.recording': 'Recording',
@@ -486,6 +493,7 @@ export const en: Record<MessageKey, string> = {
   'voice.empty': "Nothing was recognized. Please record again.",
   'voice.offAdmin': "Voice input is off. Turn it on in Admin › Team settings.",
   'voice.confidential': "Voice input isn't available in confidential chats: recordings aren't sent to the outside speech service (OpenRouter). Please type instead.",
+  'voice.confidentialRoom': "Voice input isn't available in rooms while every chat is confidential: recordings aren't sent to the outside speech service (OpenRouter). Please type instead.",
 
   'steps.label': 'Steps',
   'steps.summary': '{n, plural, one {# step} other {# steps}}',

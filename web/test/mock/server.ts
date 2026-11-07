@@ -22,7 +22,9 @@
 // for "Turn video sound into text", until the next reset), POST /__test/skill-list {…SkillsOverview.aiList} (the Team
 // skills page's "how many skills the AI sees" counts, until the next reset), POST /__test/speech {provider, key?: boolean}
 // (the team's speech provider and whether an OpenRouter key is set), GET-or-POST /__test/transcribe-chats (the chat id
-// each voice input named, null for a new chat; a confidential chat's recording with OpenRouter is refused, 403).
+// each voice input named, null for a new chat; a confidential chat's recording with OpenRouter is refused, 403), POST
+// /__test/transcribe-progress {message, progress, ms} (the next transcription jobs say that label first, as a server that
+// downloads its speech model does, and end after `ms`; until the next reset).
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
@@ -253,6 +255,8 @@ export class MockServer {
   speechKey: { set: boolean; hint: string | null; updatedAt: string | null } = { set: false, hint: null, updatedAt: null }
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
+  /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
+  transcribeProgress: { message: string; progress: number | null; ms: number } | null = null
   /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet */
   speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null }
   /** every request the client made (method + path), for assertions */
@@ -427,6 +431,7 @@ export class MockServer {
     this.kg = mockKnowledgeGraph(true)
     this.speechKey = { set: false, hint: null, updatedAt: null }
     this.transcribeChats = []
+    this.transcribeProgress = null
     this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
@@ -3352,10 +3357,12 @@ export class MockServer {
     const id = uuidv7()
     const job: Job = { id, kind: 'transcribe', status: 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
     this.jobs.set(id, job)
+    const slow = this.transcribeProgress
+    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), 50)
     setTimeout(() => {
       Object.assign(job, { status: 'done', progress: 1, result: { text: '받아쓴 문장입니다', language: 'ko', durationSec: 2 }, finishedAt: now() })
       this.publish({ type: 'job.done', data: { job } })
-    }, 150)
+    }, slow?.ms ?? 150)
     void user
     return id
   }
@@ -3482,6 +3489,7 @@ export class MockServer {
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
+    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000) }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)
