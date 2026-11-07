@@ -19,7 +19,7 @@ export interface TurnToolSet {
   call(name: string, args: unknown, caller?: ToolCaller): Promise<{ content: McpContent[]; isError?: boolean; summary: string }>
   /** after a file tool call (the runtime publishes files.changed); a text returned is a note from the server that
    * goes after the tool's result (chat/file-placement.ts) */
-  afterFileTool?(name: string, isError: boolean, args: unknown, caller?: ToolCaller): string | void
+  afterFileTool?(name: string, isError: boolean, args: unknown): string | void
   /** before a file tool call: a refusal text stops it (the person declined a confirmation card); with a summary, that
    * is the audit line (default: the wider-audience refusal) */
   beforeFileTool?(name: string, args: unknown, caller?: ToolCaller): Promise<string | { refusal: string; summary: string } | null>

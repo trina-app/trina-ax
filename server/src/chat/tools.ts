@@ -230,18 +230,18 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       }
       exec.afterTool()
       // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
-      const note = exec.placementNote(files)
+      const note = exec.placementNote(tools.has('move_files'))
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
       // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
       return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary }
     },
-    afterFileTool: (name, isError, args, caller) => {
+    afterFileTool: (name, isError, args) => {
       exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
-      return exec.placementNote(caller?.files ?? exec.files)
+      return exec.placementNote(tools.has('move_files'))
     },
     // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

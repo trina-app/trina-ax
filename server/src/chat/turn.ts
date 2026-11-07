@@ -1687,7 +1687,7 @@ export class TurnExec {
         const d = parseJson(r.detail)
         const folderOf = (p: string) => p.split('/').slice(0, -1).join('/')
         const renamed = typeof d.movedFrom === 'string' && folderOf(d.movedFrom) === folderOf(r.path)
-        if (!d.folder && !d.conflictCopyOf && !renamed) this.loosePlaced.push(r.path)
+        if (!d.folder && !d.conflictCopyOf && !d.conflictOf && !renamed) this.loosePlaced.push(r.path)
       }
     }
     if (changes.length) this.rt.publishFileChanges(changes)
@@ -1695,16 +1695,18 @@ export class TurnExec {
 
   /**
    * After a tool call (chat/tools.ts): the server's note for the AI about new files the turn left loose at the top of
-   * shared/, a group's folder or the team root (file-placement.ts), or ''. Only the main AI's calls carry it (a
-   * sub-agent saves where its task says; the note waits for the main AI's next call), and a template run gets none (its
-   * approved scope says where files go). Names only folders the person may list; in a room session only those
+   * shared/, a group's folder or the team root (file-placement.ts), or ''. Tool calls of a turn come one at a time (one
+   * MCP connection, mcp/socket.ts), so the files are the call's own and the note goes to the agent that made it (a
+   * sub-agent too). None without move_files (a confidential chat cannot move a file: the note would only make a second
+   * copy), none in a template run (its approved scope says where files go), none for the chat's project folder itself
+   * (the project section says to save there). Names only folders the person may list; in a room session only those
    * everyone in the room may read.
    */
-  placementNote(files: TurnFiles): string {
-    if (!this.loosePlaced.length || files.agent !== null) return ''
-    const paths = this.loosePlaced
+  placementNote(canMove: boolean): string {
+    if (!this.loosePlaced.length) return ''
+    const paths = this.loosePlaced.filter((p) => looseArea(p) !== this.projectFolder)
     this.loosePlaced = []
-    if (this.templateScope) return ''
+    if (!paths.length || !canMove || this.templateScope) return ''
     try { return placementNote(this.rt.files, this.livePrincipal(), paths, this.roomReadable) } catch { return '' }
   }
 

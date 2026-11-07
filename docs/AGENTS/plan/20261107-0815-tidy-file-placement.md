@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 08:15
 - Branch: `feat/tidy-file-placement`
-- Status: in progress
+- Status: done
 - Where: this repo, `server/src/chat` (the instructions and the chat turn's tool results) and `server/src/mcp/protocol.ts`.
   Why: the in-app AI ("Ask Trina" chats and @트리나 in rooms) is core chat behaviour (see docs/REPOSITORY-RULES.md).
 - Version impact: minor. The AI visibly places files differently (a fitting subfolder instead of the top of `shared/`);
@@ -32,7 +32,7 @@ In:
 Out:
 
 - The remote MCP connector (`server/src/connectors/remote-mcp/**`): another change is working there.
-- Sub-agents' instructions (they save where their task says); the note waits for the main AI's next call.
+- The full rule for sub-agents (they save where their task says); they get one line about the note.
 - A UI line on the saved-files card, a new setting.
 
 ## Steps
@@ -59,4 +59,16 @@ their names, a new unit test for the rule and the note. A real-engine check with
 
 ## Result
 
-Filled in at the end.
+Built as planned, with these differences (the independent review and the real-engine check):
+
+- The note goes to the agent whose call saved the file (a turn's calls come one at a time), a sub-agent too, with one
+  line in the sub-agents' instructions; first it waited for the main AI's next call, which may never come.
+- A turn without move_files (a confidential chat) gets the rule without the moving parts and no note: it could only
+  make a second copy. The chat's project folder itself gets no note.
+- move_files cannot move into a folder that does not exist yet, and the AI has no mkdir: the rule says to write a short
+  README.md into a new folder first. Making move_files create folders was left out (a permission change).
+- The rule says the server's note is part of the instructions and only ever about a file just saved.
+- Real engines with test data: dev before this change copied the quote to the top of `shared/`; with it, Claude Code
+  made `shared/Sales/Quotes/` and moved the quote there, Codex moved it into `shared/Sales/Past_Proposals/`.
+
+PR: see the pull request that links this plan.

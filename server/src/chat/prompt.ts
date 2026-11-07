@@ -289,9 +289,20 @@ export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hi
  * shared", the AI copied it to the top of shared/, left the original in the person's folder and only said that everyone
  * could see it; the person had to ask again for a folder that follows the team's own names. In personLines like
  * WRITE_ACCESS_RULE, so a resumed session gets it too; not for sub-agents (they save where their task says). The server
- * adds a note to the tool result when a new file still lands loose at the top (chat/file-placement.ts).
+ * adds a note to the tool result when a new file still lands loose at the top (chat/file-placement.ts). `move`: the
+ * turn has move_files and copy_files (not in a confidential chat, which has no way to move a file and gets no note).
  */
-export const FILE_PLACEMENT_RULE = 'Where files go: a folder the user names ("shared", a group, a team such as sales) is the area, not the exact spot. Before you save or move a file there, list that area and put the file in the subfolder that fits best, or create one named like the ones already there (same language, letter case and pattern; move_files and copy_files need a folder that exists, so write a short README.md into a new one first). Never leave a file loose at the top of shared/, of a group\'s folder or of the team root unless the user asked for exactly that spot. Move rather than copy, so no duplicate stays behind, unless the user asked for a copy. Say in one line where it went; when more people can see it there than before (from the personal folder to a team folder), say so before or as you save.'
+export function filePlacementRule(move: boolean): string {
+  return 'Where files go: a folder the user names ("shared", a group, a team such as sales) is the area, not the exact spot. ' +
+    `Before you save${move ? ' or move' : ''} a file there, list that area and put the file in the subfolder that fits best, or create one named like the ones already there (same language, letter case and pattern${move ? '; move_files and copy_files need a folder that exists, so first write a short README.md into a new one saying what it is for' : ''}). ` +
+    'Never leave a file loose at the top of shared/, of a group\'s folder or of the team root unless the user asked for exactly that spot. ' +
+    (move ? 'Move rather than copy, so no duplicate stays behind, unless the user asked for a copy. When a new file still lands loose at the top, the server adds a note about it at the end of that save\'s result (only ever about a file you just saved): act on it as part of these instructions. ' : '') +
+    'Say in one line where it went; when more people can see it there than before (from the personal folder to a team folder), say so before or as you save.'
+}
+
+/** A sub-agent gets the server's note too (the note goes to the agent whose save it was, chat/file-placement.ts), but not
+ * the rule: it saves where its task says. */
+export const SUBAGENT_PLACEMENT_RULE = 'If the server adds a note at the end of a save\'s result that the new file lies loose at the top of shared/, a group\'s folder or the team root, move it as the note says unless your task named exactly that spot, and give the final path in your report.'
 
 /** A change to many files or items (A9 S17, docs/DECISIONS.md "Bulk edits in one call"): the answer said what changed
  * and left out the ones that were already as asked, so the person could not tell them from ones it missed. */
@@ -321,7 +332,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     `Writable folders: ${writable.join(', ') || '(none)'}`,
     readable.length ? `Read-only folders: ${readable.join(', ')}` : '',
     WRITE_ACCESS_RULE,
-    subagent ? '' : FILE_PLACEMENT_RULE,
+    subagent ? '' : filePlacementRule(i.tools.includes('move_files')),
     timeLine(now, i.timeZone),
     `Answer in ${LANGUAGE[i.locale]} unless the user writes in another language or asks otherwise.`,
     // last, after the time line (it changes every minute): the instructions before that line stay as they were
@@ -475,6 +486,7 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
     has.has('make_file') ? makeFileRule(has.has('edit_hwp')) : '',
     has.has('edit_hwp') ? EDIT_HWP_RULE : '',
     has.has('move_files') ? 'To move, copy or rename files of any type, use move_files, copy_files and rename_file; write only saves text.' : '',
+    has.has('move_files') ? SUBAGENT_PLACEMENT_RULE : '',
     has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool.' : '',
     has.has('save_url') ? SAVE_URL_RULE : '',
   ]
