@@ -12818,9 +12818,9 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   write (html-pdf.ts `trustedBrowser`). Its libraries are the browser group (from `ldd` on each system).
 - **Updates.** The list, its flat copy and its reader are root files of the bundle (`root/packages.json`,
   `root/packages.flat`, `root/packages.sh`), so a changed list, a new browser version included, is a root change without
-  a rule of its own (publish-server.ts `rootManaged`, `rootSince`). `mycel-ctl update` runs `packages.sh sync` last, after
-  the root files and the app (a deferred step of `run`: apt or a download never holds up the app), and the sync writes
-  `root/packages.synced` (the list's sha256 and ok, incomplete or blocked). The flat copy lets root read the list with awk
+  a rule of its own (publish-server.ts `rootManaged`, `rootSince`). After the root files and the app, `mycel-ctl update`
+  starts `packages.sh sync` and does not wait for it (below, "Out of the update command"), and the sync writes
+  `root/packages.synced` (the list's sha256, the system it ran on, and ok, incomplete or blocked). The flat copy lets root read the list with awk
   alone: no bun, no jq.
 - **Catch-up after an older mycel-ctl (review, must-fix; second review S2).** A server whose update is done by an older
   `mycel-ctl` gets the root files of a release with the list, including the new `mycel-ctl`, but that older binary never
@@ -12839,8 +12839,24 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   does it next (the timer, an administrator when automatic updates are off, the hosting service). Other ways were weighed
   and dropped: an `ExecStartPost=` in the update unit (the running job keeps its old definition), the firewall timer (wrong
   layer), or a status call that changes the system.
-- **Bounded, never in the way (review, must-fix; second review S1).** The sync runs after the app with a 20-minute deadline
-  in its own process group (`Setpgid`); at the deadline the group gets SIGTERM, which stops a download. apt does not run in
+- **Out of the update command (PR #164 review, High 2).** The control plane gives `mycel-ctl update` 1800 s, and a timeout
+  is `app_rolled_back` and counts toward a roll-out halt; a sync inside the command (20 minutes, plus the 600 s turn wait)
+  could turn a healthy update into one. So on a server with systemd the update starts `mycel-ctl packages-sync` as the
+  transient unit `<id>-packages-sync.service` (`systemd-run --no-block --collect`, the proxy variables with `--setenv`,
+  `RuntimeMaxSec` as a safety net), adds a note, and returns. The unit name keeps one sync at a time (a running one stays;
+  the next check syncs a newer list); a unit that cannot start writes an "incomplete" record. The sync never takes the
+  update lock (an update meanwhile is not "busy", code 30) and runs a private copy of `root/packages.{sh,json,flat}`, so an
+  update that replaces `root/` meanwhile does not change a script bash is reading; the record names the list the copy had,
+  and the next check syncs the new one. It reads the flat copy: the update's bundle folder is gone by then. Without
+  systemd (a container) the sync stays inside the command, capped at 10 minutes.
+- **A record per system (PR #164 review, Medium 1).** `root/packages.synced` is on the data disk, which a reimage keeps.
+  The record has `os`: `<ID>-<VERSION_ID>/<machine-id>` (packages.sh `pk_os_identity`, mycel-ctl `osIdentity` and the
+  server's `osIdentity` read the same files the same way; `customize.sh` empties the machine-id, so each clone has a new
+  one). A record of another system, or one from before the field, is pending: every server syncs once after this change.
+  A hosted install (`"hosted": true` in install.json, not `skipApt: true`) may run apt unattended: the hosting service owns
+  the machine, and hosted VMs from before the list wrote no `skipApt`.
+- **Bounded, never in the way (review, must-fix; second review S1).** The sync has a 20-minute deadline (10 inside the
+  update command) in its own process group (`Setpgid`); at the deadline the group gets SIGTERM, which stops a download. apt does not run in
   that group, nor in the update unit's cgroup: during a sync each `apt-get update` and `apt-get install` is a transient
   systemd unit of its own (`systemd-run --wait --collect`, output appended to `/var/log/trina-packages-apt.log`). systemd
   stops a unit's whole cgroup when it ends or hits `TimeoutStartSec`, so a `setsid` child (the first version) would have
@@ -12883,8 +12899,10 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   switches `current` after the server has stopped. A failure only warns: it can neither fail nor roll back an update.
 - **Docker (second review S4).** The Docker image is another install path: `docker/Dockerfile` installs the list's always
   groups and an on-request `docker` group from the kit's own list (its `packages.sh` and flat copy), and the entrypoint runs
-  the installer with `--minimal --skip-apt`, as the image carried the always groups only before. HTML to PDF in Docker
-  (the browser group and the pinned browser in the image) is left for a decision.
+  the installer with `--minimal --skip-apt`, as the image carried the always groups only before. HTML to PDF in Docker is
+  a build argument (PR #164 review, question 4): `--build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser"` adds the CJK fonts,
+  the browser group and the pinned browser in `/opt/trina/chrome-headless-shell`; the default image has none of them (a
+  smaller image, less to attack). The packages step runs in bash (`SHELL`): packages.sh is bash, and sh stopped the build.
 - **The CI check** (`tests/unit/system-packages.test.ts`, in `bun run test:unit`): the list is well formed; every
   artifact has a version, url, sha256 and size for every platform it must have; bun and jq read the same lines as the
   TS reader (jq is required in CI); packages.sh picks the same packages for every system and profile and refuses a name
@@ -12899,8 +12917,14 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   version in the list, the server and the lockfile; the list is a root file and in the office zip; the browser switch,
   the stalled download, the env file, the record and apt as a transient unit behave. The Go side:
   `native/cmd/mycel-ctl/syncsystem_test.go`.
-- Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The private
-  AMI build reads `scripts/image/*` and the staged `system/` folder. The office Mac shows no sync state in Diagnostics
+- **One list per image (PR #164 review, M3).** `build.sh` and `build-ami.sh` stage the kit's `app/<v>/root/packages.{json,sh}`
+  and stop when they are missing (a kit from before the list) or differ from the checkout's `scripts/system/`; a kitless
+  dry run takes the checkout's. `ami-chroot.sh` prints the image's free disk in the build log and warns below 5 GiB
+  (question 2).
+- Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). Two review
+  follow-ups wait for a decision: the dev environment's packages on request instead of by default (M4: it changes what a
+  plain install and the image get, which the owner and the infra engineer agreed on), and a Linux-only copy of the list in
+  the Linux bundle so a Mac-only change is no root release (question 7: it changes what `rootSince` compares). The office Mac shows no sync state in Diagnostics
   (it has no root/; the browser is there or not).
 
 ## 알림함의 대화 알림 — who, where and why in the Inbox (feat/inbox-room-notices, 2026-11-07, product owner)

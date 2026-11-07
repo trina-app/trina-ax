@@ -119,16 +119,18 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
     `/opt/trina/chrome-headless-shell/<버전>/`에 받고 `current` 링크를 건다. root 소유이고 다른 계정은 쓸 수 없다.
     `/etc/default/<id>`의 `MYCEL_HTML_PDF_BROWSER`가 이 브라우저를 가리킨다. 새 버전은 받아서(최대 8분) 확인하고 한 번
     실행해 본 뒤(`--version`) `current`를 옮긴다. 실행되지 않으면 옛 버전이 그대로 남는다. 바로 앞 버전은 다음 전환 때까지 남긴다
-    (인쇄가 아직 쓰고 있을 수 있다). 같은 기계의 다른 설치가 둔 더 새 브라우저는 그대로 둔다.
+    (인쇄가 아직 쓰고 있을 수 있다). 같은 기계의 다른 설치가 둔 더 새 브라우저는 그대로 둔다. 단 목록이 그 버전을 취소하면
+    (`"revoked"`: 잘못 고정한 버전을 되돌림) 맞춤이 고정 버전으로 되돌린다.
   - 업데이트: 목록은 모든 릴리스의 root 파일(`root/packages.json`)이라 목록이 바뀐 릴리스는 root 업데이트다. `mycel-ctl update`가
-    root 파일과 앱을 넣은 뒤 이 기계를 목록대로 맞추고(`packages.sh sync`: 빠진 패키지, 그다음 브라우저) 결과를
-    `root/packages.synced`에 적는다. `sudo mycel-ctl status`와 관리자 › 시스템 › 진단("시스템 패키지")에 보인다. 그 기록이
+    root 파일과 앱을 넣은 뒤 맞춤(`packages.sh sync`: 빠진 패키지, 그다음 브라우저)을 따로 된 systemd 유닛
+    `<id>-packages-sync.service`로 시작하고 바로 끝난다. 그래서 느린 받기가 업데이트 시간에 들어가지 않는다. 맞춤은 결과를
+    `root/packages.synced`에 적고, 돈 시스템(`/etc/os-release`와 machine-id)도 적는다. 그래서 다시 설치한 서버는 다시 맞춘다. `sudo mycel-ctl status`와 관리자 › 시스템 › 진단("시스템 패키지")에 보인다. 그 기록이
     `root/`의 목록과 다르면(예: 옛 `mycel-ctl`이 릴리스를 설치했을 때) 업데이트 타이머가 업데이트 시간에 맞춘다. *끝내지 못한*
     맞춤(받기나 apt 실패, dpkg 잠금이 5분 넘게 잡힘)은 6시간 뒤 타이머가 다시 하고, *관리자가 할 일이 있는* 맞춤(빈 공간 부족,
     사람 없이 apt를 돌리면 안 되는 서버)은 타이머가 건드리지 않고, 관리자가 직접 돌리는 `sudo mycel-ctl update`나
     `sudo ./install-linux.sh repair`가 다시 한다. 맞출 일이 남아 있어도 앱이 스스로 받는 릴리스를 타이머가 대신 받지는 않는다:
-    타이머는 내려받지 않고 옆에서 맞추기만 한다. 사람 없이 도는 맞춤은 이 설치 프로그램으로 `--skip-apt` 없이 설치한 서버에서만
-    apt를 돌린다. 목록 전에 설치한 서버에서는 빠진 것만 알리고, `repair`가 설치한다. 맞춤 중 apt는 따로 된 임시 systemd 유닛으로
+    타이머는 내려받지 않고 옆에서 맞추기만 한다. 사람 없이 도는 맞춤은 이 설치 프로그램으로 `--skip-apt` 없이 설치한 서버와
+    호스팅 서버에서만 apt를 돌린다. 목록 전에 설치한 자체 설치 서버에서는 빠진 것만 알리고, `repair`가 설치한다. 맞춤 중 apt는 따로 된 임시 systemd 유닛으로
     돈다(`systemd-run`, 기록은 `/var/log/trina-packages-apt.log`). 그래서 업데이트 작업이 멈춰도 dpkg가 중간에 끊기지 않는다.
     apt는 dpkg 잠금을 기다리고, 먼저 빈 공간을 확인하고, 브라우저 라이브러리를 따로 한 번에 설치한다. 맞춤은 앱 업데이트를
     붙잡지도 실패시키지도 않는다. 맞춤이 `MYCEL_HTML_PDF_BROWSER`를 쓰기 전에도 서버는 `/opt/trina/chrome-headless-shell/current/`의
