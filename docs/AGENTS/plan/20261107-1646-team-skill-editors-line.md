@@ -49,6 +49,8 @@ None for permissions: the change is read-only. The five app languages need the n
 
 ## Result
 
+PR: https://github.com/trina-app/trina-ax/pull/178
+
 Built as planned:
 - The line loads two things:
   - the server's answer for `skills/` (`GET /api/admin/access/tree?path=skills`, as before);
