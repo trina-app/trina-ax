@@ -209,15 +209,21 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
   }
 
   // an AI-made file that may be attached: what the turn that made it used (only when that turn is not on this branch,
-  // whose own use is counted already)
-  const makers = new Map<string, BranchUse>()
-  for (const rel of offered) {
-    const sha = await hashNow(rel)
-    if (!sha) continue
-    const ev = db.query(`SELECT e.turn_id, t.message_id, m.chat_id FROM file_events e JOIN turns t ON t.id = e.turn_id JOIN messages m ON m.id = t.message_id
-      WHERE e.path = ? AND e.sha256 = ? AND e.action IN ('create','update') ORDER BY e.id DESC LIMIT 1`).get(rel, sha) as { turn_id: string; message_id: string; chat_id: string } | null
-    if (!ev || onBranch.has(ev.message_id)) continue
-    makers.set(rel, branchUse(db, ev.chat_id, ev.message_id))
+  // whose own use is counted already); looked up once per file, for the files that go
+  const makers = new Map<string, Promise<BranchUse | null>>()
+  const makerOf = (rel: string) => {
+    let p = makers.get(rel)
+    if (!p) {
+      p = (async () => {
+        const sha = await hashNow(rel)
+        if (!sha) return null
+        const ev = db.query(`SELECT e.turn_id, t.message_id, m.chat_id FROM file_events e JOIN turns t ON t.id = e.turn_id JOIN messages m ON m.id = t.message_id
+          WHERE e.path = ? AND e.sha256 = ? AND e.action IN ('create','update') ORDER BY e.id DESC LIMIT 1`).get(rel, sha) as { turn_id: string; message_id: string; chat_id: string } | null
+        return !ev || onBranch.has(ev.message_id) ? null : branchUse(db, ev.chat_id, ev.message_id)
+      })()
+      makers.set(rel, p)
+    }
+    return p
   }
 
   /** a team folder ('' = the top), named only when I may read it now myself (a rule changed since: not) */
@@ -248,7 +254,8 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
 
   /** The provenance when `attached` (team paths) go with the message. */
   const provenance = async (attached: ReadonlySet<string>): Promise<Prov> => {
-    const uses: BranchUse[] = [use, ...[...attached].map((rel) => makers.get(rel)).filter((u): u is BranchUse => !!u)]
+    const made = await Promise.all([...attached].map(makerOf))
+    const uses: BranchUse[] = [use, ...made.filter((u): u is BranchUse => !!u)]
     const leftOut = new Set([...attached, ...rows.filter((r) => r.rel && attached.has(r.rel)).map((r) => r.link)])
     // sources and, for the file ones, whether some file of them is not covered
     const candidates: ReadSource[] = []
