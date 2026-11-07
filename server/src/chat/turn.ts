@@ -54,10 +54,10 @@ import { authorize } from '../policy/authorize'
 import { readRegular, sha256 } from '../files/store'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { audit as auditLog } from '../admin/audit'
-import { ANY_CONTENT, editedText, inSkills } from '../skills/guard'
+import { ANY_CONTENT, editedText, inSkills, skillRootOf } from '../skills/guard'
 import { lineDiff } from '../skills/diff'
 import { st } from '../skills/text'
-import { parseSkill as parseSkillHeader, skillFileKind, skillFileProblem } from './skills'
+import { groupOfFolder, parseSkill as parseSkillHeader, skillFileKind, skillFileProblem } from './skills'
 import { roomRefsForModel, roomRefsOf, type SkillWritePreview } from '@mycel/shared/api'
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
 import { budgetBlock } from '../admin/budgets'
@@ -1534,7 +1534,11 @@ export class TurnExec {
     const me = this.livePrincipal()
     let r
     try { r = authorize(fs_.fx, fs_.rules(), me, target, 'write', { createDirs: true, mustExist: tool === 'edit' }) } catch { return null }
-    if (!inSkills(r.rel)) return null
+    const root = skillRootOf(r.rel)
+    if (!root) return null
+    // a group's skills folder (docs/DECISIONS.md "Group skills"): the card names the group, by its current name (the
+    // folder's own name when no group has that folder any more)
+    const group = root.kind === 'group' ? groupOfFolder(this.rt.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } : null
     const L = this.spec.locale
     let before: string | null = ''
     let after: string | null = null
@@ -1561,11 +1565,13 @@ export class TurnExec {
     const skill = after !== null && kind === 'skill' ? parseSkillHeader(after, r.rel) : null
     const d = after === null ? null : before === null ? null : lineDiff(r.exists ? before : '', after)
     const diff = d ? d.text : after === null ? st('producedFile', L, { format: String(a.format ?? (tool === 'edit_hwp' ? (/\.hwp$/i.test(target) ? 'hwp' : 'hwpx') : '')).toUpperCase() }) : st('whatFile', L)
-    const what = skill ? st(r.exists ? 'whatSkill' : 'whatNewSkill', L, { name: skill.name }) : kind === 'rule' ? st(r.exists ? 'whatRule' : 'whatNewRule', L) : st('whatFile', L)
+    const what = group
+      ? skill ? st(r.exists ? 'whatGroupSkill' : 'whatNewGroupSkill', L, { name: skill.name }) : st('whatGroupFile', L)
+      : skill ? st(r.exists ? 'whatSkill' : 'whatNewSkill', L, { name: skill.name }) : kind === 'rule' ? st(r.exists ? 'whatRule' : 'whatNewRule', L) : st('whatFile', L)
     const problem = after !== null ? skillFileProblem(fs_.fx.root, r.rel, after) : null
     const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
     const answer = await this.waitForPerson({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: st('confirm', L, { path: r.rel, what }),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: group ? st('confirmGroup', L, { group: group.name, path: r.rel, what }) : st('confirm', L, { path: r.rel, what }),
       options: [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }], multiple: false, allowText: false, preview,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -1573,7 +1579,13 @@ export class TurnExec {
       this.files.skillApprovals.set(r.rel, approval)
       return null
     }
-    auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : 'declined' } })
+    auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : 'declined', ...(group ? { group: { id: group.id, name: group.name } } : {}) } })
+    if (group) {
+      return {
+        refusal: `The user did not allow saving '${r.rel}' in the skills of the group "${neutralizeTags(group.name)}" (skills every member of that group's AI follows), so nothing was saved. Do not save it there or in another skills folder unless the user asks again; you may offer to save it in their personal folder instead.`,
+        summary: `${tool} -> not allowed by the user (group skills)`,
+      }
+    }
     return {
       refusal: `The user did not allow saving '${r.rel}' under skills/ (team skills and team rules every teammate's AI follows), so nothing was saved. Do not save it there or anywhere else in skills/ unless the user asks again; you may offer to save it in their personal folder instead.`,
       summary: `${tool} -> not allowed by the user (team skills)`,

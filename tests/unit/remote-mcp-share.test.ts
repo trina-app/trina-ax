@@ -56,7 +56,7 @@ test('share_skills is listed with the write scope only, and tells Claude Code wh
   for (const s of ['skills_list', '~/.claude/skills', '~/.claude/commands', 'CLAUDE.md', '"excluded"', 'reason "secret"', 'reason "plugin"', '"text": ""', 'stdio', 'Nothing changes until the team lead confirms in the app', '스킬로 제안'])
     expect(tool.description, s).toContain(s)
   const schema = tool.inputSchema as { properties: Record<string, unknown>; additionalProperties: boolean; required?: string[] }
-  expect(Object.keys(schema.properties).sort()).toEqual(['app', 'excluded', 'picked', 'projects', 'rule', 'skills', 'tools', 'where'])
+  expect(Object.keys(schema.properties).sort()).toEqual(['app', 'excluded', 'group', 'picked', 'projects', 'rule', 'skills', 'tools', 'where'])
   expect(schema.additionalProperties).toBe(false)
   // Codex's places too (docs/DECISIONS.md "W5"), and a schema small enough that Codex does not compact it (5,000 bytes)
   for (const s of ['"app": "codex"', '~/.agents/skills', '~/.codex/skills', '.system', '~/.codex/prompts', '~/.codex/AGENTS.md', 'config.toml', 'bearer_token_env_var'])

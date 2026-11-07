@@ -1,11 +1,14 @@
-// Skills: legacy Markdown files and Agent Skills folders with a SKILL.md entry point. Two roots hold them: skills/
-// (team skills; the folder rules of skills/ and its subfolders decide who can read each one) and users/<id>/skills/
-// (personal skills of that person; nobody else can read them, owner and admins included). Every listing is for one
-// principal: the person who runs the turn or calls the API (docs/DECISIONS.md "Skills: folder permissions and
-// personal skills"). Folder rules still govern every read/write. Resources are read on demand through the ordinary file tools;
-// discovering a manifest never executes scripts or grants tools named in its metadata.
+// Skills: legacy Markdown files and Agent Skills folders with a SKILL.md entry point. Three kinds of root hold them:
+// skills/ (team skills; the folder rules of skills/ and its subfolders decide who can read each one),
+// groups/<folder>/skills/ (group skills: one root for each group the person belongs to, its folder name as the groups
+// row has it; docs/DECISIONS.md "Group skills") and users/<id>/skills/ (personal skills of that person; nobody else can
+// read them, owner and admins included). Every listing is for one principal: the person who runs the turn or calls the
+// API (docs/DECISIONS.md "Skills: folder permissions and personal skills"). Folder rules still govern every read/write.
+// Resources are read on demand through the ordinary file tools; discovering a manifest never executes scripts or grants
+// tools named in its metadata. One name, three skills: personal > group > team (scanSkills).
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Database } from 'bun:sqlite'
 import { isMap, isScalar, parseDocument } from 'yaml'
 import { parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
@@ -17,7 +20,9 @@ import { authorize } from '../policy/authorize'
  * `title`: the name people read (metadata `title`, "광고 문구"), only when valid; "/<name>" still runs the skill.
  * `recurring`: metadata `recurring` as written, only when the key is there ("weekly": the work comes back every week,
  * docs/DECISIONS.md "S"; isRecurring). Server side only: listings (skillInfo) leave it out. */
-export interface SkillInfo { path: string; name: string; description: string; inputs?: SkillInput[]; title?: string; recurring?: string; example?: string }
+export interface SkillInfo { path: string; name: string; description: string; inputs?: SkillInput[]; title?: string; recurring?: string; example?: string; group?: SkillGroup }
+/** The group a group skill belongs to, by its current name (a rename shows at once; the folder keeps its name). */
+export interface SkillGroup { id: string; name: string }
 
 /** metadata `example` (docs/DECISIONS.md "W5": a request a skill's form starts with): one line of at most
  * SKILL_EXAMPLE_MAX characters without control or text-direction characters, else none. */
@@ -29,9 +34,11 @@ export interface Skill extends SkillInfo { body: string }
 
 const SKILLS_DIR = 'skills'
 const USERS_DIR = 'users'
+const GROUPS_DIR = 'groups'
 const MAX_DEPTH = 3
-/** entries read per skill root (team skills/, a person's own users/<id>/skills/), team rule files included. Over it the
- * rest is not read: skill managers see a "too_many" issue (skillIssues), never a silent cut */
+/** entries read per skill root (team skills/, each group's groups/<folder>/skills/, a person's own users/<id>/skills/),
+ * team rule files included. Over it the rest is not read: skill managers see a "too_many" issue (skillIssues), never a
+ * silent cut */
 export const MAX_FILES = 1000
 export const SKILL_BODY_MAX = 16_000
 export const SKILL_FILE_MAX_BYTES = 128 * 1024
@@ -45,19 +52,70 @@ export const isSkillManifest = (rel: string) => path.posix.basename(rel) === 'SK
 /** The personal skills folder of one person. */
 export const personalSkillsDir = (userId: string) => `${USERS_DIR}/${userId}/${SKILLS_DIR}`
 
-/** The number of path segments of the skill root that holds `parts`: 1 for skills/..., 3 for users/<id>/skills/...,
- * null for a path outside both roots. The root itself is not inside it. */
+/** A group's skills folder: groups/<folder>/skills (`groupFolder`: the group's folder, admin/groups.ts groupFolder). */
+export const groupSkillsDir = (groupFolder: string) => `${groupFolder}/${SKILLS_DIR}`
+
+/** The number of path segments of the skill root that holds `parts`: 1 for skills/..., 3 for users/<id>/skills/... and
+ * groups/<folder>/skills/..., null for a path outside the roots. The first segment decides the kind, so depth 3 of a
+ * group never reads as a person's folder. The root itself is not inside it. */
 function skillRootLength(parts: readonly string[]): number | null {
   if (parts[0] === SKILLS_DIR) return 1
-  if (parts[0] === USERS_DIR && parts.length >= 3 && parts[1] && parts[2] === SKILLS_DIR) return 3
+  if ((parts[0] === USERS_DIR || parts[0] === GROUPS_DIR) && parts.length >= 3 && parts[1] && parts[2] === SKILLS_DIR) return 3
   return null
 }
 /** A path under users/<id>/skills/ (a personal skill entry). */
-export const isPersonalSkill = (rel: string) => skillRootLength(rel.split('/')) === 3
-/** The metadata a listing shows (no body). `personal` is set only for a personal skill, `inputs` only for a skill
- * with a valid form, `title` only for a skill with one. */
-export const skillInfo = ({ path: p, name, description, inputs, title, example }: SkillInfo): SkillInfo & { personal?: true } =>
-  ({ path: p, name, description, ...(isPersonalSkill(p) ? { personal: true as const } : {}), ...(inputs ? { inputs } : {}), ...(title ? { title } : {}), ...(example ? { example } : {}) })
+export const isPersonalSkill = (rel: string) => { const p = rel.split('/'); return p[0] === USERS_DIR && skillRootLength(p) === 3 }
+/** A path under groups/<folder>/skills/ (a group skill entry, or that folder itself). */
+export const isGroupSkill = (rel: string) => { const p = rel.split('/'); return p[0] === GROUPS_DIR && skillRootLength(p) === 3 }
+
+/** The skills of one group the person belongs to: `root` is groups/<folder>/skills. */
+export interface GroupSkillRoot extends SkillGroup { root: string }
+const orderKey = (s: string) => s.normalize('NFC').toLowerCase()
+/** Groups by name (letter case ignored, compared by Unicode code points), then id: the order of the Team skills
+ * sections and the tie-break of "/name" between two groups' skills (docs/DECISIONS.md "Group skills"). */
+export function groupOrder(a: SkillGroup, b: SkillGroup): number {
+  const x = orderKey(a.name), y = orderKey(b.name)
+  return x < y ? -1 : x > y ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+/** The skill roots of the groups `user` belongs to (Principal.groups, read with the person), in groupOrder. Only a
+ * group whose folder is groups/<one name> has one (a folder moved elsewhere has none, a group without a folder none).
+ * The folder rules still decide every read: a member without access to their group's folder sees nothing there. */
+export function groupSkillRoots(db: Database, user: Pick<Principal, 'groups'>): GroupSkillRoot[] {
+  if (!user.groups?.length) return []
+  let rows: { id: string; name: string; path: string }[]
+  try {
+    rows = db.query(`SELECT g.id, g.name, f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id IN (${user.groups.map(() => '?').join(',')})`).all(...user.groups) as typeof rows
+  } catch { return [] }
+  const out: GroupSkillRoot[] = []
+  for (const r of rows.sort(groupOrder)) {
+    const segs = r.path.normalize('NFC').split('/')
+    if (segs.length !== 2 || segs[0] !== GROUPS_DIR || !segs[1]) continue
+    const root = groupSkillsDir(segs.join('/'))
+    if (!out.some((g) => g.root === root)) out.push({ id: r.id, name: r.name, root })
+  }
+  return out
+}
+/** The group whose folder is `folder` (groups/<name>, as the folders row has it; letter case and Unicode form ignored
+ * only when no row has it exactly), or null: a folder left behind by a deleted group, or no group's folder at all. */
+export function groupOfFolder(db: Database, folder: string): SkillGroup | null {
+  try {
+    const rows = db.query("SELECT g.id, g.name, f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE f.path LIKE 'groups/%'").all() as { id: string; name: string; path: string }[]
+    const want = folder.normalize('NFC')
+    const hit = rows.find((r) => r.path.normalize('NFC') === want) ?? rows.find((r) => orderKey(r.path) === orderKey(want))
+    return hit ? { id: hit.id, name: hit.name } : null
+  } catch { return null }
+}
+/** The group root that holds `segs` (a path as authorize resolved it) among `roots`, or null. */
+const groupRootOf = (roots: readonly GroupSkillRoot[], segs: readonly string[]) =>
+  segs[0] === GROUPS_DIR && segs[2] === SKILLS_DIR && segs[1] ? roots.find((g) => g.root === `${GROUPS_DIR}/${segs[1]!.normalize('NFC')}/${SKILLS_DIR}`) ?? null : null
+
+/** personal 0 > group 1 > team 2: which of the skills of one name a person gets (docs/DECISIONS.md "Group skills"). */
+export const skillTier = (s: Pick<SkillInfo, 'path' | 'group'>): 0 | 1 | 2 => (isPersonalSkill(s.path) ? 0 : s.group || isGroupSkill(s.path) ? 1 : 2)
+
+/** The metadata a listing shows (no body). `personal` is set only for a personal skill, `group` only for a group
+ * skill, `inputs` only for a skill with a valid form, `title` only for a skill with one. */
+export const skillInfo = ({ path: p, name, description, inputs, title, example, group }: SkillInfo): SkillInfo & { personal?: true } =>
+  ({ path: p, name, description, ...(isPersonalSkill(p) ? { personal: true as const } : {}), ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(inputs ? { inputs } : {}), ...(title ? { title } : {}), ...(example ? { example } : {}) })
 const hasFrontmatter = (text: string) => /^\uFEFF?---[ \t]*(?:\r?\n|$)/.test(text)
 
 /** Decode the standard metadata without constructing JS objects or expanding aliases. Only the root and the
@@ -275,7 +333,8 @@ function isSkillResource(root: string, rel: string): boolean {
 export function skillFileKind(root: string, rel: string, text: string): 'skill' | 'rule' | 'other' {
   if (!rel.endsWith('.md') || isSkillResource(root, rel)) return 'other'
   if (parseSkill(text, rel)) return 'skill'
-  return isSkillManifest(rel) || hasFrontmatter(text) ? 'other' : 'rule'
+  // team rules are skills/*.md only (prompt.ts teamRules): a file without a header in a group's skills is just a file
+  return isSkillManifest(rel) || hasFrontmatter(text) || isGroupSkill(rel) ? 'other' : 'rule'
 }
 
 /** Why `text` does not load at `rel` (R2-SKILL-03), for a save: the confirmation card and the AI's write result. null
@@ -309,7 +368,8 @@ export function skillWriteNote(root: string, rel: string, data: Buffer): string 
 }
 
 /** Read exactly one authorized entry using the same link/size checks as the file tools. A personal entry is a skill
- * only for its owner (the folder rules give nobody else access; this check does not depend on them). */
+ * only for its owner, a group entry only for the members of that group (the folder rules let the owner and admins read
+ * every group folder; this check does not depend on them). */
 export function readSkill(files: FileService, user: Principal, inputPath: string): Skill | null {
   return readSkillIn(files, user, inputPath, null)
 }
@@ -320,28 +380,32 @@ function readSkillIn(files: FileService, user: Principal, inputPath: string, sca
   try {
     const r = authorize(files.fx, scan?.rules ?? files.rules(), user, inputPath, 'read', scan ? { dirs: scan.dirs } : {})
     const root = skillRootLength(r.segs)
-    if (root === null || (root === 3 && r.segs[1] !== user.id)) return null
+    if (root === null || (r.segs[0] === USERS_DIR && r.segs[1] !== user.id)) return null
+    const group = r.segs[0] === GROUPS_DIR ? groupRootOf(scan?.groups ?? groupSkillRoots(files.db, user), r.segs) : null
+    if (r.segs[0] === GROUPS_DIR && !group) return null
     if (r.segs.length > root + MAX_DEPTH || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
     const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES).bytes.toString('utf8')
     const skill = parseSkill(text, r.rel)
-    return skill ? { path: r.rel, ...skill, body: skill.body.slice(0, SKILL_BODY_MAX) } : null
+    return skill ? { path: r.rel, ...skill, body: skill.body.slice(0, SKILL_BODY_MAX), ...(group ? { group: { id: group.id, name: group.name } } : {}) } : null
   } catch { return null }
 }
 
-/** Visit the accessible entry candidates under skills/ and under the caller's own users/<id>/skills/: legacy .md
- * files and folder SKILL.md files, capped per root (team skills cannot push personal skills out). Never descend into
- * a skill package. Returns the roots whose walk stopped at the cap (some entries there were not visited). */
+/** Visit the accessible entry candidates under skills/, under the skills of each group the caller belongs to and under
+ * the caller's own users/<id>/skills/: legacy .md files and folder SKILL.md files, capped per root (team skills cannot
+ * push personal or group skills out, and one group cannot push out another's). Never descend into a skill package.
+ * Returns the roots whose walk stopped at the cap (some entries there were not visited). */
 function walkSkillEntries(files: FileService, user: Principal, visit: (rel: string, scan: Scan) => void): string[] {
   const capped: string[] = []
   // one synchronous scan: the folder rules and each folder's listing are read once (a folder of 1,000 skills was
   // listed again for every entry it holds)
-  const scan: Scan = { rules: files.rules(), dirs: new Map() }
-  for (const root of [SKILLS_DIR, personalSkillsDir(user.id)]) if (walkSkillRoot(files, user, root, (rel) => visit(rel, scan), scan)) capped.push(root)
+  const scan: Scan = { rules: files.rules(), dirs: new Map(), groups: groupSkillRoots(files.db, user) }
+  for (const root of [SKILLS_DIR, ...scan.groups.map((g) => g.root), personalSkillsDir(user.id)]) if (walkSkillRoot(files, user, root, (rel) => visit(rel, scan), scan)) capped.push(root)
   return capped
 }
 
-/** What one synchronous walk reuses (never across an await): the folder rules and the folder listings it read. */
-interface Scan { rules: ReturnType<FileService['rules']>; dirs: Map<string, string[]> }
+/** What one synchronous walk reuses (never across an await): the folder rules, the folder listings it read and the
+ * caller's group skill roots. */
+interface Scan { rules: ReturnType<FileService['rules']>; dirs: Map<string, string[]>; groups: GroupSkillRoot[] }
 
 /** true: the root has more entries than MAX_FILES (the rest were not visited) */
 function walkSkillRoot(files: FileService, user: Principal, rootRel: string, visit: (rel: string) => void, scan: Scan): boolean {
@@ -390,8 +454,22 @@ export function listSkills(files: FileService, user: Principal): Skill[] {
  * a check of names before a team skill is added (onboarding/skill-packs.ts). */
 export function listTeamSkills(files: FileService, user: Principal): Skill[] {
   const out: Skill[] = []
-  const scan: Scan = { rules: files.rules(), dirs: new Map() }
+  const scan: Scan = { rules: files.rules(), dirs: new Map(), groups: [] }
   walkSkillRoot(files, user, SKILLS_DIR, (rel) => {
+    const skill = readSkillIn(files, user, rel, scan)
+    if (skill) out.push(skill)
+  }, scan)
+  return out
+}
+
+/** The skills of one group of `user` (its groups/<folder>/skills/ only), whether or not a personal skill of theirs has
+ * the same name; [] when they are not a member: for checks against a group's own skills (a share to that group). */
+export function listGroupSkills(files: FileService, user: Principal, groupId: string): Skill[] {
+  const out: Skill[] = []
+  const groups = groupSkillRoots(files.db, user).filter((g) => g.id === groupId)
+  if (!groups.length) return out
+  const scan: Scan = { rules: files.rules(), dirs: new Map(), groups }
+  walkSkillRoot(files, user, groups[0]!.root, (rel) => {
     const skill = readSkillIn(files, user, rel, scan)
     if (skill) out.push(skill)
   }, scan)
@@ -401,26 +479,36 @@ export function listTeamSkills(files: FileService, user: Principal): Skill[] {
 /** The same skill name for "/<name>" (invokedSkill compares names this way). */
 export const sameSkillName = (a: string, b: string) => nameKey(a) === nameKey(b)
 
-/** listSkills, and the roots whose walk stopped at MAX_FILES (skills/ or the caller's users/<id>/skills). */
+/** listSkills, and the roots whose walk stopped at MAX_FILES (skills/, a group's skills or the caller's
+ * users/<id>/skills). One name: a personal skill hides a group's and the team's, a group's hides the team's (each only
+ * for this person); skills of one tier with the same name all stay (two groups': both, told apart by their paths). */
 export function scanSkills(files: FileService, user: Principal): { skills: Skill[]; capped: string[] } {
   const out: Skill[] = []
   const capped = walkSkillEntries(files, user, (rel, scan) => {
     const skill = readSkillIn(files, user, rel, scan)
     if (skill) out.push(skill)
   })
-  const personal = new Set(out.filter((s) => isPersonalSkill(s.path)).map((s) => nameKey(s.name)))
-  const skills = out.filter((s) => isPersonalSkill(s.path) || !personal.has(nameKey(s.name)))
+  const best = new Map<string, number>()
+  for (const s of out) best.set(nameKey(s.name), Math.min(best.get(nameKey(s.name)) ?? 3, skillTier(s)))
+  const skills = out.filter((s) => skillTier(s) === best.get(nameKey(s.name)))
     .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
   return { skills, capped }
 }
 
 /** Skill managers (docs/DECISIONS.md "팀 스킬 관리"): write on skills/ or on one of its folders. The topmost such
- * folders, [] for everyone else. */
+ * folders, [] for everyone else. Team skills only: a group's are writableGroupSkillRoots. */
 export function managedSkillRoots(files: FileService, user: Principal): string[] {
   const rules = files.rules()
   const writable = [SKILLS_DIR, ...(rules.ruleFolders?.() ?? []).filter((f) => f.startsWith(SKILLS_DIR + '/') && f.split('/').length <= 3)]
     .filter((f) => rules.access(user, f.split('/')) === 'write')
   return writable.filter((f) => !writable.some((g) => g !== f && f.startsWith(g + '/')))
+}
+
+/** The skills folders of the caller's groups that the caller may write (by default every member: a group writes its
+ * own folder), in groupOrder. */
+export function writableGroupSkillRoots(files: FileService, user: Principal): GroupSkillRoot[] {
+  const rules = files.rules()
+  return groupSkillRoots(files.db, user).filter((g) => rules.access(user, g.root.split('/')) === 'write')
 }
 
 export interface SkillIssue { path: string; problem: SkillProblem | 'too_many' | 'too_many_rules' | 'inputs' }
@@ -446,13 +534,16 @@ export function skillIssues(files: FileService, user: Principal, o: { rules?: { 
     } catch { /* not readable: say nothing */ }
   })
   const manager = managedSkillRoots(files, user).length > 0
-  for (const root of capped) if (root !== SKILLS_DIR || manager) out.push({ path: root, problem: 'too_many' })
+  // a group's root: for its members who may write it; the team's: for its skill managers; the person's own: always
+  const groupWriter = new Set(capped.some((r) => isGroupSkill(r)) ? writableGroupSkillRoots(files, user).map((g) => g.root) : [])
+  for (const root of capped) if (isGroupSkill(root) ? groupWriter.has(root) : root !== SKILLS_DIR || manager) out.push({ path: root, problem: 'too_many' })
   if (manager && o.rules && o.rules.total > o.rules.followed) out.push({ path: SKILLS_DIR, problem: 'too_many_rules' })
   return out.sort((a, b) => a.path.localeCompare(b.path) || a.problem.localeCompare(b.problem))
 }
 
-/** Longest explicit name wins, then file aliases, then a personal skill before a team skill. Folder skills never
- * acquire a shared /SKILL alias. */
+/** Longest explicit name wins, then file aliases, then a personal skill before a group skill before a team skill;
+ * between two groups' skills the group that comes first in groupOrder (its name, letter case ignored, then its id),
+ * then the path. Folder skills never acquire a shared /SKILL alias. */
 export function invokedSkill(skills: Skill[], content: string): { skill: Skill; input: string } | null {
   const t = content.trimStart()
   if (!t.startsWith('/')) return null
@@ -462,7 +553,7 @@ export function invokedSkill(skills: Skill[], content: string): { skill: Skill; 
     { s, key: s.name, alias: false },
     { s, key: isSkillManifest(s.path) ? path.posix.basename(path.posix.dirname(s.path)) : path.posix.basename(s.path, '.md'), alias: true },
   ]).sort((a, b) => b.key.length - a.key.length || Number(a.alias) - Number(b.alias)
-    || Number(isPersonalSkill(b.s.path)) - Number(isPersonalSkill(a.s.path)) || a.s.path.localeCompare(b.s.path))
+    || skillTier(a.s) - skillTier(b.s) || (a.s.group && b.s.group ? groupOrder(a.s.group, b.s.group) : 0) || a.s.path.localeCompare(b.s.path))
   for (const { s, key } of candidates) {
     const head = rest.slice(0, key.length)
     const next = rest.charAt(key.length)

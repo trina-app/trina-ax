@@ -4,16 +4,16 @@
 // phone app, an https address, not an iPhone browser tab), the browser has not been asked yet (permission 'default'),
 // the team server offers Web Push with a valid key, the person is signed in and did not turn push off themselves, and
 // this device did not put the line away in the last 7 days ([나중에]) or block notifications from it (for good: Settings
-// › Notifications says how to undo that). Not in Microsoft Edge: the team server does not deliver through its push
-// service (lib/push.ts isEdge) until that is decided. [알림 켜기] runs enablePush right in the click (the browser's
-// question needs the click), so the server's settings and the service worker are made ready before the line shows.
+// › Notifications says how to undo that). Microsoft Edge too: the team server delivers through its push service (WNS)
+// since feat/edge-push. [알림 켜기] runs enablePush right in the click (the browser's question needs the click), so the
+// server's settings and the service worker are made ready before the line shows.
 // Ready, it waits for the next move to another page (noteWebPushAskPath): appearing on the page in front of the person
 // would push it down (or up, on a phone) under their finger.
 import { create } from 'zustand'
 import type { z } from 'zod'
 import type { PushSettings } from '@mycel/shared/api'
 import { api, API } from './api'
-import { enablePush, isEdge, logPushFailure, notificationPermission, pushFailure, pushRegistration, pushSupported, vapidBytes, type PushFailure } from './push'
+import { enablePush, logPushFailure, notificationPermission, pushFailure, pushRegistration, pushSupported, vapidBytes, type PushFailure } from './push'
 import { pushNeedsInstall } from './pwa'
 
 type Settings = z.infer<typeof PushSettings>
@@ -26,8 +26,6 @@ const write = (key: string, value: string) => { try { localStorage.setItem(key, 
 export interface AskConditions {
   /** a web browser that can get Web Push here (lib/push.ts pushSupported, and not an iPhone browser tab) */
   supported: boolean
-  /** Microsoft Edge (its push service is refused by the team server) */
-  edge: boolean
   permission: NotificationPermission | null
   /** the server's push settings (null: not read) */
   settings: Pick<Settings, 'configured' | 'publicKey' | 'optedOut'> | null
@@ -40,7 +38,7 @@ export interface AskConditions {
 
 /** What this device decides alone: signed in, Web Push here, not asked yet, not put away or blocked from the line. */
 export function askAllowedHere(c: Omit<AskConditions, 'settings'>): boolean {
-  if (!c.signedIn || !c.supported || c.edge || c.permission !== 'default' || c.blocked) return false
+  if (!c.signedIn || !c.supported || c.permission !== 'default' || c.blocked) return false
   const at = Number(c.later)
   return !(c.later && Number.isFinite(at) && c.now - at < ASK_LATER_MS)
 }
@@ -55,7 +53,7 @@ export function webPushAskShows(c: AskConditions): boolean {
 
 /** What this device knows without the server. */
 const local = (now: number): Omit<AskConditions, 'settings'> => ({
-  supported: pushSupported() && !pushNeedsInstall(), edge: isEdge(), permission: notificationPermission(), signedIn: true,
+  supported: pushSupported() && !pushNeedsInstall(), permission: notificationPermission(), signedIn: true,
   later: read(ASK_LATER_KEY), blocked: read(ASK_BLOCKED_KEY) === '1', now,
 })
 

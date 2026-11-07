@@ -1,5 +1,10 @@
 // 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"): share proposals of an owner or admin. Contract:
 // shared/src/api/skill-shares.ts; routes: routes/skill-shares.ts; Claude Code: connectors/remote-mcp/share.ts.
+// The target (docs/DECISIONS.md "Group skills", migration 260): the team (skills/) or one of the proposer's groups whose
+// skills folder they may write (groups/<folder>/skills/), chosen at create (share_skills `group`) or moved before
+// anything went in (setSkillShareTarget). The checks and the judgement compare with the target's skills (the group's and
+// the team's); a share to a group is also seen, applied and dropped by the group's members who may write its skills
+// folder (their review list: scope review; a live notice), carries no team rule or tools, and never feeds the invite.
 //   create   the candidates are checked (share-check.ts), the kept files staged outside the team files (share-stage.ts)
 //            and the AI's judgement started as a restricted turn of the person (share-judge.ts) when an AI answers them
 //            and their budget allows; otherwise nothing is pre-ticked (ai "none"). A proposal Claude Code or Codex sent
@@ -29,7 +34,7 @@ import { budgetBlock } from '../admin/budgets'
 import { newChatEngine, turnEngine } from '../admin/engine-choice'
 import { aiAccessFor } from '../credentials/access'
 import { memberOwnAllowed } from '../credentials/policy'
-import { listSkills, listTeamSkills, readSkill, sameSkillName, SKILL_NAME_MAX } from '../chat/skills'
+import { listGroupSkills, listSkills, listTeamSkills, readSkill, sameSkillName, SKILL_NAME_MAX, writableGroupSkillRoots, type GroupSkillRoot } from '../chat/skills'
 import { forgetPurgedChats } from '../chat/forget'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
@@ -54,8 +59,10 @@ interface Row {
   projects: number | null; result: string; created_at: string; expires_at: string; updated_at: string
   /** 'codex' for a share Codex sent through the connector (the source column's CHECK has no 'codex': migration 253) */
   source_detail: string | null
+  /** the group it goes to, or null for the team (migration 260; docs/DECISIONS.md "Group skills") */
+  target_group_id: string | null
 }
-const COLS = 'id, created_by, source, status, ai, where_label, projects, result, created_at, expires_at, updated_at, source_detail'
+const COLS = 'id, created_by, source, status, ai, where_label, projects, result, created_at, expires_at, updated_at, source_detail, target_group_id'
 /** The columns a new share is written with (source_detail last). */
 const INSERT_COLS = COLS
 /** What `result` holds (no file content: the files are staged). */
@@ -146,6 +153,27 @@ const TEXT = {
     ko: 'Claude Code에서 스킬 {n}개를 공유하자고 했어요 · 확인', en: 'Claude Code proposed sharing {n} skills · Review',
     id: 'Claude Code mengusulkan berbagi {n} skill · Periksa', ja: 'Claude Code からスキル {n} 件の共有の提案があります · 確認', es: 'Claude Code propuso compartir {n} habilidades · Revisar',
   },
+  // a share to a group (docs/DECISIONS.md "Group skills")
+  proposedGroup: {
+    ko: "{who}님이 '{group}' 그룹에 스킬 {n}개를 공유하자고 했어요 · 확인", en: "{who} proposed sharing {n} skills with the group '{group}' · Review",
+    id: "{who} mengusulkan berbagi {n} skill dengan grup '{group}' · Periksa", ja: "{who}さんがグループ「{group}」にスキル {n} 件の共有を提案しました · 確認",
+    es: "{who} propuso compartir {n} habilidades con el grupo '{group}' · Revisar",
+  },
+  notGroupWriter: {
+    ko: '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.', en: 'Only a member of this group who may write its skills folder can do this.',
+    id: 'Hanya anggota grup ini yang boleh menulis folder skill-nya yang bisa melakukan ini.', ja: 'このグループのスキルフォルダーに書き込めるメンバーだけができます。',
+    es: 'Solo un miembro de este grupo que pueda escribir en su carpeta de habilidades puede hacerlo.',
+  },
+  targetGone: {
+    ko: '이 공유 제안의 그룹이 없어졌어요. 스킬을 다시 찾아 주세요.', en: 'The group of this share proposal is gone. Look for the skills again.',
+    id: 'Grup usulan berbagi ini sudah tidak ada. Cari skill-nya lagi.', ja: 'この共有の提案のグループがなくなりました。もう一度スキルを探してください。',
+    es: 'El grupo de esta propuesta ya no existe. Vuelva a buscar las habilidades.',
+  },
+  targetFixed: {
+    ko: '이미 일부를 넣은 공유 제안은 보낼 곳을 바꿀 수 없어요.', en: 'Part of this share proposal already went in: where it goes cannot change now.',
+    id: 'Sebagian usulan ini sudah masuk: tujuannya tidak bisa diubah lagi.', ja: 'この提案の一部はすでに入っています。行き先は変えられません。',
+    es: 'Parte de esta propuesta ya se agregó: ya no se puede cambiar el destino.',
+  },
 } satisfies Record<string, Record<Locale, string>>
 /** The team rule's file name in the team's language (skills/<name>.md, a file without a header: a team rule). */
 export const RULE_NAME: Record<Locale, string> = { ko: '일하는-방식', en: 'how-we-work', id: 'cara-kerja', ja: '仕事の進め方', es: 'como-trabajamos' }
@@ -165,13 +193,101 @@ const sourceOf = (r: Row): SkillShareSource => (r.source_detail === 'codex' ? 'c
 /** What a dismissed or expired share keeps of what it proposed: nothing (the audit rows keep the counts). */
 const EMPTY: Result = { candidates: [], rule: null, ruleIn: null, tools: [], landing: null }
 
-function toShare(r: Row): SkillShare {
+/** The share as `viewer` reads it: where it goes, who proposed it, whether the viewer may apply it, and (the proposer's
+ * open share only) the groups it may go to instead. */
+function toShare(ctx: AppContext, r: Row, viewer: string): SkillShare {
   const res = readResult(r)
   const source = sourceOf(r)
+  const target = targetOf(ctx, r)
+  const mine = r.created_by === viewer
+  const open = r.status === 'checking' || r.status === 'ready'
+  // a group's member who reviews someone else's proposal reads what goes to the group, nothing more of the proposer's:
+  // no CLAUDE.md lines, no tools, no skill that stays on their computer (excluded, with its secret's kind), and a
+  // same-name or similar skill only when the reviewer can read it themselves
+  const reviewer = mine ? null : principalOf(ctx, viewer)
+  const readable = <T extends { path: string }>(ref: T | null): T | null => (ref && reviewer && readSkill(ctx.files, reviewer, ref.path) ? ref : null)
+  // a merge chat is the applier's own: its id only for them (a reviewer's merge is no link for the proposer, and back)
+  const owners = new Map<string, string | null>()
+  const chatOwner = (id: string) => {
+    if (!owners.has(id)) owners.set(id, (ctx.db.query('SELECT user_id FROM chats WHERE id = ?').get(id) as { user_id: string } | null)?.user_id ?? null)
+    return owners.get(id)
+  }
+  const ownChat = (c: ShareCandidate): ShareCandidate['applied'] => (c.applied?.chatId && chatOwner(c.applied.chatId) !== viewer ? { ...c.applied, chatId: null } : c.applied)
+  const candidates = mine ? (res.candidates ?? []).map((c) => ({ ...c, applied: ownChat(c) })) : (res.candidates ?? []).filter((c) => c.group !== 'excluded').map((c) => {
+    const sameName = readable(c.sameName), similar = readable(c.similar)
+    // nor where on the proposer's computer it came from (the folder, a project's name)
+    return { ...c, sameName, similar, detail: c.reason === 'similar' && !similar ? null : c.detail, project: null, applied: ownChat(c) }
+  })
   return {
-    id: r.id, source, app: source === 'codex' ? 'codex' : res.app ?? 'claude', status: r.status, where: r.where_label, projects: r.projects,
+    id: r.id, source, app: source === 'codex' ? 'codex' : res.app ?? 'claude', status: r.status, where: mine ? r.where_label : null, projects: mine ? r.projects : null,
     createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(Number.isFinite(Date.parse(r.updated_at)) ? r.updated_at : r.created_at).toISOString(), expiresAt: new Date(r.expires_at).toISOString(), ai: r.ai,
-    candidates: res.candidates ?? [], rule: res.rule ?? null, tools: res.tools ?? [], landing: res.landing ?? null,
+    candidates, rule: mine ? res.rule ?? null : null, tools: mine ? res.tools ?? [] : [], landing: res.landing ?? null,
+    targetGroup: target, proposer: { id: r.created_by, name: nameOf(ctx, r.created_by) }, mine, canApply: mayApply(ctx, r, viewer),
+    targets: mine && open && !partlyIn(res) ? targetChoices(ctx, viewer) : [],
+  }
+}
+
+// ---------------------------------------------------------------- targets (docs/DECISIONS.md "Group skills")
+
+const nameOf = (ctx: AppContext, id: string) => (ctx.db.query('SELECT name FROM users WHERE id = ?').get(id) as { name: string } | null)?.name ?? id
+const principalOf = (ctx: AppContext, id: string): Principal | null => { try { return ctx.files.principal(id) } catch { return null } }
+
+/** The group a share goes to (its current name; null name: the group is gone), or null for the team. */
+function targetOf(ctx: AppContext, r: Pick<Row, 'target_group_id'>): { id: string; name: string | null } | null {
+  if (!r.target_group_id) return null
+  const g = ctx.db.query('SELECT name FROM groups WHERE id = ?').get(r.target_group_id) as { name: string } | null
+  return { id: r.target_group_id, name: g?.name ?? null }
+}
+
+/** The skills folder of a group `p` belongs to and may write, or null (not a member, no write, no folder). */
+function groupRootFor(ctx: AppContext, p: Principal, groupId: string): GroupSkillRoot | null {
+  return writableGroupSkillRoots(ctx.files, p).find((g) => g.id === groupId) ?? null
+}
+
+/** The groups a proposer may send a share to instead of the team: their groups whose skills folder they may write. */
+function targetChoices(ctx: AppContext, userId: string): { id: string; name: string }[] {
+  const p = principalOf(ctx, userId)
+  return p ? writableGroupSkillRoots(ctx.files, p).map((g) => ({ id: g.id, name: g.name })) : []
+}
+
+/** May `viewer` apply (and drop) this share: for the team its proposer (an owner or admin), for a group a member of it
+ * who may write its skills folder (the proposer too, while they are one). */
+function mayApply(ctx: AppContext, r: Row, viewer: string): boolean {
+  const p = principalOf(ctx, viewer)
+  if (!p) return false
+  if (!r.target_group_id) return r.created_by === viewer && (p.role === 'owner' || p.role === 'admin')
+  return !!groupRootFor(ctx, p, r.target_group_id)
+}
+
+/** Something of the share already went in (a skill added or merging, the rule, a tool): its target is fixed. */
+const partlyIn = (res: Result) => res.candidates.some((c) => c.applied && c.applied.status !== 'failed') || !!res.rule?.path || res.tools.some((t) => !!t.templateId)
+
+/** The skills a share's candidates may collide with and merge into, as the person `me` sees them: the target's own.
+ * For a group target that is the group's skills only: a share to a group never changes a team skill, and a team skill
+ * of the same name is no conflict (the group's copy replaces it for the group's members: personal > group > team).
+ * The AI's judgement still reads the team's skills too (share-judge.ts), to tell what the team already has. */
+function targetRefs(ctx: AppContext, me: Principal, groupId: string | null): TeamSkillRef[] {
+  if (!groupId) return teamRefs(ctx, me)
+  return listGroupSkills(ctx.files, me, groupId).map((s) => ({ name: s.name, path: s.path, title: skillTitle(s), description: s.description }))
+}
+
+/** Active members of a group who may write its skills folder, with their language: who reviews a share to it. */
+function groupWriters(ctx: AppContext, groupId: string): { id: string; locale: Locale }[] {
+  const ids = (ctx.db.query("SELECT m.user_id AS id FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ? AND u.status = 'active' AND u.deleted_at IS NULL").all(groupId) as { id: string }[]).map((x) => x.id)
+  return ids.filter((id) => { const p = principalOf(ctx, id); return !!p && !!groupRootFor(ctx, p, groupId) }).map((id) => ({ id, locale: localeOf(ctx, id) }))
+}
+
+/** A share to a group: its members who may apply it hear of it (a live notice with the link), the proposer not. */
+function tellGroup(ctx: AppContext, r: Row): void {
+  const target = targetOf(ctx, r)
+  if (!target?.name) return
+  const n = readResult(r).candidates.filter((c) => c.group !== 'excluded').length
+  const who = nameOf(ctx, r.created_by)
+  for (const m of groupWriters(ctx, target.id)) {
+    if (m.id === r.created_by) continue
+    try {
+      ctx.services.realtime.publish(m.id, { type: 'notice', data: { level: 'info', code: 'skill_share', message: fill(TEXT.proposedGroup[m.locale], { who, group: target.name, n }), link: `/skills/share/${r.id}` } })
+    } catch (err) { ctx.log.warn('skill share notice failed', { err: err instanceof Error ? err.message : String(err) }) }
   }
 }
 
@@ -181,10 +297,11 @@ function save(ctx: AppContext, id: string, res: Result, status?: SkillShareStatu
   else ctx.db.query('UPDATE skill_shares SET result = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(res), now, id)
 }
 
-/** The caller's own share, or 404 (someone else's share is the same as none). */
+/** The caller's own share, or one to a group the caller may apply (a member who may write its skills folder), else
+ * 404 (someone else's share is the same as none). */
 function ownRow(ctx: AppContext, userId: string, id: string): Row {
   const r = rowOf(ctx, id)
-  if (!r || r.created_by !== userId) return fail('not_found')
+  if (!r || (r.created_by !== userId && !(r.target_group_id && mayApply(ctx, r, userId)))) return fail('not_found')
   return r
 }
 
@@ -266,8 +383,9 @@ function settle(ctx: AppContext, rt: ChatRuntime, r: Row): Row {
     finish(ctx, rt, r, 'failed', null)
   } else {
     const res = readResult(r)
-    const me = ctx.files.principal(r.created_by)
-    const parsed = parseShareJudge(answer.content, { names: res.candidates.filter((c) => c.group !== 'excluded').map((c) => c.name), team: teamRefs(ctx, me), rule: res.ruleIn })
+    // read by a group's member, the proposer may be gone since: no judgement then (nothing pre-ticked)
+    const me = principalOf(ctx, r.created_by)
+    const parsed = me ? parseShareJudge(answer.content, { names: res.candidates.filter((c) => c.group !== 'excluded').map((c) => c.name), team: targetRefs(ctx, me, r.target_group_id), rule: res.ruleIn }) : null
     finish(ctx, rt, r, parsed ? 'done' : 'failed', parsed)
   }
   return rowOf(ctx, r.id) ?? r
@@ -315,13 +433,16 @@ export function createSkillShare(ctx: AppContext, rt: ChatRuntime | null, who: S
   if (who.role !== 'owner' && who.role !== 'admin') fail('forbidden')
   sweep(ctx, rt)
   const me = ctx.files.principal(who.id)
-  const checked = checkShare(body, teamRefs(ctx, me))
+  // the target: the team, or one of the proposer's groups whose skills folder they may write (docs/DECISIONS.md "Group skills")
+  const group = body.group ?? null
+  if (group && !groupRootFor(ctx, me, group)) fail('validation', TEXT.notGroupWriter[locale], { fields: { 'body.group': 'not a group of yours whose skills you may write' } })
+  const checked = checkShare(body, targetRefs(ctx, me, group))
   const id = newId(), now = new Date()
   const app: ShareApp = body.source === 'codex' ? 'codex' : body.app ?? 'claude'
   const res: Result = { candidates: checked.candidates, rule: null, ruleIn: checked.rule ? { lines: checked.rule.lines, dropped: checked.rule.dropped } : null, tools: checked.tools, landing: null, app }
   // a Codex share keeps 'claude_code' in the source column (its CHECK) and 'codex' beside it (migration 253)
-  ctx.db.query(`INSERT INTO skill_shares (${INSERT_COLS}) VALUES (?,?,?,'checking','pending',?,?,?,?,?,?,?)`)
-    .run(id, who.id, body.source === 'codex' ? 'claude_code' : body.source, checked.where, checked.projects, JSON.stringify(res), now.toISOString(), new Date(now.getTime() + SKILL_SHARE_LIMITS.days * DAY).toISOString(), now.toISOString(), body.source === 'codex' ? 'codex' : null)
+  ctx.db.query(`INSERT INTO skill_shares (${INSERT_COLS}) VALUES (?,?,?,'checking','pending',?,?,?,?,?,?,?,?)`)
+    .run(id, who.id, body.source === 'codex' ? 'claude_code' : body.source, checked.where, checked.projects, JSON.stringify(res), now.toISOString(), new Date(now.getTime() + SKILL_SHARE_LIMITS.days * DAY).toISOString(), now.toISOString(), body.source === 'codex' ? 'codex' : null, group)
   try {
     writeStage(ctx, id, checked.files, checked.rule)
   } catch (e) {
@@ -332,7 +453,7 @@ export function createSkillShare(ctx: AppContext, rt: ChatRuntime | null, who: S
   const kept = checked.candidates.filter((c) => c.group !== 'excluded').length
   audit(ctx.db, { actor: who.id, action: 'skills.share_create', target: id, detail: {
     source: body.source, app, via: o.via, candidates: checked.candidates.length, kept, excluded: checked.candidates.length - kept,
-    rule: !!checked.rule, tools: checked.tools.length, projects: checked.projects,
+    rule: !!checked.rule, tools: checked.tools.length, projects: checked.projects, ...(group ? { group } : {}),
   } })
   // the AI's judgement: only when there is something to judge and an AI answers the person
   const row = rowOf(ctx, id)!
@@ -344,39 +465,92 @@ export function createSkillShare(ctx: AppContext, rt: ChatRuntime | null, who: S
       finish(ctx, rt, row, 'failed', null)
     }
   }
-  const share = toShare(rowOf(ctx, id)!)
+  const share = toShare(ctx, rowOf(ctx, id)!, who.id)
   if (body.source === 'claude_code' || body.source === 'codex') {
     const L = localeOf(ctx, who.id)
     try {
       ctx.services.realtime.publish(who.id, { type: 'notice', data: { level: 'info', code: 'skill_share', message: fill(TEXT[body.source === 'codex' ? 'proposedCodex' : 'proposed'][L], { n: kept }), link: `/skills/share/${id}` } })
     } catch (err) { ctx.log.warn('skill share notice failed', { err: err instanceof Error ? err.message : String(err) }) }
   }
+  // a share to a group: the group's members who may apply it hear of it
+  if (group && kept) tellGroup(ctx, rowOf(ctx, id)!)
   return share
 }
 
-/** The caller's own shares, newest first (a judgement that is over is read first). */
-export function listSkillShares(ctx: AppContext, rt: ChatRuntime, userId: string, q: { status?: SkillShareStatus; source?: SkillShareSource }): SkillShare[] {
+/**
+ * Move one's own open share to the team (`group` null) or to one of one's groups whose skills folder one may write,
+ * before anything of it went in (409 after). The same-name checks run again against the new target's skills (the
+ * group's and the team's); a similar skill the AI named stays only when the new target has it. The group's members
+ * who may apply it are told. Audited as skills.share_target.
+ */
+export function setSkillShareTarget(ctx: AppContext, rt: ChatRuntime, who: ShareCaller, locale: Locale, id: string, body: { group: string | null }): SkillShare {
+  let r = rowOf(ctx, id)
+  if (!r || r.created_by !== who.id) return fail('not_found')
+  // one past its days expires first (its staged files go), as a read would
+  if ((r.status === 'checking' || r.status === 'ready') && Date.parse(r.expires_at) <= Date.now()) { close(ctx, rt, r, 'expired'); r = rowOf(ctx, id)! }
+  if (r.status !== 'checking' && r.status !== 'ready') fail('conflict', TEXT[r.status === 'applied' ? 'applied' : 'gone'][locale], { params: { reason: r.status } })
+  const res = readResult(r)
+  if (partlyIn(res)) fail('conflict', TEXT.targetFixed[locale], { params: { reason: 'partly_applied' } })
+  const me = ctx.files.principal(who.id)
+  const group = body.group
+  if (group && !groupRootFor(ctx, me, group)) fail('validation', TEXT.notGroupWriter[locale], { fields: { 'body.group': 'not a group of yours whose skills you may write' } })
+  if ((r.target_group_id ?? null) === group) return toShare(ctx, r, who.id)
+  const refs = targetRefs(ctx, me, group)
+  const ref = (path: string) => refs.find((x) => x.path === path)
+  for (const c of res.candidates) {
+    if (c.group === 'excluded') continue
+    const same = refs.find((x) => sameSkillName(x.name, c.name))
+    c.sameName = same ? { path: same.path, title: same.title } : null
+    if (c.similar && !ref(c.similar.path)) c.similar = null
+    // a reason that named the other target's skill no longer holds (nor its title as the detail); a same name in the
+    // new target is said as such on a recommended row
+    if ((c.reason === 'same_name' && !c.sameName) || (c.reason === 'similar' && !c.similar)) {
+      c.reason = c.group === 'recommended' ? 'team_any' : 'unjudged'
+      c.detail = null
+    }
+    if (c.sameName && c.reason === 'team_any') { c.reason = 'same_name'; c.detail = null }
+    c.action = c.sameName || c.similar ? 'merge' : 'add'
+  }
+  ctx.db.query('UPDATE skill_shares SET target_group_id = ?, result = ?, updated_at = ? WHERE id = ?').run(group, JSON.stringify(res), new Date().toISOString(), id)
+  audit(ctx.db, { actor: who.id, action: 'skills.share_target', target: id, detail: { from: r.target_group_id ?? null, to: group } })
+  const next = rowOf(ctx, id)!
+  if (group) tellGroup(ctx, next)
+  return toShare(ctx, settle(ctx, rt, next), who.id)
+}
+
+/** The caller's own shares, newest first (a judgement that is over is read first). `scope` review: the open shares
+ * others made to a group the caller may apply (docs/DECISIONS.md "Group skills"), newest first. */
+export function listSkillShares(ctx: AppContext, rt: ChatRuntime, userId: string, q: { status?: SkillShareStatus; source?: SkillShareSource; scope?: 'mine' | 'review' }): SkillShare[] {
   sweep(ctx, rt)
+  if (q.scope === 'review') {
+    const p = principalOf(ctx, userId)
+    const groups = p ? writableGroupSkillRoots(ctx.files, p).map((g) => g.id) : []
+    if (!groups.length) return []
+    const rows = ctx.db.query(`SELECT ${COLS} FROM skill_shares WHERE target_group_id IN (${groups.map(() => '?').join(',')}) AND created_by <> ? AND status IN ${OPEN}
+      ORDER BY created_at DESC, id DESC LIMIT ${LIST_MAX}`).all(...groups, userId) as Row[]
+    return rows.map((r) => settle(ctx, rt, r)).filter((r) => (!q.status || r.status === q.status) && (!q.source || sourceOf(r) === q.source)).map((r) => toShare(ctx, r, userId))
+  }
   for (const r of ctx.db.query(`SELECT ${COLS} FROM skill_shares WHERE created_by = ? AND status = 'checking'`).all(userId) as Row[]) settle(ctx, rt, r)
   const where = ['created_by = ?']
   const args: string[] = [userId]
   if (q.status) { where.push('status = ?'); args.push(q.status) }
   if (q.source) { where.push("(CASE WHEN source_detail = 'codex' THEN 'codex' ELSE source END) = ?"); args.push(q.source) }
   const rows = ctx.db.query(`SELECT ${COLS} FROM skill_shares WHERE ${where.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ${LIST_MAX}`).all(...args) as Row[]
-  return rows.map(toShare)
+  return rows.map((r) => toShare(ctx, r, userId))
 }
 
-/** One share of the caller's own (404 for anyone else's). */
+/** One share of the caller's own, or one to a group the caller may apply (404 for anyone else). */
 export function getSkillShare(ctx: AppContext, rt: ChatRuntime, userId: string, id: string): SkillShare {
   let r = ownRow(ctx, userId, id)
   if ((r.status === 'checking' || r.status === 'ready') && Date.parse(r.expires_at) <= Date.now()) { close(ctx, rt, r, 'expired'); r = rowOf(ctx, id)! }
-  return toShare(settle(ctx, rt, r))
+  return toShare(ctx, settle(ctx, rt, r), userId)
 }
 
-/** 나중에 하기: the share is dropped with its staged files (and a judgement still running). A share already over stays. */
+/** 나중에 하기: the share is dropped with its staged files (and a judgement still running). A share already over stays.
+ * The proposer, or for a share to a group one of its members who may apply it (they turn it down for the group). */
 export function dismissSkillShare(ctx: AppContext, rt: ChatRuntime, userId: string, id: string): void {
   const r = ownRow(ctx, userId, id)
-  if (close(ctx, rt, r, 'dismissed')) audit(ctx.db, { actor: userId, action: 'skills.share_dismiss', target: id, detail: { source: r.source } })
+  if (close(ctx, rt, r, 'dismissed')) audit(ctx.db, { actor: userId, action: 'skills.share_dismiss', target: id, detail: { source: r.source, ...(r.target_group_id ? { group: r.target_group_id } : {}) } })
 }
 
 // ---------------------------------------------------------------- apply
@@ -401,14 +575,15 @@ function existsFor(ctx: AppContext, me: Principal, rel: string): boolean {
   try { return authorize(ctx.files.fx, ctx.files.rules(), me, rel, 'read', { mustExist: false }).exists } catch { return true }
 }
 
-/** Write one candidate as skills/<name>/ (its kept files first, SKILL.md last), as the caller; anything already
- * written is moved to the trash again when a later file fails, so a retry finds no half folder. */
-function writeSkill(ctx: AppContext, userId: string, locale: Locale, shareId: string, c: ShareCandidate, name: string): string {
+/** Write one candidate as <root>/<name>/ (skills/ or a group's groups/<folder>/skills; its kept files first, SKILL.md
+ * last), as the caller; anything already written is moved to the trash again when a later file fails, so a retry
+ * finds no half folder. */
+function writeSkill(ctx: AppContext, userId: string, locale: Locale, shareId: string, c: ShareCandidate, name: string, root: string): string {
   const staged = readStagedFiles(ctx, shareId, c.name, c.files)
   if (!staged?.length) throw refused('conflict', TEXT.stagedGone[locale], 'staged_gone')
   const manifest = renamedSkillMd(staged[0]!.data.toString('utf8'), { name, title: c.title })
   if (!manifest) throw refused('conflict', TEXT.stagedGone[locale], 'not_loadable')
-  const folder = `skills/${name}`
+  const folder = `${root}/${name}`
   const files = [...staged.slice(1), { path: 'SKILL.md', data: Buffer.from(manifest, 'utf8') }]
   const written: string[] = []
   let at = folder
@@ -452,6 +627,13 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
   }
   if (row.status === 'checking') fail('conflict', TEXT.checking[locale], { params: { reason: 'checking' } })
   if (row.status === 'dismissed' || row.status === 'expired') fail('conflict', TEXT.gone[locale], { params: { reason: row.status } })
+  // who applies (docs/DECISIONS.md "Group skills"): the team's share its proposer; a group's a member of it who may write
+  // its skills folder (the proposer too while they are one); a group gone since: nothing can go in
+  const groupId = row.target_group_id
+  if (groupId && !targetOf(ctx, row)?.name) fail('conflict', TEXT.targetGone[locale], { params: { reason: 'target_gone' } })
+  if (!mayApply(ctx, row, auth.user.id)) fail('forbidden', groupId ? TEXT.notGroupWriter[locale] : TEXT.denied[locale])
+  const meNow = ctx.files.principal(auth.user.id)
+  const root = groupId ? groupRootFor(ctx, meNow, groupId)!.root : 'skills'
   const res = readResult(row)
   const byName = new Map(res.candidates.map((c) => [c.name, c]))
   // the request first: nothing is written when any part of it is wrong
@@ -467,19 +649,21 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
     asked.add(s.name)
   })
   if (body.rule && !res.rule?.text) fields['body.rule'] = 'no team rule in this share'
-  ;(body.tools ?? []).forEach((t, i) => { if (!res.tools.some((x) => x.name === t)) fields[`body.tools.${i}`] = 'not a tool of this share' })
+  // a team rule and connection templates are the team's: a share to a group carries its skills only
+  else if (body.rule && groupId) fields['body.rule'] = 'a team rule goes to the team only'
+  ;(body.tools ?? []).forEach((t, i) => { if (!res.tools.some((x) => x.name === t)) fields[`body.tools.${i}`] = 'not a tool of this share'; else if (groupId) fields[`body.tools.${i}`] = 'connection templates go to the team only' })
   if (Object.keys(fields).length) fail('validation', undefined, { fields })
   const doneAlready = () => body.skills.every((s) => ['added', 'merge', 'later'].includes(byName.get(s.name)?.applied?.status ?? ''))
     && (!body.rule || !!res.rule?.path) && (body.tools ?? []).every((t) => !!res.tools.find((x) => x.name === t)?.templateId)
   if (row.status === 'applied') {
-    if (doneAlready()) return toShare(row)
+    if (doneAlready()) return toShare(ctx, row, auth.user.id)
     fail('conflict', TEXT.applied[locale], { params: { reason: 'applied' } })
   }
   if (applying.has(id)) fail('conflict', TEXT.busy[locale], { params: { reason: 'busy' } })
   applying.add(id)
   try {
-    const me = ctx.files.principal(auth.user.id)
-    const team = teamRefs(ctx, me)
+    const me = meNow
+    const team = targetRefs(ctx, me, groupId)
     const failures: Failure[] = []
     let went = 0
     const addedNow: ShareCandidate[] = []
@@ -490,7 +674,7 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
     // a name for "separate": no team skill, none of the caller's own, no pack skill (a later install would be blocked)
     // and no folder has it
     const names = [...listSkills(ctx.files, me).map((s) => s.name), ...team.map((t) => t.name), ...packSkillNames()]
-    const taken = (n: string) => names.some((x) => sameSkillName(x, n)) || existsFor(ctx, me, `skills/${n}`)
+    const taken = (n: string) => names.some((x) => sameSkillName(x, n)) || existsFor(ctx, me, `${root}/${n}`)
     for (const s of body.skills) {
       const c = byName.get(s.name)!
       if (c.applied?.status === 'added' || c.applied?.status === 'merge' || c.applied?.status === 'later') continue
@@ -517,15 +701,15 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
           } else {
             const same = team.find((t) => sameSkillName(t.name, c.name))
             if (same) throw refused('conflict', fill(TEXT.sameName[locale], { title: same.title }), 'same_name')
-            if (existsFor(ctx, me, `skills/${c.name}`)) throw refused('conflict', fill(TEXT.folderExists[locale], { name: c.name }), 'folder_exists')
+            if (existsFor(ctx, me, `${root}/${c.name}`)) throw refused('conflict', fill(TEXT.folderExists[locale], { name: c.name }), 'folder_exists')
           }
-          const path = writeSkill(ctx, auth.user.id, locale, id, c, name)
+          const path = writeSkill(ctx, auth.user.id, locale, id, c, name, root)
           c.applied = { status: 'added', path, chatId: null, error: null }
           addedNow.push(c)
         }
         went++
       } catch (e) {
-        const f = failureOf(e, locale, `skills/${c.name}`)
+        const f = failureOf(e, locale, `${root}/${c.name}`)
         if (f.code === 'internal') ctx.log.warn('skill share apply failed', { share: id, err: e instanceof Error ? e.message : String(e) })
         failures.push(f)
         c.applied = { status: 'failed', path: null, chatId: null, error: f.message }
@@ -565,17 +749,19 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
       }
       save(ctx, id, res)
     }
-    // the skill the invite opens: the first recommended one added, else the first added
+    // the skill the invite opens: the first recommended one added, else the first added (a group's skill opens for its
+    // members only: never the invite's)
     const added = res.candidates.filter((c) => c.applied?.status === 'added')
-    res.landing = (added.find((c) => c.group === 'recommended') ?? added[0])?.applied?.path ?? null
+    res.landing = groupId ? null : (added.find((c) => c.group === 'recommended') ?? added[0])?.applied?.path ?? null
     const status: SkillShareStatus = failures.length ? 'ready' : 'applied'
     save(ctx, id, res, status)
     if (status === 'applied') removeStage(ctx, id)
     // 내 스킬 is done once anything of a share went in, wherever it was applied (the welcome step or /skills/share/:id)
     // a skill the AI gave no title (no AI, or its check failed) is named by its folder name as words ("quote maker"),
-    // never the raw name, in the invite and the end screen (the walk of PR #100)
-    recordShared(ctx, auth.user.id, addedNow.map((c) => ({ path: c.applied!.path!, title: skillLabel(c), recommended: c.group === 'recommended' })), went > 0)
+    // never the raw name, in the invite and the end screen (the walk of PR #100); a group's skills are not the invite's
+    recordShared(ctx, auth.user.id, groupId ? [] : addedNow.map((c) => ({ path: c.applied!.path!, title: skillLabel(c), recommended: c.group === 'recommended' })), went > 0)
     audit(ctx.db, { actor: auth.user.id, action: 'skills.share_apply', target: id, detail: {
+      ...(groupId ? { group: groupId } : {}),
       added: addedNow.map((c) => c.applied!.path), merge: body.skills.filter((s) => byName.get(s.name)?.applied?.status === 'merge').map((s) => byName.get(s.name)!.applied!.path),
       later: body.skills.filter((s) => byName.get(s.name)?.applied?.status === 'later').map((s) => byName.get(s.name)!.applied!.path),
       failed: body.skills.filter((s) => byName.get(s.name)?.applied?.status === 'failed').map((s) => s.name),
@@ -586,7 +772,7 @@ export function applySkillShare(ctx: AppContext, rt: ChatRuntime, auth: { user: 
       const f = failures.find((x) => x.code !== 'forbidden') ?? failures[0]!
       throw new HttpError(f.code, f.message, { params: { reason: f.reason } })
     }
-    return toShare(rowOf(ctx, id)!)
+    return toShare(ctx, rowOf(ctx, id)!, auth.user.id)
   } finally {
     applying.delete(id)
   }

@@ -1,10 +1,11 @@
 // How the AI learns which skills it may use (docs/DECISIONS.md "Skills: the whole list, the skill tool"), like Claude
 // Code's skill listing: every skill the person can use is one line of the instructions ("- name [personal]:
-// description", the description cut at 160 characters, no path) within a fixed budget of 8,000 characters. Over the
-// budget every name stays and descriptions go first to the person's own skills, then by how much they used a skill
-// (each use counts 0.5^(days/7), like Claude Code's score; the team's uses count a quarter). When even the names do not
-// fit, the last line says how many more there are. The full text comes from the skill tool (chat/tools.ts), and
-// find_skills searches all of them by words.
+// description", "- name [group: 영업팀]: description", the description cut at 160 characters, no path) within a fixed
+// budget of 8,000 characters. Over the budget every name stays and descriptions go first to the person's own skills,
+// then by how much they used a skill, group and team skills alike (each use counts 0.5^(days/7), like Claude Code's
+// score; the team's uses count a quarter; on a tie a group's skill before the team's): a person in many groups gets
+// more lines, never a bigger list. When even the names do not fit, the last line says how many more there are. The
+// full text comes from the skill tool (chat/tools.ts), and find_skills searches all of them by words.
 // The description order is fixed for a chat (chat_skill_lists.ranked), so the instructions stay the same from turn
 // to turn and the engines' prompt cache holds. A resumed Claude session keeps the instructions it started with: the
 // server compares the skills with what that session's instructions listed (chat_skill_lists.listed) and puts what was
@@ -12,7 +13,7 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
-import { isPersonalSkill, isSkillManifest, type Skill } from './skills'
+import { groupOrder, isPersonalSkill, isSkillManifest, skillTier, type Skill } from './skills'
 
 /** characters of the skill lines in the instructions (Claude Code: 1% of a 200K context x 4 characters) */
 export const SKILL_LIST_BUDGET = 8_000
@@ -41,7 +42,7 @@ export function shortDescription(d: string, max = SKILL_LINE_DESCRIPTION_MAX): s
 // ---------------- usage ----------------
 
 /** How much this person used each of `paths` lately: own uses 0.5^(age/7 days) each, other people's a quarter of that.
- * Team skills only: personal skills are never recorded (admin/skill-usage.ts). */
+ * Team and group skills: personal skills are never recorded (admin/skill-usage.ts). */
 export function usageScores(db: Database, userId: string, paths: readonly string[], now = new Date()): Map<string, number> {
   const out = new Map<string, number>()
   const team = [...new Set(paths.filter((p) => !isPersonalSkill(p)))]
@@ -65,13 +66,22 @@ export function usageScores(db: Database, userId: string, paths: readonly string
   return out
 }
 
-/** Which skills get their description first: personal skills (by name), then by usage, then by name. */
+/** Which skills get their description first: personal skills (by name), then group and team skills by usage (on a
+ * tie a group's before the team's), then by name. */
 export function descriptionOrder(skills: readonly Skill[], scores: ReadonlyMap<string, number>): string[] {
   const byName = (a: Skill, b: Skill) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
   const personal = skills.filter((s) => isPersonalSkill(s.path)).sort(byName)
-  const team = skills.filter((s) => !isPersonalSkill(s.path)).sort((a, b) => (scores.get(b.path) ?? 0) - (scores.get(a.path) ?? 0) || byName(a, b))
-  return [...personal, ...team].map((s) => s.path)
+  const shared = skills.filter((s) => !isPersonalSkill(s.path)).sort((a, b) => (scores.get(b.path) ?? 0) - (scores.get(a.path) ?? 0) || skillTier(a) - skillTier(b) || byName(a, b))
+  return [...personal, ...shared].map((s) => s.path)
 }
+
+/** The tag a list line gives a skill: " [personal]", " [group: <name>]" (the group's current name, one line, at most
+ * 40 characters, through `tag`), or nothing for a team skill. */
+export function skillTag(s: Pick<Skill, 'path' | 'group'>, tag: (s: string) => string = (x) => x): string {
+  if (isPersonalSkill(s.path)) return ' [personal]'
+  return s.group ? ` [group: ${tag(shortDescription(s.group.name, GROUP_TAG_MAX).replace(/[[\]]/g, ''))}]` : ''
+}
+const GROUP_TAG_MAX = 40
 
 // ---------------- the list ----------------
 
@@ -92,10 +102,11 @@ export interface SkillList {
   skills: Skill[]
 }
 
-/** Personal skills first, then team skills, each by name (the order lines are written in). */
+/** Personal skills first, then each group's (groups in groupOrder), then team skills, each by name (the order lines
+ * are written in). */
 export function listOrder(skills: readonly Skill[]): Skill[] {
   const byName = (a: Skill, b: Skill) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
-  return [...skills.filter((s) => isPersonalSkill(s.path)).sort(byName), ...skills.filter((s) => !isPersonalSkill(s.path)).sort(byName)]
+  return [...skills].sort((a, b) => skillTier(a) - skillTier(b) || (a.group && b.group ? groupOrder(a.group, b.group) : 0) || byName(a, b))
 }
 
 /** A name that two skills share gets its path, so the skill tool can tell them apart. */
@@ -115,7 +126,7 @@ export function buildSkillList(skills: readonly Skill[], o: { order?: readonly s
   const tag = o.tag ?? ((s: string) => s)
   const shown = listOrder(skills)
   const dup = duplicateNames(shown)
-  const head = (s: Skill) => `- ${tag(oneLine(s.name))}${dup.has(fold(s.name)) ? ` (${s.path})` : ''}${isPersonalSkill(s.path) ? ' [personal]' : ''}`
+  const head = (s: Skill) => `- ${tag(oneLine(s.name))}${dup.has(fold(s.name)) ? ` (${s.path})` : ''}${skillTag(s, tag)}`
   const desc = (s: Skill) => (s.description.trim() ? ': ' + tag(shortDescription(s.description)) : '')
   const rank = new Map<string, number>()
   for (const p of o.order ?? []) if (!rank.has(p)) rank.set(p, rank.size)
@@ -185,7 +196,7 @@ const tokenMatch = (a: string, b: string) => a === b || (a.length >= 4 && b.leng
  * folder name ("견적서" of skills/영업/견적서/SKILL.md or skills/영업/견적서.md), `parents` the folders above it. */
 function pathWords(p: string): { own: string; parents: string } {
   const segs = p.split('/')
-  const rest = (segs[0] === 'users' ? segs.slice(3) : segs.slice(1)).filter((s) => s !== 'SKILL.md').map((s) => s.replace(/\.md$/, ''))
+  const rest = (segs[0] === 'users' || segs[0] === 'groups' ? segs.slice(3) : segs.slice(1)).filter((s) => s !== 'SKILL.md').map((s) => s.replace(/\.md$/, ''))
   return { own: rest.at(-1) ?? '', parents: rest.slice(0, -1).join(' ') }
 }
 
@@ -225,11 +236,11 @@ export function matchSkills(skills: readonly Skill[], query: string, o: { scores
 }
 
 /** What find_skills gives when no word matches (Korean words against English descriptions, QA): the skills this
- * person uses most (usage as in the list), then their own, then by name, at most `limit`. `used`: how many of them were
- * used at all. Only `skills`, the person's own list: nothing they cannot read. */
+ * person uses most (usage as in the list), then their own, then their groups', then by name, at most `limit`. `used`:
+ * how many of them were used at all. Only `skills`, the person's own list: nothing they cannot read. */
 export function frequentSkills(skills: readonly Skill[], scores: ReadonlyMap<string, number>, limit = FIND_SKILLS_MAX): { skills: Skill[]; used: number } {
   const used = (s: Skill) => scores.get(s.path) ?? 0
-  const top = [...skills].sort((a, b) => used(b) - used(a) || Number(isPersonalSkill(b.path)) - Number(isPersonalSkill(a.path)) || a.name.localeCompare(b.name) || a.path.localeCompare(b.path)).slice(0, limit)
+  const top = [...skills].sort((a, b) => used(b) - used(a) || skillTier(a) - skillTier(b) || a.name.localeCompare(b.name) || a.path.localeCompare(b.path)).slice(0, limit)
   return { skills: top, used: top.filter((s) => used(s) > 0).length }
 }
 
@@ -241,14 +252,15 @@ export function hintSkills(skills: readonly Skill[], message: string, o: { score
 }
 
 /** Resolve the name the AI gave the skill tool: the exact name, else the exact path, else the file or folder name, else
- * the name as its list line writes it (with its path or " [personal]"). Only `skills` (the person's own list) are
- * candidates. `ambiguous`: several skills answer to it (their paths tell them apart). */
+ * the name as its list line writes it (with its path, " [personal]" or " [group: …]"). Only `skills` (the person's
+ * own list) are candidates. `ambiguous`: several skills answer to it (their paths tell them apart). */
 export function resolveSkill(skills: readonly Skill[], input: string): { skill: Skill } | { ambiguous: Skill[] } | null {
   const exact = resolveName(skills, input)
   if (exact) return exact
-  // the name as its list line writes it (buildSkillList): "Weekly (skills/a/weekly.md)", "draft-mail [personal]"
-  const t = oneLine(input).replace(/ \[personal\]$/i, '')
-  const line = /^(.*?) \(((?:skills|users)\/[^()]+)\)$/.exec(t)
+  // the name as its list line writes it (buildSkillList): "Weekly (skills/a/weekly.md)", "draft-mail [personal]",
+  // "quote [group: Sales]"
+  const t = oneLine(input).replace(/ \[personal\]$/i, '').replace(/ \[group: [^\]]*\]$/i, '')
+  const line = /^(.*?) \(((?:skills|users|groups)\/[^()]+)\)$/.exec(t)
   if (line) {
     const hit = skills.filter((s) => fold(s.path) === fold(line[2]!) && fold(oneLine(s.name)) === fold(line[1]!))
     return hit.length === 1 ? { skill: hit[0]! } : null
@@ -260,15 +272,16 @@ function resolveName(skills: readonly Skill[], input: string): { skill: Skill } 
   const want = fold(oneLine(input).replace(/^\//, ''))
   if (!want) return null
   const pick = (hits: Skill[]) => (hits.length === 1 ? { skill: hits[0]! } : hits.length > 1 ? { ambiguous: hits } : null)
-  // a personal skill already replaces a team skill of the same name in the list (skills.ts listSkills)
+  // a personal skill already replaces a group's or the team's skill of the same name in the list, and a group's the
+  // team's (skills.ts scanSkills); two groups' skills of one name are ambiguous: their paths tell them apart
   const byName = pick(skills.filter((s) => fold(s.name) === want))
   if (byName) return byName
   const byPath = pick(skills.filter((s) => fold(s.path) === want || (isSkillManifest(s.path) && fold(path.posix.dirname(s.path)) === want)))
   if (byPath) return byPath
   const alias = (s: Skill) => fold(isSkillManifest(s.path) ? path.posix.basename(path.posix.dirname(s.path)) : path.posix.basename(s.path, '.md'))
   const byAlias = skills.filter((s) => alias(s) === want)
-  const personal = byAlias.filter((s) => isPersonalSkill(s.path))
-  return pick(personal.length ? personal : byAlias)
+  const best = Math.min(...byAlias.map(skillTier))
+  return pick(byAlias.filter((s) => skillTier(s) === best))
 }
 
 // ---------------- what changed since the session's instructions ----------------
@@ -300,7 +313,7 @@ export function skillChangesText(c: SkillChanges | 'stale', tag: (s: string) => 
   const lines: string[] = []
   let used = 0, left = 0
   const add = (l: string) => { if (used + l.length + 1 > SKILL_CHANGES_BUDGET) { left++; return } lines.push(l); used += l.length + 1 }
-  const line = (s: Skill) => `${tag(oneLine(s.name))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + tag(shortDescription(s.description)) : ''}`
+  const line = (s: Skill) => `${tag(oneLine(s.name))}${skillTag(s, tag)}${s.description.trim() ? ': ' + tag(shortDescription(s.description)) : ''}`
   for (const s of c.added) add(`- added: ${line(s)}`)
   for (const s of c.changed) add(`- changed: ${line(s)} (load it again with the skill tool before you follow it)`)
   for (const r of c.removed) add(`- removed: ${tag(oneLine(r.name))} (no longer available: do not use it)`)
