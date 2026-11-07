@@ -1,7 +1,8 @@
 // AI connections (contract: shared/src/api/credentials.ts), registered by the admin route module (owner A). The owner
-// and admins change the team's connections alike (adding and replacing a secret, and starting a sign-in, ask the
-// person for their own password again: auth 'admin-reauth', the RouteKit checks it; so does "Move it to the team",
-// which is an add with moveFrom); an admin's change is told to the owner (credentials/store.ts noticeOwners). Members
+// and admins change the team's connections alike (no password again: every kind goes to its provider's fixed address,
+// so swapping in another official account only makes that account pay; "Move it to the team" is an add with moveFrom,
+// proven by the re-sealed secret; a kind with an address the caller chooses would be in CUSTOM_ADDRESS_KINDS and ask
+// for the password, none exists today); an admin's change is told to the owner (credentials/store.ts noticeOwners). Members
 // manage their own connections while the team allows them (/api/me/credentials). Request bodies are never
 // written to the audit log here (credentials/service.ts writes field names, kinds, labels, hints only).
 import { API, type Locale } from '@mycel/shared/api'
@@ -82,7 +83,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // Only turns that answer with AI connections (managed mode) ever use it.
   kit.handle(API.trialCredit, () => ({ credit: isManaged(ctx.config) ? trialCredit(ctx.db, new Date()) : null }))
 
-  // ChatGPT and Claude sign-ins (the team's: owner or admin + their password; one's own: while the team allows personal connections).
+  // ChatGPT and Claude sign-ins (the team's: owner or admin; one's own: while the team allows personal connections).
   // The Claude code: only from the person who started that sign-in (404 for anyone else, before it is opened), sealed
   // like a token (its own purpose)
   const submitCode = async (id: string, userId: string, sealed: Parameters<typeof unsealOrFail>[1], locale: Locale, personal: boolean) => {
