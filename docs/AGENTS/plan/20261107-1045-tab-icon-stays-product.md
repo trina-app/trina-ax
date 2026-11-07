@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 10:45
 - Branch: `fix/tab-icon-stays-product`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`shared/src/team-icon.ts`, `server/src/routes/web-static.ts`, the web app's team settings and
   install pictures). Why: the team logo and the app's icons are core features of every team server (see
   docs/REPOSITORY-RULES.md)
@@ -63,4 +63,31 @@ to see the product's icon at once). Five languages for the row's text.
 
 ## Result
 
-Filled in at the end.
+Built as planned on `fix/tab-icon-stays-product` (PR link added when it is opened). Differences from the plan:
+
+- `teamIcon.sizeTab` and `teamIcon.sizeHome` were removed; `desc`, `hint` and `removeBody` were rewritten in all five
+  languages (the hint now says a non-square logo is cropped from its middle, as the sidebar draws it). The preview
+  keeps "Show previews": two sidebar headers side by side, light and dark.
+- index.html keeps one comment in place of the `<!-- icons -->` markers.
+- The security case checks the tab and app icon addresses only when a web build exists (no CI job runs that suite;
+  without a build the dev-mode instance answers every address with the same placeholder page); it warns and skips
+  otherwise.
+- After review: the CHANGELOG and DECISIONS say what released versions did (a logo of any size was the tab,
+  home-screen and installed app's icon; the 512 px rule reached dev only), and docs/DESIGN-SYSTEM.md states the new
+  rule.
+
+Checks on this branch (macOS, bun 1.4.4, native built):
+
+- `bun run typecheck`: pass. `bun run check:i18n`: 0 issues. `bun run check:docs`: pass (API reference regenerated).
+- `tests/unit/a-team-icon.test.ts`, `a-auth.test.ts`, `d-web.test.ts`, `product-name.test.ts`: 70 pass, 0 fail
+  (a-team-icon alone after review: 22 pass). `tests/unit/i18n-languages.test.ts`: 12 pass locally.
+- `tests/security/permission-matrix.test.ts`: 2187 pass, 3 fail; the same 3 fail on a clean `origin/dev` (route
+  coverage, `driveShareFolders` as owner and admin). The new icon check fails on a build whose index.html links
+  `/team-icon` and skips with a warning without a build.
+- `bun run test:web`: 1624 pass, 1 fail, 2 errors; clean `origin/dev` gives the same fail and errors (an unhandled
+  error between tests reported at `download-only-actions.test.ts`; the file passes alone).
+- `bun run build:web`: pass.
+- Full web e2e (chromium): 757 passed, 12 failed, 9 skipped. The 12 are the known dev failures (a11y.spec.ts
+  "team skills" light and dark, :403 on dev and :405 here, two lines moved; auth.spec.ts:165/:297/:359,
+  offline.spec.ts:84, rankings.spec.ts:23, source-code.spec.ts:20/:65, states.spec.ts:164,
+  upload-progress.spec.ts:181/:330). `team-icon.spec.ts` and the team logo a11y audits pass.
