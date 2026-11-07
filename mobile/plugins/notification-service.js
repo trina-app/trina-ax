@@ -11,7 +11,6 @@
 //   scripts/ios-release.sh checks both), with the app's version and build number.
 const fs = require('node:fs')
 const path = require('node:path')
-const { withDangerousMod, withEntitlementsPlist, withXcodeProject } = require('expo/config-plugins')
 
 const TARGET = 'NotificationService'
 const SWIFT = 'NotificationService.swift'
@@ -151,6 +150,8 @@ module.exports = (config, o) => {
   check(o)
   const appId = config.ios && config.ios.bundleIdentifier
   if (!appId || o.extensionId !== `${appId}.NotificationService` || o.accessGroup !== `${o.teamId}.${appId}.notifications`) throw new Error('notification-service: the extension must belong to the app')
+  // loaded here, not at the top: the repository's tests load this file without the app's own node_modules
+  const { withDangerousMod, withEntitlementsPlist, withXcodeProject } = require('expo/config-plugins')
   config = withEntitlementsPlist(config, c => {
     c.modResults['keychain-access-groups'] = [`${o.teamId}.${appId}`, o.accessGroup]
     return c
