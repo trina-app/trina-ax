@@ -290,10 +290,8 @@ test('a sent message: "@전체" stands out as a mention of me (not for its sende
     return new Response(JSON.stringify({ ...mine, body: b.body, mentionsAll: b.mentionsAll }), { status: 200, headers: { 'content-type': 'application/json' } })
   }) as typeof fetch
   const m = await mount(<RoomMessages roomId={r.id} messages={[mine]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
-  const press = (type: string) => m.get('room-message').dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10 }))
-  press('pointerdown')
-  await m.settle(700)
-  await m.settle(450)
+  // the message's ⋯ menu (the hover bar's), then 수정
+  await m.click('message-more')
   await m.click('message-edit')
   const box = m.get('room-edit-input') as Box
   await act(async () => { box.focus(); box.dispatchEvent(new FakeEvent('focusin', { bubbles: true })) })
@@ -307,10 +305,8 @@ test('a sent message: "@전체" stands out as a mention of me (not for its sende
   // a message without it: the edit form offers no "@전체" (an edit notifies nobody, so it cannot add one)
   const plain = message({ roomId: r.id, seq: 3, author: ME, body: '회의' })
   const m2 = await mount(<RoomMessages roomId={r.id} messages={[plain]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
-  const press2 = (type: string) => m2.get('room-message').dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10 }))
-  press2('pointerdown')
-  await m2.settle(700)
-  await m2.settle(450)
+  // the message's ⋯ menu (the hover bar's), then 수정
+  await m2.click('message-more')
   await m2.click('message-edit')
   const box2 = m2.get('room-edit-input') as Box
   await act(async () => { box2.focus(); box2.dispatchEvent(new FakeEvent('focusin', { bubbles: true })) })
