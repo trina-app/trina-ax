@@ -44,6 +44,7 @@ import { SkillChip } from './SkillChip'
 import { WithRoomRefs } from './RoomRefMenu'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
+import { Tooltip } from '../Tooltip'
 
 export { ENGINE_LABEL }
 
@@ -95,9 +96,11 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   if (a.kind === 'image' && !thumbFailed)
     return (
       // the same box as a file card, so a tiny or a large image keeps the row even; the image fills it (cropped)
-      <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line bg-subtle sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
-        <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onError={() => setThumbFailed(true)} className="block h-full w-full object-cover" />
-      </button>
+      <Tooltip label={t('common.previewNamed', { name: a.name })}>
+        <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line bg-subtle sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
+          <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onError={() => setThumbFailed(true)} className="block h-full w-full object-cover" />
+        </button>
+      </Tooltip>
     )
   const ext = typeOf(a.name)
   const body = (

@@ -21,6 +21,7 @@ import { ENGINE_LABEL } from '../../components/chat/EngineMenu'
 import { AdminPageHeader, Loadable, OneLine, USAGE_LIMITS_LINK } from './common'
 import { usageCsv } from '../../lib/usage-csv'
 import { usageShares } from '../../lib/usage-share'
+import { Tooltip } from '../../components/Tooltip'
 
 type GroupBy = 'user' | 'engine' | 'model' | 'day' | 'group' | 'credential' | 'skill'
 type Range = 'today' | '7d' | '30d' | 'month' | 'custom'
@@ -231,7 +232,7 @@ export default function Usage() {
                               </td>
                               <td className="py-3 text-right text-muted tabular-nums">
                                 {formatUsd(r.costUsd, locale)}
-                                {!!r.unpricedTurns && <span className="ml-1 text-warn" title={t('usage.unpricedMark')} aria-label={t('usage.unpricedMark')} data-testid="usage-unpriced">+?</span>}
+                                {!!r.unpricedTurns && <Tooltip label={t('usage.unpricedMark')}><span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')} data-testid="usage-unpriced">+?</span></Tooltip>}
                               </td>
                             </tr>
                           )
@@ -245,7 +246,7 @@ export default function Usage() {
                           <td className="hidden md:table-cell" />
                           <td className="py-3 text-right tabular-nums">
                             {formatUsd(d.totals.costUsd, locale)}
-                            {!!d.totals.unpricedTurns && <span className="ml-1 text-warn" title={t('usage.unpricedMark')} aria-label={t('usage.unpricedMark')}>+?</span>}
+                            {!!d.totals.unpricedTurns && <Tooltip label={t('usage.unpricedMark')}><span className="ml-1 text-warn" aria-label={t('usage.unpricedMark')}>+?</span></Tooltip>}
                           </td>
                         </tr>
                       </tfoot>

@@ -29,6 +29,7 @@ import { useFrameFiles } from '../lib/useFrameFiles'
 import { toast } from '../store/ui'
 import { Button, confirmDialog, IconButton } from './ui'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
+import { Tooltip } from './Tooltip'
 
 const HwpView = lazy(() => import('./viewers/HwpView'))
 const PdfView = lazy(() => import('./viewers/PdfView'))
@@ -183,10 +184,12 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
         </h2>
         <div className="ml-auto flex shrink-0 items-center">
           {file.source === 'team' && chatActionsFor(file, error, downloadOnly) && (
-            <button type="button" onClick={() => chatAttach.askAi([file.path])} title={t('files.askAi')} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
-              {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
-              <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
-            </button>
+            <Tooltip label={t('files.askAi')}>
+              <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
+                {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
+                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
+              </button>
+            </Tooltip>
           )}
           {addToChat && (
             <IconButton label={t('files.addToChatNamed', { title: addToChat.title })} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">

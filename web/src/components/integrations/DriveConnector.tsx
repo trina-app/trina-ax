@@ -22,6 +22,7 @@ import { Badge, Button, Field, inputCls, Modal, useCopy } from '../ui'
 import type { DriveConnectionState } from '../settings/DriveConnection'
 import { ConnectorDetail, LogoTile } from './ConnectorsView'
 import { AppConnectorCard, CardMenu } from './AppConnectorCard'
+import { Tooltip } from '../Tooltip'
 
 const DRIVE = APP_CONNECTORS[0]
 
@@ -235,9 +236,11 @@ export function DriveSetupDialog({ status, onClose, onSaved }: { status: DriveAd
               <span className="block text-xs text-muted">{t('driveSetup.redirect')}</span>
               <code className="block text-xs break-all" data-testid="drive-setup-redirect">{status.redirectUri}</code>
             </span>
-            <Button size="sm" variant="ghost" onClick={() => void copy(status.redirectUri!)} aria-label={t('common.copy')} data-testid="drive-setup-copy">
-              {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
-            </Button>
+            <Tooltip label={t('common.copy')}>
+              <Button size="sm" variant="ghost" onClick={() => void copy(status.redirectUri!)} aria-label={t('common.copy')} data-testid="drive-setup-copy">
+                {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+              </Button>
+            </Tooltip>
           </div>
         )}
         <div>

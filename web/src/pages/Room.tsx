@@ -28,6 +28,7 @@ import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
+import { Tooltip } from '../components/Tooltip'
 
 const NO_MESSAGES: RoomMessage[] = []
 const NO_PENDING: PendingSend[] = []
@@ -182,9 +183,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     <div className="flex h-full" data-testid="room-page">
     <div className={clsx('flex h-full min-w-0 flex-1 flex-col', threadId && 'max-md:hidden')} data-testid="room">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 max-md:gap-1 max-md:pl-0.5 sm:px-4">
-        <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} title={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
-          <ChevronLeft size={20} aria-hidden />
-        </Link>
+        <Tooltip label={t('tabs.back')}>
+          <Link to="/rooms" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="room-back">
+            <ChevronLeft size={20} aria-hidden />
+          </Link>
+        </Tooltip>
         {/* the room's mark beside its name: computers only (on a phone the name is enough; a DM's picture is on the
             person's messages) */}
         {room && (

@@ -15,6 +15,7 @@ import { errorText } from '../lib/api'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { Badge, Button, Skeleton, confirmDialog } from '../components/ui'
+import { Tooltip } from '../components/Tooltip'
 
 export interface BrowserSettingsViewProps {
   settings: DesktopBrowserSettings | null
@@ -83,9 +84,11 @@ export function BrowserSettingsView({ settings: s, serverPolicyOff = false, conf
                 <li key={r.host} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="browser-site">
                   <span className="min-w-0 flex-1 break-all">{r.host}</span>
                   {r.office && <Badge>{t('settings.browser.office')}</Badge>}
-                  <button type="button" aria-label={`${t('settings.browser.remove')} ${r.host}`} title={t('settings.browser.remove')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => onRemove(r.host)} data-testid="browser-site-remove">
-                    <Trash2 size={15} aria-hidden />
-                  </button>
+                  <Tooltip label={`${t('settings.browser.remove')} ${r.host}`}>
+                    <button type="button" aria-label={`${t('settings.browser.remove')} ${r.host}`} className="rounded p-1 text-faint hover:bg-hover hover:text-danger" onClick={() => onRemove(r.host)} data-testid="browser-site-remove">
+                      <Trash2 size={15} aria-hidden />
+                    </button>
+                  </Tooltip>
                 </li>
               ))}
             </ul>

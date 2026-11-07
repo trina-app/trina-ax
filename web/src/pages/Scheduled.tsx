@@ -23,21 +23,24 @@ import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
 import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn } from '../components/ui'
+import { Tooltip } from '../components/Tooltip'
 
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
 
-/** The last run's result as a small dot, with its words for screen readers and on hover. */
+/** The last run's result as a small dot, with its words for screen readers and in a tooltip. */
 function OutcomeDot({ s }: { s: Schedule }) {
   const t = useT()
   if (!s.lastOutcome) return null
   const tone = outcomeTone(s.lastOutcome)
   const label = outcomeLabel(s, t)
   return (
-    <span className="inline-flex shrink-0 items-center" title={label} data-testid="schedule-dot" data-outcome={s.lastOutcome}>
-      <span className={clsx('size-2 rounded-full', DOT[s.lastOutcome === 'done' ? 'ok' : tone])} aria-hidden />
-      <span className="sr-only">{label}</span>
-    </span>
+    <Tooltip label={label}>
+      <span className="inline-flex shrink-0 items-center" data-testid="schedule-dot" data-outcome={s.lastOutcome}>
+        <span className={clsx('size-2 rounded-full', DOT[s.lastOutcome === 'done' ? 'ok' : tone])} aria-hidden />
+        <span className="sr-only">{label}</span>
+      </span>
+    </Tooltip>
   )
 }
 
@@ -181,9 +184,11 @@ export function ScheduledList() {
                 <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
                 <input type="search" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSearch() } }}
                   placeholder={t('scheduled.search')} aria-label={t('scheduled.search')} className={`${inputCls} pr-8 pl-9`} data-testid="scheduled-search" data-own-clear />
-                <button type="button" aria-label={t('scheduled.closeSearch')} onClick={closeSearch} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-faint hover:text-ink">
-                  <X size={14} aria-hidden />
-                </button>
+                <Tooltip label={t('scheduled.closeSearch')}>
+                  <button type="button" aria-label={t('scheduled.closeSearch')} onClick={closeSearch} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-faint hover:text-ink">
+                    <X size={14} aria-hidden />
+                  </button>
+                </Tooltip>
               </div>
             ) : (
               items && items.length > 0 && (

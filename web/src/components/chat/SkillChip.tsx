@@ -4,6 +4,7 @@
 // skill).
 import { Sparkles, X } from 'lucide-react'
 import { useT } from '../../i18n'
+import { Tooltip } from '../Tooltip'
 
 export function SkillChip({ title, name, onRemove }: { title: string; name: string; onRemove?: () => void }) {
   const t = useT()
@@ -12,9 +13,11 @@ export function SkillChip({ title, name, onRemove }: { title: string; name: stri
       <Sparkles size={13} className="shrink-0" aria-hidden />
       <span className="min-w-0 truncate">{title}</span>
       {onRemove && (
-        <button type="button" onClick={onRemove} className="-mr-1 rounded-full p-0.5 hover:bg-hover" aria-label={t('composer.skillRemove', { skill: title })} data-testid="skill-chip-remove">
-          <X size={12} aria-hidden />
-        </button>
+        <Tooltip label={t('composer.skillRemove', { skill: title })}>
+          <button type="button" onClick={onRemove} className="-mr-1 rounded-full p-0.5 hover:bg-hover" aria-label={t('composer.skillRemove', { skill: title })} data-testid="skill-chip-remove">
+            <X size={12} aria-hidden />
+          </button>
+        </Tooltip>
       )}
     </span>
   )
