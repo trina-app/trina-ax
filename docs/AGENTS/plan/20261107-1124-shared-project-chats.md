@@ -98,4 +98,4 @@ Built as planned, with these differences:
 - A chat that stops being shared (rollback guard) keeps the several-authors rules (labelled transcript, own session
   only, folder emptied).
 
-PR: see the pull request for `feat/shared-project-chats`.
+PR: https://github.com/trina-app/trina-ax/pull/171
