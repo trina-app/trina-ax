@@ -228,10 +228,12 @@ test('a room notice is silent when an open page takes care of the sound; otherwi
   expect((await shown([{ handled: true, url: 'https://other.example/' }])).silent).toBe(false)
   // a page from before this (no answer) or a frozen tab: shown after a short wait, with the system's sound
   expect((await shown([{}])).silent).toBe(false)
-  const started = Date.now()
+  // measured on the monotonic clock: a container's wall clock (Date.now) can be stepped back while the worker waits
+  const started = performance.now()
   expect((await shown([{ handled: 'never' }])).silent).toBe(false)
-  expect(Date.now() - started).toBeGreaterThanOrEqual(350)
-  expect(Date.now() - started).toBeLessThan(2000)
+  const waited = performance.now() - started
+  expect(waited).toBeGreaterThanOrEqual(350)
+  expect(waited).toBeLessThan(2000)
   // other notices never ask
   expect(await shown([{ handled: true }], 'schedule.success')).toEqual({ silent: false, asked: [] })
 })
