@@ -88,9 +88,11 @@ export interface DesktopBridge {
   /** desktop app (shell) version, e.g. "0.1.0" */
   appVersion: string
   platform: 'darwin' | 'win32' | 'linux'
-  /** true in a Mac App Store build (Electron's process.mas): the store updates it, so Settings > Apps offers no desktop
-   * installer at all (App Review Guideline 2.4.5: no installs or updates from outside the store). Optional: desktop
-   * apps before this addition do not have it, and none of them came from the store. */
+  /** true in a Mac App Store or Microsoft Store build (Electron's process.mas / process.windowsStore): the store updates
+   * it, so Settings > Apps offers no desktop installer at all (App Review Guideline 2.4.5, Microsoft Store Policy 10.2.4:
+   * no installs or updates from outside the store). Optional: desktop apps before this addition do not have it, and
+   * none of them came from a store. Only the Mac App Store build answers the page's file inputs itself (platform
+   * 'darwin' with store: web/src/lib/desktop.ts answersFileInputs). */
   store?: boolean
   browser: {
     /** Run one browser.call. Same callId twice returns the first result (never runs twice). */
