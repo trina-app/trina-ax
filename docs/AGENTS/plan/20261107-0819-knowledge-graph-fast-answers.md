@@ -1,8 +1,9 @@
 # The AI and the Files search answer from the knowledge graph, faster and cheaper
 
 - Date (UTC): 2026-11-07 08:19
-- Branch: `feat/knowledge-graph-fast-answers`
-- Status: in progress (wave 1 built, in review)
+- Branch: `feat/knowledge-graph-fast-answers` (wave 1, PR #165); `feat/knowledge-graph-meaning` (waves 2 and 3, stacked
+  on wave 1)
+- Status: in progress (wave 1 in PR #165; waves 2 and 3 being built)
 - Where: this repo, `server/src/knowledge-graph/`, `server/src/chat/` (prompt, turn), `server/src/mcp/`, the Files
   search (`server/src/routes/files.ts`, `web/src/components/FileContentSearch.tsx`), and the old `server/src/search/`
   it replaces. Why: chat, files and the AI belong in the Team AX core (docs/REPOSITORY-RULES.md).
@@ -136,6 +137,18 @@ files. They share one search, `KnowledgeGraph.lookup()` in `server/src/knowledge
 knowledge-graph agent owns and the others call: the AI's tool, the lookup before the model starts and the Files
 search. Wave 1 agents: benchmark; knowledge graph (`lookup`, the tool); chat (prompt, the lookup before the model,
 template runs); MCP (parallel reads); Files search (route, screen, languages).
+
+Wave 2 agents, around one contract (`server/src/knowledge-graph/meaning/vectors.ts`: the model, the int8 vector format,
+the embedder interface):
+
+- **Meaning index:** the embedder, indexing in a background process, the `vec` column, CP949, file name and heading
+  in front, the memory check, the switch.
+- **Combined search:** the vectors in the search worker, the query's embedding, rank fusion with the keyword results,
+  the deadline.
+- **Quality test:** the public documents and the made-up office, 100–150 questions written before any run, and the
+  runner.
+
+Wave 3 follows the quality test's result.
 
 ## Risks
 
