@@ -57,6 +57,7 @@ const T0 = performance.now()
 const peaks: Record<string, number> = {}
 let phase = 'setup'
 const sample = () => { const r = process.memoryUsage().rss; if (r > (peaks[phase] ?? 0)) peaks[phase] = r }
+// sampled on a timer and inside the loops too: indexing text files never yields to the timer
 const sampler = setInterval(sample, 100)
 const enter = (p: string) => { sample(); phase = p; sample() }
 const mb = (b: number) => Math.round(b / 1024 / 1024)
@@ -114,6 +115,7 @@ const build = { files: 0, ok: 0, failed: [] as { rel: string; reason: string }[]
     const st = fs.statSync(f.abs)
     const r = await idx.update(ROOT_ID, f.rel, { bytes, size: st.size, mtimeMs: st.mtimeMs })
     build.files++
+    sample()
     build.bytes += bytes.byteLength
     if (r.ok) { build.ok++; build.chunks += r.chunks } else build.failed.push({ rel: f.rel, reason: r.reason })
     if (build.files % 500 === 0) log(`indexed ${build.files}/${allFiles.length} files, ${build.chunks} pieces`)
@@ -142,7 +144,7 @@ if (meaning.asked) {
       log(`embedder open in ${(m.ms / 1000).toFixed(1)} s; embedding pieces (${EMBED_THREADS} threads, batches of ${EMBED_BATCH})`)
       enter('embed')
       let last = 0
-      const e = await fillVectors(dbFile, m.embedder, { batch: EMBED_BATCH, onProgress: (done, total) => { if (done - last >= 1000 || done === total) { last = done; log(`embedded ${done}/${total} pieces`) } } })
+      const e = await fillVectors(dbFile, m.embedder, { batch: EMBED_BATCH, onProgress: (done, total) => { sample(); if (done - last >= 1000 || done === total) { last = done; log(`embedded ${done}/${total} pieces`) } } })
       const vc = vectorCount(dbFile)
       if (vc.withVec < vc.chunks) meaning.skipped = `only ${vc.withVec} of ${vc.chunks} pieces have a vector`
       else {
@@ -195,6 +197,7 @@ for (const n of sizes) {
       // await: the combined search may answer with a promise (the question is embedded first)
       const hits: DocHit[] = w ? await idx.search(w, so) : []
       m.set(q.id, score(q, hits, performance.now() - t1))
+      sample()
     }
     per[mode] = m
   }
@@ -346,7 +349,7 @@ function markdown(): string {
   L.push('## Cost', '')
   L.push(`- Indexing (keyword, one thread, text extraction included): ${build.files} files, ${build.chunks} pieces in ${out.cost.index.seconds} s = ${out.cost.index.piecesPerSecond} pieces/s; documents.db ${out.cost.index.diskMb} MB`)
   if (meaning.embed) L.push(`- Embedding: ${meaning.embed.pieces} pieces in ${round(meaning.embed.ms / 1000, 1)} s = ${meaning.embed.perSecond} pieces/s (${meaning.embed.threads} threads, batches of ${meaning.embed.batch}); embedder opened in ${round((meaning.openMs ?? 0) / 1000, 1)} s`)
-  L.push(`- Peak RSS by phase (MB, sampled every 100 ms): ${Object.entries(out.cost.peakRssMb).map(([k, v]) => `${k} ${v}`).join(', ')}; process max ${out.cost.maxRssMb} MB`)
+  L.push(`- Peak RSS by phase (MB, sampled every 100 ms and after every file and question): ${Object.entries(out.cost.peakRssMb).map(([k, v]) => `${k} ${v}`).join(', ')}; process max ${out.cost.maxRssMb} MB`)
   L.push(`- Query time (ms, one search, the server's own thread): ${sizes.map((n) => `${sizeName(n)}: ${modes.map((m) => `${m} p50 ${out.cost.query[sizeName(n)]![m]!.p50} / p95 ${out.cost.query[sizeName(n)]![m]!.p95}`).join(', ')}`).join('; ')}`)
   L.push('')
   L.push('## Misses on the full set (ids)', '')

@@ -18,8 +18,10 @@ Q=scripts/bench/quality
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 git archive --format=tar HEAD > "$TMP/in.tar"
-tar -rf "$TMP/in.tar" "$Q/.cache/wiki"
-[ -d "$Q/.cache/models" ] && tar -rf "$TMP/in.tar" "$Q/.cache/models"
+# no extended attributes (macOS adds com.apple.provenance, which the container's tar warns about for every file)
+export COPYFILE_DISABLE=1
+tar --no-xattrs -rf "$TMP/in.tar" "$Q/.cache/wiki"
+if [ -d "$Q/.cache/models" ]; then tar --no-xattrs -rf "$TMP/in.tar" "$Q/.cache/models"; fi
 mkdir "$TMP/out"
 docker run --rm -i --cpus=2 --memory=4g -e QUALITY_COMMIT="$(git rev-parse --short HEAD)" "$IMAGE" sh -c '
   set -e
