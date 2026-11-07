@@ -21,6 +21,7 @@ import { openTeamFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
 import { useCopy, useEdgeFade } from './ui'
+import { Tooltip } from './Tooltip'
 
 const mathRemark = [remarkMath, { singleDollarTextMath: true }] as const
 const mathRehype = [rehypeKatex, { throwOnError: false, strict: false, trust: false, maxExpand: 500 }] as const
@@ -131,9 +132,11 @@ export function CodeBlock({ lang, code }: { lang: string | null; code: string })
             {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
             <span>{copied ? t('common.copied') : t('common.copy')}</span>
           </button>
-          <button type="button" className="touch-hit rounded p-1 hover:bg-white/10 hover:text-white" aria-label={t('md.downloadCode')} title={t('md.downloadCode')} onClick={() => saveBlob(new Blob([code], { type: 'text/plain;charset=utf-8' }), `code.${LANG_EXT[lang ?? ''] ?? 'txt'}`)}>
-            <Download size={13} aria-hidden />
-          </button>
+          <Tooltip label={t('md.downloadCode')}>
+            <button type="button" className="touch-hit rounded p-1 hover:bg-white/10 hover:text-white" aria-label={t('md.downloadCode')} onClick={() => saveBlob(new Blob([code], { type: 'text/plain;charset=utf-8' }), `code.${LANG_EXT[lang ?? ''] ?? 'txt'}`)}>
+              <Download size={13} aria-hidden />
+            </button>
+          </Tooltip>
         </span>
       </div>
       <pre className="m-0 overflow-x-auto p-3 text-code leading-5">
@@ -268,9 +271,11 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
       </button>
     )
   return (
-    <button type="button" className="not-prose my-2 inline-block" onClick={() => openTeamFile(path)} aria-label={t('md.openImage', { name: alt || baseName(path) })}>
-      <img src={fileUrl(path, 'inline')} alt={alt ?? ''} loading="lazy" onError={() => setFailed(true)} className={className ?? 'max-h-80 rounded-lg border border-line'} />
-    </button>
+    <Tooltip label={t('md.openImage', { name: alt || baseName(path) })}>
+      <button type="button" className="not-prose my-2 inline-block" onClick={() => openTeamFile(path)} aria-label={t('md.openImage', { name: alt || baseName(path) })}>
+        <img src={fileUrl(path, 'inline')} alt={alt ?? ''} loading="lazy" onError={() => setFailed(true)} className={className ?? 'max-h-80 rounded-lg border border-line'} />
+      </button>
+    </Tooltip>
   )
 }
 

@@ -17,6 +17,7 @@ import { fmtDuration } from '../lib/format'
 import { navigateTo } from '../lib/nav'
 import type { VoiceInputState } from '../lib/useVoiceInput'
 import { SPEECH_SETTINGS_PATH, type MicState } from '../lib/voice'
+import { Tooltip } from './Tooltip'
 import { IconButton } from './ui'
 
 /** `className`: the bar's padding where the box has other padding (default px-3 py-3) */
@@ -51,9 +52,11 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
       <span className={clsx('shrink-0 text-sm tabular-nums', voice.left !== null ? 'font-medium text-danger' : 'text-muted')} data-testid="voice-time">
         {voice.left !== null ? t('voice.left', { time: fmtDuration(voice.left) }) : fmtDuration(voice.seconds)}
       </span>
-      <button ref={done} type="button" onClick={voice.finish} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
-        <Check size={18} />
-      </button>
+      <Tooltip label={t('voice.done')}>
+        <button ref={done} type="button" onClick={voice.finish} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
+          <Check size={18} />
+        </button>
+      </Tooltip>
     </div>
   )
 }

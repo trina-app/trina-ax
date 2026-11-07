@@ -45,6 +45,7 @@ import { SkillChip } from './SkillChip'
 import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
 import { fromWire } from '../../lib/roomRefs'
 import { useTextSize } from '../../lib/textSize'
+import { Tooltip } from '../Tooltip'
 
 interface Pending {
   id: string
@@ -624,9 +625,11 @@ export default function Composer({
                     )}
                   </span>
                 </span>
-                <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
-                  <X size={14} />
-                </button>
+                <Tooltip label={t('composer.removeAttachment', { name: f.name })}>
+                  <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} title="" onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
+                    <X size={14} />
+                  </button>
+                </Tooltip>
               </li>
             ))}
           </ul>
@@ -704,37 +707,44 @@ export default function Composer({
                 {answering
                   ? canSend && (
                       // the AI's question: also how phones (Enter makes a new line there) answer from the box
-                      <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} title={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
-                        {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
-                      </button>
+                      <Tooltip label={t('composer.sendAnswer')}>
+                        <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
+                          {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
+                        </button>
+                      </Tooltip>
                     )
                   : running &&
                     canSend && (
                       // phones make a new line with Enter: this button is how a message waits for the answer there
-                      <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} title={t('outbox.sendLater')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-later">
-                        <Clock size={17} aria-hidden />
-                      </button>
+                      <Tooltip label={t('outbox.sendLater')}>
+                        <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-later">
+                          <Clock size={17} aria-hidden />
+                        </button>
+                      </Tooltip>
                     )}
                 {running ? (
-                  <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} title={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
-                    {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
-                  </button>
+                  <Tooltip label={t('composer.stop')}>
+                    <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
+                      {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
+                    </button>
+                  </Tooltip>
                 ) : (
                   !answering && (
-                    <button
-                      type="button"
-                      onClick={submit}
-                      disabled={!canSend}
-                      aria-label={t('chat.send')}
-                      title={t('chat.send')}
-                      // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
-                      className={clsx('touch-hit flex items-center justify-center transition', phone
-                        ? clsx('size-10 rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
-                        : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
-                      data-testid="send"
-                    >
-                      {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
-                    </button>
+                    <Tooltip label={t('chat.send')}>
+                      <button
+                        type="button"
+                        onClick={submit}
+                        disabled={!canSend}
+                        aria-label={t('chat.send')}
+                        // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
+                        className={clsx('touch-hit flex items-center justify-center transition', phone
+                          ? clsx('size-10 rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
+                          : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
+                        data-testid="send"
+                      >
+                        {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
+                      </button>
+                    </Tooltip>
                   )
                 )}
               </div>

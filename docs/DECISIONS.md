@@ -11975,6 +11975,46 @@ core next to the theme.
   at a step's edge. The keyboard and a tap apply at once. The account is saved 400 ms after the last change, one save
   per drag; closing Settings sooner still saves it.
 
+## Icon tooltips across the app (feat/icon-tooltips, 2026-11-07, product owner)
+
+넣을 곳: Team AX core (`web/src/components/Tooltip.tsx`, `ui.tsx` `IconButton` / `CopyButton`, the screens' icon-only
+controls, `web/scripts/check-icon-tooltips.ts`), 이유: the owner asked that hovering an icon show what it does, and a
+description where the icon alone does not say it ("icon 호버하면 툴팁, 그 설명도 나와야 할 것 같아"). The rooms had the
+shared tooltip already; the rest of the app had the browser's `title` (slow, unstyled, absent on keyboard focus) or
+nothing.
+
+- **IconButton shows its label as the tooltip by default** (it was opt-in with `tip`), so every one of its ~85 call
+  sites gets it and a new one cannot forget it; `tip="…"` gives other words (they describe the button), `tip={false}`
+  is only for one inside a `<Tooltip>` of its own. `CopyButton` shows it when it shows no words. A plain `<button>`,
+  `<a>`, `Link` or `Button` with only icons is wrapped in `<Tooltip>` (about 40 places), and `title` on such a control
+  or on a meaningful icon (lock, connected check, schedule dot, the usage "+?") is gone. `title` stays where it carries
+  the full text of a cut-off name, a hint on a labelled button, or a disabled control's reason.
+- **Descriptions** only where the icon's name is not enough, in five languages: the read-only lock ("읽기 전용: 볼 수만
+  있어요") and the can-edit pencil in Files and Home, a connector's official mark ("공식: 서비스를 만든 곳이 직접
+  제공하거나 {product}에 들어 있는 연결이에요"). The admin's lock on a rule that cannot be removed already had a sentence.
+- **Two rules added to the tooltip itself**, because it now sits on dialogs' close buttons and toolbars: keyboard focus
+  means `:focus-visible` (a dialog opened with a click focuses its first button, the close X; that showed "닫기" every
+  time), and no tip while the element shows the same words (the Files toolbar's 새 폴더 / 업로드 lose their words in a
+  narrow window, and only then get the tip).
+- **The check is static** (`bun run check:tooltips`, part of `check:docs`, so CI's check job runs it): it parses every
+  `.tsx` in `web/src` and fails on an icon-only control (only Lucide icons, `<svg>`/`<img>`/thumbnails, words hidden by `sr-only` or
+  a `*:hidden` class) that is not the direct child of a `<Tooltip>`, on `title` beside a `<Tooltip>`, on `title` on an
+  icon, on `IconButton tip={false}` outside one, and on a control inside an element (of the same component) with a
+  `title`, which the browser would show beside the tooltip (the control takes `title=""`); `{/* no-tooltip: <reason> */}`
+  on the line above opts one out.
+  Rejected: a unit test over rendered main pages. The unit tests' small DOM renders a page only with its stores and API
+  mocked, and only in its first state, so menus, dialogs, row actions, error and admin-only states (most of the icon
+  buttons) would stay unseen; the static check sees every file, needs no browser or server, and names the line.
+- **The sidebar** (after PR #124 landed): the history's filter and its clear ✕, a chat's "…" and 대화's + get the
+  tooltip in place of their titles; nothing else in it moves. The team row at the top is no icon-only control (the team's
+  name from 768px, the AI's name below), so the check counts two parts hidden at opposite sides of one breakpoint as
+  words.
+- **Left out:** the desktop shell's own HTML screens (`desktop/src/ui/`), status icons inside labelled rows (a step's done /
+  failed mark, spinners), and the phone's bottom tabs (they have words; tooltips never show on touch anyway).
+- Tests: `web/test/unit/tooltip.test.tsx` (IconButton default, `tip` text and `false`, CopyButton, `:focus-visible`,
+  words shown), `web/test/unit/icon-tooltips.test.tsx` (the check on samples; a dialog's close, a code block's download,
+  a skill chip's remove, Settings › Browser's remove, a connector's official mark).
+- Version impact: **patch** (UI only; no API change).
 ## Microsoft Edge push through WNS (feat/edge-push, 2026-11-07)
 
 The owner approved Edge ("Edge 브라우저 푸시 ㄱㄱ"). Edge (Chromium) subscribes through the Windows Push Notification

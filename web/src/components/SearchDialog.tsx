@@ -21,6 +21,7 @@ import { useEdgeFade, useFocusTrap } from './ui'
 import { contentQueryReady } from './FileContentSearch'
 import { skillFileLink } from './AvailableSkills'
 import { useChatActions } from './chat/chatActions'
+import { Tooltip } from './Tooltip'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -370,9 +371,11 @@ function SearchBox({ onClose }: { onClose: () => void }) {
               }
             }}
           />
-          <button type="button" onClick={onClose} aria-label={t('search.close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover hover:text-text">
-            <X size={18} aria-hidden />
-          </button>
+          <Tooltip label={t('search.close')}>
+            <button type="button" onClick={onClose} aria-label={t('search.close')} className="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover hover:text-text">
+              <X size={18} aria-hidden />
+            </button>
+          </Tooltip>
         </div>
         {/* the line under the tabs sits outside the row, so the row's edge fade does not fade it too */}
         <div className="shrink-0 border-b border-line">
@@ -426,19 +429,20 @@ function SearchBox({ onClose }: { onClose: () => void }) {
                       {r.sub && <span className={clsx('ml-2 text-xs', r.attention ? 'text-accent-text' : 'text-faint')}>{r.subMatch ? mark(r.sub) : r.sub}</span>}
                     </span>
                     {on && r.chat && (
-                      <span
-                        role="presentation"
-                        title={t('search.rowActions')}
-                        data-testid="search-row-more"
-                        className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-text"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (menu?.row.key === r.key) closeMenu()
-                          else openMenu(r)
-                        }}
-                      >
-                        <MoreHorizontal size={16} aria-hidden />
-                      </span>
+                      <Tooltip label={t('search.rowActions')}>
+                        <span
+                          role="presentation"
+                          data-testid="search-row-more"
+                          className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-surface hover:text-text"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (menu?.row.key === r.key) closeMenu()
+                            else openMenu(r)
+                          }}
+                        >
+                          <MoreHorizontal size={16} aria-hidden />
+                        </span>
+                      </Tooltip>
                     )}
                     {/* the Enter hint is for a keyboard: phones (below 768px) have none */}
                     {on && <CornerDownLeft size={15} className="shrink-0 text-faint max-md:hidden" aria-hidden />}

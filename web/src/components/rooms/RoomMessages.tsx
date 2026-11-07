@@ -38,6 +38,7 @@ import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { pickedInMessage, useMentionMenu } from './useMentionMenu'
+import { Tooltip } from '../Tooltip'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -495,9 +496,11 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
     <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
       {files.map((f) =>
         f.kind === 'image' && f.thumb ? (
-          <button key={f.id} type="button" onClick={() => void preview(f)} aria-label={t('rooms.openImage', { name: f.name })} title={f.name} className="overflow-hidden rounded-lg border border-line bg-subtle" data-testid="room-image">
-            <RoomThumb f={f} src={url(f, { thumb: '1' })} />
-          </button>
+          <Tooltip key={f.id} label={t('rooms.openImage', { name: f.name })}>
+            <button type="button" onClick={() => void preview(f)} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line bg-subtle" data-testid="room-image">
+              <RoomThumb f={f} src={url(f, { thumb: '1' })} />
+            </button>
+          </Tooltip>
         ) : (
           <button key={f.id} type="button" onClick={() => startDownload(url(f, { download: '1' }), f.name)} aria-label={t('rooms.download', { name: f.name })} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
             <FileText size={15} className="shrink-0 text-muted" aria-hidden />

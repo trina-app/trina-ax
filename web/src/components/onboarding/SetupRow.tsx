@@ -18,6 +18,7 @@ import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { useMediaQuery } from '../ui'
 import { ConnectAiButton } from './ConnectAi'
+import { Tooltip } from '../Tooltip'
 
 /** a phone (the drawer): the same query as the steps' own */
 const PHONE = '(max-width: 767.98px)'
@@ -76,16 +77,17 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
           )}
         </Link>
       )}
-      <button
-        type="button"
-        onClick={hide}
-        aria-label={t('setupRow.hide')}
-        title={t('setupRow.hide')}
-        className="flex size-7 shrink-0 items-center justify-center rounded-md text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/setup:opacity-100 max-md:size-9 max-md:opacity-100"
-        data-testid="setup-row-hide"
-      >
-        <X size={14} aria-hidden />
-      </button>
+      <Tooltip label={t('setupRow.hide')}>
+        <button
+          type="button"
+          onClick={hide}
+          aria-label={t('setupRow.hide')}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/setup:opacity-100 max-md:size-9 max-md:opacity-100"
+          data-testid="setup-row-hide"
+        >
+          <X size={14} aria-hidden />
+        </button>
+      </Tooltip>
     </div>
   )
 }
