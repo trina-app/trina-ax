@@ -486,30 +486,29 @@ describe('every install path reads the list', () => {
   const word = (n: string) => new RegExp(`(?<![A-Za-z0-9.+_/-])${n.replace(/[.+]/g, '\\$&')}(?![A-Za-z0-9.+_/-])`)
 
   // Every shell script under scripts/ and docker/, and every Containerfile/Dockerfile of the repository, is scanned. These
-  // may name packages, each for a reason (none of them installs the product's system):
-  const ALLOWED: Record<string, string> = {
-    'scripts/linux/build-whisper.sh': 'the build machine\'s compiler for whisper-cli, not a server',
-    'scripts/dev-env/srt/vm-check.sh': 'a throwaway test VM of the srt spike',
-    'scripts/dev-env/srt/spike-vm.sh': 'the srt design spike\'s VM',
-    'scripts/dev-env/Containerfile': 'the inside of a dev environment box (podman image), not the server',
-    'tests/linux/Dockerfile': 'the Linux test container',
-    'tests/linux/Dockerfile.srt': 'the srt attack test container',
-    'tests/linux/Dockerfile.safe-ops': 'the safe operations test container',
-    'tests/linux/Dockerfile.html-pdf': 'the HTML to PDF test container',
-    'tests/install/linux/Dockerfile': 'the install test\'s systemd container (what an installer fetches, cached)',
+  // commands may name packages, each for a reason (none of them installs the product's system). The allowlist is per
+  // command, not per file (PR #164 review, M5): a command is allowed when it holds one of its file's fragments, every
+  // other command of the file is checked like any file's, and a fragment no command holds any more is a stale entry.
+  type Allow = { why: string; lines: string[] }
+  const ALLOWED: Record<string, Allow> = {
+    'scripts/linux/build-whisper.sh': { why: 'the build machine\'s compiler for whisper-cli, not a server', lines: ['apt-get install -y --no-install-recommends build-essential cmake'] },
+    'scripts/dev-env/srt/vm-check.sh': { why: 'a throwaway test VM of the srt spike', lines: ['apt-get install -y -q jq curl', 'apt-get install -y -q --no-install-recommends pandoc'] },
+    'scripts/dev-env/srt/spike-vm.sh': { why: 'the srt design spike\'s VM', lines: ['apt-get install -y -q unzip curl jq'] },
+    'scripts/dev-env/Containerfile': { why: 'the inside of a dev environment box (podman image), not the server', lines: ['apt-get install -y --no-install-recommends nodejs npm'] },
+    'tests/linux/Dockerfile': { why: 'the Linux test container', lines: ['apt-get install -y --no-install-recommends ripgrep poppler-utils'] },
+    'tests/linux/Dockerfile.srt': { why: 'the srt attack test container', lines: ['apt-get install -y --no-install-recommends bubblewrap socat'] },
+    'tests/linux/Dockerfile.safe-ops': { why: 'the safe operations test container', lines: ['apt-get install -y --no-install-recommends libheif-examples'] },
+    'tests/linux/Dockerfile.html-pdf': { why: 'the HTML to PDF test container', lines: ['apt-get install -y --no-install-recommends bubblewrap chromium'] },
+    'tests/install/linux/Dockerfile': { why: 'the install test\'s systemd container (what an installer fetches, cached)', lines: ['apt-get install -y --no-install-recommends systemd systemd-sysv'] },
   }
-  // and these may carry a sha256 or a download address of their own, each for a reason
-  const PINS_ALLOWED: Record<string, string> = {
-    'docker/Dockerfile': 'checks the release kit against the release\'s SHA256SUMS (a pattern, not a pin)',
-    'scripts/linux/build-whisper.sh': 'the whisper.cpp source the build compiles, pinned there with its build',
-    'scripts/dev-env/srt/spike-vm.sh': 'the srt design spike\'s VM',
-    'scripts/dev-env/srt/vm-check.sh': 'a throwaway test VM of the srt spike',
-    'scripts/dev-env/Containerfile': 'the inside of a dev environment box (podman image), not the server',
-    'tests/linux/Dockerfile.html-pdf': 'the HTML to PDF test container',
-    'tests/linux/Dockerfile': 'the Linux test container (its pandoc for the tests)',
-    'tests/linux/Dockerfile.srt': 'the srt attack test container: its node is the list\'s (checked below)',
-    'scripts/vm/macos-vm.sh': 'the digest of the macOS test VM image',
+  // and these commands may carry a sha256 or a download address of their own, each for a reason
+  const PINS_ALLOWED: Record<string, Allow> = {
+    'tests/linux/Dockerfile': { why: 'the Linux test container (its pandoc and typst for the tests)', lines: ['typst-$T-unknown-linux-musl.tar.xz'] },
+    'tests/linux/Dockerfile.srt': { why: 'the srt attack test container: its node is the list\'s (checked below)', lines: ['no node pin for $TARGETARCH'] },
+    'scripts/vm/macos-vm.sh': { why: 'the digest of the macOS test VM image', lines: ['ghcr.io/cirruslabs/macos-tahoe-base@sha256:'] },
   }
+  /** is this command of file f allowed by the list (a command that holds one of the file's fragments)? */
+  const allowedBy = (list: Record<string, Allow>, f: string, l: string) => !!list[f]?.lines.some((x) => l.includes(x))
   // and these may install a few named packages, each for a reason
   const NAMES_ALLOWED: Record<string, { names: string[]; why: string }> = {
     'docker/Dockerfile': { names: ['ca-certificates', 'curl'], why: 'the stage that downloads the kit, before the list exists; not part of the image' },
@@ -595,10 +594,17 @@ describe('every install path reads the list', () => {
     const files = scanned()
     for (const f of [...INSTALLERS, ...STAGERS, 'scripts/dev-env/vm-setup.sh', 'scripts/dev-env/Containerfile', 'docker/Dockerfile', 'docker/entrypoint.sh']) expect(files).toContain(f)
     for (const f of [...Object.keys(ALLOWED), ...Object.keys(PINS_ALLOWED)]) expect(`${f}: ${files.includes(f)}`).toBe(`${f}: true`) // no stale entry
+    // no stale fragment: each names a command its file still has
+    for (const [f, a] of [...Object.entries(ALLOWED), ...Object.entries(PINS_ALLOWED)]) {
+      for (const x of a.lines) expect(`${f}: "${x}": ${commands(read(f)).some(([, l]) => l.includes(x))}`).toBe(`${f}: "${x}": true`)
+    }
+    // an allowed file is not a free pass: another command in it that installs by name is found
+    expect(allowedBy(ALLOWED, 'tests/linux/Dockerfile', 'RUN apt-get install -y ripgrep poppler-utils')).toBe(false)
+    expect(allowedBy(ALLOWED, 'tests/linux/Dockerfile', 'RUN apt-get update && apt-get install -y --no-install-recommends ripgrep poppler-utils procps')).toBe(true)
     const found: string[] = []
     for (const f of files) {
-      if (ALLOWED[f]) continue
       for (const [n, l] of commands(read(f))) {
+        if (allowedBy(ALLOWED, f, l)) continue
         const hits = [...names].filter((p) => word(p).test(l))
         if (hits.length >= 3) found.push(`${f}:${n}: ${hits.join(' ')}`)
         for (const a of installsByName(l)) if (!NAMES_ALLOWED[f]?.names.includes(a)) found.push(`${f}:${n}: installs "${a}" by name`)
@@ -606,6 +612,7 @@ describe('every install path reads the list', () => {
     }
     expect(found).toEqual([])
   })
+
 
   test('a test container that pins node pins the list\'s', () => {
     const t = read('tests/linux/Dockerfile.srt'), node = LIST.artifacts.node!
@@ -616,8 +623,8 @@ describe('every install path reads the list', () => {
   test('no script or container file pins a download of its own (except the allowed few, with a reason)', () => {
     const found: string[] = []
     for (const f of scanned()) {
-      if (PINS_ALLOWED[f]) continue
       for (const [n, l] of commands(read(f))) {
+        if (allowedBy(PINS_ALLOWED, f, l)) continue
         const h = l.match(/(?<![0-9A-Za-z])[0-9a-f]{64}(?![0-9A-Za-z])/)
         if (h) found.push(`${f}:${n}: sha256 ${h[0].slice(0, 12)}…`)
         for (const u of ['nodejs.org/dist', 'chrome-for-testing', 'registry.npmjs.org']) if (l.includes(u)) found.push(`${f}:${n}: ${u}`)

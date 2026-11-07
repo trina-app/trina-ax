@@ -12892,7 +12892,9 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   scanned (comments out, continuation lines joined, options before the command, apt in a variable, dnf, yum, zypper, apk,
   brew and pip too, and commands inside quotes unless the quotes are a message of echo, printf, die, warn or say), and none
   names three packages on a line or installs a name, nor carries a sha256, a pinned download address or a version of its
-  own, except an allowlist with a reason for each file (a test container that pins node must pin the list's); the image
+  own, except an allowlist with a reason, per command and not per file (PR #164 review, M5: a command is allowed by a
+  fragment it holds, the file's other commands are checked as usual, and a fragment no command holds any more fails as
+  stale; a test container that pins node must pin the list's); the image
   installs the installer's default groups plus its own; install-linux.sh accepts exactly the list's systems; srt has one
   version in the list, the server and the lockfile; the list is a root file and in the office zip; the browser switch,
   the stalled download, the env file, the record and apt as a transient unit behave. The Go side:
