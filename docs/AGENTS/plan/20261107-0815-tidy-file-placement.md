@@ -71,4 +71,4 @@ Built as planned, with these differences (the independent review and the real-en
 - Real engines with test data: dev before this change copied the quote to the top of `shared/`; with it, Claude Code
   made `shared/Sales/Quotes/` and moved the quote there, Codex moved it into `shared/Sales/Past_Proposals/`.
 
-PR: see the pull request that links this plan.
+PR: https://github.com/trina-app/trina-ax/pull/157
