@@ -2888,7 +2888,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.integration_template.connect": "Menghubungkan templat MCP dengan kunci sendiri",
   'audit.act.integration_request.decline': "Menolak permintaan koneksi MCP",
   'teamIcon.title': 'Logo tim',
-  'teamIcon.desc': 'Tampil di tab browser, halaman masuk, dan aplikasi yang ditambahkan ke layar utama.',
+  'teamIcon.desc': 'Tampil di tab browser, bilah samping, halaman masuk, dan aplikasi yang ditambahkan ke layar utama.',
   'teamIcon.default': 'Ikon bawaan {product} sedang dipakai.',
   'teamIcon.custom': 'Logo tim sedang dipakai.',
   'teamIcon.upload': 'Unggah logo',

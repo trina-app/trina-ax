@@ -2848,7 +2848,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.integration_template.connect": "Conectó una plantilla MCP con su propia clave",
   'audit.act.integration_request.decline': "Rechazó una solicitud de conexión MCP",
   'teamIcon.title': "Logo del equipo",
-  'teamIcon.desc': "Se muestra en las pestañas del navegador, la página de inicio de sesión y la aplicación añadida a la pantalla de inicio.",
+  'teamIcon.desc': "Se muestra en las pestañas del navegador, la barra lateral, la página de inicio de sesión y la aplicación añadida a la pantalla de inicio.",
   'teamIcon.default': "Se está usando el icono predeterminado de {product}.",
   'teamIcon.custom': "Se está usando el logo de su equipo.",
   'teamIcon.upload': "Subir logo",

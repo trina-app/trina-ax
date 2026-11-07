@@ -483,3 +483,47 @@ describe('the phone drawer keeps its own layout', () => {
     }
   })
 })
+
+describe('the team logo in the header (Admin › Team settings › 팀 로고)', () => {
+  const withIcon = (iconVersion: string | null) => {
+    const m0 = me('member')
+    useSession.setState({ status: { kind: 'signed-in', me: { ...m0, team: { ...m0.team, iconVersion } } } } as never)
+  }
+  const shown = (m: Awaited<ReturnType<typeof render>>) => m.get('sidebar-logo').className
+  test('a logo: at its version next to the team name (md and up); the product mark below md, where the header names the AI', async () => {
+    withIcon('0123456789abcdef')
+    const m = await render()
+    try {
+      expect(m.get('sidebar-logo').getAttribute('src')).toBe('/team-icon?v=0123456789abcdef')
+      expect(shown(m)).toContain('max-md:hidden')
+      expect(m.get('sidebar-logo-phone').getAttribute('src')).toBe('/favicon.svg')
+      expect(m.get('sidebar-logo-phone').className).toContain('md:hidden')
+      expect(m.get('sidebar-logo-phone').className).not.toContain('max-md:hidden')
+    } finally {
+      await m.unmount()
+    }
+  })
+  test('a new version is a new address, so it shows without a reload', async () => {
+    withIcon('fedcba9876543210')
+    const m = await render()
+    try {
+      expect(m.get('sidebar-logo').getAttribute('src')).toBe('/team-icon?v=fedcba9876543210')
+    } finally {
+      await m.unmount()
+    }
+  })
+  for (const phone of [false, true]) {
+    test(`${phone ? 'the phone drawer' : 'a computer'}: no logo, the product mark at every width`, async () => {
+      wide = !phone
+      withIcon(null)
+      const m = await render()
+      try {
+        expect(m.get('sidebar-logo').getAttribute('src')).toBe('/favicon.svg')
+        expect(shown(m)).not.toContain('hidden')
+        expect(m.find('sidebar-logo-phone')).toBeNull()
+      } finally {
+        await m.unmount()
+      }
+    })
+  }
+})
