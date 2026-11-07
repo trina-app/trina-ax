@@ -73,7 +73,10 @@ const status = useSession.getState().status
 const realFetch = globalThis.fetch
 let sent: { body: string; mentions: string[]; mentionsAll?: boolean }[] = []
 const live = new Set<Mounted>()
-const WAIT = 2000
+/** a wait for something the page does (never a fixed time), well inside each test's own time (DOM_TEST_MS) */
+const WAIT = 4000
+/** each DOM test's time: a full suite on a loaded CI machine renders slowly; bun's default (5 s) is no budget for that */
+const DOM_TEST_MS = 20_000
 
 beforeAll(() => { installDom() })
 beforeEach(() => { useLocaleStore.setState({ locale: 'ko' }) })
@@ -143,6 +146,19 @@ async function key(box: Box, k: string) {
 /** the rows of the "@" list: "all:…", "ai:…" or a person's (the avatar's letter, then the name) */
 const rows = (m: Mounted) => (m.find('mention-menu')?.querySelectorAll('[data-testid="mention-option"]') ?? []).map((b) => (b.hasAttribute('data-all') ? 'all:' : b.hasAttribute('data-ai') ? 'ai:' : '') + b.textContent)
 const tokens = (m: Mounted) => m.get('token-layer').querySelectorAll('[data-token]').map((el) => `${el.getAttribute('data-token')}:${el.textContent}`)
+/** what the layer over the box draws: the text the box's state holds */
+const layer = (m: Mounted) => m.get('token-layer').textContent.replace(/\u200b$/, '')
+/** A message's edit form, opened as a mouse does it (its ⋯ menu, then 수정), each step waiting for what the page shows,
+ * never for time; the box is used once React has put the message's text in it. */
+async function openEdit(m: Mounted, text: string): Promise<Box> {
+  await m.click('message-more')
+  await m.until(() => m.find('message-edit'), 'the message menu', WAIT)
+  await m.click('message-edit')
+  const box = (await m.until(() => m.find('room-edit-input'), 'the edit form', WAIT)) as Box
+  await act(async () => { box.focus(); box.dispatchEvent(new FakeEvent('focusin', { bubbles: true })) })
+  await m.until(() => box.value === text && layer(m) === text, 'the message text in the edit box', WAIT)
+  return box
+}
 const people = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `사람${i + 1}` }))
 
 test('the row right under the AI: its word and how many it notifies; found by any word, not by a person\'s name', async () => {
@@ -161,7 +177,7 @@ test('the row right under the AI: its word and how many it notifies; found by an
   await typeText(box, '@Be')
   await m.until(() => m.find('mention-menu'), 'the @ list for Be', WAIT)
   expect(rows(m)).toEqual(['BBen'])
-})
+}, DOM_TEST_MS)
 
 test('once something is typed it comes after the people it fits: "@전" and Enter picks 전지현, not everyone', async () => {
   const { m, box } = await open({ members: [ME, BEN, { id: 'jh', name: '전지현' }] })
@@ -172,7 +188,7 @@ test('once something is typed it comes after the people it fits: "@전" and Ente
   await m.settle()
   expect(box.value).toBe('@전지현 ')
   expect(tokens(m)).toEqual(['person:@전지현'])
-})
+}, DOM_TEST_MS)
 
 test('a send the server gave back keeps its "@전체" as a token', async () => {
   const { m } = await open()
@@ -182,7 +198,7 @@ test('a send the server gave back keeps its "@전체" as a token', async () => {
   })
   await m.until(() => tokens(m).length > 0, 'the token back', WAIT)
   expect(tokens(m)).toEqual(['all:@전체'])
-})
+}, DOM_TEST_MS)
 
 test('picked it is a token and the message goes with mentionsAll; pasted it is text and goes without', async () => {
   const { m, box } = await open()
@@ -204,7 +220,7 @@ test('picked it is a token and the message goes with mentionsAll; pasted it is t
   await m.click('room-send')
   await m.until(() => sent.length > 1, 'the second send', WAIT)
   expect(sent[1]!.mentionsAll).toBeUndefined()
-})
+}, DOM_TEST_MS)
 
 test('10 people or more: the send asks first, in one line in the box (취소 keeps the text; 보내기, Enter or the button send)', async () => {
   const members = [ME, ...people(11)]
@@ -243,7 +259,7 @@ test('10 people or more: the send asks first, in one line in the box (취소 kee
   await typeText(box, '그냥 글')
   await m.click('room-send')
   await m.until(() => sent.length === 3, 'a plain send', WAIT)
-})
+}, DOM_TEST_MS)
 
 test('fewer than 10: no question', async () => {
   const { m, box } = await open({ members: [ME, ...people(8)] })
@@ -254,7 +270,7 @@ test('fewer than 10: no question', async () => {
   await m.click('room-send')
   await m.until(() => sent.length === 1, 'the send', WAIT)
   expect(m.find('room-mention-all-confirm')).toBeNull()
-})
+}, DOM_TEST_MS)
 
 test('a DM has no row; the everyone room has it for owners and admins only', async () => {
   const shown = async (o: Parameters<typeof open>[0]) => {
@@ -270,7 +286,7 @@ test('a DM has no row; the everyone room has it for owners and admins only', asy
   expect(await shown({ kind: 'all', role: 'admin' })).toBe(true)
   expect(await shown({ kind: 'all', role: 'owner' })).toBe(true)
   expect(await shown({ kind: 'group', role: 'member' })).toBe(true)
-})
+}, DOM_TEST_MS)
 
 test('a sent message: "@전체" stands out as a mention of me (not for its sender); the edit form keeps it', async () => {
   useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name, role: 'member' } } as unknown as Me } })
@@ -290,14 +306,11 @@ test('a sent message: "@전체" stands out as a mention of me (not for its sende
     return new Response(JSON.stringify({ ...mine, body: b.body, mentionsAll: b.mentionsAll }), { status: 200, headers: { 'content-type': 'application/json' } })
   }) as typeof fetch
   const m = await mount(<RoomMessages roomId={r.id} messages={[mine]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
-  // the message's ⋯ menu (the hover bar's), then 수정
-  await m.click('message-more')
-  await m.click('message-edit')
-  const box = m.get('room-edit-input') as Box
-  await act(async () => { box.focus(); box.dispatchEvent(new FakeEvent('focusin', { bubbles: true })) })
+  const box = await openEdit(m, '@전체 회의')
   expect(tokens(m)).toEqual(['all:@전체'])
   Object.assign(box, { selectionStart: box.value.length, selectionEnd: box.value.length })
   await typeText(box, ' 3시')
+  await m.until(() => box.value === '@전체 회의 3시' && layer(m) === '@전체 회의 3시', 'the typed text in the form', WAIT)
   await m.click('room-edit-save')
   await m.until(() => patches.length > 0, 'the edit', WAIT)
   expect(patches[0]).toEqual({ body: '@전체 회의 3시', mentions: [], mentionsAll: true })
@@ -305,13 +318,9 @@ test('a sent message: "@전체" stands out as a mention of me (not for its sende
   // a message without it: the edit form offers no "@전체" (an edit notifies nobody, so it cannot add one)
   const plain = message({ roomId: r.id, seq: 3, author: ME, body: '회의' })
   const m2 = await mount(<RoomMessages roomId={r.id} messages={[plain]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
-  // the message's ⋯ menu (the hover bar's), then 수정
-  await m2.click('message-more')
-  await m2.click('message-edit')
-  const box2 = m2.get('room-edit-input') as Box
-  await act(async () => { box2.focus(); box2.dispatchEvent(new FakeEvent('focusin', { bubbles: true })) })
+  const box2 = await openEdit(m2, '회의')
   Object.assign(box2, { selectionStart: box2.value.length, selectionEnd: box2.value.length })
   await typeText(box2, ' @')
   await m2.until(() => m2.find('mention-menu'), 'the @ list', WAIT)
   expect(rows(m2).some((x) => x.startsWith('all:'))).toBe(false)
-})
+}, DOM_TEST_MS)

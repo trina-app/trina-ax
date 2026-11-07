@@ -167,7 +167,7 @@ describe('turns through the chat runtime (HTTP, no WebSocket)', () => {
     const items = async (user: string) => (await h.api(user).call(API.listSkills)).items
     const alice = await items('alice')
     expect(JSON.stringify(alice)).not.toContain(FIN)
-    expect(alice.find((s) => s.name === 'Weekly')).toEqual({ path: 'users/alice/skills/weekly.md', name: 'Weekly', description: MINE, personal: true })
+    expect(alice.find((s) => s.name === 'Weekly')).toEqual({ path: 'users/alice/skills/weekly.md', name: 'Weekly', description: MINE, personal: true, replaces: 'team' })
     for (const user of ['bob', 'carol', 'dana']) {
       const list = await items(user)
       expect(JSON.stringify(list)).toContain(FIN)

@@ -14,7 +14,7 @@ import { API } from '@mycel/shared/api'
 import { makeEnv } from '../lib/env'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { TurnFiles } from '../../server/src/files/service'
-import { groupSkillRoots, invokedSkill, listGroupSkills, listSkills, readSkill, skillInfo, skillIssues, type Skill } from '../../server/src/chat/skills'
+import { groupSkillRoots, invokedSkill, listGroupSkills, listSkills, readSkill, scanSkillsWithShadowed, skillInfo, skillIssues, type Skill } from '../../server/src/chat/skills'
 import { buildSkillList, descriptionOrder, resolveSkill, SKILL_LIST_BUDGET } from '../../server/src/chat/skill-list'
 import { skillBlock, skillsSection } from '../../server/src/chat/prompt'
 import { recordSkillUse } from '../../server/src/admin/skill-usage'
@@ -94,6 +94,33 @@ describe('discovery and precedence (real folder rules)', () => {
     // the team's own list (for name checks before adding a team skill) is unchanged; a group's own list too
     expect(listGroupSkills(e.files, who('alice'), 'marketing').map((s) => s.name).sort()).toEqual(['Brief', 'Weekly', 'quote'])
     expect(listGroupSkills(e.files, who('bob'), 'marketing')).toEqual([])
+  })
+
+  test('shadowed skills: what a better tier replaced is reported (page only), which one runs is unchanged', () => {
+    const alice = scanSkillsWithShadowed(e.files, who('alice'))
+    // the lists are exactly listSkills'
+    expect(alice.skills.map((s) => s.path)).toEqual(list('alice').map((s) => s.path))
+    const lost = Object.fromEntries(alice.shadowed.map((x) => [x.skill.path, x.by]))
+    // Weekly: the team's lost to the marketing group's; Brief: the group's lost to alice's own
+    expect(lost['skills/weekly.md']).toEqual({ tier: 'group', group: { id: 'marketing', name: 'Marketing' } })
+    expect(lost['groups/marketing/skills/brief.md']).toEqual({ tier: 'personal' })
+    expect(alice.shadowed).toHaveLength(2)
+    // the running skills say what they replaced (the "/" menu's hint)
+    expect(alice.replaces.get('groups/marketing/skills/weekly.md')).toBe('team')
+    expect(alice.replaces.get('users/alice/skills/brief.md')).toBe('group')
+    // bob has no replacement: nothing shadowed
+    const bob = scanSkillsWithShadowed(e.files, who('bob'))
+    expect(bob.shadowed).toEqual([])
+    expect(bob.replaces.size).toBe(0)
+  })
+
+  test('the AI\'s prompt (skill list and skill block) never carries the page-only fields', () => {
+    const text = skillsSection(e.files, who('alice')) + '\n' + buildSkillList(list('alice')).lines.join('\n')
+    expect(text).toContain('Weekly')
+    expect(text).not.toContain('shadowedBy')
+    expect(text).not.toContain('"replaces"') // the prompt's own prose says "replaces a team skill": only the field is meant
+    const weekly = list('alice').find((s) => s.path === 'groups/marketing/skills/weekly.md')!
+    expect(skillBlock(weekly, 'x')).not.toMatch(/shadowedBy|"replaces"/)
   })
 
   test('two groups with one name: both listed, by path; "/name" picks the group whose name comes first', () => {
@@ -267,6 +294,30 @@ describe('in the app: GET /api/skills, rename, delete, the AI\'s card, skills_li
     expect(JSON.stringify((await h.api('dana').call(API.listSkills)).items)).not.toContain(MKT_QUOTE)
   })
 
+  test('GET /api/skills?shadowed=1: the losers come with shadowedBy, the plain list never has them', async () => {
+    const plain = (await h.api('alice').call(API.listSkills)).items
+    expect(plain.some((s) => s.shadowedBy)).toBe(false)
+    expect(plain.find((s) => s.path === 'groups/marketing/skills/weekly.md')?.replaces).toBe('team')
+    expect(plain.some((s) => s.path === 'skills/weekly.md')).toBe(false)
+    const all = (await h.api('alice').call(API.listSkills, { query: { shadowed: '1' } })).items
+    expect(all.find((s) => s.path === 'skills/weekly.md')?.shadowedBy).toEqual({ tier: 'group', group: { id: 'marketing', name: 'Marketing' } })
+    expect(all.find((s) => s.path === 'groups/marketing/skills/brief.md')?.shadowedBy).toEqual({ tier: 'personal' })
+    expect(all.filter((s) => s.shadowedBy)).toHaveLength(2)
+    // the running ones are the same as in the plain list
+    expect(all.filter((s) => !s.shadowedBy).map((s) => s.path)).toEqual(plain.map((s) => s.path))
+    // bob never sees marketing's skills, so nothing of theirs shadows his team skill
+    const bobAll = (await h.api('bob').call(API.listSkills, { query: { shadowed: '1' } })).items
+    expect(bobAll.some((s) => s.shadowedBy)).toBe(false)
+    // nobody gets another member's personal paths or a group they are not in, in any list (the shadowed ones too)
+    expect(JSON.stringify(bobAll)).not.toContain('groups/marketing')
+    expect(JSON.stringify(bobAll)).not.toContain('users/alice')
+    const erinAll = (await h.api('erin').call(API.listSkills, { query: { shadowed: '1' } })).items
+    expect(JSON.stringify(erinAll)).not.toContain('users/alice')
+    expect(JSON.stringify(all)).not.toContain('users/erin')
+    expect(JSON.stringify(all)).not.toContain('groups/finance')
+    expect(JSON.stringify((await h.api('dana').call(API.listSkills, { query: { shadowed: '1' } })).items)).not.toContain('groups/marketing')
+  })
+
   test('a rename: the group\'s new name at once (the folder stays)', async () => {
     updateGroupAs(h.ctx, 'dana', 'marketing', { name: 'Growth' }, 'en')
     try {
@@ -367,6 +418,8 @@ describe('the connector\'s skills_list follows the connected person\'s groups', 
       const team = h.ctx.config.teamRoot
       fs.mkdirSync(path.join(team, 'groups/Sales/skills/offer'), { recursive: true })
       fs.writeFileSync(path.join(team, 'groups/Sales/skills/offer/SKILL.md'), '---\nname: offer\ndescription: SALES-OFFER-CANARY\n---\nsteps\n')
+      // a team skill of the same name: replaced for the member, whose list must still carry no page-only field
+      fs.writeFileSync(path.join(team, 'skills/offer.md'), '---\nname: offer\ndescription: TEAM-OFFER-CANARY\n---\nteam steps\n')
       const call = async (cookie: string) => {
         const auth = (await h.auth.resolve(new Request('http://team.localhost', { headers: { cookie } }), { ip: '10.0.0.7', via: 'test' }))!
         const oauth = new RemoteOAuth(h.ctx.db, { origin: 'https://team.example' }), tools = new RemoteTools(h.ctx, () => oauth)
@@ -381,7 +434,12 @@ describe('the connector\'s skills_list follows the connected person\'s groups', 
         expect(out.isError).toBeUndefined()
         return out.content[0]!.text
       }
-      const mine = JSON.parse(await call(member.client.cookie!)) as unknown[]
+      const mineText = await call(member.client.cookie!)
+      const mine = JSON.parse(mineText) as unknown[]
+      // the page-only fields (`shadowedBy`, `replaces`) never reach the connector, and the replaced skill is not there
+      expect(mineText).not.toContain('shadowedBy')
+      expect(mineText).not.toContain('"replaces"')
+      expect(mineText).not.toContain('TEAM-OFFER-CANARY')
       expect(mine).toContainEqual({ path: 'groups/Sales/skills/offer/SKILL.md', name: 'offer', description: 'SALES-OFFER-CANARY', group: { id: g.id, name: 'Sales' } })
       expect(await call(owner.cookie!)).not.toContain('SALES-OFFER-CANARY')
     } finally { await h.close() }
