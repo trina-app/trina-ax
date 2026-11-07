@@ -11,6 +11,10 @@ import { z } from 'zod'
 import { empty, endpoint } from './endpoint'
 import { IsoTime } from './common'
 
+/** A group a skill or a proposal belongs to (docs/DECISIONS.md "Group skills"): its id and current name. */
+export const SkillGroupRef = z.object({ id: z.string(), name: z.string() })
+export type SkillGroupRef = z.infer<typeof SkillGroupRef>
+
 export const SKILL_SHARE_LIMITS = {
   /** one file of a skill (the team's own skill file cap, chat/skills.ts SKILL_FILE_MAX_BYTES) */
   fileBytes: 128 * 1024,

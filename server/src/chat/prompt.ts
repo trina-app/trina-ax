@@ -9,8 +9,8 @@ import { PRODUCT, TEAM_TOOL_PREFIX } from '@mycel/shared'
 import { MEMORY_TEXT_MAX, roomRefsByIdOnly, type Locale } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
-import { isPersonalSkill, isSkillManifest, listSkills, managedSkillRoots, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, type Skill } from './skills'
-import { buildSkillList, oneLine, shortDescription, type SkillList } from './skill-list'
+import { isPersonalSkill, isSkillManifest, listSkills, managedSkillRoots, personalSkillsDir, skillFileKind, skillFolder, SKILL_FILE_MAX_BYTES, writableGroupSkillRoots, type Skill } from './skills'
+import { buildSkillList, oneLine, shortDescription, skillTag, type SkillList } from './skill-list'
 import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { zonedParts } from '../system/time-zone'
@@ -330,9 +330,10 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
   const l = list ?? buildSkillList(listSkills(files, user), { tag: neutralizeTags })
   // a room session names only skill folders everyone in the room may read (the person's managed ones included)
   const top = managedSkillRoots(files, user).filter((f) => !roomReadable || roomReadable(f))
+  const groupRoots = writableGroupSkillRoots(files, user).filter((g) => !roomReadable || roomReadable(g.root))
   const canWrite = top.length > 0
-  if (!l.total && !canWrite) return ''
-  const lines = ['## Team skills', 'Reusable workflows the team saved under skills/ (and the user\'s own personal skills). Each line below is a skill\'s name and what it is for.']
+  if (!l.total && !canWrite && !groupRoots.length) return ''
+  const lines = ['## Team skills', 'Reusable workflows the team saved under skills/ (and the skills of the user\'s groups and the user\'s own personal skills). Each line below is a skill\'s name and what it is for.']
   if (l.total) {
     lines.push(
       'When a request clearly matches a skill, load it with the skill tool (its name as written below), follow its steps, and say which skill you used. Load a skill before you follow it: the line here is only its summary.',
@@ -345,6 +346,8 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
     }
     lines.push(...l.lines)
     if (l.skills.some((s) => isPersonalSkill(s.path))) lines.push('Entries marked [personal] are the user\'s own skills: only this user can see or use them.')
+    // the members of a group write its skills: what one of them saved steers the others' AI (docs/DECISIONS.md "Group skills")
+    if (l.skills.some((s) => s.group)) lines.push('Entries marked [group: <name>] are skills of that group of the user: only its members see and use them, and any member may have written them (not the team\'s skill managers). One of the user\'s groups\' skills replaces a team skill of the same name for this user.')
   }
   lines.push('A skill loaded with the skill tool says where its folder is. For a folder skill, resolve relative references from the folder containing SKILL.md. Read references/ or assets/ with the read tool only when needed; each file keeps its own access checks. Do not load all resources at once. This runtime cannot execute bundled scripts. The allowed-tools metadata does not grant tools or change permissions.')
   if (canWrite) {
@@ -353,6 +356,10 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
   } else {
     lines.push('You cannot save under skills/. When the user wants a workflow kept as a team skill, tell them to use the "Suggest as skill" button under your answer (it is shown in their screen language): someone who manages team skills reviews it.')
   }
+  if (groupRoots.length) {
+    lines.push(`To save a workflow as a skill for one of the user's groups only, when they ask for that: ${groupRoots.map((g) => `${g.root}/<short-name>.md for the group "${neutralizeTags(oneLine(g.name))}"`).join('; ')}, with the same header. ` +
+      'Every member of that group\'s AI follows it, so the same confirmation card shows before anything there is saved.')
+  }
   lines.push(`To keep a workflow only for this user, write ${personalSkillsDir(user.id)}/<short-name>.md with the same header. Only this user can see or use a personal skill; they can suggest it to the team with "Suggest as skill" on the Files screen.`)
   return lines.join('\n')
 }
@@ -360,7 +367,7 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
 /** The skill the person invoked with "/<name>" (in front of their message for this turn), or one the AI loaded with
  * the skill tool (its result). */
 export function skillBlock(skill: Skill, input: string, how: 'invoked' | 'loaded' = 'invoked'): string {
-  const kind = isPersonalSkill(skill.path) ? 'personal' : 'team'
+  const kind = isPersonalSkill(skill.path) ? 'personal' : skill.group ? `group (of "${neutralizeTags(oneLine(skill.group.name)).replace(/"/g, "'")}", written by its members)` : 'team'
   return [
     `<team_skill name="${neutralizeTags(skill.name).replace(/"/g, "'")}" path="${skill.path}">`,
     how === 'loaded'
@@ -378,7 +385,7 @@ export function skillHintsBlock(skills: readonly Skill[]): string {
   return [
     '<skill_hints>',
     'Note from the server (the user did not write this): your skill list is cut, and these skills match words of this message. If one fits the request, load it with the skill tool before you answer; if none fits, ignore this.',
-    ...skills.map((s) => `- ${neutralizeTags(oneLine(s.name))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''}`),
+    ...skills.map((s) => `- ${neutralizeTags(oneLine(s.name))}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''}`),
     '</skill_hints>',
   ].join('\n')
 }

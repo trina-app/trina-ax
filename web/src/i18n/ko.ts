@@ -2240,6 +2240,8 @@ export const ko = {
   'skills.tabMine': '내 제안',
   'skills.tabChanges': '최근 변경',
   'skills.fromTeam': '우리 팀 스킬',
+  'skills.fromGroup': '{group} 그룹 스킬',
+  'skills.groupBadge': '{group} 그룹의 스킬: 이 그룹 멤버만 보고 써요',
   'skills.search': '스킬 검색',
   'skills.uses': '{uses}회',
   'skills.usesHint': '최근 30일',

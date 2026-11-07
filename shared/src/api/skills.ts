@@ -5,13 +5,15 @@
 // "skill managers" (owner and admins always; others through Admin > 멤버 / 그룹 "팀 스킬 관리", which is a folder
 // rule, not a permission system of its own). Everyone else can suggest a skill ("스킬로 제안"): it waits on the server,
 // not in skills/, until a manager of the target folder registers it (등록) or turns it down (거절).
+// Group skills (docs/DECISIONS.md "Group skills"): groups/<folder>/skills/ of each group the person belongs to; its
+// managers are the group's members who may write that folder (every member by default).
 import { z } from 'zod'
 import { Uuid7 } from '../ids'
 import { IsoTime, RelPath, page, PageQuery } from './common'
 import { endpoint } from './endpoint'
 import { UserRef } from './entities'
 import { SkillInput } from './skill-inputs'
-import { ShareApp, ShareExcludedReason, ShareSkillIn, SKILL_SHARE_LIMITS } from './skill-shares'
+import { ShareApp, ShareExcludedReason, ShareSkillIn, SKILL_SHARE_LIMITS, SkillGroupRef } from './skill-shares'
 
 export const SkillInfo = z.object({
   /** Entry point: legacy skills/주간-보고서.md or standard skills/weekly-report/SKILL.md. */
@@ -22,6 +24,9 @@ export const SkillInfo = z.object({
   description: z.string(),
   /** true for a personal skill of the caller (users/<caller>/skills/...): only the caller can see or use it */
   personal: z.boolean().optional(),
+  /** a skill of one of the caller's groups (groups/<folder>/skills/...): only that group's members see and use it. The
+   * group by its current name (a rename shows at once; its folder keeps the name it was made with). */
+  group: SkillGroupRef.optional(),
   /** the short form the skill runs from (its header's metadata `inputs`, ./skill-inputs.ts); absent: a plain skill */
   inputs: z.array(SkillInput).optional(),
   /** the name people read ("광고 문구"): a SKILL.md's metadata `title`, one line of at most SKILL_TITLE_MAX characters.
@@ -106,8 +111,9 @@ export type SkillIssue = z.infer<typeof SkillIssue>
 /** skills/ itself or a folder below it (at most two levels: skills/재무/월말). */
 export const SkillFolderPath = RelPath.refine((p) => {
   const segs = p.split('/')
-  return segs[0] === 'skills' && segs.length <= 3
-}, { message: 'must be skills/ or a folder inside it (at most two levels)' })
+  // the team's skills/ (two levels below at most), or a group's groups/<folder>/skills (docs/DECISIONS.md "Group skills")
+  return (segs[0] === 'skills' && segs.length <= 3) || (segs[0] === 'groups' && !!segs[1] && segs[2] === 'skills' && segs.length <= 5)
+}, { message: 'must be skills/ or a group\'s groups/<folder>/skills, or a folder inside it (at most two levels)' })
 
 /** A skill's name: one line, no slash (it is typed after "/" in the composer). */
 export const SkillName = z.string().trim().min(1).max(60).refine((s) => !s.includes('/') && !/[\r\n]/.test(s), { message: 'one line, no "/"' })
@@ -167,6 +173,9 @@ export const SkillSuggestion = z.object({
   }).nullable().optional(),
   /** the batch it came with (one Inbox line per batch); null for a suggestion sent alone */
   batchId: z.string().nullable().optional(),
+  /** the target is a group's skills folder (groups/<folder>/skills/…): that group by its current name; its members who
+   * may write the folder review it (docs/DECISIONS.md "Group skills") */
+  targetGroup: SkillGroupRef.optional(),
 })
 export type SkillSuggestion = z.infer<typeof SkillSuggestion>
 
@@ -256,6 +265,9 @@ export const SkillChange = z.object({
   byAi: z.boolean(),
   /** a skill (with a name header) or a team rule (no header); null for deletions and folders */
   kind: z.enum(['skill', 'rule', 'folder', 'other']).nullable(),
+  /** a change in a group's skills folder (groups/<folder>/skills/): the group as it was named then; id null when no
+   * group had that folder any more */
+  group: z.object({ id: z.string().nullable(), name: z.string() }).optional(),
 })
 export type SkillChange = z.infer<typeof SkillChange>
 
@@ -282,7 +294,7 @@ export const SetSkillManagerBody = z.intersection(SkillManagerSubject, z.object(
 
 export const SKILLS = {
   popularSkills: endpoint({ method: 'GET', path: '/api/skills/popular', auth: 'user', owner: 'B', response: PopularSkills, summary: 'Last 30 days of usage counts for currently readable skills, with no user identities or prompts.' }),
-  listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, and their own personal skills (users/<caller>/skills/), by name.' }),
+  listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team.' }),
   listSkillIssues: endpoint({ method: 'GET', path: '/api/skills/issues', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillIssue) }), summary: 'Skill entries the caller can read that do not load: an invalid SKILL.md (also a name that is not its folder name) or a legacy file with a broken header.' }),
   skillsOverview: endpoint({ method: 'GET', path: '/api/skills/overview', auth: 'user', owner: 'B', response: SkillsOverview, summary: 'The skills folders the caller manages / can suggest into, and how many suggestions wait.' }),
   listSkillSuggestions: endpoint({ method: 'GET', path: '/api/skills/suggestions', auth: 'user', owner: 'B', query: SkillSuggestionsQuery, response: page(SkillSuggestion), summary: 'My suggestions, or (scope=review) the suggestions for skills folders I manage. Nobody else sees them.' }),

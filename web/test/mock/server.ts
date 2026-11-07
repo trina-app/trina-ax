@@ -711,11 +711,16 @@ export class MockServer {
   }
   /** like server/src/chat/skills.ts listSkills: skills/**.md and the caller's own users/<id>/skills/ with a name header,
    * only where the caller can read */
-  skillsFor(u: User): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true }[] {
+  skillsFor(u: User): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string } }[] {
     const mine = `users/${u.id}/skills/`
-    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true }[] = []
+    // the skills of the person's groups (docs/DECISIONS.md "Group skills"): groups/<folder>/skills/, the group's folder
+    // row (its path stays when the group is renamed), else groups/<name>
+    const groupRoots = this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id))
+      .map((g) => ({ g, root: `${this.folders.find((f) => f.groupId === g.id)?.path ?? `groups/${g.name}`}/skills/` }))
+    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string } }[] = []
     for (const [p, n] of this.files) {
-      if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine)) || this.access(p, u) === 'none') continue
+      const inGroup = groupRoots.find((r) => p.startsWith(r.root))
+      if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine) || inGroup) || this.access(p, u) === 'none') continue
       const head = /^---\n([\s\S]*?)\n---/.exec(dec.decode(n.data!))?.[1]
       const name = head ? /^name:\s*(.+)$/m.exec(head)?.[1]?.trim() : undefined
       if (!name) continue
@@ -725,9 +730,13 @@ export class MockServer {
       const form = p.endsWith('/SKILL.md') ? /^[ \t]+inputs:[ \t]*\|\n((?:[ \t]{4,}.*\n?)+)/m.exec(head!)?.[1] : undefined
       let inputs: SkillInput[] | undefined
       try { inputs = form ? (JSON.parse(form) as SkillInput[]) : undefined } catch { inputs = undefined }
-      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^"(.*)"$/, '$1') ?? '', ...(title ? { title } : {}), ...(inputs?.length ? { inputs } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}) })
+      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^"(.*)"$/, '$1') ?? '', ...(title ? { title } : {}), ...(inputs?.length ? { inputs } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}), ...(inGroup ? { group: { id: inGroup.g.id, name: inGroup.g.name } } : {}) })
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+    // one name: personal > group > team (server/src/chat/skills.ts scanSkills)
+    const tier = (s: (typeof out)[number]) => (s.personal ? 0 : s.group ? 1 : 2)
+    const best = new Map<string, number>()
+    for (const s of out) best.set(s.name.toLowerCase(), Math.min(best.get(s.name.toLowerCase()) ?? 3, tier(s)))
+    return out.filter((s) => tier(s) === best.get(s.name.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
   }
   manages(u: User, folder: string) {
     return this.managed(u).some((m) => folder === m || folder.startsWith(m + '/'))

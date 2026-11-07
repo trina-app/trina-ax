@@ -277,6 +277,7 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
             <span className="block text-xs text-faint">
               {c.actor?.name ?? '—'} · {formatDateTime(c.at, locale)}
               {c.from ? ` · ${t('skills.change.from', { path: c.from })}` : ''}
+              {c.group ? ` · ${t('skills.fromGroup', { group: c.group.name })}` : ''}
             </span>
           </span>
           {c.byAi && (

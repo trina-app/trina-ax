@@ -1,5 +1,6 @@
 // "쓸 수 있는 스킬" on the Team skills page: every skill the person can use (GET /api/skills, the same list as the "/"
-// menu: the team skills in the skills/ folders they can read, and their own personal skills), the most used first
+// menu: the team skills in the skills/ folders they can read, the skills of each of their groups in a section titled
+// with the group's current name (docs/DECISIONS.md "Group skills"), and their own personal skills), the most used first
 // (GET /api/skills/popular: the top 10 of the last 30 days have a count). A row is one line of text: clicking it starts
 // a chat with the skill, and its "…" menu also opens the file. The whole description is the row's tooltip. The same
 // read-only list for members and admins; what only skill managers and admins do (review suggestions, recent changes)
@@ -77,7 +78,17 @@ const MARKETING_FOLDER = `skills/${'marketing' satisfies SkillPackId}/`
 /** The optional HR pack's skills live here. */
 const HR_FOLDER = `skills/${'hr' satisfies SkillPackId}/`
 
-/** The list without the data load (null: still loading). Personal skills get a section of their own. */
+/** The groups of `items`' group skills, one each, by name (letter case ignored) then id: the server's order
+ * (server/src/chat/skills.ts groupOrder). A group with no skill the person can use is not there. */
+export function skillGroups(items: readonly Skill[]): { id: string; name: string }[] {
+  const by = new Map<string, { id: string; name: string }>()
+  for (const s of items) if (s.group && !by.has(s.group.id)) by.set(s.group.id, s.group)
+  const key = (n: string) => n.normalize('NFC').toLowerCase()
+  return [...by.values()].sort((a, b) => (key(a.name) < key(b.name) ? -1 : key(a.name) > key(b.name) ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+/** The list without the data load (null: still loading). The team's skills, then one section for each of the person's
+ * groups that has skills (titled with the group's current name), then the personal skills. */
 export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | null; query?: string }) {
   const t = useT()
   const admin = isAdmin(useMe())
@@ -92,7 +103,10 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
   const offerHr = admin && !q && !items.some((s) => !s.personal && s.path.startsWith(HR_FOLDER))
   return (
     <div className="space-y-6" data-testid="skill-list">
-      <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal)} folders={admin} onRun={setRunning} />
+      <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal && !s.group)} folders={admin} onRun={setRunning} />
+      {skillGroups(shown).map((g) => (
+        <SkillSection key={g.id} title={t('skills.fromGroup', { group: g.name })} items={shown.filter((s) => s.group?.id === g.id)} folders={admin} onRun={setRunning} testId={`skill-group-${g.id}`} />
+      ))}
       <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} folders={admin} onRun={setRunning} />
       {offerMarketing && <MarketingPackLine />}
       {offerHr && <HrPackLine />}
@@ -178,10 +192,10 @@ function NoSkills() {
 
 /** `folders`: each team skill's folder before its line ("skills/marketing/ · …"), for owners and admins, who manage the
  * folders; a member reads the title and the line only (a raw path told them nothing: docs/DECISIONS.md "W3"). */
-function SkillSection({ title, items, folders, onRun }: { title: string; items: Skill[]; folders: boolean; onRun: (s: Skill) => void }) {
+function SkillSection({ title, items, folders, onRun, testId }: { title: string; items: Skill[]; folders: boolean; onRun: (s: Skill) => void; testId?: string }) {
   if (!items.length) return null
   return (
-    <section aria-label={title}>
+    <section aria-label={title} data-testid={testId}>
       <h2 className="mb-1 flex items-center gap-2 text-sm font-medium">
         {title}
         {/* phones: the count as plain text, no pill */}

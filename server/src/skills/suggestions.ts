@@ -27,7 +27,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { notifySkillSuggestion } from '../notifications/service'
-import { isSkillFolder, managedSkillFolders, managesSkillFolder, skillFolders } from './managers'
+import { groupOfSkillFolder, groupSkillFolders, isGroupSkillFolder, isSkillFolder, managedSkillFolders, managesSkillFolder, visibleSkillFolders } from './managers'
 import { st } from './text'
 import { checkSkill, listSkills, listTeamSkills, SKILL_NAME_MAX, type SkillProblem } from '../chat/skills'
 import { checkShare, needsScripts, readHeader, writeSkillMd } from './share-check'
@@ -84,6 +84,8 @@ function toSuggestion(ctx: AppContext, r: Row, viewer: Principal, rules: RuleSet
     suggester: nameOf(ctx.db, r.suggester_id)!, reviewer: nameOf(ctx.db, r.reviewer_id), reviewNote: r.review_note, resultPath: r.result_path,
     createdAt: r.created_at, reviewedAt: r.reviewed_at, canReview: reviews(ctx, viewer, r, rules),
     ...(isFolder(r) ? { folder: folderOf(r), batchId: r.batch_id } : {}),
+    // a group's skills folder: the group by its name now
+    ...((() => { const g = groupOfSkillFolder(ctx, r.target_folder); return g ? { targetGroup: g } : {} })()),
   }
 }
 
@@ -103,7 +105,8 @@ function staffOf(ctx: AppContext): { id: string; locale: Locale }[] {
     .map((u) => ({ id: u.id, locale: Locale.safeParse(u.locale).success ? (u.locale as Locale) : def }))
 }
 
-/** Active people who manage `folder` (owner and admins included), with their language. */
+/** Active people who manage `folder` (owner and admins included for a team folder; a group's folder: its members who
+ * may write it), with their language. */
 function managersOf(ctx: AppContext, folder: string): { id: string; locale: Locale }[] {
   const rules = RuleSet.load(ctx.db)
   const def = teamDefaultLocale(ctx.db)
@@ -111,7 +114,7 @@ function managersOf(ctx: AppContext, folder: string): { id: string; locale: Loca
   const out: { id: string; locale: Locale }[] = []
   for (const u of users) {
     const p = loadPrincipal(ctx.db, u.id)
-    if (p && atLeast(rules.access(p, segsOf(folder)), 'write')) out.push({ id: u.id, locale: Locale.safeParse(u.locale).success ? (u.locale as Locale) : def })
+    if (p && managesSkillFolder(ctx, p, folder, rules)) out.push({ id: u.id, locale: Locale.safeParse(u.locale).success ? (u.locale as Locale) : def })
   }
   return out
 }
@@ -125,11 +128,15 @@ function notify(ctx: AppContext, userId: string, code: 'skill_suggested' | 'skil
   notifySkillSuggestion(ctx, userId, code === 'skill_suggested' ? 'skill.suggested' : 'skill.reviewed', suggestionId)
 }
 
-/** The actual on-disk spelling of a skills folder the person can see, or a validation error (same for hidden and missing). */
+/** The actual on-disk spelling of a skills folder the person can see, or a validation error (same for hidden and
+ * missing). A group's skills folder only for a member of that group; its root may not be on disk yet (the first skill
+ * saved there makes it). */
 function targetFolder(ctx: AppContext, p: Principal, typed: string, locale: Locale): string {
   try {
-    const r = authorize(ctx.files.fx, ctx.files.rules(), p, typed, 'read')
-    if (r.st!.isDirectory() && isSkillFolder(r.rel)) return r.rel
+    const r = authorize(ctx.files.fx, ctx.files.rules(), p, typed, 'read', { mustExist: false })
+    const mine = isGroupSkillFolder(r.rel) && groupSkillFolders(ctx, p).some((g) => r.rel === g.root || r.rel.startsWith(g.root + '/'))
+    if (r.exists && r.st!.isDirectory() && (isSkillFolder(r.rel) || mine)) return r.rel
+    if (!r.exists && mine && groupSkillFolders(ctx, p).some((g) => g.root === r.rel)) return r.rel
   } catch (e) { if (!(e instanceof Denied || e instanceof ToolError)) throw e }
   return fail('validation', st('folderNotSkills', locale), { fields: { 'body.targetFolder': 'not a skills folder you can see' } })
 }
@@ -138,7 +145,7 @@ export function skillsOverview(ctx: AppContext, userId: string): SkillsOverview 
   const p = person(ctx, userId)
   const rules = RuleSet.load(ctx.db)
   const managed = managedSkillFolders(ctx, p, rules)
-  const suggest = skillFolders(ctx).filter((f) => atLeast(rules.access(p, segsOf(f)), 'read'))
+  const suggest = visibleSkillFolders(ctx, p, rules)
   const pending = ctx.db.query(`SELECT ${COLS} FROM skill_suggestions WHERE status = 'pending'`).all() as Row[]
   // what the AI's list holds of this person's skills (no chat: the order by usage now)
   const skills = listSkills(ctx.files, p)

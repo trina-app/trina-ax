@@ -2241,6 +2241,8 @@ export const id: Record<MessageKey, string> = {
   'skills.tabMine': 'Usulan saya',
   'skills.tabChanges': 'Perubahan terbaru',
   'skills.fromTeam': 'Dari tim Anda',
+  'skills.fromGroup': 'Dari grup {group}',
+  'skills.groupBadge': 'Skill grup {group}: hanya anggotanya yang melihat dan memakainya',
   'skills.search': 'Cari skill',
   'skills.uses': '{uses} kali',
   'skills.usesHint': '30 hari terakhir',

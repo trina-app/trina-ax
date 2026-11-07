@@ -92,7 +92,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/skills/popular` | Signed in | Last 30 days of usage counts for currently readable skills, with no user identities or prompts. |
-| `GET` | `/api/skills` | Signed in | Skills the caller can use: skills/**/*.md with a name header that the caller can read, and their own personal skills (users/<caller>/skills/), by name. |
+| `GET` | `/api/skills` | Signed in | Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team. |
 | `GET` | `/api/skills/issues` | Signed in | Skill entries the caller can read that do not load: an invalid SKILL.md (also a name that is not its folder name) or a legacy file with a broken header. |
 | `GET` | `/api/skills/overview` | Signed in | The skills folders the caller manages / can suggest into, and how many suggestions wait. |
 | `GET` | `/api/skills/suggestions` | Signed in | My suggestions, or (scope=review) the suggestions for skills folders I manage. Nobody else sees them. |

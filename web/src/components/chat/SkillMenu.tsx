@@ -1,6 +1,7 @@
 // The "/" list of skills in the message box. Typing "/" at the start of the message lists the skills the person
-// can use (GET /api/skills: skills/**/*.md with a name header that they can read, and their own personal skills in
-// users/<me>/skills/, marked "Personal"); choosing one writes "/<name> " and the server puts that
+// can use (GET /api/skills: skills/**/*.md with a name header that they can read, the skills of their groups, marked
+// with the group's name, and their own personal skills in users/<me>/skills/, marked "Personal"); choosing one
+// writes "/<name> " and the server puts that
 // skill in front of the message (server/src/chat/skills.ts). Arrow keys move, Enter / Tab choose, Esc closes. Every
 // match is in the list, which scrolls (like Claude Code's "/" menu): the arrow keys keep the chosen row in sight, so a
 // sixth or a twentieth skill is as easy to reach as the first, on a phone as well. A skill with a form (metadata
@@ -120,6 +121,8 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
                 <span className="truncate">{s.title ? skillTitle(s) : `/${s.name}`}</span>
                 {s.title && <span className="shrink-0 font-mono text-xs font-normal text-faint">/{s.name}</span>}
                 {s.personal && <span className="shrink-0 rounded-full bg-hover px-1.5 text-micro font-normal text-muted" data-testid="skill-personal">{t('skills.personal')}</span>}
+                {/* a skill of one of the person's groups: the group's name (only its members see it) */}
+                {s.group && <span className="max-w-[10rem] shrink-0 truncate rounded-full bg-hover px-1.5 text-micro font-normal text-muted" title={t('skills.groupBadge', { group: s.group.name })} data-testid="skill-group">{s.group.name}</span>}
               </span>
               <span className="truncate text-xs text-muted">{skillSummary(s) || s.path}</span>
             </button>

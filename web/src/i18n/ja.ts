@@ -2204,6 +2204,8 @@ export const ja: Record<MessageKey, string> = {
   'skills.tabMine': "自分の提案",
   'skills.tabChanges': "最近の変更",
   'skills.fromTeam': "チームのスキル",
+  'skills.fromGroup': "グループ「{group}」のスキル",
+  'skills.groupBadge': "グループ「{group}」のスキル：このグループのメンバーだけが見て使えます",
   'skills.search': "スキルを検索",
   'skills.uses': "{uses, plural, one {#回} other {#回}}",
   'skills.usesHint': "過去30日間",

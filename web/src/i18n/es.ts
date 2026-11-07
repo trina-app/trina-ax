@@ -2204,6 +2204,8 @@ export const es: Record<MessageKey, string> = {
   'skills.tabMine': "Mis sugerencias",
   'skills.tabChanges': "Cambios recientes",
   'skills.fromTeam': "De su equipo",
+  'skills.fromGroup': "Del grupo {group}",
+  'skills.groupBadge': "Una habilidad del grupo {group}: solo sus miembros la ven y la usan",
   'skills.search': "Buscar habilidades",
   'skills.uses': "{uses, plural, one {# uso} other {# usos}}",
   'skills.usesHint': "Últimos 30 días",

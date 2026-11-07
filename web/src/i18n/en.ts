@@ -2241,6 +2241,8 @@ export const en: Record<MessageKey, string> = {
   'skills.tabMine': 'My suggestions',
   'skills.tabChanges': 'Recent changes',
   'skills.fromTeam': 'From your team',
+  'skills.fromGroup': 'From the group {group}',
+  'skills.groupBadge': 'A skill of the group {group}: only its members see and use it',
   'skills.search': 'Search skills',
   'skills.uses': '{uses, plural, one {# use} other {# uses}}',
   'skills.usesHint': 'Last 30 days',

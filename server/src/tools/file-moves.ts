@@ -38,7 +38,7 @@ export const TEXT = {
 /** A count's form first ("{n, plural, one {# item} other {# items}}", shared/src/plural.ts), then the plain values. */
 const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
 
-const SKILLS = 'skills/ (team skills and rules) cannot be changed with this tool: use write / edit, which ask the user, or the Files screen'
+const SKILLS = 'skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed with this tool: use write / edit, which ask the user, or the Files screen'
 // Match the policy resolver's dot/empty-segment normalization before checking protected skills paths.
 const clean = (p: string) => p.normalize('NFC').split('/').filter(s => s !== '' && s !== '.').join('/')
 const nameOf = (p: string) => p.split('/').pop() ?? ''
