@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 11:24
 - Branch: `feat/shared-project-chats`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat`, `server/src/routes/chats.ts`, `shared/src/api`, `web/src`). Why: chats,
   projects and permissions are core (see docs/REPOSITORY-RULES.md).
 - Version impact: minor. A new feature with optional API fields (`Project.shareChats`, `Project.audience`,
@@ -86,4 +86,16 @@ areas, the security suite, `bun run test:web`, `bun run build:web`, the full web
 
 ## Result
 
-Filled in at the end.
+Built as planned, with these differences:
+
+- Migration number 265 (263 landed on dev, 264 is another open branch's).
+- The engine folder is emptied before every turn of a shared chat, not only when the person changes: the independent
+  security review found that a person sending again after their own failed turn skipped the clear. A session is also
+  not resumed when the chat read something someone in today's audience cannot see.
+- `Project.sharedChats` was added (the delete and repoint dialogs say how many shared chats go or move).
+- "스킬로 제안" is not offered from shared chats, and share-to-room only for an answer to one's own question (phase 2:
+  every viewer).
+- A chat that stops being shared (rollback guard) keeps the several-authors rules (labelled transcript, own session
+  only, folder emptied).
+
+PR: see the pull request for `feat/shared-project-chats`.
