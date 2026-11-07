@@ -616,6 +616,7 @@ export const id: Record<MessageKey, string> = {
   'artifact.needsScripts': 'Artefak ini perlu menjalankan skrip agar bisa tampil, dan di chat rahasia skrip hanya berjalan di aplikasi desktop. Isinya bisa dilihat di tab Kode.',
 
   'preview.panel': 'Pratinjau file',
+  'preview.resize': 'Atur lebar pratinjau',
   'preview.notFound': 'File tidak ditemukan atau kamu tidak punya akses.',
   'preview.tooLarge': 'File terlalu besar untuk dipratinjau ({size}). Unduh untuk membukanya.',
   'hwp.disabled': "Pratinjau Hangul belum diaktifkan untuk tim ini. Anda tetap dapat mengunduh berkas asli dan meminta AI membaca teksnya.",
