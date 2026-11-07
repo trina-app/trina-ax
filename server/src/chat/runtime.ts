@@ -613,12 +613,14 @@ export class ChatRuntime {
     // answer is left out. Both are the room's copies, never the chat's: the answer as the room got it
     // (room_messages.body: cut at ROOM_AI_ANSWER_MAX with a line saying so), the question as it reads in the room now
     // (edited: the new text; deleted: left out). Every question decides on what it used itself, so text the room
-    // never saw, or no longer shows, must not come back
+    // never saw, or no longer shows, must not come back (nor an old answer of theirs hidden from them since they joined
+    // the room again: docs/DECISIONS.md "지난 대화")
     const chatId = rows[0]?.chat_id
     const posted = new Map<string, { answer: string; question: string | null }>()
     const found = chatId ? this.db.query(`SELECT a.turn_id, m.body, q.body AS q_body, q.mentions AS q_mentions, q.deleted_at AS q_deleted FROM room_ai_turns a
       JOIN room_messages m ON m.id = a.answer_id LEFT JOIN room_messages q ON q.id = a.question_id
-      WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL`).all(chatId) as { turn_id: string; body: string; q_body: string | null; q_mentions: string | null; q_deleted: string | null }[] : []
+      WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = a.user_id AND h.message_id IN (m.id, m.thread_root_id))`).all(chatId) as { turn_id: string; body: string; q_body: string | null; q_mentions: string | null; q_deleted: string | null }[] : []
     for (const r of found) {
       // the people the question mentions: a person named like the AI is not a call of it (roomAiQuestion)
       let ids: string[] = []

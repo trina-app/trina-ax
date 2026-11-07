@@ -409,3 +409,32 @@ test("a room's badge counts the threads I follow with new replies; '@' when one 
   expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 1, threadsUnread: 2 })} testId="b" />)).toContain('<span aria-hidden="true">3</span>')
   expect(renderToStaticMarkup(<UnreadBadge room={room({ unreadCount: 0, threadsUnread: 1, mentioned: true })} testId="b" />)).toContain('<span aria-hidden="true">@</span>')
 })
+
+test('an old answer hidden from me is one faint line: who asked it, no text, menu, reactions, thread or sources', () => {
+  const q = message({ roomId: R, seq: 1, body: '@트리나 Q3 spend?' })
+  const html = render([
+    q,
+    message({ roomId: R, seq: 2, body: '', authorKind: 'ai', author: null, askedBy: BEN, withheld: true, replyTo: { id: q.id, author: BEN, excerpt: '@트리나 Q3 spend?', fileCount: 0, deleted: false } }),
+    message({ roomId: R, seq: 3, body: '', author: CY, withheld: true }),
+  ]).replaceAll('&#x27;', "'")
+  expect(count(html, 'data-testid="room-withheld"')).toBe(2)
+  expect(html).toContain(translate('en', 'rooms.withheldAnswer'))
+  expect(html).toContain(translate('en', 'rooms.withheldMessage'))
+  expect(html).toContain(translate('en', 'rooms.aiAskedBy', { name: 'Ben' }))
+  // only the first message has a menu; the two lines have none, nor a thread line, reactions or a shared answer
+  expect(count(html, 'data-testid="message-menu"')).toBe(1)
+  expect(html).not.toContain('room-thread-line')
+  expect(html).not.toContain('room-shared-answer')
+  expect(html).not.toContain('data-testid="reaction')
+})
+
+test('a quote of a hidden answer says so; a preview that used one says why and offers no post', () => {
+  const html = render([message({ roomId: R, seq: 5, body: 'old reply', replyTo: { id: uuidv7(), author: null, excerpt: '', fileCount: 0, deleted: true, withheld: true } })]).replaceAll('&#x27;', "'")
+  expect(html).toContain(translate('en', 'rooms.withheldMessage'))
+  expect(html).not.toContain(translate('en', 'rooms.deleted'))
+  const t = ((k: string, p?: Record<string, string | number>) => translate('en', k as never, p as never)) as never
+  expect(previewWhy({ folders: [], personal: false, outside: false, hidden: true }, t)).toBe(translate('en', 'rooms.aiWhyHidden'))
+  const preview = render([message({ roomId: R, seq: 6, body: 'an answer', authorKind: 'ai', author: null, askedBy: ME, visibility: 'private', preview: { folders: [], personal: false, outside: false, hidden: true } })]).replaceAll('&#x27;', "'")
+  expect(preview).toContain(translate('en', 'rooms.aiWhyHidden'))
+  expect(preview).not.toContain('data-testid="room-ai-share"')
+})

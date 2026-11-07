@@ -177,16 +177,20 @@ function send(ctx: AppContext, userId: string, args: unknown, sources: ReadSourc
     if (!who || !shown.has(id)) return out(`Write "@${who.replace(/[\r\n"]+/g, ' ').slice(0, 80)}" in the text for each person in mentions, where a mention may start (at the start or after a space), as the app does.`, true)
   }
   // a thread reply: its first message, one the user sees (Rooms.send checks it again); its readers are those who see it
-  let rootSeq: number | undefined
+  let root: { id: string; seq: number } | undefined
   if (thread !== undefined) {
-    const root = isUuid7(thread.trim()) ? messageRow(db, roomId, thread.trim()) : null
-    if (!root || !canSee(root, me) || !threadable(root) || root.deleted_at) return out('No thread to answer there with that id: give the id of a thread\'s first message in this room (for a reply, its thread_reply_of).', true)
-    rootSeq = root.seq
+    const r = isUuid7(thread.trim()) ? messageRow(db, roomId, thread.trim()) : null
+    if (!r || !canSee(db, r, me) || !threadable(r) || r.deleted_at) return out('No thread to answer there with that id: give the id of a thread\'s first message in this room (for a reply, its thread_reply_of).', true)
+    root = { id: r.id, seq: r.seq }
   }
-  if (roomWidening(db, roomId, sources, rootSeq)) return out('Not sent: this connection has read material (files, or messages of rooms) that some people in this room cannot see, and the message would show it to them. Send it where everyone can see that material, or let the user send it themselves. A new connection starts with nothing read.', true)
+  const rootSeq = root?.seq
+  if (roomWidening(db, roomId, sources, root, userId)) return out('Not sent: this connection has read material (files, or messages of rooms) that some people in this room cannot see, and the message would show it to them. Send it where everyone can see that material, or let the user send it themselves. A new connection starts with nothing read.', true)
   let sent
   try {
-    sent = rooms.send(userId, roomId, { body: text, threadRootId: rootSeq !== undefined ? thread!.trim() : null, mentions: ids, fileIds: [], clientMessageId: crypto.randomUUID() })
+    // what the connection had read goes with the message (room_messages.source_scope): someone who joins a team room or
+    // the everyone room later and could not see it gets one line in its place (rooms/history.ts); nothing read: none
+    sent = rooms.send(userId, roomId, { body: text, threadRootId: rootSeq !== undefined ? thread!.trim() : null, mentions: ids, fileIds: [], clientMessageId: crypto.randomUUID() }, {}, undefined,
+      sources.length ? JSON.stringify({ sources, unknown: false }) : null)
   } catch (e) {
     if (e instanceof HttpError) {
       if (e.code === 'rate_limited') return out(`Too many messages at once: try again in ${e.extra.retryAfter ?? 1} seconds.`, true)

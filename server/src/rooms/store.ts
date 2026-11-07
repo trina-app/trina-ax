@@ -1,8 +1,10 @@
 // Team chat rooms: rows and what one person may see of them (docs/DECISIONS.md "대화방 v1"). Every read goes through a
 // member row: someone who is not in the room gets nothing, whatever their role (an admin or the owner too).
 //
-// What a member sees: messages with seq > their visible_from_seq (a later member sees from their join on), and of those
-// the ones for the whole room or private to them (visibility 'private', visible_to: reserved for the AI step).
+// What a member sees: messages after where they see the room from (seesFrom: a team room's or the everyone room's whole
+// history, a group chat or 1:1 from their join on), and of those the ones for the whole room or private to them
+// (visibility 'private', visible_to: the AI's previews), but not the old answers hidden from them (room_hidden_answers,
+// rooms/history.ts: a later member who could not open what an answer used) nor what is in their threads.
 //
 // Event lines (room_messages.event, docs/DECISIONS.md "그룹 대화와 방 이름"): a rename, people invited, someone left or
 // taken out. They take a seq and are seen like any message, but count nowhere: no badge, never the rooms list's last
@@ -25,7 +27,10 @@ const EXCERPT_LIST = 120
 export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null }
 /** muted / notify_level: my level for the room (rooms/alerts.ts ownLevel; notify_level is absent from rows made in code).
  * hidden_at: when I hid the room from my own lists (docs/DECISIONS.md "대화 숨기기"); null or absent: shown */
-export interface MemberRow { room_id: string; user_id: string; joined_at: string; last_read_seq: number; visible_from_seq: number; muted: number; notify_level?: string | null; hidden_at?: string | null }
+/** visible_from_seq: the room's last seq when they joined (the floor of their read position); history_from_seq: where
+ * they see the room from once their hidden old answers are worked out (0 in a team room or the everyone room), null
+ * before that and in group chats and 1:1s (they see from visible_from_seq): seesFrom */
+export interface MemberRow { room_id: string; user_id: string; joined_at: string; last_read_seq: number; visible_from_seq: number; history_from_seq: number | null; history_recheck?: number; /** 0: none of the room's old answers is hidden from them (read with the row: a check per message is then skipped); absent: not known (checked) */ has_hidden?: number; muted: number; notify_level?: string | null; hidden_at?: string | null }
 export interface MessageRow {
   id: string; room_id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null
   visibility: 'room' | 'private'; visible_to: string | null; body: string; reply_to_id: string | null; mentions: string
@@ -56,12 +61,15 @@ export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, vis
 export const MENTIONS_SQL = '(EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?) OR (m.mentions_all = 1 AND (m.author_id IS NULL OR m.author_id <> ?)))'
 
 export const roomRow = (db: Database, id: string): RoomRow | null => db.query('SELECT * FROM rooms WHERE id = ?').get(id) as RoomRow | null
+/** A member row as read here carries has_hidden (rows only ever become fewer while they are in the room, and are added
+ * only in the step that opens their history, so an older copy of a row never skips a check it needs) */
+const MEMBER_COLS = 'm.*, EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden'
 export const memberRow = (db: Database, roomId: string, userId: string): MemberRow | null =>
-  db.query('SELECT * FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId) as MemberRow | null
+  db.query(`SELECT ${MEMBER_COLS} FROM room_members m WHERE m.room_id = ? AND m.user_id = ?`).get(roomId, userId) as MemberRow | null
 /** Is this person in the room now? (the realtime hub asks before it replays a room event) */
 export const isRoomMember = (db: Database, roomId: string, userId: string): boolean =>
   !!db.query('SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ? AND m.user_id = ? AND r.archived_at IS NULL').get(roomId, userId)
-export const members = (db: Database, roomId: string): MemberRow[] => db.query('SELECT * FROM room_members WHERE room_id = ?').all(roomId) as MemberRow[]
+export const members = (db: Database, roomId: string): MemberRow[] => db.query(`SELECT ${MEMBER_COLS} FROM room_members m WHERE m.room_id = ?`).all(roomId) as MemberRow[]
 export const messageRow = (db: Database, roomId: string, id: string): MessageRow | null =>
   db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE id = ? AND room_id = ?`).get(id, roomId) as MessageRow | null
 
@@ -78,15 +86,37 @@ export function setRoomAiWaiting(db: Database, check: (roomId: string, userId: s
 
 /** The seq that decides who sees a message: its own, or for a thread reply its root's (a thread follows its root). */
 export const seenSeq = (m: Pick<MessageRow, 'seq'> & { thread_root_seq?: number | null }) => m.thread_root_seq ?? m.seq
-/** May this member see this message? */
-export function canSee(m: Pick<MessageRow, 'seq' | 'visibility' | 'visible_to'> & { thread_root_seq?: number | null }, member: Pick<MemberRow, 'user_id' | 'visible_from_seq'>): boolean {
-  if (seenSeq(m) <= member.visible_from_seq) return false
-  return m.visibility === 'room' || m.visible_to === member.user_id
+/** Where a member sees the room from (docs/DECISIONS.md "지난 대화"): a team room's or the everyone room's whole history
+ * (history_from_seq 0) once their hidden answers are worked out (rooms/history.ts); else from their join on
+ * (visible_from_seq: group chats and 1:1s, and a later member until then). visible_from_seq stays the floor of their
+ * read position: nothing from before they joined is unread. */
+export const seesFrom = (m: Pick<MemberRow, 'visible_from_seq'> & { history_from_seq?: number | null }): number => m.history_from_seq ?? m.visible_from_seq
+/** A message as the visibility rule reads it. */
+export type SeeMessage = Pick<MessageRow, 'id' | 'room_id' | 'seq' | 'visibility' | 'visible_to'> & { thread_root_id?: string | null; thread_root_seq?: number | null }
+export type SeeMember = Pick<MemberRow, 'user_id' | 'visible_from_seq'> & { history_from_seq?: number | null; has_hidden?: number }
+/** Is this message one of the member's hidden old answers, or in the thread of one (room_hidden_answers: a later member
+ * of a team room or the everyone room who could not open what the answer used)? */
+export function isHiddenFor(db: Database, m: Pick<SeeMessage, 'id' | 'room_id'> & { thread_root_id?: string | null }, userId: string): boolean {
+  return !!db.query('SELECT 1 FROM room_hidden_answers WHERE room_id = ? AND user_id = ? AND message_id IN (?, ?) LIMIT 1').get(m.room_id, userId, m.id, m.thread_root_id ?? m.id)
+}
+/** May this member see this message (from where they see the room, for the whole room or for them, not one of their
+ * hidden old answers or in its thread)? */
+export function canSee(db: Database, m: SeeMessage, member: SeeMember): boolean {
+  if (seenSeq(m) <= seesFrom(member)) return false
+  // a private preview is its person's, and only from their join on: one of theirs from before they left and joined again
+  // was never judged for the room's history (rooms/history.ts walks what went to the room)
+  if (m.visibility !== 'room') return m.visible_to === member.user_id && seenSeq(m) > member.visible_from_seq
+  return member.has_hidden === 0 || !isHiddenFor(db, m, member.user_id)
 }
 /** The same as SQL on room_messages `m`; its parameters are seeArgs(member). `m.seq > ?` first: a reply's seq is above
- * its root's, so it adds nothing to the rule and lets the (room_id, seq) index start at the member's join. */
-export const SEE_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR m.visible_to = ?)"
-export const seeArgs = (member: Pick<MemberRow, 'user_id' | 'visible_from_seq'>) => [member.visible_from_seq, member.visible_from_seq, member.user_id] as const
+ * its root's, so it adds nothing to the rule and lets the (room_id, seq) index start where the member sees from. The
+ * hidden answers: one primary-key probe per row (room_id, user_id, message_id), for the message and for its root,
+ * skipped for a member none of whose old answers is hidden (has_hidden 0). */
+export const SEE_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR (m.visible_to = ? AND COALESCE(m.thread_root_seq, m.seq) > ?)) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id IN (m.id, m.thread_root_id)))"
+/** The timeline's and a thread's listings only (same parameters): a hidden answer itself stays in the list, where
+ * messagesOut shows it as one line without its content; what is in its thread does not. */
+export const LIST_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR (m.visible_to = ? AND COALESCE(m.thread_root_seq, m.seq) > ?)) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id = m.thread_root_id))"
+export const seeArgs = (member: SeeMember) => [seesFrom(member), seesFrom(member), member.user_id, member.visible_from_seq, member.has_hidden === 0 ? 0 : 1, member.user_id] as const
 /** The room's timeline on room_messages `m`: no thread replies but those sent to the room too. */
 export const TIMELINE_SQL = '(m.thread_root_id IS NULL OR m.also_in_room = 1)'
 /** Can a thread hang under this message (or is one there): a message of the timeline, for the whole room, not an event
@@ -145,9 +175,51 @@ export const fileOut = (f: FileRow): RoomFile => ({
   ...(f.width ? { width: f.width } : {}), ...(f.height ? { height: f.height } : {}), thumb: !!f.thumb,
 })
 
-/** Messages as `viewer` sees them (all rows must be visible to them already). */
-export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow): RoomMessage[] {
-  if (!rows.length) return []
+/** The rows of a list that are hidden from `viewer` (one of their hidden old answers, or in its thread). */
+function hiddenAmong(db: Database, rows: readonly MessageRow[], viewer: Pick<MemberRow, 'user_id'>): Set<string> {
+  const keys = [...new Set(rows.flatMap((r) => (r.thread_root_id ? [r.id, r.thread_root_id] : [r.id])))]
+  if (!viewer.user_id || !keys.length) return new Set()
+  const out = new Set<string>()
+  for (let i = 0; i < keys.length; i += 500) {
+    const part = keys.slice(i, i + 500)
+    for (const h of db.query(`SELECT message_id FROM room_hidden_answers WHERE room_id = ? AND user_id = ? AND message_id IN (${part.map(() => '?').join(',')})`).all(rows[0]!.room_id, viewer.user_id, ...part) as { message_id: string }[]) out.add(h.message_id)
+  }
+  return new Set(rows.filter((r) => out.has(r.id) || (!!r.thread_root_id && out.has(r.thread_root_id))).map((r) => r.id))
+}
+
+/** Messages as `viewer` sees them (all rows must be visible to them already, or listed by LIST_SQL). An old answer hidden
+ * from them (rooms/history.ts), or anything in its thread, goes as one line: who and when, never its text, files,
+ * sources, links, reactions or thread (RoomMessage.withheld). */
+export function messagesOut(db: Database, all: readonly MessageRow[], viewer: MemberRow): RoomMessage[] {
+  if (!all.length) return []
+  const withheld = hiddenAmong(db, all, viewer)
+  const rows = withheld.size ? all.filter((r) => !withheld.has(r.id)) : all
+  const out = rows.length ? shownOut(db, rows, viewer) : []
+  if (!withheld.size) return out
+  const shown = new Map(out.map((m) => [m.id, m]))
+  const people = refsOf(db, all.filter((r) => withheld.has(r.id)).flatMap((r) => [r.author_kind === 'ai' ? null : r.author_id, r.asked_by]))
+  return all.map((r) => shown.get(r.id) ?? withheldOut(db, r, viewer, people))
+}
+
+/** One hidden answer as the viewer gets it: who wrote or asked it and when; an AI answer keeps the question it answers
+ * (a person's words they see). Nothing else. */
+function withheldOut(db: Database, r: MessageRow, viewer: MemberRow, people: Map<string, UserRef>): RoomMessage {
+  const q = r.author_kind === 'ai' && r.reply_to_id ? messageRow(db, r.room_id, r.reply_to_id) : null
+  const quoted = q && canSee(db, q, viewer) && !q.deleted_at && !q.event ? q : null
+  return {
+    id: r.id, roomId: r.room_id, seq: r.seq, authorKind: r.author_kind,
+    author: r.author_kind === 'ai' || !r.author_id ? null : people.get(r.author_id) ?? null,
+    askedBy: r.asked_by ? people.get(r.asked_by) ?? null : null,
+    visibility: 'room', body: '',
+    replyTo: quoted ? { id: quoted.id, author: quoted.author_id ? refsOf(db, [quoted.author_id]).get(quoted.author_id) ?? null : null, excerpt: excerpt(quoted.body, EXCERPT_QUOTE), fileCount: 0, deleted: false } : null,
+    mentions: [], files: [], createdAt: r.created_at, editedAt: null, deletedAt: r.deleted_at,
+    ...(r.thread_root_id ? { threadRootId: r.thread_root_id } : {}),
+    withheld: true,
+  }
+}
+
+/** Messages as `viewer` sees them, none hidden from them. */
+function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow): RoomMessage[] {
   const ids = rows.map((r) => r.id)
   const files = new Map<string, RoomFile[]>()
   for (const f of db.query(`SELECT * FROM room_files WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...ids) as FileRow[]) {
@@ -182,7 +254,7 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       try {
         const d = JSON.parse(t.decision ?? 'null')
         const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x: unknown): x is string => typeof x === 'string') : [])
-        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater) })
+        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater), ...(d.hidden ? { hidden: true as const } : {}) })
       } catch { /* no reason shown */ }
     }
   }
@@ -203,9 +275,11 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
     let replyTo: RoomQuote | null = null
     if (r.reply_to_id) {
       const q = quotes.get(r.reply_to_id)
-      // a quote the viewer may not see (sent before they joined, private to someone else) shows no content
-      const shown = q && canSee(q, viewer) && !q.deleted_at && !q.event
-      replyTo = { id: r.reply_to_id, author: shown && q.author_id ? people.get(q.author_id) ?? null : null, excerpt: shown ? excerpt(q.body, EXCERPT_QUOTE) : '', fileCount: shown ? quoteFiles.get(q.id) ?? 0 : 0, deleted: !shown }
+      // a quote the viewer may not see (sent before they joined, private to someone else, an old answer hidden from
+      // them) shows no content; a hidden answer says so (withheld)
+      const shown = q && canSee(db, q, viewer) && !q.deleted_at && !q.event
+      const hidden = !shown && !!q && !q.deleted_at && !q.event && isHiddenFor(db, q, viewer.user_id)
+      replyTo = { id: r.reply_to_id, author: shown && q.author_id ? people.get(q.author_id) ?? null : null, excerpt: shown ? excerpt(q.body, EXCERPT_QUOTE) : '', fileCount: shown ? quoteFiles.get(q.id) ?? 0 : 0, deleted: !shown, ...(hidden ? { withheld: true as const } : {}) }
     }
     const thread = threads.get(r.id)
     const reacted = reactions.get(r.id)
@@ -240,22 +314,24 @@ export function threadSummaries(db: Database, roomId: string, rootIds: readonly 
   const out = new Map<string, RoomThreadSummary>()
   if (!rootIds.length) return out
   const marks = rootIds.map(() => '?').join(',')
-  const see = "m.deleted_at IS NULL AND m.event IS NULL AND (m.visibility = 'room' OR m.visible_to = ?)"
+  // (a private reply of theirs only from their join on, as canSee)
+  const see = "m.deleted_at IS NULL AND m.event IS NULL AND (m.visibility = 'room' OR (m.visible_to = ? AND m.thread_root_seq > ?))"
+  const vfs = viewer.visible_from_seq
   const counts = db.query(`SELECT m.thread_root_id root, COUNT(*) n, MAX(m.created_at) last FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id IN (${marks}) AND ${see} GROUP BY m.thread_root_id`)
-    .all(roomId, ...rootIds, viewer.user_id) as { root: string; n: number; last: string }[]
+    .all(roomId, ...rootIds, viewer.user_id, vfs) as { root: string; n: number; last: string }[]
   if (!counts.length) return out
   const roots = counts.map((c) => c.root)
   const rm = roots.map(() => '?').join(',')
   // the people who replied, the latest first (the AI has no author: it is not one of them)
   const by = db.query(`SELECT m.thread_root_id root, m.author_id uid, MAX(m.seq) s FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id IN (${rm}) AND ${see}
-    AND m.author_kind = 'user' AND m.author_id IS NOT NULL GROUP BY m.thread_root_id, m.author_id`).all(roomId, ...roots, viewer.user_id) as { root: string; uid: string; s: number }[]
+    AND m.author_kind = 'user' AND m.author_id IS NOT NULL GROUP BY m.thread_root_id, m.author_id`).all(roomId, ...roots, viewer.user_id, vfs) as { root: string; uid: string; s: number }[]
   const repliers = new Map<string, { uid: string; s: number }[]>()
   for (const b of by) (repliers.get(b.root) ?? repliers.set(b.root, []).get(b.root)!).push(b)
   const top = new Map([...repliers].map(([root, l]) => [root, l.sort((a, b) => b.s - a.s).slice(0, 3).map((x) => x.uid)]))
   const people = refsOf(db, [...top.values()].flat())
   // (a reply sent to the room too is new in the timeline, not here: threadsUnread)
   const fresh = new Set((db.query(`SELECT f.root_id FROM room_thread_follows f WHERE f.user_id = ? AND f.root_id IN (${rm}) AND EXISTS (SELECT 1 FROM room_messages m
-    WHERE m.thread_root_id = f.root_id AND m.seq > f.last_read_seq AND m.also_in_room = 0 AND ${see} AND (m.author_id IS NULL OR m.author_id <> ?))`).all(viewer.user_id, ...roots, viewer.user_id, viewer.user_id) as { root_id: string }[]).map((r) => r.root_id))
+    WHERE m.thread_root_id = f.root_id AND m.seq > f.last_read_seq AND m.also_in_room = 0 AND ${see} AND (m.author_id IS NULL OR m.author_id <> ?))`).all(viewer.user_id, ...roots, viewer.user_id, vfs, viewer.user_id) as { root_id: string }[]).map((r) => r.root_id))
   for (const c of counts) {
     out.set(c.root, { replyCount: c.n, lastReplyAt: c.last, repliers: (top.get(c.root) ?? []).map((id) => people.get(id)).filter((x): x is UserRef => !!x), newReplies: fresh.has(c.root) })
   }
@@ -331,7 +407,8 @@ export function unreadCount(db: Database, roomId: string, viewer: MemberRow): { 
 /** The newest position of the timeline `viewer` can see (an event line's too), 0 for none: the room's own counter would
  * count replies in threads they cannot see and other people's private previews. */
 export function lastSeqFor(db: Database, roomId: string, viewer: MemberRow): number {
-  return (db.query(`SELECT m.seq FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} AND ${TIMELINE_SQL} ORDER BY m.seq DESC LIMIT 1`).get(roomId, ...seeArgs(viewer)) as { seq: number } | null)?.seq ?? 0
+  // (a hidden old answer's line is in the timeline they get: LIST_SQL)
+  return (db.query(`SELECT m.seq FROM room_messages m WHERE m.room_id = ? AND ${LIST_SQL} AND ${TIMELINE_SQL} ORDER BY m.seq DESC LIMIT 1`).get(roomId, ...seeArgs(viewer)) as { seq: number } | null)?.seq ?? 0
 }
 
 /** At most this many followed threads are looked at for a room's badge (the newest first). */
@@ -345,8 +422,9 @@ export function threadsUnread(db: Database, roomId: string, viewer: MemberRow): 
     FROM room_thread_follows f CROSS JOIN room_messages root ON root.id = f.root_id CROSS JOIN room_messages m ON m.thread_root_id = f.root_id AND m.seq > f.last_read_seq
     WHERE f.user_id = ? AND f.room_id = ? AND root.room_id = ? AND root.seq > ? AND m.room_id = ? AND m.also_in_room = 0
       AND m.deleted_at IS NULL AND m.event IS NULL AND (m.visibility = 'room' OR m.visible_to = ?) AND (m.author_id IS NULL OR m.author_id <> ?)
+      AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = root.room_id AND h.user_id = f.user_id AND h.message_id IN (root.id, m.id))
     GROUP BY f.root_id ORDER BY newest DESC LIMIT ${THREADS_LOOKED_AT}`)
-    .all(viewer.user_id, viewer.user_id, viewer.user_id, roomId, roomId, viewer.visible_from_seq, roomId, viewer.user_id, viewer.user_id) as { root_id: string; newest: number; men: number | null }[]
+    .all(viewer.user_id, viewer.user_id, viewer.user_id, roomId, roomId, seesFrom(viewer), roomId, viewer.user_id, viewer.user_id) as { root_id: string; newest: number; men: number | null }[]
   return { n: Math.min(MAX_UNREAD, rows.length), next: rows[0]?.root_id ?? null, mentioned: rows.some((r) => !!r.men) }
 }
 

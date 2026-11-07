@@ -1717,6 +1717,9 @@ only have per-person Claude subscriptions).
 
 ## Team logo as the tab icon (feat/team-icon, 2026-10-28)
 
+Changed on 2026-11-07 (fix/tab-icon-stays-product, last bullet below): the logo shows only inside the page, and the tab,
+`/favicon.ico`, the home-screen and the installed app's icons are always the product's. The rest is kept as history.
+
 The founder opened a team's address and the tab icon looked wrong: the shell linked only `/favicon.svg`, and
 `/favicon.ico` (Safari, bookmarks, some systems ask for it on their own) got the app page as HTML. Asked: each company can
 set its own logo as the tab icon; without one it is the product's icon.
@@ -1754,8 +1757,28 @@ set its own logo as the tab icon; without one it is the product's icon.
 - The computer's sidebar header shows the logo next to the team name, at `/team-icon?v=<iconVersion>` cropped square with
   `object-cover`, and the default mark when none is set. The phone drawer's header names the AI, not the team, so it keeps
   the product's mark (fix/sidebar-team-logo-main-focus, 2026-11-07).
-- Tests: `tests/unit/a-team-icon.test.ts`, `web/test/unit/team-icon.test.ts`, `web/test/e2e/team-icon.spec.ts`, the
-  a11y audit, `tests/security/lib/team-icon-cases.ts`.
+- Changed (fix/tab-icon-stays-product, 2026-11-07): **the team logo shows only inside the page.** The owner: changing
+  the team logo should change the page's top left, but the favicon should not change. So the logo is the computer's
+  sidebar header (and its preview in Admin › Team settings) and nothing else; everywhere the browser or the system
+  shows the app's icon it is the product's: the tab, `/favicon.ico`, bookmarks, `/apple-touch-icon.png` (and
+  `-precomposed`) and `/manifest.webmanifest`. index.html is served as built (its icon links are never rewritten; the
+  `<!-- icons -->` markers and `iconLinks` / `withIconLinks` are gone), the well-known addresses and the manifest are the
+  build's files, and the web app no longer swaps the page's links after sign-in or after the `team_icon_changed`
+  notice (`applyTeamIcon` removed). Released versions (up to 0.4.0-beta.10) made a logo of any size the tab icon, the
+  home-screen icon and the manifest's only icon; the 512 px rule above reached dev only and is removed with the rest
+  (`isAppIcon`, `TEAM_ICON_APP_PX`, `manifestWithIcon`, `Me.team.appIcon`). `appIcon` was optional and never in a
+  release, so a page still open from before reads its absence as "not the app icon" (it may keep the logo in its own
+  tab until it reloads). Kept: the upload rules, `PUT` / `DELETE /api/admin/team-icon`, the audit entries, the realtime notice (the
+  sidebar follows it through `GET /api/me`) and the public `GET /team-icon`, now the sidebar's image (the sign-in page
+  has no logo of its own any more: it showed it only as the tab icon). Admin › Team settings previews the sidebar header
+  in the light and the dark look instead of the tab and home-screen sizes; the install pictures in Settings › Apps show
+  the product's icon. Browsers keep tab icons and installed apps keep theirs: one that took the logo may show it until
+  it reads the page or the manifest again.
+- Tests: `tests/unit/a-team-icon.test.ts`, `web/test/unit/team-icon.test.ts`, `web/test/unit/install-pictures.test.tsx`,
+  `web/test/e2e/team-icon.spec.ts`, the a11y audit, `tests/security/lib/team-icon-cases.ts`. Since 2026-11-07 they also
+  check that with any logo set index.html's icon links, `/favicon.ico`, the home-screen addresses and the manifest are
+  the build's, that the page's `<link rel=icon>` does not change after sign-in or the realtime notice, and that the
+  sidebar's `<img data-testid="sidebar-logo">` does.
 
 ## External-service connections: a service that echoes the key (fix/integrations-secret-echo, 2026-10-28)
 
@@ -8180,7 +8203,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   on. A group deleted: its room is archived with nobody in it (rows kept; nobody can read them; a purge is for later).
   Team and everyone rooms' creation and member changes are audited (`room.create`, `room.members`, `room.archive`); a
   DM is not (admins read the audit log and must not learn who talks to whom), and a message's text never is.
-- **A later member sees from their join on.** `room_members.visible_from_seq` is the room's `last_seq` when they
+- **A later member sees from their join on** (amended 2026-11-07: in team rooms and the everyone room a later member
+  sees the whole history but the old answers they could not open, see "지난 대화"; group chats and 1:1s keep this).
+  `room_members.visible_from_seq` is the room's `last_seq` when they
   joined (0 for the first members at the first start): messages, the last-message line, unread counts, quotes of earlier
   messages ("deleted" for them) and room files all go by it. Their read position starts there too.
 - **Members only, admins included.** Every read and write starts from the caller's member row; anyone else gets 404
@@ -10620,7 +10645,8 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
   already in the chat when inviting); ticking it again unticks them. A snapshot: the chat never follows the group
   (that is the group's team room). One other person still makes a DM, by the same rule.
 - **Who is in it.** Any member invites (`POST /api/rooms/:id/members`; people already in it are skipped). Someone added
-  sees the chat from their join on, exactly as a team room's later member (`visible_from_seq` and `last_read_seq` =
+  sees the chat from their join on, as a team room's later member did until "지난 대화" (2026-11-07: team rooms and the
+  everyone room now show their history, like Slack channels; group chats stay like Slack's group DMs) (`visible_from_seq` and `last_read_seq` =
   the room's `last_seq` then): earlier messages, quotes ("deleted" for them), files, AI answers and their sources are
   not theirs; the invite line right after is the first thing they see. Any member leaves (`POST /api/rooms/:id/leave`);
   the last one out archives the room (rows kept, nobody can read them). A DM's 초대하기 opens the picker with the other
@@ -10729,7 +10755,8 @@ v1"): kind `group`, which 240's CHECK already allowed, is now written.
 
 The owner: rooms follow Slack almost entirely. Three changes: threads (they replace the quoted reply, "답장"), emoji
 reactions, and no read receipts (KakaoTalk's per-message number goes). The one deliberate difference from Slack stays:
-a later member sees a room from their join on (`visible_from_seq`), threads included.
+a later member sees a room from their join on (`visible_from_seq`), threads included (amended 2026-11-07: only in group
+chats and 1:1s now; team rooms and the everyone room show their history, see "지난 대화").
 
 - **A thread hangs under a message of the timeline.** Any message for the whole room that is not an event line or
   deleted can get replies (`SendRoomMessageBody.threadRootId`); a reply cannot have a thread of its own, and a private
@@ -13002,6 +13029,152 @@ reference; a product and privacy review cut the first plan down to this.
   older servers, the rows in the Inbox and the click), `web/test/unit/push-worker.test.ts` (the title), and the e2e
   `inbox-rooms.spec.ts` (the rows, and a click that opens the thread at the first unread reply in sight).
 - Version impact: **minor** (the Inbox lists conversation notices, new optional fields, an additive migration).
+
+## 지난 대화 — a later member sees a team room's history (feat/room-history-for-later-members, 2026-11-07, product owner)
+넣을 곳: trina-ax `server/src/rooms` (history.ts, store.ts, service.ts, ai.ts, inbox.ts, reader.ts), `server/src/chat`
+(read-scope.ts, answer-share.ts, runtime.ts), `server/src/connectors/remote-mcp/rooms.ts`, migration 264,
+`shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMessages.tsx`, 이유: rooms, permissions and the AI's share rule
+are core.
+
+The owner: team rooms and the everyone room work like Slack channels. This amends "대화방 v1" ("A later member sees
+from their join on"), "그룹 대화와 방 이름" and "스레드와 반응": the one deliberate difference from Slack is gone for team
+rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs do.
+
+- **What a later member sees.** Someone who joins a team room (their group) or the everyone room later, or joins again
+  after leaving, sees the whole earlier history: people's messages, threads, reactions, room files, quotes, event lines.
+  Their read position starts at the room's newest message (`visible_from_seq` stays the room's `last_seq` at the join
+  and is the floor of the read position): nothing old is unread, notifies, pushes or counts in a badge. A mention of
+  them in an old message is not news; one in an old thread after they joined it is (they follow it from their reply on,
+  or from the mention). Group chats and 1:1s: unchanged, from the join on.
+- **Old answers they could not open (not in Slack).** An answer of the room's AI, an answer someone shared from their
+  own AI chat (#144 "대화방에 보내기") and a message an AI app sent for someone after reading (`room_send`, "AI 앱에서
+  대화 읽고 쓰기") went into the room only because everyone there then could open what they used. A later member who
+  cannot open something one of them used sees one quiet line in its place: "볼 수 없는 자료를 참고한 답이라 가려졌어요"
+  (an AI answer, with "○○ 님이 물어봄" above it) or "볼 수 없는 자료를 참고해서 가려졌어요" (a person's message, under their
+  name), five languages. Nothing else of it: no text, files, sources, file links, reactions, thread, menu; reacting,
+  replying in its thread or quoting it is refused like a message they do not see. Its whole thread is hidden with it
+  (a thread follows its first message, and people answering a hidden answer are likely repeating it). A quote of it
+  says the same line. "자료", not "파일": it is also shown for the web, a connection, another conversation and an answer
+  whose scope was not kept.
+- **What makes one hidden** (`rooms/history.ts`). What it used as kept: an AI answer's question scope
+  (`room_ai_turns.scope`, 246), a person's message's `room_messages.source_scope` (new: a shared answer's sources from
+  `answerAudience` with `unknown` when its chat's scope did not describe it; what an AI app's connection had read before
+  `room_send`, NULL when it had read nothing). Hidden when: none kept (an AI answer from before 246, a shared answer from
+  before this change: fail closed); an AI answer that used the web, a connection, a shared Drive or any tool outside the
+  team files (`outside`; posted only when its asker overrode the reason); a source type this build does not know; the
+  member's account cannot be loaded; or a source the member may not read by the readers rule of the "more people can
+  see" card (`read-scope.ts viewersOf`: folders by read, names by list, someone's own folder only them, connections by
+  their access rule). This room as a source: they see it from where the answer's context started, and no answer hidden
+  from them lies from there on that its asker could see (the asker's own hidden answers were never in its context; used
+  only when what the asker read was read in their membership now: an AI answer's reads happen during its question, so
+  they joined before the question; a person's message was read at a time not known, so the oldest message read must be
+  newer than their join; after leaving and joining again their rows say nothing about what they saw then). The walk goes in seq order, so an answer built on a hidden one is hidden
+  too; deleted answers are walked as well (one built on a deleted answer is judged by it).
+- **Which answers are judged:** those whose who-sees seq (their own; a thread reply's thread's first message's) is at
+  or before the member's join point, whenever they were written: an answer in a thread that started before the join was
+  decided without the member (a thread's audience was who saw its first message).
+- **When: at the join, and again only to show more.** `openHistory` works the member's rows out in one transaction and
+  sets `room_members.history_from_seq = 0` (they now see from the start). Until it commits, `history_from_seq` is NULL and
+  they see the room from their join on: the safe state whatever fails. It runs in `Rooms.sync` (after its transaction,
+  before the "added" events, so the first list already has the history; then any other member still waiting, 250 ms a
+  pass, the rest in passes of 250 ms a second apart until none is left: existing later members after the upgrade, rows
+  an older build made), in `Rooms.list` and `syncFor` for the person (their own rooms), in `Rooms.mine` for the room
+  opened, and when an answer is decided or shared in the room (for at most 100 ms, `DECIDE_HISTORY_MS`, a walk cut off
+  there too: the turn's end never waits for a whole everyone room after an upgrade, and a member still waiting keeps the
+  answer unpostable). The walk is linear in the room's old answers (the hidden ones kept sorted by who-sees seq, each
+  person's row read once): 20,000 answers, nearly all hidden, 120–190 ms a member. A walk that cannot judge one answer
+  hides that answer and goes on; one that fails as a whole is tried again after 5 minutes. Snapshot semantics like the members who were there
+  (they keep the answers they saw when their access narrows): after an access change (`afterAccessChange`: rules,
+  groups, role) the people whose access changed and who have hidden rows are marked `history_recheck`, the next pass walks
+  them again and keeps only what is hidden both before and now. So an account made by invite, which joins the everyone
+  room before its groups are set, gets the answers its groups open, and nobody loses one. Rejected: deciding at read time
+  (every list, quote, search and AI context would load each viewer's access and every old answer's scope; and a later
+  member could lose an answer already read when rules narrow, while the members who were there keep it); a snapshot that
+  never shows more (it would hide answers for good from everyone who joins the everyone room before their groups are set).
+- **The check, in one place.** `rooms/store.ts`: `SEE_SQL` / `canSee(db, …)` (the signature gained `db`, so the compiler
+  listed every caller) leave out the member's hidden answers and everything in their threads, everywhere a room message
+  is read: the timeline and threads (as the line: `LIST_SQL` keeps a hidden answer itself in the list and `messagesOut`
+  turns it into the line, whatever a caller passes in), quotes, the rooms list's last line, unread counts and badges,
+  room files, AI sources, reactions, realtime events, notices and the Inbox (`inbox.ts`, also by where the member sees
+  from), the room AI's context, `room_thread`, `room_file`, its session's history (`chat/runtime.ts`), the person's own AI
+  chat's `rooms` / `room_read` / `room_file` (`reader.ts`) and the AI apps' room tools. `seesFrom(member)` =
+  `history_from_seq ?? visible_from_seq` is where a member sees from. A member none of whose answers is hidden reads with
+  `has_hidden = 0` and skips the probe (rows only become fewer while they stay, and are added only in the step that opens
+  their history, so an older copy of a row never skips a check it needs).
+- **The AI's share rule.** `RoomAi.decide`: an answer is private when its context (or tools) used this room from a seq
+  at or after an answer hidden from some member now, one its asker saw (new reason `preview.hidden`, "방 사람 중 일부에게
+  가려진 예전 답을 참고해서 대화방에 올릴 수 없어요", never who: it would tell their access). In a thread only that thread's
+  hidden answers count for a source at the thread's first message (its context, `room_thread`, its own history, a file
+  of one of its messages); a source anywhere else (a file of another message read with `room_file`) counts from there
+  on. The asker's own hidden answers never count (they were not given). In a team room or the everyone room the members
+  whose history is not worked out yet get it first (`openHistories` for the room), so it is decided on what they will
+  see; one still waiting (a walk that failed) makes it unpostable rather than "joined later", which the asker may
+  override. Such a preview is **not postable**: the asker cannot see what is at stake for the others
+  (`share` answers 409 `room_ai_hidden`; the preview has no 올리기). In a team room or the everyone room a thread's audience
+  is every member to whom its first message is not hidden: one whose history is not open yet counts (and keeps the answer
+  private as having joined later), so no answer is decided without them. The same audience for an AI app's thread reply
+  (`roomWidening`). The readers of saved scopes (`roomViewers`: the wider-audience card, a shared answer's audience, an AI
+  app's `room_send`) leave out every member with a hidden answer from the source's position on, but never the person
+  who read it (what reaches themselves widens nothing). A shared answer that would reach a member who misses a room it
+  read only because of hidden answers (or whose history is not worked out) is refused, confirmed or not (409
+  `answer_share_hidden`: the sender cannot see what is at stake for them, as for the room AI's preview); so is one whose
+  chat (or the chat that made a file going with it) read rooms without its scope saying which, while any member has old
+  answers hidden from them anywhere or a history not worked out yet (any room may be in it). A private preview
+  from before 246 (reasons but no scope) is never posted in a team room or the everyone room (409 `room_ai_ask_again`):
+  what it used cannot be judged against anyone's hidden answers. Someone's own message hidden from them since they
+  joined again may still be deleted by them (not read or edited). Their own private previews count only from their join
+  on (`canSee`, `SEE_SQL`: a preview is never walked, so one from before they left and joined again stays out of sight).
+- **Migration 264, additive (reader level stays 6; 263 is feat/ios-notification-labels').** `history_from_seq`,
+  `history_recheck` on `room_members`, `room_messages.source_scope`, `room_hidden_answers(room_id, user_id, message_id,
+  see_seq)` with indexes on `(room_id, user_id, see_seq)` and `(user_id)`, and a partial index of the answers for the
+  walk. Nothing is rewritten: existing later
+  members get the history at the first start of this version, through the same walk. Rejected: setting
+  `visible_from_seq` to 0 with reader level 7: an older build after a rollback would then show every hidden answer; with
+  the new column it keeps showing from the join on.
+- **Existing later members see what was written before them**, including what people wrote while the old rule promised
+  "from the join on" (the owner's decision: Slack's way, the whole history). The CHANGELOG says so.
+- **Measured** (a 100k-message room, 2,000 AI answers, this Mac): a member's walk 14–81 ms (20,000 answers: 120–190 ms;
+  deciding an answer with 99 members waiting: one walk, 120–245 ms); ten members joining at once with the sync 230–270 ms; a timeline page 0.05–0.35 ms; `canSee` under 0.1 µs without hidden rows; a count over 100k
+  rows 22 → 24 ms without hidden rows (with them 68 ms: one primary-key probe a row).
+- **Known limits.** After a rollback to an older
+  build and forward again, thread answers the older build posted in threads older than a later member's join (decided by
+  `visible_from_seq`) are not judged again. Names a room session's instructions listed (skills, folders everyone in the
+  room could read then) are not in an answer's scope. A hidden answer deleted later stays a line in an open window until
+  it reloads (the member gets no event of a message they cannot see). A message an AI app sent before this version (no
+  `source_scope`) counts as its sender's own words and shows in full to later members; accepted: `room_send` is in no
+  release yet, so only test servers have such messages. The wider-audience card when saving something read in a room to a
+  folder still asks (the person decides, as before); it does not refuse past hidden answers.
+- **Independent review (design, 2026-11-07) fixes.** Answers in old threads judged by their thread's seq (a blocker:
+  they were decided without the later member and would have shown); AI apps' `room_send` keeps what it had read;
+  the reader's discount only while they have been in the room since before the answer; deleted answers walked; access
+  gained later shows hidden answers again (only fewer); an answer private for the new reason is not postable; `see_seq`
+  for range checks; `history_from_seq` a required field of `MemberRow`; `moveRuns` checks too; windows told when a
+  history opens in the background; "자료" in the line, `rooms.threadNotFound` no longer says only "before you joined".
+- **Independent review (code, 2026-11-07) fixes.** Four leaks reproduced and closed: a thread question's `room_file` of
+  a file in a hidden answer's thread was judged by that thread only (now by the file's message position); the walk's
+  discount used the reader's rows when their read was from an earlier membership (now only for reads in their
+  membership now); "joined later" for a member whose history was not worked out could be overridden (now worked out
+  first, else unpostable); a shared answer could be confirmed past a hidden answer (now refused). Also: deleting one's own
+  message hidden from oneself, old previews without scope in rooms with hidden answers, `mine()` retries through the
+  back-off. Each has a test.
+- **PR review (2026-11-07) fixes.** The server could stop for a minute after the upgrade: the first answer or share in
+  the everyone room worked out every waiting member at once, and each walk was quadratic (a scan of the hidden list per
+  answer, a member-row query per answer): now budgeted (100 ms, cut inside a walk), linear, and the background passes
+  run a second apart. A preview from before 246 could be posted past a member whose history was not worked out: no such
+  preview is posted in a team room or the everyone room. Someone's own private preview from before they left and joined
+  again came back unchecked: previews keep the join floor. A share from a chat that read rooms without saying which was a
+  confirm past members with hidden answers (also for an attached file made by such a chat): refused now.
+- **Tests.** `tests/unit/b-rooms-history.test.ts` (team-room history: messages, threads, reactions, quotes, files, no
+  unread or notice; group chats and 1:1s unchanged; a hidden answer as one line and nothing else, its thread, sources,
+  reactions and replies refused, shown to an admin who may read it; unknown scope and the web hidden; shared answers and
+  AI apps' messages by their kept scope; recursion; the readers of personal chats and AI apps, `room_thread`, search; the
+  room AI's context and share decision, the refusal to post; a thread's audience; the upgrade path; only fewer on access
+  changes, joining again; old-thread answers and deleted ones; the Inbox; the four leaks of the code review), the rooms, group, threads, inbox, AI and
+  AI-files suites updated (the "from the join on" cases moved to group chats), `web/test/unit/room-messages.test.tsx`
+  (the line, no menu, the quote, the preview reason without 올리기) and `web/test/e2e/room-history.spec.ts` (with
+  `SHOTS_DIR`: 1440 and 390, light and dark).
+- Version impact: **minor** (later members of team rooms and the everyone room see the history; new optional fields;
+  one additive migration).
 
 ## HTML to PDF: make_file prints a page, and the preview's "PDF로 저장" (feat/html-to-pdf, 2026-11-07, product owner)
 

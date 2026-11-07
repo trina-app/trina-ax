@@ -11,7 +11,7 @@
 import type { Database } from 'bun:sqlite'
 import { plainLabel, type InboxNotification, type Locale } from '@mycel/shared/api'
 import { ROOM_WORDS } from '../notifications/text'
-import { groupName, MENTIONS_SQL, parseMentions, seenSeq, sharedAnswerOf } from './store'
+import { groupName, isHiddenFor, MENTIONS_SQL, parseMentions, seenSeq, sharedAnswerOf } from './store'
 
 /** Which room notices are rows of the Inbox (on room_notices `n` and its message `m`): mentions ("@전체" too) and
  * replies in threads I follow. A message of a DM, a group chat or a room at 모든 메시지 still makes its notice and its
@@ -23,7 +23,8 @@ export const COUNTED_SQL = LISTED_SQL
 /** What the person may read now (`rm` their member row, `r` the room): not archived, not hidden by them, the message
  * there, theirs to see. A notice of a message they can no longer read is no row at all. */
 const READABLE_SQL = `r.archived_at IS NULL AND rm.hidden_at IS NULL AND m.deleted_at IS NULL AND m.event IS NULL
-  AND COALESCE(m.thread_root_seq, m.seq) > rm.visible_from_seq AND (m.visibility = 'room' OR m.visible_to = n.user_id)`
+  AND COALESCE(m.thread_root_seq, m.seq) > COALESCE(rm.history_from_seq, rm.visible_from_seq) AND (m.visibility = 'room' OR m.visible_to = n.user_id)
+  AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = n.user_id AND h.message_id IN (m.id, m.thread_root_id))`
 
 /** Has the person an unread notice in this room that the Inbox counts (hiding, showing or leaving the room changes the
  * count then, and their windows read it again)? */
@@ -87,17 +88,19 @@ export function roomRowOf(db: Database, userId: string, noticeId: string, cutoff
   return roomRows(db, userId, cutoff).find((r) => r.group.ids.includes(noticeId)) ?? null
 }
 
-type RoomInfo = { kind: 'team' | 'all' | 'dm' | 'group'; name: string | null; group_id: string | null; last_read_seq: number; visible_from_seq: number }
+type RoomInfo = { kind: 'team' | 'all' | 'dm' | 'group'; name: string | null; group_id: string | null; last_read_seq: number; visible_from_seq: number; history_from_seq: number | null }
 type Msg = { id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; body: string; created_at: string; deleted_at: string | null; event: string | null; answer_at: number | null; answer_cut: number }
 const MSG = 'm.id, m.seq, m.author_kind, m.author_id, m.body, m.created_at, m.deleted_at, m.event, m.answer_at, m.answer_cut'
 /** A row counts at most this many messages (the pill says 99+ past 99), so a long run costs no more than that. */
 export const COUNT_MAX = 100
-/** What counts in a row for `?` (the person), on room_messages `m`: a message for the whole room they see, not deleted,
- * not an event line, written by someone else, not an AI answer they asked for. Parameters: visible_from_seq ×2, person ×2. */
+/** What counts in a row for `?` (the person), on room_messages `m`: a message for the whole room they see (from where
+ * they see the room, not an old answer hidden from them or in its thread), not deleted, not an event line, written by
+ * someone else, not an AI answer they asked for. Parameters: where they see from ×2, person ×3. */
 const FOR_ME_SQL = `m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND m.visibility = 'room' AND m.deleted_at IS NULL AND m.event IS NULL
-  AND (m.author_id IS NULL OR m.author_id <> ?) AND (m.author_kind <> 'ai' OR m.asked_by IS NULL OR m.asked_by <> ?)`
+  AND (m.author_id IS NULL OR m.author_id <> ?) AND (m.author_kind <> 'ai' OR m.asked_by IS NULL OR m.asked_by <> ?)
+  AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id IN (m.id, m.thread_root_id))`
 
-const roomInfo = (db: Database, roomId: string, userId: string) => db.query(`SELECT r.kind, r.name, r.group_id, rm.last_read_seq, rm.visible_from_seq FROM rooms r
+const roomInfo = (db: Database, roomId: string, userId: string) => db.query(`SELECT r.kind, r.name, r.group_id, rm.last_read_seq, rm.visible_from_seq, rm.history_from_seq FROM rooms r
   JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = ? WHERE r.id = ?`).get(userId, roomId) as RoomInfo | null
 const nameOf = (db: Database, userId: string | null) => userId ? (db.query('SELECT name FROM users WHERE id = ?').get(userId) as { name: string } | null)?.name ?? null : null
 /** The room's own name, else its group's (null: a DM, or a group chat without one) */
@@ -147,7 +150,8 @@ export function roomRowOut(db: Database, row: RoomRow): NonNullable<InboxNotific
   const to = group.to
   const place = group.place ? 'm.thread_root_id = ?' : 'm.room_id = ? AND m.thread_root_id IS NULL'
   const where = `${place} AND m.seq >= ? AND m.seq <= ? AND ${FOR_ME_SQL}${all ? '' : ` AND ${MENTIONS_SQL}`}`
-  const args = [group.place ?? group.roomId, from, to, room.visible_from_seq, room.visible_from_seq, me, me, ...(all ? [] : [me, me])]
+  const sees = room.history_from_seq ?? room.visible_from_seq
+  const args = [group.place ?? group.roomId, from, to, sees, sees, me, me, me, ...(all ? [] : [me, me])]
   // the newest COUNT_MAX of them (one indexed walk down from the run's end), and the first (one step up from its start)
   const sum = db.query(`SELECT COUNT(*) n, COUNT(DISTINCT CASE WHEN author_kind = 'ai' THEN '' ELSE author_id END) people, MAX(seq) last, MAX(named) named, MAX(everyone) everyone
     FROM (SELECT m.seq, m.author_kind, m.author_id, EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?) named, m.mentions_all = 1 everyone
@@ -175,9 +179,10 @@ export function roomRowOut(db: Database, row: RoomRow): NonNullable<InboxNotific
 export function roomNoticeOut(db: Database, notice: { id: string; user_id: string; event_type: string; source_id: string }, locale: Locale): NonNullable<InboxNotification['room']> | null {
   const s = db.query(`SELECT ${MSG}, m.room_id, m.thread_root_id, m.thread_root_seq, m.visibility, m.visible_to, m.mentions, m.mentions_all FROM room_messages m WHERE m.id = ?`)
     .get(notice.source_id) as (Msg & { room_id: string; thread_root_id: string | null; thread_root_seq: number | null; visibility: string; visible_to: string | null; mentions: string; mentions_all: number }) | null
-  const room = s && db.query(`SELECT r.kind, r.name, r.group_id, rm.last_read_seq, rm.visible_from_seq FROM rooms r JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = ?
+  const room = s && db.query(`SELECT r.kind, r.name, r.group_id, rm.last_read_seq, rm.visible_from_seq, rm.history_from_seq FROM rooms r JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = ?
     WHERE r.id = ? AND r.archived_at IS NULL AND rm.hidden_at IS NULL`).get(notice.user_id, s.room_id) as RoomInfo | null
-  if (!s || !room || s.deleted_at || seenSeq(s) <= room.visible_from_seq || (s.visibility !== 'room' && s.visible_to !== notice.user_id)) return null
+  if (!s || !room || s.deleted_at || seenSeq(s) <= (room.history_from_seq ?? room.visible_from_seq) || (s.visibility !== 'room' && s.visible_to !== notice.user_id)
+    || isHiddenFor(db, { id: s.id, room_id: s.room_id, thread_root_id: s.thread_root_id }, notice.user_id)) return null
   const who = writer(db, s), name = roomName(db, room)
   const reason = parseMentions(s.mentions).includes(notice.user_id) ? 'mention' as const : s.mentions_all && s.author_id !== notice.user_id ? 'everyone' as const : s.thread_root_id ? 'reply' as const : 'message' as const
   return {
