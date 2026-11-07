@@ -12956,7 +12956,7 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   launcher and loads the firewall again on every server). `build.sh` and `build-ami.sh` compare the kit's copy with the
   checkout's Linux copy (`bun scripts/system/packages.ts linux`); the office zip keeps the full list.
 - **The dev environment's packages stay in the default groups (PR #164 review, M4, owner).** Every server installs them,
-  because the dev environment is on by default (the product owner's earlier decision); M4's "on request" is not done.
+  because the dev environment is on by default ("Dev environment: one queue, on by default", Dion); M4's "on request" is not done.
 - Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The office Mac
   shows no sync state in Diagnostics (it has no root/; the browser is there or not).
 

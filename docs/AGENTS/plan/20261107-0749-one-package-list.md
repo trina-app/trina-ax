@@ -119,5 +119,5 @@ Docker only with `TRINA_AX_PACKAGE_GROUPS="fonts browser"` (and the packages ste
 packages.sh); question 6, a real Korean print in the Linux install test. Question 7 (owner): the Linux bundle ships a Linux copy of
 the list (`packages.ts linuxList`, no darwin platforms), so a Mac-only change is no root release; the image builds
 compare the kit's copy with the checkout's Linux copy. M4 (owner): the dev environment's packages stay in the default
-groups on every server, because the dev environment is on by default. The CI unit failure was the test: its
+groups on every server, because the dev environment is on by default (DECISIONS "Dev environment: one queue, on by default"). The CI unit failure was the test: its
 command-line check read the runner's kernel (`apparmor_restrict_unprivileged_userns`).
