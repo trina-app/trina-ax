@@ -616,6 +616,7 @@ export const en: Record<MessageKey, string> = {
   'artifact.needsScripts': 'This artifact has to run scripts to show anything, and in confidential chats they run only in the desktop app. The Code tab shows what it contains.',
 
   'preview.panel': 'File preview',
+  'preview.resize': 'Resize the preview',
   'preview.notFound': "The file can't be found, or you don't have access to it.",
   'preview.tooLarge': 'This file is too large to preview ({size}). Download it to open it.',
   'hwp.disabled': "Hangul preview is not turned on for this team. You can still download the original and ask AI to read its text.",
