@@ -26,6 +26,7 @@ import { fileError } from '../team-files/errors'
 import { openChecked } from '../team-files/place'
 import { mimeOf, type TeamFiles } from '../team-files/service'
 import { attachmentKind } from './attachments'
+import { visibleSharedChat } from '../chat/shared'
 
 interface RefRow {
   id: string; user_id: string; chat_id: string; path: string; path_at_attach: string; name: string; size: number; mime: string
@@ -93,7 +94,9 @@ export class TeamFileRefs {
    * unchanged file attached again to the same chat gives back the reference it already has (no new row, no hashing).
    */
   async create(userId: string, chatId: string, input: string): Promise<Attachment> {
-    const own = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(chatId, userId)
+    // the caller's own chat, or a shared project chat they see (its people continue it with team files: chat/shared.ts)
+    const own = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND shared_at IS NULL').get(chatId, userId)
+      ?? visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
     if (!own) fileError('not_found', 'notChat')
     let rel: string, abs: string, st: fs.Stats
     try {
@@ -152,10 +155,11 @@ export class TeamFileRefs {
     return null
   }
 
-  /** `persist`: save where the reference was found (POST paths); reads keep it in memory only. */
-  locateSync(userId: string, id: string, persist = false): RefState {
+  /** `persist`: save where the reference was found (POST paths); reads keep it in memory only. `anyOwner`: a reference
+   * someone else made in a shared chat, checked against this person's access (viewAs, thumbnail). */
+  locateSync(userId: string, id: string, persist = false, anyOwner = false): RefState {
     const row = this.row(id)
-    if (!row || row.user_id !== userId) return { state: 'unavailable', row: null }
+    if (!row || (row.user_id !== userId && !anyOwner)) return { state: 'unavailable', row: null }
     let user: Principal
     try { user = this.files.principal(userId) } catch { return { state: 'unavailable', row } }
     const rel = this.follow(row, persist)
@@ -258,6 +262,16 @@ export class TeamFileRefs {
     return s.state === 'ok' ? this.toAttachment(s.row, s.rel, s.st, s.moved, s.changed) : unavailableAttachment(a.id)
   }
 
+  /** A reference in a message of a shared project chat as `viewer` may see it now, whoever attached it: the file
+   * followed like any reference, then checked against the viewer's own access (its name only; its content reaches the
+   * AI only through a read, chat/turn.ts confirmSharedRead). Only for a chat the viewer sees. */
+  viewAs(viewer: string, a: Pick<Attachment, 'id'>): Attachment {
+    const row = this.row(a.id)
+    if (!row || (row.user_id !== viewer && !visibleSharedChat(this.ctx.db, this.ctx.files, viewer, row.chat_id))) return unavailableAttachment(a.id)
+    const s = this.locateSync(viewer, a.id, false, true)
+    return s.state === 'ok' ? this.toAttachment(s.row, s.rel, s.st, s.moved, s.changed) : unavailableAttachment(a.id)
+  }
+
   /** For a turn: like view(), with `changed` decided by the content hash; the place found is saved. */
   async check(userId: string, a: Pick<Attachment, 'id'>): Promise<Attachment> {
     const s = await this.locate(userId, a.id)
@@ -282,7 +296,10 @@ export class TeamFileRefs {
   /** An image reference for the thumbnail endpoint: the bytes of the file itself when it is a small web image the
    * caller can read, read through one descriptor that is checked to be the file the permission check saw. */
   thumbnail(userId: string, id: string): { bytes: Buffer; name: string; mime: string; etag: string } {
-    const s = this.locateSync(userId, id)
+    // a reference someone else made in a shared chat the caller sees: their own access to the file decides
+    const row = this.row(id)
+    const other = !!row && row.user_id !== userId && !!visibleSharedChat(this.ctx.db, this.ctx.files, userId, row.chat_id)
+    const s = this.locateSync(userId, id, false, other)
     if (s.state !== 'ok' || !/^(png|jpe?g|gif|webp)$/.test(ext(s.rel)) || s.st.size > 2 * 1024 * 1024) throw new HttpError('not_found')
     let opened: { fd: number; st: fs.Stats }
     try { opened = openChecked(s.abs) } catch { throw new HttpError('not_found') }

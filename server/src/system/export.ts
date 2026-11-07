@@ -23,9 +23,12 @@ export interface ExportRequest {
   /** hides the person's stored connection secrets (integrations/connections/redact.ts) in the chat titles: the file
    * names and the headings (QA SEC-16, B-W5-1). A title made before the fix can still hold one in the database. */
   hide?: (text: string) => string
+  /** a shared project chat the person made goes in only while they still see its project (chat/shared.ts); without
+   * this, none does */
+  sharedVisible?: (chatId: string) => boolean
 }
 
-interface ChatRow { id: string; title: string; created_at: string; updated_at: string; engine: string; active_leaf_id: string | null }
+interface ChatRow { id: string; title: string; created_at: string; updated_at: string; engine: string; active_leaf_id: string | null; shared_at?: string | null }
 interface MsgRow { id: string; parent_id: string | null; role: 'user' | 'assistant'; content: string; created_at: string; status: string; engine: string | null; model: string | null }
 
 const enc = (s: string) => Buffer.from(s, 'utf8')
@@ -96,7 +99,8 @@ export async function runExport(db: Database, teamRoot: string, req: ExportReque
     yield { name: root, type: 'dir' }
     if (req.what.includes('chats')) {
       progress(0.05, 'chats')
-      const chats = db.query('SELECT id, title, created_at, updated_at, engine, active_leaf_id FROM chats WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at').all(req.ownerId) as ChatRow[]
+      const chats = (db.query('SELECT id, title, created_at, updated_at, engine, active_leaf_id, shared_at FROM chats WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at').all(req.ownerId) as ChatRow[])
+        .filter((c) => !c.shared_at || !!req.sharedVisible?.(c.id))
       yield { name: `${root}/chats`, type: 'dir' }
       const q = db.query('SELECT id, parent_id, role, content, created_at, status, engine, model FROM messages WHERE chat_id = ?')
       const used = new Set<string>()

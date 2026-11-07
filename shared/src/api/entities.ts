@@ -135,6 +135,15 @@ export const Project = z.object({
    * get none of it; restoring the folder, or pointing the project at a folder (PATCH folderPath, also the same path),
    * ends that. Absent from older servers: false. */
   inTrash: z.boolean().optional(),
+  /** shared project chats (docs/DECISIONS.md "Shared project chats"): new chats in this project are shared with its
+   * people. Team projects only; absent from older servers and for personal projects: off. Turning it off keeps the
+   * chats already shared. */
+  shareChats: z.boolean().optional(),
+  /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
+   * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */
+  audience: z.number().int().nonnegative().optional(),
+  /** how many shared chats it has (not in the trash): the delete and repoint dialogs say they go or move with it */
+  sharedChats: z.number().int().nonnegative().optional(),
 })
 export type Project = z.infer<typeof Project>
 
@@ -169,6 +178,21 @@ export const Chat = z.object({
    * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
    * cards it raises are there while they look. Absent = no. */
   mergeWaiting: z.literal(true).optional(),
+  /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
+   * continue it, each turn as the person who sent it. Absent: a chat of one person. */
+  shared: z.object({
+    /** who made it */
+    by: UserRef,
+    /** how many people see it now (the project's audience) */
+    audience: z.number().int().nonnegative(),
+    /** someone else's question is being answered now (their name; `waiting`: the AI waits for their yes on a card);
+     * null when nobody's is, or when it is mine */
+    answering: z.object({ name: z.string(), waiting: z.literal(true).optional() }).nullable(),
+    /** I made it or wrote in it: it is in my chat list */
+    mine: z.boolean(),
+    /** I may delete it (its creator or an editor of its project) */
+    canDelete: z.boolean(),
+  }).optional(),
 })
 export type Chat = z.infer<typeof Chat>
 

@@ -831,7 +831,7 @@ describe('the AI in a thread', () => {
 // ---------------- third review (2026-11-05): room instructions from an allowlist of sections ----------------
 describe('the instructions of a room session', () => {
   test('only the sections ROOM_PROMPT_SECTIONS allows, in the main, sub-agent and resumed prompts; nothing about the person', () => {
-    expect(Object.entries(ROOM_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'project'])
+    expect(Object.entries(ROOM_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'project', 'shared'])
     const user = loadPrincipal(h.ctx.db, 'alice')!
     const input: PromptInput = {
       user, groupNames: ['ZZ-LAYOFF-COMMITTEE'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],

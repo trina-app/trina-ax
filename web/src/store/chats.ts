@@ -35,6 +35,10 @@ type Pending = { deltas: Delta[]; steps: ServerEventData<'message.step'>[]; done
 
 interface ChatsState {
   chats: Chat[]
+  /** shared project chats on screen that are not in my list (I neither made them nor wrote in them: Chat.shared.mine is
+   * false): kept up to date by chat.updated without being added to the sidebar (docs/DECISIONS.md "Shared project
+   * chats") */
+  others: Record<string, Chat>
   chatsCursor: string | null
   chatsLoaded: boolean
   threads: Record<string, Thread>
@@ -143,6 +147,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const initial = () => ({
   chats: [] as Chat[],
+  others: {} as Record<string, Chat>,
   chatsCursor: null as string | null,
   chatsLoaded: false,
   threads: {} as Record<string, Thread>,
@@ -221,7 +226,8 @@ export const useChats = create<ChatsState>((set, get) => {
         if (!terminal && !output && next.position !== null) queue[next.messageId] = next.position
       }
       const state = terminal ? 'idle' : output ? 'running' : next.state
-      return { queue, chats: s.chats.map(c => c.id === chatId ? { ...c, runState: state } : c) }
+      const other = s.others[chatId]
+      return { queue, chats: s.chats.map(c => c.id === chatId ? { ...c, runState: state } : c), ...(other ? { others: { ...s.others, [chatId]: { ...other, runState: state } } } : {}) }
     })
     return true
   }
@@ -325,14 +331,20 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     upsertChat(c) {
-      set((s) => ({ chats: sortChats([c, ...s.chats.filter((x) => x.id !== c.id)]) }))
+      set((s) => {
+        // someone else's shared chat that I have not written in is not mine to list: it is kept only while a screen
+        // shows it (its thread is open), so its header and composer follow along
+        if (c.shared && !c.shared.mine && !s.chats.some((x) => x.id === c.id)) return s.threads[c.id] || s.others[c.id] ? { others: { ...s.others, [c.id]: c } } : s
+        const others = c.id in s.others ? Object.fromEntries(Object.entries(s.others).filter(([id]) => id !== c.id)) : s.others
+        return { chats: sortChats([c, ...s.chats.filter((x) => x.id !== c.id)]), others }
+      })
     },
 
     removeChat(id) {
       const active = queueVersions.get(id)
       if (active?.messageId) { remember(finishedMessages, active.messageId); clearQueue(active.messageId) }
       queueVersions.delete(id)
-      set((s) => ({ chats: s.chats.filter((c) => c.id !== id) }))
+      set((s) => ({ chats: s.chats.filter((c) => c.id !== id), others: id in s.others ? Object.fromEntries(Object.entries(s.others).filter(([k]) => k !== id)) : s.others }))
     },
 
     async loadThread(chatId) {

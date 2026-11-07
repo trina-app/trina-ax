@@ -2,7 +2,7 @@
 
 > Your company's own AI workspace: company files, reusable team skills and folder permissions.
 
-Hosting enquiries and current $39/$69/$129 plans (USD before tax; AI usage separate): https://ax.trina.app/#pricing
+Hosting: free 14-day trial, then a monthly plan; AI usage is billed separately by the account you connect. Current prices and enquiries: https://ax.trina.app/#pricing
 Hosted in AWS Seoul. Self-hosted software is free; infrastructure and operations are separate.
 Latest release: https://github.com/trina-app/trina-ax/releases/latest
 Update feed: https://updates.trina.app (Linux server and office Mac).

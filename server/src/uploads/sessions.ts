@@ -90,7 +90,7 @@ export class UploadSessions {
     } else if (!this.transcribe) {
       throw new HttpError('unavailable')
     } else {
-      if (t.chatId) this.attachments.assertOwnChat(userId, t.chatId)
+      if (t.chatId) this.attachments.assertVoiceChat(userId, t.chatId)
       this.transcribeCheck?.(userId, t.chatId)
     }
   }
@@ -179,7 +179,7 @@ export class UploadSessions {
       // checked again here: the chat may be gone or locked confidential during a long upload; refused, nothing of the
       // recording is kept
       try {
-        if (target.chatId) this.attachments.assertOwnChat(userId, target.chatId)
+        if (target.chatId) this.attachments.assertVoiceChat(userId, target.chatId)
         result = { kind: 'transcribe', jobId: this.transcribe(userId, this.part(id), target.name, target.chatId) }
       } catch (e) { this.drop(id); throw e }
     }

@@ -176,8 +176,9 @@ export function createSuggestion(ctx: AppContext, userId: string, b: { source: {
   openLimit(ctx, userId, 1, locale)
   let ref: string
   if (b.source.kind === 'message') {
-    // an answer in one of the caller's own chats (not deleted): nobody suggests from someone else's conversation
-    const m = ctx.db.query('SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.id = ? AND c.id = ? AND c.user_id = ? AND c.deleted_at IS NULL')
+    // an answer in one of the caller's own chats (not deleted): nobody suggests from someone else's conversation, nor
+    // from a shared project chat (several people wrote it; docs/DECISIONS.md "Shared project chats")
+    const m = ctx.db.query('SELECT m.id FROM messages m JOIN chats c ON c.id = m.chat_id WHERE m.id = ? AND c.id = ? AND c.user_id = ? AND c.deleted_at IS NULL AND c.shared_at IS NULL')
       .get(b.source.messageId, b.source.chatId, userId) as { id: string } | null
     if (!m) fail('not_found', st('sourceNotYours', locale, { me: userId }))
     ref = b.source.messageId
