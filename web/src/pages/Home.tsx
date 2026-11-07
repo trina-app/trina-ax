@@ -260,7 +260,7 @@ function Access({ write }: { write: boolean }) {
   const label = t(write ? 'files.canWrite' : 'files.readOnly')
   return (
     <Tooltip label={t(write ? 'files.canWriteTip' : 'files.readOnlyTip')} description>
-      <span className="inline-flex shrink-0 text-faint">
+      <span className="inline-flex shrink-0 text-faint" title="">
         {write ? <Pencil size={12} aria-hidden /> : <Lock size={12} aria-hidden />}
         <span className="sr-only">{label}</span>
       </span>

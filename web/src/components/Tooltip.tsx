@@ -49,10 +49,12 @@ const keyboardFocus = (el: HTMLElement) => {
   try { return typeof CSS === 'undefined' || !CSS.supports?.('selector(:focus-visible)') || el.matches(':focus-visible') } catch { return true }
 }
 
-/** The element shows these words already: a displayed part of it (not the screen-reader-only kind) says the label. */
+/** The element shows these words already: a part of it says the label and is drawn larger than the 1px box of the
+ * screen-reader-only kind (`sr-only`, also `max-md:sr-only` at that width); `display: none` draws no box at all. */
 const saysIt = (el: HTMLElement | null, label: string) => {
   if (!el?.querySelectorAll) return false
-  return [...el.querySelectorAll<HTMLElement>('span')].some((s) => s.textContent?.trim() === label.trim() && !s.closest('.sr-only') && (s.getClientRects?.().length ?? 0) > 0)
+  const drawn = (s: HTMLElement) => [...(s.getClientRects?.() ?? [])].some((r) => r.width > 1 && r.height > 1)
+  return [...el.querySelectorAll<HTMLElement>('span')].some((s) => s.textContent?.trim() === label.trim() && drawn(s))
 }
 
 /** Where the tip goes: above the anchor, centred; below it when there is no room above; inside the window. */

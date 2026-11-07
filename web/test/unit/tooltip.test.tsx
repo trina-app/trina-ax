@@ -198,13 +198,20 @@ test('no tip while the element shows the same words; it comes when a narrow wind
     const b = m.get('b')
     const words = m.get('words') as unknown as { getClientRects: () => unknown[] }
     // drawn: a box on the page
-    words.getClientRects = () => [{}]
+    words.getClientRects = () => [{ width: 44, height: 16 }]
     fire(b, 'pointerover', { pointerType: 'mouse', relatedTarget: null })
     await m.settle(TOOLTIP_DELAY_MS + 50)
     expect(tip()).toBeNull()
     fire(b, 'pointerout', { pointerType: 'mouse', relatedTarget: null })
     // display: none (`@max-2xl:hidden`): no box
     words.getClientRects = () => []
+    fire(b, 'pointerover', { pointerType: 'mouse', relatedTarget: null })
+    await m.settle(TOOLTIP_DELAY_MS + 50)
+    expect(tip()?.textContent).toBe('업로드')
+    fire(b, 'pointerout', { pointerType: 'mouse', relatedTarget: null })
+    await m.settle(10)
+    // for screen readers only at this width (`max-md:sr-only`): a 1px box, not shown words
+    words.getClientRects = () => [{ width: 1, height: 1 }]
     fire(b, 'pointerover', { pointerType: 'mouse', relatedTarget: null })
     await m.settle(TOOLTIP_DELAY_MS + 50)
     expect(tip()?.textContent).toBe('업로드')

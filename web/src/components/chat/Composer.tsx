@@ -662,7 +662,7 @@ export default function Composer({
                   </span>
                 </span>
                 <Tooltip label={t('composer.removeAttachment', { name: f.name })}>
-                  <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
+                  <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} title="" onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
                     <X size={14} />
                   </button>
                 </Tooltip>

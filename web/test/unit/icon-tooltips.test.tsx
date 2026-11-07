@@ -26,6 +26,12 @@ test('an icon-only button, link or Button needs a <Tooltip>', () => {
   expect(problems(`<button><X /><span className="sr-only">닫기</span></button>`)).toHaveLength(1)
   expect(problems(`<Button aria-label="업로드"><X /> <span className="@max-2xl:hidden">업로드</span></Button>`)).toHaveLength(1)
   expect(problems(`<button aria-label="AI"><X /> <span className="max-md:sr-only">AI</span></button>`)).toHaveLength(1)
+  // a picture: a thumbnail component, an <img> in a variable
+  expect(problems(`<button aria-label="이미지 열기"><RoomThumb f={f} /></button>`)).toHaveLength(1)
+  expect(problems(`<button aria-label="슬라이드 3">{img}</button>`)).toHaveLength(1)
+  // words that show again from some width on are words
+  expect(problems(`<button aria-label="AI"><X /> <span className="sr-only md:not-sr-only">AI</span></button>`)).toHaveLength(1)
+  expect(problems(`<button aria-label="AI"><X /> <span className="not-sr-only">AI</span></button>`)).toEqual([])
 })
 
 test('wrapped, with words, an IconButton or a stated reason: fine', () => {
@@ -46,6 +52,14 @@ test("two tips at once, an IconButton's tip turned off outside a <Tooltip>, an i
   expect(problems(`<span title="읽기 전용"><X /><span className="sr-only">읽기 전용</span></span>`)).toEqual(['title= on an icon: use <Tooltip>'])
   // a title on words (the full text of a cut-off name) is what title is for
   expect(problems(`<span className="truncate" title={path}>{path}</span>`)).toEqual([])
+})
+
+test("an element around it with a title would show the browser's tip too: the control says title=\"\"", () => {
+  const ancestor = 'an element around it has a title the browser shows beside the tooltip: give it title=""'
+  expect(problems(`<span title={'/' + name}>{name}<Tooltip label="빼기"><button aria-label="빼기"><X /></button></Tooltip></span>`)).toEqual([ancestor])
+  expect(problems(`<li title={path}>{files.map((f) => <IconButton key={f} label="빼기"><X /></IconButton>)}</li>`)).toEqual([ancestor])
+  expect(problems(`<span title={'/' + name}>{name}<Tooltip label="빼기"><button aria-label="빼기" title=""><X /></button></Tooltip></span>`)).toEqual([])
+  expect(problems(`<li title={path}><IconButton label="빼기" title=""><X /></IconButton></li>`)).toEqual([])
 })
 
 // ---------------- the controls ----------------
@@ -85,6 +99,8 @@ test("a code block's download and a skill chip's remove: the tip names what the 
   } finally { await m.unmount() }
   m = await mount(<SkillChip title="회의록 정리" name="meeting-notes" onRemove={() => {}} />)
   try {
+    // the chip's own title (/meeting-notes) stays off the button: one tip, not two
+    expect(m.get('skill-chip-remove').getAttribute('title')).toBe('')
     expect(await hover(m, m.get('skill-chip-remove'))).toBe(t('composer.skillRemove', { skill: '회의록 정리' }))
     leave(m.get('skill-chip-remove'))
     await m.settle(10)

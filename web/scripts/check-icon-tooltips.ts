@@ -28,7 +28,7 @@ export const SKIP: Record<string, string> = {
 
 const CONTROLS = new Set(['button', 'a', 'Link', 'NavLink', 'Button'])
 /** components that draw a picture, not words */
-const PICTURES = /^(svg|img|picture|.*Icon|Avatar|Logo|Mark|Spark)$/
+const PICTURES = /^(svg|img|picture|.*Icon|.*Thumb|Avatar|Logo|Mark|Spark)$/
 
 export interface Problem { file: string; line: number; tag: string; label: string; why: string }
 
@@ -61,8 +61,8 @@ export function iconOnlyProblems(file: string, source: string): Problem[] {
     if (ts.isJsxElement(e) || ts.isJsxSelfClosingElement(e) || ts.isJsxFragment(e)) return node(e, seen)
     if (e.kind === ts.SyntaxKind.NullKeyword || e.kind === ts.SyntaxKind.TrueKeyword || e.kind === ts.SyntaxKind.FalseKeyword) return
     if (ts.isIdentifier(e) && e.text === 'undefined') return
-    // a picture handed in as a value: {icon}, {props.icon}
-    if ((ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) && /icon$/i.test(e.getText().split('.').pop()!)) { seen.icon = true; return }
+    // a picture handed in as a value: {icon}, {props.icon}, {img}, {thumb}
+    if ((ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) && /(icon|img|image|thumb|picture)$/i.test(e.getText().split('.').pop()!)) { seen.icon = true; return }
     seen.text = true // a string, t('…'), a value, children: words
   }
   const children = (list: ts.NodeArray<ts.JsxChild>, seen: Seen) => {
@@ -79,7 +79,7 @@ export function iconOnlyProblems(file: string, source: string): Problem[] {
     if (isPicture(tag)) { seen.icon = true; return }
     if (/^[a-z]/.test(tag)) {
       const cls = attrText(attr(n, 'className'))
-      if (/\bsr-only\b/.test(cls)) return // words for screen readers only
+      if (/(^|[\s'"`])([\w@[\]-]+:)*sr-only([\s'"`]|$)/.test(cls)) return // words for screen readers only (at some widths)
       // words a narrow window hides (`@max-2xl:hidden`, `max-sm:hidden`): then it is icon-only
       if (/(^|[\s'"`])([\w@[\]-]+:)*hidden([\s'"`]|$)/.test(cls)) return
       if (ts.isJsxElement(n)) children(n.children, seen)
@@ -96,6 +96,18 @@ export function iconOnlyProblems(file: string, source: string): Problem[] {
     return lines.some((l) => l.includes('no-tooltip:'))
   }
   const inTooltip = (n: Jsx) => !!n.parent && ts.isJsxElement(n.parent) && n.parent.openingElement.tagName.getText() === 'Tooltip'
+  /** a title of its own, not the empty one that keeps an ancestor's away */
+  const titled = (n: Jsx) => { const a = attr(n, 'title'); return !!a && !(a.initializer && ts.isStringLiteral(a.initializer) && a.initializer.text === '') }
+  /** an element around it (in the same component; through .map callbacks) whose title the browser would show too */
+  const titledAncestor = (n: Jsx) => {
+    if (attr(n, 'title')) return false // its own title="" (or one flagged already)
+    for (let p: ts.Node | undefined = n.parent; p && !ts.isSourceFile(p); p = p.parent) {
+      if (ts.isFunctionDeclaration(p) || ((ts.isArrowFunction(p) || ts.isFunctionExpression(p)) && !ts.isCallExpression(p.parent))) return false
+      if (ts.isJsxElement(p) && /^[a-z]/.test(tagOf(p)) && titled(p)) return true
+    }
+    return false
+  }
+  const ANCESTOR = 'an element around it has a title the browser shows beside the tooltip: give it title=""'
   const visit = (n: ts.Node) => {
     if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) {
       const tag = tagOf(n)
@@ -104,14 +116,16 @@ export function iconOnlyProblems(file: string, source: string): Problem[] {
         const tip = attrText(attr(n, 'tip'))
         if (tip === '{false}' && !inTooltip(n) && !exempt(n)) problems.push({ file, line: lineOf(n), tag, label, why: 'IconButton tip={false} outside a <Tooltip>' })
         if (tip !== '{false}' && inTooltip(n)) problems.push({ file, line: lineOf(n), tag, label, why: 'IconButton in a <Tooltip> shows two tips: give it tip={false}' })
+        else if (tip !== '{false}' && titledAncestor(n) && !exempt(n)) problems.push({ file, line: lineOf(n), tag, label, why: ANCESTOR })
       } else if (CONTROLS.has(tag) || attrText(attr(n, 'role')) === 'button') {
         const seen: Seen = { text: false, icon: false }
         if (ts.isJsxElement(n)) children(n.children, seen)
         if (seen.icon && !seen.text && !exempt(n)) {
           if (!inTooltip(n)) problems.push({ file, line: lineOf(n), tag, label, why: 'icon-only control without a <Tooltip>' })
-          else if (attr(n, 'title')) problems.push({ file, line: lineOf(n), tag, label, why: 'title= beside a <Tooltip> shows two tips' })
+          else if (titled(n)) problems.push({ file, line: lineOf(n), tag, label, why: 'title= beside a <Tooltip> shows two tips' })
+          else if (titledAncestor(n)) problems.push({ file, line: lineOf(n), tag, label, why: ANCESTOR })
         }
-      } else if (attr(n, 'title') && (isPicture(tag) || /^[a-z]/.test(tag)) && !exempt(n)) {
+      } else if (titled(n) && (isPicture(tag) || /^[a-z]/.test(tag)) && !exempt(n)) {
         // an icon that means something (read-only, connected, restricted) says so with the tooltip, not with the
         // browser's slow title
         const seen: Seen = { text: false, icon: isPicture(tag) }

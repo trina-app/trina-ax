@@ -11629,9 +11629,11 @@ nothing.
   time), and no tip while the element shows the same words (the Files toolbar's 새 폴더 / 업로드 lose their words in a
   narrow window, and only then get the tip).
 - **The check is static** (`bun run check:tooltips`, part of `check:docs`, so CI's check job runs it): it parses every
-  `.tsx` in `web/src` and fails on an icon-only control (only Lucide icons, `<svg>`/`<img>`, words hidden by `sr-only` or
+  `.tsx` in `web/src` and fails on an icon-only control (only Lucide icons, `<svg>`/`<img>`/thumbnails, words hidden by `sr-only` or
   a `*:hidden` class) that is not the direct child of a `<Tooltip>`, on `title` beside a `<Tooltip>`, on `title` on an
-  icon, and on `IconButton tip={false}` outside one; `{/* no-tooltip: <reason> */}` on the line above opts one out.
+  icon, on `IconButton tip={false}` outside one, and on a control inside an element (of the same component) with a
+  `title`, which the browser would show beside the tooltip (the control takes `title=""`); `{/* no-tooltip: <reason> */}`
+  on the line above opts one out.
   Rejected: a unit test over rendered main pages. The unit tests' small DOM renders a page only with its stores and API
   mocked, and only in its first state, so menus, dialogs, row actions, error and admin-only states (most of the icon
   buttons) would stay unseen; the static check sees every file, needs no browser or server, and names the line.
