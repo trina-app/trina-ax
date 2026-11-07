@@ -130,7 +130,12 @@ describe('packages.sh reads the list', () => {
     const r = lib(`pk_load\n${lines.join('\n')}`, { PK_BUN: process.execPath })
     expect(r.err).toBe('')
     expect(r.out.trimEnd().split('\n').map((l) => l.trimEnd())).toEqual(want.map((w) => w.trimEnd()))
-    expect(sh(['packages', ...bun, '--distro', 'debian-13', '--arch', 'arm64', 'minimal']).out.trim().split('\n')).toEqual(packagesFor(LIST, 'debian-13', 'arm64', ['minimal']))
+    // the command line too, with the condition set: without PK_USERNS_RESTRICTED it reads this machine's kernel (1 on
+    // an Ubuntu CI runner), so the answer would depend on where the test runs
+    for (const r of [0, 1]) {
+      expect(sh(['packages', ...bun, '--distro', 'debian-13', '--arch', 'arm64', 'minimal'], { PK_USERNS_RESTRICTED: String(r) }).out.trim().split('\n'))
+        .toEqual(packagesFor(LIST, 'debian-13', 'arm64', ['minimal'], { usernsRestricted: r === 1 }))
+    }
     // apparmor only where the kernel restricts user namespaces (Ubuntu 24.04), t64 names only where the release has them
     expect(packagesFor(LIST, 'ubuntu-24.04', 'amd64', ['minimal'], { usernsRestricted: true })).toContain('apparmor')
     expect(packagesFor(LIST, 'debian-13', 'amd64', ['minimal'])).not.toContain('apparmor')
