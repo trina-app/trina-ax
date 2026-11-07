@@ -94,4 +94,4 @@ Differs from the plan:
   counts for the hash rule by its hash now; a file seen with two contents in one turn and reads under skills/ stay
   unlisted; the key is for the line with the chosen files (`reason: 'choice'` vs `'changed'`).
 
-PR: see the pull request of branch `feat/share-to-room-files`.
+PR: https://github.com/trina-app/trina-ax/pull/163
