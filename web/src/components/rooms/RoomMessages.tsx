@@ -7,8 +7,10 @@
 // touch screen a long press opens the same as a sheet with the reactions on top. Under a message: its reactions
 // (components/rooms/Reactions.tsx) and, for a root, its thread ("답글 3개 · 오후 2:10", up to 3 faces; a dot when a
 // thread I follow has new replies), which opens the thread. A reply also sent to the room says so above it. The same
-// list shows a thread's root and replies (variant). Images show as thumbnails that open in the side panel; other files
-// are chips that download.
+// list shows a thread's root and replies (variant). Files open in the side panel (a full-screen sheet on phones): a
+// photo by its thumbnail, any other file by its chip, which has a small download icon of its own; a file the panel
+// cannot show (no viewer for it, or past its size limit) is a chip that downloads. The panel reads the room's copy
+// through the room (lib/sidePanel.ts roomPreview) and has the download too.
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
@@ -17,7 +19,8 @@
 // no avatar, menu, reaction or thread.
 // An answer someone sent here from their own AI chat ("대화방에 보내기", RoomMessage.sharedAnswer) is their message: their
 // note as plain text, then the answer as a quote headed "<AI> 답변", in Markdown like the AI's own answers (a team file
-// in it only as a link for those who may open it). It cannot be edited (copy and delete stay).
+// in it as a link for those who may open it; for the others, a link to its copy when it went with the message
+// (RoomMessage.attachedLinks), else its name after a lock). It cannot be edited (copy and delete stay).
 // An old answer hidden from me (RoomMessage.withheld: I joined a team room or the everyone room after it, and it used
 // something I cannot open) is one faint line in its place ("볼 수 없는 자료를 참고한 답이라 가려졌어요"): who asked it (or
 // whose message it is) and when, nothing else: no hover row, menu, reaction, thread or sources.
@@ -26,13 +29,14 @@ import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Sparkles, Tr
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomAiRun, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
-import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
+import { api, API, errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
-import { openFilePreview } from '../../lib/sidePanel'
+import { openFilePreview, roomPreview, type PreviewFile } from '../../lib/sidePanel'
+import { opensWithoutServer } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
 import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
@@ -285,6 +289,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   // an answer sent from someone's own AI chat: their note before `at`, the answer after it
   const shared = !ai && !deleted ? m.sharedAnswer ?? null : null
   const openable = useMemo(() => (ai || shared ? new Set(m.openable ?? []) : undefined), [ai, shared, m.openable])
+  // a shared answer's links whose file went with it: the copy, for a viewer who may not open the team file
+  const attached = useMemo(() => (shared ? attachedCopies(roomId, m) : undefined), [shared, roomId, m])
   // a mention is the name as it was typed: the person's name now (the directory) and as the member list has it, so
   // "@Ben" still stands out after Ben renamed himself
   const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
@@ -372,7 +378,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
               {meta}
             </p>
           )}
-          {shared && <SharedAnswer text={m.body.slice(shared.at)} openable={openable} />}
+          {shared && <SharedAnswer text={m.body.slice(shared.at)} openable={openable} attached={attached} />}
           {m.files.length > 0 && <Files roomId={roomId} files={m.files} />}
           {!m.body && m.editedAt && <p className="leading-5">{meta}</p>}
         </>
@@ -422,9 +428,21 @@ function WithheldRow({ roomId, m, flash, onJump }: { roomId: string; m: RoomMess
   )
 }
 
+/** A shared answer's links whose file went with it as a copy (RoomMessage.attachedLinks), as the preview panel opens
+ * each copy; only files of this message. None (an older message, nothing attached): undefined. */
+export function attachedCopies(roomId: string, m: Pick<RoomMessage, 'attachedLinks' | 'files'>): ReadonlyMap<string, PreviewFile> | undefined {
+  const out = new Map<string, PreviewFile>()
+  for (const l of m.attachedLinks ?? []) {
+    const f = m.files.find((x) => x.id === l.fileId)
+    if (f && !out.has(l.path)) out.set(l.path, roomPreview(roomId, f))
+  }
+  return out.size ? out : undefined
+}
+
 /** An answer someone sent from their own AI chat, under their note: a quiet quote headed "<AI> 답변", in Markdown like
- * the AI's answers here (`openable`: the team files in it this viewer may open; the others are plain text). */
-function SharedAnswer({ text, openable }: { text: string; openable?: ReadonlySet<string> }) {
+ * the AI's answers here (`openable`: the team files in it this viewer may open; `attached`: the copies that went with
+ * it, opened in their place; the others are their names after a lock). */
+function SharedAnswer({ text, openable, attached }: { text: string; openable?: ReadonlySet<string>; attached?: ReadonlyMap<string, PreviewFile> }) {
   const t = useT()
   return (
     <figure className="mt-1 mb-0.5 rounded-r-lg border-l-2 border-line-strong bg-ink/[0.035] py-2 pr-3 pl-3" data-testid="room-shared-answer">
@@ -433,7 +451,7 @@ function SharedAnswer({ text, openable }: { text: string; openable?: ReadonlySet
         {t('shareRoom.quoteHead', { ai: aiName(t) })}
       </figcaption>
       {/* not a <blockquote>: the answer's own Markdown would take the quote marks a quote's paragraphs get */}
-      <Markdown text={text} className="min-w-0" openable={openable} />
+      <Markdown text={text} className="min-w-0" openable={openable} attached={attached} />
     </figure>
   )
 }
@@ -548,38 +566,58 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
 
 function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
   const t = useT()
-  const locale = useLocale()
-  const url = (f: RoomFile, query: Record<string, string>) => api.url(API.roomFile, { params: { id: roomId, fileId: f.id }, query })
-  const preview = async (f: RoomFile) => {
-    try {
-      const res = await api.call(API.roomFile, { params: { id: roomId, fileId: f.id } })
-      openFilePreview({ source: 'local', name: f.name, blob: await readBounded(res, 60 * 1024 * 1024) })
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
   return (
     <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
       {files.map((f) =>
         f.kind === 'image' && f.thumb ? (
           <Tooltip key={f.id} label={t('rooms.openImage', { name: f.name })}>
-            <button type="button" onClick={() => void preview(f)} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line bg-subtle" data-testid="room-image">
-              <RoomThumb f={f} src={url(f, { thumb: '1' })} />
+            <button type="button" onClick={() => openFilePreview(roomPreview(roomId, f))} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line bg-subtle" data-testid="room-image">
+              <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
             </button>
           </Tooltip>
         ) : (
-          // its name is what it shows (the name and size), then what it does: a screen reader and voice control hear the
-          // words on it (WCAG 2.5.3)
-          <button key={f.id} type="button" onClick={() => startDownload(url(f, { download: '1' }), f.name)} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
-            <FileText size={15} className="shrink-0 text-muted" aria-hidden />
-            <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
-            <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
-            <Download size={13} className="shrink-0 text-faint" aria-hidden />
-            <span className="sr-only">{t('common.download')}</span>
-          </button>
+          <FileChip key={f.id} roomId={roomId} f={f} />
         ),
       )}
     </div>
+  )
+}
+
+/** A file under a message: its name and size open it in the side panel, and a small download icon sits at its end (on
+ * phones 44px wide, so its tap area never reaches over the name; touch-hit gives the height). A file
+ * the panel cannot show is one button that downloads, as before. Each button is named by the words on it first (the
+ * name and size), then what it does: a screen reader and voice control hear those words (WCAG 2.5.3). */
+function FileChip({ roomId, f }: { roomId: string; f: RoomFile }) {
+  const t = useT()
+  const locale = useLocale()
+  const download = () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name)
+  const label = (
+    <>
+      <FileText size={15} className="shrink-0 text-muted" aria-hidden />
+      <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
+      <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
+    </>
+  )
+  if (!opensWithoutServer(f))
+    return (
+      <button type="button" onClick={download} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
+        {label}
+        <Download size={13} className="shrink-0 text-faint" aria-hidden />
+        <span className="sr-only">{t('common.download')}</span>
+      </button>
+    )
+  return (
+    <span className="inline-flex max-w-full items-stretch rounded-xl border border-line bg-surface text-xs" data-testid="room-file" data-opens="">
+      <button type="button" onClick={() => openFilePreview(roomPreview(roomId, f))} className="inline-flex min-w-0 items-center gap-2 rounded-l-xl py-1.5 pr-1 pl-2.5 hover:bg-hover" data-testid="room-file-open">
+        {label}
+        <span className="sr-only">{t('common.preview')}</span>
+      </button>
+      <Tooltip label={t('common.download')}>
+        <button type="button" onClick={download} aria-label={t('rooms.downloadFile', { name: f.name })} className="touch-hit inline-flex shrink-0 items-center justify-center rounded-r-xl pr-2.5 pl-1.5 text-faint hover:bg-hover hover:text-ink max-md:min-w-11 max-md:px-0" data-testid="room-file-download">
+          <Download size={13} aria-hidden />
+        </button>
+      </Tooltip>
+    </span>
   )
 }
 

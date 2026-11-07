@@ -4171,6 +4171,8 @@ export const ko = {
   "shareRoom.sendAttached": "첨부해서 보내기",
   "shareRoom.sentFiles": "{room}에 보냈어요 · 파일 {n}개 첨부",
   "rooms.fileNoAccess": "권한이 없어 열 수 없어요",
+  "rooms.fileAttachedCopy": "첨부된 파일을 열어요",
+  "rooms.downloadFile": "{name} 내려받기",
 } as const
 
 export type MessageKey = keyof typeof ko

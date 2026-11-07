@@ -4171,4 +4171,6 @@ export const id: Record<MessageKey, string> = {
   "shareRoom.sendAttached": "Lampirkan dan kirim",
   "shareRoom.sentFiles": "Terkirim ke {room} · {n} file dilampirkan",
   "rooms.fileNoAccess": "Anda tidak punya akses",
+  "rooms.fileAttachedCopy": "Membuka salinan yang dilampirkan",
+  "rooms.downloadFile": "Unduh {name}",
 }

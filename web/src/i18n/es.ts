@@ -4131,4 +4131,6 @@ export const es: Record<MessageKey, string> = {
   "shareRoom.sendAttached": "Adjuntar y enviar",
   "shareRoom.sentFiles": "Enviado a {room} · {n, plural, one {# archivo adjunto} other {# archivos adjuntos}}",
   "rooms.fileNoAccess": "No tiene acceso",
+  "rooms.fileAttachedCopy": "Abre la copia adjunta",
+  "rooms.downloadFile": "Descargar {name}",
 }

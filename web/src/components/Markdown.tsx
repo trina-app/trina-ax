@@ -14,10 +14,10 @@ import remarkCjkFriendly from 'remark-cjk-friendly'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { fileUrl, saveBlob } from '../lib/api'
-import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown } from '../lib/markdown'
+import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
-import { openTeamFile } from '../lib/sidePanel'
+import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
 import { baseName } from '../lib/paths'
 import { useT } from '../i18n'
 import { toast } from '../store/ui'
@@ -237,22 +237,29 @@ const isNumberCell = (text: string) => /^[-+−(]?[$€£¥₩]?\s?\d[\d.,:/\s-]
  * (LockedFile): no chip to open, no picture loaded. Absent (null), as in the person's own chats, every team link is a
  * chip. */
 const OpenableFiles = createContext<ReadonlySet<string> | null>(null)
-const openableOk = (set: ReadonlySet<string> | null, path: string) => !set || set.has(path.replace(/^\/+|\/+$/g, ''))
+/** The copies that went with the text (an answer shared with its files attached: RoomMessage.attachedLinks), by the link
+ * as the text writes it: a link the viewer may not open as a team file opens its copy instead of showing a lock. */
+const AttachedCopies = createContext<ReadonlyMap<string, PreviewFile> | null>(null)
+const useLinkTarget = (path: string) => teamLinkTarget(path, useContext(OpenableFiles), useContext(AttachedCopies))
 
 /** A file the AI made or mentioned: a link in the sentence, with a small file icon at the text's height, that opens the
  *  preview panel (which has the download; a file without a viewer shows the "can't be previewed" notice and a
- *  download button there). No frame, divider or button of its own: it reads like a word and wraps like one. */
+ *  download button there). No frame, divider or button of its own: it reads like a word and wraps like one. In a room,
+ *  one the viewer may not open but whose copy went with the message opens the copy (the same link, its tip says so). */
 function TeamFileLink({ path, at, children }: { path: string; at?: SourceLoc; children: ReactNode }) {
   const t = useT()
-  if (!openableOk(useContext(OpenableFiles), path)) return <LockedFile>{children}</LockedFile>
-  const canPreview = previewKind(path) !== null
+  const target = useLinkTarget(path)
+  if (target.kind === 'locked') return <LockedFile>{children}</LockedFile>
+  const copy = target.kind === 'copy' ? target.copy : null
+  const canPreview = previewKind(copy?.name ?? path) !== null
   return (
     <button
       type="button"
-      onClick={() => openTeamFile(path, at)}
+      onClick={() => (copy ? openFilePreview(copy) : openTeamFile(path, at))}
       className="not-prose inline rounded-sm text-left font-medium text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text"
-      title={canPreview ? t('common.preview') : t('preview.unsupportedShort')}
+      title={copy ? t('rooms.fileAttachedCopy') : canPreview ? t('common.preview') : t('preview.unsupportedShort')}
       data-testid="team-file-chip"
+      data-copy={copy ? '' : undefined}
     >
       <FileText className="mr-0.5 inline-block size-[0.95em] shrink-0 align-[-0.125em]" aria-hidden />
       {children}
@@ -282,12 +289,15 @@ function LockedFile({ children }: { children: ReactNode }) {
   )
 }
 
-/** An image on the team server (answers, shared browser screenshots). A click opens the preview panel. */
+/** An image on the team server (answers, shared browser screenshots). A click opens the preview panel. In a room, one
+ * the viewer may not open is its name after a lock, or a link to its copy when that went with the message (the copy's
+ * thumbnail is under the message already). */
 export function TeamImage({ path, alt, className }: { path: string; alt?: string; className?: string }) {
   const t = useT()
   const [failed, setFailed] = useState(false)
-  const openable = useContext(OpenableFiles)
-  if (!openableOk(openable, path)) return <LockedFile>{alt || baseName(path) || t('md.image')}</LockedFile>
+  const target = useLinkTarget(path)
+  if (target.kind === 'locked') return <LockedFile>{alt || baseName(path) || t('md.image')}</LockedFile>
+  if (target.kind === 'copy') return <TeamFileLink path={path}>{alt || target.copy.name}</TeamFileLink>
   if (!isDisplayableImagePath(path) || failed)
     return (
       <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path)}>
@@ -448,9 +458,17 @@ const SIZES = {
   small: 'text-xs leading-5 prose-h1:text-sm prose-h2:text-sm prose-h3:text-xs max-md:prose-code:text-[1em]',
 }
 
-/** `copyQuotes`: an assistant answer in the chat, where each top-level quote copies on its own (ad options, drafts). */
-export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes, openable }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean; openable?: ReadonlySet<string> }) {
-  if (openable) return <OpenableFiles.Provider value={openable}><Markdown text={text} streaming={streaming} className={className} size={size} copyQuotes={copyQuotes} /></OpenableFiles.Provider>
+/** `copyQuotes`: an assistant answer in the chat, where each top-level quote copies on its own (ad options, drafts).
+ * `openable` / `attached`: in a room, the team files this viewer may open and the copies that went with the message. */
+export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes, openable, attached }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean; openable?: ReadonlySet<string>; attached?: ReadonlyMap<string, PreviewFile> }) {
+  if (openable || attached)
+    return (
+      <OpenableFiles.Provider value={openable ?? null}>
+        <AttachedCopies.Provider value={attached ?? null}>
+          <Markdown text={text} streaming={streaming} className={className} size={size} copyQuotes={copyQuotes} />
+        </AttachedCopies.Provider>
+      </OpenableFiles.Provider>
+    )
   return (
     <div
       className={clsx(

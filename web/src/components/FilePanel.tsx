@@ -1,7 +1,9 @@
 // File preview next to the chat or the file screen: PDF, Word, PowerPoint, Excel/CSV, Markdown, text/code, HTML/SVG
 // (isolated frame), images, audio/video. Bytes come from /api/files/download (always an attachment with a sandbox
 // CSP on the server side) and are drawn here; HTML/SVG only run in the sandbox frame (SandboxFrame, /sandbox/frame),
-// never as srcdoc or a blob: page of this origin.
+// never as srcdoc or a blob: page of this origin. A file sent in a team chat room comes the same way from
+// /api/rooms/:id/files/:fileId (its members only; a page or script type as text with the sandbox CSP) and is drawn by
+// the same viewers; it is not in a team folder, so a page pulls in no team images, and it has only the download.
 // Text files the person may write can be fixed in place (tab 5 "텍스트 파일 고치기"): the editor keeps the sha256 it
 // loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
 // server keeps their version and saves this one as a conflict copy, which the panel then opens.
@@ -13,7 +15,7 @@ import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, S
 import Papa from 'papaparse'
 import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { api, API, fetchFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, saveBlob, startDownload, errorText } from '../lib/api'
+import { api, API, fetchFileBlob, fetchRoomFileBlob, fetchServerPreview, fileUrl, isApiError, PreviewTooLargeError, roomFileUrl, saveBlob, startDownload, errorText } from '../lib/api'
 import { wrapHtml } from '../lib/artifacts'
 import { useFrameScripts } from '../lib/confidential'
 import { formatSize } from '../lib/format'
@@ -64,9 +66,10 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const [downloadOnly, setDownloadOnly] = useState(false)
   const body = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(600)
-  // a HEIC photo needs the server's JPEG, so a local one (not uploaded yet) has no preview
+  // a HEIC photo needs the server's JPEG (and a Hangul file its pages), made from team files only, so a local one (not
+  // uploaded yet) and a room file have no preview
   const viaServer = serverPreview(file.name)
-  const kind = file.source === 'local' && viaServer ? null : previewKind(file.name)
+  const kind = file.source !== 'team' && viaServer ? null : previewKind(file.name)
   const [rev, setRev] = useState(0)
   const [editing, setEditing] = useState<{ base: string; text: string; draft: string } | null>(null)
   const [saving, setSaving] = useState(false)
@@ -144,7 +147,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     setDownloadOnly(false)
     if (!kind || kind === 'hwp') return
     const limit = previewLimit(kind)
-    const load = viaServer ? fetchServerPreview(file.path, limit.max, ctrl.signal) : fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate })
+    const load = file.source === 'room'
+      ? fetchRoomFileBlob(file.roomId, file.fileId, limit.max, ctrl.signal, { truncate: limit.truncate })
+      : viaServer ? fetchServerPreview(file.path, limit.max, ctrl.signal) : fetchFileBlob(file.path, limit.max, ctrl.signal, { truncate: limit.truncate })
     load.then(
       (b) => live && setBlob(b),
       (e: unknown) => {
@@ -177,7 +182,10 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     return () => ro.disconnect()
   }, [])
 
-  const download = () => (file.source === 'team' ? startDownload(fileUrl(file.path), file.name) : saveBlob(file.blob, file.name))
+  const download = () =>
+    file.source === 'team' ? startDownload(fileUrl(file.path), file.name)
+    : file.source === 'room' ? startDownload(roomFileUrl(file.roomId, file.fileId, { download: '1' }), file.name)
+    : saveBlob(file.blob, file.name)
   // phones: "add to chat", "open in Files" and "download" sit behind one ⋯ (a computer keeps them as icons)
   const teamPath = file.source === 'team' ? file.path : null
   const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
@@ -277,7 +285,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           // notice and a download button, never an automatic download
           <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-unsupported">
             <p className="text-sm text-muted">{error?.kind === 'unsupported' ? error.text : t('preview.unsupported')}</p>
-            {downloadOnly && <p className="text-sm text-muted" data-testid="preview-download-only-ai">{t('files.askAiDownloadOnly')}</p>}
+            {downloadOnly && file.source === 'team' && <p className="text-sm text-muted" data-testid="preview-download-only-ai">{t('files.askAiDownloadOnly')}</p>}
             <Button variant="primary" onClick={download} data-testid="preview-unsupported-download">
               <Download size={16} aria-hidden /> {t('common.download')}
             </Button>

@@ -4131,4 +4131,6 @@ export const ja: Record<MessageKey, string> = {
   "shareRoom.sendAttached": "添付して送信",
   "shareRoom.sentFiles": "{room}に送りました · ファイル{n, plural, one {#件} other {#件}}を添付",
   "rooms.fileNoAccess": "権限がないため開けません",
+  "rooms.fileAttachedCopy": "添付されたコピーを開きます",
+  "rooms.downloadFile": "{name}をダウンロード",
 }
