@@ -6,12 +6,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FileService } from '../files/service'
-import type { Principal } from '../policy/access'
+import { atLeast, type Principal } from '../policy/access'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { inSkills } from '../skills/guard'
 
 /** subfolders a note names */
 export const PLACEMENT_FOLDERS_MAX = 8
+/** folder entries looked at for them (a folder with thousands of subfolders costs no more) */
+const PLACEMENT_SCAN_MAX = 500
+/** folders at the team root that hold other folders, not files: never offered as a place for one */
+const ROOT_CONTAINERS = new Set(['groups', 'users'])
 /** new files a note names for one area */
 const PLACEMENT_FILES_MAX = 5
 
@@ -37,9 +41,11 @@ export function plainFolderName(s: string): string | null {
 }
 
 /**
- * The subfolders of `area` the person may list, as the list tool shows them (no hidden or invalid names, no links),
- * without the personal folders and skill folders, sorted, plain names only: at most PLACEMENT_FOLDERS_MAX, and how
- * many more there are. `shown`: a room session names only folders everyone in the room may read.
+ * The subfolders of `area` the person may write to (a place the file can go), as the list tool shows names (no hidden
+ * or invalid names, no links), without skill folders and, at the root, groups/ and users/, sorted, plain names only: at
+ * most PLACEMENT_FOLDERS_MAX, and how many more there are (of the first PLACEMENT_SCAN_MAX entries). `shown`: a room
+ * session names only folders everyone in the room may read. The connector's own note (connectors/remote-mcp/upload.ts)
+ * picks folders the same way.
  */
 export function areaSubfolders(files: FileService, user: Principal, area: string, shown?: ((rel: string) => boolean) | null): { names: string[]; more: number } {
   const segs = area ? area.split('/') : []
@@ -47,10 +53,10 @@ export function areaSubfolders(files: FileService, user: Principal, area: string
   try { ents = fs.readdirSync(path.join(files.fx.root, ...segs), { withFileTypes: true }) } catch { return { names: [], more: 0 } }
   const rules = files.rules()
   const all: string[] = []
-  for (const e of ents) {
+  for (const e of ents.slice(0, PLACEMENT_SCAN_MAX)) {
     if (!e.isDirectory() || hiddenEntry(e.name, segs.length) || badSegment(e.name)) continue
     const rel = [...segs, e.name].join('/')
-    if ((!area && e.name === 'users') || inSkills(rel) || !rules.canList(user, [...segs, e.name]) || (shown && !shown(rel))) continue
+    if ((!area && ROOT_CONTAINERS.has(e.name)) || inSkills(rel) || !atLeast(rules.access(user, [...segs, e.name]), 'write') || (shown && !shown(rel))) continue
     const name = plainFolderName(e.name)
     if (name) all.push(name)
   }

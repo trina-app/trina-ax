@@ -13021,8 +13021,10 @@ person's folder and only said that everyone could see the amounts; the person ha
   section says to save there), a template run (its approved scope says where files go), a turn without move_files (it
   could only make a second copy). File tools get it through `TurnToolSet.afterFileTool` (it may now return a text), the
   other tools in the chat tool set's `call`.
-- **Folder names in the note** are team data: the subfolders the person may list, as `list` shows them (no hidden or
-  invalid names, no links), without `users/` at the root and without skill folders, sorted, at most 8 ("and N more").
+- **Folder names in the note** are team data: the subfolders the person may write to (a place the file can go), as
+  `list` shows names (no hidden or invalid names, no links), without skill folders and, at the root, `groups/` and
+  `users/`, sorted, at most 8 ("and N more"), of the first 500 entries. The connector's own note
+  (`connectors/remote-mcp/upload.ts`, a separate change) picks folders the same way; the two could share a helper.
   Each passes the connector guide's allowlist (letters, digits, space, `._-`, at most 40 characters, no format
   characters, no leading dot); anything else is left out, never cleaned up. Plain words still pass (a 40-character
   sentence is a name), so each name is quoted and the list is marked as data. A room session names only folders
