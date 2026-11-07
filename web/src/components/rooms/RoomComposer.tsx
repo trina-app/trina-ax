@@ -7,7 +7,7 @@
 // send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"). In a thread (threadRootId) it
 // writes a reply, with one quiet choice under the box: "대화방에도 보내기" (the reply goes to the room's timeline too).
 // Voice input as in the AI chat's box (lib/useVoiceInput.ts, components/VoiceBar.tsx), under the same team switch: the
-// mic next to the clip, Space held in the box on a computer, a finger held on the mic; the words go into the box as
+// mic right before send (the clip stays on the left), Space held in the box on a computer, a finger held on the mic; the words go into the box as
 // text (never a voice message, never sent by themselves). A room names no chat: while every chat is confidential and
 // voice input goes to an outside service, the mic says so instead (lib/voice.ts voiceBlockedInRoom).
 // The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
@@ -246,7 +246,6 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit mb-0.5" data-testid="room-attach">
                 <Paperclip size={18} />
               </IconButton>
-              <VoiceMic voice={voice} mic={mic} tip className="mb-0.5" />
               <input
                 ref={picker}
                 type="file"
@@ -296,6 +295,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 className="max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
                 data-testid="room-input"
               />
+              {/* the mic right before send, as in ChatGPT's box */}
+              <VoiceMic voice={voice} mic={mic} tip className="mb-0.5" />
               <Tooltip label={t('chat.send')}>
                 <button
                   type="button"

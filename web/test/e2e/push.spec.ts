@@ -233,6 +233,38 @@ test('Settings says why push could not be turned on: the push service is off, no
   await expect(note.getByRole('button', { name: '다시 시도' })).toHaveCount(0)
 })
 
+/** An installed web app (display-mode: standalone) whose browser has the Badging API; `calls` records what it was asked. */
+async function installedApp(page: Page) {
+  await page.addInitScript(() => {
+    const calls: unknown[] = []
+    ;(window as any).__badge = calls
+    Object.defineProperty(navigator, 'setAppBadge', { configurable: true, value: async (n?: number) => { calls.push(n ?? 'dot') } })
+    Object.defineProperty(navigator, 'clearAppBadge', { configurable: true, value: async () => { calls.push('clear') } })
+    const real = window.matchMedia.bind(window)
+    window.matchMedia = (q: string) => (q.includes('display-mode: standalone') ? ({ matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false } as unknown as MediaQueryList) : real(q))
+  })
+}
+
+test.describe('an installed web app', () => {
+  test.use({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' })
+  test('the icon gets the count (cleared at none), and Settings says where macOS lets it show', async ({ page }) => {
+    await reset(page)
+    await installedApp(page)
+    await signIn(page)
+    await expect.poll(() => page.evaluate(() => (window as any).__badge)).toContain('clear')
+    await page.goto('/settings/notifications')
+    const line = page.getByTestId('push-badge-hint')
+    await expect(line).toHaveText(DICTS.ko['push.badgeHint.mac'].replace('{product}', 'Trina AX'))
+  })
+  test('a normal tab: no line', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.goto('/settings/notifications')
+    await expect(page.getByTestId('push-notifications')).toBeVisible()
+    await expect(page.getByTestId('push-badge-hint')).toHaveCount(0)
+  })
+})
+
 test.describe('iPhone in a browser tab', () => {
   test.use({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' })
   test('push says the Home Screen app is needed and links the install guide with the iPhone steps first', async ({ page }) => {

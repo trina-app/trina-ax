@@ -38,6 +38,13 @@ export const SkillInfo = z.object({
   /** a member suggested it and an owner or admin approved it (docs/DECISIONS.md "MC"): the member's name while their
    * account is there ("민준 님이 제안"); the approver's save made the file, so this is never read from the file's text */
   suggestedBy: z.string().optional(),
+  /** only in GET /api/skills?shadowed=1, for the Team skills page: a skill of the same name that is not in the caller's
+   * list because another one runs instead (personal > group > team). Which one runs is unchanged; the page keeps this
+   * one in its own section with a note, so it does not look deleted. Never in the "/" menu or the AI's list. */
+  shadowedBy: z.object({ tier: z.enum(['personal', 'group']), group: SkillGroupRef.optional() }).optional(),
+  /** a skill in the list that runs instead of a team skill ("team") or a group's ("group") of the same name: the "/"
+   * menu's small hint "팀 스킬 대신" */
+  replaces: z.enum(['team', 'group']).optional(),
 })
 export type SkillInfo = z.infer<typeof SkillInfo>
 /** The longest metadata `example` (characters); a longer one is ignored. */
@@ -297,7 +304,7 @@ export const SetSkillManagerBody = z.intersection(SkillManagerSubject, z.object(
 
 export const SKILLS = {
   popularSkills: endpoint({ method: 'GET', path: '/api/skills/popular', auth: 'user', owner: 'B', response: PopularSkills, summary: 'Last 30 days of usage counts for currently readable skills, with no user identities or prompts.' }),
-  listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team.' }),
+  listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', query: z.object({ shadowed: z.literal('1').optional() }), response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team. `?shadowed=1` also lists the skills that lost to a better tier, each with `shadowedBy` (the Team skills page).' }),
   listSkillIssues: endpoint({ method: 'GET', path: '/api/skills/issues', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillIssue) }), summary: 'Skill entries the caller can read that do not load: an invalid SKILL.md (also a name that is not its folder name) or a legacy file with a broken header.' }),
   skillsOverview: endpoint({ method: 'GET', path: '/api/skills/overview', auth: 'user', owner: 'B', response: SkillsOverview, summary: 'The skills folders the caller manages / can suggest into, and how many suggestions wait.' }),
   listSkillSuggestions: endpoint({ method: 'GET', path: '/api/skills/suggestions', auth: 'user', owner: 'B', query: SkillSuggestionsQuery, response: page(SkillSuggestion), summary: 'My suggestions, or (scope=review) the suggestions for skills folders I manage. Nobody else sees them.' }),

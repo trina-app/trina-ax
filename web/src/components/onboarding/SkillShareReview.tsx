@@ -109,9 +109,12 @@ export interface SkillShareReviewProps {
   /** the proposer may choose where it goes: the team or one of their groups (docs/DECISIONS.md "Group skills"; the
    * share page). The welcome step keeps the team: no choice there. */
   pickTarget?: boolean
+  /** told the name of the group the share goes to now (null: the team), also after the proposer moved it: the share
+   * page's title follows it */
+  onTarget?: (group: string | null) => void
 }
 
-export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, earlier, pickTarget = false }: SkillShareReviewProps) {
+export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, earlier, pickTarget = false, onTarget }: SkillShareReviewProps) {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -172,6 +175,8 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
   // a share to a group (docs/DECISIONS.md "Group skills") carries its skills only: a team rule and connection
   // templates are the team's
   const group = share.targetGroup ?? null
+  const targetName = group?.name ?? null
+  useEffect(() => { onTarget?.(targetName) }, [targetName]) // eslint-disable-line react-hooks/exhaustive-deps
   const rule = !group && share.rule && share.rule.lines > 0 && share.rule.text.trim() ? share.rule : null
   // the server checked each address again (https, no key, no query) for every source
   const tools = group ? [] : share.tools

@@ -76,6 +76,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const loadEngines = useEngines((s) => s.load)
   // the engine / model are the admin's choice: the picker and "retry with another model" only for people allowed
   const choose = canChooseEngine(me)
+  // "대화방에 보내기" only from a chat known not to be confidential (Safe operations 1A: every chat while the server says so)
+  const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential
   const actions = useChatActions()
   const title = chat?.title || t('chat.untitled')
   useEffect(() => {
@@ -310,7 +312,7 @@ function ChatView({ chatId }: { chatId: string }) {
             if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
             const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
             const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt ? undefined : onContinue} />
+            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt ? undefined : onContinue} shareable={shareable} />
           })}
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>

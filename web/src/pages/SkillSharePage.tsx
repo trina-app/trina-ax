@@ -37,6 +37,8 @@ function SharePage({ team, owner }: { team: string; owner: boolean }) {
   const { id = '' } = useParams()
   const [share, setShare] = useState<SkillShare | null | undefined>(undefined)
   const [error, setError] = useState<unknown>(null)
+  // the group the proposal goes to now (the proposer may move it on this page): the title says it
+  const [target, setTarget] = useState<string | null>(null)
   const load = () => {
     setError(null)
     api.call(API.getSkillShare, { params: { id } }).then(setShare, (e) => (isApiError(e, 'not_found') ? setShare(null) : setError(e)))
@@ -62,14 +64,14 @@ function SharePage({ team, owner }: { team: string; owner: boolean }) {
       </p>
     )
   } else if (inSetup) body = <SkillShareReview share={share} team={team} doneLabel={t('skillShare.page.toSetup')} onDone={toSetup} onLater={toSetup} onStopped={toSetup} inSetup />
-  else body = <SkillShareReview share={share} team={team} doneLabel={t('skillShare.page.toSkills')} onDone={toSkills} onLater={toSkills} onStopped={toSkills} pickTarget />
+  else body = <SkillShareReview share={share} team={team} doneLabel={t('skillShare.page.toSkills')} onDone={toSkills} onLater={toSkills} onStopped={toSkills} pickTarget onTarget={setTarget} />
 
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="skill-share-page">
       <div className="mx-auto w-full max-w-[640px] space-y-5 px-4 pt-6 pb-10 sm:px-6 sm:pt-10">
         <div className="space-y-1">
-          <h1 className="text-lg font-semibold text-ink">{t('skillShare.page.title')}</h1>
-          <p className="text-sm text-balance text-muted">{t('skillShare.page.desc')}</p>
+          <h1 className="text-lg font-semibold text-ink">{target ? t('skillShare.page.titleGroup', { group: target }) : t('skillShare.page.title')}</h1>
+          <p className="text-sm text-balance text-muted">{target ? t('skillShare.page.descGroup', { group: target }) : t('skillShare.page.desc')}</p>
         </div>
         {body}
       </div>

@@ -182,7 +182,7 @@ describe('a skill without a title, on the member\'s way in', () => {
   const QUOTE: SkillInfo = { path: 'skills/quote-maker/SKILL.md', name: 'quote-maker', description: 'Quotes from the team template', inputs: [{ name: 'customer', label: '고객사' }] }
   const body = () => (globalThis.document as any).body
 
-  test('the form\'s title, the team skills row and its run button, the chip of what it sends and the answer\'s receipt say "quote maker"', async () => {
+  test('the form\'s title, the team skills row and its run button say "/quote-maker"; the chip of what it sends and the answer\'s receipt say "quote maker"', async () => {
     forgetSkillList()
     skills = [QUOTE]
     try {
@@ -190,15 +190,15 @@ describe('a skill without a title, on the member\'s way in', () => {
       let m = await mount(<MemoryRouter><SkillFormDialog path={QUOTE.path} skill={QUOTE} onClose={() => {}} /></MemoryRouter>)
       try {
         await m.until(() => m.find('skill-input-customer'), 'the form')
-        expect(body().querySelector('[role="dialog"]').querySelector('h2').textContent).toBe('quote maker 실행')
+        expect(body().querySelector('[role="dialog"]').querySelector('h2').textContent).toBe('/quote-maker 실행')
       } finally { await m.unmount() }
       // the team skills page behind it: the row and its run button
       m = await mount(<MemoryRouter><AvailableSkillsList items={[QUOTE]} /></MemoryRouter>)
       try {
-        expect(m.get('skill-use').textContent).toContain('quote maker')
-        expect(m.get('skill-run').getAttribute('aria-label')).toBe('quote maker 실행')
-        expect(m.get('skill-more').getAttribute('aria-label')).toBe('quote maker 스킬 메뉴')
-        expect(m.html()).not.toContain('quote-maker 실행')
+        expect(m.get('skill-use').textContent).toContain('/quote-maker')
+        expect(m.get('skill-run').getAttribute('aria-label')).toBe('/quote-maker 실행')
+        expect(m.get('skill-more').getAttribute('aria-label')).toBe('/quote-maker 스킬 메뉴')
+        expect(m.html()).not.toContain('quote maker')
       } finally { await m.unmount() }
       // what the form sends ("/quote-maker" and the answers) and a typed question: the chip
       m = await mount(<MemoryRouter><UserMessage m={{ ...msg({ role: 'user', content: '/quote-maker\n고객사: Acme' }), local: undefined } as never} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></MemoryRouter>)

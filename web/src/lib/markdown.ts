@@ -72,6 +72,9 @@ export function classifyLink(href: string | undefined, origin: string): LinkKind
   let u: URL
   try { u = new URL(href, origin) } catch { return { kind: 'blocked' } }
   if (u.origin === origin) {
+    // "https://<this server>//evil.example/…" (or "/.//…"): the router reads a path that starts with "//" as another
+    // site and would open it in this tab
+    if (u.pathname.startsWith('//')) return { kind: 'blocked' }
     if (u.pathname === '/api/files/download') {
       const path = u.searchParams.get('path')
       return path ? { kind: 'team-file', path } : { kind: 'blocked' }

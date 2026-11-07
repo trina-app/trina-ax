@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { IDBFactory } from 'fake-indexeddb'
@@ -9,7 +9,9 @@ const source = readFileSync(new URL('../../pwa/sw.js', import.meta.url), 'utf8')
 const payload = { notificationId: 'event-1', subscriptionId: 'subscription-1', code: 'schedule.success' }
 /** an open page of the app: answers the worker's room-sound question (lib/roomSound.ts), or never (an older page) */
 type Page = { handled?: boolean | 'never'; url?: string }
-function worker(database = new IDBFactory(), pages: Page[] = [{}]) {
+/** the worker's navigator: the Badging API of an installed web app, or none */
+type BadgeNav = { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> }
+function worker(database = new IDBFactory(), pages: Page[] = [{}], nav?: BadgeNav) {
   const listeners = new Map<string, (event: any) => void>()
   const shown: { title: string; options: any; closed: boolean; close(): void }[] = []
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = [], asked: unknown[] = [], closed = { n: 0 }
@@ -19,6 +21,7 @@ function worker(database = new IDBFactory(), pages: Page[] = [{}]) {
   let status = 200, gate: Promise<void> | null = null
   const self = {
     location: { origin: 'https://team.example' },
+    ...(nav ? { navigator: nav } : {}),
     addEventListener: (name: string, fn: (event: any) => void) => listeners.set(name, fn),
     registration: {
       showNotification: async (title: string, options: any) => { shown.push({ title, options, closed: false, close() { this.closed = true } }) },
@@ -203,6 +206,30 @@ test('a room notice opens its room; the room id comes from the signed-in notice,
   expect(read.shown).toHaveLength(0)
 })
 
+test('a room notice says who and where in its title (from the signed-in notice, one plain line), never the text; an older server: the product\'s name', async () => {
+  const roomId = '0190f5a0-0000-7000-8000-000000000001'
+  const messages = { title: 'Team', bodies: { 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }
+  const shown = async (room: Record<string, unknown>, link: string | null = 'room') => {
+    const w = worker()
+    w.configure({ messages: messages as any })
+    w.item({ id: 'event-1', code: 'room.mention', readAt: null, link, room: { id: roomId, from: 'Ben', ...room } })
+    await w.push({ ...payload, code: 'room.mention', title: 'PRIVATE PROMPT' })
+    return w.shown[0]!
+  }
+  const n = await shown({ label: 'Ben · #design › Thread', preview: 'SECRET TEXT' })
+  expect(n.title).toBe('Ben · #design › Thread')
+  expect(n.options.body).toBe('You were mentioned')
+  expect(JSON.stringify(n)).not.toContain('SECRET')
+  // control and bidirectional characters, line breaks and length: one plain line of at most 120 characters
+  expect((await shown({ label: 'Be\u202En\n · #de\u2066sign\u200b' })).title).toBe('Ben · #design')
+  expect([...(await shown({ label: 'x'.repeat(300) })).title]).toHaveLength(120)
+  // an older server (no label), an empty or odd one, or a notice with no room any more: the product's name
+  expect((await shown({})).title).toBe('Team')
+  expect((await shown({ label: '\u202E\n' })).title).toBe('Team')
+  expect((await shown({ label: 42 })).title).toBe('Team')
+  expect((await shown({ label: 'Ben' }, null)).title).toBe('Team')
+})
+
 test('a room notice is silent when an open page takes care of the sound; otherwise, and for other notices, it is not', async () => {
   const roomId = '0190f5a0-0000-7000-8000-000000000001'
   const messages = { title: 'Team', bodies: { ...pushMessages('en').bodies, 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }
@@ -225,10 +252,62 @@ test('a room notice is silent when an open page takes care of the sound; otherwi
   expect((await shown([{ handled: true, url: 'https://other.example/' }])).silent).toBe(false)
   // a page from before this (no answer) or a frozen tab: shown after a short wait, with the system's sound
   expect((await shown([{}])).silent).toBe(false)
-  const started = Date.now()
+  // measured on the monotonic clock: a container's wall clock (Date.now) can be stepped back while the worker waits
+  const started = performance.now()
   expect((await shown([{ handled: 'never' }])).silent).toBe(false)
-  expect(Date.now() - started).toBeGreaterThanOrEqual(350)
-  expect(Date.now() - started).toBeLessThan(2000)
+  const waited = performance.now() - started
+  expect(waited).toBeGreaterThanOrEqual(350)
+  expect(waited).toBeLessThan(2000)
   // other notices never ask
   expect(await shown([{ handled: true }], 'schedule.success')).toEqual({ silent: false, asked: [] })
+})
+
+describe('the installed app\'s icon', () => {
+  const roomItem = { id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: '0190f5a0-0000-7000-8000-000000000001', from: 'Ben' } }
+  const messages = { title: 'Team', bodies: { ...pushMessages('en').bodies, 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }
+  /** a push with these windows open; what reached the Badging API */
+  const badgeAfter = async (pages: Page[], o: { code?: string; item?: any; reject?: boolean; database?: IDBFactory } = {}) => {
+    const calls: unknown[][] = []
+    const nav: BadgeNav = {
+      setAppBadge: (...a: unknown[]) => { calls.push(['set', ...a]); return o.reject ? Promise.reject(new DOMException('no', 'NotAllowedError')) : Promise.resolve() },
+      clearAppBadge: () => { calls.push(['clear']); return Promise.resolve() },
+    }
+    const w = worker(o.database ?? new IDBFactory(), pages, nav)
+    w.configure({ messages: messages as any })
+    const code = o.code ?? 'room.dm'
+    w.item(o.item ?? (code === 'room.dm' ? roomItem : { id: 'event-1', code, readAt: null }))
+    await w.push({ ...payload, code })
+    return { calls, shown: w.shown.length, w }
+  }
+  test('a push shown while no window of the app is open: a dot (no number: the worker does not know the count)', async () => {
+    expect(await badgeAfter([])).toMatchObject({ calls: [['set']], shown: 1 })
+    expect(await badgeAfter([], { code: 'schedule.success' })).toMatchObject({ calls: [['set']], shown: 1 })
+    // a window of another site does not count as open
+    expect((await badgeAfter([{ url: 'https://other.example/' }])).calls).toEqual([['set']])
+  })
+  test('none with a window open (it keeps the exact count), for a silent notice (a page made the sound), or for a push not shown', async () => {
+    expect((await badgeAfter([{}])).calls).toEqual([])
+    expect((await badgeAfter([{ handled: true }])).calls).toEqual([])
+    const read = await badgeAfter([], { item: { ...roomItem, readAt: '2026-11-07T00:00:00.000Z' } })
+    expect(read).toMatchObject({ calls: [], shown: 0 })
+  })
+  test('a refusal changes nothing: the notice shows and is remembered (the same push again shows nothing)', async () => {
+    const database = new IDBFactory()
+    const first = await badgeAfter([], { reject: true, database })
+    expect(first).toMatchObject({ calls: [['set']], shown: 1 })
+    const again = await badgeAfter([], { database })
+    expect(again.shown).toBe(0)
+  })
+  test('a browser without the Badging API: shown as before', async () => {
+    const w = worker(new IDBFactory(), [])
+    w.configure({ messages: messages as any })
+    w.item(roomItem)
+    await w.push({ ...payload, code: 'room.dm' })
+    expect(w.shown).toHaveLength(1)
+  })
+  test('the account changes (push.invalidate): the dot goes with its notices', async () => {
+    const { calls, w } = await badgeAfter([])
+    await w.invalidate()
+    expect(calls).toEqual([['set'], ['clear']])
+  })
 })

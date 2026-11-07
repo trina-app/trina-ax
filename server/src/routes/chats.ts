@@ -29,6 +29,7 @@ import { tr } from '../chat/i18n'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
+import { shareAnswerToRoom } from '../chat/answer-share'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
@@ -263,6 +264,13 @@ export const chatsRoutes: RouteModule = {
       const m = messageInChat(rt, chat.id, params.messageId)
       if (m.role !== 'assistant') return { files: [], unavailable: 0 }
       return viewSources(ctx.db, ctx.files.fx, () => ctx.files.rules(), auth.user.id, m.id)
+    })
+
+    // "대화방에 보내기": a finished answer of my own chat to a room I am in, as my message; "confirm" first when some
+    // member could not read what it used (chat/answer-share.ts). Not from a room's AI session or a deleted chat (404).
+    kit.handle(API.shareAnswerToRoom, ({ c, params, body, auth }) => {
+      const chat = ownChat(rt, auth, params.id)
+      return shareAnswerToRoom(ctx, auth.user.id, chat, messageInChat(rt, chat.id, params.messageId), body, c.get('locale'))
     })
 
     kit.handle(API.sendMessage, ({ c, params, body, auth }) => {

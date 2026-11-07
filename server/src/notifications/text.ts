@@ -34,6 +34,17 @@ export const TEXT = {
   },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 
+/** The words of a room notice's title on a device ("민준 · #마케팅 › 스레드": rooms/inbox.ts roomLabel, shown by the web
+ * app's service worker), the same as the app's (rooms.thread, rooms.all, rooms.aiName, rooms.nameSep,
+ * rooms.groupNamesMore). Names only, never a message's text. */
+export const ROOM_WORDS: Record<Locale, { thread: string; all: string; ai: string; sep: string; more: (names: string, n: number) => string }> = {
+  ko: { thread: '스레드', all: '전체', ai: '트리나', sep: ', ', more: (names, n) => `${names} 외 ${n}명` },
+  en: { thread: 'Thread', all: 'Everyone', ai: 'Trina', sep: ', ', more: (names, n) => `${names} and ${n} more` },
+  id: { thread: 'Utas', all: 'Semua', ai: 'Trina', sep: ', ', more: (names, n) => `${names} dan ${n} lainnya` },
+  ja: { thread: 'スレッド', all: '全員', ai: 'トリナ', sep: '、', more: (names, n) => `${names}ほか${n}人` },
+  es: { thread: 'Hilo', all: 'Todos', ai: 'Trina', sep: ', ', more: (names, n) => `${names} y ${n} más` },
+}
+
 export function pushMessages(locale: Locale) {
   return { title: TEXT.title[locale], bodies: {
     'schedule.success': TEXT['schedule.success'][locale],

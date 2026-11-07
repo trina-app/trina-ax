@@ -8,6 +8,7 @@
 //   chat; the dot stays away from the chat on screen;
 // - the phone's drawer keeps its own layout (the AI's history only).
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Chat, type Me } from '@mycel/shared/api'
@@ -441,6 +442,28 @@ describe('a computer', () => {
       useSessionMarkers.setState({ onScreen: null })
     }
   })
+})
+
+describe('the hairline at the top of the scroll', () => {
+  for (const phone of [false, true]) {
+    test(`${phone ? 'the phone drawer' : 'a computer'}: none at the top, shown while scrolled, gone back at the top; the 1 px stays`, async () => {
+      wide = !phone
+      const m = await render()
+      try {
+        const box = m.get('sidebar-scroll')
+        const line = () => [box.getAttribute('data-scrolled'), /\bborder-line\b/.test(box.className), /\bborder-transparent\b/.test(box.className), /\bborder-t\b/.test(box.className)]
+        expect(line()).toEqual([null, false, true, true])
+        Object.assign(box, { scrollTop: 120 })
+        await act(async () => { box.dispatchEvent(new FakeEvent('scroll')) })
+        expect(line()).toEqual(['', true, false, true])
+        Object.assign(box, { scrollTop: 0 })
+        await act(async () => { box.dispatchEvent(new FakeEvent('scroll')) })
+        expect(line()).toEqual([null, false, true, true])
+      } finally {
+        await m.unmount()
+      }
+    })
+  }
 })
 
 describe('the phone drawer keeps its own layout', () => {

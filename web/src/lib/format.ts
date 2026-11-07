@@ -87,3 +87,11 @@ export function localDayRange(from: string, to: string): { from: string; to: str
 export function localDayBounds(from: string, to: string): { from?: string; to?: string } {
   return { from: from ? localDayRange(from, from).from : undefined, to: to ? localDayRange(to, to).to : undefined }
 }
+
+/** A list's time (the 대화 list, the Inbox's conversation rows): today the time, yesterday the word, before the date. */
+export function listTime(iso: string, locale: Locale, yesterday: string): string {
+  const b = dateBucket(iso)
+  if (b === 'today') return new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
+  if (b === 'yesterday') return yesterday
+  return formatDate(iso, locale)
+}

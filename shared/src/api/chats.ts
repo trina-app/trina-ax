@@ -5,8 +5,42 @@ import { EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common
 import { endpoint, empty } from './endpoint'
 import { SealedSecret } from './credentials'
 import { Chat, Message, MessageSources, Project } from './entities'
+import { ANSWER_NOTE_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
+
+// ---------------- an answer sent to a room ("대화방에 보내기") ----------------
+export const ShareAnswerToRoomBody = z.object({
+  roomId: Uuid7,
+  /** one line before the answer ("한마디 덧붙이기"); newlines become spaces */
+  note: z.string().max(ANSWER_NOTE_MAX).optional(),
+  /** send even though some members cannot open what the answer used: the number of people the person said yes to (the
+   * last "confirm"'s `people`). More people than that now (someone joined, or lost access): "confirm" again */
+  confirm: z.number().int().positive().optional(),
+  /** client-made id: sending the same one again returns the first message */
+  clientMessageId: z.string().min(8).max(64),
+}).strict()
+/** Where something the answer used came from that some member cannot open (never who cannot). */
+export const AnswerSharePlace = z.discriminatedUnion('kind', [
+  /** a team folder ('' = the top of the team folder) */
+  z.object({ kind: z.literal('folder'), path: z.string() }),
+  /** my own folder, or what only I saw (the in-app browser, a personal connection) */
+  z.object({ kind: z.literal('mine') }),
+  /** a team connection (a connected service) or a shared Google Drive, by its name */
+  z.object({ kind: z.literal('service'), name: z.string() }),
+  /** a team room by its group's name, or the everyone room (name '') */
+  z.object({ kind: z.literal('room'), name: z.string() }),
+  /** a 1:1 or group conversation (never named: its name is people's names) */
+  z.object({ kind: z.literal('conversation') }),
+])
+export type AnswerSharePlace = z.infer<typeof AnswerSharePlace>
+export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('sent'), message: RoomMessage, cut: z.boolean() }),
+  /** nothing sent: `people` members of the room (not me) could not open something the answer used; `places` names what
+   * I may open myself, `otherPlaces`: more that I cannot (never named) */
+  z.object({ status: z.literal('confirm'), people: z.number().int().positive(), places: z.array(AnswerSharePlace), otherPlaces: z.boolean() }),
+])
+export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
 
 // ---------------- chats ----------------
 export const ListChatsQuery = PageQuery.extend({
@@ -205,6 +239,7 @@ export const CHATS = {
   listMessages: endpoint({ method: 'GET', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', query: ListMessagesQuery, response: MessagesPage, summary: 'Active branch of the conversation, paged backwards.' }),
   sendMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', status: 202, body: SendMessageBody, response: TurnStarted, summary: 'Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat.' }),
+  shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote). When some members could not open what the answer used, it first answers "confirm" with how many and which places (never who); sent again with confirm = that number it posts. Rate-limited and notified like any message; audited.' }),
   messageSources: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files the AI read or saw passages of for this answer, each checked against the viewer\'s access now (no name or path for the others).' }),
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),
