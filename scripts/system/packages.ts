@@ -26,7 +26,9 @@ export const REQUIRED_PLATFORMS: Record<string, readonly string[]> = {
 
 export interface PackageSpec { min?: string; on?: string[]; when?: (typeof WHENS)[number] }
 export interface Group { install: Install; for: string; packages?: Record<string, string | PackageSpec>; remove?: string[]; artifacts?: string[] }
-export interface Artifact { version: string; for: string; platforms: Record<string, { url: string; sha256: string; size: number; dir?: string }> }
+/** revoked: versions that must not stay on a machine even when newer than the pin (a bad pin rolled back: packages.sh
+ * switches back to version and removes them) */
+export interface Artifact { version: string; for: string; revoked?: string[]; platforms: Record<string, { url: string; sha256: string; size: number; dir?: string }> }
 export interface PackageList {
   format: 1
   _about?: string[]
@@ -103,8 +105,12 @@ export function listProblems(j: unknown): string[] {
     const at = `artifact ${n}`
     if (!GROUP.test(n)) p.push(`${at}: bad name`)
     if (!a || typeof a !== 'object') { p.push(`${at}: not an object`); continue }
-    for (const k of extra(a, ['version', 'for', 'platforms'])) p.push(`${at}: unknown key ${k}`)
+    for (const k of extra(a, ['version', 'for', 'revoked', 'platforms'])) p.push(`${at}: unknown key ${k}`)
     if (typeof a.version !== 'string' || !/^[0-9][0-9A-Za-z.+-]*$/.test(a.version)) p.push(`${at}: no version`)
+    if (a.revoked !== undefined) {
+      if (!Array.isArray(a.revoked) || a.revoked.some((v) => typeof v !== 'string' || !/^[0-9][0-9.]*$/.test(v))) p.push(`${at}: revoked must be a list of versions`)
+      else if (a.revoked.includes(a.version)) p.push(`${at}: revoked names the pinned version ${a.version}`)
+    }
     if (typeof a.for !== 'string' || !a.for) p.push(`${at}: say what it is for ("for")`)
     const plats = a.platforms && typeof a.platforms === 'object' ? a.platforms : {}
     for (const need of REQUIRED_PLATFORMS[n] ?? []) if (!has(plats, need)) p.push(`${at}: no ${need}`)
@@ -163,6 +169,7 @@ export function flatLines(l: PackageList): string {
     for (const a of v.artifacts ?? []) t('GA', g, a)
   }
   for (const [n, a] of Object.entries(l.artifacts)) for (const [p, x] of Object.entries(a.platforms)) t('F', n, p, a.version, x.url, x.sha256, x.size, x.dir)
+  for (const [n, a] of Object.entries(l.artifacts)) for (const v of a.revoked ?? []) t('X', n, v)
   return o.join('\n')
 }
 

@@ -43,6 +43,7 @@ pk_err() { echo "packages: $*" >&2; }
 #   G <group> <install>                           GA <group> <artifact>
 #   P <group> <package> <floor> <on> <when>       R <group> <package to remove>
 #   F <artifact> <platform> <version> <url> <sha256> <size> <dir>
+#   X <artifact> <revoked version>                (a version that must not stay, even when newer than the pin)
 PK_JS='const j = JSON.parse(require("fs").readFileSync(process.env.PK_JSON, "utf8"))
 if (j.format !== 1) throw new Error("format " + j.format)
 const o = [], f = (x) => x === undefined || x === null || x === "" ? "-" : String(x), t = (...a) => o.push(a.map(f).join("\t"))
@@ -58,6 +59,7 @@ for (const [g, v] of Object.entries(j.groups)) {
   for (const a of v.artifacts ?? []) t("GA", g, a)
 }
 for (const [n, a] of Object.entries(j.artifacts)) for (const [p, x] of Object.entries(a.platforms)) t("F", n, p, a.version, x.url, x.sha256, x.size, x.dir)
+for (const [n, a] of Object.entries(j.artifacts)) for (const v of a.revoked ?? []) t("X", n, v)
 console.log(o.join("\n"))'
 PK_JQ='def f: if . == null or . == "" then "-" else tostring end;
 if .format != 1 then error("format \(.format)") else . end
@@ -70,7 +72,8 @@ if .format != 1 then error("format \(.format)") else . end
         (($v.remove // [])[] | ["R", $g, .]),
         (($v.artifacts // [])[] | ["GA", $g, .])),
     (.artifacts | to_entries[] | .key as $n | .value.version as $ver | .value.platforms | to_entries[]
-      | ["F", $n, .key, $ver, .value.url, .value.sha256, .value.size, .value.dir]) )
+      | ["F", $n, .key, $ver, .value.url, .value.sha256, .value.size, .value.dir]),
+    (.artifacts | to_entries[] | .key as $n | (.value.revoked // [])[] | ["X", $n, .]) )
 | map(f) | join("\t")'
 
 pk_sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
@@ -401,11 +404,14 @@ pk__unlock() { eval "exec $PK_LOCK_FD>&-"; }
 pk__current_version() { local c; c=$(readlink "$1/current" 2>/dev/null || true); [ -z "$c" ] || echo "${c%%/*}"; }
 # pk_browser_check PROGRAM: it starts and says its version (the libraries it loads are there)
 pk_browser_check() { [ -f "$1" ] && "$1" --version 2>/dev/null | head -n 1 | grep -q '[0-9]'; }
-# current is runnable and newer than the pin (a repair from an older kit keeps it)
+# pk__revoked VERSION: the list revokes this version of the browser (its "revoked": a bad pin rolled back)
+pk__revoked() { [ -n "$1" ] && pk__lines | awk -F'\t' -v n="$PK_BROWSER" -v v="$1" '$1 == "X" && $2 == n && $3 == v { f = 1 } END { exit !f }'; }
+# current is runnable, newer than the pin and not revoked (a repair from an older kit keeps it; a revoked version goes
+# back to the pin even when it is newer)
 pk__newer_current() {
   local dest=$1 cv
   cv=$(pk__current_version "$dest")
-  [ -n "$cv" ] && pk__newer "$cv" "$PK_V" && pk_browser_check "$dest/current/$PK_BROWSER"
+  [ -n "$cv" ] && ! pk__revoked "$cv" && pk__newer "$cv" "$PK_V" && pk_browser_check "$dest/current/$PK_BROWSER"
 }
 
 # pk_browser_prepare DEST PLATFORM: the pinned version complete, verified and runnable in DEST/<version>, downloaded and
@@ -473,6 +479,8 @@ pk__browser_switch_locked() {
   # the version a switch replaced: kept until the next switch, whoever runs the sync in between (another install id)
   prev=""
   [ ! -f "$dest/.previous" ] || prev=$(tr -cd 'A-Za-z0-9._-' < "$dest/.previous")
+  # a revoked version is never kept as the one before
+  ! pk__revoked "$prev" || prev=""
   if pk__newer_current "$dest"; then
     echo "packages: $PK_BROWSER $cv stays: it is newer than this list's $PK_V (another install put it there)" >&2
   elif pk_browser_check "$dest/$PK_V/$PK_DIR/$PK_BROWSER"; then
@@ -480,13 +488,15 @@ pk__browser_switch_locked() {
       pk__swap_link "$PK_V/$PK_DIR" "$dest/current" || return 1
       switched=1
       prev=""
-      [ -z "$cv" ] || [ "$cv" = "$PK_V" ] || prev=$cv
+      [ -z "$cv" ] || [ "$cv" = "$PK_V" ] || pk__revoked "$cv" || prev=$cv
     fi
-  elif pk_browser_check "$dest/current/$PK_BROWSER"; then
+  elif ! pk__revoked "$cv" && pk_browser_check "$dest/current/$PK_BROWSER"; then
     echo "packages: $PK_BROWSER $PK_V is not ready here; $cv stays" >&2
   else
-    # current never names a program that does not run (the office supervisor names whatever current points to)
+    # current never names a program that does not run (the office supervisor names whatever current points to), nor a
+    # revoked version: HTML to PDF stays off until the pin is ready
     rm -f "$dest/current"
+    if pk__revoked "$cv"; then pk_err "$PK_BROWSER $cv is revoked by the list and $PK_V is not ready; HTML to PDF is off until it is"; fi
     pk_err "no $PK_BROWSER runs in $dest"
     return 1
   fi

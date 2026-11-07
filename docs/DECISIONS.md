@@ -12863,6 +12863,21 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   `/etc/default/<id>` is written next to itself and renamed. The env line is written by the sync, after the app restarted,
   so `findPdfBrowser` (server/src/files/html-pdf.ts) also looks at `/opt/trina/chrome-headless-shell/current/
   chrome-headless-shell` when `MYCEL_HTML_PDF_BROWSER` is not set, through the same `trustedBrowser` check.
+- **Browser pin: staleness and roll-back (PR #164 review, High 1).** The pinned `chrome-headless-shell` prints untrusted
+  HTML with `--no-sandbox` and gets no security updates of its own, so the pin must follow Chrome for Testing Stable.
+  Owner of the bumps: the trina-ax maintainers. A bump changes `version` and, for every platform, `url`, `sha256` (of the
+  file as downloaded) and `size`; it is a root change like any change of the list. CI checks the pin in the main job
+  (`bun scripts/system/browser-staleness.ts`, step "Pinned browser against Chrome for Testing Stable", 2 minutes at most,
+  against `last-known-good-versions.json`). Policy: the pin at Stable is ok; behind Stable in the same major (a new build,
+  often security fixes) is a warning, and the maintainers bump it within 7 days; one major behind, or newer than Stable (a
+  Beta), is a warning; two or more majors behind (about four weeks or more without Stable's fixes) fails CI. A network
+  error only warns: CI never goes red because Chrome for Testing cannot be reached. A bad pin is rolled back with
+  `"revoked": ["<version>", …]` on the artifact: the list pins the good version again and names the bad one. Normally a
+  version newer than the pin stays (another install's newer kit); a revoked version does not: the sync switches back to
+  the pin and removes the revoked folder, never keeps it as the previous version, and, when the pin is not ready,
+  removes `current` (HTML to PDF off rather than a revoked browser). The list check refuses a `revoked` that names the
+  pin. Two install ids on one machine with kits on both sides of a revocation would switch back and forth until both
+  are updated; hosted VMs have one id.
 - **Office updates (review, must-fix).** `office-install.sh` downloads and tests the browser while the server still runs
   (at most 4 minutes during an automatic update, which stops the installer after 10 minutes and rolls back), and only
   switches `current` after the server has stopped. A failure only warns: it can neither fail nor roll back an update.

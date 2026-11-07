@@ -246,6 +246,37 @@ pk_artifacts default; pk_artifacts minimal; pk_artifacts srt`, { PK_BUN: process
     fs.rmSync(b.d, { recursive: true, force: true })
   })
 
+  test('the browser: a revoked version goes back to the pin even when newer (a bad pin rolled back), and is not kept', () => {
+    // a list that pins PIN and revokes 999.0.0.1 (the bad pin a release had); 999 is current, PIN is ready
+    const b = browserDir({ [PIN]: true, '999.0.0.1': true, '150.0.1.2': true }, '999.0.0.1')
+    fs.writeFileSync(path.join(b.dest, '.previous'), '150.0.1.2\n')
+    const l = clone(); l.artifacts['chrome-headless-shell']!.revoked = ['999.0.0.1']
+    expect(listProblems(l)).toEqual([])
+    const list = path.join(b.d, 'packages.json'); fs.writeFileSync(list, JSON.stringify(l))
+    const r = lib(`pk_load "${list}"; pk_browser_install "${b.dest}" linux-amd64`, b.env)
+    expect(r.out.trim()).toBe(path.join(b.dest, 'current', 'chrome-headless-shell'))
+    expect(r.err).not.toContain('stays: it is newer')
+    expect(fs.readlinkSync(path.join(b.dest, 'current'))).toBe(`${PIN}/${b.dir}`)
+    // 999 is not the "previous" one (a revoked version never stays); 150 is no longer kept either
+    expect(names_(b.dest)).toEqual(['current', PIN].sort())
+    // revoked and the pin not ready: current goes, HTML to PDF is off rather than on a revoked browser
+    const c = browserDir({ '999.0.0.1': true }, '999.0.0.1')
+    fs.writeFileSync(path.join(c.d, 'packages.json'), JSON.stringify(l))
+    const r2 = lib(`pk_load "${path.join(c.d, 'packages.json')}"; pk_browser_switch "${c.dest}" linux-amd64 || echo none`, c.env)
+    expect(r2.out.trim()).toBe('none')
+    expect(r2.err).toContain('999.0.0.1 is revoked by the list')
+    expect(fs.existsSync(path.join(c.dest, 'current'))).toBe(false)
+    // the readers agree on the X lines; a list that revokes its own pin, or a non-version, is refused
+    expect(sh(['flat', '--list', list, '--bun', process.execPath]).out.trimEnd()).toBe(flatLines(l))
+    if (JQ) expect(sh(['flat', '--list', list]).out.trimEnd()).toBe(flatLines(l))
+    expect(flatLines(l)).toContain('X\tchrome-headless-shell\t999.0.0.1')
+    const own = clone(); own.artifacts['chrome-headless-shell']!.revoked = [PIN]
+    expect(listProblems(own).join()).toContain('revoked names the pinned version')
+    const bad = clone(); bad.artifacts['chrome-headless-shell']!.revoked = ['latest']
+    expect(listProblems(bad).join()).toContain('revoked must be a list of versions')
+    fs.rmSync(b.d, { recursive: true, force: true }); fs.rmSync(c.d, { recursive: true, force: true })
+  })
+
   test('the browser folder and its parent are 755 whatever the umask; a dir with .. in the list is refused', () => {
     const b = browserDir({})
     const r = lib(`umask 077; pk_load; pk_browser_switch "${b.dest}" linux-amd64 || true`, b.env)
