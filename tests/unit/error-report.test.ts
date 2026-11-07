@@ -167,7 +167,7 @@ describe('the canary: what may not leave', () => {
   })
 
   test('values in a wrong shape are dropped, not sent', () => {
-    const e = event({ type: 'potenlab.trina.app', message: 'x', method: 'minjun', route: '/api/files/board plan.xlsx', page: '/files/board-plan' })
+    const e = event({ type: 'acme.trina.app', message: 'x', method: 'minjun', route: '/api/files/board plan.xlsx', page: '/files/board-plan' })
     expect(e.tags).toEqual({})
     expect((e.exception as { values: { type: string }[] }).values[0]!.type).toBe('Error')
   })
