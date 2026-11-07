@@ -1427,6 +1427,7 @@ export const ko = {
   'apps.macHow': '내려받은 .dmg를 열고 {product} 앱을 응용 프로그램 폴더로 끌어 놓은 뒤, 응용 프로그램에서 {product} 앱을 여세요.',
   'apps.macGatekeeper': '"열 수 없습니다" 경고가 나오면 완료를 누르고 시스템 설정 → 개인정보 보호 및 보안 아래쪽의 그래도 열기를 누른 뒤, 한 번 더 그래도 열기를 누르세요.',
   'apps.macStore': '이 앱은 Mac App Store에서 설치했어요. 업데이트도 App Store에서 받아요.',
+  'apps.windowsStore': '이 앱은 Microsoft Store에서 설치했어요. 업데이트도 Microsoft Store에서 받아요.',
 
   'admin.title': '관리자',
   'admin.members': '멤버·초대',
@@ -3610,6 +3611,7 @@ export const ko = {
   "audit.act.room.archive": "대화방 보관",
   "audit.act.room.rename": "대화방 이름 변경",
   "audit.act.room.ai_share": "트리나 답을 대화방에 올림",
+  "audit.act.room.ai_shared_chats": "트리나가 대화방에서 공유 프로젝트 채팅을 읽음",
   "audit.act.room.answer_share": "대화방에 AI 답변 보냄",
   "audit.act.room.ai_delete": "트리나 답 삭제",
   "slack.state.off": "꺼짐",

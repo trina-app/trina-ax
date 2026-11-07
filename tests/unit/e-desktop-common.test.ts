@@ -364,7 +364,7 @@ describe('bridge senders', () => {
     const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
     const info = main.slice(main.indexOf("ipcMain.on('bridge:info'"), main.indexOf("ipcMain.handle('bridge:browser-run'"))
     expect(info).toContain('fromApp(e) ?')
-    expect(info).toContain('store: process.mas === true')
+    expect(info).toContain('store: storeBuild(process)')
     // always a boolean on the page; a team page from before the flag ignores it, a newer page reads a missing one as false
     const preload = readFileSync(join(import.meta.dir, '../../desktop/src/preload/app.ts'), 'utf8')
     expect(preload).toContain('store: info?.store === true')
