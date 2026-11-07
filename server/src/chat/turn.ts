@@ -117,7 +117,7 @@ export async function lookupBeforeModel(kg: Pick<KnowledgeGraph, 'lookup'>, user
   try {
     const late = new Promise<'late'>((res) => { timer = setTimeout(() => res('late'), ms) })
     // a lookup that fails after the time is up has nobody waiting for it: its error is logged here, never unhandled
-    const found = Promise.resolve().then(() => kg.lookup(user, [q], { deadlineMs: ms })).catch((e: unknown) => {
+    const found = Promise.resolve().then(() => kg.lookup(user, [q], { deadlineMs: ms, meaningOnly: false })).catch((e: unknown) => {
       log.debug('document lookup failed', { ...fields, err: String(e).slice(0, 200), queryLength: q.length })
       return null
     })
