@@ -7,8 +7,8 @@
 //   /sandbox/frame  the fixed receiver document of artifact / HTML preview frames, with the sandbox CSP header
 //   /sw.js          service worker: never cached, scope /
 //   /team-icon      the team's logo (Admin > Team settings, admin/team-icon.ts) or the default icon, public (the sign-in
-//                   page shows it too); /favicon.ico, /apple-touch-icon.png and /manifest.webmanifest follow it, and
-//                   index.html's icon links point at it
+//                   page shows it too); /favicon.ico and index.html's tab icon link follow it; /apple-touch-icon.png,
+//                   the home-screen link and /manifest.webmanifest only when it is square and at least 512 px
 //   /downloads/*    desktop app installers in <data>/downloads (index.json lists them: the owner's, the office updater's,
 //                   a Linux server's Windows app from the feed), for signed-in people only, with Range for resumed
 //                   downloads (./downloads.ts)

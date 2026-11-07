@@ -1,6 +1,7 @@
 // The team logo in Admin › Team settings (shared/src/team-icon.ts): refused files say why, an upload shows previews and
-// becomes the tab icon at once (this window, the team's other windows, the sign-in page and the manifest), and removing
-// it brings the default mark back. The mock serves /team-icon through the real serveWeb() (same headers as production).
+// becomes the tab icon at once (this window, the team's other windows, the sign-in page), a square of at least 512 px
+// also the home-screen icon and the manifest's, and removing it brings the default mark back. The mock serves
+// /team-icon through the real serveWeb() (same headers as production).
 import { expect, test, type Page } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { makeJpeg, makePng, SVG } from '../../../tests/lib/images'
@@ -36,7 +37,7 @@ test('team logo: refused files, upload with previews, the tab icon follows, remo
   await expect(page.getByTestId('team-icon-error')).toHaveText('가로와 세로가 32px 이상인 이미지를 올려 주세요.')
   expect(await page.request.get('/__test/log').then((r) => r.json())).not.toContain('PUT /api/admin/team-icon')
 
-  // a PNG: uploaded, previews at 16, 32 and 180 px on light and dark
+  // a 256 px PNG: uploaded, previews at 16, 32 px (the logo) and 180 px (the home screen keeps the default: under 512)
   await input.setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
   await expect(page.getByText('팀 로고를 바꿨어요.')).toBeVisible()
   await expect(page.getByTestId('team-icon-error')).toHaveCount(0)
@@ -52,14 +53,14 @@ test('team logo: refused files, upload with previews, the tab icon follows, remo
   for (const scheme of ['light', 'dark']) {
     for (const n of [16, 32, 180]) {
       const img = page.getByTestId(`team-icon-preview-${scheme}`).getByTestId(`team-icon-img-${n}`)
-      await expect(img).toHaveAttribute('src', `/team-icon?v=${v}`)
-      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(256)
+      await expect(img).toHaveAttribute('src', n === 180 ? '/icons/apple-touch-icon.png' : `/team-icon?v=${v}`)
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(n === 180 ? 180 : 256)
       expect((await img.boundingBox())!.width).toBe(n)
     }
   }
 
   // the tab icon of this window, of the person's other window (realtime) and of a signed-out visitor (server-written)
-  const logoLinks = [`icon /team-icon?v=${v}`, `apple-touch-icon /team-icon?v=${v}`]
+  const logoLinks = [`icon /team-icon?v=${v}`, 'apple-touch-icon /icons/apple-touch-icon.png']
   expect(await iconHrefs(page)).toEqual(logoLinks)
   await expect.poll(() => iconHrefs(other)).toEqual(logoLinks)
   const visitor = await browser.newPage()
@@ -72,8 +73,25 @@ test('team logo: refused files, upload with previews, the tab icon follows, remo
   expect(icon.headers()['x-content-type-options']).toBe('nosniff')
   expect(icon.headers()['cache-control']).toContain('immutable')
   expect((await visitor.request.get('/favicon.ico')).headers()['content-type']).toBe('image/png')
+  // the installed app keeps the full-bleed default icons for a logo under 512 px
   const manifest = await (await visitor.request.get('/manifest.webmanifest')).json()
-  expect(manifest.icons).toEqual([{ src: `/team-icon?v=${v}`, sizes: '256x256', type: 'image/png', purpose: 'any' }])
+  expect(manifest.icons.map((i: { src: string }) => i.src)).toEqual(['/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png'])
+
+  // a 512 px square: also the home-screen icon and the manifest's only icon
+  await input.setInputFiles(file('logo-512.png', 'image/png', makePng(512, 512)))
+  await expect(card).not.toHaveAttribute('data-version', v)
+  const v2 = (await card.getAttribute('data-version'))!
+  expect(v2).toMatch(/^[0-9a-f]{16}$/)
+  const home = page.getByTestId('team-icon-preview-light').getByTestId('team-icon-img-180')
+  await expect(home).toHaveAttribute('src', `/team-icon?v=${v2}`)
+  await expect.poll(() => home.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(512)
+  const appLinks = [`icon /team-icon?v=${v2}`, `apple-touch-icon /team-icon?v=${v2}`]
+  await expect.poll(() => iconHrefs(page)).toEqual(appLinks)
+  await expect.poll(() => iconHrefs(other)).toEqual(appLinks)
+  await visitor.reload()
+  expect(await iconHrefs(visitor)).toEqual(appLinks)
+  const appManifest = await (await visitor.request.get('/manifest.webmanifest')).json()
+  expect(appManifest.icons).toEqual([{ src: `/team-icon?v=${v2}`, sizes: '512x512', type: 'image/png', purpose: 'any' }])
   await visitor.close()
 
   // remove: asked first, then the default mark everywhere again
@@ -104,7 +122,7 @@ test('a member gets the logo as tab icon but may not set it', async ({ page, bro
   const ctx = await browser.newContext({ baseURL: page.url().replace(/\/admin.*$/, '') })
   const member = await ctx.newPage()
   await signIn(member, { username: 'bob', password: 'bob password 1' })
-  expect(await iconHrefs(member)).toEqual([`icon /team-icon?v=${v}`, `apple-touch-icon /team-icon?v=${v}`])
+  expect(await iconHrefs(member)).toEqual([`icon /team-icon?v=${v}`, 'apple-touch-icon /icons/apple-touch-icon.png'])
   const r = await member.request.put('/api/admin/team-icon?type=image%2Fpng', { headers: { 'x-mycel-csrf': '1', 'content-type': 'application/octet-stream' }, data: Buffer.from(makePng(64, 64)) })
   expect(r.status()).toBe(403)
   await ctx.close()

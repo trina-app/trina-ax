@@ -52,8 +52,9 @@ function applyMe(me: Me) {
   const textSize = unsavedTextSize() ?? me.user.prefs.textSize ?? storedTextSize()
   storeTextSize(textSize)
   applyTextSize(textSize)
-  // the team's logo as the tab icon (or the default mark again after an admin removed it)
-  applyTeamIcon(me.team.iconVersion)
+  // the team's logo as the tab icon, and as the home-screen icon when it is big enough (or the default mark again after
+  // an admin removed it)
+  applyTeamIcon(me.team.iconVersion, me.team.appIcon === true)
 }
 
 /**

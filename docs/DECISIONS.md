@@ -1736,6 +1736,20 @@ set its own logo as the tab icon; without one it is the product's icon.
   `default-src 'none'; sandbox`, `inline`, cached for good only at `?v=<version>`. `/favicon.ico`,
   `/apple-touch-icon.png` and `/manifest.webmanifest` (installed PWA) follow it; index.html's links are rewritten on the
   server so the first load is right, `Me.team.iconVersion` keeps an open page right.
+- Amended (fix/pwa-icon-team-logo-size, 2026-11-07): the logo is the app icon only when it is square and at least
+  512 × 512 px (`isAppIcon`, `TEAM_ICON_APP_PX`). The owner's installed app looked small in the Mac's Dock: it still had
+  the pre-11-06 icon (installed apps keep theirs), but a fresh install was worse, because the manifest's only icon was
+  the logo as uploaded (e.g. 100 × 100, `purpose: any`): blurred at the Dock's 256 px and put small on a tile by Chrome
+  on macOS. Now a smaller or non-square logo is the tab icon only (`rel=icon`, `/favicon.ico`, the sidebar); the
+  manifest stays as built (icon-192, icon-512, icon-maskable-512), and the home-screen link and `/apple-touch-icon.png`
+  stay the default. A logo that passes is the manifest's only icon, `purpose: any` at `/team-icon?v=<version>` (a new
+  logo is a new address, so installed apps can pick it up), never next to the default maskable icon: Chrome on macOS
+  prefers the maskable one and would hide the logo. Not maskable itself: a logo is not drawn for the safe circle.
+  `Me.team.appIcon: true` tells the open page, the settings preview and the install pictures in Settings › Apps. The
+  hint in Admin › Team settings recommends a 512 × 512 square and says what a smaller one does. What the rule fixes is
+  the blur: Chrome on macOS still draws an icon that is not maskable inset on a tile, so a logo that passes can look
+  smaller in the Dock than the product's maskable icon. Padding it into a maskable icon would need an image library on
+  the server (still none; out of scope).
 - Native desktop and phone app icons stay the product's.
 - The computer's sidebar header shows the logo next to the team name, at `/team-icon?v=<iconVersion>` cropped square with
   `object-cover`, and the default mark when none is set. The phone drawer's header names the AI, not the team, so it keeps

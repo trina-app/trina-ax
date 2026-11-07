@@ -377,7 +377,7 @@ export const adminRoutes: RouteModule = {
       return next
     })
 
-    // ---------------- the team logo: tab icon and home-screen icon (admin/team-icon.ts, public at /team-icon) ----------------
+    // ---------------- the team logo: tab icon, the app icon when square and >= 512 px (admin/team-icon.ts, /team-icon) ----------------
     kit.handle(API.putTeamIcon, async ({ c, query, body, auth }) => {
       const before = readTeamIcon(ctx.config.dataDir)?.version ?? null
       const icon = await saveTeamIcon(ctx.config.dataDir, body, query.type, c.get('locale'))

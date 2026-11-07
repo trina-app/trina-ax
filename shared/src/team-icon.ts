@@ -11,8 +11,11 @@ export type TeamIconType = (typeof TEAM_ICON_TYPES)[number]
 export const TEAM_ICON_MAX_BYTES = 1024 * 1024
 export const TEAM_ICON_MIN_PX = 32
 export const TEAM_ICON_MAX_PX = 4096
-/** what the hint recommends (the home-screen icon of iPhones is 180 × 180) */
-export const TEAM_ICON_RECOMMENDED_PX = 180
+/**
+ * The smallest logo that is also the app icon (the installed web app in the Dock or a launcher, a phone's home screen),
+ * and what the hint recommends. The Dock draws 256 px on a Retina screen and installed apps ask for 512 px.
+ */
+export const TEAM_ICON_APP_PX = 512
 /** the public route: the logo, or the default icon when none is set */
 export const TEAM_ICON_PATH = '/team-icon'
 /** the version is the start of the file's SHA-256 (hex) */
@@ -111,25 +114,36 @@ export function checkTeamIcon(b: Uint8Array, declared: string): { ok: true; type
 /** The address of the logo at a version (the long-cached form). */
 export const teamIconUrl = (version: string) => `${TEAM_ICON_PATH}?v=${encodeURIComponent(version)}`
 
+/**
+ * A logo square and big enough to be the app icon (the manifest of the installed app, the home-screen link). A smaller
+ * or non-square one is only the tab icon (and the sidebar's): served as uploaded, it would be blurred or put small on a
+ * tile in the Dock, so those places keep the product's full-bleed icons.
+ */
+export const isAppIcon = (icon: Pick<TeamIconFile, 'width' | 'height'>): boolean => icon.width === icon.height && icon.width >= TEAM_ICON_APP_PX
+
 export interface IconLink { rel: 'icon' | 'apple-touch-icon'; href: string; type?: string; sizes?: string }
+
+/** the default home-screen icon of the build (web/public/icons) */
+export const DEFAULT_APPLE_TOUCH_ICON = '/icons/apple-touch-icon.png'
 
 /**
  * The icon links of the app shell. Without a logo: the default mark (PNG sizes for browsers without SVG icons, the
- * SVG last for those that take it, the home-screen icon). With one: the logo for all of them (browsers scale it).
+ * SVG last for those that take it, the home-screen icon). With one: the logo as the tab icon (browsers scale it), and
+ * as the home-screen icon only when `appIcon` (isAppIcon: square, at least TEAM_ICON_APP_PX), else the default one.
  * web/index.html carries the default block between ICON_LINKS_START and ICON_LINKS_END (a test keeps them equal);
  * the server swaps the block when a logo is set, the web app swaps the links after sign-in.
  */
-export function iconLinks(version: string | null): IconLink[] {
+export function iconLinks(version: string | null, appIcon = false): IconLink[] {
   if (version) {
     const href = teamIconUrl(version)
-    return [{ rel: 'icon', href }, { rel: 'apple-touch-icon', href }]
+    return [{ rel: 'icon', href }, { rel: 'apple-touch-icon', href: appIcon ? href : DEFAULT_APPLE_TOUCH_ICON }]
   }
   return [
     { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/icons/favicon-16.png' },
     { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/icons/favicon-32.png' },
     { rel: 'icon', type: 'image/png', sizes: '48x48', href: '/icons/favicon-48.png' },
     { rel: 'icon', type: 'image/svg+xml', sizes: 'any', href: '/favicon.svg' },
-    { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' },
+    { rel: 'apple-touch-icon', href: DEFAULT_APPLE_TOUCH_ICON },
   ]
 }
 
@@ -153,8 +167,13 @@ export function withIconLinks(html: string, links: IconLink[]): string {
   return `${html.slice(0, a)}${ICON_LINKS_START}\n${iconLinksHtml(links, indent)}\n${indent}${html.slice(z)}`
 }
 
-/** The PWA manifest with the logo as its only icon (an installed app shows it); `manifest` is the built one. */
+/**
+ * The PWA manifest for this logo; `manifest` is the built one. A logo that isAppIcon is its only icon (an installed app
+ * shows it): never next to the default maskable icon, which Chrome on macOS would take instead. Any other logo leaves
+ * the built manifest as it is (the full-bleed default icons).
+ */
 export function manifestWithIcon(manifest: string, icon: Pick<TeamIconFile, 'type' | 'width' | 'height' | 'version'>): string {
+  if (!isAppIcon(icon)) return manifest
   const m = JSON.parse(manifest) as Record<string, unknown>
   m.icons = [{ src: teamIconUrl(icon.version), sizes: `${icon.width}x${icon.height}`, type: icon.type, purpose: 'any' }]
   return JSON.stringify(m, null, 2)
