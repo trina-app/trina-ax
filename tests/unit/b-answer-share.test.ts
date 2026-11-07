@@ -499,7 +499,7 @@ describe('linked files: a row each, the switch, attaching', () => {
     const body = { roomId: rooms.all, clientMessageId: cm() }
     const ask = await share('alice', a, body)
     const rows = ask.json.files as AnswerShareFile[]
-    expect(rows.map((f) => f.attach)).toEqual([...paths.map(() => 'yes'), 'too_big'])
+    expect(rows.map((f) => f.attach)).toEqual([...paths.map(() => 'yes' as const), 'too_big' as const])
     // eleven at once: refused by the contract; the big one: not a file that may go
     expect((await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: paths })).status).toBe(400)
     expect((await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: [big] })).status).toBe(400)
