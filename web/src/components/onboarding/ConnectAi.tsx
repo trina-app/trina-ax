@@ -116,7 +116,7 @@ export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; 
               ))}
             </div>
           )}
-          <p className="text-[13px] leading-5 text-balance">
+          <p className="text-[0.8125rem] leading-5 text-balance">
             <Link to="/admin/engines" className="text-muted underline decoration-line-strong underline-offset-4 hover:text-ink" data-testid="welcome-ai-engines">{t('welcome.ai.enginesLine')}</Link>
           </p>
         </>

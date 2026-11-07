@@ -54,6 +54,18 @@ const listed = async (id: string): Promise<Chat | undefined> => (await h.api('al
 type Updated = Extract<ServerFrame, { type: 'chat.updated' }>
 /** chat.updated frames of a chat a socket got after `from` frames */
 const updates = (s: TestSocket, chatId: string, from = 0): Updated[] => s.frames.slice(from).filter((f): f is Updated => f.type === 'chat.updated' && f.data.chatId === chatId)
+/** The idle frame that ends the run: the first idle after a running or queued frame in the window, else the first idle.
+ * A window can also catch a late idle frame from before the run (the chat's own creation reaching a slow socket), which
+ * is not the end of anything: in socket order it always comes before the run's first frame. */
+const runEnd = async (s: TestSocket, chatId: string, from = 0): Promise<Updated> => {
+  const pick = () => {
+    const fs = updates(s, chatId, from)
+    const start = fs.findIndex((f) => f.data.chat?.runState === 'running' || f.data.chat?.runState === 'queued')
+    return fs.slice(start < 0 ? 0 : start).find((f) => f.data.chat?.runState === 'idle')
+  }
+  await waitFor(() => !!pick(), { timeoutMs: 15_000 })
+  return pick()!
+}
 const until = async (s: TestSocket, chatId: string, ok: (f: Updated) => boolean, from = 0) => {
   await waitFor(() => updates(s, chatId, from).some(ok), { timeoutMs: 15_000 })
   return updates(s, chatId, from).filter(ok).at(-1)!
@@ -124,7 +136,7 @@ describe('Chat.lastOutcome: how the newest finished answer ended', () => {
     try {
       h.rt().execFor(c.turnId)!.stop('shutdown')
       await main.next('message.done', (f) => f.data.messageId === c.assistantMessage.id, 20_000)
-      const end = await until(other, chat.id, (f) => f.data.chat?.runState === 'idle', from)
+      const end = await runEnd(other, chat.id, from)
       expect(end.data.chat).toMatchObject({ unseen: true, lastOutcome: 'error' })
       expect(updates(other, chat.id, from).some((f) => f.data.notify)).toBe(false)
     } finally { h.rt().longAnswerMs = LONG_ANSWER_MS }
@@ -155,7 +167,7 @@ describe('notify: what is worth telling', () => {
       const long = await newChat()
       const f1 = other.frames.length
       await ask(h, main, 'alice', long.id, fake({ say: 'long one' }))
-      const done = await until(other, long.id, (f) => f.data.chat?.runState === 'idle', f1)
+      const done = await runEnd(other, long.id, f1)
       expect(done.data).toMatchObject({ notify: 'answer', chat: { unseen: true } })
       // one per answer: the cards and steps before it told nothing
       expect(updates(other, long.id, f1).filter((f) => f.data.notify).length).toBe(1)
@@ -171,7 +183,7 @@ describe('notify: what is worth telling', () => {
       const from = other.frames.length
       await h.api('alice').call(API.stop, { params: { id: chat.id } })
       await main.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 20_000)
-      await until(other, chat.id, (f) => f.data.chat?.runState === 'idle', from)
+      await runEnd(other, chat.id, from)
       expect(updates(other, chat.id, from).some((f) => f.data.notify)).toBe(false)
     } finally { h.rt().longAnswerMs = LONG_ANSWER_MS }
   })
@@ -184,7 +196,7 @@ describe('notify: what is worth telling', () => {
         const from = other.frames.length
         const t = serverTurn(chat.id, kind, fake({ say: `${kind} answer` }))
         await main.next('message.done', (f) => f.data.messageId === t.assistantMessage.id, 20_000)
-        const done = await until(other, chat.id, (f) => f.data.chat?.runState === 'idle', from)
+        const done = await runEnd(other, chat.id, from)
         expect(updates(other, chat.id, from).some((f) => f.data.notify)).toBe(false)
         if (kind === 'schedule') {
           expect(done.data.chat!.unseen).toBe(true)
@@ -227,7 +239,7 @@ describe('notify: what is worth telling', () => {
     await answerCard(s.turnId, card.data.request)
     await until(other, chat.id, (f) => f.data.chat !== null && f.data.chat.waiting === undefined, m2)
     await main.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 20_000)
-    await until(other, chat.id, (f) => f.data.chat?.runState === 'idle', m2)
+    await runEnd(other, chat.id, m2)
     expect(updates(other, chat.id, from).filter((f) => f.data.notify).map((f) => f.data.notify)).toEqual(['card'])
   })
 

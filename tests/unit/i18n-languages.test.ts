@@ -140,6 +140,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/office/cli.ts': { why: 'office-mode terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/update-cli.ts': { why: 'teamax update terminal output for the office owner, Korean and English side by side (docs/OFFICE.md)', also: /./ },
   'server/src/office/helper.ts': { why: 'the office certificate page, Korean then English on one page (no session, no language picker; docs/OFFICE.md)', also: /./ },
+  'server/src/rooms/ai.ts': { why: 'the words that point at what was just said (이거, 위에, ㄱㄱ), matched in a room question to fold the asker\'s messages before it into it (not screen text)', also: /^const DEICTIC = / },
   'server/src/rooms/reader.ts': { why: 'the words people add after a room\'s or a person\'s name (방, 대화방, 님), and the words for the everyone room, matched when the AI names a room (not screen text)', also: /^const (NAME_EXTRAS|EVERYONE_WORDS) = / },
   'server/src/policy/names.ts': { why: 'invisible Hangul filler characters refused in names', also: /const INVISIBLE/ },
   'server/src/routes/office-update.ts': { why: 'automatic update messages (ko next to en/id/ja/es)' },

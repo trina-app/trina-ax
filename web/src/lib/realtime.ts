@@ -9,7 +9,14 @@
 //   'offline' (the banner then says "can't reach the team server"); a dropped link alone is 'reconnecting'.
 // - Close 4401 = signed out (no reconnect), 4409 = the same window id connected elsewhere (duplicated tab): take a
 //   new window id and reconnect. App-level ping every 20 s; no pong within 10 s → treat the link as dead.
-import { ClientFrame, ServerFrame, WS_PATH, WS_PROTOCOL, WsClose, type ServerEvent } from '@mycel/shared/api'
+import { ClientFrame, ServerEvent as ServerEventSchema, ServerFrame, WS_PATH, WS_PROTOCOL, WsClose, type ServerEvent } from '@mycel/shared/api'
+
+/** the event names this page knows (one it cannot read is then a shape it no longer agrees with) */
+const KNOWN_EVENTS: ReadonlySet<string> = new Set(ServerEventSchema.options.map((o) => o.shape.type.value as string))
+/** unreadable events within this long make one reload of the app's state, and such reloads come at most this often (a
+ * page left open on an old version would otherwise reload everything during each streamed answer) */
+export const UNREADABLE_RESYNC_MS = 2000
+export const UNREADABLE_RESYNC_EVERY_MS = 60_000
 
 export type ConnState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'offline' | 'signed-out'
 
@@ -83,6 +90,9 @@ export class RealtimeClient {
   private outboxBytes = 0
   /** a reset/resync already asked the app to reload on this connection (hello may say "not resumed" too) */
   private reloadedThisConn = false
+  /** a reload asked for after an event this page could not read, and when the last such reload ran */
+  private unreadableTimer: unknown = null
+  private unreadableAt = -Infinity
   private readonly t: Timers
   private readonly rnd: () => number
 
@@ -178,7 +188,23 @@ export class RealtimeClient {
     let json: unknown
     try { json = JSON.parse(raw) } catch { return }
     const parsed = ServerFrame.safeParse(json)
-    if (!parsed.success) return // a newer server's event we don't know yet: ignore, don't break the socket
+    if (!parsed.success) {
+      // a newer server's event we don't know yet: ignore, don't break the socket. But an event this page knows by name
+      // and cannot read (the server was updated under a page that stayed open): what it said is lost, so the app reads
+      // its state again over REST (a room read on another device would otherwise leave its badge here for good), once
+      // for those that come close together
+      const type = (json as { type?: unknown } | null)?.type
+      if (typeof type === 'string' && KNOWN_EVENTS.has(type) && !this.unreadableTimer) {
+        const wait = Math.max(UNREADABLE_RESYNC_MS, this.unreadableAt + UNREADABLE_RESYNC_EVERY_MS - this.t.now())
+        this.unreadableTimer = this.t.setTimeout(() => {
+          this.unreadableTimer = null
+          if (this.stopped) return
+          this.unreadableAt = this.t.now()
+          this.o.onReload('resync')
+        }, wait)
+      }
+      return
+    }
     const f = parsed.data
     switch (f.type) {
       case 'hello': {
@@ -189,7 +215,7 @@ export class RealtimeClient {
           // fresh window, or the server could not resume us: anything we had may be stale
           if ((restarted || this.lastSeq > 0) && !this.reloadedThisConn) {
             this.reloadedThisConn = true
-            this.o.onReload('reset')
+            this.reload('reset')
           }
           this.lastSeq = f.seq
         }
@@ -207,7 +233,7 @@ export class RealtimeClient {
       case 'resync':
         this.epoch = f.epoch
         this.lastSeq = f.seq
-        if (!this.reloadedThisConn) this.o.onReload(f.type)
+        if (!this.reloadedThisConn) this.reload(f.type)
         this.reloadedThisConn = true
         return
       case 'pong':
@@ -223,6 +249,13 @@ export class RealtimeClient {
         if (f.type === 'session.ended') this.signedOut()
       }
     }
+  }
+
+  /** The app reads its state again: what an unreadable event lost is in it too. */
+  private reload(reason: 'reset' | 'resync') {
+    if (this.unreadableTimer) this.t.clearTimeout(this.unreadableTimer)
+    this.unreadableTimer = null
+    this.o.onReload(reason)
   }
 
   private flushOutbox() {
@@ -310,7 +343,8 @@ export class RealtimeClient {
     this.clearPing()
     if (this.retryTimer) this.t.clearTimeout(this.retryTimer)
     if (this.offlineTimer) this.t.clearTimeout(this.offlineTimer)
-    this.retryTimer = this.offlineTimer = null
+    if (this.unreadableTimer) this.t.clearTimeout(this.unreadableTimer)
+    this.retryTimer = this.offlineTimer = this.unreadableTimer = null
   }
 }
 
