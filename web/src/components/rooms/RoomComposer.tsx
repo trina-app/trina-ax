@@ -92,14 +92,16 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [back])
 
-  // the box grows with its text, and is measured again when the person's text size changes
+  // the box grows with its text (an empty box with its placeholder: a transcription job's long label), and is measured
+  // again when the person's text size changes
   const textSize = useTextSize()
+  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
-  }, [text, textSize])
+  }, [text, textSize, placeholder, voice.recording])
   // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })
@@ -194,7 +196,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </ul>
         )}
         {voice.recording ? (
-          <VoiceBar voice={voice} className="px-1.5 py-1.5 max-md:px-3" />
+          // as tall as the box's row, so nothing around it moves
+          <VoiceBar voice={voice} className="px-1.5 py-2 max-md:px-3 max-sm:py-1.5" />
         ) : (
           <>
             <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
@@ -218,7 +221,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 rows={1}
                 value={text}
                 aria-label={t('composer.label')}
-                placeholder={voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')}
+                placeholder={placeholder}
                 // not disabled: the focus stays in the box while the words are on their way
                 readOnly={voice.busy}
                 aria-busy={voice.transcribing || undefined}

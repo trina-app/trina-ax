@@ -31,7 +31,7 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
         <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
       </span>
       {voice.hint && (
-        <span className="min-w-0 flex-[2] text-xs leading-snug break-keep text-muted" data-testid="voice-hint">
+        <span className="min-w-0 shrink text-xs leading-snug break-keep text-muted" data-testid="voice-hint">
           {voice.hint}
         </span>
       )}

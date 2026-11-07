@@ -220,7 +220,8 @@ export default function Composer({
     if (!ta) return
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
-  }, [text, hint, textSize])
+    // (and again when the box comes back after a recording: the bar stood in its place)
+  }, [text, hint, textSize, voice.recording])
 
   useEffect(() => {
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
