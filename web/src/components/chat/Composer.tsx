@@ -12,28 +12,29 @@
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
 // Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach and voice inside it on the left, a round send on
 // the right; the row under it keeps only the engine picker, for people who may choose one.
+// Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic, holding Space in the box on a computer, or a
+// finger held on the mic; the words go to the end of the box, never sent by themselves.
 // Text that looks like a key or password waits for "Send anyway" (SecretWarning): a message goes to the AI provider
 // and stays in the chat; a service's key belongs in the connect card the AI shows.
 import clsx from 'clsx'
-import { ArrowUp, Camera, Check, Clock, CornerDownLeft, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Mic, MicOff, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Clock, CornerDownLeft, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
-import { isUuid7, MESSAGE_ATTACHMENTS_MAX, SMALL_UPLOAD_MAX, uuidv7, type Attachment, type EngineId, type FileEntry, type TranscribeResult } from '@mycel/shared/api'
+import { isUuid7, MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { readDraft, SIGNED_OUT, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
-import { fmtDuration, formatSize } from '../../lib/format'
+import { formatSize } from '../../lib/format'
 import { previewKind, serverPreview } from '../../lib/preview'
-import { RecorderError, useRecorder } from '../../lib/recorder'
-import { micState, SPEECH_SETTINGS_PATH, voiceBlockedHere } from '../../lib/voice'
+import { useVoiceInput } from '../../lib/useVoiceInput'
+import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useConfidentialChat } from '../../lib/confidential'
-import { navigateTo } from '../../lib/nav'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, uploadFile, type UploadProgress } from '../../lib/upload'
 import { UploadLabel } from '../UploadLabel'
+import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
-import { waitForJob } from '../../store/jobs'
 import { useMe } from '../../store/session'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton, useMediaQuery } from '../ui'
@@ -44,6 +45,7 @@ import { SkillChip } from './SkillChip'
 import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
 import { fromWire } from '../../lib/roomRefs'
 import { useTextSize } from '../../lib/textSize'
+import { Tooltip } from '../Tooltip'
 
 interface Pending {
   id: string
@@ -167,7 +169,6 @@ export default function Composer({
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
   const secret = useSecretHold(text)
   const [stopping, setStopping] = useState(false)
-  const [transcribing, setTranscribing] = useState(false)
   const [drag, setDrag] = useState(false)
   const [engineMenu, setEngineMenu] = useState(false)
   const [attachMenu, setAttachMenu] = useState(false)
@@ -175,40 +176,45 @@ export default function Composer({
   const attachMenuRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const camRef = useRef<HTMLInputElement>(null)
-  const recorder = useRecorder()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const voice = useVoiceInput({
+    input: taRef,
+    root: rootRef,
+    text,
+    replace: (next) => {
+      setText(next)
+      roomMenu.track()
+    },
+    append: (said) => setText((cur) => (cur.trim() ? `${cur.trimEnd()} ${said}` : said)),
+    chatId: voiceChatId,
+    blocked: voiceBlockedHere(me, confidential),
+    enabled: mic === 'on' && !sending,
+    menuOpen: skillMenu.open || roomMenu.open,
+    onError: setError,
+    afterFocus: roomMenu.track,
+  })
+  const transcribing = voice.transcribing
   const answeringId = useId()
 
   useImperativeHandle(ref, () => ({
     prepareDraft(request) {
       // Recovery is a draft edit, never a send. Keep text and all attachment states intact.
       // Do not race a send or voice transcription that will replace the current text.
-      if (running || sending || transcribing || recorder.state !== 'idle') return
+      if (running || sending || voice.busy) return
       setText((current) => mergeDraft(current, request))
       taRef.current?.focus()
     },
     focus() {
       taRef.current?.focus()
     },
-  }), [running, sending, transcribing, recorder.state])
+  }), [running, sending, voice.busy])
 
   useEffect(() => writeDraft(userId, draftId, wired), [userId, wired, draftId])
   // a non-empty draft or an upload means "don't reload the page by yourself" after an update
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   useEffect(() => (files.some((f) => f.status === 'uploading') ? markBusy('upload') : undefined), [files])
-  // a recording being uploaded and transcribed is still only in this tab
-  useEffect(() => (transcribing ? markBusy('recording') : undefined), [transcribing])
-  useEffect(() => {
-    if (recorder.state !== 'recording') return
-    const release = markBusy('recording')
-    const h = (e: BeforeUnloadEvent) => e.preventDefault()
-    window.addEventListener('beforeunload', h)
-    return () => {
-      release()
-      window.removeEventListener('beforeunload', h)
-    }
-  }, [recorder.state])
 
-  const hint = transcribing ? t('voice.transcribing') : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
+  const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
   // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
   // person's text size changes (Settings > Profile, over this page)
@@ -218,7 +224,8 @@ export default function Composer({
     if (!ta) return
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
-  }, [text, hint, textSize])
+    // (and again when the box comes back after a recording: the bar stood in its place)
+  }, [text, hint, textSize, voice.recording])
 
   useEffect(() => {
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
@@ -344,8 +351,8 @@ export default function Composer({
   // also while an answer runs: the chat keeps the message waiting and sends it when the answer is done. An answer to
   // the AI's question is the text alone (an upload in progress does not hold it up).
   const canSend = answering
-    ? !sending && !transcribing && recorder.state === 'idle' && text.trim().length > 0
-    : !sending && !uploading && !transcribing && recorder.state === 'idle' && (text.trim().length > 0 || ready.length > 0 || !!chosen)
+    ? !sending && !voice.busy && text.trim().length > 0
+    : !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
 
   // onClick hands submit the click event: "Send anyway" goes through send(true)
   const submit = () => send(false)
@@ -395,43 +402,6 @@ export default function Composer({
       setError(errorText(e, locale, t('error.network')))
     } finally {
       setStopping(false)
-    }
-  }
-
-  const startVoice = async () => {
-    setError(null)
-    if (voiceBlockedHere(me, confidential)) {
-      setError(t('voice.confidential'))
-      return
-    }
-    try {
-      await recorder.start()
-    } catch (e) {
-      setError(e instanceof RecorderError ? t(e.code === 'denied' ? 'voice.denied' : 'voice.unsupported') : String(e))
-    }
-  }
-
-  const finishVoice = async () => {
-    const file = await recorder.stop()
-    if (!file) return
-    if (file.size > SMALL_UPLOAD_MAX) {
-      setError(t('voice.tooLong'))
-      return
-    }
-    setTranscribing(true)
-    try {
-      const r = await uploadFile(file, { kind: 'transcribe', name: file.name, ...(voiceChatId ? { chatId: voiceChatId } : {}) }, { client: api })
-      if (r.kind !== 'transcribe') throw new Error('unexpected upload result')
-      const job = await waitForJob(r.jobId)
-      if (job.status !== 'done' || !job.result) throw new Error(job.error?.message ?? t('voice.failed'))
-      const said = (job.result as TranscribeResult).text?.trim()
-      if (said) setText((cur) => (cur.trim() ? `${cur.trimEnd()} ${said}` : said))
-      else setError(t('voice.empty'))
-      taRef.current?.focus()
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    } finally {
-      setTranscribing(false)
     }
   }
 
@@ -551,21 +521,13 @@ export default function Composer({
           e.target.value = ''
         }}
       />
-      {mic === 'on' && (
-        <IconButton label={t('voice.start')} onClick={startVoice} disabled={transcribing || sending || recorder.state === 'recording'} className="touch-hit">
-          {transcribing ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
-        </IconButton>
-      )}
-      {mic === 'adminHint' && (
-        <IconButton label={t('voice.offAdmin')} onClick={() => navigateTo(SPEECH_SETTINGS_PATH)} className="text-faint max-md:hidden" data-testid="voice-off-hint">
-          <MicOff size={18} />
-        </IconButton>
-      )}
+      <VoiceMic voice={voice} mic={mic} disabled={sending} />
     </>
   )
 
   return (
-    <div>
+    <div ref={rootRef}>
+      <VoiceLive voice={voice} />
       {secret.held && (
         <SecretWarning
           onSendAnyway={() => void send(true)}
@@ -663,35 +625,18 @@ export default function Composer({
                     )}
                   </span>
                 </span>
-                <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
-                  <X size={14} />
-                </button>
+                <Tooltip label={t('composer.removeAttachment', { name: f.name })}>
+                  <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} title="" onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
+                    <X size={14} />
+                  </button>
+                </Tooltip>
               </li>
             ))}
           </ul>
         )}
 
-        {recorder.state === 'recording' ? (
-          <div className="flex items-center gap-3 px-3 py-3">
-            <IconButton label={t('voice.cancel')} onClick={recorder.cancel}>
-              <X size={18} />
-            </IconButton>
-            <div className="flex min-w-0 flex-1 items-center gap-3" role="status" aria-label={t('voice.recording')}>
-              <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-60" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-danger" />
-              </span>
-              <div className="flex h-8 flex-1 items-center gap-[3px] overflow-hidden" aria-hidden>
-                {Array.from({ length: 32 }, (_, i) => (
-                  <span key={i} className="w-[3px] rounded-full bg-ink transition-[height] duration-100" style={{ height: `${Math.max(3, recorder.level * 32 * (0.4 + 0.6 * Math.abs(Math.sin((i + recorder.seconds) * 1.7))))}px` }} />
-                ))}
-              </div>
-              <span className="shrink-0 text-sm text-muted tabular-nums">{fmtDuration(recorder.seconds)}</span>
-            </div>
-            <button type="button" onClick={finishVoice} className="flex h-10 w-10 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')}>
-              <Check size={18} />
-            </button>
-          </div>
+        {voice.recording ? (
+          <VoiceBar voice={voice} />
         ) : (
           <>
             {skillMenu.menu}
@@ -713,6 +658,7 @@ export default function Composer({
                 <SkillChip title={chosen.title} name={chosen.name} onRemove={() => { setChosen(null); taRef.current?.focus() }} />
               </div>
             )}
+            <VoiceProgress voice={voice} text={text} className={clsx('pt-3', phone ? 'px-3' : 'px-5')} />
             <div className={clsx('flex items-end gap-1 pr-2', phone && 'pl-1.5')}>
               {phone && <div className="flex shrink-0 items-center pb-1.5">{attachControls}</div>}
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
@@ -741,6 +687,7 @@ export default function Composer({
                   onKeyDown={(e) => {
                     if (skillMenu.onKeyDown(e)) return
                     if (roomMenu.onKeyDown(e)) return
+                    if (voice.onKeyDown(e)) return
                     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                       // phones: Enter makes a new line (send with the button)
                       if (window.matchMedia?.('(pointer: coarse)').matches) return
@@ -749,7 +696,9 @@ export default function Composer({
                     }
                   }}
                   placeholder={hint}
-                  disabled={transcribing}
+                  // not disabled: the focus stays in the box while the words are on their way
+                  readOnly={voice.busy}
+                  aria-busy={transcribing || undefined}
                   className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-3 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
                   data-testid="composer-input"
                 />
@@ -758,37 +707,44 @@ export default function Composer({
                 {answering
                   ? canSend && (
                       // the AI's question: also how phones (Enter makes a new line there) answer from the box
-                      <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} title={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
-                        {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
-                      </button>
+                      <Tooltip label={t('composer.sendAnswer')}>
+                        <button type="button" onClick={submit} aria-label={t('composer.sendAnswer')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-answer">
+                          {sending ? <Loader2 size={17} className="animate-spin" /> : <CornerDownLeft size={18} />}
+                        </button>
+                      </Tooltip>
                     )
                   : running &&
                     canSend && (
                       // phones make a new line with Enter: this button is how a message waits for the answer there
-                      <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} title={t('outbox.sendLater')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-later">
-                        <Clock size={17} aria-hidden />
-                      </button>
+                      <Tooltip label={t('outbox.sendLater')}>
+                        <button type="button" onClick={submit} aria-label={t('outbox.sendLater')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-lg text-ink transition hover:bg-hover" data-testid="send-later">
+                          <Clock size={17} aria-hidden />
+                        </button>
+                      </Tooltip>
                     )}
                 {running ? (
-                  <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} title={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
-                    {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
-                  </button>
+                  <Tooltip label={t('composer.stop')}>
+                    <button type="button" onClick={stop} disabled={stopping} aria-label={t('composer.stop')} className="touch-hit flex h-8 w-8 items-center justify-center rounded-full bg-ink text-canvas transition hover:opacity-80 disabled:opacity-40" data-testid="stop">
+                      {stopping ? <Loader2 size={17} className="animate-spin" /> : <Square size={14} className="fill-current" />}
+                    </button>
+                  </Tooltip>
                 ) : (
                   !answering && (
-                    <button
-                      type="button"
-                      onClick={submit}
-                      disabled={!canSend}
-                      aria-label={t('chat.send')}
-                      title={t('chat.send')}
-                      // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
-                      className={clsx('touch-hit flex items-center justify-center transition', phone
-                        ? clsx('size-10 rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
-                        : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
-                      data-testid="send"
-                    >
-                      {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
-                    </button>
+                    <Tooltip label={t('chat.send')}>
+                      <button
+                        type="button"
+                        onClick={submit}
+                        disabled={!canSend}
+                        aria-label={t('chat.send')}
+                        // phones: Enter makes a new line there, so not the quiet return key but the room box's round send
+                        className={clsx('touch-hit flex items-center justify-center transition', phone
+                          ? clsx('size-10 rounded-full', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')
+                          : clsx('h-8 w-8 rounded-lg', canSend ? 'text-ink hover:bg-hover' : 'text-faint'))}
+                        data-testid="send"
+                      >
+                        {sending ? <Loader2 size={17} className="animate-spin" /> : phone ? <ArrowUp size={18} aria-hidden /> : <CornerDownLeft size={18} />}
+                      </button>
+                    </Tooltip>
                   )
                 )}
               </div>

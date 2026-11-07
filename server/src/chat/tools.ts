@@ -13,7 +13,7 @@ import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
 import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
-import { frequentSkills, matchSkills, resolveSkill, shortDescription, usageScores } from './skill-list'
+import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
 import { addSources, sourceOf } from './read-scope'
 import { authorize } from '../policy/authorize'
 import type { Principal } from '../policy/access'
@@ -369,7 +369,7 @@ function skillTools(exec: TurnExec): Tool[] {
         exec.noteTaint('read', { file_path: skill.path })
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
         addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(skill.path))])
-        // reporting is auxiliary (admin/skill-usage.ts: team skills only, never a personal one); a loaded skill is a
+        // reporting is auxiliary (admin/skill-usage.ts: team and group skills, never a personal one); a loaded skill is a
         // run (the onboarding goal counts it), unlike a plain read of the file
         try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'tool' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
         return { ...text(skillBlock(skill, '', 'loaded')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
@@ -387,7 +387,7 @@ function skillTools(exec: TurnExec): Tool[] {
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores, projectFolder: exec.projectFolder })
         const q = neutralizeTags(clipName(a.data.query, 80))
-        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
+        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
         const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
         if (!hits.length) {
           if (!skills.length) return { ...text(`No skill this user can use matches "${q}" (${searched}).`), summary: 'find_skills -> 0 found' }

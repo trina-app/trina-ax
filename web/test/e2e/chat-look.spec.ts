@@ -39,7 +39,7 @@ async function expectBoxLikeClaude(page: Page) {
   await expect(box.getByTestId('send')).toBeVisible()
   await expect(box.getByTestId('attach-button')).toHaveCount(0)
   await expect(row.getByTestId('attach-button')).toBeVisible()
-  await expect(row.getByRole('button', { name: '음성으로 입력' })).toBeVisible()
+  await expect(row.getByRole('button', { name: '음성 입력 (Space 길게)' })).toBeVisible()
   await expect(row.getByTestId('engine-picker')).toBeVisible()
   // one line until there is more to say
   expect((await box.getByTestId('composer-input').boundingBox())!.height).toBeLessThanOrEqual(50)

@@ -37,6 +37,7 @@ import { SidebarRooms } from './rooms/SidebarRooms'
 import { SetupRow } from './onboarding/SetupRow'
 import { useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
+import { Tooltip } from './Tooltip'
 
 /** shortcut hints in the keys of this computer (the handlers take ⌘ and Ctrl alike, Layout.tsx) */
 const onMac = () => platform() === 'mac' || platform() === 'ios'
@@ -218,9 +219,11 @@ export default function Sidebar() {
             <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
               <span aria-hidden>·</span>
               <span className="truncate">{changed.map((k) => t((VIEW[k].options as Record<string, MessageKey>)[view[k]])).join(', ')}</span>
-              <button type="button" onClick={() => setView(DEFAULT_VIEW)} aria-label={t('sidebar.filter.clear')} title={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
-                <X size={11} aria-hidden />
-              </button>
+              <Tooltip label={t('sidebar.filter.clear')}>
+                <button type="button" onClick={() => setView(DEFAULT_VIEW)} aria-label={t('sidebar.filter.clear')} className="shrink-0 rounded p-0.5 hover:bg-hover hover:text-ink" data-testid="recents-filter-clear">
+                  <X size={11} aria-hidden />
+                </button>
+              </Tooltip>
             </span>
           )}
           <RecentsMenu view={view} onChange={setView} changed={changed.length > 0} />
@@ -401,15 +404,17 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
           </span>
         )}
       </NavLink>
-      <button
-        type="button"
-        aria-label={t('chat.menu')}
-        aria-expanded={menu}
-        onClick={() => setMenu((v) => !v)}
-        className={clsx('absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-faint hover:bg-surface hover:text-ink max-md:right-0 max-md:inline-flex max-md:size-11 max-md:items-center max-md:justify-center', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100')}
-      >
-        <MoreHorizontal size={15} aria-hidden />
-      </button>
+      <Tooltip label={t('chat.menu')}>
+        <button
+          type="button"
+          aria-label={t('chat.menu')}
+          aria-expanded={menu}
+          onClick={() => setMenu((v) => !v)}
+          className={clsx('absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-faint hover:bg-surface hover:text-ink max-md:right-0 max-md:inline-flex max-md:size-11 max-md:items-center max-md:justify-center', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100')}
+        >
+          <MoreHorizontal size={15} aria-hidden />
+        </button>
+      </Tooltip>
       {menu && (
         <div role="menu" className="absolute top-8 right-1 z-30 w-40 rounded-lg border border-line bg-surface p-1 shadow-lg">
           <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={rename}>
@@ -641,20 +646,21 @@ function RecentsMenu({ view, onChange, changed }: { view: RecentsView; onChange:
   const subTop = sub ? Math.max(8, Math.min((menu.current?.querySelector<HTMLElement>(`[data-view="${sub}"]`)?.getBoundingClientRect().top ?? pos.top ?? 8) - 4, window.innerHeight - subH - 8)) : 0
   return (
     <div className="ml-auto" onKeyDown={onKey}>
-      <button
-        ref={button}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={t('sidebar.filter')}
-        title={t('sidebar.filter')}
-        onClick={() => (open ? close(false) : openMenu())}
-        className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open ? 'bg-hover text-ink opacity-100' : changed ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
-        data-testid="recents-filter"
-      >
-        <ListFilter size={15} aria-hidden />
-        {changed && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-accent" data-testid="recents-filter-dot" />}
-      </button>
+      <Tooltip label={t('sidebar.filter')}>
+        <button
+          ref={button}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={t('sidebar.filter')}
+          onClick={() => (open ? close(false) : openMenu())}
+          className={clsx('relative flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100', open ? 'bg-hover text-ink opacity-100' : changed ? 'opacity-100' : 'opacity-0 group-hover/recents:opacity-100')}
+          data-testid="recents-filter"
+        >
+          <ListFilter size={15} aria-hidden />
+          {changed && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-accent" data-testid="recents-filter-dot" />}
+        </button>
+      </Tooltip>
       {open &&
         createPortal(
           // its keys reach onKey through React (a portal's events bubble to the button's box)

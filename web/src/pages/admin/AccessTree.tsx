@@ -30,6 +30,7 @@ import AccessEdit from './AccessEdit'
 import { useFolderPeople } from './SkillManagers'
 import { useFocusAfterRemove, useLoad } from './common'
 import { InFolderHeader } from './folder-slots'
+import { Tooltip } from '../../components/Tooltip'
 
 /** One level as loaded so far: its children's paths in the server's order. */
 interface Level { children: string[]; total: number; nextCursor: string | null }
@@ -1174,10 +1175,12 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
           </span>
           {kind && <span className="min-w-0 shrink-[100] truncate text-xs text-faint" data-testid="tree-kind">{personal ? t('accessTree.personal.count', { n: n.people ?? 0 }) : kind}</span>}
           {restricted && (
-            <span className="inline-flex shrink-0 self-center text-muted" title={t('accessTree.restricted')}>
-              <Lock size={12} aria-hidden />
-              <span className="sr-only">{t('accessTree.restricted')}</span>
-            </span>
+            <Tooltip label={t('accessTree.restricted')}>
+              <span className="inline-flex shrink-0 self-center text-muted">
+                <Lock size={12} aria-hidden />
+                <span className="sr-only">{t('accessTree.restricted')}</span>
+              </span>
+            </Tooltip>
           )}
         </div>
         {personal ? (
@@ -1334,9 +1337,11 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
               </Button>
             )}
             {keep && (
-              <span className="inline-flex p-1.5 text-faint max-sm:p-2" title={keep} aria-hidden>
-                <Lock size={15} />
-              </span>
+              <Tooltip label={keep}>
+                <span className="inline-flex p-1.5 text-faint max-sm:p-2" aria-hidden>
+                  <Lock size={15} />
+                </span>
+              </Tooltip>
             )}
           </div>
           {emptyMarker && (
@@ -1535,9 +1540,11 @@ function OutsideRules({ rows, folders, subject, groups, editable, onEdit, remova
                   </Button>
                 )}
                 {keep ? (
-                  <span className="inline-flex p-1.5 text-faint max-sm:p-2" title={keep} aria-hidden>
-                    <Lock size={15} />
-                  </span>
+                  <Tooltip label={keep}>
+                    <span className="inline-flex p-1.5 text-faint max-sm:p-2" aria-hidden>
+                      <Lock size={15} />
+                    </span>
+                  </Tooltip>
                 ) : (
                   <RemoveRulesButton
                     f={f}

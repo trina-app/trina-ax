@@ -92,7 +92,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/skills/popular` | Signed in | Last 30 days of usage counts for currently readable skills, with no user identities or prompts. |
-| `GET` | `/api/skills` | Signed in | Skills the caller can use: skills/**/*.md with a name header that the caller can read, and their own personal skills (users/<caller>/skills/), by name. |
+| `GET` | `/api/skills` | Signed in | Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team. |
 | `GET` | `/api/skills/issues` | Signed in | Skill entries the caller can read that do not load: an invalid SKILL.md (also a name that is not its folder name) or a legacy file with a broken header. |
 | `GET` | `/api/skills/overview` | Signed in | The skills folders the caller manages / can suggest into, and how many suggestions wait. |
 | `GET` | `/api/skills/suggestions` | Signed in | My suggestions, or (scope=review) the suggestions for skills folders I manage. Nobody else sees them. |
@@ -544,9 +544,10 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `POST` | `/api/skill-shares` | Admin | Bring my skills to the team (owners and admins): the candidates from a picked .claude folder are staged outside the team files, checked (shape, secrets, scripts, plugin, size, personal paths, same name) and judged by one AI turn without tools. Nothing reaches the team before apply. |
-| `GET` | `/api/skill-shares` | Admin | The caller's own share proposals, newest first (a Claude Code proposal shows up here as soon as it arrives). |
-| `GET` | `/api/skill-shares/:id` | Admin | One share proposal of the caller's own: its candidates with their group and one-line reason, the CLAUDE.md team rule and the tools. |
-| `POST` | `/api/skill-shares/:id/apply` | Admin | Share the ticked skills with the team as the caller (their own save: folder rules, versions, the skill change log); a skill of the same name is merged through a chat with the confirmation card, the CLAUDE.md lines become a team rule, the tools become connection templates (no key). Idempotent per skill. |
-| `POST` | `/api/skill-shares/:id/dismiss` | Admin | Drop a share proposal of the caller's own (나중에 하기): its staged files are deleted. |
+| `POST` | `/api/skill-shares` | Admin | Bring my skills to the team or to one of my groups (owners and admins): the candidates from a picked .claude folder are staged outside the team files, checked (shape, secrets, scripts, plugin, size, personal paths, same name in the target) and judged by one AI turn without tools. Nothing reaches the team before apply. |
+| `GET` | `/api/skill-shares` | Signed in | The caller's own share proposals, newest first (a Claude Code proposal shows up here as soon as it arrives); scope=review: the open proposals to the caller's groups that they may apply. |
+| `GET` | `/api/skill-shares/:id` | Signed in | One share proposal of the caller's own, or one to a group whose skills folder the caller may write: its candidates with their group and one-line reason, the CLAUDE.md team rule and the tools. |
+| `PATCH` | `/api/skill-shares/:id` | Admin | Move one's own open share to the team or to one of one's groups before anything of it went in; the same-name checks run again against that target. The group's members who may write its skills folder are told. |
+| `POST` | `/api/skill-shares/:id/apply` | Signed in | Share the ticked skills with the team or the target group as the caller (their own save: folder rules, versions, the skill change log); a skill of the same name is merged through a chat with the confirmation card, the CLAUDE.md lines become a team rule and the tools connection templates (no key; the team only). Idempotent per skill. |
+| `POST` | `/api/skill-shares/:id/dismiss` | Signed in | Drop a share proposal of the caller's own, or one to a group whose skills folder the caller may write (나중에 하기): its staged files are deleted. |
 | `POST` | `/api/skill-shares/merge-chats/:id/start` | Admin | Start the merge in a merge chat of the caller's own that waits for them (`Chat.mergeWaiting`, made at the end of the welcome steps): its one restricted turn is queued now, while they look at it. Once per chat: a second call starts nothing. |

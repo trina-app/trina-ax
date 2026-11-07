@@ -10,7 +10,7 @@ Company knowledge lives in one team folder on the server. Folder rules decide wh
 | Folder | Who sees it | Use it for |
 |---|---|---|
 | `shared/` | As the rules say, usually everyone | Company-wide documents |
-| `groups/<group>/` | That group, plus anyone a rule adds | Team documents, such as Sales or Finance |
+| `groups/<group>/` | That group, plus anyone a rule adds | Team documents, such as Sales or Finance; the group's own skills in `skills/` there |
 | `projects/<project>/` | As the rules say | Work with its own folder and instructions |
 | `skills/` | Everyone reads; skill managers write | Team skills and team rules |
 | `users/<id>/` | Only that person | Personal files and personal skills |
@@ -47,7 +47,7 @@ The server works out who loses or gains access, and the Save button says it. Not
 **By person** shows what one person, and so their AI, can see, and why.
 
 :::warning
-`skills/` holds instructions that every member's AI follows. Write access there makes someone a skill manager. Before the AI saves into `skills/`, the server asks a person to confirm.
+`skills/` holds instructions that every member's AI follows. Write access there makes someone a skill manager. Before the AI saves into `skills/`, the server asks a person to confirm. The same goes for a group's `groups/<group>/skills/`: every member of that group's AI follows it, and any member who may write the group's folder changes it.
 :::
 
 ## Working with files

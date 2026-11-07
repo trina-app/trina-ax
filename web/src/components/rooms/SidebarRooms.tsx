@@ -23,6 +23,7 @@ import { useRooms } from '../../store/rooms'
 import { PeoplePicker } from './PeoplePicker'
 import { RoomIcon, useRoomTitle } from './RoomIcon'
 import { RoomMenu, useRowMenu } from './RoomMenu'
+import { Tooltip } from '../Tooltip'
 
 const OPEN_KEY = 'mycel.sidebar.rooms'
 /** the whole list opened ("더 보기"), remembered in this browser like the fold */
@@ -96,9 +97,11 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
             <ChevronDown size={12} className={clsx('transition-transform', !open && '-rotate-90')} aria-hidden />
           </button>
         </h2>
-        <button type="button" onClick={() => setPicking(true)} aria-label={t('rooms.newChat')} title={t('rooms.newChat')} className="ml-auto flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink" data-testid="rooms-new-dm">
-          <Plus size={15} aria-hidden />
-        </button>
+        <Tooltip label={t('rooms.newChat')}>
+          <button type="button" onClick={() => setPicking(true)} aria-label={t('rooms.newChat')} className="ml-auto flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink" data-testid="rooms-new-dm">
+            <Plus size={15} aria-hidden />
+          </button>
+        </Tooltip>
       </div>
       <ul id={listId} hidden={!open} data-testid="sidebar-rooms-list">
         {loaded && !everyRoom.length && <li className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</li>}

@@ -36,6 +36,7 @@ import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatPr
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
+import { Tooltip } from '../components/Tooltip'
 
 export default function ChatPage() {
   const { chatId } = useParams()
@@ -274,9 +275,11 @@ function ChatView({ chatId }: { chatId: string }) {
           it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
           the name, and a new chat. */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1">
-        <Link to="/" replace onClick={backLink} aria-label={t('tabs.back')} title={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
-          <ChevronLeft size={20} aria-hidden />
-        </Link>
+        <Tooltip label={t('tabs.back')}>
+          <Link to="/" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
+            <ChevronLeft size={20} aria-hidden />
+          </Link>
+        </Tooltip>
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm md:justify-start">
           <ChatProjectCrumb projectId={projectId} />
           {chat && !chat.deletedAt ? (

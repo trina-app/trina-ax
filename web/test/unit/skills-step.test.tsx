@@ -26,7 +26,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { ApplySkillShare, ShareCandidate, SkillShare } from '@mycel/shared/api'
 import { DICTS, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
-import { SkillsStep } from '../../src/components/onboarding/SkillsStep'
+import { shownShare, SkillsStep } from '../../src/components/onboarding/SkillsStep'
 import SkillSharePage from '../../src/pages/SkillSharePage'
 import { useSession } from '../../src/store/session'
 import { toast, useUi } from '../../src/store/ui'
@@ -610,6 +610,15 @@ describe('phones', () => {
   })
 })
 
+describe('a proposal to a group (docs/DECISIONS.md "Group skills")', () => {
+  test('the step (the team\'s) never takes it up: it is done on its own page', () => {
+    const toGroup = shareOf({ id: '01900000-0000-7000-8000-0000000006a1', status: 'ready', targetGroup: { id: 'g1', name: '영업팀' } })
+    const toTeam = shareOf({ id: '01900000-0000-7000-8000-0000000006a2', status: 'ready' })
+    expect(shownShare([toGroup], { since: 0, done: false, gone: new Set() })).toBeNull()
+    expect(shownShare([toGroup, toTeam], { since: 0, done: false, gone: new Set() })?.id).toBe(toTeam.id)
+  })
+})
+
 describe('/skills/share/:id', () => {
   const meOf = (role: 'owner' | 'admin' | 'member') => ({
     user: { id: 'olga', username: 'olga', name: '올가', email: null, role, locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} },
@@ -627,12 +636,13 @@ describe('/skills/share/:id', () => {
       </MemoryRouter>,
     )
   }
-  test('a member goes Home; an admin sees the proposal under its own heading, and after sharing the primary opens the team skills', async () => {
+  test('a member stays (a proposal to their group is theirs to review); one not theirs reads as gone; an admin sees the proposal under its own heading, and after sharing the primary opens the team skills', async () => {
     ccItems = [shareOf({ id: CC_ID, source: 'claude_code', where: null, projects: 2 })]
-    const member = await page(CC_ID, 'member')
+    // the server answers 404 for a proposal the member may not review (docs/DECISIONS.md "Group skills")
+    const member = await page('01900000-0000-7000-8000-0000000005fe', 'member')
     try {
-      expect(text(member, 'where')).toBe('/')
-      expect(calls).toHaveLength(0)
+      await member.until(() => member.find('skill-share-gone'), 'the note')
+      expect(member.find('where')).toBeNull()
     } finally { await member.unmount() }
     const m = await page(CC_ID, 'admin')
     try {
