@@ -234,11 +234,30 @@ describe('a computer', () => {
     }
   })
 
-  test('no "더 보기" while every room is in sight', async () => {
+  test('every room in sight: the entry stays, "모든 대화" to the whole conversations page; no rooms, no entry', async () => {
     useRooms.setState({ rooms: [room({ name: '하나' }), room({ name: '둘' }), room({ name: '셋' })], loaded: true, failed: null })
-    const m = await render()
+    let m = await render()
     try {
       expect(m.get('sidebar-rooms-list').querySelectorAll('[data-testid="sidebar-room"]').length).toBe(3)
+      expect(m.find('rooms-more')).toBeNull()
+      expect(m.get('rooms-all').textContent).toBe(ko('sidebar.allRooms'))
+      expect(m.get('rooms-all').getAttribute('href')).toBe('/rooms')
+    } finally {
+      await m.unmount()
+    }
+    // a remembered "더 보기" changes nothing while nothing is hidden
+    localStorage.setItem('mycel.sidebar.roomsAll', 'yes')
+    m = await render()
+    try {
+      expect(m.find('rooms-more')).toBeNull()
+      expect(m.find('rooms-all')).not.toBeNull()
+    } finally {
+      await m.unmount()
+    }
+    useRooms.setState({ rooms: [], loaded: true, failed: null })
+    m = await render()
+    try {
+      expect(m.find('rooms-all')).toBeNull()
       expect(m.find('rooms-more')).toBeNull()
     } finally {
       await m.unmount()
@@ -299,9 +318,23 @@ describe('a computer', () => {
     }
   })
 
-  test('no "모두 보기" while all of them fit', async () => {
+  test('"모두 보기" stays while all of them fit (the whole history with its filters is behind it); no history, no entry', async () => {
     useChats.setState({ chats: [chat(1), chat(2)] })
-    const m = await render()
+    let m = await render()
+    try {
+      expect(m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').length).toBe(2)
+      expect(m.get('ai-chats-all').textContent).toBe(ko('rooms.showAll'))
+      expect(m.find('ai-chats-needs')).toBeNull()
+      await m.click('ai-chats-all')
+      expect(m.find('ai-chats-latest')).toBeNull()
+      expect(m.get('recents-list').querySelectorAll('a[href^="/c/"]').length).toBe(2)
+      await m.click('ai-chats-less')
+      expect(m.get('ai-chats-latest').querySelectorAll('a[href^="/c/"]').length).toBe(2)
+    } finally {
+      await m.unmount()
+    }
+    useChats.setState({ chats: [] })
+    m = await render()
     try {
       expect(m.find('ai-chats-all')).toBeNull()
     } finally {

@@ -240,7 +240,9 @@ export default function Sidebar() {
               ))}
             </ul>
           )}
-          {!full && (used.length > latest.length || cursor) && (
+          {/* always there while there is a history (the owner, 2026-11-07), even when all of it is in sight: the whole
+              history with its filters is behind it */}
+          {!full && used.length > 0 && (
             <button type="button" onClick={() => setAllChats(true)} className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="ai-chats-all">
               <span className="truncate">{t('rooms.showAll')}</span>
               {/* what the hidden chats hold for me, so nothing that needs me is out of sight unannounced */}

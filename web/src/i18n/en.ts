@@ -3434,6 +3434,7 @@ export const en: Record<MessageKey, string> = {
   "tabs.back": "Back",
   "sidebar.aiChats": "{name} history",
   "sidebar.showMore": "Show more ({n})",
+  "sidebar.allRooms": "All conversations",
   "sidebar.moreUnread": "{n} unread",
   "sidebar.needsYou": "{n, plural, one {# needs you} other {# need you}}",
   "marker.card": "Waiting for you",
