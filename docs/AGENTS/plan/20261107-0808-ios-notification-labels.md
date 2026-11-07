@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 08:08
 - Branch: `feat/ios-notification-labels`
-- Status: in progress
+- Status: done
 - Where: this repo: `push-gateway/`, `shared/src/cloud-protocol/push-gateway.ts` (comments only), `server/src/notifications/`,
   `shared/src/api/push.ts`, `web/src/lib/mobile*.ts`, `mobile/`. Why: phone push is core (docs/REPOSITORY-RULES.md:
   휴대폰), and the gateway, the team server, the page and the app each own one step.
@@ -72,4 +72,11 @@ Out: Android labels; a label for non-room events; building or submitting the sto
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the design review's change: the label key is made on the phone and only its hash is registered
+(the server does not mint it). Also from the reviews: one `{}` exit for every failure, the app's own keychain group
+first and checked by the release script, the sign-out signal for an expired session, a cold start and a change of
+person (told only once answered), the label item tidied at launch, deliveries tried at least once, a late registration
+not handed to the app. Extra: the Android bundle file is named by the app's version. Not done: a test on a real phone
+(release check), the room id from the payload for stacking when the request fails (a failure shows what Apple sent).
+Checks: typecheck, i18n, docs, the push/notification/mobile/gateway/security tests, web mobile tests, mobile typecheck,
+and a clean prebuild + simulator build of the app with the extension. Decision: docs/DECISIONS.md "아이폰 알림의 이름".
