@@ -12910,6 +12910,7 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   `SHOTS_DIR`: 1440 and 390, light and dark).
 - Version impact: **minor** (later members of team rooms and the everyone room see the history; new optional fields;
   one additive migration).
+
 ## HTML to PDF: make_file prints a page, and the preview's "PDF로 저장" (feat/html-to-pdf, 2026-11-07, product owner)
 
 A person asked the AI to turn `견적서_….html` into a PDF. make_file took only Markdown, so the AI rewrote the page as
