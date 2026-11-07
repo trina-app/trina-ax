@@ -33,8 +33,9 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
-import { MenuButton, useLongPress } from './MenuButton'
-import { reactable, ReactionChips, ReactionPicker, ReactionStrip } from './Reactions'
+import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
+import { MessageHoverBar } from './MessageHoverBar'
+import { reactable, ReactionChips, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
 import { pickedInMessage, useMentionMenu } from './useMentionMenu'
 
@@ -165,6 +166,9 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       onEditDone={() => setEditing(null)}
                       onThread={onThread}
                       variant={variant}
+                      // the list's first message (the top of the room, a thread's root): its bar goes under it, where the
+                      // header above cannot cut it
+                      barBelow={variant !== 'reply' && m.id === messages[0]?.id}
                       onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined}
                     />
                     {after(m)}
@@ -240,7 +244,7 @@ function ReplierFace({ user }: { user: UserRef }) {
   return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onEdit, onEditDone, onThread, variant, onJump }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; variant: ListVariant; onJump?: () => void }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onEdit, onEditDone, onThread, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -279,10 +283,17 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
       .catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   }
   const meta = m.editedAt && !deleted ? <span className="ml-1 text-xs text-faint">{t('rooms.edited')}</span> : null
+  // ⋮ 더 보기 (the hover bar) and the end of the long-press sheet: copy; my own message's edit; delete what I may (my own,
+  // an AI answer I asked for, any AI answer for an owner or admin), with the confirm
+  const moreItems: MenuItem[] = [
+    ...(m.body ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copyText(), testId: 'message-copy' }] : []),
+    ...(mine && !ai ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
+    ...(removable ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' }] : []),
+  ]
   return (
     <div
       id={messageDomId(m.id)}
-      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle')}
+      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')}
       data-testid="room-message"
       data-ai={ai ? '' : undefined}
       data-visibility={m.visibility}
@@ -332,42 +343,32 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
       )}
       {!deleted && <ReactionChips roomId={roomId} m={m} />}
       {variant === 'timeline' && onThread && !m.threadRootId && <ThreadLine m={m} onOpen={() => onThread(m.id)} />}
-      {/* computers: a quiet row on hover (react, reply in thread, "…"); touch screens and phones: a long press */}
+      {/* computers: the hover bar (reactions, reply in thread, ⋮); touch screens and phones: a long press opens the same
+          as a sheet, with the eight emoji on top (its own button never shows) */}
       {menuOn && (
-        // (the row stays in the page on touch screens, its buttons hidden: the long-press sheet opens from it)
-        <div className="absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-lg p-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 sm:pointer-fine:border sm:pointer-fine:border-line sm:pointer-fine:bg-surface sm:pointer-fine:shadow-sm" data-testid="message-actions">
-          {reactOn && <ReactionPicker roomId={roomId} m={m} className="pointer-coarse:hidden max-sm:hidden" />}
-          {threadOn && (
-            <button type="button" onClick={() => onThread!(m.id, true)} aria-label={t('rooms.replyInThread')} title={t('rooms.replyInThread')} className="inline-flex items-center justify-center rounded-md p-1.5 text-faint transition hover:bg-hover hover:text-ink pointer-coarse:hidden max-sm:hidden" data-testid="message-thread">
-              <MessageSquareText size={16} aria-hidden />
-            </button>
-          )}
-        <MenuButton
-          label={t('rooms.messageMenu')}
-          testId="message-menu"
-          buttonClassName="pointer-coarse:hidden max-sm:hidden"
-          openSignal={press}
-          header={reactOn ? (close) => (
-            <ReactionStrip
-              className="justify-between"
-              mine={(m.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji)}
-              onPick={(e) => {
-                // the finger lifting after the long press is no pick
-                if (Date.now() - pressedAt.current < 400) return
-                close()
-                void useRooms.getState().react(roomId, m.id, e, !(m.reactions ?? []).some((r) => r.emoji === e && r.mine))
-              }}
-            />
-          ) : undefined}
-          items={[
-            // a private preview has one action on it (post it); putting it away is in this menu, like any message
-            ...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []),
-            ...(m.body ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copyText(), testId: 'message-copy' }] : []),
-            ...(mine && !ai ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
-            ...(removable ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' }] : []),
-          ]}
-        />
-        </div>
+        <>
+          <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} more={moreItems} />
+          <MenuButton
+            label={t('rooms.messageMenu')}
+            className="absolute top-0 right-0"
+            buttonClassName="hidden"
+            testId="message-menu"
+            openSignal={press}
+            header={reactOn ? (close) => (
+              <ReactionStrip
+                className="justify-between"
+                mine={(m.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji)}
+                onPick={(e) => {
+                  // the finger lifting after the long press is no pick
+                  if (Date.now() - pressedAt.current < 400) return
+                  close()
+                  void useRooms.getState().react(roomId, m.id, e, !(m.reactions ?? []).some((r) => r.emoji === e && r.mine))
+                }}
+              />
+            ) : undefined}
+            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...moreItems]}
+          />
+        </>
       )}
     </div>
   )

@@ -167,8 +167,9 @@ test("someone else's question answered privately says so under the question, nam
 
 test('touch screens: no hover row on every message; a long press opens its menu (reactions, reply in thread, copy, edit and delete my own)', async () => {
   const html = render([message({ roomId: R, seq: 1, author: ME, body: 'mine' })])
-  // the button stays for the mouse (on hover) and goes on phones and touch screens
-  expect(html).toMatch(/<button[^>]*class="[^"]*pointer-coarse:hidden max-sm:hidden[^"]*"[^>]*data-testid="message-menu"/)
+  // the hover bar is for the mouse only; the sheet's own button never shows (a long press opens it)
+  expect(html).toMatch(/<div[^>]*class="[^"]*max-md:hidden pointer-coarse:hidden[^"]*"[^>]*data-testid="message-hover-bar"/)
+  expect(html).toMatch(/<button[^>]*class="[^"]* hidden"[^>]*data-testid="message-menu"/)
   installDom()
   const m = await mount(<RoomMessages roomId={R} messages={[message({ roomId: R, seq: 1, author: ME, body: 'mine' })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
@@ -367,7 +368,7 @@ test('reactions: a chip per emoji with its count, mine marked and pressed, who r
     message({ roomId: R, seq: 3, body: '', author: BEN, event: { type: 'left' }, reactions }),
   ])
   expect(count(html, 'data-testid="reaction-chip"')).toBe(2)
-  expect(count(html, 'aria-pressed="true"')).toBe(1)
+  expect(count(html, 'data-mine=""')).toBe(1)
   expect(html).toContain('>12<')
   // the names the server gave and how many more: "Ada, Ben and 10 more"
   expect(html).toContain(translate('en', 'rooms.groupNamesMore', { names: 'Ada, Ben', n: 10 }))

@@ -12,6 +12,7 @@ import { useT } from '../../i18n'
 import { useNameOf } from '../../store/people'
 import { useRooms } from '../../store/rooms'
 import { useLongPress } from './MenuButton'
+import { Tooltip } from '../Tooltip'
 
 /** May this message take reactions: a message of the room for everyone, not an event line, not deleted. */
 export const reactable = (m: Pick<RoomMessage, 'event' | 'deletedAt' | 'visibility'>) => !m.event && !m.deletedAt && m.visibility === 'room'
@@ -37,11 +38,14 @@ export function ReactionStrip({ onPick, mine = [], className }: { onPick: (e: Ro
   )
 }
 
-/** The smile button of a message's hover row: the strip in a small popover (Esc or a click outside closes it). */
-export function ReactionPicker({ m, roomId, className }: { m: RoomMessage; roomId: string; className?: string }) {
+/** The add-reaction button of a message's hover bar: the strip in a small popover (Esc, a pick or a click outside closes
+ * it; Esc gives the keyboard back to the button). `below`: the popover opens under the bar (the bar is under the first
+ * message). */
+export function ReactionPicker({ m, roomId, className, buttonClassName, below = false }: { m: RoomMessage; roomId: string; className?: string; buttonClassName?: string; below?: boolean }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     if (!open) return
     const h = (e: Event) => !box.current?.contains(e.target as Node) && setOpen(false)
@@ -58,23 +62,26 @@ export function ReactionPicker({ m, roomId, className }: { m: RoomMessage; roomI
           e.preventDefault()
           e.stopPropagation()
           setOpen(false)
+          button.current?.focus()
         }
       }}
     >
-      <button
-        type="button"
-        aria-label={t('rooms.react')}
-        title={t('rooms.react')}
-        aria-haspopup="true"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="inline-flex items-center justify-center rounded-md p-1.5 text-faint transition hover:bg-hover hover:text-ink"
-        data-testid="message-react"
-      >
-        <SmilePlus size={16} aria-hidden />
-      </button>
+      <Tooltip label={t('rooms.react')}>
+        <button
+          ref={button}
+          type="button"
+          aria-label={t('rooms.react')}
+          aria-haspopup="true"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-faint transition hover:bg-hover hover:text-ink', buttonClassName)}
+          data-testid="message-react"
+        >
+          <SmilePlus size={16} aria-hidden />
+        </button>
+      </Tooltip>
       {open && (
-        <div className="absolute right-0 bottom-full z-30 mb-1 rounded-xl border border-line bg-surface p-1 shadow-lg">
+        <div className={clsx('absolute right-0 z-30 rounded-xl border border-line bg-surface p-1 shadow-lg', below ? 'top-full mt-1' : 'bottom-full mb-1')}>
           <ReactionStrip
             mine={mine}
             onPick={(e) => {

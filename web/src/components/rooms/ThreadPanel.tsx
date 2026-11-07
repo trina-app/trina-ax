@@ -96,14 +96,14 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface md:max-w-[440px] md:flex-none md:basis-[400px] md:border-l md:border-line xl:basis-[440px]" aria-label={t('rooms.thread')} data-testid="room-thread">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:pl-4">
-        <IconButton label={t('rooms.closeThread')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="thread-back">
+        <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="thread-back">
           <ChevronLeft size={20} aria-hidden />
         </IconButton>
         <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="shrink-0 text-base font-medium text-ink">{t('rooms.thread')}</span>
           <span className="truncate text-xs text-faint" data-testid="thread-room">{roomTitle}</span>
         </h2>
-        <IconButton label={t('rooms.closeThread')} onClick={onClose} className="touch-hit max-md:hidden" data-testid="thread-close">
+        <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit max-md:hidden" data-testid="thread-close">
           <X size={16} aria-hidden />
         </IconButton>
       </div>
