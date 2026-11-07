@@ -96,6 +96,17 @@ describe('defaults with the hosting key', () => {
     expect(getTeamSettings(A.ctx.db).speechProvider).toBe('off')
     expect(voiceInputOn(A.ctx.db, F().speech)).toBe(false)
   })
+  test('the team\'s own key keeps voice input on when the hosting key goes (docs/DECISIONS.md "Voice input on a team\'s own server: the key turns it on")', () => {
+    writeSpeechKey(credentialsOf(A.ctx), TEAM)
+    expect(speechKeySource(A.ctx.db)).toBe('team')
+    writeHostedSpeechKey(credentialsOf(A.ctx), null)
+    // before: off once the hosting service took its key away; now the team's key turns it on (a choice still wins)
+    expect(getTeamSettings(A.ctx.db).speechProvider).toBe('openrouter')
+    expect(voiceInputOn(A.ctx.db, F().speech)).toBe(true)
+    expect(mediaTranscriptsOn(getTeamSettings(A.ctx.db), 2, false)).toBe(false)
+    updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
+    expect(voiceInputOn(A.ctx.db, F().speech)).toBe(false)
+  })
   test('GET /api/admin/speech-key: no team key, the free hours, never the hosting key', async () => {
     chargeHostedSpeech(A.ctx.db, 5400)
     const r = await A.json('/api/admin/speech-key', { as: 'carol' })

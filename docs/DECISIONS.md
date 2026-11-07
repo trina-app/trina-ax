@@ -12074,10 +12074,15 @@ subscription was refused (`validation`) and the web ask left Edge out.
   OpenRouter key. With no `speechProvider` stored and the team's own key saved (`speech.openrouterKey`), the provider
   reads `openrouter` (`getTeamSettings`), the same "not chosen reads a default" rule as the hosting key ("Hosted
   speech-to-text"): nothing is stored, removing the key brings `off` back, and an admin's choice, `off` too, always
-  wins. "Turn video sound into text" keeps its rule: off by default with the team's own key.
+  wins. "Turn video sound into text" keeps its rule: off by default with the team's own key. One change on hosted
+  servers follows from it: a hosted team that has its own key and chose nothing keeps voice input on (with its key)
+  when the hosting service takes its key away, where it went off before; a hosted team's backup restored on its own
+  server starts the same way.
 - **Settings screen.** Saving the key no longer writes `speechProvider: openrouter` when the server already reads it
   (it re-reads the settings and writes only a provider or model that differs from what is saved), so removing the key
-  later turns voice input off again; after either, the form takes the provider the server now reads. Next to "Get a
+  later turns voice input off again. When the server's provider then differs from the form's (removing the key), the
+  form takes it with the saved "Turn video sound into text": an admin who picked OpenRouter only to reach "Remove key"
+  keeps the saved choice for "this server" (review of the branch). Next to "Get a
   key" one line says "OpenRouter costs about $0.1 per hour of recording" (the owner's figure, a rounded-up bound: the
   default model's providers charged $0.012-0.04 an hour on 2026-11-01). It is not shown while the hosting key is in use.
 - **Fix: 'local' without its tools.** `Me.team.voiceInput` was true for `local` whether or not whisper-cli was there, so
@@ -12086,12 +12091,14 @@ subscription was refused (`validation`) and the web ask left Edge out.
   `missingLocalTools` (jobs/transcribe.ts) names whisper.cpp or ffmpeg. ffmpeg is required because browsers record
   webm/opus (Safari mp4/aac), which whisper-cli does not read. `GET /api/admin/speech-host` adds `localMissing`
   (optional for older servers), and Team settings › Voice input says in one line which program is missing while "On
-  this server" is picked. The tools are read from the voice input jobs' config when asked, not from `process.platform`.
+  this server" is picked. The tools come from the voice input jobs' config, which looks for them when the server
+  starts: after `brew install whisper-cpp ffmpeg` the server needs a restart.
 - **Not done.** No Mac default for `local`, no whisper or ffmpeg in the Mac builds. (The 488 MB model download on a
   server's first `local` voice input shows its own label and percentage in the voice bar since "Voice input in rooms,
   and hold Space to talk".)
 - **Tests.** `tests/unit/a-speech-settings.test.ts` (no key: off; key saved: openrouter, nothing stored, Me on and
   outside; explicit off wins and the key counts again without it; key removed: off; explicit local wins; `local`
   without whisper-cli, without ffmpeg or without both: Me off and `localMissing` names them; OpenRouter does not need
-  them). `tests/unit/c-speech-hosted.test.ts` (hosted defaults unchanged). `web/test/e2e/admin.spec.ts` (the missing
-  line and the price line).
+  them). `tests/unit/c-speech-hosted.test.ts` (hosted defaults unchanged; the team's key after the hosting key goes).
+  `web/test/e2e/admin.spec.ts` (the missing line, the price line, the key alone turning voice input on and off with no
+  settings write, removing the key keeping "Turn video sound into text"); the mock server models "not chosen".

@@ -6,7 +6,7 @@
 // (docs/DECISIONS.md "Voice input on a team's own server: the key turns it on"). The tools are set here
 // (ctx.files.speech), so the tests do not depend on what the machine has installed.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import type { SealingKey } from '@mycel/shared/api'
+import { mediaTranscriptsOn, type SealingKey } from '@mycel/shared/api'
 import { createLogger } from '../../server/src/log'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { readSpeechKey, SPEECH_KEY_SETTING } from '../../server/src/credentials/speech-key'
@@ -140,6 +140,7 @@ describe('not chosen: the team key turns voice input on', () => {
     const s = await owner.call('PATCH', '/api/admin/settings', { auditRetentionDays: 120 })
     expect(s.speechProvider).toBe('openrouter')
     expect(s.aiMediaTranscripts).toBeNull()
+    expect(mediaTranscriptsOn(s, 16, false)).toBe(false)
     expect(stored()).toBeNull()
   })
   test("an admin's 'off' wins over the key; without the choice the key counts again", async () => {

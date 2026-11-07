@@ -471,6 +471,61 @@ test('settings: Voice input names a missing tool for "this server" and the price
   expect(realErrors(errors)).toEqual([])
 })
 
+// docs/DECISIONS.md "Voice input on a team's own server: the key turns it on": with no provider chosen, saving the key
+// turns voice input on without storing a provider, and removing it turns it off again
+test('settings: the OpenRouter key alone turns voice input on, and removing it turns it off', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  expect((await page.request.post('/__test/speech', { data: { provider: 'off', chosen: false } })).ok()).toBeTruthy()
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const provider = page.getByTestId('team-speech-provider')
+  await expect(provider).toHaveValue('off')
+  const patches: unknown[] = []
+  page.on('request', (r) => { if (r.url().endsWith('/api/admin/settings') && r.method() === 'PATCH') patches.push(r.postDataJSON()) })
+  await provider.selectOption('openrouter')
+  await page.getByTestId('team-speech-key').fill('sk-or-v1-' + 'a'.repeat(48))
+  await page.getByTestId('team-speech-password').fill(OWNER.password)
+  await page.getByTestId('team-speech-save-key').click()
+  await expect(page.getByText('키를 저장했어요')).toBeVisible()
+  await expect(provider).toHaveValue('openrouter')
+  await expect(page.getByTestId('team-settings-savebar')).toHaveCount(0)
+  await page.getByTestId('team-speech-password').fill(OWNER.password)
+  await page.getByTestId('team-speech-remove-key').click()
+  await page.getByRole('dialog').getByRole('button', { name: '키 지우기' }).click()
+  await expect(page.getByText('키를 지웠어요')).toBeVisible()
+  // the server reads off again: the form follows, with nothing left to save
+  await expect(provider).toHaveValue('off')
+  await expect(page.getByTestId('team-settings-savebar')).toHaveCount(0)
+  expect(patches).toEqual([])
+  expect(realErrors(errors)).toEqual([])
+})
+
+// review of the same branch: picking OpenRouter only to reach "Remove key" must not drop the admin's saved "Turn video
+// sound into text" off for "this server"
+test('settings: removing the key on a "this server" team keeps its "Turn video sound into text" choice', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  expect((await page.request.post('/__test/speech', { data: { provider: 'local', key: true } })).ok()).toBeTruthy()
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const provider = page.getByTestId('team-speech-provider')
+  const sw = page.getByTestId('team-media-transcripts')
+  await sw.getByText('영상 소리를 글로 바꾸기').click()
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  await expect(page.getByText('저장했어요.')).toBeVisible()
+  await provider.selectOption('openrouter')
+  await page.getByTestId('team-speech-password').fill(OWNER.password)
+  await page.getByTestId('team-speech-remove-key').click()
+  await page.getByRole('dialog').getByRole('button', { name: '키 지우기' }).click()
+  await expect(page.getByText('키를 지웠어요')).toBeVisible()
+  await expect(provider).toHaveValue('local')
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await expect(page.getByTestId('team-settings-savebar')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
 // QA R2-PERM-10: the owner gives the role to another person in Team settings, with the password again; the old owner
 // is an admin at once, so the transfer card and the team name input go away
 test('settings: the owner transfers ownership with the password again and becomes an admin', async ({ page }) => {

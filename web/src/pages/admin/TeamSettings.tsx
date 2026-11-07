@@ -130,7 +130,7 @@ export default function TeamSettingsPage() {
                   <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
                 </SettingsSection>
                 <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
-                  onSaved={(r) => { state.setData(r); setF((x) => (x ? { ...x, speechProvider: r.speechProvider, speechModel: r.speechModel } : x)) }} />
+                  onSaved={(r) => { state.setData(r); setF((x) => (x && x.speechProvider !== r.speechProvider ? { ...x, speechProvider: r.speechProvider, aiMediaTranscripts: r.aiMediaTranscripts } : x)) }} />
                 {/* one Save for the whole form, switches too, in a bar that shows only while something is not saved (or a
                     field needs a fix, with a button that goes to it). It stays at the bottom of the screen. The logo and
                     the voice input key save at once, on their own buttons. */}
@@ -441,10 +441,12 @@ export function MediaTranscriptsSwitch({ provider, value, host, hostedKey = fals
 export function SpeechSection({ provider, model, transcripts, saved, onChange, onSaved }: {
   provider: SpeechProvider; model: string; transcripts: boolean | null; saved: TeamSettings
   onChange: (p: { speechProvider?: SpeechProvider; speechModel?: string; aiMediaTranscripts?: boolean | null }) => void
-  /** the settings after the key was saved or removed (the provider may follow the key: the form takes it too) */
+  /** the settings after the key was saved or removed. The provider may follow the key: then the form takes it, with the
+   * saved "Turn video sound into text" (picking OpenRouter to reach "Remove key" must not drop the admin's choice) */
   onSaved: (s: TeamSettings) => void
 }) {
   const t = useT()
+  const locale = useLocale()
   const act = useAction()
   const signedIn = useSession((s) => s.signedIn)
   const key = useLoad(() => api.call(API.speechKey))
@@ -485,9 +487,9 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
       <SettingRow id="ts-speech-provider" title={t('speech.provider')}
         desc={provider === 'local' ? t('speech.localHint') : undefined}
         below={provider === 'openrouter' ? <p className={`mt-1 text-sm ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p>
-          : missing.length > 0 ? <p className="mt-1 text-sm text-warn" data-testid="team-speech-local-missing">{t('speech.localMissing', { tools: missing.join(', ') })}</p> : null}
+          : missing.length > 0 ? <p id="ts-speech-local-missing" className="mt-1 text-sm text-warn" data-testid="team-speech-local-missing">{t('speech.localMissing', { tools: new Intl.ListFormat(locale, { type: 'conjunction' }).format(missing) })}</p> : null}
         control={
-          <select id="ts-speech-provider" aria-describedby={provider === 'local' ? 'ts-speech-provider-desc' : undefined} className={clsx(inputCls, 'sm:w-64')} value={provider}
+          <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'sm:w-64')} value={provider}
             onChange={(e) => { const next = e.target.value as SpeechProvider; onChange({ speechProvider: next, aiMediaTranscripts: transcriptsAfterProvider(next, saved) }) }} data-testid="team-speech-provider">
             {PROVIDERS.map((p) => <option key={p} value={p}>{t(`speech.${p}`)}</option>)}
           </select>
