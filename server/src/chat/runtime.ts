@@ -97,6 +97,8 @@ export interface RoomTurnContext {
   prompt: RoomPrompt
   /** may every member of the room (at the start of the turn) read this team path? (which skills the AI is shown) */
   readable(rel: string): boolean
+  /** the asking message's own files, listed after it like a chat's attachments ('' for none) */
+  attachments?: string
 }
 
 const pendingOptions = new WeakMap<AppContext, ChatRuntimeOptions>()

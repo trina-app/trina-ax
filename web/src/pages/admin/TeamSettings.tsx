@@ -284,12 +284,12 @@ export function TeamIconRow() {
                     {[16, 32].map((n) => (
                       <div key={n} className="flex flex-col items-center gap-1.5">
                         <img src={tabSrc} alt="" width={n} height={n} style={{ width: n, height: n }} className="object-contain" data-testid={`team-icon-img-${n}`} />
-                        <span className={`text-[11px] ${scheme === 'light' ? 'text-[#4a4743]' : 'text-[#c9c5bd]'}`}>{t('teamIcon.sizeTab', { n })}</span>
+                        <span className={`text-[0.6875rem] ${scheme === 'light' ? 'text-[#4a4743]' : 'text-[#c9c5bd]'}`}>{t('teamIcon.sizeTab', { n })}</span>
                       </div>
                     ))}
                     <div className="flex flex-col items-center gap-1.5">
                       <img src={homeSrc} alt="" width={180} height={180} style={{ width: 180, height: 180, borderRadius: 40 }} className="object-cover" data-testid="team-icon-img-180" />
-                      <span className={`text-[11px] ${scheme === 'light' ? 'text-[#4a4743]' : 'text-[#c9c5bd]'}`}>{t('teamIcon.sizeHome', { n: 180 })}</span>
+                      <span className={`text-[0.6875rem] ${scheme === 'light' ? 'text-[#4a4743]' : 'text-[#c9c5bd]'}`}>{t('teamIcon.sizeHome', { n: 180 })}</span>
                     </div>
                   </div>
                   <figcaption className="mt-1 text-xs text-muted">{t(scheme === 'light' ? 'teamIcon.light' : 'teamIcon.dark')}</figcaption>

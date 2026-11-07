@@ -308,7 +308,8 @@ const FIND_TOOLS = new Set(['glob', 'grep', 'list', 'search', 'find_skills'])
 export function roomStepWords(step: Pick<Step, 'kind' | 'tool' | 'label'>): RoomStepWords {
   if (step.kind === 'web_search' || step.tool === 'web_fetch' || step.tool === 'save_url') return { kind: 'web' }
   if (step.tool && FIND_TOOLS.has(step.tool)) return { kind: 'find' }
-  if (step.tool === 'read') {
+  // a file of the room read by the AI (room_file, "<verb> · <name>"): said like a team file read
+  if (step.tool === 'read' || step.tool === 'room_file') {
     // "<verb> · <path>": the file's own name, without its folders and extension
     const i = step.label.lastIndexOf(' · ')
     const file = i < 0 ? '' : (step.label.slice(i + 3).split('/').filter(Boolean).at(-1) ?? '')

@@ -805,6 +805,13 @@ export class AppWindow {
   notify(n: NotifyInput) {
     this.notifier.notify(n)
   }
+
+  /** Settings › Notifications' test notification: shown even while the window is focused (the person asked for it), in
+   * the app's own words (never the page's); says whether the system took it (common/notify.ts test). */
+  testNotify() {
+    const L = this.o.locale()
+    return this.notifier.test({ title: t(L, 'notify.test.title'), body: t(L, 'notify.test.body') })
+  }
 }
 
 function clamp(v: number, lo: number, hi: number) {

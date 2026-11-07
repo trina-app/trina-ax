@@ -21,6 +21,7 @@ import Sidebar from './Sidebar'
 import { BottomTabs } from './BottomTabs'
 import { PhoneTopBar } from './PhoneTopBar'
 import { PhonePushAsk } from './settings/PushNotifications'
+import { WebPushAsk } from './WebPushAsk'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
@@ -120,8 +121,9 @@ export default function Layout() {
       <ManagedNoticesBanner />
       <ScheduleReviewBanner />
       <div className="flex min-h-0 flex-1">
-        {/* sidebar: fixed column on wide screens, drawer below md */}
-        <div className="hidden w-[280px] shrink-0 border-r border-line md:block">
+        {/* sidebar: fixed column on wide screens, drawer below md. 280px at the default text size; it grows with a larger
+            one (Settings > Profile > 글자 크기) so its rows keep their words, up to 40% of a narrow window */}
+        <div className="hidden w-[min(17.5rem,40vw)] shrink-0 border-r border-line md:block">
           <Sidebar />
         </div>
         {drawer && (
@@ -133,6 +135,8 @@ export default function Layout() {
           </div>
         )}
         <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
+          {/* a web browser not asked about notifications yet: one line, here on a computer (components/WebPushAsk.tsx) */}
+          <WebPushAsk at="top" />
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}
           <PhoneTopBar />
           <div className="min-h-0 flex-1">
@@ -141,8 +145,10 @@ export default function Layout() {
               <Outlet />
             </ChunkErrorBoundary>
           </div>
-          {/* the phone app's own question before the OS prompt (only while the OS has not been asked) */}
+          {/* the phone app's own question before the OS prompt (only while the OS has not been asked); a phone browser's
+              line, above the tab bar */}
           <PhonePushAsk />
+          <WebPushAsk at="bottom" />
           {/* phones: 트리나 · 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
           <BottomTabs />
         </main>

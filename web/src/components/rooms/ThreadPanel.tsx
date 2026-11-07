@@ -8,6 +8,7 @@ import { ChevronLeft, Loader2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { RoomMessage, UserRef } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
+import { lookingAt } from '../../lib/attention'
 import { newestSeq } from '../../lib/rooms'
 import { stickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
@@ -53,7 +54,8 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
     const el = scroller.current
     const tv = useRooms.getState().threadView
     if (!el || !tv || tv.roomId !== roomId || tv.rootId !== rootId || tv.loading || !tv.root) return
-    if (document.visibilityState !== 'visible' || !document.hasFocus()) return
+    // on screen and looked at (the phone app: on screen; lib/attention.ts)
+    if (!lookingAt()) return
     if (el.scrollHeight - el.scrollTop - el.clientHeight > 80) return
     // my position in a thread I follow (the server leaves it alone when I do not follow it)
     const seq = newestSeq(tv.replies)
