@@ -3,6 +3,7 @@
 // agree, that the list is well formed and that no install or image script keeps a list of its own.
 //
 //   bun scripts/system/packages.ts check     the list is well formed (exit 1 and the problems otherwise)
+//   bun scripts/system/packages.ts linux     the Linux copy of the list (root/packages.json of a Linux bundle)
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -46,8 +47,8 @@ const GROUP = /^[a-z][a-z0-9-]*$/
 const has = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k)
 const extra = (o: object, allowed: string[]) => Object.keys(o).filter((k) => !allowed.includes(k))
 
-/** What is wrong with the list (empty: nothing). */
-export function listProblems(j: unknown): string[] {
+/** What is wrong with the list (empty: nothing). linux: the Linux copy (linuxList), which has no darwin platforms. */
+export function listProblems(j: unknown, opts: { linux?: boolean } = {}): string[] {
   const p: string[] = []
   if (!j || typeof j !== 'object' || Array.isArray(j)) return ['the list is not a JSON object']
   const l = j as PackageList
@@ -113,7 +114,7 @@ export function listProblems(j: unknown): string[] {
     }
     if (typeof a.for !== 'string' || !a.for) p.push(`${at}: say what it is for ("for")`)
     const plats = a.platforms && typeof a.platforms === 'object' ? a.platforms : {}
-    for (const need of REQUIRED_PLATFORMS[n] ?? []) if (!has(plats, need)) p.push(`${at}: no ${need}`)
+    for (const need of REQUIRED_PLATFORMS[n] ?? []) if (!has(plats, need) && !(opts.linux && need.startsWith('darwin-'))) p.push(`${at}: no ${need}`)
     if (!Object.keys(plats).length) p.push(`${at}: no platforms`)
     for (const [pl, f] of Object.entries(plats)) {
       const pa = `${at} ${pl}`
@@ -179,9 +180,27 @@ export function flatFile(listText: string): string {
   return `#sha256 ${createHash('sha256').update(listText).digest('hex')}\n${flatLines(JSON.parse(listText) as PackageList)}\n`
 }
 
+/** The platforms a Linux server reads (packages.sh pk_platform on Linux, and "any"). */
+const LINUX_PLATFORM = (p: string) => p.startsWith('linux-') || p === 'any'
+const LINUX_ABOUT = ['The Linux copy of scripts/system/packages.json, made by scripts/build-bundle.ts (packages.ts linuxList): only',
+  'the platforms of a Linux server, so a change of an office Mac\'s download changes no byte here and is no root update.']
+
+/** root/packages.json of a Linux bundle: the list without the darwin platforms of its artifacts and with a fixed _about,
+ * so a Mac-only change of scripts/system/packages.json leaves the file byte for byte the same (no root release, which
+ * restarts the launcher and loads the firewall again on every server: PR #164 review, question 7). Groups, packages,
+ * distros, arches and revoked versions are the list's. The image builds compare a kit's root/packages.json with this
+ * of their checkout (scripts/image/build.sh, build-ami.sh). */
+export function linuxList(listText: string): string {
+  const l = JSON.parse(listText) as PackageList
+  const artifacts = Object.fromEntries(Object.entries(l.artifacts).map(([n, a]) =>
+    [n, { ...a, platforms: Object.fromEntries(Object.entries(a.platforms).filter(([p]) => LINUX_PLATFORM(p))) }]))
+  return `${JSON.stringify({ ...l, _about: LINUX_ABOUT, artifacts }, null, 2)}\n`
+}
+
 if (import.meta.main) {
   const cmd = process.argv[2]
-  if (cmd !== 'check') { console.error('usage: bun scripts/system/packages.ts check'); process.exit(2) }
+  if (cmd === 'linux') { process.stdout.write(linuxList(fs.readFileSync(process.argv[3] ?? LIST_FILE, 'utf8'))); process.exit(0) }
+  if (cmd !== 'check') { console.error('usage: bun scripts/system/packages.ts check | linux [<list>]'); process.exit(2) }
   const problems = listProblems(readList())
   for (const x of problems) console.error(`packages.json: ${x}`)
   if (problems.length) process.exit(1)

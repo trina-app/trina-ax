@@ -7,7 +7,7 @@ import { describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { flatFile, flatLines, groupsFor, listProblems, packagesFor, readList, REQUIRED_PLATFORMS, type PackageList } from '../../scripts/system/packages'
+import { flatFile, flatLines, groupsFor, linuxList, listProblems, packagesFor, readList, REQUIRED_PLATFORMS, type PackageList } from '../../scripts/system/packages'
 import { LINUX_ROOT_SCRIPTS, linuxBundleFiles } from '../../scripts/build-bundle'
 import { bundleManifest } from '../../scripts/build-office'
 import { rootManaged } from '../../scripts/release/publish-server'
@@ -735,6 +735,47 @@ describe('updates carry the list', () => {
     const inst = read('scripts/install-linux.sh')
     expect(inst).toContain('for f in packages.json packages.flat packages.sh; do [ ! -f "$KROOT/$f" ] || rootfile 644 "$f"; done')
     expect(inst).toContain('pk_write_synced "$BASE/root/packages.synced"')
+  })
+
+  test('root/packages.json is the Linux copy: a Mac-only change of the list changes no root byte (PR #164 question 7)', () => {
+    const text = read('scripts/system/packages.json')
+    const lin = linuxList(text)
+    const l = JSON.parse(lin) as PackageList
+    expect(lin).not.toContain('darwin-')
+    expect(listProblems(l, { linux: true })).toEqual([])
+    expect(listProblems(l).join()).toContain('no darwin-arm64')
+    // what a Linux server reads is the list's: groups, distros, arches, the linux and "any" downloads
+    expect(l.groups).toEqual(LIST.groups)
+    expect(l.distros).toEqual(LIST.distros)
+    for (const [n, a] of Object.entries(LIST.artifacts)) {
+      expect(l.artifacts[n]!.version).toBe(a.version)
+      for (const [p, f] of Object.entries(a.platforms)) if (!p.startsWith('darwin-')) expect(l.artifacts[n]!.platforms[p]).toEqual(f)
+    }
+    for (const lnx of ['linux-amd64', 'linux-arm64']) expect(packagesFor(l, 'debian-13', lnx.slice(6), ['default'])).toEqual(packagesFor(LIST, 'debian-13', lnx.slice(6), ['default']))
+    // an office Mac's download changes (and the notes): the Linux copy and its flat file stay byte for byte the same
+    const mac = JSON.parse(text) as PackageList
+    const b = mac.artifacts['chrome-headless-shell']!
+    b.platforms['darwin-arm64'] = { ...b.platforms['darwin-arm64']!, sha256: 'a'.repeat(64), size: 1 }
+    b.platforms['darwin-amd64'] = { ...b.platforms['darwin-amd64']!, sha256: 'b'.repeat(64), url: b.platforms['darwin-amd64']!.url.replace('.zip', '-2.zip') }
+    mac._about = ['changed']
+    const macText = JSON.stringify(mac, null, 2)
+    expect(macText).not.toBe(text)
+    expect(linuxList(macText)).toBe(lin)
+    expect(flatFile(linuxList(macText))).toBe(flatFile(lin))
+    // a Linux change is a root change
+    const linux = JSON.parse(text) as PackageList
+    linux.artifacts['chrome-headless-shell']!.platforms['linux-amd64']!.sha256 = 'c'.repeat(64)
+    expect(linuxList(JSON.stringify(linux))).not.toBe(lin)
+    const pkg = JSON.parse(text) as PackageList
+    pkg.groups.media!.packages!.ffmpeg = '>=7:5.2'
+    expect(linuxList(JSON.stringify(pkg))).not.toBe(lin)
+    // build-bundle.ts writes it (and the flat copy of it); the CLI prints the same bytes for the image builds' check
+    const bb = read('scripts/build-bundle.ts')
+    expect(bb).toContain("fs.writeFileSync(path.join(root, 'packages.json'), linuxList(fs.readFileSync(path.join(REPO, 'scripts', 'system', 'packages.json'), 'utf8')))")
+    expect(bb.indexOf("linuxList(fs.readFileSync")).toBeLessThan(bb.indexOf("path.join(root, 'packages.flat')"))
+    const cli = Bun.spawnSync([process.execPath, path.join(REPO, 'scripts/system/packages.ts'), 'linux'], { stdout: 'pipe', stderr: 'pipe' })
+    expect(cli.exitCode).toBe(0)
+    expect(cli.stdout.toString()).toBe(lin)
   })
 
   test('a bundle\'s flat copy is the list\'s: its first line names the list\'s sha256', () => {

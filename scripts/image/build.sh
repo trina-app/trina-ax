@@ -139,7 +139,14 @@ if [[ $KIT_STATE == present ]]; then
   for f in packages.json packages.sh; do
     k="$STAGE/kit/app/$KIT_VERSION/root/$f"
     [[ -f "$k" ]] || die "the kit has no app/$KIT_VERSION/root/$f (a kit from before the one list): build the kit from this checkout"
-    cmp -s "$k" "$SYS_SRC/$f" || die "the kit's root/$f differs from scripts/system/$f in this checkout: build the kit and the image from one commit"
+    want="$SYS_SRC/$f"
+    # root/packages.json is the list's Linux copy (packages.ts linuxList): compare with this checkout's Linux copy
+    if [[ $f == packages.json ]]; then
+      command -v bun >/dev/null 2>&1 || die "bun is needed to compare the kit's root/packages.json with this checkout's list (bun scripts/system/packages.ts linux)"
+      want="$WORK/packages.linux.json"
+      bun "$SYS_SRC/packages.ts" linux "$SYS_SRC/packages.json" > "$want" || die "cannot make the Linux copy of scripts/system/packages.json"
+    fi
+    cmp -s "$k" "$want" || die "the kit's root/$f differs from scripts/system/$f in this checkout: build the kit and the image from one commit"
   done
   SYS_SRC="$STAGE/kit/app/$KIT_VERSION/root"
 fi

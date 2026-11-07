@@ -50,7 +50,7 @@ import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { BUNDLED_FONTS, RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
-import { flatFile } from './system/packages'
+import { flatFile, linuxList } from './system/packages'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -214,7 +214,8 @@ export const LINUX_ROOT_SCRIPTS: readonly (readonly [string, string])[] = [
   ['scripts/linux/apparmor-bwrap.in', 'apparmor-bwrap.in'],
   ['scripts/macos/codex-catalog.mjs', 'codex-catalog.mjs'],
   // the one list of system packages and programs and its reader (scripts/system/; install-linux.sh sources it, and
-  // `mycel-ctl update` runs packages.sh sync). In root/, so a changed list is a root change (publish-server.ts rootSince)
+  // `mycel-ctl update` runs packages.sh sync). In root/, so a changed list is a root change (publish-server.ts rootSince);
+  // packages.json is written as the list's Linux copy (packages.ts linuxList), so a Mac-only change is not
   ['scripts/system/packages.json', 'packages.json'],
   ['scripts/system/packages.sh', 'packages.sh'],
 ]
@@ -394,7 +395,11 @@ export async function buildLinuxBundle(o: {
     if (fs.existsSync(path.join(REPO, src))) fs.copyFileSync(path.join(REPO, src), path.join(root, dst))
     else missing.push(src)
   }
-  if (fs.existsSync(path.join(root, 'packages.json'))) fs.writeFileSync(path.join(root, 'packages.flat'), flatFile(fs.readFileSync(path.join(root, 'packages.json'), 'utf8')))
+  // root/packages.json is the list's Linux copy (no darwin platforms), so a Mac-only change of the list is no root change
+  if (fs.existsSync(path.join(root, 'packages.json'))) {
+    fs.writeFileSync(path.join(root, 'packages.json'), linuxList(fs.readFileSync(path.join(REPO, 'scripts', 'system', 'packages.json'), 'utf8')))
+    fs.writeFileSync(path.join(root, 'packages.flat'), flatFile(fs.readFileSync(path.join(root, 'packages.json'), 'utf8')))
+  }
   const unitDir = path.join(REPO, 'scripts', 'linux', 'systemd')
   const units = fs.existsSync(unitDir) ? fs.readdirSync(unitDir).filter((f) => f.endsWith('.in')).sort() : []
   if (!units.length) missing.push('scripts/linux/systemd/*.in')
