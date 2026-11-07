@@ -68,6 +68,8 @@ unit tests in `tests/unit`, `bun run build:web` and the full web e2e suite (chro
 
 ## Result
 
+PR: https://github.com/trina-app/trina-ax/pull/176
+
 Built as planned:
 - The line on the Team skills page (owner and admins), `SkillEditorsLine` in `admin/SkillManagers.tsx`.
 - `SkillManagerDialog` as the team-wide picker.
