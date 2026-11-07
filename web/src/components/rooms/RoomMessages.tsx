@@ -351,7 +351,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
           <MenuButton
             label={t('rooms.messageMenu')}
             className="absolute top-0 right-0"
-            buttonClassName="hidden"
+            buttonClassName="hidden!"
             testId="message-menu"
             openSignal={press}
             header={reactOn ? (close) => (

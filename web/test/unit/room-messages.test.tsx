@@ -169,7 +169,7 @@ test('touch screens: no hover row on every message; a long press opens its menu 
   const html = render([message({ roomId: R, seq: 1, author: ME, body: 'mine' })])
   // the hover bar is for the mouse only; the sheet's own button never shows (a long press opens it)
   expect(html).toMatch(/<div[^>]*class="[^"]*max-md:hidden pointer-coarse:hidden[^"]*"[^>]*data-testid="message-hover-bar"/)
-  expect(html).toMatch(/<button[^>]*class="[^"]* hidden"[^>]*data-testid="message-menu"/)
+  expect(html).toMatch(/<button[^>]*class="[^"]* hidden!"[^>]*data-testid="message-menu"/)
   installDom()
   const m = await mount(<RoomMessages roomId={R} messages={[message({ roomId: R, seq: 1, author: ME, body: 'mine' })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
