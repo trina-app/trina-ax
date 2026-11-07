@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { endpoint } from './endpoint'
 import { ScheduleRunOutcome } from './schedules'
 import { QuietHours, RoomNotifyDefault } from './room-alerts'
+import { RoomKind } from './rooms'
 /** skillSuggestions: a suggestion to review, and the review result of an own suggestion (R2-SKILL-12) */
 /** Rooms (docs/DECISIONS.md "대화방 알림 설정", room-alerts.ts): roomLevel is my default for rooms without a level of
  * their own (direct: every message of 1:1 and group chats and what mentions me elsewhere; all: every message; none:
@@ -16,6 +17,15 @@ export const NotificationPreferences = z.object({
   quietHours: QuietHours.optional(),
 })
 export type NotificationPreferences = z.infer<typeof NotificationPreferences>
+/** A name or line from people (a person's or a room's name, a message's first line) made safe to show in one line of the
+ * Inbox or a notification on a device: no control or format characters (bidirectional overrides and isolates, zero-width
+ * spaces, the byte order mark, …; the zero-width joiner of emoji stays), no line breaks, spaces made single, at most
+ * `max` characters (then "…"). The app also shows such text inside <bdi>. */
+export function plainLabel(s: string, max = 80): string {
+  const line = s.replace(/(?!\u200d)\p{Cf}/gu, '').replace(/[\p{Cc}\u2028\u2029]/gu, ' ').replace(/\s+/g, ' ').trim()
+  const chars = [...line]
+  return chars.length > max ? chars.slice(0, max - 1).join('').trimEnd() + '…' : line
+}
 /** Events that can also go to OS push. Room notices (room.dm: a message for me, by the room's level: a DM or group chat
  * message, any message of a room at 모든 메시지, a reply in a thread I follow; room.mention: an @mention) are kept in
  * room_notices with their own deliveries (room_push_deliveries); the rest in notification_inbox (push_deliveries). */
@@ -80,10 +90,33 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
-  /** 'room.dm' and 'room.mention' only, while the person is still in the room and the message is there: the room (link
-   * 'room' opens /rooms/<id>), who wrote it, by name, and for a reply in a thread the thread's root (/rooms/<id>/t/<thread>).
-   * Never the message's text; older servers omit it */
-  room: z.object({ id: z.string(), from: z.string().nullable(), thread: z.string().optional() }).optional(),
+  /** 'room.dm' and 'room.mention' only, while the person is still in the room and may read the message: the room (link
+   * 'room' opens /rooms/<id>), who wrote it, by name, and for a reply in a thread the thread's root (/rooms/<id>/t/<thread>);
+   * older servers omit it. The rest says where and why (docs/DECISIONS.md "알림함의 대화 알림"; older servers omit each,
+   * the app then falls back to the line above). In the Inbox's list a row stands for one place (a room's timeline, or a
+   * thread) and what is unread there for me (or, once read, what was read together): how many messages (`count`) from
+   * how many people (`people`), its newest message's writer (`from`, `fromId`, `ai`), first line (`preview`, ≤ 200
+   * characters, '' for one with only files, then `files`) and time (`at`), and the message to open it at (`message`: the
+   * first of them, the first unread one while unread). Names and the line are one plain line (plainLabel). The kind and
+   * name of the room (name null: a DM, or a group chat without a name of its own); the reason (the strongest of the row:
+   * mention, everyone ("@전체"), reply, message). `preview` only in the Inbox's list; `label` ("민준 · #마케팅 › 스레드",
+   * a DM "민준", in the person's language) only in the single notice a push opens, for the notification's title: never
+   * the message's text there. */
+  room: z.object({
+    id: z.string(), from: z.string().nullable(), thread: z.string().optional(),
+    kind: RoomKind.optional(),
+    name: z.string().nullable().optional(),
+    reason: z.enum(['mention', 'everyone', 'reply', 'message']).optional(),
+    message: z.string().optional(),
+    fromId: z.string().nullable().optional(),
+    ai: z.literal(true).optional(),
+    preview: z.string().optional(),
+    files: z.number().int().nonnegative().optional(),
+    count: z.number().int().positive().optional(),
+    people: z.number().int().positive().optional(),
+    at: z.string().optional(),
+    label: z.string().optional(),
+  }).optional(),
   /** 'schedule.failure' only: scheduled tasks nobody confirmed were paused until their owner checks them again
    * (Settings › Scheduled tasks, "다시 확인"); older servers omit it */
   review: z.boolean().optional(),
@@ -101,7 +134,7 @@ export const InboxNotification = z.object({
 export type InboxNotification = z.infer<typeof InboxNotification>
 export const NOTIFICATIONS = {
   getNotification: endpoint({ method: 'GET', path: '/api/notifications/:id', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Read an own notification without marking read; current-access filtered and never cached.' }),
-  listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative() }), summary: 'Own metadata-only inbox, retained for 30 days.' }),
+  listNotifications: endpoint({ method: 'GET', path: '/api/notifications', auth: 'user', owner: 'B', query: z.object({ cursor: z.string().max(500).optional(), limit: z.coerce.number().int().min(1).max(100).optional() }), response: z.object({ items: z.array(InboxNotification), nextCursor: z.string().nullable(), unreadCount: z.number().int().nonnegative() }), summary: 'Own inbox, retained for 30 days: metadata, and for a room notice the first line of its message while the person may read it.' }),
   markNotificationRead: endpoint({ method: 'POST', path: '/api/notifications/:id/read', auth: 'user', owner: 'B', response: InboxNotification, summary: 'Mark an own notification read.' }),
   getNotificationPreferences: endpoint({ method: 'GET', path: '/api/notification-preferences', auth: 'user', owner: 'B', response: NotificationPreferences, summary: 'Own inbox event preferences. OS push opt-in is separate.' }),
   updateNotificationPreferences: endpoint({ method: 'PATCH', path: '/api/notification-preferences', auth: 'user', owner: 'B', body: NotificationPreferences.partial().strict(), response: NotificationPreferences, summary: 'Change own inbox event preferences and room notification settings (room default, thread replies, quiet hours).' }),
