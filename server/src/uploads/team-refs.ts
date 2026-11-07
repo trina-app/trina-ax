@@ -95,7 +95,7 @@ export class TeamFileRefs {
    */
   async create(userId: string, chatId: string, input: string): Promise<Attachment> {
     // the caller's own chat, or a shared project chat they see (its people continue it with team files: chat/shared.ts)
-    const own = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(chatId, userId)
+    const own = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND shared_at IS NULL').get(chatId, userId)
       ?? visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)
     if (!own) fileError('not_found', 'notChat')
     let rel: string, abs: string, st: fs.Stats

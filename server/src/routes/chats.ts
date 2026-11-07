@@ -252,7 +252,13 @@ export const chatsRoutes: RouteModule = {
       if (was && !rt.store.unseen(after) && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
       return chatOut(rt, auth.user.id, after)
     })
-    kit.handle(API.getChatQueue, ({ c, params, auth }) => rt.queueSnapshot(chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row.id))
+    // a shared chat: the place in the queue and the turn are the runner's; the others learn only the state
+    kit.handle(API.getChatQueue, ({ c, params, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      const snap = rt.queueSnapshot(a.row.id)
+      const runner = rt.activeTurnUser(a.row.id)
+      return a.shared && runner && runner !== auth.user.id ? { ...snap, turnId: null, messageId: null, position: null } : snap
+    })
 
     kit.handle(API.updateChat, ({ c, params, body, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'view')

@@ -192,6 +192,7 @@ export const TEXT = {
   sharedReadYes: t('읽고 공유하기', 'Read and share', 'Baca dan bagikan', "読んで共有する", "Leer y compartir"),
   sharedReadNo: t('읽지 않기', "Don't read", 'Jangan baca', "読まない", "No leer"),
   sharedReadSkipped: t('프로젝트 사람 모두가 볼 수는 없는 곳이라 읽지 않았어요', 'Not read: not everyone in the project can see that place', 'Tidak dibaca: tidak semua orang di proyek bisa melihat tempat itu', "プロジェクトの全員が見られる場所ではないため、読みませんでした", "No se leyó: no todas las personas del proyecto pueden ver ese lugar"),
+  sharedScopeMine: t('내 개인 폴더', 'your personal folder', 'folder pribadi Anda', "自分の個人フォルダー", "su carpeta personal"),
   sharedScopeOther: t('이 채팅에서 다른 사람이 연 곳', 'a place someone else opened in this chat', 'tempat yang dibuka orang lain di obrolan ini', "このチャットでほかの人が開いた場所", "un lugar que otra persona abrió en este chat"),
   sharedAnswerFailed: t('답을 마치지 못했어요.', 'The answer did not finish.', 'Jawaban tidak selesai.', "回答を完了できませんでした。", "La respuesta no terminó."),
 } satisfies Record<string, T>

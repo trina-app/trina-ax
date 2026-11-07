@@ -81,6 +81,8 @@ export interface MessageView {
   canRead(rel: string): boolean
   /** a failed answer as others see it: its reason is the runner's */
   failed: string
+  /** set by toMessage: the viewer is the person whose turn (or message) this is */
+  runner?: boolean
 }
 
 /** A step of a shared chat as stored: `label` names no path, `sv` keeps the label the runner saw and the paths it names
@@ -128,6 +130,8 @@ export class ChatStore {
       const { detail: _d, ...rest } = out
       return rest
     })
+    // a shared chat: a step's detail (a card's answer, an error's words) is the runner's alone
+    if (view && !view.runner) for (let i = 0; i < steps.length; i++) if (steps[i]!.detail !== undefined) { const { detail: _d, ...rest } = steps[i]!; steps[i] = rest }
     if (!steps.some((s) => s.tool === 'attachment')) return steps
     const owner = view?.viewer ?? (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
     const gone = (s: Step): boolean => {
@@ -250,6 +254,7 @@ export class ChatStore {
     const siblings = this.siblingIds(r)
     // a shared chat: the turn's person sees the answer as it is; anyone else not its live text, usage or failure reason
     const runner = !view || (r.role === 'assistant' ? !!r.turn_id && this.turnUser(r.turn_id) === view.viewer : r.author_id === view.viewer)
+    if (view) view = { ...view, runner }
     const hideLive = !!view && !runner && r.status === 'streaming'
     const usage = r.role === 'assistant' && r.turn_id && runner ? this.turnUsage(r.turn_id) : null
     const error = parseError(r.error)
@@ -258,7 +263,7 @@ export class ChatStore {
       id: r.id, chatId: r.chat_id, parentId: r.parent_id, role: r.role, author: r.role === 'user' ? this.userRef(r.author_id) : null,
       content: hideLive ? '' : live?.content ?? r.content, attachments: this.attachmentsOf(r, view?.viewer),
       steps: hideLive ? [] : this.viewSteps(r, live?.steps ?? json<StoredStep[]>(r.steps, []).filter(isStep), view),
-      status: r.status, error: error && view && !runner ? { code: error.code, message: view.failed } : error, turnId: r.turn_id, engine: (r.engine === 'codex' || r.engine === 'claude-code' || r.engine === 'api' ? r.engine : null) as EngineId | null,
+      status: r.status, error: error && view && !runner ? { code: 'internal', message: view.failed } : error, turnId: r.turn_id, engine: (r.engine === 'codex' || r.engine === 'claude-code' || r.engine === 'api' ? r.engine : null) as EngineId | null,
       model: r.model, files: files && view ? viewFiles(files, view) : files, usage, createdAt: iso(r.created_at),
       branch: { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings },
       // only when it paused at a limit: every other message keeps its earlier shape

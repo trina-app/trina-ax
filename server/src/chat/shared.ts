@@ -184,8 +184,9 @@ export function projectShare(db: Database, files: FileService, p: ProjectRow, au
  * chat), and turns still queued there by anyone else are stopped. Returns the chats unshared.
  */
 export function unshareUncheckedChats(db: Database): string[] {
+  // every turn of a shared chat came after it was shared: no time filter (a clock set back must not hide one)
   const rows = db.query(`SELECT c.id, c.user_id FROM chats c WHERE c.shared_at IS NOT NULL AND EXISTS (SELECT 1 FROM turns t
-    WHERE t.chat_id = c.id AND t.shared_checked = 0 AND COALESCE(t.queued_at, t.started_at) >= c.shared_at)`).all() as { id: string; user_id: string }[]
+    WHERE t.chat_id = c.id AND t.shared_checked = 0)`).all() as { id: string; user_id: string }[]
   if (!rows.length) return []
   const now = new Date().toISOString()
   db.transaction(() => {
@@ -209,11 +210,6 @@ export function stashWrittenBy(db: Database, chat: Pick<ChatRow, 'engine_session
   return r?.user_id === userId
 }
 
-/** Who ran the latest turn of this chat before `turnId` (any state), or null: whose engine folder it is now. */
-export function previousRunner(db: Database, chatId: string, turnId: string): string | null {
-  const r = db.query('SELECT user_id FROM turns WHERE chat_id = ? AND id <> ? ORDER BY COALESCE(queued_at, started_at) DESC, id DESC LIMIT 1').get(chatId, turnId) as { user_id: string } | null
-  return r?.user_id ?? null
-}
 
 /** A shared chat (not in the trash) that `userId` sees now, or null: a chat of one person, someone else's chat they do
  * not see, a missing one. For the places outside the chat routes that take a chat id (team-file attachments, uploads,
