@@ -1513,6 +1513,7 @@ export const id: Record<MessageKey, string> = {
   'folders.pageDesc': 'Siapa yang bisa melihat dan mengubah setiap folder tim: per folder, atau per orang.',
   'groups.new': 'Grup baru',
   'groups.edit': 'Ubah grup',
+  'groups.you': 'Kamu',
   'groups.name': 'Nama grup',
   'groups.description': 'Deskripsi',
   'groups.members': 'Anggota',
