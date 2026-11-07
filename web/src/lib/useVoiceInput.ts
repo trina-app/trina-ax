@@ -113,8 +113,11 @@ const watchOwner = (f: () => void) => {
   return () => void ownerWatchers.delete(f)
 }
 
-/** inside a menu, a list or a dialog, or on a button whose menu is open (the attach button): Esc there is for that */
-const inPopup = (t: EventTarget | null) => !!(t as Element | null)?.closest?.('[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[aria-expanded="true"]')
+/** Esc is for something else: aimed inside a menu, a list or a dialog, or while one is open anywhere (a menu opened by a
+ * click: Safari and Firefox leave the focus on the page then), as Layout's own Esc asks */
+const POPUP = '[role="dialog"]:not([data-drawer]),[role="alertdialog"],[role="menu"],[aria-haspopup][aria-expanded="true"]'
+const inPopup = (t: EventTarget | null) =>
+  !!(t as Element | null)?.closest?.(`${POPUP},[role="listbox"]`) || (typeof document !== 'undefined' && !!document.querySelector?.(POPUP))
 
 /** a key aimed at a control of the page, where Space does that control's thing */
 const onControl = (t: EventTarget | null) => {
@@ -139,6 +142,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
   const [jobId, setJobId] = useState<string | null>(null)
   const holdCapable = useMatch(HOLD_QUERY)
   const self = useRef<VoiceInput | null>(null)
+  /** a finger's listeners on the window, taken off when the finger lets go, the recording ends or the box goes away */
+  const pressDone = useRef<(() => void) | null>(null)
   /** another box records or transcribes now */
   const elsewhere = () => owner !== null && owner !== self.current
 
@@ -187,7 +192,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
         removeSpace: (at) => {
           const el = opts.current.input.current
           // (a Japanese IME types a full-width space)
-          if (!el || !/\s/.test(el.value[at] ?? '')) return
+          if (!el || !/^[ \u3000]$/.test(el.value[at] ?? '')) return
           const next = el.value.slice(0, at) + el.value.slice(at + 1)
           try {
             if (document.activeElement === el) {
@@ -202,11 +207,11 @@ export function useVoiceInput(o: VoiceInputOptions) {
         },
         note: (n) => opts.current.onError(n ? noteText(n) : null),
         blocked: () => opts.current.blocked,
+        canStart: () => !elsewhere(),
         granted: () => permission.current === 'granted',
         holdUsed: markHoldUsed,
         setTimeout: (fn, ms) => setTimeout(fn, ms),
         clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
-        now: () => Date.now(),
         changed: () => {
           const v = self.current
           if (v?.busy) setOwner(v)
@@ -266,11 +271,16 @@ export function useVoiceInput(o: VoiceInputOptions) {
       window.removeEventListener('blur', away)
       document.removeEventListener('visibilitychange', hidden)
       voice.dispose()
+      pressDone.current?.()
       if (owner === voice) setOwner(null)
     }
   }, [voice])
 
   const phase = voice.phase
+  // a recording that ended without the finger's lift reaching us (the cap, a disabled mic under it): its listeners go
+  useEffect(() => {
+    if (phase !== 'starting' && phase !== 'recording') pressDone.current?.()
+  }, [phase])
   // a recording, or its words on their way, is only in this tab: no reload by itself, and a question before leaving
   useEffect(() => (phase === 'transcribing' ? markBusy('recording') : undefined), [phase])
   useEffect(() => {
@@ -364,16 +374,20 @@ export function useVoiceInput(o: VoiceInputOptions) {
         }
         // a long press over the bar opens no menu or selection (the browser would take the touch away)
         const noMenu = (ev: Event) => ev.preventDefault()
-        const end = (ev: Event) => {
-          const p = ev as PointerEvent
-          if (p.pointerId !== id || ev === last) return
-          last = ev
+        const off = () => {
           for (const x of targets) {
             x.removeEventListener('pointermove', move)
             x.removeEventListener('pointerup', end)
             x.removeEventListener('pointercancel', end)
           }
           window.removeEventListener('contextmenu', noMenu, true)
+          if (pressDone.current === off) pressDone.current = null
+        }
+        const end = (ev: Event) => {
+          const p = ev as PointerEvent
+          if (p.pointerId !== id || ev === last) return
+          last = ev
+          off()
           voice.pressEnd()
           // the click the browser makes of the tap must not reach the bar's ✕ or ✓ under the finger, or the mic
           const swallow = (c: Event) => {
@@ -389,6 +403,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
           x.addEventListener('pointercancel', end)
         }
         window.addEventListener('contextmenu', noMenu, true)
+        pressDone.current?.()
+        pressDone.current = off
       },
       // a long press opens no menu and selects nothing
       onContextMenu: (e: { preventDefault(): void }) => e.preventDefault(),

@@ -12022,11 +12022,11 @@ subscription was refused (`validation`) and the web ask left Edge out.
   space is taken back (as Claude Code does). Any other key, letting go, or the window losing the focus before 400 ms ends
   the wait and a held-back Space is typed (through `execCommand('insertText')`, so the caret, undo and the mention layer
   follow; a plain value change when the browser has none), so typing is unchanged. The space taken back may be a
-  Japanese IME's full-width one. Letting go transcribes (a hold let go within 300 ms of the recording starting is
-  dropped: nothing was said, no job); Esc cancels, while transcribing too (the upload and the wait are aborted and the
-  job is cancelled), when it is aimed at the page, this box or its bar, never at a menu, a list, a dialog, a button
-  with its menu open or another box (Esc closes those), except during a Space hold; the window losing the focus or the
-  tab hidden while held transcribes. Keys are read on `window` (capture) because the bar replaces the box; a held
+  Japanese IME's full-width one. Letting go transcribes (Space let go before an allowed microphone was even on recorded
+  nothing: no job); Esc cancels, while transcribing too (the upload and the wait are aborted and the job is
+  cancelled), when it is aimed at the page, this box or its bar and no menu or dialog is open anywhere (Esc closes
+  those; Safari and Firefox leave the focus on the page when a menu opens on a click), never at a list or another box,
+  except during a Space hold; the window losing the focus or the tab hidden while held transcribes. Keys are read on `window` (capture) because the bar replaces the box; a held
   Space never scrolls the page. Space let go while the browser asks for the microphone (`navigator.permissions` says it
   is not granted yet) keeps it recording until ✓; when it was already allowed, the recording ends as soon as it is on.
 - **The mic.** A click toggles, as before. On touch screens a finger on the mic records at once: let go within 400 ms (a

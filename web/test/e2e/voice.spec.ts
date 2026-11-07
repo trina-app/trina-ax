@@ -304,7 +304,7 @@ test.describe('rooms', () => {
     await signIn(page)
     await page.goto(`/rooms/${ROOM_ID}`)
     await page.getByTestId('room-composer').getByRole('button', { name: MIC }).click()
-    await expect(page.getByTestId('room-voice-error')).toHaveText(NOTE + ' 글로 입력해 주세요.')
+    await expect(page.getByTestId('room-voice-error')).toHaveText('모든 대화가 기밀로 다뤄지는 동안에는 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않아서 대화방에서 음성 입력을 쓸 수 없어요. 글로 입력해 주세요.')
     await expect(page.getByRole('group', { name: '녹음 중' })).toHaveCount(0)
     expect(await transcribeChats(page)).toEqual([])
   })

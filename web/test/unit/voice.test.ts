@@ -5,7 +5,7 @@
 // question; the transcription job's own label.
 import { describe, expect, test } from 'bun:test'
 import { micState, SPEECH_SETTINGS_PATH, voiceBlockedHere, voiceBlockedInRoom } from '../../src/lib/voice'
-import { CAP_MS, DRAG_CANCEL_PX, HOLD_MS, jobLabel, MIN_HOLD_RECORDING_MS, VoiceInput, WARN_MS, type KeyLike, type VoiceDeps, type VoiceNote } from '../../src/lib/voiceInput'
+import { CAP_MS, DRAG_CANCEL_PX, HOLD_MS, jobLabel, VoiceInput, WARN_MS, type KeyLike, type VoiceDeps, type VoiceNote } from '../../src/lib/voiceInput'
 
 const me = (role: 'owner' | 'admin' | 'member', voiceInput?: boolean) => ({ user: { role }, team: { name: 'T', defaultLocale: 'en' as const, ...(voiceInput === undefined ? {} : { voiceInput }) } })
 
@@ -52,7 +52,7 @@ describe('rooms', () => {
 })
 
 // The hold-Space and finger moves (lib/voiceInput.ts), on a clock of their own.
-function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; failStart?: unknown } = {}) {
+function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; failStart?: unknown; busyElsewhere?: boolean } = {}) {
   let now = 0
   let next = 1
   const timers = new Map<number, { at: number; fn: () => void }>()
@@ -82,6 +82,7 @@ function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; fai
     focusBox: () => {},
     note: (n) => void notes.push(n),
     blocked: () => !!o.blocked,
+    canStart: () => !o.busyElsewhere,
     granted: () => o.granted ?? true,
     holdUsed: () => void log.push('holdUsed'),
     setTimeout: (fn, ms) => {
@@ -90,7 +91,6 @@ function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; fai
       return id
     },
     clearTimeout: (h) => void timers.delete(h as number),
-    now: () => now,
     changed: () => {},
   }
   const v = new VoiceInput(deps)
@@ -310,7 +310,7 @@ describe('hold Space', () => {
     expect(r.log).toContain('append:긴 회의 메모')
   })
 
-  test('Space let go while the browser asks for the microphone: it records on until ✓; already allowed: it stops (nothing was said)', async () => {
+  test('Space let go while the browser asks for the microphone: it records on until ✓; already allowed: nothing was recorded, no job', async () => {
     const asked = rig({ granted: false, slowStart: true })
     asked.v.boxKeyDown(key(' '), empty, hold)
     await asked.advance(HOLD_MS)
@@ -336,20 +336,23 @@ describe('hold Space', () => {
     expect(allowed.notes.filter(Boolean)).toEqual([])
   })
 
-  test('a hold let go right after the recording started is dropped: no job, no note', async () => {
+  test('a short hold once the microphone is on is still transcribed (a quick "네")', async () => {
     const r = rig()
     r.v.boxKeyDown(key(' '), empty, hold)
-    await r.advance(HOLD_MS + MIN_HOLD_RECORDING_MS - 50)
+    await r.advance(HOLD_MS + 50)
     r.v.windowKeyUp(key(' '))
     await r.flush()
-    expect(r.log).toEqual(['start', 'holdUsed', 'cancel'])
-    expect(r.notes.filter(Boolean)).toEqual([])
-    // a clicked recording is never dropped for being short
+    expect(r.log).toEqual(['start', 'holdUsed', 'stop', 'transcribe'])
+  })
+
+  test('one microphone at a time: while another box records, Space and the mic start nothing here', async () => {
+    const r = rig({ busyElsewhere: true })
+    r.v.boxKeyDown(key(' '), typed('hi'), hold)
+    await r.advance(HOLD_MS)
     r.v.click()
-    await r.flush()
-    void r.v.finish()
-    await r.flush()
-    expect(r.log.at(-1)).toBe('transcribe')
+    expect(r.v.pressStart(1, 1)).toBe(false)
+    expect(r.log).toEqual(['removeSpace:2'])
+    expect(r.v.phase).toBe('idle')
   })
 
   test('Esc aimed at a menu, a list, a dialog or another box leaves the recording alone; in a Space hold it cancels from anywhere', async () => {

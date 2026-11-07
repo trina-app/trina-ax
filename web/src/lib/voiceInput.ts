@@ -23,8 +23,6 @@ export const CAP_MS = 5 * 60_000
 export const WARN_MS = 30_000
 /** a finger this far from where it pressed the mic cancels */
 export const DRAG_CANCEL_PX = 64
-/** a hold let go sooner after the recording started has nothing to say: dropped, no job */
-export const MIN_HOLD_RECORDING_MS = 300
 
 export type VoicePhase = 'idle' | 'waiting' | 'starting' | 'recording' | 'transcribing'
 export type VoiceMode = 'hold' | 'toggle' | 'press'
@@ -74,13 +72,14 @@ export interface VoiceDeps {
   note(n: VoiceNote | null): void
   /** this place does not take voice input (a confidential chat or room and an outside speech service) */
   blocked(): boolean
+  /** no other box records or transcribes now (one microphone at a time) */
+  canStart(): boolean
   /** the browser said the microphone is allowed, so no question shows */
   granted(): boolean
   /** a hold of Space recorded (the hint for click users stops) */
   holdUsed(): void
   setTimeout(fn: () => void, ms: number): unknown
   clearTimeout(h: unknown): void
-  now(): number
   /** something shown changed */
   changed(): void
 }
@@ -108,7 +107,6 @@ export class VoiceInput {
   /** asked while the microphone was still starting: what happens once it is on */
   private after: 'stop' | 'cancel' | null = null
   private grantedAtStart = false
-  private recordingSince = 0
   private press: { x: number; y: number } | null = null
   private pressTimer: unknown = null
   private cap: unknown = null
@@ -233,8 +231,6 @@ export class VoiceInput {
       return
     }
     if (this.phase !== 'recording') return
-    // a hold let go at once (Space held just past HOLD_MS): nothing was said, no job for it
-    if (this.mode === 'hold' && this.d.now() - this.recordingSince < MIN_HOLD_RECORDING_MS) return this.cancel()
     this.clearRecording()
     const run = this.run
     const abort = new AbortController()
@@ -347,6 +343,7 @@ export class VoiceInput {
 
   private begin(mode: VoiceMode, via: VoiceVia) {
     this.d.note(null)
+    if (!this.d.canStart()) return this.d.changed()
     if (this.d.blocked()) {
       this.d.note({ kind: 'blocked' })
       this.d.changed()
@@ -372,7 +369,15 @@ export class VoiceInput {
           return
         }
         if (via === 'space') this.d.holdUsed()
-        this.recordingSince = this.d.now()
+        // Space let go before the microphone was on (it was allowed, it only took a moment): nothing was recorded
+        // while it was held, so no job and no note
+        if (after === 'stop' && via === 'space') {
+          this.d.cancel()
+          this.run++
+          this.reset()
+          this.d.focusBox(this.caret)
+          return
+        }
         this.cap = this.d.setTimeout(() => void this.finish(), CAP_MS)
         this.set('recording')
         if (after === 'stop') void this.finish()
