@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 13:17
 - Branch: `feat/team-skill-editors`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/pages/Skills.tsx`, `web/src/pages/admin/SkillManagers.tsx`, Admin › Members and
   Admin › Groups, i18n, docs). Why: team skills and folder permissions are core features of every team server (see
   docs/REPOSITORY-RULES.md)
@@ -68,4 +68,25 @@ unit tests in `tests/unit`, `bun run build:web` and the full web e2e suite (chro
 
 ## Result
 
-Filled in at the end.
+Built as planned:
+- The line on the Team skills page (owner and admins), `SkillEditorsLine` in `admin/SkillManagers.tsx`.
+- `SkillManagerDialog` as the team-wide picker.
+- `AddNamed` moved to its own module.
+- The Members and Groups columns removed, with `SkillManagerCell`, `skillsVia` and 11 unused i18n keys.
+- The docs and the CHANGELOG updated.
+
+Different from the plan, mostly from the ui-polish and impeccable critique pass:
+- Once someone is picked, the warning takes the focus and **팀 스킬 관리 켜기** points at it with `aria-describedby`.
+  A screen reader reads the warning first, and on a phone the keyboard closes. The question reads "…맡길까요?".
+- Group rows name the kind ("그룹") instead of a member count. The count differed from the line's count, which is the
+  people a group's rule decides for.
+- "모두" and "그 밖의 N명" come after the named groups and people, in the line and in Folder permissions.
+- "항상" is plain text, not a chip.
+- The search list in the dialog is in the flow. It closes after a click outside has landed, not on blur. Closing it
+  on blur re-centred the dialog under the click, so the click hit the wrong control.
+- The web e2e mock lists skill managers from the folder rules, as the server does. Rules made in Folder permissions now
+  show in the dialog too.
+
+Left as is: a very long group name in the line wraps; it is not cut. Folder-only editors
+(`skills/재무/`) are not in the line, because Folder permissions does not count them for `skills/` either. The dialog
+lists them.
