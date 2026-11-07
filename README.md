@@ -8,7 +8,7 @@
 
 Claude Code and Codex on your company's server, with your company files and your team's skills. Your team uses it in the browser, in their own chat or, from version 0.4, by calling @Trina in a team conversation.
 
-[Website](https://ax.trina.app) · [Try it in 10 minutes](#try-it-in-10-minutes) · [Self-host](docs/for-admins.md) · [Docs](docs/README.md)
+[Website](https://ax.trina.app) · [Try it in 10 minutes](#try-it-in-10-minutes) · [Self-host](docs/for-admins.md) · [Docs](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
@@ -20,7 +20,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 
 - **Set it up once, everyone works that way.** Company files go in `shared/`. The way your lead writes a quote goes in `skills/quote/SKILL.md`. Everyone on the team works from them, from their first day.
 - **Call @Trina in the room, the result lands there.** Ask in a team conversation: the team's skill runs on the files you can open, and the answer, with its file, is posted in the room.
-- **Pick up where a teammate left off** (coming next). Anyone on a project will be able to continue a teammate's AI chat, and each message runs as the person who sent it.
+- **Pick up where a teammate left off** (in the next 0.4 beta). Anyone on a project can continue a shared project chat, and each message runs as the person who sent it.
 
 Put real company files in. Everyone sees only what they're allowed to. [How](#under-the-hood)
 
@@ -195,11 +195,13 @@ https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
 ## What's next
 
-- **Pick up a teammate's AI chat.** Shared project chats: anyone on the project continues an AI chat, and each message runs as the person who sent it. Designed, not built yet.
+- **Pick up a teammate's AI chat.** Shared project chats arrive in the next 0.4 beta: anyone on the project can continue a shared project chat, and each message runs as the person who sent it. @Trina in a room can read the ones the person asking can see.
 - **Android app.** In review on Google Play.
 - **0.4 on Trina hosting.** Hosting follows the stable channel and gets team conversations when 0.4 becomes stable. Self-hosted servers can run a 0.4 release today.
 
 ## Community and contributing
+
+Ask questions and meet other teams on [Discord](https://discord.gg/zUVfSR8MVk) (the "Trina AX" server). News goes out on [X](https://x.com/trina_ax).
 
 [Latest release and checksums](https://github.com/trina-app/trina-ax/releases/latest) · [Changes](CHANGELOG.md) · [Support](SUPPORT.md) · [Contributing](CONTRIBUTING.md) · [Security reports](SECURITY.md) · [Development](docs/DEVELOPMENT.md) · [Configuration](docs/CONFIGURATION.md) · [Machine-readable index](llms.txt)
 
