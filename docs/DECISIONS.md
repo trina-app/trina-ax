@@ -11619,3 +11619,62 @@ URL, and any credential kind that would carry a custom address.
   server refusing these steps (now by name in `demo/guard.ts`, with its own message), and the speech key's password.
 - **Rejected:** keeping a lighter re-auth for official accounts (no gain, as above); dropping the password from the API
   engine (it sets where conversations go).
+
+## 대화 숨기기 — a "⋯" on every conversation, leaving and hiding (feat/room-leave-hide, 2026-11-07)
+
+넣을 곳: Team AX core (`server/src/rooms`, migration 258, `shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`,
+the sidebar, the conversations page, the room header), 이유: rooms are core, and the owner asked ("대화 나가기 같은 게 있어야
+할 것 같은데??"). Group chats could already be left, but only from the room's info (tap the title), which nobody found,
+and DMs, team rooms and the everyone room had no way out at all. Rooms follow Slack almost entirely.
+
+- **One "⋯" per conversation, wherever it shows** (`RoomMenu`, the tooltip "더 보기"): in the room's header beside the bell
+  (on a phone that header is the top bar); on each row of the sidebar's 대화 and of the conversations page (/rooms) on hover
+  or keyboard focus, in the place of the row's pill and time (they give way, as a chat row's marker does), and with a
+  right-click (or the keyboard's menu key) anywhere on the row; on a touch screen a long press on a row opens it, a sheet
+  from the bottom on a phone with the room's name on top (the row is under the scrim; the finger lifting opens no room).
+  No new boxes: the "⋯" exists only while it is wanted, and the sheet is MenuButton's.
+- **Items by kind.** 알림 설정 (opens the bell's own four levels: the header's bell, or a row's bare copy of it) and 링크
+  복사 (`<origin>/rooms/<id>`: anyone else gets "not found"), then: a group chat **대화방 나가기** (the existing leave with
+  its confirm; the others see the existing event line); a DM **대화 숨기기**; a team room and the everyone room **숨기기**
+  (membership follows the group, which also gives folder permissions, so they cannot be left). A hidden room has **다시
+  보이기** there. Hiding says where it went and how it comes back in a toast with 실행 취소; hiding the room on screen goes to
+  the conversations page.
+- **Hiding is mine only** (`PUT /api/rooms/:id/hidden {hidden}`, strict; `room_members.hidden_at`, migration 258). A DM, a
+  team room, the everyone room; hiding a group chat is 403 (it is left instead), showing one is nothing to do. The same
+  again changes nothing. Members only (404 for anyone else, admins and the owner included, as every room route). Nobody
+  else is told; my windows and devices get the room (`room.updated` to me). Not audited. `Room.hidden: true` (absent =
+  shown, so older servers never hide). It stays a room I am in: its messages, threads, unread count and notifications
+  setting are unchanged, and the AI chat's room list says ", hidden by the user".
+- **It comes back by itself when something for me arrives**, decided on the server when the message is stored
+  (`Rooms.notify` → `unhideFor`, before the notices and before the `room.message` goes out, so every device agrees and my
+  windows get the room first): a message of a DM's timeline from the other person (Slack's "close conversation"); in any
+  room a mention of me or a reply in a thread I follow; my own message there; the AI's answer to my question; a card of my
+  question to the AI opening (`RoomAi.waiting`). Nothing else: a plain message in a hidden team room or the everyone room
+  does not bring it back, **even when my level for it is 모든 메시지**, and a room still hidden makes no notice for me at
+  all (no Inbox row, push or desktop notification; a push that was waiting is dropped: `cancelPushUser` on hide and
+  `noticeWanted` refuses a hidden room). Rejected: bringing it back whenever a message alerts me by my level (a person
+  whose default is 모든 새 메시지 could never keep a team room hidden; hiding says "not in front of me"), and keeping the
+  notices of a room that stays hidden (a push for a room that is in no list). Event lines, deleted and private messages
+  never bring one back. Opening a hidden room directly (a link, a push, the full list, the people list) works as always and shows
+  it again (the room page sends `{hidden: false}` once, as it opens; `POST /api/rooms` for an existing DM does it on the
+  server).
+- **Where hidden rooms are.** Not in the sidebar's five, not in "더 보기 (N)" or its pill (the room on screen still shows);
+  not in the 대화 tab's count or its "?", the one count n (tab title, Dock badge), the desktop app's room notifications or
+  the room sound (`totalUnread`, `roomWantsMe`, `shouldRing`). The conversations page (/rooms, "모든 대화") ends with a
+  quiet fold "숨긴 대화 N" (closed by default, remembered in this browser): one row per room, its name opening it and 다시
+  보이기 at its end; no preview or count there. "모든 대화" in the sidebar shows while nothing is behind "더 보기", and also
+  under an opened "더 보기" while some rooms are hidden (else nothing in the sidebar would lead to them).
+- **Rollback: reader 1.** Migration 258 adds one nullable column; an older build ignores it and lists every room as before
+  (nothing hidden, nothing exposed). `SCHEMA_READER_LEVEL` stays. Numbered 258: 256 is skipped and 257 is the member skill
+  contributions' (checked on origin/dev and every local and remote branch before committing).
+- **Not in this step.** Hiding a group chat (it is left); "mark as read" in the menu; hiding several at once; a separate
+  mute-and-hide. The phone app's own notifications follow the server's notices, so they need no change.
+- **Tests.** `tests/unit/b-rooms-hide.test.ts` (hide and show per kind, the strict body, members only, realtime to my
+  windows only, what brings a room back and what does not, room.updated before room.message, no notice or push while
+  hidden, the AI's answer and card, openDm, the AI chat's room list, migration 258), the permission matrix
+  (`setRoomHidden`), `web/test/unit/room-hide.test.tsx` (the menu by kind, 알림 설정, hiding sent and put back on a
+  refusal, the counts, the sidebar, the hidden section, a right-click and a long press) and
+  `web/test/e2e/room-leave-hide.spec.ts` (rooms-mock.ts `routeRooms`: header menus by kind, a sidebar row on hover,
+  keyboard and right-click, the hidden section, opening a hidden room, a phone's long-press sheet and the 대화 tab).
+  Checked at 1440 and 390, light and dark (the spec saves the screens with `SHOTS_DIR`).
+- Version impact: **minor** (a new endpoint, an optional `Room` field, one additive migration).

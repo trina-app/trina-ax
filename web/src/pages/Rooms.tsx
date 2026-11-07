@@ -124,7 +124,7 @@ function HiddenRooms({ rooms }: { rooms: Room[] }) {
                 </span>
                 <span className="truncate text-sm">{title(r)}</span>
               </Link>
-              <Button size="sm" variant="ghost" className="shrink-0" aria-label={t('rooms.menu.showName', { name: title(r) })} onClick={() => show(r.id)} data-testid="rooms-hidden-show">
+              <Button size="sm" variant="ghost" className="touch-hit shrink-0" aria-label={t('rooms.menu.showName', { name: title(r) })} onClick={() => show(r.id)} data-testid="rooms-hidden-show">
                 {t('rooms.menu.show')}
               </Button>
             </li>
