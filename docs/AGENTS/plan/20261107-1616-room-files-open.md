@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 16:16
 - Branch: `feat/room-files-open`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/rooms`, `server/src/chat/answer-share.ts`, `shared/src/api/rooms.ts`,
   `web/src/components`). Why: rooms, files and permissions are core (see docs/REPOSITORY-RULES.md).
 - Version impact: minor. Room file chips open a preview (a visible UI change) and `RoomMessage` gains one optional
@@ -73,4 +73,17 @@ e2e.
 
 ## Result
 
-Filled in at the end.
+Built as planned, no migration (the mapping lives in `room_messages.source_scope`, migration 264's JSON column).
+
+- Server: `shareAnswerToRoom` keeps `attached: [{ file, path, links }]`; `messagesOut` sends
+  `RoomMessage.attachedLinks` per viewer (only seen messages, only links the answer text has, only files of that
+  message, never the stored path). A download-only room file goes only with `download=1` and never into a page element.
+- Web: `PreviewFile` source `room`; `FilePanel` reads room files through the room and draws them with the same viewers
+  (HTML only in the sandbox frame); the chip opens, a small icon downloads, a file without a viewer stays a download;
+  `teamLinkTarget` resolves a link to the team file, the copy or the lock.
+- Differs from the plan, from the independent security review: inline XML document types (`+xml`, MathML, WML) and
+  script types under other names (ECMAScript, JScript) are sent as text like HTML and JavaScript (team files too); a
+  room or local Markdown preview shows team pictures as links and loads no upload thumbnail; a fetched `download=1` of a
+  held room file is allowed (the phone app downloads through fetch) while picture, frame, player, object and script
+  destinations are refused.
+- PR: filled in on GitHub.
