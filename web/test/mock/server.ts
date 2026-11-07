@@ -3549,7 +3549,10 @@ export class MockServer {
     const url = new URL(req.url)
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
-    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 }))
+    if (!p.startsWith('/api/')) {
+      const page = serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
+      return pageHeaders(p === '/sw.js' && page.ok ? await withoutWorkerBadge(page) : page)
+    }
     this.log.push(`${req.method} ${p}`)
     // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
     // ("/api/intro-decks/:id")
@@ -3786,6 +3789,17 @@ function pageHeaders(res: Response): Response {
   h.set('X-Frame-Options', 'DENY')
   h.set('Cross-Origin-Opener-Policy', 'same-origin')
   return new Response(res.body, { status: res.status, headers: h })
+}
+
+/** Playwright's Chromium (its headless shell) kills the page's renderer as soon as a service worker calls the Badging
+ * API; Chrome, full Chromium and Electron do not. web/pwa/sw.js clears the icon badge whenever the account changes
+ * (`push.invalidate`, sent at every sign-out), so the worker served here gets no-op setAppBadge / clearAppBadge in front
+ * of it and is otherwise the built file. Its badge logic is tested in test/unit/push-worker.test.ts. */
+const NO_WORKER_BADGE = "for (const k of ['setAppBadge', 'clearAppBadge']) if (typeof self.navigator?.[k] === 'function') Object.defineProperty(self.navigator, k, { configurable: true, value: async () => {} })\n"
+async function withoutWorkerBadge(res: Response): Promise<Response> {
+  const h = new Headers(res.headers)
+  h.delete('content-length')
+  return new Response(NO_WORKER_BADGE + (await res.text()), { status: res.status, headers: h })
 }
 
 /** pandoc's docx with an altChunk (an HTML part docx-preview would draw in an unsandboxed srcdoc iframe). */
