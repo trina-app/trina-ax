@@ -72,7 +72,7 @@ bun run demo        # → http://127.0.0.1:19760 · alice / teamax-demo-1 でロ
 
 <img src="docs/images/readme/share-check.png" width="100%" alt="同じ瞬間の Everyone トークを2つの画面で。Alex には Trina の回答の上に「Only you can see this · Post」と、理由「It read folders that some people in this room cannot open (Team folder, Finance).」が表示されます。Mina には「Answered to Alex only」だけが表示されます。">
 
-<sub>Alex の回答には、Mina が開けない <code>shared/Finance</code> が使われました。Alex は自分の判断で投稿できます。それまで Mina に見えるのは、Alex が回答を受け取ったことだけです（日本語の画面では「Alexさんにだけ回答しました」）。実際のアプリ（バージョン 0.4）です。会社は架空です。</sub>
+<sub>Alex の回答には、Mina が開けない Finance フォルダーが使われました。Alex は自分の判断で投稿できます。それまで Mina に見えるのは、Alex が回答を受け取ったことだけです（日本語の画面では「Alexさんにだけ回答しました」）。実際のアプリ（バージョン 0.4）です。会社は架空です。</sub>
 
 ## できること
 

@@ -72,7 +72,7 @@ bun run demo --locale ko   # → http://127.0.0.1:19760 · alice / teamax-demo-1
 
 <img src="docs/images/readme/share-check.png" width="100%" alt="같은 순간 Everyone 대화방의 두 화면. Alex에게는 트리나의 답 위에 'Only you can see this · Post'와 이유 'It read folders that some people in this room cannot open (Team folder, Finance).'가 보여요. Mina에게는 'Answered to Alex only'만 보여요.">
 
-<sub>Alex의 답에는 Mina가 열 수 없는 <code>shared/Finance</code>가 쓰였어요. Alex가 직접 올릴 수는 있고, 그 전까지 Mina에게는 Alex가 답을 받았다는 것만 보여요(한국어 화면에서는 'Alex 님에게만 답했어요'). 실제 앱 0.4 버전이에요. 회사는 가상이에요.</sub>
+<sub>Alex의 답에는 Mina가 열 수 없는 Finance 폴더가 쓰였어요. Alex가 직접 올릴 수는 있고, 그 전까지 Mina에게는 Alex가 답을 받았다는 것만 보여요(한국어 화면에서는 'Alex 님에게만 답했어요'). 실제 앱 0.4 버전이에요. 회사는 가상이에요.</sub>
 
 ## 이런 걸 할 수 있어요
 

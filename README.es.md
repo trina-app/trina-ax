@@ -72,7 +72,7 @@ Para probar las conversaciones del equipo y @Trina, usa la [instalación con Doc
 
 <img src="docs/images/readme/share-check.png" width="100%" alt="La conversación Everyone en el mismo momento, en dos pantallas. Alex ve la respuesta de Trina marcada “Only you can see this · Post”, con el motivo “It read folders that some people in this room cannot open (Team folder, Finance).” Mina solo ve “Answered to Alex only”.">
 
-<sub>La respuesta de Alex usó <code>shared/Finance</code>, que Mina no puede abrir. Alex aún puede decidir publicarla; hasta entonces, Mina solo ve que él recibió una respuesta (en la interfaz en español: «Respondió solo a Alex»). La app real, versión 0.4. Empresa ficticia.</sub>
+<sub>La respuesta de Alex usó la carpeta Finance, que Mina no puede abrir. Alex aún puede decidir publicarla; hasta entonces, Mina solo ve que él recibió una respuesta (en la interfaz en español: «Respondió solo a Alex»). La app real, versión 0.4. Empresa ficticia.</sub>
 
 ## Qué incluye
 

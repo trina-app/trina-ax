@@ -72,7 +72,7 @@ To try team conversations and @Trina, use the [Docker install](docs/INSTALL-DOCK
 
 <img src="docs/images/readme/share-check.png" width="100%" alt="The Everyone conversation at the same moment on two screens. Alex sees Trina's answer marked 'Only you can see this · Post', with the reason line 'It read folders that some people in this room cannot open (Team folder, Finance).' Mina sees only 'Answered to Alex only'.">
 
-<sub>Alex's answer used <code>shared/Finance</code>, which Mina can't open. Alex can still choose to post it; until then, Mina sees only that he got an answer. The real app, version 0.4. Fictional company.</sub>
+<sub>Alex's answer used the Finance folder, which Mina can't open. Alex can still choose to post it; until then, Mina sees only that he got an answer. The real app, version 0.4. Fictional company.</sub>
 
 ## What you get
 

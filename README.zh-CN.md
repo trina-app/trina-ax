@@ -72,7 +72,7 @@ bun run demo        # → http://127.0.0.1:19760 · 用 alice / teamax-demo-1 �
 
 <img src="docs/images/readme/share-check.png" width="100%" alt="同一时刻 Everyone 对话的两块屏幕。Alex 看到 Trina 的回答上方写着“Only you can see this · Post”，以及原因“It read folders that some people in this room cannot open (Team folder, Finance).”；Mina 只看到“Answered to Alex only”。">
 
-<sub>Alex 的回答用到了 Mina 打不开的 <code>shared/Finance</code>。Alex 仍然可以自己决定发出去；在那之前，Mina 只能看到他收到了回答。真实应用，0.4 版。公司是虚构的。</sub>
+<sub>Alex 的回答用到了 Mina 打不开的 Finance 文件夹。Alex 仍然可以自己决定发出去；在那之前，Mina 只能看到他收到了回答。真实应用，0.4 版。公司是虚构的。</sub>
 
 ## 功能一览
 
