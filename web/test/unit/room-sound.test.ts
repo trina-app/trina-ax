@@ -412,12 +412,27 @@ describe('the chime', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(ctx.oscillators).toHaveLength(4)
-    // a phone gives the audio back only after a while: that chime is dropped
-    ctx.state = 'suspended'
-    ctx.resume = () => new Promise<void>((r) => setTimeout(() => { ctx.state = 'running'; r() }, 1100))
-    c.play()
-    await new Promise((r) => setTimeout(r, 1200))
-    expect(ctx.oscillators).toHaveLength(4)
+    // a phone gives the audio back only after a while: that chime is dropped; one back within the second still sounds.
+    // The clock is the test's own (Chime measures with Date.now): a wall clock that a container steps back made a 1.1 s
+    // wait read as under a second now and then
+    const realNow = Date.now
+    let now = realNow()
+    Date.now = () => now
+    try {
+      for (const [after, chimes] of [[1100, 4], [900, 8]] as const) {
+        ctx.state = 'suspended'
+        let back!: () => void
+        ctx.resume = () => new Promise<void>((r) => (back = () => { ctx.state = 'running'; r() }))
+        c.play()
+        now += after
+        back()
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(ctx.oscillators).toHaveLength(chimes)
+      }
+    } finally {
+      Date.now = realNow
+    }
   })
 
   test('it rests after a sound, so the audio output is not held open', async () => {

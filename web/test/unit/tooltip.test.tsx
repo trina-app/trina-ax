@@ -218,6 +218,35 @@ test('no tip while the element shows the same words; it comes when a narrow wind
   } finally { await m.unmount() }
 })
 
+test('unmounted while it waits or shows: no timer, tip or listener left behind', async () => {
+  media(true)
+  const doc = document as unknown as { addEventListener: (...a: unknown[]) => void; removeEventListener: (...a: unknown[]) => void }
+  const added = new Set<unknown>()
+  const add = doc.addEventListener.bind(doc), remove = doc.removeEventListener.bind(doc)
+  doc.addEventListener = (type: unknown, fn: unknown, ...rest: unknown[]) => { if (type === 'keydown') added.add(fn); add(type, fn, ...rest) }
+  doc.removeEventListener = (type: unknown, fn: unknown, ...rest: unknown[]) => { if (type === 'keydown') added.delete(fn); remove(type, fn, ...rest) }
+  try {
+    // the 300 ms wait running
+    let m = await mount(<Tooltip label="닫기"><button aria-label="닫기" data-testid="b">x</button></Tooltip>)
+    fire(m.get('b'), 'pointerover', { pointerType: 'mouse', relatedTarget: null })
+    await m.unmount()
+    await new Promise((r) => setTimeout(r, TOOLTIP_DELAY_MS + 50))
+    expect(tip()).toBeNull()
+    // shown: the tip in <body> and its Esc listener go with it
+    m = await mount(<Tooltip label="닫기"><button aria-label="닫기" data-testid="b">x</button></Tooltip>)
+    fire(m.get('b'), 'focusin')
+    await m.settle(10)
+    expect(tip()).not.toBeNull()
+    expect(added.size).toBe(1)
+    await m.unmount()
+    expect(tip()).toBeNull()
+    expect(added.size).toBe(0)
+  } finally {
+    doc.addEventListener = add
+    doc.removeEventListener = remove
+  }
+})
+
 test('placed above and centred; below when there is no room above; never outside the window', () => {
   const view = { width: 1000, height: 800 }
   expect(placeTip({ top: 100, bottom: 128, left: 500, width: 28 }, { width: 80, height: 24 }, view)).toEqual({ top: 70, left: 474, below: false })
