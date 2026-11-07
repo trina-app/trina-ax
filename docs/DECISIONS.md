@@ -1219,7 +1219,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **D9 Codex는 진짜 토큰을 받지 않는다**: 턴의 `CODEX_HOME/auth.json`은 가짜(접근 토큰·API 키 자리 = 이 턴의 프록시 토큰, refresh 자리 = `teamax-no-refresh`, account_id = `teamax-<sha256(연결 id)[:12]>`, 서명 없는 id_token에 진짜 플랜 종류만). 공급자 `teamax`(이름은 PRODUCT.displayName, "OpenAI"가 아님)가 `http://127.0.0.1:<proxy>/codex/<chatgpt|openai>`로 보내고, 프록시가 진짜 Authorization·ChatGPT-Account-ID(또는 키)를 넣는다. Codex 턴의 CONNECT 터널은 없앴다(`connect.ts`의 `codexTurns`는 F1·옛 구성에서만). `chatgpt_base_url`·갱신 주소도 프록시로: `/codex/backend/wham/config/bundle`은 `{}`, 그 밖 배경 호출은 404(Codex 0.163이 ChatGPT 턴마다 부르는 `accounts/check`·`settings/user`는 경고 없이), `/codex/oauth/token`은 400 invalid_grant + 감사.
 - **D10 갱신은 서버가**: 연결별 single-flight, 회전된 refresh token을 같은 트랜잭션에서 먼저 저장한 뒤 새 접근 토큰을 쓴다. `invalid_grant`·`refresh_token_*`·401이면 `needs_reconnect`. 일시 실패는 그 요청만 502. 하루 한 번 8일 넘게 안 쓴 연결을 갱신.
 - **D12 봉인**: 브라우저(`web/src/lib/seal.ts`)가 서버 공개키(`<secrets>/credential-sealing.jwk`, P-256)로 ECDH + HKDF-SHA256(info `mycel-seal-v1|<kid>`) + AES-256-GCM으로 봉인. 평문 `{secret, nonce, purpose}`: purpose가 엔드포인트와 다르면 거부, 같은 nonce는 10분 안에 두 번 받지 않음. 계약에 봉인 안 된 비밀값 필드가 없다. `crypto.subtle`이 없는 화면(LAN의 http)은 "https에서만"이라고 말한다.
-- **D13 권한 (대체됨: 맨 아래 「관리자도 팀 AI 연결을 한다」)**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
+- **D13 권한 (대체됨: 맨 아래 「관리자도 팀 AI 연결을 한다」, 비밀번호는 「공식 AI 계정 연결에는 비밀번호를 묻지 않는다」)**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
 - **D14 상태는 연결별**: 401 → 그 연결만 `invalid`(ChatGPT는 갱신 1번·재전송 1번 뒤), 긴 429 → 그 연결만 `limited_until`(DB, 재시작해도 유지). 프록시 전역 `limitedUntil`은 없앴다.
 - **D15 넘기기**: 묶인 연결이 한도·거절·월 한도에 걸리면 같은 계열 다음 연결로 새 시도(최대 2번, Claude는 새 세션, 단계·알림·감사 `engine.credential_switch`). 없으면 `rate_limited`일 때만 `limitFallback`(Claude→Codex, Codex 연결이 있을 때만), 그다음 오류.
 - **D16 비용**: `credentials/prices.ts`(2026-10-22 정가). API 키만 계산, 구독은 0(토큰은 셈). 모르는 모델은 계열 최대값 + 서버 시작 뒤 모델마다 한 번 감사.
@@ -11055,20 +11055,23 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - **Before:** the product's name, seven rows (새 채팅, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬) plus 관리자, then
   대화방 (eight rows, unread ones beyond them, "모두 보기"), then 최근 채팅 by date. With a dozen rooms the AI chats were
   below the fold at 1440×900.
-- **Now (768 px and wider):** the team's name on top (the account line no longer repeats it); one row for 트리나에게 묻기
-  (a new AI chat, with ⇧⌘O) and a search icon (⌘K); one row of icons: 파일, 프로젝트, 예약 작업, 팀 스킬, 알림함 (the count on the bell), 관리자
-  for owners and admins only. Each icon is a link named by its label (the Inbox's name carries the count, so a screen
-  reader says it), reached by Tab with the focus ring, and shows its name as a tooltip on hover and on keyboard focus
-  (a native `title` shows on hover only). Then **one scroll with two strictly capped sections, no boxes**: **대화**
+- **Now (768 px and wider):** the team's name on top (the account line no longer repeats it); then one labeled row
+  each, 36 px, in the order they had before: **트리나에게 묻기** (a new AI chat, ⇧⌘O on the row), **검색** (⌘K on the row),
+  **프로젝트**, **예약 작업**, **알림함** (its count on the row; the number is hidden from screen readers and said in words),
+  **파일**, **팀 스킬**, and **관리자** for owners and admins only. Then **one scroll with two strictly capped sections, no
+  boxes**: **대화**
   (rooms, group chats, DMs by latest activity, unread in bold with the count, thread replies and mentions counted in, a
   long name cut with the whole of it on hover, ⊕ 새 대화): exactly the five latest, and the room on screen if it is not
-  one of them (six at most), then "더 보기 (N)" that opens the rest in place ("접기" closes it) and, when a hidden room
+  one of them (six at most), then one entry row that is always there while there is a room: "더 보기 (N)" that opens the
+  rest in place ("접기" closes it) or, when nothing is hidden, "모든 대화" to the conversations page (/rooms, with its
+  search); "더 보기", when a hidden room
   has something unread, carries one pill in the rooms' badge style: "안 읽음 M" (the hidden rooms' unread messages and
   followed replies added; "@" before it when one of them mentions me; a muted room's count only when no other hidden
   room has any, grey like its own badge; the screen reader hears "읽지 않은 메시지 M개"), so no count is ever out of
   sight; then **트리나 기록** (the AI's name: `aiName`, the product's name in the core edition): exactly the five latest AI
-  chats and the chat on screen if it is not one of them, then "모두 보기" for the whole history with its filters in
-  place (choosing a filter opens it too; "접기"), which says "답 필요 K" with a dot when K hidden chats wait for my answer
+  chats and the chat on screen if it is not one of them, then "모두 보기", always there while there is a history (also
+  when all of it is in sight), for the whole history with its filters in place (choosing a filter opens it too;
+  "접기"), which says "답 필요 K" with a dot when K hidden chats wait for my answer
   or have an answer I have not seen and is not running again (the warn colour when one waits, the accent when they are
   only unseen). Between the two sections, on its own row and in neither list, onboarding's setup row ("설정 이어서
   하기 · n/4" or "AI 연결하기" for the owner, W5). Each section folds, and each one's whole list stays open or closed,
@@ -11080,8 +11083,18 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   then two stacked panes (대화 scrolling on its own, 트리나 기록 pinned at the bottom), then caps that always let unread
   rooms through. The last one failed on the owner's own account (13 unread rooms): no cap at all, and 트리나 기록 below the
   fold at 1280. So the cap is strict, five and the open one, and what is hidden is counted on its button instead. With
-  60 rooms (9 unread) the e2e sees the five rooms and all five AI chats without scrolling at 1440×900 and at 1280×800;
-  it holds for any number of rooms and any number unread.
+  60 rooms (9 unread) the e2e saw the five rooms and all five AI chats without scrolling at 1440×900 and at 1280×800
+  with the icon row; it holds for any number of rooms and any number unread.
+- **Labeled rows, not icons** (the owner, 2026-11-07: "아이콘만 보이는 건 별로인 거 같음. 기존처럼 각각의 행으로 보이게
+  해줘"). The icon row and its tooltips are gone; each item says its name. The rows take about 230 px more, so less of
+  트리나 기록 is in sight without scrolling (14 or 60 rooms alike, the five rooms always in sight): a member sees 4 of its
+  5 chats at 1440×900 and 3 at 1280×800; an owner with 관리자 and the setup row (setup not finished) 4 and 1; with the
+  icon row all 5 were in sight at both sizes. Rejected for now: shrinking the rows below 36 px (the size of every other
+  row) or dropping the shortcut hints.
+- **The entries are always there** (the owner, 2026-11-07: "트리나 기록 왜 더보기가 없어?? 대화도 더보기가 없고?"). With
+  short lists (five or fewer) 더 보기 and 모두 보기 did not show, so there was no way to the whole list from the sidebar.
+  Now 대화 always ends with its row ("더 보기 (N)" or "모든 대화") and 트리나 기록 with "모두 보기"; neither shows while
+  its list is empty.
 - **Names: people and the AI never share a word** (the owner, 2026-11-06: no bare "채팅" in navigation). People: 대화 (the
   section, the tab, the /rooms page; one room can still be called a 대화방 in sentences), 새 대화. The AI: 트리나에게 묻기
   (the new-chat button, the chat's new-chat icon, the search palette's action), 트리나 기록 (the desktop section, the
@@ -11100,7 +11113,7 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   so no old chat gets a dot after the update; a chat with no mark counts its answers after it was made. `unseen` is the
   newest finished assistant message (done, error or stopped) later than the mark. Older builds ignore the column.
   Rejected: a per-window mark in the browser (gone on reload, wrong on another device).
-- **Removed:** seven text rows (two rows instead), the product's name on top, the team name in the account line, 팀
+- **Removed:** the product's name on top, the team name in the account line, 팀
   스킬's own count (the Inbox has the suggestion), the old cap of eight rooms that let every unread one through, the AI
   chats' date groups and filter in the default view (behind "모두 보기").
 - The phone's drawer keeps its own layout ("Phone navigation: four tabs"); it gets the same dots.
@@ -11554,8 +11567,9 @@ fix. "Tell the owner" was a dead end when the owner is not around, and the produ
   service's trial AI credit is not a connection row (nobody edits it here), the allowed kinds come from
   `engine.credentialKinds`, and the API engine address must be public https (`apiEngineAnyUrl`). All of these apply to
   admins exactly as to the owner.
-- **Rejected:** a lighter re-auth for admins, or none (a connection is the team's money and access; the password
-  again stays); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
+- **Rejected:** ~~a lighter re-auth for admins, or none (a connection is the team's money and access; the password
+  again stays)~~ (superseded 2026-11-07: see "No password for the team's official AI accounts" at the end, which drops the
+  password for official accounts and keeps it only where the caller sets the address); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
   to other admins too (the owner is the one who answers for the team, and admins see the change in Activity log).
 
 ### Review round 1 of "Admins connect the team's AI too" (2026-11-06)
@@ -11645,3 +11659,36 @@ An independent review found one hole and several gaps. What changed, and why:
   saving its token (409) is neither recorded nor told.
 - **No notice for a save that changes nothing** (the same address, model, name, and no new key).
 
+
+## No password for the team's official AI accounts (2026-11-07, product owner)
+
+**Decision.** Adding or replacing a team AI connection and starting a Claude or ChatGPT sign-in no longer ask for the
+person's password (`createCredential`, `replaceCredentialSecret`, `startCredentialLogin` are plain `admin` now, and their
+bodies carry no `password`). This holds for the owner and admins alike, in the full dialog, the simple "AI 연결하기"
+dialog, replace-key and reconnect. The plan-notice acknowledgement stays. The password stays wherever the caller sets
+the address that receives the team's conversations: `putApiEngine` (`admin-reauth`, with the same rate limit, demo guard
+and https-only rule for admin-set addresses as before).
+
+**Why.** The owner asked why a password was typed to connect Claude, and the answer was that a stolen or left-open session
+could swap the team's AI account. The owner pointed out there is nothing to gain from that. For an official subscription
+(Claude Pro / Max / Team, ChatGPT) or an official provider key (Anthropic, OpenAI) the conversations go only to that
+provider. Whoever swaps in their own account pays for the team and sees nothing. The one swap that gains something is an
+address the caller chooses, because then the team's conversations go to that server. That is the team API engine's base
+URL, and any credential kind that would carry a custom address.
+
+- **Credential kinds checked.** `anthropic-oauth`, `anthropic-api-key`, `chatgpt` and `openai-api-key`
+  (`shared/src/api/credentials.ts`, `server/src/credentials/*`): none takes a caller-supplied base URL or endpoint. Each
+  goes to its provider's fixed address. An Anthropic gateway exists (`engine.anthropicGateway` in `server.json`), but it is
+  the operator's setting, not a request field, and the key is bound to it. So no kind needs the password today.
+  `CUSTOM_ADDRESS_KINDS` (shared, empty) names the place a future kind with a caller-set address must be listed, and a
+  contract test fails if a kind is added or the list changes without a decision. The server then decides from the body's
+  kind, not from the endpoint.
+- **`moveFrom` ("Move it to the team").** Its proof of possession is the re-sealed secret: the request must seal the same
+  token / key the member's personal connection holds (matched by fingerprint), and `moveFrom` must name that very
+  connection, or it stays a 409. The password never proved that, so none is required. A member still cannot call it
+  (role), and an admin may move, like the owner. A test covers a `moveFrom` naming another connection.
+- **Unchanged.** Role checks (members get 403 before anything runs), the notice to the owner for an admin's change,
+  members' own connections, the key bound to its address, the https-only rule for addresses an admin sets, the demo
+  server refusing these steps (now by name in `demo/guard.ts`, with its own message), and the speech key's password.
+- **Rejected:** keeping a lighter re-auth for official accounts (no gain, as above); dropping the password from the API
+  engine (it sets where conversations go).

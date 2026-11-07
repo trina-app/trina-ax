@@ -6,6 +6,7 @@
 // with `checked` are radio items (the chosen one ticked), `heading` names the menu above them and `icon` replaces the "…".
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
+import { Tooltip } from '../Tooltip'
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 
 export interface MenuItem {
@@ -105,19 +106,21 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
   }
   return (
     <div ref={box} className={clsx(className?.includes('absolute') ? null : 'relative', className)} onKeyDown={onKey}>
-      <button
-        ref={button}
-        type="button"
-        aria-label={label}
-        title={label}
-        aria-haspopup="menu"
-        aria-expanded={!!open}
-        onClick={toggle}
-        className={clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', muted ? 'text-muted' : 'text-faint', buttonClassName)}
-        data-testid={testId}
-      >
-        {icon ?? <MoreHorizontal size={16} aria-hidden />}
-      </button>
+      {/* its name as a tooltip (components/Tooltip.tsx), not while its menu is open */}
+      <Tooltip label={label}>
+        <button
+          ref={button}
+          type="button"
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={!!open}
+          onClick={toggle}
+          className={clsx('inline-flex items-center justify-center rounded-md p-1.5 transition hover:bg-hover hover:text-ink max-sm:p-2', muted ? 'text-muted' : 'text-faint', buttonClassName)}
+          data-testid={testId}
+        >
+          {icon ?? <MoreHorizontal size={16} aria-hidden />}
+        </button>
+      </Tooltip>
       {/* phones: a sheet from the bottom with 48px rows over a scrim (a tap on it closes), not a small menu by the finger */}
       {/* (a finger held on it must not reach the message's own long press, which would open the sheet again) */}
       {open && <div aria-hidden className="fixed inset-0 z-30 bg-black/40 md:hidden" onPointerDown={(e) => e.stopPropagation()} onClick={() => Date.now() - pressedAt.current > 400 && setOpen(null)} />}

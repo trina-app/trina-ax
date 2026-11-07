@@ -6,7 +6,7 @@
 // server's allowed kinds (D22). S-8 (no secret in any response, audit entry or log line), S-10 (sealing: no plain
 // secret field, purpose, replay, key id), S-13 (redirects of the provider check are not followed).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import type { SealingKey } from '@mycel/shared/api'
+import { API, CREDENTIAL_KINDS, CUSTOM_ADDRESS_KINDS, type SealingKey } from '@mycel/shared/api'
 import { PRODUCT } from '../../shared/src/product'
 import { createLogger } from '../../server/src/log'
 import dns from 'node:dns/promises'
@@ -63,7 +63,7 @@ afterAll(async () => { await h?.close(); fake.stop(true); other.stop(true) })
 
 const sealed = async (secret: string, purpose: 'credential.create' | 'credential.replace' = 'credential.create') => { CANARIES.push(secret); return sealSecret(key, secret, purpose) }
 const create = async (c: Client, kind: string, secret: string, extra: Record<string, unknown> = {}) =>
-  c.try('POST', '/api/admin/credentials', { kind, label: 'L-' + kind, sealed: await sealed(secret), password: OWNER_PW, ...(kind === 'anthropic-oauth' ? { acknowledgedPlanNotice: true } : {}), ...extra })
+  c.try('POST', '/api/admin/credentials', { kind, label: 'L-' + kind, sealed: await sealed(secret), ...(kind === 'anthropic-oauth' ? { acknowledgedPlanNotice: true } : {}), ...extra })
 
 describe('sealing key and sealed secrets (S-10)', () => {
   test('the public key only (no private part), a 16-hex key id', async () => {
@@ -73,22 +73,22 @@ describe('sealing key and sealed secrets (S-10)', () => {
     expect(await member.client.call('GET', '/api/credentials/sealing-key')).toEqual(key)
   })
   test('a plain secret field is not part of the contract (400), even with a sealed one missing', async () => {
-    const r = await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', secret: AKEY('plain'), password: OWNER_PW })
+    const r = await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', secret: AKEY('plain') })
     expect(r.status).toBe(400)
     expect(JSON.stringify(r.body)).not.toContain(AKEY('plain'))
   })
   test('sealed for another purpose, used twice, or with another key id: refused, never saved', async () => {
     const before = (await owner.call('GET', '/api/admin/credentials')).items.length
     const replace = await sealed(AKEY('purpose'), 'credential.replace')
-    expect((await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: replace, password: OWNER_PW })).status).toBe(400)
+    expect((await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: replace })).status).toBe(400)
     const once = await sealed(AKEY('once'))
-    expect((await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'once', sealed: once, password: OWNER_PW })).status).toBe(201)
-    const again = await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'once2', sealed: once, password: OWNER_PW })
+    expect((await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'once', sealed: once })).status).toBe(201)
+    const again = await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'once2', sealed: once })
     expect(again.status).toBe(400); expect(again.body.error.fields['body.sealed']).toBe('already used')
     const wrongKid = { ...(await sealed(AKEY('kid'))), kid: '0000000000000000' }
-    expect((await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: wrongKid, password: OWNER_PW })).status).toBe(400)
+    expect((await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: wrongKid })).status).toBe(400)
     const broken = { ...(await sealed(AKEY('broken'))), ct: 'A'.repeat(40) }
-    expect((await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: broken, password: OWNER_PW })).status).toBe(400)
+    expect((await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: broken })).status).toBe(400)
     expect((await owner.call('GET', '/api/admin/credentials')).items.length).toBe(before + 1)
   })
 })
@@ -111,7 +111,7 @@ describe('adding connections (checked without spending tokens)', () => {
   })
   test('a Claude subscription token: count_tokens with the OAuth headers, 200 = verified; one year; the plan notice is required', async () => {
     hits.length = 0; answer = {}
-    const noAck = await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-oauth', label: 'Max', sealed: await sealed(CLAUDE('noack')), password: OWNER_PW })
+    const noAck = await owner.try('POST', '/api/admin/credentials', { kind: 'anthropic-oauth', label: 'Max', sealed: await sealed(CLAUDE('noack')) })
     expect(noAck.status).toBe(400); expect(noAck.body.error.fields['body.acknowledgedPlanNotice']).toBeDefined()
     expect(hits).toEqual([]) // refused before asking the provider
     const r = await create(owner, 'anthropic-oauth', CLAUDE('max1'))
@@ -162,11 +162,19 @@ describe('adding connections (checked without spending tokens)', () => {
     expect((await create(owner, 'anthropic-api-key', AKEY('dup'))).status).toBe(201)
     expect((await create(owner, 'anthropic-api-key', AKEY('dup'))).status).toBe(409)
   })
-  test('the owner and admins, with their own password: members 403, a wrong password 403 (an admin cannot use the owner\'s)', async () => {
+  test('the owner and admins add with no password at all; a member is refused by role', async () => {
     expect((await create(member.client, 'anthropic-api-key', AKEY('bymember'))).status).toBe(403)
-    expect((await create(owner, 'anthropic-api-key', AKEY('wrongpw'), { password: 'nope' })).status).toBe(403)
-    expect((await create(admin, 'anthropic-api-key', AKEY('adminwrongpw'))).status).toBe(403) // the owner's password, typed by an admin
-    expect((await create(admin, 'anthropic-api-key', AKEY('adminnopw'), { password: undefined })).status).toBe(400) // no password at all
+    expect((await create(owner, 'anthropic-api-key', AKEY('nopw'), { password: undefined })).status).toBe(201)
+    expect((await create(admin, 'anthropic-api-key', AKEY('adminnopw'))).status).toBe(201)
+    // a password in the body is not part of the contract any more: ignored, never checked
+    expect((await create(admin, 'anthropic-api-key', AKEY('adminanypw'), { password: 'anything at all' })).status).toBe(201)
+  })
+  test('every kind goes to its provider\'s fixed address, so none asks for a password; a kind with an address the caller sets must be listed and gets one', () => {
+    expect([...CREDENTIAL_KINDS].sort()).toEqual(['anthropic-api-key', 'anthropic-oauth', 'chatgpt', 'openai-api-key'])
+    expect(CUSTOM_ADDRESS_KINDS).toEqual([])
+    // the only place a caller sets where the team's conversations go still asks for the password
+    expect(API.putApiEngine.auth).toBe('admin-reauth')
+    for (const e of [API.createCredential, API.replaceCredentialSecret, API.startCredentialLogin]) expect(e.auth).toBe('admin')
   })
 })
 
@@ -184,10 +192,10 @@ describe('changing, checking, removing', () => {
   })
   test('a new token on the same connection (password again): state back to ok', async () => {
     h.ctx.db.query("UPDATE engine_credentials SET status = 'invalid', limited_until = ? WHERE id = ?").run(new Date(Date.now() + 3600_000).toISOString(), id)
-    const r = await owner.call('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(CLAUDE('changed2'), 'credential.replace'), password: OWNER_PW })
+    const r = await owner.call('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(CLAUDE('changed2'), 'credential.replace') })
     expect(r).toMatchObject({ state: 'ok', limitedUntil: null })
     // sealed for "create" is not accepted here
-    expect((await owner.try('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(CLAUDE('changed3')), password: OWNER_PW })).status).toBe(400)
+    expect((await owner.try('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(CLAUDE('changed3')) })).status).toBe(400)
   })
   test('check again: admins too (no tokens spent); a 401 marks it refused', async () => {
     answer = { '/v1/messages/count_tokens': 401 }
@@ -221,10 +229,10 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
   })
   const mine = () => told.filter((t) => t.code === 'credential_admin_change')
   const adminCreate = async (kind: string, secret: string, extra: Record<string, unknown> = {}) =>
-    admin.try('POST', '/api/admin/credentials', { kind, label: 'Adam ' + kind, sealed: await sealed(secret), password: adminPw, ...(kind === 'anthropic-oauth' ? { acknowledgedPlanNotice: true } : {}), ...extra })
+    admin.try('POST', '/api/admin/credentials', { kind, label: 'Adam ' + kind, sealed: await sealed(secret), ...(kind === 'anthropic-oauth' ? { acknowledgedPlanNotice: true } : {}), ...extra })
   let id = ''
 
-  test('an admin adds a connection with their own password: the owner gets one notice (who and what, no key)', async () => {
+  test('an admin adds a connection with no password: the owner gets one notice (who and what, no key)', async () => {
     told.length = 0
     const secret = AKEY('byadmin2')
     const r = await adminCreate('anthropic-api-key', secret)
@@ -246,10 +254,8 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     expect((await admin.call('PATCH', `/api/admin/credentials/${ownersId}`, { disabled: true })).state).toBe('disabled')
     expect(mine()).toHaveLength(1)
     expect(mine()[0]!.message.en).toBe("ADAM turned off the team AI connection 'Renamed by admin'.")
-    // the new key needs the admin's own password
-    const noPw = await admin.try('POST', `/api/admin/credentials/${ownersId}/secret`, { sealed: await sealed(AKEY('adminswap'), 'credential.replace'), password: OWNER_PW })
-    expect(noPw.status).toBe(403)
-    const rep = await admin.try('POST', `/api/admin/credentials/${ownersId}/secret`, { sealed: await sealed(AKEY('adminswap'), 'credential.replace'), password: adminPw })
+    // the new key needs no password
+    const rep = await admin.try('POST', `/api/admin/credentials/${ownersId}/secret`, { sealed: await sealed(AKEY('adminswap'), 'credential.replace') })
     expect(rep.status).toBe(200)
     expect(mine()).toHaveLength(2)
     expect(mine()[1]!.message.en).toContain('replaced the token or key')
@@ -261,7 +267,7 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
   test('the owner changes and removes one an admin added; their own changes tell nobody', async () => {
     told.length = 0
     expect((await owner.call('PATCH', `/api/admin/credentials/${id}`, { label: 'Owner renamed', disabled: true })).state).toBe('disabled')
-    const rep = await owner.try('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(AKEY('ownerswap'), 'credential.replace'), password: OWNER_PW })
+    const rep = await owner.try('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(AKEY('ownerswap'), 'credential.replace') })
     expect(rep.status).toBe(200)
     const made = await create(owner, 'anthropic-api-key', AKEY('ownermade'))
     expect(made.status).toBe(201)
@@ -273,11 +279,11 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     const aid = (await adminCreate('anthropic-api-key', AKEY('byadmin3'))).body.id
     expect(h.ctx.db.query("SELECT actor_id AS actor FROM audit_log WHERE action = 'credential.create' AND target = ?").get(aid)).toEqual({ actor: adminId })
     const m = member.client
-    expect((await m.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: await sealed(AKEY('m1')), password: 'river stone lamp 7' })).status).toBe(403)
+    expect((await m.try('POST', '/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: await sealed(AKEY('m1')) })).status).toBe(403)
     expect((await m.try('PATCH', `/api/admin/credentials/${aid}`, { disabled: true })).status).toBe(403)
-    expect((await m.try('POST', `/api/admin/credentials/${aid}/secret`, { sealed: await sealed(AKEY('m2'), 'credential.replace'), password: 'river stone lamp 7' })).status).toBe(403)
+    expect((await m.try('POST', `/api/admin/credentials/${aid}/secret`, { sealed: await sealed(AKEY('m2'), 'credential.replace') })).status).toBe(403)
     expect((await m.try('DELETE', `/api/admin/credentials/${aid}`)).status).toBe(403)
-    expect((await m.try('POST', '/api/admin/credential-logins', { kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 1, acknowledgedPlanNotice: true, password: 'river stone lamp 7' })).status).toBe(403)
+    expect((await m.try('POST', '/api/admin/credential-logins', { kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 1, acknowledgedPlanNotice: true })).status).toBe(403)
     expect((await m.try('GET', '/api/admin/credential-logins/nope')).status).toBe(403)
     expect((await m.try('DELETE', '/api/admin/credential-logins/nope')).status).toBe(403)
     expect((await m.try('POST', '/api/admin/credential-logins/nope/code', { sealed: await sealed(AKEY('m3')) })).status).toBe(403)
@@ -397,7 +403,7 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
       expect((await admin.try('PATCH', `/api/admin/credentials/${memberMine}`, { priority: 1 })).status).toBe(403)
       expect((await admin.try('PATCH', `/api/admin/credentials/${memberMine}`, { spendLimit: { usd: 1, tokens: null, action: 'block' } })).status).toBe(403)
       expect((await admin.try('PATCH', `/api/admin/credentials/${memberMine}`, { disabled: true, label: 'x' })).status).toBe(403)
-      expect((await admin.try('POST', `/api/admin/credentials/${memberMine}/secret`, { sealed: await sealed(AKEY('swap'), 'credential.replace'), password: adminPw })).status).toBe(403)
+      expect((await admin.try('POST', `/api/admin/credentials/${memberMine}/secret`, { sealed: await sealed(AKEY('swap'), 'credential.replace') })).status).toBe(403)
       expect(told).toEqual([])
       expect((await admin.call('PATCH', `/api/admin/credentials/${memberMine}`, { disabled: true })).state).toBe('disabled')
       expect(told.map((t) => [t.to, t.message.en])).toEqual([[[member.id], "ADAM turned off your AI connection 'own-pmemb'."]])
@@ -414,7 +420,7 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
       for (const id of [ownerMine, annMine]) {
         expect((await admin.try('PATCH', `/api/admin/credentials/${id}`, { disabled: true })).status).toBe(403)
         expect((await admin.try('DELETE', `/api/admin/credentials/${id}`)).status).toBe(403)
-        expect((await admin.try('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(AKEY('swap2'), 'credential.replace'), password: adminPw })).status).toBe(403)
+        expect((await admin.try('POST', `/api/admin/credentials/${id}/secret`, { sealed: await sealed(AKEY('swap2'), 'credential.replace') })).status).toBe(403)
       }
       expect((await ann.client.try('DELETE', `/api/admin/credentials/${adamMine}`)).status).toBe(403)
       expect(told).toEqual([])
@@ -600,7 +606,7 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
       expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM engine_credentials').get() as { n: number }).n).toBe(before)
       setRole('admin')
       const cid = (await create(owner, 'anthropic-api-key', AKEY('latereplace'))).body.id
-      const rep = admin.try('POST', `/api/admin/credentials/${cid}/secret`, { sealed: await sealed(AKEY('latereplace2'), 'credential.replace'), password: adminPw })
+      const rep = admin.try('POST', `/api/admin/credentials/${cid}/secret`, { sealed: await sealed(AKEY('latereplace2'), 'credential.replace') })
       await new Promise((r) => setTimeout(r, 100))
       setRole('member')
       expect((await rep).status).toBe(403)
@@ -703,10 +709,10 @@ describe('kinds this server allows (engine.credentialKinds, D22)', () => {
     try {
       const o2 = await withOwner(h2)
       const k2: SealingKey = await o2.call('GET', '/api/credentials/sealing-key')
-      const r = await o2.try('POST', '/api/admin/credentials', { kind: 'anthropic-oauth', label: 'x', sealed: await sealSecret(k2, CLAUDE('off'), 'credential.create'), acknowledgedPlanNotice: true, password: OWNER_PW })
+      const r = await o2.try('POST', '/api/admin/credentials', { kind: 'anthropic-oauth', label: 'x', sealed: await sealSecret(k2, CLAUDE('off'), 'credential.create'), acknowledgedPlanNotice: true })
       expect(r.status).toBe(400)
       expect((await o2.call('GET', '/api/admin/credentials')).allowedKinds).toEqual(['anthropic-api-key', 'openai-api-key'])
-      expect((await o2.try('POST', '/api/admin/credential-logins', { label: 'g', acknowledgedPlanNotice: true, password: OWNER_PW })).status).toBe(400)
+      expect((await o2.try('POST', '/api/admin/credential-logins', { label: 'g', acknowledgedPlanNotice: true })).status).toBe(400)
     } finally { await h2.close() }
   })
 })

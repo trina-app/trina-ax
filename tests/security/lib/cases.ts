@@ -55,6 +55,16 @@ const reauthCheck = (what: string) => (r: { status: number; json: any }, _w: unk
   if ((who === 'owner' || who === 'admin') && r.status !== 429 && !(r.status === 403 && atPassword)) throw new Error(`${who}: ${what} was not refused at the password check (status ${r.status})`)
   if (who === 'member' && !(r.status === 403 && !atPassword)) throw new Error(`member: ${what} was not refused for the role (status ${r.status})`)
 }
+/** The team's AI steps with an official provider (add, replace a key, start a sign-in) ask for no password: the owner and an
+ * admin pass the role gate and are stopped later by the body (a fake sealed value / the unticked plan notice), never at
+ * a password check; a member is refused for the role. Nobody is let through, and nothing is started. */
+const noPasswordCheck = (what: string) => (r: { status: number; json: any }, _w: unknown, who: string) => {
+  if (r.status < 300) throw new Error(`${who}: ${what} went through with a body that cannot be valid`)
+  const atPassword = !!r.json?.error?.fields?.['body.password']
+  if (atPassword) throw new Error(`${who}: ${what} asked for a password`)
+  if ((who === 'owner' || who === 'admin') && r.status !== 400) throw new Error(`${who}: ${what} was not refused by the body (status ${r.status})`)
+  if (who === 'member' && r.status !== 403) throw new Error(`member: ${what} was not refused for the role (status ${r.status})`)
+}
 const J = (body: unknown) => ({ headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' } as Record<string, string>, raw: JSON.stringify(body) })
 /** a sealed value of the right shape that opens with no key (the server refuses it after the permission check) */
 const FAKE_SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'B'.repeat(16), ct: 'C'.repeat(40) }
@@ -461,16 +471,16 @@ export const SPECS: Record<string, Spec> = {
   updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3, memberChoice: { mode: 'off', groupIds: [], userIds: [] }, limitFallback: false }), scope: 'byLevel' },
   checkEngine: { build: (c) => c.post('/api/admin/engines/claude-code/check'), scope: 'byLevel' },
   // AI connections (docs/PERMISSIONS.md): the owner and admins change the team's (adding / replacing / signing in
-  // asks for their own password again); members only their own. Secrets never appear in any response (matrix.ts ALL).
+  // asks for no password, official providers only); members only their own. Secrets never appear in any response (matrix.ts ALL).
   listCredentials: { build: (c) => c.get('/api/admin/credentials'), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && !r.text.includes('Team Max')) throw new Error('the team connection is missing from the list') } },
-  createCredential: { skipPositive: true, build: (c) => c.post('/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: FAKE_SEALED, password: 'wrong-pass' }), scope: 'byLevel',
-    check: reauthCheck('adding an AI connection') },
+  createCredential: { skipPositive: true, build: (c) => c.post('/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: FAKE_SEALED }), scope: 'byLevel',
+    check: noPasswordCheck('adding an AI connection') },
   updateCredential: { build: (c, w) => c.patch(`/api/admin/credentials/${w.ids.teamCredential}`, { label: 'Team Max' }), scope: 'byLevel' },
-  replaceCredentialSecret: { skipPositive: true, build: (c, w) => c.post(`/api/admin/credentials/${w.ids.teamCredential}/secret`, { sealed: FAKE_SEALED, password: 'wrong-pass' }), scope: 'byLevel', check: reauthCheck('replacing an AI connection\'s key') },
+  replaceCredentialSecret: { skipPositive: true, build: (c, w) => c.post(`/api/admin/credentials/${w.ids.teamCredential}/secret`, { sealed: FAKE_SEALED }), scope: 'byLevel', check: noPasswordCheck('replacing an AI connection\'s key') },
   deleteCredential: { build: (c) => c.del('/api/admin/credentials/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
   checkCredential: { build: (c, w) => c.post(`/api/admin/credentials/${w.ids.teamCredential}/check`), scope: 'byLevel' },
-  startCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/admin/credential-logins', { label: 'x', acknowledgedPlanNotice: true, password: 'wrong-pass' }), scope: 'byLevel', check: reauthCheck('starting an AI sign-in') },
+  startCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/admin/credential-logins', { label: 'x', acknowledgedPlanNotice: false }), scope: 'byLevel', check: noPasswordCheck('starting an AI sign-in') },
   getCredentialLogin: { build: (c) => c.get('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   cancelCredentialLogin: { build: (c) => c.del('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   // the Claude code of a sign-in: only its starter's (an unknown sign-in: 404 before the sealed value is opened)

@@ -4,12 +4,14 @@
 // the five latest show, and the room on screen if it is not one of them (six at most); "더 보기 (N)" opens the rest in
 // place ("접기" closes it), remembered in this browser like the fold, and carries what the hidden rooms hold for me
 // ("?" when one's AI waits on me, "안 읽음 M", "@" when one mentions me), so no count the 대화
-// tab shows is lost (a muted room's count only when nothing else is unread there, as its own badge is grey).
+// tab shows is lost (a muted room's count only when nothing else is unread there, as its own badge is grey). With
+// nothing hidden the same row is "모든 대화", to the whole conversations page (/rooms, with its search): the entry is
+// always there (the owner, 2026-11-07).
 // Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useId, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { badgeText, roomBadge, roomUnread } from '../../lib/rooms'
@@ -112,6 +114,14 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
                 </span>
               )}
             </button>
+          </li>
+        )}
+        {/* nothing hidden: the entry is still there, to the whole conversations page (its search, every room) */}
+        {more === 0 && rooms.length > 0 && (
+          <li>
+            <Link to="/rooms" onClick={onNavigate} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-all">
+              <span className="truncate">{t('sidebar.allRooms')}</span>
+            </Link>
           </li>
         )}
       </ul>
