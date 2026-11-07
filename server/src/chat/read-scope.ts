@@ -5,8 +5,10 @@
 // changed rule or a new member never leaves a stale set behind.
 //   {type:'folder', id}  the nearest folder with rules above a file (folders.id: survives renames and moves)
 //   {type:'root'}        no rule folder above it: the team folder's default (owner and admins)
-//   {type:'user', id}    users/<id>/…, and what the in-app browser showed the person (only they saw it), and what a
-//                        personal external-service connection returned
+//   {type:'user', id}    users/<id>/…, and what the in-app browser showed the person (only they saw it, via
+//                        'browser'), and what a personal external-service connection or personal Google Drive returned
+//                        (via 'connection'). A row without via is own-folder content, or (a scope written before via
+//                        existed) any of the three
 //   {type:'integration', id}  what a team external-service connection returned: its viewers are the active people its
 //                        access rules allow today (integrations/connections/store.ts)
 //   {type:'drive_share', id}  what a Google Drive an admin shares with the team returned: its viewers are the active
@@ -22,16 +24,23 @@
 //                        old path
 // null (no sources yet) = no limit. read and grep results count; list / glob (names only), skills, memories and the
 // person's own messages do not (in a room session names count too, rooms/ai.ts).
+// Stored as {sources, v: 2, unlisted}: a scope started by this build (v 2) also keeps the keys of the file-type sources
+// (folder, root, own folder) that came at least once from something other than a read the answer's source list records
+// (message_sources, files/sources.ts): an attachment, project instructions, a skill, make_file's inputs, more than the
+// list holds. "대화방에 보내기" (chat/answer-share.ts) goes by the source list's files for the others (each with its
+// sha256). A scope without v (written before) has every source counted as it is.
 import type { Database } from 'bun:sqlite'
 import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { getRow, usersOf } from '../integrations/connections/store'
 import { shareRow, shareUsers } from '../integrations/google-drive/shares'
 
-export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'drive_share'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
+export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string; via?: 'browser' | 'connection' } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'drive_share'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
 
 /** One string per source (deduplication, and what the person already allowed for a folder in this turn). */
-export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : s.type === 'name' ? `name:${s.path}` : `${s.type}:${s.id}`)
+export const sourceKey = (s: ReadSource) => (s.type === 'root' ? 'root' : s.type === 'room' ? `room:${s.id}:${s.fromSeq ?? 0}` : s.type === 'name' ? `name:${s.path}` : s.type === 'user' && s.via ? `user:${s.id}:${s.via}` : `${s.type}:${s.id}`)
 const key = sourceKey
+/** One string per place as a card names it: a person's folder, browser and personal connections are one ("my folder") */
+const placeKey = (s: ReadSource) => (s.type === 'user' ? `user:${s.id}` : key(s))
 
 /** The source of a team-folder file (relative path with actual names). */
 export function sourceOf(db: Database, rules: RuleSet, rel: string): ReadSource {
@@ -47,24 +56,52 @@ export function sourceOf(db: Database, rules: RuleSet, rel: string): ReadSource 
   return { type: 'root' }
 }
 
-export function readScope(db: Database, chatId: string): ReadSource[] | null {
+interface StoredScope { sources: ReadSource[]; v?: 2; unlisted?: string[] }
+
+function storedScope(db: Database, chatId: string): StoredScope | null {
   const row = db.query('SELECT session_read_scope AS s FROM chats WHERE id = ?').get(chatId) as { s: string | null } | null
   if (!row?.s) return null
   try {
-    const v = JSON.parse(row.s) as { sources?: ReadSource[] }
-    return Array.isArray(v.sources) ? v.sources : null
+    const v = JSON.parse(row.s) as Partial<StoredScope>
+    if (!Array.isArray(v.sources)) return null
+    return { sources: v.sources, ...(v.v === 2 ? { v: 2 as const, unlisted: Array.isArray(v.unlisted) ? v.unlisted.filter((k): k is string => typeof k === 'string') : [] } : {}) }
   } catch { return null }
 }
 
-/** Add sources to a chat's scope (deduplicated). */
-export function addSources(db: Database, chatId: string, add: ReadSource[]): void {
+export function readScope(db: Database, chatId: string): ReadSource[] | null {
+  return storedScope(db, chatId)?.sources ?? null
+}
+
+/** A team-folder or own-folder source (what file reads add): a folder, the top, users/<id>/ without via. */
+export const isFileSource = (s: ReadSource) => s.type === 'folder' || s.type === 'root' || (s.type === 'user' && !s.via)
+
+/**
+ * The scope with, for each file-type source, whether the answer's source lists (message_sources) record all that went
+ * in from it (`listed`): only in a scope this build started (v 2), and only when no attachment, instructions, skill or
+ * other unrecorded input added it. null: no scope.
+ */
+export function scopeWithListing(db: Database, chatId: string): { sources: ReadSource[]; listed: (s: ReadSource) => boolean } | null {
+  const sc = storedScope(db, chatId)
+  if (!sc) return null
+  const unlisted = new Set(sc.unlisted ?? [])
+  return { sources: sc.sources, listed: (s) => sc.v === 2 && isFileSource(s) && !unlisted.has(key(s)) }
+}
+
+/** Add sources to a chat's scope (deduplicated). `listed`: they come from reads the answer's source list records
+ * (files/sources.ts SourceLog; chat/turn.ts noteReads); anything else (the default) is marked as not listed. */
+export function addSources(db: Database, chatId: string, add: ReadSource[], o: { listed?: boolean } = {}): void {
   if (!add.length) return
   db.transaction(() => {
-    const cur = readScope(db, chatId) ?? []
-    const seen = new Set(cur.map(key))
+    // a scope started now keeps which file-type sources are not listed (v 2); one from before stays as it was
+    const cur: StoredScope = storedScope(db, chatId) ?? { sources: [], v: 2, unlisted: [] }
+    const seen = new Set(cur.sources.map(key))
+    const unlisted = new Set(cur.unlisted ?? [])
     let changed = false
-    for (const s of add) if (!seen.has(key(s))) { seen.add(key(s)); cur.push(s); changed = true }
-    if (changed) db.query('UPDATE chats SET session_read_scope = ? WHERE id = ?').run(JSON.stringify({ sources: cur }), chatId)
+    for (const s of add) {
+      if (!seen.has(key(s))) { seen.add(key(s)); cur.sources.push(s); changed = true }
+      if (cur.v === 2 && !o.listed && isFileSource(s) && !unlisted.has(key(s))) { unlisted.add(key(s)); changed = true }
+    }
+    if (changed) db.query('UPDATE chats SET session_read_scope = ? WHERE id = ?').run(JSON.stringify(cur.v === 2 ? { sources: cur.sources, v: 2, unlisted: [...unlisted] } : { sources: cur.sources }), chatId)
   })()
 }
 
@@ -122,7 +159,7 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
   const rules = RuleSet.load(db)
   const people = activePeople(db)
   const target = people.filter((p) => atLeast(rules.access(p, targetSegs), 'read')).map((p) => p.id)
-  const narrower = sources.filter((s, i) => sources.findIndex((x) => key(x) === key(s)) === i)
+  const narrower = sources.filter((s, i) => sources.findIndex((x) => placeKey(x) === placeKey(s)) === i)
     .filter((s) => { const v = viewersOf(db, rules, s, people); return target.some((id) => !v.has(id)) })
   return narrower.length ? { narrower, targetViewers: target.length } : null
 }
@@ -160,7 +197,7 @@ export function roomWidening(db: Database, roomId: string, sources: ReadSource[]
   const rules = RuleSet.load(db)
   const people = activePeople(db)
   const target = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND visible_from_seq < ?').all(roomId, rootSeq ?? Number.MAX_SAFE_INTEGER) as { user_id: string }[]).map((r) => r.user_id)
-  const narrower = sources.filter((s, i) => sources.findIndex((x) => key(x) === key(s)) === i)
+  const narrower = sources.filter((s, i) => sources.findIndex((x) => placeKey(x) === placeKey(s)) === i)
     .filter((s) => { const v = viewersOf(db, rules, s, people); return target.some((id) => !v.has(id)) })
   return narrower.length ? { narrower, targetViewers: target.length } : null
 }
