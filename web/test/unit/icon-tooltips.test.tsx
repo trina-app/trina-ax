@@ -32,6 +32,9 @@ test('an icon-only button, link or Button needs a <Tooltip>', () => {
   // words that show again from some width on are words
   expect(problems(`<button aria-label="AI"><X /> <span className="sr-only md:not-sr-only">AI</span></button>`)).toHaveLength(1)
   expect(problems(`<button aria-label="AI"><X /> <span className="not-sr-only">AI</span></button>`)).toEqual([])
+  // words at every width: one part on computers, another on phones (the sidebar's team / AI name)
+  expect(problems(`<Link to="/"><img src="/favicon.svg" alt="" /><span className="max-md:hidden">{team}</span><span className="md:hidden">{ai}</span></Link>`)).toEqual([])
+  expect(problems(`<Link to="/"><img src="/favicon.svg" alt="" /><span className="max-md:hidden">{team}</span></Link>`)).toHaveLength(1)
 })
 
 test('wrapped, with words, an IconButton or a stated reason: fine', () => {

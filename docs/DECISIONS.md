@@ -11838,8 +11838,11 @@ nothing.
   Rejected: a unit test over rendered main pages. The unit tests' small DOM renders a page only with its stores and API
   mocked, and only in its first state, so menus, dialogs, row actions, error and admin-only states (most of the icon
   buttons) would stay unseen; the static check sees every file, needs no browser or server, and names the line.
-- **Left out:** `Sidebar.tsx` and `rooms/SidebarRooms.tsx` (PR #124 rewrites them; the check skips them by name until
-  then), the desktop shell's own HTML screens (`desktop/src/ui/`), status icons inside labelled rows (a step's done /
+- **The sidebar** (after PR #124 landed): the history's filter and its clear ✕, a chat's "…" and 대화's + get the
+  tooltip in place of their titles; nothing else in it moves. The team row at the top is no icon-only control (the team's
+  name from 768px, the AI's name below), so the check counts two parts hidden at opposite sides of one breakpoint as
+  words.
+- **Left out:** the desktop shell's own HTML screens (`desktop/src/ui/`), status icons inside labelled rows (a step's done /
   failed mark, spinners), and the phone's bottom tabs (they have words; tooltips never show on touch anyway).
 - Tests: `web/test/unit/tooltip.test.tsx` (IconButton default, `tip` text and `false`, CopyButton, `:focus-visible`,
   words shown), `web/test/unit/icon-tooltips.test.tsx` (the check on samples; a dialog's close, a code block's download,

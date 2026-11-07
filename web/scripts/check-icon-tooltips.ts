@@ -19,12 +19,8 @@ import ts from 'typescript'
 
 const SRC = path.resolve(import.meta.dir, '../src')
 
-/** Files left out for now, with the reason. */
-export const SKIP: Record<string, string> = {
-  // PR #124 rewrites these two; their rows are labelled anyway
-  'components/Sidebar.tsx': 'PR #124',
-  'components/rooms/SidebarRooms.tsx': 'PR #124',
-}
+/** Files left out, with the reason (none today). */
+export const SKIP: Record<string, string> = {}
 
 const CONTROLS = new Set(['button', 'a', 'Link', 'NavLink', 'Button'])
 /** components that draw a picture, not words */
@@ -38,7 +34,11 @@ const tagOf = (n: Jsx) => opening(n).tagName.getText()
 const attr = (n: Jsx, name: string) => opening(n).attributes.properties.find((p): p is ts.JsxAttribute => ts.isJsxAttribute(p) && p.name.getText() === name)
 const attrText = (a: ts.JsxAttribute | undefined) => (!a ? '' : !a.initializer ? 'true' : ts.isStringLiteral(a.initializer) ? a.initializer.text : a.initializer.getText())
 
-interface Seen { text: boolean; icon: boolean }
+/** what the content shows: words, pictures, and the breakpoints of words a window size hides (`max-md:`, `md:`) */
+interface Seen { text: boolean; icon: boolean; hidden?: string[] }
+/** words at every width: plain words, or two parts that hide at opposite sides of one breakpoint (`max-md:hidden` and
+ * `md:hidden`: the team's name on a computer, the AI's name on a phone) */
+const words = (s: Seen) => s.text || (s.hidden ?? []).some((v) => v && !/^@?max-/.test(v) && s.hidden!.includes(v.replace(/^(@?)/, '$1max-')))
 
 export function iconOnlyProblems(file: string, source: string): Problem[] {
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -81,7 +81,14 @@ export function iconOnlyProblems(file: string, source: string): Problem[] {
       const cls = attrText(attr(n, 'className'))
       if (/(^|[\s'"`])([\w@[\]-]+:)*sr-only([\s'"`]|$)/.test(cls)) return // words for screen readers only (at some widths)
       // words a narrow window hides (`@max-2xl:hidden`, `max-sm:hidden`): then it is icon-only
-      if (/(^|[\s'"`])([\w@[\]-]+:)*hidden([\s'"`]|$)/.test(cls)) return
+      const hid = /(?:^|[\s'"`])((?:[\w@[\]-]+:)*)hidden(?=[\s'"`]|$)/.exec(cls)
+      if (hid) {
+        const inner: Seen = { text: false, icon: false }
+        if (ts.isJsxElement(n)) children(n.children, inner)
+        if (inner.icon) seen.icon = true
+        if (inner.text) (seen.hidden ??= []).push(hid[1]!)
+        return
+      }
       if (ts.isJsxElement(n)) children(n.children, seen)
       return
     }
@@ -120,7 +127,7 @@ export function iconOnlyProblems(file: string, source: string): Problem[] {
       } else if (CONTROLS.has(tag) || attrText(attr(n, 'role')) === 'button') {
         const seen: Seen = { text: false, icon: false }
         if (ts.isJsxElement(n)) children(n.children, seen)
-        if (seen.icon && !seen.text && !exempt(n)) {
+        if (seen.icon && !words(seen) && !exempt(n)) {
           if (!inTooltip(n)) problems.push({ file, line: lineOf(n), tag, label, why: 'icon-only control without a <Tooltip>' })
           else if (titled(n)) problems.push({ file, line: lineOf(n), tag, label, why: 'title= beside a <Tooltip> shows two tips' })
           else if (titledAncestor(n)) problems.push({ file, line: lineOf(n), tag, label, why: ANCESTOR })
@@ -130,7 +137,7 @@ export function iconOnlyProblems(file: string, source: string): Problem[] {
         // browser's slow title
         const seen: Seen = { text: false, icon: isPicture(tag) }
         if (ts.isJsxElement(n)) children(n.children, seen)
-        if (seen.icon && !seen.text) problems.push({ file, line: lineOf(n), tag, label, why: inTooltip(n) ? 'title= beside a <Tooltip> shows two tips' : 'title= on an icon: use <Tooltip>' })
+        if (seen.icon && !words(seen)) problems.push({ file, line: lineOf(n), tag, label, why: inTooltip(n) ? 'title= beside a <Tooltip> shows two tips' : 'title= on an icon: use <Tooltip>' })
       }
     }
     ts.forEachChild(n, visit)
