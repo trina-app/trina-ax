@@ -44,7 +44,8 @@ COPY --from=kit /kit /opt/trina-ax/kit
 # The packages of the one list (the kit's root/packages.json, scripts/system/packages.json in the repository): its always
 # groups, which scripts/install-linux.sh --minimal checks (the entrypoint runs it with --skip-apt), and the docker group.
 # Read with the kit's packages.sh and its flat copy (no jq or bun needed here). No init program is needed: mycel-ctl
-# supervise is PID 1 and reaps orphans itself.
+# supervise is PID 1 and reaps orphans itself. packages.sh is bash (arrays, [[ ]]): the RUN steps run in bash, not sh.
+SHELL ["/bin/bash", "-c"]
 RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
     test -f "$root/packages.sh" || { echo "this Dockerfile needs a kit with root/packages.json (the one list of packages)" >&2; exit 1; }; \
     . "$root/packages.sh"; pk_load "$root/packages.json"; \
