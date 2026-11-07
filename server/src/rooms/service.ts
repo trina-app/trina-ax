@@ -43,6 +43,7 @@ import {
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
+import { countedUnreadIn } from './inbox'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
 import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
@@ -255,8 +256,8 @@ export class Rooms {
       this.roomEvent(roomId, 'updated', new Set([userId]))
       // a push of this room that waits or is on its way is checked again: a hidden room pushes nothing (alerts.ts)
       cancelPushUser(this.ctx, userId)
-      // its rows leave the Inbox (rooms/inbox.ts): the count is read again
-      this.notifySignal(userId)
+      // its rows leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
+      if (countedUnreadIn(this.db, userId, roomId)) this.notifySignal(userId)
     } else if (!hidden) this.unhide(roomId, [userId])
     return this.get(userId, roomId)
   }
@@ -269,8 +270,8 @@ export class Rooms {
     const ids = [...new Set(userIds)]
     for (const r of this.db.query(`UPDATE room_members SET hidden_at = NULL WHERE room_id = ? AND hidden_at IS NOT NULL AND user_id IN (${ids.map(() => '?').join(',')}) RETURNING user_id`).all(roomId, ...ids) as { user_id: string }[]) back.add(r.user_id)
     if (publish && back.size) this.roomEvent(roomId, 'updated', back)
-    // its rows are in the Inbox again (rooms/inbox.ts): the count is read again
-    for (const u of back) this.notifySignal(u)
+    // its rows are in the Inbox again (rooms/inbox.ts): when one counts, the count is read again
+    for (const u of back) if (countedUnreadIn(this.db, u, roomId)) this.notifySignal(u)
     return back
   }
 
@@ -379,13 +380,10 @@ export class Rooms {
 
   /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go. */
   private forgetMember(roomId: string, userId: string) {
-    let notices = 0
-    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions']) {
-      const n = this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId).changes
-      if (t === 'room_notices') notices = n
-    }
-    // their rows of the room leave the Inbox: its count is read again
-    if (notices) this.notifySignal(userId)
+    // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
+    const counted = countedUnreadIn(this.db, userId, roomId)
+    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
+    if (counted) this.notifySignal(userId)
   }
 
   /** Only active accounts of this team; one that is not (disabled, deleted, unknown) refuses the whole request without

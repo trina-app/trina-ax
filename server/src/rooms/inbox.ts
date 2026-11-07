@@ -25,6 +25,13 @@ export const COUNTED_SQL = LISTED_SQL
 const READABLE_SQL = `r.archived_at IS NULL AND rm.hidden_at IS NULL AND m.deleted_at IS NULL AND m.event IS NULL
   AND COALESCE(m.thread_root_seq, m.seq) > rm.visible_from_seq AND (m.visibility = 'room' OR m.visible_to = n.user_id)`
 
+/** Has the person an unread notice in this room that the Inbox counts (hiding, showing or leaving the room changes the
+ * count then, and their windows read it again)? */
+export function countedUnreadIn(db: Database, userId: string, roomId: string): boolean {
+  return !!db.query(`SELECT 1 FROM room_notices n JOIN room_messages m ON m.id = n.source_id WHERE n.user_id = ? AND n.room_id = ? AND n.read_at IS NULL AND n.suppressed = 0
+    AND ${COUNTED_SQL} LIMIT 1`).get(userId, roomId)
+}
+
 /** The longest preview sent (the row shows one line and cuts it with an ellipsis). */
 export const PREVIEW_MAX = 200
 /** The longest name or title sent. */
