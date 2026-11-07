@@ -3375,6 +3375,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.reactRemove": "Quitar su {emoji}",
   "rooms.messageMenu": "Menú del mensaje",
   "rooms.copied": "Copiado",
+  "rooms.linkHttpCopied": "La app solo abre direcciones https, así que se copió esta. Pégala en tu navegador.",
+  "rooms.linkHttpApp": "La app solo abre direcciones https. Abre esta en tu navegador.",
   "rooms.deleteTitle": "¿Eliminar este mensaje?",
   "rooms.deleteBody": "El mensaje y sus archivos se eliminan para todos en la sala. No se puede deshacer.",
   "rooms.editLabel": "Editar mensaje",

@@ -3375,6 +3375,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.reactRemove": "{emoji} のリアクションを取り消す",
   "rooms.messageMenu": "メッセージのメニュー",
   "rooms.copied": "コピーしました",
+  "rooms.linkHttpCopied": "アプリで開けるのは https のアドレスだけなので、このアドレスをコピーしました。ブラウザに貼り付けて開いてください。",
+  "rooms.linkHttpApp": "アプリで開けるのは https のアドレスだけです。このアドレスはブラウザで開いてください。",
   "rooms.deleteTitle": "このメッセージを削除しますか？",
   "rooms.deleteBody": "ルームの全員からこのメッセージとファイルが消えます。元に戻せません。",
   "rooms.editLabel": "メッセージを編集",

@@ -3415,6 +3415,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.reactRemove": "Hapus reaksi {emoji}",
   "rooms.messageMenu": "Menu pesan",
   "rooms.copied": "Disalin",
+  "rooms.linkHttpCopied": "Aplikasi hanya membuka alamat https, jadi alamat ini disalin. Tempel di browser Anda.",
+  "rooms.linkHttpApp": "Aplikasi hanya membuka alamat https. Buka alamat ini di browser Anda.",
   "rooms.deleteTitle": "Hapus pesan ini?",
   "rooms.deleteBody": "Pesan dan filenya dihapus untuk semua orang di ruang ini. Ini tidak bisa dibatalkan.",
   "rooms.editLabel": "Edit pesan",
