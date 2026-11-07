@@ -62,10 +62,13 @@ describe('sub-task steps', () => {
     expect(html.match(/data-testid="subtask-latest"/g)).toHaveLength(1)
   })
 
-  test('folded after the answer: counts the answer\'s own steps; a failed child marks the list', () => {
+  test('folded after the answer: counts the answer\'s own steps; a failed child marks the list of a failed answer only', () => {
     setLocale('en')
-    const html = renderToStaticMarkup(<Steps steps={steps.map((s) => ({ ...s, status: s.status === 'running' ? 'ok' : s.status, endedAt: at }))} streaming={false} />)
+    const done = steps.map((s) => ({ ...s, status: s.status === 'running' ? 'ok' as const : s.status, endedAt: at }))
+    const html = renderToStaticMarkup(<Steps steps={done} streaming={false} failed />)
     expect(html).toContain(translate('en', 'steps.summary', { n: 4 }))
     expect(html).toContain(translate('en', 'steps.someFailed'))
+    // the answer finished: the sub-agent got past it, no red mark
+    expect(renderToStaticMarkup(<Steps steps={done} streaming={false} />)).not.toContain(translate('en', 'steps.someFailed'))
   })
 })

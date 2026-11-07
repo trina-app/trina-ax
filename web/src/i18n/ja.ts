@@ -492,6 +492,8 @@ export const ja: Record<MessageKey, string> = {
   'devEnvQueue.full': '開発環境が満杯です。しばらくしてからもう一度お試しください。',
   'devEnvQueue.cancelled': 'キャンセルしました。実行されていません。',
   'steps.failed': "失敗",
+  'steps.retried': "うまくいかなかったので、{ai}が別の方法でやり直しました",
+  'steps.retrying': "うまくいかなかったので、{ai}が別の方法を試しています",
   'steps.paused': "ここで一旦停止",
   'steps.stopped': "ここで停止",
   'steps.someFailed': "一部の手順に失敗しました",
