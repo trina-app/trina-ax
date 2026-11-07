@@ -141,6 +141,10 @@ describe('saving a copy', () => {
     const turnId = await runOf('alice', q)
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
     expect((card.data.request as { question: string }).question).toContain(png.name)
+    // in words: what it does, the file by its name, where it goes; never the call's arguments
+    const details = (card.data.request as { details?: { fields?: { name: string; value: string }[] }[] }).details
+    expect(details?.[0]?.fields).toEqual([{ name: 'Action', value: 'Save conversation file' }, { name: 'File', value: png.name }, { name: 'Save as', value: 'shared/' }])
+    expect(JSON.stringify(details)).not.toContain(png.id)
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
     // the team room's two members can see the file; everyone can read shared/: the wider-audience card
     const widen = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.requestId !== card.data.request.requestId, 15_000)
