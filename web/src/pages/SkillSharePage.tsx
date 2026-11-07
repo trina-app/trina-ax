@@ -4,20 +4,22 @@
 // proposal as it is (it waits until it expires, and the notice still leads here); after [팀에 공유] the primary goes
 // to the team skills. While the owner's welcome steps are unfinished (docs/DECISIONS.md "W5": the link and the notice
 // are exits from 내 스킬 가져오기) both go back to /welcome ("설정으로 돌아가기"), which resumes at its step; the server
-// records the share as 내 스킬 done. Members have no proposals (their way is "스킬로 제안"): they go Home.
+// records the share as 내 스킬 done. Members make no proposals (their way is "스킬로 제안"), but a proposal to one of their
+// groups is theirs to review (docs/DECISIONS.md "Group skills"): the notice and Team skills › 검토 lead here; any
+// other proposal is "gone" for them (the server answers 404). Here the proposer may also choose where it goes (the
+// team or one of their groups).
 import { useEffect, useState } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { SkillShare } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { useLocale, useT } from '../i18n'
-import { isAdmin, isOwner, useMeStrict } from '../store/session'
+import { isOwner, useMeStrict } from '../store/session'
 import { useWelcome } from '../store/welcome'
 import { ErrorNote, Skeleton } from '../components/ui'
 import { quietLink, SkillShareReview } from '../components/onboarding/SkillShareReview'
 
 export default function SkillSharePage() {
   const me = useMeStrict()
-  if (!isAdmin(me)) return <Navigate to="/" replace />
   return <SharePage team={me.team.name} owner={isOwner(me)} />
 }
 
@@ -60,7 +62,7 @@ function SharePage({ team, owner }: { team: string; owner: boolean }) {
       </p>
     )
   } else if (inSetup) body = <SkillShareReview share={share} team={team} doneLabel={t('skillShare.page.toSetup')} onDone={toSetup} onLater={toSetup} onStopped={toSetup} inSetup />
-  else body = <SkillShareReview share={share} team={team} doneLabel={t('skillShare.page.toSkills')} onDone={toSkills} onLater={toSkills} onStopped={toSkills} />
+  else body = <SkillShareReview share={share} team={team} doneLabel={t('skillShare.page.toSkills')} onDone={toSkills} onLater={toSkills} onStopped={toSkills} pickTarget />
 
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="skill-share-page">
