@@ -12,8 +12,8 @@
 import clsx from 'clsx'
 import { Sparkles, Users } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
-import type { UserRef } from '@mycel/shared/api'
-import { LOCALES, translate, useT } from '../../i18n'
+import { ROOM_MENTION_ALL_WORDS, type UserRef } from '@mycel/shared/api'
+import { useT } from '../../i18n'
 import { AI_MENTION_ID, ALL_MENTION_ID, allMatches, aiMatches, insertMention, lineBreaks, matchMembers, mentionAt, mentionsIn, mentionTokens, tokenMentions, tokenMentionsAll, type MentionToken, type PickedMention } from '../../lib/rooms'
 import { shiftRanges, type TextEdit } from '../../lib/textTokens'
 import { scrollToShow } from '../chat/SkillMenu'
@@ -26,8 +26,9 @@ import { Avatar } from '../Avatar'
  * background sideways without moving a letter (not up or down: on phones two lines' backgrounds would touch). */
 export const mentionTokenClass = (): string => 'rounded bg-accent-soft text-accent-text shadow-[2px_0_0_var(--color-accent-soft),-2px_0_0_var(--color-accent-soft)] box-decoration-clone'
 
-/** "@전체"'s word in every language (a message may come from someone who writes another one) */
-export const MENTION_ALL_WORDS: readonly string[] = [...new Set(LOCALES.map((l) => translate(l.id, 'rooms.mentionAll')))]
+/** "@전체"'s word in every language (a message may come from someone who writes another one): the server's list, which
+ * each language's rooms.mentionAll is one of (test/unit/room-mention-all.test.tsx) */
+export const MENTION_ALL_WORDS: readonly string[] = ROOM_MENTION_ALL_WORDS
 
 /** "@전체" in a room's boxes: who it reaches (everyone else in the room), or null where it is not offered: a DM (the
  * other person is the whole room) and, for anyone but an owner or admin, the everyone room (the server refuses it). */
@@ -65,11 +66,10 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
   const hits = useMemo(() => {
     if (!at || closedFor === text) return []
     const people = matchMembers(shown, at.query, meId)
-    return [
-      ...(ai && aiMatches(at.query) ? [{ id: AI_MENTION_ID, name: aiName }] : []),
-      ...(allowed && allMatches(at.query, MENTION_ALL_WORDS) ? [{ id: ALL_MENTION_ID, name: allName }] : []),
-      ...people,
-    ]
+    const all = allowed && allMatches(at.query, MENTION_ALL_WORDS) ? [{ id: ALL_MENTION_ID, name: allName }] : []
+    // "@전체" right under the AI for a bare "@"; once something is typed, after the people it fits ("@전" for 전지현 must
+    // not pick everyone with Enter)
+    return [...(ai && aiMatches(at.query) ? [{ id: AI_MENTION_ID, name: aiName }] : []), ...(at.query ? [...people, ...all] : [...all, ...people])]
   }, [at, shown, meId, closedFor, text, ai, aiName, allowed, allName])
   const open = hits.length > 0
   useEffect(() => setActive(0), [at])

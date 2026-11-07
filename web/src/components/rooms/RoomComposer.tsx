@@ -127,8 +127,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const canSend = (body.length > 0 || ready.length > 0) && files.every((f) => f.status === 'done') && text.length <= ROOM_MESSAGE_MAX
 
   const all = mention.mentionsAll()
-  // the question shows while the message still has "@전체" (taken out, there is nothing to ask)
+  // the question shows while the message still has "@전체" (taken out, there is nothing to ask, and a later one asks anew)
   const ask = asking && all
+  useEffect(() => {
+    if (!all) setAsking(false)
+  }, [all])
   const submit = (sure = false) => {
     if (!canSend) return
     if (all && members.length >= MENTION_ALL_CONFIRM && !sure) {
@@ -174,7 +177,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               <Button size="sm" variant="ghost" onClick={() => { setAsking(false); input.current?.focus() }} data-testid="room-mention-all-cancel">
                 {t('common.cancel')}
               </Button>
-              <Button size="sm" variant="primary" onClick={() => submit(true)} data-testid="room-mention-all-send">
+              <Button size="sm" variant="primary" onClick={() => submit(true)} disabled={!canSend} data-testid="room-mention-all-send">
                 {t('chat.send')}
               </Button>
             </div>
@@ -228,7 +231,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             onKeyDown={(e) => {
               if (mention.onKeyDown(e)) return
               // the question about "@전체": Esc puts it away, Enter answers it as 보내기
-              if (ask && e.key === 'Escape') {
+              if (ask && e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                 e.preventDefault()
                 e.stopPropagation()
                 setAsking(false)

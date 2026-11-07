@@ -40,7 +40,7 @@ import {
 import { roomFilesOf } from './files'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
-import { roomAiCalled } from '@mycel/shared/api'
+import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
 import { loadPrincipal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 
@@ -385,7 +385,7 @@ export class Rooms {
     // a reply goes in a thread or quotes (an older app), never both; "also to the room" is a thread reply's
     if (b.threadRootId && b.replyToId) fail('validation', undefined, { fields: { 'body.replyToId': 'not with threadRootId' } })
     if (b.alsoInRoom && !b.threadRootId) fail('validation', undefined, { fields: { 'body.alsoInRoom': 'only with threadRootId' } })
-    if (b.mentionsAll) this.mayMentionAll(room, userId, o.locale)
+    if (b.mentionsAll) this.mayMentionAll(room, userId, b.body, o.locale)
     this.takeSendToken(userId)
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
@@ -459,12 +459,13 @@ export class Rooms {
     if (followers.size) this.roomEvent(root.room_id, 'updated', followers)
   }
 
-  edit(userId: string, roomId: string, messageId: string, b: { body: string; mentions: string[]; mentionsAll?: boolean }, locale?: Locale): RoomMessage {
-    const { room, me } = this.mine(userId, roomId)
+  edit(userId: string, roomId: string, messageId: string, b: { body: string; mentions: string[]; mentionsAll?: boolean }): RoomMessage {
+    const { me } = this.mine(userId, roomId)
     const m = this.own(roomId, messageId, userId, me)
     const mentions = this.validMentions(roomId, userId, b.mentions)
-    // "@전체" kept as it was, or added by someone who may use it
-    if (b.mentionsAll && !m.mentions_all) this.mayMentionAll(room, userId, locale)
+    // "@전체" may be kept or taken out; it is added only by a send, which notifies (an edit notifies nobody)
+    if (b.mentionsAll && !m.mentions_all) fail('validation', undefined, { fields: { 'body.mentionsAll': 'only a new message can mention everyone' } })
+    if (b.mentionsAll && !roomMentionAllIn(b.body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @전체 in the text' } })
     // an edit notifies nobody (only a new message does), so a mention added later is quiet
     this.db.query('UPDATE room_messages SET body = ?, mentions = ?, mentions_all = ?, edited_at = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), b.mentionsAll ? 1 : 0, nowIso(), m.id)
     const row = messageRow(this.db, roomId, messageId)!
@@ -588,9 +589,11 @@ export class Rooms {
   }
 
   /** "@전체" (docs/DECISIONS.md "@전체"): anyone in a group chat, a team room or a DM (there: the other person); in the
-   * everyone room only an owner or admin (it reaches the whole team). */
-  private mayMentionAll(room: RoomRow, userId: string, locale?: Locale) {
+   * everyone room only an owner or admin (it reaches the whole team). The text must show it ("@전체" where a mention may
+   * start): what notifies is what the message shows. */
+  private mayMentionAll(room: RoomRow, userId: string, body: string, locale?: Locale) {
     if (room.kind === 'all' && !isOwnerOrAdmin(this.db, userId)) fail('forbidden', tr('roomMentionAll', locale ?? DEFAULT_LOCALE), { params: { reason: 'room_mention_all' } })
+    if (!roomMentionAllIn(body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @전체 in the text' } })
   }
 
   /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. */

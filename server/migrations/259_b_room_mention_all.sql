@@ -4,5 +4,5 @@
 --     member who can see it (never its sender), so it notifies them as a mention would. The text keeps "@전체" as typed;
 --     only this flag notifies (a pasted "@전체" is text). An older build ignores the column: there the message is a plain
 --     one, its "@전체" plain text.
--- Numbered 259: 256 is reserved for session markers and 258 is taken by another branch.
+-- Numbered 259: 256 is reserved for session markers and 258 is taken by other branches.
 ALTER TABLE room_messages ADD COLUMN mentions_all INTEGER NOT NULL DEFAULT 0;

@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Me, Room, UserRef } from '@mycel/shared/api'
-import { translate, useLocaleStore } from '../../src/i18n'
+import { LOCALES, translate, useLocaleStore } from '../../src/i18n'
 import { RoomComposer } from '../../src/components/rooms/RoomComposer'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { MENTION_ALL_WORDS } from '../../src/components/rooms/useMentionMenu'
@@ -23,6 +23,8 @@ const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>
 describe('the words and the tokens (lib/rooms.ts)', () => {
   test('each language\'s word and Slack\'s find it; a person\'s name does not', () => {
     expect([...MENTION_ALL_WORDS].sort()).toEqual(['everyone', 'semua', 'todos', '전체', '全員'].sort())
+    // the word each language's "@" list writes is one the server takes (ROOM_MENTION_ALL_WORDS)
+    for (const l of LOCALES) expect({ l: l.id, known: MENTION_ALL_WORDS.includes(translate(l.id, 'rooms.mentionAll')) }).toEqual({ l: l.id, known: true })
     for (const q of ['', '전', '전체', 'all', 'AL', 'channel', 'chan', 'every', 'everyone', 'Everyone', '全員', 'todos', 'semua']) expect({ q, hit: allMatches(q, MENTION_ALL_WORDS) }).toEqual({ q, hit: true })
     for (const q of ['Ben', 'mia', '전체요', 'alle']) expect({ q, hit: allMatches(q, MENTION_ALL_WORDS) }).toEqual({ q, hit: false })
   })
@@ -161,6 +163,27 @@ test('the row right under the AI: its word and how many it notifies; found by an
   expect(rows(m)).toEqual(['BBen'])
 })
 
+test('once something is typed it comes after the people it fits: "@전" and Enter picks 전지현, not everyone', async () => {
+  const { m, box } = await open({ members: [ME, BEN, { id: 'jh', name: '전지현' }] })
+  await typeText(box, '@전')
+  await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
+  expect(rows(m)).toEqual(['전전지현', `all:전체${ko('rooms.mentionAllHint', { n: 2 })}`])
+  await key(box, 'Enter')
+  await m.settle()
+  expect(box.value).toBe('@전지현 ')
+  expect(tokens(m)).toEqual(['person:@전지현'])
+})
+
+test('a send the server gave back keeps its "@전체" as a token', async () => {
+  const { m } = await open()
+  const roomId = useRooms.getState().rooms[0]!.id
+  await act(async () => {
+    useRooms.setState({ returned: { [roomId]: { clientMessageId: 'c-1', body: '@전체 다시', mentions: [], mentionsAll: true, files: [], threadRootId: null, alsoInRoom: false, state: 'failed', createdAt: new Date().toISOString() } } })
+  })
+  await m.until(() => tokens(m).length > 0, 'the token back', WAIT)
+  expect(tokens(m)).toEqual(['all:@전체'])
+})
+
 test('picked it is a token and the message goes with mentionsAll; pasted it is text and goes without', async () => {
   const { m, box } = await open()
   await typeText(box, '@전')
@@ -280,4 +303,19 @@ test('a sent message: "@전체" stands out as a mention of me (not for its sende
   await m.click('room-edit-save')
   await m.until(() => patches.length > 0, 'the edit', WAIT)
   expect(patches[0]).toEqual({ body: '@전체 회의 3시', mentions: [], mentionsAll: true })
+  await m.unmount()
+  // a message without it: the edit form offers no "@전체" (an edit notifies nobody, so it cannot add one)
+  const plain = message({ roomId: r.id, seq: 3, author: ME, body: '회의' })
+  const m2 = await mount(<RoomMessages roomId={r.id} messages={[plain]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
+  const press2 = (type: string) => m2.get('room-message').dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10 }))
+  press2('pointerdown')
+  await m2.settle(700)
+  await m2.settle(450)
+  await m2.click('message-edit')
+  const box2 = m2.get('room-edit-input') as Box
+  await act(async () => { box2.focus(); box2.dispatchEvent(new FakeEvent('focusin', { bubbles: true })) })
+  Object.assign(box2, { selectionStart: box2.value.length, selectionEnd: box2.value.length })
+  await typeText(box2, ' @')
+  await m2.until(() => m2.find('mention-menu'), 'the @ list', WAIT)
+  expect(rows(m2).some((x) => x.startsWith('all:'))).toBe(false)
 })

@@ -50,8 +50,6 @@ export interface FileRow { id: string; room_id: string; user_id: string | null; 
 export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all'
 /** Does the message on room_messages `m` mention the person `?` (picked by name, or "@전체" by someone else)? */
 export const MENTIONS_SQL = '(EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?) OR (m.mentions_all = 1 AND (m.author_id IS NULL OR m.author_id <> ?)))'
-/** Does a stored message mention this person (MENTIONS_SQL in code)? */
-export const mentionsUser = (m: Pick<MessageRow, 'mentions' | 'mentions_all' | 'author_id'>, userId: string) => parseMentions(m.mentions).includes(userId) || (!!m.mentions_all && m.author_id !== userId)
 
 export const roomRow = (db: Database, id: string): RoomRow | null => db.query('SELECT * FROM rooms WHERE id = ?').get(id) as RoomRow | null
 export const memberRow = (db: Database, roomId: string, userId: string): MemberRow | null =>

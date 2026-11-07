@@ -37,7 +37,7 @@ import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionStrip } from './Reactions'
 import { EndedRun, PrivateAnswered } from './RoomAiStatus'
-import { MENTION_ALL_WORDS, pickedInMessage, useEveryone, useMentionMenu } from './useMentionMenu'
+import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 
 const NO_RUNS: RoomAiRun[] = []
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -522,9 +522,8 @@ function EditForm({ roomId, m, initial, members, meId, onDone }: { roomId: strin
   const input = useRef<HTMLTextAreaElement>(null)
   // the mentions it has stand out as they do on the message (its "@전체" too), and stay mentions while they are whole
   const [picked] = useState(() => pickedInMessage(body0, [...initial, ...allMentionNames(m, MENTION_ALL_WORDS)]))
-  // "@전체" where the room offers it, or kept where the message has it already (an edit notifies nobody)
-  const offered = useEveryone(roomId, members, meId)
-  const everyone = offered ?? (m.mentionsAll ? { count: members.filter((x) => x.id !== meId).length } : null)
+  // "@전체" only kept or taken out: an edit notifies nobody, so it cannot add one (the server refuses it)
+  const everyone = m.mentionsAll ? { count: members.filter((x) => x.id !== meId).length } : null
   const mention = useMentionMenu({ text: draft, setText: setDraft, input, members, meId, initial: picked, everyone })
   const save = async () => {
     const body = draft.trim()

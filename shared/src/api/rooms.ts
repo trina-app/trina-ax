@@ -61,6 +61,21 @@ export function roomAiMentions(body: string, taken: readonly string[] = []): { s
   }
   return out
 }
+/** "@전체" (docs/DECISIONS.md "@전체"): the word it is written with in each language (the everyone room's own name there).
+ * The web app's "@" list writes the person's language's word (its rooms.mentionAll, one of these); the server takes a
+ * message's mentionsAll only when one of them stands in its text where a mention may start, so what notifies is what
+ * the text shows. */
+export const ROOM_MENTION_ALL_WORDS: readonly string[] = ['전체', 'everyone', '全員', 'todos', 'semua']
+/** Does "@<one of ROOM_MENTION_ALL_WORDS>" stand in the text where a mention may start (the start, a space or an opening
+ * mark before it)? Without regard to case. */
+export function roomMentionAllIn(body: string): boolean {
+  const lower = body.toLocaleLowerCase()
+  for (let i = body.indexOf('@'); i >= 0; i = body.indexOf('@', i + 1)) {
+    if (i > 0 && !/[\s([{"'“‘]/.test(body[i - 1]!)) continue
+    if (ROOM_MENTION_ALL_WORDS.some((w) => lower.startsWith(w.toLocaleLowerCase(), i + 1))) return true
+  }
+  return false
+}
 /** Does this message call the AI? */
 export const roomAiCalled = (body: string, taken: readonly string[] = []) => roomAiMentions(body, taken).length > 0
 /** What the AI is asked: the message without the "@<AI name>" that starts it ("@트리나 /회의록 …" runs the skill). */
@@ -378,8 +393,8 @@ export const SendRoomMessageBody = z.object({
   /** a thread reply that also goes to the room's timeline ("대화방에도 보내기"); only with threadRootId */
   alsoInRoom: z.boolean().optional(),
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).default([]),
-  /** "@전체" picked from the "@" list: notify every member who can see the message as a mention (never the text alone). In
-   * the everyone room only an owner or admin may (403 otherwise) */
+  /** "@전체" picked from the "@" list: notify every member who can see the message as a mention (never the text alone;
+   * the text must show it: roomMentionAllIn, 400 otherwise). In the everyone room only an owner or admin may (403) */
   mentionsAll: z.boolean().optional(),
   /** uploaded first with POST /api/rooms/:id/files */
   fileIds: z.array(Uuid7).max(ROOM_FILES_MAX).default([]),
@@ -389,7 +404,7 @@ export const SendRoomMessageBody = z.object({
 export const EditRoomMessageBody = z.object({
   body: z.string().min(1).max(ROOM_MESSAGE_MAX),
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).default([]),
-  /** the message keeps (or gets) "@전체"; an edit notifies nobody */
+  /** the message keeps its "@전체" (only a send adds it: an edit notifies nobody, so it cannot add it, 400) */
   mentionsAll: z.boolean().optional(),
 }).strict()
 export const MarkRoomReadBody = z.object({ seq: z.number().int().nonnegative() }).strict()

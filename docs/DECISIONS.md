@@ -11815,19 +11815,24 @@ core next to the theme.
 
 - **What it is.** "@전체" (en "@everyone", ja "@全員", es "@todos", id "@semua": the everyone room's own name in each
   language) mentions every member who can see the message, never its sender. The "@" list has one row for it right
-  under the AI: "전체 · 이 방의 N명에게 알림" (N: everyone else in the room). The language's word and Slack's (all,
-  channel, everyone) find it. Picked, it is a token like a person's (the same look in the box and on the sent message,
-  where it reads as a mention of me for everyone but the sender); the message goes with `mentionsAll: true`
-  (room_messages.mentions_all, migration 259, additive: an older build shows a plain message). Only the flag notifies:
-  "@전체" pasted or typed without the list is text, as a person's name is.
+  under the AI for a bare "@": "전체 · 이 방의 N명에게 알림" (N: everyone else in the room). Every language's word and
+  Slack's (all, channel, everyone) find it; once something is typed it comes after the people it fits, so "@전" and
+  Enter picks 전지현, never everyone by accident. Picked, it is a token like a person's (the same look in the box and on
+  the sent message, where it reads as a mention of me for everyone but the sender); the message goes with
+  `mentionsAll: true` (room_messages.mentions_all, migration 259, additive: an older build shows a plain message). Only
+  the flag notifies: "@전체" pasted or typed without the list is text, as a person's name is. The server takes the flag
+  only when the text shows "@<one of the words>" where a mention may start (shared ROOM_MENTION_ALL_WORDS, roomMentionAllIn;
+  400 otherwise): what notifies is what the message shows, whatever client sent it.
 - **Who it alerts.** Each member who can see it gets it as a mention of them (shared room-alerts.ts roomAlert with
   `mentioned`): a notice (room.mention) and a push or the sound at every level but 끄기, so also under 멘션만 and the
   default for team rooms and the everyone room ("1:1·그룹 대화와 나를 멘션한 메시지"); 받지 않음 is 끄기 for rooms without a
   level of their own, and a room's own level wins over it as for any mention. Quiet hours keep the push and the sound
-  back (the notice stays). The room's "@" badge counts it. In a thread reply it reaches the members who can see the
-  thread (canSee: not someone who joined after its root); unlike a person's mention it makes nobody follow the thread
-  (one reply would subscribe the whole room to the thread's later replies). An edit notifies nobody, as before: it may
-  keep "@전체" or take it out, and adding it needs the same right as sending it.
+  back (the notice stays). The room's "@" badge counts it where the room counts the message: in its timeline, and in a
+  thread the member follows. In a thread reply it reaches the members who can see the thread (canSee: not someone who
+  joined after its root); unlike a person's mention it makes nobody follow the thread (one reply would subscribe the
+  whole room to the thread's later replies), so for a member who does not follow it it is a notice, a push and the
+  sound, but no count. An edit notifies nobody, as before, so it may keep "@전체" (while the text still shows it) or take
+  it out, never add it (400): added later it would stand out and count without having told anyone.
 - **Who may use it.** Anyone in a group chat, a team room or a DM (in a DM it is the other person, so the row is not
   shown there). In the everyone room, which reaches the whole team, only owners and admins: members do not see the row,
   and the server refuses mentionsAll there with 403 (`reason: room_mention_all`), also in an edit.

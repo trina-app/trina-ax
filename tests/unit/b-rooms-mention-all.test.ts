@@ -44,7 +44,7 @@ async function setup() {
 }
 
 test('every member who can see it gets a mention, also where only mentions alert; never the sender; "@전체" as text is text', async () => {
-  const { mia, nora, otto, rooms, send, team, chat, dm, notices, readAll } = await setup()
+  const { mia, nora, otto, rooms, send, trySend, team, chat, dm, notices, readAll } = await setup()
   // a team room alerts only mentions by default: the flag makes it one for each of them
   const m = await send(mia.client, team.id, '@전체 3시에 회의해요', { mentionsAll: true })
   expect(m).toMatchObject({ body: '@전체 3시에 회의해요', mentions: [], mentionsAll: true })
@@ -55,6 +55,11 @@ test('every member who can see it gets a mention, also where only mentions alert
   // each of them reads it back with the flag
   const page = await nora.client.call('GET', `/api/rooms/${team.id}/messages`)
   expect(page.items.at(-1)).toMatchObject({ id: m.id, mentionsAll: true })
+  // the flag needs the text to show it: what notifies is what the message shows (any language's word, where a mention
+  // may start)
+  for (const body of ['다들 보세요', 'mail@전체.example', '@전 체']) expect({ body, status: (await trySend(mia.client, team.id, body, { mentionsAll: true })).status }).toEqual({ body, status: 400 })
+  for (const body of ['(@Everyone) 3pm', '회의 @todos']) expect({ body, all: (await send(mia.client, team.id, body, { mentionsAll: true })).mentionsAll }).toEqual({ body, all: true })
+  await readAll(team.id, nora.client, otto.client)
   // text that only looks like it notifies nobody there
   await readAll(team.id, nora.client, otto.client)
   const plain = await send(mia.client, team.id, '@전체 (붙여 넣은 글)')
@@ -91,7 +96,7 @@ test('levels: 멘션만 and the defaults alert it; 끄기 and 받지 않음 do n
   expect(noticeWanted(h.ctx.db, id)).toBe(false)
 })
 
-test('the everyone room: owners and admins only (403 for a member, in a send and in an edit); a member keeps nothing there', async () => {
+test('the everyone room: owners and admins only (403 for a member); an edit keeps or removes it, never adds it', async () => {
   const { owner, ada, mia, nora, send, trySend, all, notices } = await setup()
   const refused = await trySend(mia.client, all.id, '@전체 공지', { mentionsAll: true })
   expect(refused.status).toBe(403)
@@ -101,14 +106,19 @@ test('the everyone room: owners and admins only (403 for a member, in a send and
   await send(ada.client, all.id, '@전체 공지입니다', { mentionsAll: true })
   expect([notices(all.id, nora.id), notices(all.id, mia.id), notices(all.id, 'olga'), notices(all.id, ada.id)]).toEqual([['room.mention'], ['room.mention'], ['room.mention'], []])
   await send(owner, all.id, '@전체 또 공지', { mentionsAll: true })
-  // a member cannot add it to their message there in an edit either; without it the edit goes through
+  // an edit notifies nobody, so it cannot add it (anyone, anywhere); without it the edit goes through
   const plain = await send(mia.client, all.id, '공지 아님')
-  expect((await mia.client.try('PATCH', `/api/rooms/${all.id}/messages/${plain.id}`, { body: '@전체 공지 아님', mentionsAll: true })).status).toBe(403)
+  const added = await mia.client.try('PATCH', `/api/rooms/${all.id}/messages/${plain.id}`, { body: '@전체 공지 아님', mentionsAll: true })
+  expect([added.status, added.body.error.fields]).toEqual([400, { 'body.mentionsAll': 'only a new message can mention everyone' }])
+  const adaPlain = await send(ada.client, all.id, '그냥 글')
+  expect((await ada.client.try('PATCH', `/api/rooms/${all.id}/messages/${adaPlain.id}`, { body: '@전체 그냥 글', mentionsAll: true })).status).toBe(400)
   expect(await mia.client.call('PATCH', `/api/rooms/${all.id}/messages/${plain.id}`, { body: '공지 아님 (고침)' })).toMatchObject({ body: '공지 아님 (고침)' })
   // an admin's edit keeps it, or takes it out; an edit notifies nobody
   const msg = await send(ada.client, all.id, '@전체 하나 더', { mentionsAll: true })
   const before = (h.ctx.db.query('SELECT COUNT(*) n FROM room_notices').get() as { n: number }).n
   expect(await ada.client.call('PATCH', `/api/rooms/${all.id}/messages/${msg.id}`, { body: '@전체 하나 더 (고침)', mentionsAll: true })).toMatchObject({ mentionsAll: true })
+  // kept only while the text still shows it
+  expect((await ada.client.try('PATCH', `/api/rooms/${all.id}/messages/${msg.id}`, { body: '하나 더', mentionsAll: true })).status).toBe(400)
   const off = await ada.client.call('PATCH', `/api/rooms/${all.id}/messages/${msg.id}`, { body: '하나 더 (고침)' })
   expect(off.mentionsAll).toBeUndefined()
   expect((h.ctx.db.query('SELECT COUNT(*) n FROM room_notices').get() as { n: number }).n).toBe(before)
@@ -126,6 +136,11 @@ test('a thread: the members who can see the thread (not someone who joined after
   expect([notices(chat.id, mia.id), notices(chat.id, otto.id), notices(chat.id, pia.id), notices(chat.id, nora.id)]).toEqual([['room.mention'], ['room.mention'], [], []])
   // the reply's author and the root's author follow it, as with any reply; "@전체" adds nobody
   expect(follows()).toEqual([mia.id, nora.id].sort())
+  // for the root's author (who follows it) the room says a reply mentions them; otto, who does not follow it, has the
+  // notice, the push and the sound, but no count for a thread he does not follow
+  const mine = async (c: Client) => (await c.call('GET', '/api/rooms')).items.find((r: any) => r.id === chat.id)
+  expect(await mine(mia.client)).toMatchObject({ threadsUnread: 1, mentioned: true })
+  expect(await mine(otto.client)).toMatchObject({ threadsUnread: 0, unreadCount: 0, mentioned: false })
   // a new member of the room afterwards gets nothing of an earlier one
   const quinn = await addMember(h, owner, { username: 'quinn' })
   await mia.client.call('POST', `/api/rooms/${chat.id}/members`, { userIds: [quinn.id] })

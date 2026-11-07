@@ -23,7 +23,7 @@ async function openRoom(page: Page, o: Parameters<typeof routeRoom>[1], who?: Pa
 }
 const rows = (page: Page) => page.getByTestId('mention-option')
 
-test('the row under the AI, a token once picked, sent with mentionsAll and shown as a mention', async ({ page }) => {
+test('the row under the AI, a token once picked, sent with mentionsAll and shown as a mention', async ({ page, browserName }) => {
   const room = await openRoom(page, { members: few })
   const box = page.getByTestId('room-input')
   await box.click()
@@ -44,9 +44,12 @@ test('the row under the AI, a token once picked, sent with mentionsAll and shown
   await expect.poll(() => room.sent.length).toBe(1)
   expect(room.sent[0]).toMatchObject({ body: '@전체 3시에 회의해요', mentions: [], mentionsAll: true })
   await expect(page.getByTestId('room-message').last().locator('[data-mention="all"]')).toHaveText('@전체')
-  // pasted, it is text: no flag
-  await page.evaluate(() => navigator.clipboard.writeText('@전체 붙여 넣은 글'))
-  await page.keyboard.press('ControlOrMeta+V')
+  // pasted, it is text: no flag (WebKit grants these tests no clipboard: there the text comes in one piece, as an IME's)
+  if (browserName === 'webkit') await page.keyboard.insertText('@전체 붙여 넣은 글')
+  else {
+    await page.evaluate(() => navigator.clipboard.writeText('@전체 붙여 넣은 글'))
+    await page.keyboard.press('ControlOrMeta+V')
+  }
   await expect(page.getByTestId('room-composer').getByTestId('token-layer').locator('[data-token]')).toHaveCount(0)
   await page.keyboard.press('Enter')
   await expect.poll(() => room.sent.length).toBe(2)

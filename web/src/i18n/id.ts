@@ -3433,7 +3433,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.aiMention": "Tanya AI · menjawab dari berkas yang bisa Anda buka",
   "rooms.mentionAll": "semua",
   "rooms.mentionAllHint": "beri tahu {n} orang di ruang ini",
-  "rooms.mentionAllConfirm": "Ini memberi tahu {n} orang. Kirim?",
+  "rooms.mentionAllConfirm": "{n} orang akan diberi tahu. Kirim?",
   "rooms.picker.groups": "Grup",
   "rooms.picker.people": "Orang",
   "rooms.picker.groupCount": "{n} orang",
