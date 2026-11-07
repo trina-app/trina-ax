@@ -206,4 +206,4 @@ Wave 1 (built 2026-11-07; waves 2 and 3 are still to come):
     language and file names when nothing is found. Three reruns found it two times.
   - The 7 s and 25,000-token targets were set from the dev server, whose fixed prompt is smaller than this Mac's. The
     dev-server run (step 8) waits for a test account and the owner's OK.
-- PR: to be linked.
+- PR: https://github.com/trina-app/trina-ax/pull/165
