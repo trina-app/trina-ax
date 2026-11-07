@@ -16,6 +16,7 @@ import { placeKey, roomDraftMentions, roomDrafts as drafts, useRooms } from '../
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { IconButton } from '../ui'
+import { Tooltip } from '../Tooltip'
 import { useMentionMenu } from './useMentionMenu'
 
 interface Upload {
@@ -153,7 +154,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint'} title={f.error}>
                   {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                 </span>
-                <IconButton label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} className="p-1">
+                <IconButton tip label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} className="p-1">
                   <X size={13} />
                 </IconButton>
               </li>
@@ -161,7 +162,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </ul>
         )}
         <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
-          <IconButton label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit mb-0.5" data-testid="room-attach">
+          <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit mb-0.5" data-testid="room-attach">
             <Paperclip size={18} />
           </IconButton>
           <input
@@ -202,17 +203,18 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             className="max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
             data-testid="room-input"
           />
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!canSend}
-            aria-label={t('chat.send')}
-            title={t('chat.send')}
-            className={clsx('touch-hit mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-            data-testid="room-send"
-          >
-            <ArrowUp size={18} aria-hidden />
-          </button>
+          <Tooltip label={t('chat.send')}>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSend}
+              aria-label={t('chat.send')}
+              className={clsx('touch-hit mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+              data-testid="room-send"
+            >
+              <ArrowUp size={18} aria-hidden />
+            </button>
+          </Tooltip>
         </div>
       </div>
       {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}

@@ -1,0 +1,119 @@
+// The shared tooltip (components/Tooltip.tsx): after 300 ms of a mouse resting on the element, at once on keyboard focus;
+// gone on leave, a click, blur and Esc; never for a finger or on a device without a fine pointer, nor while the element's
+// own menu is open; described by it only when it says more than the element's name; placed above, below when there is
+// no room, inside the window.
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
+import { placeTip, Tooltip, TOOLTIP_DELAY_MS } from '../../src/components/Tooltip'
+import { IconButton } from '../../src/components/ui'
+import { FakeEvent, installDom, mount, removeDom } from './dom-host'
+
+const media = (fine: boolean) => {
+  ;(window as unknown as { matchMedia: (q: string) => { matches: boolean } }).matchMedia = (q: string) => ({ matches: fine && q.includes('fine'), addEventListener() {}, removeEventListener() {} } as never)
+}
+beforeAll(() => installDom())
+afterEach(() => media(false))
+afterAll(() => removeDom())
+
+const fire = (el: unknown, type: string, o: Record<string, unknown> = {}) => (el as { dispatchEvent: (e: unknown) => void }).dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), o))
+const tip = () => document.body.querySelector('[role="tooltip"]')
+
+test('a mouse resting on it shows the tip after the delay; leaving, a click or Esc takes it away', async () => {
+  media(true)
+  const m = await mount(<Tooltip label="반응 추가"><button aria-label="반응 추가" data-testid="b">+</button></Tooltip>)
+  try {
+    const b = m.get('b')
+    fire(b, 'pointerover', { pointerType: 'mouse', relatedTarget: null })
+    await m.settle(TOOLTIP_DELAY_MS / 3)
+    expect(tip()).toBeNull()
+    await m.settle(TOOLTIP_DELAY_MS)
+    expect(tip()?.textContent).toBe('반응 추가')
+    // the same words as its name: the visible tip is enough, nothing more to describe
+    expect(b.getAttribute('aria-describedby')).toBeNull()
+    fire(b, 'pointerout', { pointerType: 'mouse', relatedTarget: null })
+    await m.settle(10)
+    expect(tip()).toBeNull()
+    // back on it, then a click: gone
+    fire(b, 'pointerover', { pointerType: 'mouse', relatedTarget: null })
+    await m.settle(TOOLTIP_DELAY_MS + 50)
+    expect(tip()).not.toBeNull()
+    fire(b, 'pointerdown', { pointerType: 'mouse' })
+    await m.settle(10)
+    expect(tip()).toBeNull()
+    // and Esc
+    fire(b, 'pointerover', { pointerType: 'mouse', relatedTarget: null })
+    await m.settle(TOOLTIP_DELAY_MS + 50)
+    expect(tip()).not.toBeNull()
+    fire(b, 'keydown', { key: 'Escape' })
+    await m.settle(10)
+    expect(tip()).toBeNull()
+  } finally { await m.unmount() }
+})
+
+test('keyboard focus shows it at once and blur hides it; a tip that says more than the name describes the element', async () => {
+  media(true)
+  const m = await mount(<Tooltip label="⌘K로 열기"><button aria-label="검색" data-testid="b">S</button></Tooltip>)
+  try {
+    const b = m.get('b')
+    fire(b, 'focusin')
+    await m.settle(10)
+    const t = tip()!
+    expect(t.textContent).toBe('⌘K로 열기')
+    expect(b.getAttribute('aria-describedby')).toBe(t.getAttribute('id'))
+    fire(b, 'focusout')
+    await m.settle(10)
+    expect(tip()).toBeNull()
+    expect(b.getAttribute('aria-describedby')).toBeNull()
+  } finally { await m.unmount() }
+})
+
+test('never for a finger, never on a device without a fine pointer, never while its own menu is open', async () => {
+  media(true)
+  let m = await mount(<Tooltip label="더 보기"><button aria-label="더 보기" data-testid="b">⋮</button></Tooltip>)
+  try {
+    fire(m.get('b'), 'pointerover', { pointerType: 'touch', relatedTarget: null })
+    await m.settle(TOOLTIP_DELAY_MS + 50)
+    expect(tip()).toBeNull()
+  } finally { await m.unmount() }
+  media(false)
+  m = await mount(<Tooltip label="더 보기"><button aria-label="더 보기" data-testid="b">⋮</button></Tooltip>)
+  try {
+    fire(m.get('b'), 'pointerover', { pointerType: 'mouse', relatedTarget: null })
+    fire(m.get('b'), 'focusin')
+    await m.settle(TOOLTIP_DELAY_MS + 50)
+    expect(tip()).toBeNull()
+  } finally { await m.unmount() }
+  media(true)
+  m = await mount(<Tooltip label="더 보기"><button aria-label="더 보기" aria-expanded="true" data-testid="b">⋮</button></Tooltip>)
+  try {
+    fire(m.get('b'), 'focusin')
+    await m.settle(10)
+    expect(tip()).toBeNull()
+  } finally { await m.unmount() }
+})
+
+test("IconButton's tip: the shared tooltip in place of the browser's title; the element keeps its own handlers", async () => {
+  media(true)
+  let clicks = 0
+  const m = await mount(<IconButton tip label="닫기" onClick={() => clicks++} data-testid="b">x</IconButton>)
+  try {
+    const b = m.get('b')
+    expect(b.getAttribute('title')).toBeNull()
+    expect(b.getAttribute('aria-label')).toBe('닫기')
+    fire(b, 'focusin')
+    await m.settle(10)
+    expect(tip()?.textContent).toBe('닫기')
+    await m.click('b')
+    expect(clicks).toBe(1)
+  } finally { await m.unmount() }
+  // without tip: the browser's title, as before
+  const plain = await mount(<IconButton label="닫기" data-testid="p">x</IconButton>)
+  try { expect(plain.get('p').getAttribute('title')).toBe('닫기') } finally { await plain.unmount() }
+})
+
+test('placed above and centred; below when there is no room above; never outside the window', () => {
+  const view = { width: 1000, height: 800 }
+  expect(placeTip({ top: 100, bottom: 128, left: 500, width: 28 }, { width: 80, height: 24 }, view)).toEqual({ top: 70, left: 474, below: false })
+  expect(placeTip({ top: 10, bottom: 38, left: 500, width: 28 }, { width: 80, height: 24 }, view)).toEqual({ top: 44, left: 474, below: true })
+  expect(placeTip({ top: 100, bottom: 128, left: 985, width: 10 }, { width: 80, height: 24 }, view).left).toBe(916)
+  expect(placeTip({ top: 100, bottom: 128, left: 0, width: 10 }, { width: 80, height: 24 }, view).left).toBe(4)
+})

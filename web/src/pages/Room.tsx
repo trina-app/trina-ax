@@ -216,7 +216,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           )}
         </div>
         {nextThread && (
-          <IconButton label={t('rooms.threadsUnread', { n: room!.threadsUnread })} className="touch-hit relative shrink-0" onClick={() => openThread(nextThread)} data-testid="room-next-thread">
+          <IconButton tip label={t('rooms.threadsUnread', { n: room!.threadsUnread })} className="touch-hit relative shrink-0" onClick={() => openThread(nextThread)} data-testid="room-next-thread">
             <MessagesSquare size={16} aria-hidden />
             <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
           </IconButton>
