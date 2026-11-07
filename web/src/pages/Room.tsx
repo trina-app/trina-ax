@@ -6,10 +6,13 @@
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
 // A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
+// Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 링크 복사, and 대화방 나가기 or 숨기기 by
+// kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
+// (docs/DECISIONS.md "대화 숨기기").
 import { ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
 import { lookingAt } from '../lib/attention'
@@ -26,10 +29,23 @@ import { RoomComposer } from '../components/rooms/RoomComposer'
 import { RoomMessages } from '../components/rooms/RoomMessages'
 import { RoomAiStatus } from '../components/rooms/RoomAiStatus'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
+import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
+
+/** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
+ * forward inside the app or by the page reloading itself (an update, a refresh: docs/DECISIONS.md "대화 숨기기")?
+ * `firstEntry`: the page's first address (react-router's key "default"); `documentLoad`: how the page itself was
+ * loaded (PerformanceNavigationTiming.type). Going back to the page's first entry reads as the link that opened it. */
+export function openedByChoice(navType: `${NavigationType}`, firstEntry: boolean, documentLoad: string | undefined): boolean {
+  if (navType !== 'POP') return true
+  return firstEntry && documentLoad !== 'reload' && documentLoad !== 'back_forward'
+}
+const documentLoad = () => {
+  try { return (performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)?.type } catch { return undefined }
+}
 
 const NO_MESSAGES: RoomMessage[] = []
 const NO_PENDING: PendingSend[] = []
@@ -94,7 +110,21 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   }, [navigate, roomId, fromRoom])
   // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
   const [picker, setPicker] = useState<PickerMode | null>(null)
+  // the "⋯"'s 알림 설정 opens the bell's own menu
+  const [notifyRequest, setNotifyRequest] = useState(0)
   usePeopleList()
+  // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens, and only when
+  // that was a choice (openedByChoice): hiding it from here leaves the room in place of this entry (store/rooms.ts
+  // setHidden), another device hiding it while it is on screen keeps it hidden, and Back or a reload does not bring it
+  // back either
+  const navType = useNavigationType()
+  const [byChoice] = useState(() => openedByChoice(navType, location.key === 'default', documentLoad()))
+  const shownOnOpen = useRef(false)
+  useEffect(() => {
+    if (!room || shownOnOpen.current) return
+    shownOnOpen.current = true
+    if (room.hidden && byChoice) void useRooms.getState().setHidden(room.id, false).catch(() => {})
+  }, [room, byChoice])
 
   useEffect(() => {
     useRooms.getState().open(roomId)
@@ -224,8 +254,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-accent" aria-hidden />
           </IconButton>
         )}
-        {/* the room's one setting, right here: the bell shows how it is now and opens its four levels */}
-        {room && <RoomNotifyMenu room={room} />}
+        {/* the room's one setting, right here: the bell shows how it is now and opens its four levels; then the room's
+            "⋯" (its 알림 설정 opens the bell's menu) */}
+        {room && <RoomNotifyMenu room={room} openRequest={notifyRequest} />}
+        {room && <RoomMenu room={room} onNotify={() => setNotifyRequest((n) => n + 1)} className="shrink-0" buttonClassName="touch-hit" />}
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-4">
