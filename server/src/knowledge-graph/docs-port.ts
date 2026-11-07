@@ -45,7 +45,19 @@ export interface DocIndexPort {
   close(): void
   /** off: everything on disk deleted */
   destroy(): void
+  // search by meaning (meaning/indexer.ts); an index without them has no vectors
+  /** up to `limit` pieces without a vector yet, the most recently indexed first */
+  pendingVectors?(limit: number): PendingPiece[]
+  /** vectors of pieces, in one transaction; a piece no longer what its vector was made from is skipped. How many were
+   * written. */
+  writeVectors?(rows: readonly PieceVector[]): number
+  /** pieces with a vector and pieces still without one */
+  vectorCounts?(): { done: number; pending: number }
 }
+/** a piece that needs its vector: what passageText (meaning/vectors.ts) makes its text from */
+export interface PendingPiece { id: number; name: string; heading: string | null; text: string }
+/** a piece's vector: the passage text it was made from and its int8 bytes (meaning/vectors.ts vecToBlob) */
+export interface PieceVector { id: number; passage: string; vec: Uint8Array }
 
 export interface DocIndexOptions {
   /** text of a document (the server's converters, isolated, below people's work) */

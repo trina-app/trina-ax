@@ -22,6 +22,7 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { chunkDoc, type Piece } from '../../files/locations'
 import { ConverterStopped, extractText, TOO_BIG_IN_PROCESS } from '../../files/extract'
 import { inBackground } from '../../tools/isolate'
+import { MEANING_DIMS, passageText } from '../meaning/vectors'
 import { Matcher } from './matcher'
 import { acceptsName, docLinks, extOf, htmlText, mentionNames, nameIn, norm, queryTerms, snippetOf, stripKo, titleOf, topTerms, usableName } from './text'
 
@@ -136,6 +137,7 @@ function openDb(file: string): Database {
       if (v?.v !== FORMAT) throw new Error('document index: another format')
     }
     db.exec(SCHEMA)
+    addVectorColumn(db)
     db.run("INSERT OR REPLACE INTO meta(k, v) VALUES ('format', ?)", [FORMAT])
     db.query('SELECT count(*) FROM docs').get()
   } catch (e) { db.close(); throw e }
@@ -143,10 +145,38 @@ function openDb(file: string): Database {
   return db
 }
 
+/**
+ * Search by meaning (meaning/vectors.ts): each piece's int8 vector in chunks.vec, NULL until the background indexing
+ * (meaning/indexer.ts) has embedded it. Added to an index made before it on open (no server migration: the index is the
+ * knowledge graph's own file, and an older server ignores the column). A piece made again (its document changed) is a
+ * new row with no vector, so its vector is made again. chunks_novec lists the pieces still without one, newest first.
+ */
+function addVectorColumn(db: Database) {
+  if (!(db.query('PRAGMA table_info(chunks)').all() as { name: string }[]).some((c) => c.name === 'vec')) db.run('ALTER TABLE chunks ADD COLUMN vec BLOB')
+  db.run('CREATE INDEX IF NOT EXISTS chunks_novec ON chunks(id) WHERE vec IS NULL')
+}
+
+/** The heading a piece is embedded with (meaning/vectors.ts passageText): a section's heading or a sheet's name; a
+ * page or slide number says nothing about its meaning. */
+export function headingOf(loc: SourceLoc | null): string | null {
+  if (loc?.kind === 'heading') return loc.heading || null
+  if (loc?.kind === 'sheet') return loc.sheet || null
+  return null
+}
+const parseLoc = (s: string | null): SourceLoc | null => { if (!s) return null; try { return JSON.parse(s) as SourceLoc } catch { return null } }
+
+/** A piece that still needs its vector: its id, its document's file name, its heading and its text. */
+export interface PendingPiece { id: number; name: string; heading: string | null; text: string }
+/** A vector to write: the piece, the passage text it was made from (passageText), and its int8 bytes (vecToBlob). */
+export interface PieceVector { id: number; passage: string; vec: Uint8Array }
+
 function removeDbFiles(dir: string) {
   for (const f of [DB_FILE, DB_FILE + '-wal', DB_FILE + '-shm', DB_FILE + '-journal']) fs.rmSync(path.join(dir, f), { force: true })
 }
 
+/** The converters of the file tools. Plain text and CSV are decoded as read and grep decode them (files/extract.ts
+ * decodeText: UTF-8, else Korean CP949 when the bytes are clearly Korean, the shared cp949Text rule), so a Korean Excel
+ * CSV is indexed, and embedded, as its Korean text, not as replacement characters. */
 const defaultExtract: Extract = (rel, bytes, signal) =>
   extractText(rel, bytes, { pandoc: Bun.which('pandoc'), pdftotext: Bun.which('pdftotext'), stoppedPartFails: true }, signal)
 
@@ -388,6 +418,46 @@ export class DocumentIndex {
     const failed = (this.db.query('SELECT rel, failed FROM docs WHERE root_id = ? AND failed IS NOT NULL ORDER BY rel LIMIT ?').all(rootId, FAILED_SHOWN) as { rel: string; failed: string }[])
       .map((r) => ({ relPath: r.rel, reason: r.failed }))
     return { documents: c.ok ?? 0, chunks: c.chunks ?? 0, failed, failedCount: c.bad ?? 0, lastUpdatedAt: c.at ? new Date(c.at).toISOString() : null }
+  }
+
+  // ---- search by meaning: the vectors of the pieces (meaning/indexer.ts writes them, the search reads them) ----
+
+  /** Up to `limit` pieces that have no vector yet, the most recently indexed first (what people just saved is what
+   * they ask about), with what their vector is made from: the file name, the heading and the text. */
+  pendingVectors(limit: number): PendingPiece[] {
+    if (this.closed) return []
+    const rows = this.db.query(`SELECT c.id, c.loc, c.text, d.rel FROM chunks c INDEXED BY chunks_novec JOIN docs d ON d.id = c.doc_id
+      WHERE c.vec IS NULL AND d.failed IS NULL ORDER BY c.id DESC LIMIT ?`).all(clamp(limit, 1, 1000)) as { id: number; loc: string | null; text: string; rel: string }[]
+    return rows.map((r) => ({ id: r.id, name: path.posix.basename(r.rel), heading: headingOf(parseLoc(r.loc)), text: r.text }))
+  }
+
+  /**
+   * Write pieces' vectors in one transaction. A piece is written only while it still has no vector and is still what
+   * its vector was made from (the passage text of its file name, heading and text as they are now): a piece removed
+   * meanwhile, or whose row id a new piece took, keeps NULL and is embedded again. Returns how many were written.
+   */
+  writeVectors(rows: readonly PieceVector[]): number {
+    if (this.closed || !rows.length) return 0
+    let n = 0
+    const cur = this.db.prepare('SELECT c.loc, c.text, d.rel FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE c.id = ? AND c.vec IS NULL')
+    const set = this.db.prepare('UPDATE chunks SET vec = ? WHERE id = ? AND vec IS NULL')
+    this.db.transaction(() => {
+      for (const r of rows) {
+        if (r.vec.byteLength !== MEANING_DIMS) continue
+        const c = cur.get(r.id) as { loc: string | null; text: string; rel: string } | null
+        if (!c || passageText(path.posix.basename(c.rel), headingOf(parseLoc(c.loc)), c.text) !== r.passage) continue
+        n += set.run(r.vec, r.id).changes
+      }
+    })()
+    return n
+  }
+
+  /** pieces with a vector and pieces still without one, from the two indexes (no pass over the text) */
+  vectorCounts(): { done: number; pending: number } {
+    if (this.closed) return { done: 0, pending: 0 }
+    const all = (this.db.query('SELECT count(*) AS n FROM chunks INDEXED BY chunks_doc').get() as { n: number }).n
+    const pending = (this.db.query('SELECT count(*) AS n FROM chunks INDEXED BY chunks_novec WHERE vec IS NULL').get() as { n: number }).n
+    return { done: all - pending, pending }
   }
 
   /**
