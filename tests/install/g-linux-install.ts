@@ -21,6 +21,7 @@ import path from 'node:path'
 import { TenantStatus } from '@mycel/shared/cloud-protocol'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 import { buildLinuxBundle } from '../../scripts/build-bundle'
+import { flatFile, packagesFor, readList } from '../../scripts/system/packages'
 import { writeManifest } from '../../server/src/system/bundle'
 import { walkTree } from '../../server/src/system/manifest'
 import { writeAtomic, zstdCompress } from '../../server/src/system/streams'
@@ -38,6 +39,8 @@ const ARCH = process.arch === 'arm64' ? 'arm64' : 'amd64'
 const REAL = process.env.MYCEL_T2_REAL_ENGINES === '1'
 
 type Result = { name: string; ok: boolean; skipped?: boolean; detail?: string }
+/** /etc/default/<id>, '' when it is not there */
+const defaults = () => { try { return fs.readFileSync(`/etc/default/${ID}`, 'utf8') } catch { return '' } }
 const results: Result[] = []
 function check(name: string, ok: boolean, detail?: string) {
   results.push({ name, ok, detail })
@@ -123,6 +126,8 @@ async function main() {
     for (const f of fs.readdirSync(path.join(REPO, 'scripts', 'linux', 'systemd'))) fs.copyFileSync(path.join(REPO, 'scripts', 'linux', 'systemd', f), path.join(d1, 'root', 'systemd', f))
     for (const [src, dst] of [['account.sh', 'mycel-account'], ['set-claude-token.sh', 'set-claude-token'], ['safe-fs.sh', 'safe-fs.sh'], ['apparmor-bwrap.in', 'apparmor-bwrap.in']])
       fs.copyFileSync(path.join(REPO, 'scripts', 'linux', src!), path.join(d1, 'root', dst!))
+    for (const f of ['packages.json', 'packages.sh']) fs.copyFileSync(path.join(REPO, 'scripts', 'system', f), path.join(d1, 'root', f))
+    fs.writeFileSync(path.join(d1, 'root', 'packages.flat'), flatFile(fs.readFileSync(path.join(d1, 'root', 'packages.json'), 'utf8')))
     await writeManifest(d1, V(1))
   }
   await deriveKit(2, {})
@@ -198,6 +203,33 @@ async function main() {
   const fwc = readJson(`${BASE}/root/firewall.conf.json`), ij = readJson(`${BASE}/root/install.json`)
   check('firewall.conf.json and install.json name this install', fwc?.engineUid === ag && fwc?.serverUid === uidOf(SRV) && fwc?.proxyPort === PROXY && fwc?.deployment === 'self'
     && ij?.id === ID && ij?.serverUser === SRV && ij?.agentUser === AGT && ij?.allowUnsigned === true && ij?.version === V(1), JSON.stringify({ fwc, ij }))
+  // ---- system packages: the list's default groups (as the hosted image) and the pinned browser (scripts/system) ----
+  const osRelease = fs.readFileSync('/etc/os-release', 'utf8'), osv = (k: string) => new RegExp(`^${k}="?([^"\n]*)"?$`, 'm').exec(osRelease)?.[1] ?? ''
+  const list = readList(), distro = `${osv('ID')}-${osv('VERSION_ID')}`
+  let restricted = false
+  try { restricted = fs.readFileSync('/proc/sys/kernel/apparmor_restrict_unprivileged_userns', 'utf8').trim() === '1' } catch {}
+  const notInstalled = packagesFor(list, distro, ARCH, ['default'], { usernsRestricted: restricted })
+    .filter((p) => sh(['dpkg-query', '-W', '-f', '${db:Status-Status}', p]).out.trim() !== 'installed')
+  const browser = '/opt/trina/chrome-headless-shell/current/chrome-headless-shell'
+  const bv = sh([browser, '--version'])
+  check('system packages: every package of the default groups is installed, the pinned browser runs, MYCEL_HTML_PDF_BROWSER names it',
+    ij?.minimal === false && notInstalled.length === 0 && bv.code === 0 && bv.out.includes(list.artifacts['chrome-headless-shell']!.version)
+    && new RegExp(`^MYCEL_HTML_PDF_BROWSER=${browser}$`, 'm').test(defaults()) && statOf('/opt/trina/chrome-headless-shell') === 'root:root 755',
+    `${distro} missing ${notInstalled} ${bv.out.trim()} ${JSON.stringify(defaults())}`)
+  // one real page printed by the pinned browser with the installed fonts (PR #164 review, question 6: --version alone
+  // does not show that the PDF path works on this architecture): Korean text, a PDF with an embedded CJK font
+  const page = '/tmp/t2-print.html', pdf = '/tmp/t2-print.pdf'
+  fs.writeFileSync(page, '<!doctype html><meta charset="utf-8"><title>t2</title><h1>견적서 Quote</h1><p>한국어 인쇄 시험입니다.</p>')
+  fs.rmSync(pdf, { force: true })
+  const pr = sh(['timeout', '120', browser, '--headless', '--no-sandbox', '--no-zygote', '--disable-gpu', '--disable-dev-shm-usage',
+    '--user-data-dir=/tmp/t2-print-profile', '--no-pdf-header-footer', `--print-to-pdf=${pdf}`, `file://${page}`])
+  const fonts = fs.existsSync(pdf) ? sh(['pdffonts', pdf]).out : ''
+  check('the pinned browser prints a Korean page to a PDF with a CJK font embedded',
+    fs.existsSync(pdf) && fs.readFileSync(pdf).subarray(0, 5).toString() === '%PDF-' && /CJK|Noto Sans KR|NanumGothic/i.test(fonts),
+    `${tail(pr, 4)} ${fonts.trim().split('\n').slice(2).join('; ')}`)
+  const synced = readJson(`${BASE}/root/packages.synced`)
+  check('root/packages.synced: the installer recorded the list it installed (ok)', synced?.result === 'ok' && synced?.list === new Bun.CryptoHasher('sha256').update(fs.readFileSync(`${BASE}/root/packages.json`)).digest('hex')
+    && fs.existsSync(`${BASE}/root/packages.flat`) && fs.existsSync(`${BASE}/root/packages.sh`), JSON.stringify(synced))
   const engineStat = statOf(`${BASE}/app/engines/claude/current/claude`)
   check('engines: app/engines/<name>/<sha12>/<name>, server-owned, engine group may run', engineStat === `${SRV}:${AGT} 750` && statOf(`${BASE}/app/engines/codex/current/model_catalog.json`) === `${SRV}:${AGT} 640`, engineStat)
   const cfg = readJson(`${BASE}/config/server.json`)
@@ -246,7 +278,7 @@ async function main() {
     `${tail(soOn, 6)} ${sl('memory.max')} ${sl('pids.max')} ${sl('cpu.max')}`)
   const soOff = sh([CTL, 'safe-ops', 'off', '--base', BASE, '--json', '--max-wait', '0'])
   const soH2 = await healthIs(V(1))
-  check('safe-ops off: flag gone, slice limits gone, server back', soOff.code === 0 && lastJson(soOff.out)?.on === false && !fs.existsSync(`/etc/default/${ID}`)
+  check('safe-ops off: flag gone, slice limits gone, server back', soOff.code === 0 && lastJson(soOff.out)?.on === false && !/^MYCEL_SAFE_OPS_1A=/m.test(defaults())
     && sl('memory.max') === 'max' && sl('pids.max') === 'max' && soH2?.version === V(1), `${tail(soOff, 4)} ${sl('memory.max')}`)
 
   // ---- firewall (spec 3.4) ----
@@ -358,6 +390,27 @@ socket.once('connect', () => {
   const cj = lastJson(cu.out)
   const h4 = await healthIs(V(4))
   check('mycel-ctl update --bundle: verified, switched, healthy', cu.code === 0 && cj?.result === 'ok' && h4?.version === V(4), `${tail(cu)} ${JSON.stringify(h4)}`)
+  // the list's root/packages.sh sync runs after the update, in a unit of its own (never inside the update command's
+  // time: PR #164 review, High 2); it ends with a record of the list in root/: nothing missing, the browser pinned
+  const syncUnit = `${ID}-packages-sync.service`
+  let syncState = ''
+  for (let i = 0; i < 300; i++) {
+    syncState = sh(['systemctl', 'is-active', syncUnit]).out.trim()
+    if (!['active', 'activating'].includes(syncState)) break
+    await Bun.sleep(1000)
+  }
+  const syncRec = readJson(`${BASE}/root/packages.synced`)
+  check('mycel-ctl update starts packages.sh sync as its own unit; it ends ok with the pinned browser',
+    (cj?.notes ?? []).some((n: string) => n.includes(`the sync runs in ${ID}-packages-sync.service`)) && syncRec?.result === 'ok'
+    && syncRec?.browser === readList().artifacts['chrome-headless-shell']!.version
+    && syncRec?.list === new Bun.CryptoHasher('sha256').update(fs.readFileSync(`${BASE}/root/packages.json`)).digest('hex'),
+    `${syncState} ${JSON.stringify(cj?.notes)} ${JSON.stringify(syncRec)}`)
+  // the record's system is this system for mycel-ctl too (packages.sh and mycel-ctl read os-release and the machine-id the
+  // same way): nothing pending, so the timer does not sync again at every check
+  // (the text form: `status --json` is the hosting service's tenant status, without this line)
+  const stSync = sh([CTL, 'status', '--base', BASE]).out
+  check('mycel-ctl status: the sync record is of this system and this list (nothing pending)', /^ {2}system packages: synced /m.test(stSync),
+    stSync.split('\n').find((l) => l.includes('system packages')) ?? tail({ out: stSync, err: '' }))
   // an update switches app/current under the running launcher: the next turn must get the new version's bridge
   const tb4 = turn('c_t2d', 'stat', '{BRIDGE}')
   check('after an update the engine still reaches the bridge (the launcher resolves it per turn)', tb4.code === 0, JSON.stringify(tb4))
@@ -425,6 +478,7 @@ socket.once('connect', () => {
   const un = installer('uninstall')
   const units = [...['firewall.service', 'firewall.timer', 'launcher.service', 'server.service', 'update.service', 'update.timer'].map(unit), SLICE].filter((u) => fs.existsSync(`/etc/systemd/system/${u}`))
   check('uninstall: units, firewall table and programs gone, data kept (root-owned), accounts locked', un.code === 0 && units.length === 0 && sh(['nft', 'list', 'table', 'inet', ID]).code !== 0
+    && !defaults().includes('MYCEL_HTML_PDF_BROWSER') && fs.existsSync('/opt/trina/chrome-headless-shell/current/chrome-headless-shell')
     && !fs.existsSync(`${BASE}/app`) && !fs.existsSync(`${BASE}/root`) && !fs.existsSync(`${BASE}/agent`) && statOf(`${BASE}/data`) === 'root:root 700' && fs.existsSync(`${BASE}/data/app.db`)
     && /^L/.test(sh(['passwd', '-S', SRV]).out.trim().split(/\s+/)[1] ?? ''), `${tail(un)} units ${units}`)
   const re = installer('install', '--from', kit(4), '--allow-unsigned', '--engine', `claude=${engine}`)

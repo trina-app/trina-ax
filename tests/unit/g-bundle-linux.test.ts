@@ -1,6 +1,7 @@
 // Linux release bundle (linux-runtime spec 3.6.1, 3.6.2; task L19): the pure parts of scripts/build-bundle.ts --os linux,
 // the pinned downloads (scripts/linux/downloads.ts), the engine pins (scripts/linux/engines.lock.json via
-// lock-engines.ts), the locked Codex catalog and deps.txt. The bundle itself is built on a Linux runner (CI
+// lock-engines.ts), the locked Codex catalog and the list of system packages (root/packages.json). The bundle itself is
+// built on a Linux runner (CI
 // linux-bundle job); nothing here downloads.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
@@ -43,7 +44,9 @@ describe('build-bundle.ts arguments', () => {
     for (const f of ['bin/bun', 'bin/rg', 'bin/pandoc', 'bin/typst', 'bin/whisper-cli', 'bin/whisper-cli-v2', 'native/mycel-gate', 'native/mycel-bridge', 'native/mycel-safeops',
       'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'root/mycel-bootstrap', 'root/mycel-launcher', 'root/mycel-sandbox', 'root/mycel-ctl', 'root/mycel-boxd',
       'root/mycel-account', 'root/set-claude-token', 'root/safe-fs.sh', 'root/apparmor-bwrap.in', 'root/systemd/launcher.service.in', 'engines.lock.json',
-      'engines/codex-0.163.0.model_catalog.json', 'deps.txt']) expect(files).toContain(f)
+      'engines/codex-0.163.0.model_catalog.json', 'root/packages.json', 'root/packages.sh']) expect(files).toContain(f)
+    // the list of system packages replaced deps.txt (scripts/system/packages.json; tests/unit/system-packages.test.ts)
+    expect(files).not.toContain('deps.txt')
     expect(linuxBundleFiles({ arch: 'arm64', codexVersion: '0.163.0', whisper: true, systemd: [] })).not.toContain('bin/whisper-cli-v2')
     expect(linuxBundleFiles({ arch: 'arm64', codexVersion: '0.163.0', whisper: false, systemd: [] }).some((f) => f.includes('whisper'))).toBe(false)
     expect(whisperFiles('amd64')).toEqual(['whisper-cli', 'whisper-cli-v2'])
@@ -170,13 +173,15 @@ describe('locked Codex catalog', () => {
   })
 })
 
-test('deps.txt: lines scripts/install-linux.sh can read ("package" or "package>=version")', () => {
-  const lines = fs.readFileSync(path.join(ROOT, 'scripts', 'linux', 'deps.txt'), 'utf8').split('\n').map((l) => l.replace(/#.*/, '').replace(/\s+/g, '')).filter(Boolean)
-  expect(lines.length).toBeGreaterThan(5)
-  for (const l of lines) expect(l).toMatch(/^([a-z0-9][a-z0-9.+-]*)(>=([0-9][0-9A-Za-z.+:~-]*))?$/)
-  for (const p of ['bubblewrap>=0.8.0', 'nftables>=1.0.6', 'poppler-utils>=22.12.0']) expect(lines).toContain(p)
+test('the list of system packages: the floors deps.txt had, readable by dpkg --compare-versions', () => {
+  const j = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts', 'system', 'packages.json'), 'utf8'))
+  const always = Object.values(j.groups as Record<string, { install: string; packages?: Record<string, unknown> }>).filter((g) => g.install === 'always')
+  const floors = Object.fromEntries(always.flatMap((g) => Object.entries(g.packages ?? {})).map(([n, v]) => [n, typeof v === 'string' ? v : (v as { min?: string }).min ?? '']))
+  expect(Object.keys(floors).length).toBeGreaterThan(5)
+  for (const [n, v] of Object.entries(floors)) expect(`${n}${v}`).toMatch(/^([a-z0-9][a-z0-9.+-]*)(>=([0-9][0-9A-Za-z.+:~-]*))?$/)
+  for (const [n, v] of [['bubblewrap', '>=0.8.0'], ['nftables', '>=1.0.6'], ['poppler-utils', '>=22.12.0'], ['ffmpeg', '>=7:5.1']]) expect(floors[n!]).toBe(v)
   // no OCR on Linux (docs/DECISIONS.md "AI sees images and PDF pages"): the AI sees images and scanned pages instead
-  expect(lines.filter((l) => l.startsWith('tesseract'))).toEqual([])
+  expect(JSON.stringify(j)).not.toContain('tesseract')
 })
 
 /** A minimal zip: [name, data, deflate?] entries. */

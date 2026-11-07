@@ -41,7 +41,14 @@
 #                         downloads ({"web": {...}}) or {"clientId", "clientSecret", "redirectUri"}. The redirect URI
 #                         must be https://<public host>/api/integrations/google-drive/callback. Not kept: repair and
 #                         update leave the installed file as it is.
-#   --skip-apt            do not install distribution packages (they must already be there)
+#   --minimal             install only the system packages every install needs (the list's "always" groups:
+#                         scripts/system/packages.json, root/packages.json in the kit). Without it the installer also
+#                         installs the default groups, the same as the hosted image: CJK fonts, the dev environment's
+#                         tools (nothing is turned on: scripts/dev-env/srt/install-srt.sh does that) and the pinned
+#                         headless browser for HTML to PDF in /opt/trina/chrome-headless-shell (MYCEL_HTML_PDF_BROWSER
+#                         in /etc/default/<id>). Kept for repair / update; --no-minimal turns the default groups back on.
+#   --skip-apt            do not install distribution packages (they must already be there; the browser is still
+#                         downloaded unless --minimal)
 #   --image-mode          install only, for a template build (scripts/image/customize.sh: virt-customize, no running
 #                         systemd): install the files and the units, but enable and start nothing, write no setup code,
 #                         load no engine firewall, wait for no health. Live-kernel checks only warn (the booted VM runs
@@ -75,7 +82,7 @@ esac
 
 ID=mycel SRV_USER="" AGT_USER="" PORT=47820 PROXY_PORT=47821 TLS_PORT=0
 FROM="" HOSTED=0 PLAN="" CODEX_MODELS="" ALLOW_UNSIGNED=0 AUTO_UPDATE=1 SKIP_APT=0 SYSTEMD=1 PURGE=0 KEEP_LOGINS=0
-IMAGE_MODE=0
+IMAGE_MODE=0 MINIMAL=0
 PUBLIC_HOST="" APP_CONNECTORS="" DRIVE_CLIENT=""   # "" = not given: keep what server.json has
 ENGINES=()
 SET=()   # options given on the command line (repair/update keep the rest from install.json)
@@ -106,6 +113,8 @@ while [ $# -gt 0 ]; do
     --no-app-connectors) APP_CONNECTORS=0; SET+=(appconn); shift ;;
     --google-drive-client) val "$@"; DRIVE_CLIENT=$2; shift 2 ;;
     --skip-apt) SKIP_APT=1; shift ;;
+    --minimal) MINIMAL=1; SET+=(minimal); shift ;;
+    --no-minimal) MINIMAL=0; SET+=(nominimal); shift ;;
     --no-systemd) SYSTEMD=0; SET+=(nosystemd); shift ;;
     --image-mode) IMAGE_MODE=1; HOSTED=1; SET+=(hosted); shift ;;
     --purge) PURGE=1; shift ;;
@@ -117,6 +126,7 @@ done
 given() { local s; for s in ${SET[@]+"${SET[@]}"}; do [ "$s" = "$1" ] && return 0; done; return 1; }
 ! { given auto && given noauto; } || die "--auto-update and --no-auto-update exclude each other"
 ! { given signed && given unsigned; } || die "--require-signed and --allow-unsigned exclude each other"
+! { given minimal && given nominimal; } || die "--minimal and --no-minimal exclude each other"
 ! { given auto && given hosted; } || die "--auto-update is for self-installs; the hosted service updates its tenants"
 [ "$IMAGE_MODE" = 0 ] || [ "$CMD" = install ] || die "--image-mode is for install only (a template build)"
 
@@ -139,6 +149,7 @@ if [ "$CMD" = repair ] || [ "$CMD" = update ] || [ "$CMD" = uninstall ]; then
     given unsigned || given signed || { [ "$(j allowUnsigned)" = true ] && ALLOW_UNSIGNED=1; }
     given noauto || given auto || { [ "$(j autoUpdate)" = false ] && AUTO_UPDATE=0; }
     given nosystemd || { [ "$(j systemd)" = false ] && SYSTEMD=0; }
+    given minimal || given nominimal || { [ "$(j minimal)" = true ] && MINIMAL=1; }
     given pubhost || { h=$(j publicHost); [ "$h" = null ] || PUBLIC_HOST=$h; }
     given appconn || case "$(j appConnectors)" in true) APP_CONNECTORS=1 ;; false) APP_CONNECTORS=0 ;; esac
   elif [ "$CMD" != uninstall ]; then
@@ -253,13 +264,16 @@ if [ "$CMD" = uninstall ]; then
   fi
   rm -f "/etc/sysctl.d/60-$ID.conf" "/etc/systemd/journald.conf.d/$ID.conf"
   # safe operations 1A's switch (`mycel-ctl safe-ops on`): a later install of this id starts with 1A off. The file's
-  # other lines (the administrator's, mycel-enroll's) stay; a file left empty goes.
+  # other lines (the administrator's, mycel-enroll's) stay; a file left empty goes. The browser line goes too (the
+  # browser in /opt/trina and the distribution packages stay: other installs may use them).
   DEF="/etc/default/$ID"
-  if [ -f "$DEF" ] && [ ! -L "$DEF" ] && grep -q '^[[:space:]]*MYCEL_SAFE_OPS_1A[[:space:]]*=' "$DEF"; then
-    grep -v '^[[:space:]]*MYCEL_SAFE_OPS_1A[[:space:]]*=' "$DEF" > "$DEF.mycel-tmp" || true
-    if grep -q '[^[:space:]]' "$DEF.mycel-tmp"; then cat "$DEF.mycel-tmp" > "$DEF"; rm -f "$DEF.mycel-tmp"; else rm -f "$DEF" "$DEF.mycel-tmp"; fi
-    say "turned safe operations 1A off in $DEF"
-  fi
+  for k in MYCEL_SAFE_OPS_1A MYCEL_HTML_PDF_BROWSER; do
+    if [ -f "$DEF" ] && [ ! -L "$DEF" ] && grep -q "^[[:space:]]*${k}[[:space:]]*=" "$DEF"; then
+      grep -v "^[[:space:]]*${k}[[:space:]]*=" "$DEF" > "$DEF.mycel-tmp" || true
+      if grep -q '[^[:space:]]' "$DEF.mycel-tmp"; then cat "$DEF.mycel-tmp" > "$DEF"; rm -f "$DEF.mycel-tmp"; else rm -f "$DEF" "$DEF.mycel-tmp"; fi
+      [ "$k" != MYCEL_SAFE_OPS_1A ] || say "turned safe operations 1A off in $DEF"
+    fi
+  done
   CTL_LINK=/usr/local/sbin/mycel-ctl; [ "$ID" = mycel ] || CTL_LINK="/usr/local/sbin/$ID-ctl"
   [ -L "$CTL_LINK" ] && case "$(readlink "$CTL_LINK")" in "$BASE"/*) rm -f "$CTL_LINK" ;; esac
   for f in /etc/cron.deny /etc/at.deny; do
@@ -396,6 +410,23 @@ kitbun() {
   (cd "$KIT_WORK" && for v in $(compgen -e); do case "$v" in BUN_*|NODE_*) unset "$v" ;; esac; done && HOME="$KIT_WORK" XDG_CONFIG_HOME="$KIT_WORK" exec "$KBUN" "$@")
 }
 
+# the system packages and programs of every install path (scripts/system/packages.json, root/packages.json of the kit;
+# the image installs the same default groups). A bundle from before the list (a repair from an older installed version)
+# has deps.txt instead: its packages, as before.
+LIST_OK=0 PROFILE=default DISTRO=""
+[ "$MINIMAL" = 0 ] || PROFILE=minimal
+if [ -f "$KROOT/packages.sh" ] && [ -f "$KROOT/packages.json" ]; then
+  # shellcheck source=system/packages.sh
+  . "$KROOT/packages.sh"
+  # shellcheck disable=SC2034 # packages.sh reads it: the kit's bun, from an empty folder with no environment (pk__bun)
+  PK_BUN=$KBUN
+  pk_load "$KROOT/packages.json" || die "the kit's root/packages.json cannot be read"
+  DISTRO=$(pk_distro "$OSID" "$OSVER") || die "$OSID $OSVER is not a system of the kit's list (root/packages.json)"
+  LIST_OK=1
+elif [ "$MINIMAL" = 1 ]; then
+  warn "this kit has no list of system packages (root/packages.json): --minimal changes nothing"
+fi
+
 # engine requests: NAME or NAME=FILE
 CLAUDE_REQ="" CODEX_REQ="" CLAUDE_FILE="" CODEX_FILE=""
 for spec in ${ENGINES[@]+"${ENGINES[@]}"}; do
@@ -420,6 +451,12 @@ if [ "$CMD" = check ]; then
   say "check: system $OSID $OSVER $ARCH, cgroup v2$([ "$SYSTEMD" = 1 ] && echo ", systemd")"
   say "check: kit $VERSION ($ARCH) from $FROM verifies$([ "$ALLOW_UNSIGNED" = 1 ] && echo " (unsigned allowed)")"
   if command -v bwrap >/dev/null 2>&1; then say "check: bubblewrap $(bwrap --version 2>/dev/null | awk '{print $2}')"; else say "check: bubblewrap not installed yet (install adds it)"; fi
+  if [ "$LIST_OK" = 1 ]; then
+    say "check: system packages ($PROFILE profile, $DISTRO): $(pk_packages "$DISTRO" "$ARCH" "$PROFILE" | tr '\n' ' ')"
+    if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
+      say "check: browser chrome-headless-shell $(pk_art chrome-headless-shell "linux-$ARCH" version) -> $PK_OPT/chrome-headless-shell (MYCEL_HTML_PDF_BROWSER in /etc/default/$ID)"
+    fi
+  fi
   if PF=$("$CTL_KIT" preflight "${PREFLIGHT_ARGS[@]}" 2>&1); then say "check: preflight ok: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-400)"
   else
     if [ "$HOSTED" = 1 ]; then die "preflight failed for a hosted tenant: $(printf '%s' "$PF" | tr -d '\n' | cut -c1-600)"; fi
@@ -495,29 +532,72 @@ fs.writeFileSync(e.MYCEL_I_OUT, JSON.stringify(out, null, 2) + "\n", { mode: 0o6
   rm -f "$KIT_WORK/drive-in.json"
 fi
 
-# ---- 3) distribution packages ----
-PKGS=(bubblewrap nftables poppler-utils ffmpeg libheif-examples ca-certificates curl gnupg file zstd util-linux)
+# ---- 3) distribution packages: the list's groups for this system (root/packages.json). The always groups stop the
+# install when they cannot be installed or are below their floor; the default groups (not with --minimal) only warn:
+# the server runs without them, and a repair tries again. ----
 RESTRICT_USERNS=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)
-[ "$RESTRICT_USERNS" = 1 ] && PKGS+=(apparmor)
-if [ "$SKIP_APT" = 0 ]; then
-  say "installing packages: ${PKGS[*]}"
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq >/dev/null || die "apt-get update failed"
-  apt-get install -y -qq --no-install-recommends "${PKGS[@]}" >/dev/null || die "apt-get install failed"
-fi
-for c in bwrap nft curl sha256sum tar runuser; do command -v "$c" >/dev/null 2>&1 || die "$c is missing (packages: ${PKGS[*]})"; done
-# minimum versions (deps.txt of the kit: one "package" or "package>=version" per line)
-if [ -f "$BUNDLE/deps.txt" ]; then
+if [ "$LIST_OK" = 1 ]; then
+  # shellcheck disable=SC2034 # packages.sh reads it (the list's "when": userns-restricted)
+  PK_USERNS_RESTRICTED=$RESTRICT_USERNS
+  read -r -a PKGS <<< "$(pk_packages "$DISTRO" "$ARCH" minimal | tr '\n' ' ')"
+  [ ${#PKGS[@]} -gt 0 ] || die "the kit's list has no packages for $DISTRO $ARCH"
+  # the default groups in two transactions: the browser's libraries first, so one package of another group that cannot
+  # be installed does not keep the browser from working
+  BPKGS=() EXTRA=()
+  if [ "$PROFILE" != minimal ]; then
+    read -r -a BPKGS <<< "$(pk_packages "$DISTRO" "$ARCH" browser | grep -vxF -f <(printf '%s\n' "${PKGS[@]}") | tr '\n' ' ' || true)"
+    read -r -a EXTRA <<< "$(pk_packages "$DISTRO" "$ARCH" "$PROFILE" | grep -vxF -f <(printf '%s\n' "${PKGS[@]}" ${BPKGS[@]+"${BPKGS[@]}"}) | tr '\n' ' ' || true)"
+  fi
+  SYNC_RESULT=ok SYNC_DETAIL=""
+  if [ "$SKIP_APT" = 0 ]; then
+    say "installing packages: ${PKGS[*]}"
+    pk_apt_install -- "${PKGS[@]}" || die "apt-get install failed (see above)"
+    for batch in browser rest; do
+      if [ "$batch" = browser ]; then B=(${BPKGS[@]+"${BPKGS[@]}"}); else B=(${EXTRA[@]+"${EXTRA[@]}"}); fi
+      [ ${#B[@]} -gt 0 ] || continue
+      say "installing default packages (--minimal leaves them out): ${B[*]}"
+      rc=0; pk_apt_install -- "${B[@]}" || rc=$?
+      if [ "$rc" != 0 ]; then
+        warn "these default packages did not install (see above); the server runs without them, and \`sudo $0 repair\` tries again: ${B[*]}"
+        # not enough disk space (3) needs an administrator; anything else is tried again later
+        if [ "$rc" = 3 ]; then SYNC_RESULT=$(pk_worse "$SYNC_RESULT" blocked); else SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); fi
+        SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }not installed: ${B[*]}"
+      fi
+    done
+  fi
+  FLOORS=$(pk_check_floors "$DISTRO" "$ARCH" minimal) || die "${FLOORS//$'\n'/; }$([ "$SKIP_APT" = 1 ] && echo " (--skip-apt)")"
+  if [ "$PROFILE" != minimal ] && ! FLOORS=$(pk_check_floors "$DISTRO" "$ARCH" "$PROFILE"); then warn "${FLOORS//$'\n'/; }"; fi
+  if MISS=$(pk_missing ${BPKGS[@]+"${BPKGS[@]}"} ${EXTRA[@]+"${EXTRA[@]}"} | tr '\n' ' ') && [ -n "$MISS" ]; then
+    warn "not installed (default groups): $MISS"
+    if [ "$SKIP_APT" = 0 ]; then SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); else SYNC_RESULT=$(pk_worse "$SYNC_RESULT" blocked); fi
+    SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }missing: $MISS"
+  fi
+else
+  # a bundle from before the list: the packages of its deps.txt (one "package" or "package>=version" per line), as then
+  [ -f "$BUNDLE/deps.txt" ] || die "the kit has no list of system packages (root/packages.json, or deps.txt of an older kit)"
+  PKGS=() MINS=()
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%%#*}; line=$(printf '%s' "$line" | tr -d '[:space:]')
     [ -n "$line" ] || continue
     [[ "$line" =~ ^([a-z0-9][a-z0-9.+-]*)(>=([0-9][0-9A-Za-z.+:~-]*))?$ ]] || { warn "deps.txt: cannot read \"$line\""; continue; }
-    pkg=${BASH_REMATCH[1]} min=${BASH_REMATCH[3]}
+    PKGS+=("${BASH_REMATCH[1]}"); MINS+=("${BASH_REMATCH[3]}")
+  done < "$BUNDLE/deps.txt"
+  # (the AppArmor profile below needs apparmor_parser where the kernel restricts user namespaces)
+  [ "$RESTRICT_USERNS" = 1 ] && PKGS+=(apparmor) && MINS+=("")
+  if [ "$SKIP_APT" = 0 ]; then
+    say "installing packages: ${PKGS[*]}"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq >/dev/null || die "apt-get update failed"
+    apt-get install -y -qq --no-install-recommends "${PKGS[@]}" >/dev/null || die "apt-get install failed"
+  fi
+  for i in "${!PKGS[@]}"; do
+    pkg=${PKGS[$i]} min=${MINS[$i]}
     have=$(dpkg-query -W -f='${Version}' "$pkg" 2>/dev/null || true)
     [ -n "$have" ] || die "package $pkg is not installed$([ "$SKIP_APT" = 1 ] && echo " (--skip-apt)")"
     if [ -n "$min" ] && ! dpkg --compare-versions "$have" ge "$min"; then die "package $pkg is $have, at least $min is needed"; fi
-  done < "$BUNDLE/deps.txt"
+  done
 fi
+for c in bwrap nft curl sha256sum tar runuser; do command -v "$c" >/dev/null 2>&1 || die "$c is missing (packages: ${PKGS[*]})"; done
 BWRAP_V=$(bwrap --version 2>/dev/null | awk '{print $2}')
 dpkg --compare-versions "${BWRAP_V:-0}" ge 0.8.0 2>/dev/null || die "bubblewrap $BWRAP_V is too old (0.8.0 or newer: --disable-userns)"
 
@@ -722,6 +802,9 @@ BOXD_BEFORE=$(boxd_sum)
 [ ! -f "$KROOT/mycel-boxd" ] || rootfile 755 mycel-boxd
 boxd_restart "$BOXD_BEFORE"
 rootfile 644 safe-fs.sh
+# the one list of system packages, its flat copy and its reader: `mycel-ctl update` syncs this machine to them
+# (packages.sh sync) and compares root/packages.synced with the list. A kit from before the list has none.
+for f in packages.json packages.flat packages.sh; do [ ! -f "$KROOT/$f" ] || rootfile 644 "$f"; done
 # the unit templates go with the root programs (mycel-ctl render-units and update read them from root/systemd/)
 mk root root 755 "$BASE/root/systemd"
 for t in firewall.service firewall.timer launcher.service server.service update.service update.timer slice; do rootfile 644 "systemd/$t.in"; done
@@ -754,6 +837,32 @@ rm -rf "$SBX"; mv -T "$SBX.new" "$SBX"
 printf '{"format":1,"id":"%s","engineUid":%s,"serverUid":%s,"proxyPort":%s,"serverPort":%s,"deployment":"%s","serverAllowPrivate":[]}\n' \
   "$ID" "$AGT_UID" "$SRV_UID" "$PROXY_PORT" "$PORT" "$DEPLOYMENT" > "$ITMP/firewall.conf.json"
 install -o root -g root -m 644 "$ITMP/firewall.conf.json" "$BASE/root/firewall.conf.json"
+
+# ---- 7b) the list's programs: the pinned headless browser for HTML to PDF (default groups, not with --minimal) in
+# /opt/trina/chrome-headless-shell/<version> (root's; one per machine, shared by every install id), named in
+# /etc/default/<id> as MYCEL_HTML_PDF_BROWSER. packages.sh downloads and tests a version before current points to it, keeps
+# the version before it until the next switch, and leaves a newer version another install put there. A failure only
+# warns: HTML to PDF says there is no browser. root/packages.synced records the list and the result: mycel-ctl update
+# tries again after some hours when it is "incomplete" (a download), and when the list changes. ----
+if [ "$LIST_OK" = 1 ]; then
+  BROWSER_V=""
+  if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
+    pk_browser_prepare "$PK_OPT/chrome-headless-shell" "linux-$ARCH" || { warn "the pinned headless browser was not installed (see above)"; SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); }
+    if BROWSER=$(pk_browser_switch "$PK_OPT/chrome-headless-shell" "linux-$ARCH"); then
+      pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "$BROWSER" || die "writing /etc/default/$ID failed"
+      BROWSER_V=$(pk__current_version "$PK_OPT/chrome-headless-shell")
+      say "browser: chrome-headless-shell $BROWSER_V ($BROWSER)"
+    else
+      pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || die "writing /etc/default/$ID failed"
+      warn "no headless browser runs here, so HTML to PDF stays off (see above); \`sudo $0 repair\` tries again"
+      SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete) SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }no chrome-headless-shell runs"
+    fi
+  else
+    pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || die "writing /etc/default/$ID failed"
+  fi
+  pk_write_synced "$BASE/root/packages.synced" "$(pk_sha256 "$KROOT/packages.json")" "$SYNC_RESULT" "$SYNC_DETAIL" "$BROWSER_V" \
+    || die "writing $BASE/root/packages.synced failed"
+fi
 
 # ---- 8) engines: app/engines/<name>/<sha12>/<name>, current -> <sha12> ----
 download() {  # url sha256 size out
@@ -998,6 +1107,8 @@ cat > "$ITMP/install.json" <<EOF
   "engines": [$ENG_JSON],
   "version": "$VERSION",
   "systemd": $(jbool "$SYSTEMD"),
+  "minimal": $(jbool "$MINIMAL"),
+  "skipApt": $(jbool "$SKIP_APT"),
   "publicHost": $(if [ -n "$PUBLIC_HOST" ] && [ "$PUBLIC_HOST" != none ]; then echo "\"$PUBLIC_HOST\""; else echo null; fi),
   "appConnectors": $(case "$APP_CONNECTORS" in 1) echo true ;; 0) echo false ;; *) echo null ;; esac)
 }

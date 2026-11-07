@@ -108,14 +108,44 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 ```
 
 - 계정 `axserver`(서버)·`axagent`(AI 엔진)을 시스템 계정으로 만든다. 모든 파일은 `/var/lib/mycel` 아래.
-- 필요한 패키지(bubblewrap, nftables, poppler-utils, ffmpeg, libheif-examples …)를 apt로 설치한다(`--skip-apt`로 끔). tesseract는 더 이상 설치하지 않는다(이미 있어도 쓰지 않음).
+- 시스템 패키지는 키트 안의 한 목록(`app/<버전>/root/packages.json`, 저장소의 `scripts/system/packages.json`)에서 apt로
+  설치한다(`--skip-apt`로 끔). 호스팅 서버의 이미지도 같은 목록에서 설치하므로, 기본 설치는 호스팅 서버와 같은 패키지를 갖는다.
+  - 늘 설치(`--minimal`에서도): bubblewrap, nftables, poppler-utils, ffmpeg, libheif-examples 등 서버가 쓰는 것. 설치할 수
+    없거나 목록의 최소 버전보다 낮으면 설치를 멈춘다.
+  - 기본 설치(`--minimal`이면 빠짐): 한중일 글꼴(fonts-noto-cjk), 개발 환경의 도구(python3, git, build-essential, ripgrep,
+    Debian의 chromium …; 패키지만 넣고 개발 환경은 켜지 않는다. 켜는 것은 `scripts/dev-env/srt/install-srt.sh`), 그리고 HTML을
+    PDF로 바꾸는 헤드리스 브라우저. 이것들이 설치되지 않으면 경고만 하고 계속한다(`repair`가 다시 시도).
+  - 브라우저: 목록이 고정한 Chrome for Testing `chrome-headless-shell`(버전과 SHA-256 고정)을
+    `/opt/trina/chrome-headless-shell/<버전>/`에 받고 `current` 링크를 건다. root 소유이고 다른 계정은 쓸 수 없다.
+    `/etc/default/<id>`의 `MYCEL_HTML_PDF_BROWSER`가 이 브라우저를 가리킨다. 새 버전은 받아서(최대 8분) 확인하고 한 번
+    실행해 본 뒤(`--version`) `current`를 옮긴다. 실행되지 않으면 옛 버전이 그대로 남는다. 바로 앞 버전은 다음 전환 때까지 남긴다
+    (인쇄가 아직 쓰고 있을 수 있다). 같은 기계의 다른 설치가 둔 더 새 브라우저는 그대로 둔다. 단 목록이 그 버전을 취소하면
+    (`"revoked"`: 잘못 고정한 버전을 되돌림) 맞춤이 고정 버전으로 되돌린다.
+  - 업데이트: 목록은 모든 릴리스의 root 파일(`root/packages.json`, Linux 부분만)이라 목록이 바뀐 릴리스는 root 업데이트다. 오피스 Mac의 다운로드만 바뀐 릴리스는 root 업데이트가 아니다. `mycel-ctl update`가
+    root 파일과 앱을 넣은 뒤 맞춤(`packages.sh sync`: 빠진 패키지, 그다음 브라우저)을 따로 된 systemd 유닛
+    `<id>-packages-sync.service`로 시작하고 바로 끝난다. 그래서 느린 받기가 업데이트 시간에 들어가지 않는다. 맞춤은 결과를
+    `root/packages.synced`에 적고, 돈 시스템(`/etc/os-release`와 machine-id)도 적는다. 그래서 다시 설치한 서버는 다시 맞춘다. `sudo mycel-ctl status`와 관리자 › 시스템 › 진단("시스템 패키지")에 보인다. 그 기록이
+    `root/`의 목록과 다르면(예: 옛 `mycel-ctl`이 릴리스를 설치했을 때) 업데이트 타이머가 업데이트 시간에 맞춘다. *끝내지 못한*
+    맞춤(받기나 apt 실패, dpkg 잠금이 5분 넘게 잡힘)은 6시간 뒤 타이머가 다시 하고, *관리자가 할 일이 있는* 맞춤(빈 공간 부족,
+    사람 없이 apt를 돌리면 안 되는 서버)은 타이머가 건드리지 않고, 관리자가 직접 돌리는 `sudo mycel-ctl update`나
+    `sudo ./install-linux.sh repair`가 다시 한다. 맞출 일이 남아 있어도 앱이 스스로 받는 릴리스를 타이머가 대신 받지는 않는다:
+    타이머는 내려받지 않고 옆에서 맞추기만 한다. 사람 없이 도는 맞춤은 이 설치 프로그램으로 `--skip-apt` 없이 설치한 서버와
+    호스팅 서버에서만 apt를 돌린다. 목록 전에 설치한 자체 설치 서버에서는 빠진 것만 알리고, `repair`가 설치한다. 맞춤 중 apt는 따로 된 임시 systemd 유닛으로
+    돈다(`systemd-run`, 기록은 `/var/log/trina-packages-apt.log`). 그래서 업데이트 작업이 멈춰도 dpkg가 중간에 끊기지 않는다.
+    apt는 dpkg 잠금을 기다리고, 먼저 빈 공간을 확인하고, 브라우저 라이브러리를 따로 한 번에 설치한다. 맞춤은 앱 업데이트를
+    붙잡지도 실패시키지도 않는다. 맞춤이 `MYCEL_HTML_PDF_BROWSER`를 쓰기 전에도 서버는 `/opt/trina/chrome-headless-shell/current/`의
+    브라우저를 스스로 찾는다.
+  - 패키지 버전: 배포판 릴리스(Debian 12·13, Ubuntu 24.04)를 고정하고, 패키지마다 최소 버전을 확인한다. 그 릴리스의 최신
+    버전(보안 업데이트 포함)을 설치하고, 정확한 버전은 고정하지 않는다(미러가 옛 버전을 지우면 설치가 깨진다).
+  - tesseract는 더 이상 설치하지 않는다(이미 있어도 쓰지 않음).
 - 엔진 바이너리는 공식 주소에서 받아 고정된 SHA-256과 비교한다(번들에 넣지 않음).
 - 방화벽(nftables)을 먼저 넣고, 실패하면 설치를 멈춘다: AI 엔진 계정은 `127.0.0.1:<모델 프록시 포트>` 말고는 아무 데도 못 나간다.
 - systemd 유닛: `mycel-firewall.timer`, `mycel-launcher.service`, `mycel-server.service`, `mycel-update.timer`.
 - 마지막 줄이 `installed …`이면 성공. 실패하면 이유를 출력하고 1로 끝난다.
 
 자주 쓰는 옵션: `--id ID`(한 서버에 시험 설치를 하나 더. systemd 자체 그룹 이름인 `system`·`user`·`machine`·`capsule`은 쓸 수 없다), `--port N`(기본 47820), `--proxy-port N`(기본 47821),
-`--tls-port N`(사무실 안 직접 연결, 기본 끔), `--no-auto-update`, `--plan FILE`(요금제 파일, 아래 9장).
+`--tls-port N`(사무실 안 직접 연결, 기본 끔), `--no-auto-update`, `--plan FILE`(요금제 파일, 아래 9장),
+`--minimal`(늘 필요한 패키지만. repair·update가 기억하고, `--no-minimal`로 되돌린다).
 
 공개 주소와 연동(7장 "공개 주소"):
 
@@ -373,4 +403,4 @@ sudo ./install-linux.sh uninstall              # 앱·실행기·유닛 삭제, 
 sudo ./install-linux.sh uninstall --purge      # 전부 삭제, 계정도 삭제
 ```
 
-제거하면 `/etc/default/<id>`의 `MYCEL_SAFE_OPS_1A` 줄도 지운다(다시 설치하면 1A는 꺼진 채로 시작한다). 그 파일의 다른 줄은 남는다.
+제거하면 `/etc/default/<id>`의 `MYCEL_SAFE_OPS_1A`·`MYCEL_HTML_PDF_BROWSER` 줄도 지운다(다시 설치하면 1A는 꺼진 채로 시작한다). 그 파일의 다른 줄은 남는다. apt 패키지와 `/opt/trina`의 브라우저는 남긴다(다른 설치가 쓸 수 있다).

@@ -6,6 +6,8 @@
 #
 #   docker build --build-arg TRINA_AX_VERSION=0.3.0 -t trina-ax:0.3.0 docker/
 #
+# HTML to PDF (CJK fonts and the pinned headless browser): add --build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser".
+#
 # A kit from your own build (development, unsigned): put the unpacked kit folder in docker/kit-local/ and build with
 # --build-arg TRINA_AX_KIT=local. The container then needs TRINA_AX_ALLOW_UNSIGNED=1.
 ARG DEBIAN_IMAGE=debian:trixie-slim
@@ -40,13 +42,28 @@ FROM kit-${TRINA_AX_KIT} AS kit
 
 # ---- the runtime image ----
 FROM ${DEBIAN_IMAGE}
-# The packages scripts/install-linux.sh installs on a Linux server (its PKGS list), so it can run with --skip-apt;
-# No init program is needed: mycel-ctl supervise is PID 1 and reaps orphans itself.
-RUN apt-get update -qq \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-      bubblewrap nftables poppler-utils ffmpeg libheif-examples ca-certificates curl gnupg file zstd util-linux \
-      procps passwd python3 >/dev/null \
- && rm -rf /var/lib/apt/lists/*
+COPY --from=kit /kit /opt/trina-ax/kit
+# The packages of the one list (the kit's root/packages.json, scripts/system/packages.json in the repository): its always
+# groups, which scripts/install-linux.sh --minimal checks (the entrypoint runs it with --skip-apt), and the docker group.
+# Read with the kit's packages.sh and its flat copy (no jq or bun needed here). No init program is needed: mycel-ctl
+# supervise is PID 1 and reaps orphans itself. packages.sh is bash (arrays, [[ ]]): the RUN steps run in bash, not sh.
+# HTML to PDF is not in the default image (a smaller image, less to attack; most Docker teams do not need it). It comes
+# with --build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser": the CJK fonts, the browser's libraries and the pinned
+# chrome-headless-shell in /opt/trina/chrome-headless-shell (root's; the server finds it there by itself).
+SHELL ["/bin/bash", "-c"]
+ARG TRINA_AX_PACKAGE_GROUPS=""
+RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
+    test -f "$root/packages.sh" || { echo "this Dockerfile needs a kit with root/packages.json (the one list of packages)" >&2; exit 1; }; \
+    groups="minimal docker"; \
+    for g in $TRINA_AX_PACKAGE_GROUPS; do \
+      case "$g" in fonts|browser) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here (fonts, browser)" >&2; exit 1 ;; esac; \
+    done; \
+    . "$root/packages.sh"; pk_load "$root/packages.json"; \
+    pk_apt_install -- $(pk_packages "$(pk_distro)" "$(pk_arch)" $groups); \
+    if pk_artifacts $groups | grep -qx chrome-headless-shell; then \
+      pk_browser_install /opt/trina/chrome-headless-shell "linux-$(pk_arch)" >/dev/null; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
 # Fixed ids: the files in the volume belong to these numbers, so every image version must use the same ones (the same
 # numbers as the hosted tenant image). System range, no login shell, locked password: install-linux.sh checks all three.
 RUN groupadd --system --gid 980 axserver \
@@ -56,7 +73,6 @@ RUN groupadd --system --gid 980 axserver \
  && useradd --system --uid 981 --gid 981 --home-dir /var/lib/mycel/agent/home --shell /usr/sbin/nologin --no-create-home \
       --comment "Trina AX AI engine (mycel)" axagent \
  && passwd -l axserver >/dev/null && passwd -l axagent >/dev/null
-COPY --from=kit /kit /opt/trina-ax/kit
 COPY entrypoint.sh /usr/local/bin/trina-ax-entrypoint
 COPY setup-link.sh /usr/local/bin/trina-ax-setup-link
 RUN chown -R root:root /opt/trina-ax && chmod -R go-w /opt/trina-ax \

@@ -43,7 +43,7 @@ sudo ./install-linux.sh check --from .
 sudo ./install-linux.sh install --from . --engine claude --engine codex
 sudo mycel-ctl status
 ```
-The installer creates the service accounts, installs into `/var/lib/mycel` and sets up the sandbox, firewall and systemd units. The app listens on `127.0.0.1:47820`.
+The installer creates the service accounts, installs into `/var/lib/mycel` and sets up the sandbox, firewall and systemd units. The app listens on `127.0.0.1:47820`. It installs the same system packages as a hosted server, from one list in the kit: CJK fonts, the dev environment's tools (not turned on) and a pinned headless browser for HTML to PDF. `--minimal` installs only what every server needs.
 
 #### Create the owner
 Open an SSH tunnel (`ssh -L 47820:127.0.0.1:47820 <server>`), read the setup code from `/var/lib/mycel/setup/code` on the server, and open the setup page.
