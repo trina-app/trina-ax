@@ -20,6 +20,7 @@ import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
 import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { KNOWLEDGE_GRAPH_SPECS } from './knowledge-graph-cases'
+import { knowledgeGraphOf, type LookupResult } from '../../../server/src/knowledge-graph/service'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -69,6 +70,73 @@ const J = (body: unknown) => ({ headers: { 'content-type': 'application/json', [
 /** a sealed value of the right shape that opens with no key (the server refuses it after the permission check) */
 const FAKE_SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'B'.repeat(16), ct: 'C'.repeat(40) }
 const cm = () => 'cm-' + crypto.randomUUID()
+
+/**
+ * The Files search's document rows (FileContentHits.documents, from the knowledge graph): a file the person may not
+ * open never shows, whatever the knowledge graph answers. The world has no document index, so a stand-in lookup on the
+ * instance's knowledge graph answers every search with every file of the team (its text, canaries included), and with
+ * files put in for the probe: a symbolic link in shared/ to the finance budget, a finance file hard-linked into shared/
+ * (both names, which nobody sees, as in the line search) and a quarantined file. The rows
+ * must be exactly the files this person may open, under the folder searched; for alice also after her rule on
+ * projects/falcon is taken away for one search. Everything is put back before the next case.
+ */
+async function searchDocumentsCheck(r: Resp, w: World, who: Who) {
+  if (r.status !== 200) return
+  const shown = (x: Resp) => ((x.json?.documents ?? []) as { path: string }[]).map((d) => d.path).sort()
+  const fin = w.groups.finFolder, mkt = w.groups.mktFolder, me = USER_OF[who]
+  const mayOpen = (p: string) => {
+    if (p.startsWith('users/')) return p.startsWith(`users/${me}/`)
+    if (who === 'owner' || who === 'admin') return true
+    if (p.startsWith(fin + '/') || p.startsWith('skills/finance/')) return who === 'memberOut'
+    if (p.startsWith(mkt + '/salaries/')) return false
+    if (p.startsWith(mkt + '/')) return who === 'memberIn' || who === 'other'
+    if (p.startsWith('projects/falcon/public/')) return true
+    if (p.startsWith('projects/falcon/')) return who === 'memberIn' || who === 'memberOut'
+    return p.startsWith('shared/') || p.startsWith('skills/')
+  }
+  const team = ['users/alice/todo.md', 'users/bob/notes.md', `${fin}/budget.md`, `${mkt}/salaries/2026.md`, `${mkt}/brief.md`, 'projects/falcon/plan.md',
+    'projects/falcon/public/announce.md', 'shared/readme.md', 'skills/finance/close.md']
+  const link = 'shared/sec-doc-link.md', hardSrc = `${fin}/sec-doc-hard-source.md`, hard = 'shared/sec-doc-hard.md', held = 'shared/sec-doc-quarantined.md'
+  const abs = (p: string) => path.join(w.inst.team, ...p.split('/'))
+  const kg = knowledgeGraphOf(w.inst.ctx)
+  const real = { lookup: kg.lookup, docsOn: kg.docsOn }
+  const rule = w.inst.ctx.db.query("SELECT r.id, r.folder_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/falcon' AND r.subject_type = 'user' AND r.subject_id = 'alice'").get() as { id: string; folder_id: string; access: string } | null
+  if (!rule) throw new Error('the world has no rule for alice on projects/falcon')
+  const ask = (q: string) => w.as[who].get(`/api/files/search?q=SEC&limit=100${q}`)
+  try {
+    fs.symlinkSync(abs(`${fin}/budget.md`), abs(link))
+    fs.writeFileSync(abs(hardSrc), `hard-linked ${C.finFile}\n`)
+    fs.linkSync(abs(hardSrc), abs(hard))
+    const bytes = Buffer.from(`generated file SEC-DOC-QUARANTINE ${C.finFile}\n`)
+    fs.writeFileSync(abs(held), bytes)
+    w.inst.ctx.files.quarantine.add(bytes, 'pptx')
+    const all = [...team, link, hardSrc, hard, held]
+    kg.docsOn = () => true
+    kg.lookup = async (): Promise<LookupResult> => ({
+      passages: all.map((p, i) => ({ path: p, loc: null, text: fs.readFileSync(abs(p), 'utf8'), score: all.length - i, long: false })),
+      strength: 'weak', files: new Set(all),
+    })
+    const want = team.filter(mayOpen).sort()
+    const whole = await ask('')
+    if (whole.status !== 200) throw new Error(`${who}: the search with document rows answered ${whole.status}`)
+    const l = leaks(who, whole.text)
+    if (l.length) throw new Error(`${who}: document rows show ${l.join(', ')}`)
+    if (JSON.stringify(shown(whole)) !== JSON.stringify(want)) throw new Error(`${who}: document rows ${shown(whole).join(', ')}; expected ${want.join(', ')}`)
+    const inShared = await ask(`&path=shared`)
+    if (JSON.stringify(shown(inShared)) !== JSON.stringify(['shared/readme.md'])) throw new Error(`${who}: document rows under shared/ are ${shown(inShared).join(', ')}`)
+    if (who === 'memberIn') {
+      w.inst.ctx.db.query('DELETE FROM folder_rules WHERE id = ?').run(rule.id)
+      const after = shown(await ask(''))
+      if (after.includes('projects/falcon/plan.md') || !after.includes('projects/falcon/public/announce.md')) throw new Error(`alice: document rows after her falcon rule was taken away: ${after.join(', ')}`)
+    }
+  } finally {
+    kg.lookup = real.lookup
+    kg.docsOn = real.docsOn
+    if (!w.inst.ctx.db.query('SELECT 1 FROM folder_rules WHERE id = ?').get(rule.id))
+      w.inst.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'alice', ?)").run(rule.id, rule.folder_id, rule.access)
+    for (const p of [link, hard, hardSrc, held]) fs.rmSync(abs(p), { force: true })
+  }
+}
 
 /** who (besides the auth level) may pass the permission check for each scope */
 function scopeAllows(scope: Scope, who: Who): boolean {
@@ -325,7 +393,8 @@ export const SPECS: Record<string, Spec> = {
   attachTeamFile: { build: async (c, w) => { const own = await c.post('/api/chats', { title: 'attach probe' }); return c.post('/api/attachments/team-file', { chatId: own.json?.id ?? w.ids.chatA, path: `users/alice/${C.aliceFileName}.md` }) }, scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} attached a file from users/alice`) } },
   findFiles: { build: (c) => c.get('/api/files/find?q=SEC&limit=100'), scope: 'self' },
-  searchFileContents: { build: (c) => c.get('/api/files/search?q=SEC&limit=100'), scope: 'self' },
+  // the line matches by the canaries; the document rows (knowledge graph) by a stand-in lookup that answers everything
+  searchFileContents: { build: (c) => c.get('/api/files/search?q=SEC&limit=100'), scope: 'self', check: searchDocumentsCheck },
   recentFiles: { build: (c) => c.get('/api/files/recent?limit=50'), scope: 'self' },
   createUploadSession: { build: (c) => c.post('/api/upload-sessions', { target: { kind: 'path', path: 'users/alice/sess.bin', onExists: 'rename' }, size: 4, sha256: 'ab'.repeat(32) }), scope: 'users-alice' },
   uploadChunk: { build: (c, w) => c.req('PUT', `/api/upload-sessions/${w.ids.uploadAlice}/chunks/0`, undefined, { raw: '0123456789', headers: { 'content-type': 'application/octet-stream', [CSRF_HEADER]: '1' } }), scope: 'own-alice' },
