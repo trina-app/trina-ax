@@ -1,6 +1,6 @@
 // Settings › Apps install pictures (src/components/settings/InstallPictures.tsx): the installed app's icon in them (the
-// install sheets, the home screen, the Dock or taskbar, the app's window) is the team logo only when it is also the app
-// icon (GET /api/me team.appIcon: square, at least 512 px), as the real one is; the browser's tab keeps the logo.
+// install sheets, the home screen, the Dock or taskbar, the app's window) and the browser's tab are the product's,
+// whatever logo the team has, as the real ones are (the logo shows only in the computer's sidebar header).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { Me } from '@mycel/shared/api'
 import { ComputerPictures, InstallPictures } from '../../src/components/settings/InstallPictures'
@@ -35,25 +35,22 @@ async function icons() {
   }
 }
 
-describe('the installed app icon in the install pictures', () => {
-  test('no logo: the default app icon; the tab shows what /team-icon serves', async () => {
-    signedIn({ iconVersion: null })
-    const { app, tab } = await icons()
-    // the iPhone add sheet and home screen, Android's install sheet and home screen, Chrome's install sheet, Safari's
-    // Add to Dock sheet, and each installed app's window and taskbar or Dock
-    expect(app.length).toBe(10)
-    expect(new Set(app)).toEqual(new Set(['/icons/icon-512.png']))
-    expect(new Set(tab)).toEqual(new Set(['/team-icon']))
-  })
-  test('a logo under 512 px or not square (no team.appIcon): the default app icon, the logo in the tab', async () => {
-    signedIn({ iconVersion: '0123456789abcdef' })
-    const { app, tab } = await icons()
-    expect(new Set(app)).toEqual(new Set(['/icons/icon-512.png']))
-    expect(new Set(tab)).toEqual(new Set(['/team-icon']))
-  })
-  test('a square of at least 512 px: the logo at its version as the app icon too', async () => {
-    signedIn({ iconVersion: '0123456789abcdef', appIcon: true })
-    const { app } = await icons()
-    expect(new Set(app)).toEqual(new Set(['/team-icon?v=0123456789abcdef']))
-  })
+describe('the icons in the install pictures', () => {
+  // an older server may still send appIcon (a square logo of 512 px or more was the app icon until 2026-11-07)
+  for (const [name, team] of [
+    ['no logo', { iconVersion: null }],
+    ['a logo', { iconVersion: '0123456789abcdef' }],
+    ['a logo an older server called the app icon', { iconVersion: '0123456789abcdef', appIcon: true }],
+  ] as const) {
+    test(`${name}: the product's app icon and tab icon`, async () => {
+      signedIn(team as Partial<Me['team']>)
+      const { app, tab } = await icons()
+      // the iPhone add sheet and home screen, Android's install sheet and home screen, Chrome's install sheet, Safari's
+      // Add to Dock sheet, and each installed app's window and taskbar or Dock
+      expect(app.length).toBe(10)
+      expect(new Set(app)).toEqual(new Set(['/icons/icon-512.png']))
+      expect(tab.length).toBeGreaterThan(0)
+      expect(new Set(tab)).toEqual(new Set(['/favicon.svg']))
+    })
+  }
 })

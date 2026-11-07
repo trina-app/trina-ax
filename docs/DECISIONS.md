@@ -1717,6 +1717,9 @@ only have per-person Claude subscriptions).
 
 ## Team logo as the tab icon (feat/team-icon, 2026-10-28)
 
+Changed on 2026-11-07 (fix/tab-icon-stays-product, last bullet below): the logo shows only inside the page, and the tab,
+`/favicon.ico`, the home-screen and the installed app's icons are always the product's. The rest is kept as history.
+
 The founder opened a team's address and the tab icon looked wrong: the shell linked only `/favicon.svg`, and
 `/favicon.ico` (Safari, bookmarks, some systems ask for it on their own) got the app page as HTML. Asked: each company can
 set its own logo as the tab icon; without one it is the product's icon.
@@ -1754,8 +1757,28 @@ set its own logo as the tab icon; without one it is the product's icon.
 - The computer's sidebar header shows the logo next to the team name, at `/team-icon?v=<iconVersion>` cropped square with
   `object-cover`, and the default mark when none is set. The phone drawer's header names the AI, not the team, so it keeps
   the product's mark (fix/sidebar-team-logo-main-focus, 2026-11-07).
-- Tests: `tests/unit/a-team-icon.test.ts`, `web/test/unit/team-icon.test.ts`, `web/test/e2e/team-icon.spec.ts`, the
-  a11y audit, `tests/security/lib/team-icon-cases.ts`.
+- Changed (fix/tab-icon-stays-product, 2026-11-07): **the team logo shows only inside the page.** The owner: changing
+  the team logo should change the page's top left, but the favicon should not change. So the logo is the computer's
+  sidebar header (and its preview in Admin › Team settings) and nothing else; everywhere the browser or the system
+  shows the app's icon it is the product's: the tab, `/favicon.ico`, bookmarks, `/apple-touch-icon.png` (and
+  `-precomposed`) and `/manifest.webmanifest`. index.html is served as built (its icon links are never rewritten; the
+  `<!-- icons -->` markers and `iconLinks` / `withIconLinks` are gone), the well-known addresses and the manifest are the
+  build's files, and the web app no longer swaps the page's links after sign-in or after the `team_icon_changed`
+  notice (`applyTeamIcon` removed). Released versions (up to 0.4.0-beta.10) made a logo of any size the tab icon, the
+  home-screen icon and the manifest's only icon; the 512 px rule above reached dev only and is removed with the rest
+  (`isAppIcon`, `TEAM_ICON_APP_PX`, `manifestWithIcon`, `Me.team.appIcon`). `appIcon` was optional and never in a
+  release, so a page still open from before reads its absence as "not the app icon" (it may keep the logo in its own
+  tab until it reloads). Kept: the upload rules, `PUT` / `DELETE /api/admin/team-icon`, the audit entries, the realtime notice (the
+  sidebar follows it through `GET /api/me`) and the public `GET /team-icon`, now the sidebar's image (the sign-in page
+  has no logo of its own any more: it showed it only as the tab icon). Admin › Team settings previews the sidebar header
+  in the light and the dark look instead of the tab and home-screen sizes; the install pictures in Settings › Apps show
+  the product's icon. Browsers keep tab icons and installed apps keep theirs: one that took the logo may show it until
+  it reads the page or the manifest again.
+- Tests: `tests/unit/a-team-icon.test.ts`, `web/test/unit/team-icon.test.ts`, `web/test/unit/install-pictures.test.tsx`,
+  `web/test/e2e/team-icon.spec.ts`, the a11y audit, `tests/security/lib/team-icon-cases.ts`. Since 2026-11-07 they also
+  check that with any logo set index.html's icon links, `/favicon.ico`, the home-screen addresses and the manifest are
+  the build's, that the page's `<link rel=icon>` does not change after sign-in or the realtime notice, and that the
+  sidebar's `<img data-testid="sidebar-logo">` does.
 
 ## External-service connections: a service that echoes the key (fix/integrations-secret-echo, 2026-10-28)
 

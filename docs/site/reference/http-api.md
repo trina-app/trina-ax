@@ -227,8 +227,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `DELETE` | `/api/admin/budgets/:id` | Admin | Delete a budget. |
 | `GET` | `/api/admin/settings` | Admin | Team settings. |
 | `PATCH` | `/api/admin/settings` | Admin | Change team settings (team name change also renames the relay address: owner only). |
-| `PUT` | `/api/admin/team-icon` | Admin | Set the team logo (tab icon; also the app icon when square and at least 512 px): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited. |
-| `DELETE` | `/api/admin/team-icon` | Admin | Remove the team logo: back to the default icon; audited. |
+| `PUT` | `/api/admin/team-icon` | Admin | Set the team logo (shown in the sidebar header; tab and app icons stay the product's): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited. |
+| `DELETE` | `/api/admin/team-icon` | Admin | Remove the team logo: the sidebar shows the product's mark again; audited. |
 | `GET` | `/api/admin/speech-host` | Admin | How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here. |
 | `GET` | `/api/admin/speech-key` | Admin | Whether the OpenRouter key for voice input is set (last 4 characters only, never the key). |
 | `PUT` | `/api/admin/speech-key` | Admin | Set (sealed in the browser) or remove (null) the OpenRouter key for voice input; asks for the password again. |
