@@ -9,14 +9,16 @@
 //   scope    what a result showed joins the question's read scope as the chat's project folder (read-scope.ts sourceOf):
 //            its readers are exactly the chat's audience (sharedChatAudienceCovers: a folder's access is the nearest rule
 //            folder's, and a project in the trash is never shown), so rooms/ai.ts decide() keeps the answer private for
-//            any member outside it, like a file only some members can read. A listing counts the projects of the chats it
-//            showed (their titles are names read); the team files a transcript's attachments name count as names
-//            (read-scope.ts {type:'name'}).
+//            any member outside it, like a file only some members can read. A listing counts every project whose shared
+//            chats it looked through, whatever matched (a "no match" says something about each, as for a file search);
+//            the team files a transcript's attachments name count as names (read-scope.ts {type:'name'}). As for a file
+//            read, the source is the rule folder above the project folder when the chat is read: a rule added below it
+//            later is not seen by a later decision (read-scope.ts keeps sources, not people)
 //   names    a step names a chat only when everyone in the room sees its project now; otherwise the words alone
 //            ("프로젝트 채팅 읽기")
 //   data     the transcript (chat/shared.ts readTranscript): every message information (the asker's own earlier ones
-//            there too), quoted line by line, in a <shared_chat> block that no message can close (chat/prompt.ts
-//            BLOCK_TAGS)
+//            there too), under its label and quoted line by line (a long one keeps its end), in a <shared_chat> block
+//            that no message can close (chat/prompt.ts BLOCK_TAGS)
 //   audit    the tool lines (tool_events) name no chat, project, person or words; rooms/ai.ts ended() writes
 //            room.ai_shared_chats with the counts and where the answer went
 import { FILE_STEP_VERB, ProjectChatInput, ProjectChatsInput } from '@mycel/shared'
@@ -26,7 +28,7 @@ import type { ChatRow, ProjectRow } from './store'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
 import { addSources, sourceOf, type ReadSource } from './read-scope'
-import { Audiences, chatFor, labelName, readTranscript, sharedChatAudienceCovers } from './shared'
+import { Audiences, chatFor, INVISIBLE_RE, labelName, readTranscript, sharedChatAudienceCovers } from './shared'
 import { neutralizeTags } from './prompt'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -52,7 +54,7 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (m) => '\\' + m)
 /** a title or a project name inside our quotes: one line, no quote or tag of its own */
-const quote = (s: string, n = 120) => neutralizeTags(s.replace(/[\r\n"<>\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n))
+const quote = (s: string, n = 120) => neutralizeTags(s.replace(INVISIBLE_RE, '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029"<>]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n))
 
 const NOT_FOUND = 'No shared project chat with that id that the user can see. Use project_chats to find the chats they can see.'
 const SAFE_OPS = 'Shared project chats cannot be read while safe operations are on.'
@@ -95,12 +97,12 @@ export function projectChatTools(exec: TurnExec): Tool[] {
   /** "<verb> · <title>" only when everyone in the room sees the chat's project, else the verb alone */
   const named = (r: Readable | null, locale: Locale) => {
     const verb = FILE_STEP_VERB.project_chat![locale]
-    return r && roomSees(r.row.id) ? `${verb} · ${titleOf(r.row).replace(/\s+/g, ' ').trim().slice(0, 80)}` : verb
+    return r && roomSees(r.row.id) ? `${verb} · ${quote(titleOf(r.row), 80)}` : verb
   }
   const patch = (r: Readable | null) => exec.patchToolStep('project_chat', (s) => {
     const at = s.label.indexOf(' · ')
     const verb = at >= 0 ? s.label.slice(0, at) : s.label
-    const name = r && roomSees(r.row.id) ? titleOf(r.row).replace(/\s+/g, ' ').trim().slice(0, 80) : ''
+    const name = r && roomSees(r.row.id) ? quote(titleOf(r.row), 80) : ''
     return { label: name ? `${verb} · ${name}` : verb }
   })
   return [
@@ -113,30 +115,38 @@ export function projectChatTools(exec: TurnExec): Tool[] {
         if (no) return { ...text(no, true), summary: 'project_chats -> denied: account disabled' }
         if (safeOpsEnabled()) return { ...text(SAFE_OPS, true), summary: 'project_chats -> refused: safe operations' }
         const search = a.data.query !== undefined || a.data.project !== undefined
-        const where = ['c.shared_at IS NOT NULL', 'c.project_id IS NOT NULL', 'c.deleted_at IS NULL', 'c.room_id IS NULL', 'p.trashed_with IS NULL']
-        const params: string[] = []
+        // the projects whose shared chats the asker may view now: a team project in place with a shared chat, whose
+        // folder they read (chatFor 'view')
+        const aud = new Audiences(db, rt.files)
+        const visible = new Map<string, ProjectRow>()
+        for (const r of db.query(`SELECT DISTINCT c.project_id id FROM chats c JOIN projects p ON p.id = c.project_id
+            WHERE c.shared_at IS NOT NULL AND c.deleted_at IS NULL AND c.room_id IS NULL AND p.trashed_with IS NULL`).all() as { id: string }[]) {
+          const p = rt.store.projectRow(r.id)
+          if (p && p.trashed_with === null && aud.sees(spec.userId, p)) visible.set(p.id, p)
+        }
+        // what it looked through counts, whatever it matched: every one of those projects (their readers are the
+        // chats' audiences). A search's "no match", or a list that is not full, says something about each of them, and
+        // which project names matched would tell which exist, as a file search counts every folder under its start
+        record(visible.values())
+        const where = ['c.shared_at IS NOT NULL', 'c.deleted_at IS NULL', 'c.room_id IS NULL', `c.project_id IN (${[...visible.keys()].map(() => '?').join(',') || "''"})`]
+        const params: string[] = [...visible.keys()]
         if (a.data.project) { where.push("p.name LIKE ? ESCAPE '\\'"); params.push(`%${likeEscape(a.data.project.trim())}%`) }
         for (const w of (a.data.query ?? '').split(/\s+/).filter(Boolean).slice(0, 8)) {
           const like = `%${likeEscape(w)}%`
           where.push("(c.title LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\' OR c.id IN (SELECT chat_id FROM messages_fts WHERE content LIKE ? ESCAPE '\\'))")
           params.push(like, like, like)
         }
-        const rows = db.query(`SELECT c.id, c.user_id, c.project_id, c.title, c.updated_at FROM chats c JOIN projects p ON p.id = c.project_id
-          WHERE ${where.join(' AND ')} ORDER BY c.updated_at DESC, c.id DESC LIMIT ${PROJECT_CHATS_SCAN}`).all(...params) as Pick<ChatRow, 'id' | 'user_id' | 'project_id' | 'title' | 'updated_at'>[]
         const limit = a.data.limit ?? PROJECT_CHATS_DEFAULT
-        const aud = new Audiences(db, rt.files)
-        const projects = new Map<string, ProjectRow | null>()
+        const rows = visible.size ? db.query(`SELECT c.id, c.user_id, c.project_id, c.title, c.updated_at FROM chats c JOIN projects p ON p.id = c.project_id
+          WHERE ${where.join(' AND ')} ORDER BY c.updated_at DESC, c.id DESC LIMIT ${PROJECT_CHATS_SCAN}`).all(...params) as Pick<ChatRow, 'id' | 'user_id' | 'project_id' | 'title' | 'updated_at'>[] : []
         const shown: { row: (typeof rows)[number]; project: ProjectRow }[] = []
         for (const r of rows) {
           if (shown.length >= limit) break
-          if (!projects.has(r.project_id!)) projects.set(r.project_id!, rt.store.projectRow(r.project_id!))
-          const p = projects.get(r.project_id!)
-          // chatFor 'view' for each (a shared chat whose project the asker sees now), never a confidential one
-          if (!p || p.trashed_with !== null || !aud.sees(spec.userId, p) || confidentialChat(db, r.id)) continue
+          // never a confidential one
+          const p = visible.get(r.project_id!)
+          if (!p || confidentialChat(db, r.id)) continue
           shown.push({ row: r, project: p })
         }
-        // what it showed: each chat's title and project are names read, by the project's readers (the audience)
-        record(new Map(shown.map((s) => [s.project.id, s.project])).values())
         const asker = labelName(rt.store, spec.userId)
         const lines = shown.map((s) => `- "${quote(titleOf(s.row))}" · project "${quote(s.project.name)}" · last activity ${localTime(s.row.updated_at, rt.timeZone)} · chat_id=${s.row.id}`)
         const head = shown.length

@@ -21,10 +21,12 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   // private for any member who cannot see that thread ("들어오기 전 대화"). Nothing in it comes from outside the team:
   // it keeps an answer "team files only" as the block does (docs/DECISIONS.md "대화방의 트리나가 스레드도 본다")
   'room_thread',
-  // the shared project chats the asker may view (chat/room-project-chats.ts): their titles and messages are team content
-  // (a project's chats, each turn behind the shared chat's read card), never from outside the team. What they showed
-  // joins the read scope as the chat's project folder, whose readers are the chat's audience, so decide() keeps the
-  // answer private for any member outside it (docs/DECISIONS.md "대화방의 트리나가 공유 프로젝트 채팅을 읽는다")
+  // the shared project chats the asker may view (chat/room-project-chats.ts): what the project's people already see in
+  // that chat (each turn of it behind the shared chat's read card). An answer there may quote a web page an earlier turn
+  // fetched, as a room message may quote one a member pasted: both count as the team's own words (the room's
+  // <room_context> block keeps an answer "team files only" too). What they showed joins the read scope as the chat's
+  // project folder, whose readers are the chat's audience, so decide() keeps the answer private for any member outside
+  // it (docs/DECISIONS.md "대화방의 트리나가 공유 프로젝트 채팅을 읽는다")
   'project_chats', 'project_chat',
 ])
 
