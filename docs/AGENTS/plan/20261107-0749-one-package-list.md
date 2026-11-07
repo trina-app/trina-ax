@@ -108,3 +108,14 @@ no unattended apt; a free-space check and the browser's libraries in their own t
 Admin › Diagnostics show the sync.
 
 PR: opened by the reviewer after review.
+
+PR #164 review (continued on the same branch): High 2, the sync runs in `<id>-packages-sync.service` after the update
+(no apt or download in the update command's time; inline only without systemd, 10 minutes); High 1, a CI staleness check
+of the browser pin against Chrome for Testing Stable (warn, fail at two majors behind), `"revoked"` to roll back a bad
+pin, the trina-ax maintainers own the bumps; Medium 1, the sync record names the system (os-release and machine-id) and
+hosted installs may run apt; M3, the image builds read the kit's list and stop when it is not the checkout's; M5, the
+drift check's allowlist is per command; question 2, the image's free disk in the AMI build log; question 4, HTML to PDF in
+Docker only with `TRINA_AX_PACKAGE_GROUPS="fonts browser"` (and the packages step runs in bash: sh could not source
+packages.sh); question 6, a real Korean print in the Linux install test. Left for a decision: M4 (dev environment
+packages on request) and question 7 (a Linux-only list in the Linux bundle). The CI unit failure was the test: its
+command-line check read the runner's kernel (`apparmor_restrict_unprivileged_userns`).
