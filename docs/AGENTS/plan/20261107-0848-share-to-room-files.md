@@ -88,5 +88,10 @@ Differs from the plan:
 - The new e2e found an existing axe problem in rooms: an attached file's download button was named differently from what
   it shows; it now reads its name and size, then "내려받기".
 - "이미 보냄" is not done: a room message does not record which answer it came from; it needs a column.
+- After an independent review: what made an attachable AI-made file is read only from the sender's own chats (another
+  person's chat told who they talk to); a folder link is a row of who may list it; past 100 rows the rest of the links is
+  one row nothing is told about; every ten linked files past the first take one more send; a file moved on the branch
+  counts for the hash rule by its hash now; a file seen with two contents in one turn and reads under skills/ stay
+  unlisted; the key is for the line with the chosen files (`reason: 'choice'` vs `'changed'`).
 
 PR: see the pull request of branch `feat/share-to-room-files`.
