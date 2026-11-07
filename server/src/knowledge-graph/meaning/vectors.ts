@@ -17,9 +17,18 @@ export interface Embedder {
   dispose(): void | Promise<void>
 }
 
-/** The text a piece is embedded with (the "passage: " prefix is the embedder's). */
+/** a heading and a whole passage at most this long: the model reads 512 tokens anyway, and an over-long one (a sheet
+ * name of thousands of characters) was refused by the embedding process every time and stopped the indexing for good
+ * (review of wave 2) */
+export const PASSAGE_HEADING_MAX = 120
+export const PASSAGE_MAX = 2000
+
+/** The text a piece is embedded with (the "passage: " prefix is the embedder's): the file name and heading in front,
+ * each cut to a sane length, the whole at most PASSAGE_MAX characters. */
 export function passageText(fileName: string, heading: string | null, text: string): string {
-  return `${fileName}${heading ? ` · ${heading}` : ''}\n${text}`
+  const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n) : s)
+  const head = heading ? ` · ${cut(heading, PASSAGE_HEADING_MAX)}` : ''
+  return cut(`${cut(fileName, PASSAGE_HEADING_MAX)}${head}\n${text}`, PASSAGE_MAX)
 }
 
 /** An L2-normalized float vector as int8 (each value times 127, rounded, kept within -127..127). */

@@ -108,8 +108,12 @@ describe('search by meaning through lookup()', () => {
   test('meaningOnly: false (the lookup before the model) leaves out what only meaning found; the default keeps it', async () => {
     on = true
     fake.meaning = [{ rootId: 'shared', relPath: 'bench/incident-2026-09.md' }]
+    fake.asked = []
     const before = await look('alice', ['Where is the note about the September downtime?'], { deadlineMs: 200, meaningOnly: false })
     expect(before).toEqual({ passages: [], strength: 'none', files: new Set() })
+    // not even asked: no wait on a cold model, no meaning-only pieces taking the keyword hits' slots
+    expect(fake.asked.length).toBeGreaterThan(0)
+    for (const a of fake.asked) expect('meaning' in a).toBe(false)
     const asked = await look('alice', ['Where is the note about the September downtime?'], { deadlineMs: 200 })
     expect(asked.passages.map((p) => p.path)).toEqual(['shared/bench/incident-2026-09.md'])
   })

@@ -804,7 +804,9 @@ export class KnowledgeGraph {
     let strength: LookupResult['strength'] = 'none'
     const best = new Map<string, { path: string; loc: SourceLoc | null; score: number; long: string; short: string }>()
     const due = Number.isFinite(o.due) ? o.due : undefined
-    const meaning = this.meaningSearch()
+    // the lookup before the model keeps nothing only meaning found (meaningOnly: false), so it does not ask for meaning at
+    // all: no wait on a cold model, and no meaning-only pieces taking the per-file and result slots (review of wave 2)
+    const meaning = o.meaningOnly !== false && this.meaningSearch()
     // every wording at once; each one's answer only if it is back by the deadline (the worker drops a late one too)
     const asked = wordings.map((q) => {
       const terms = o.words === 'search' ? queryTerms(q) : questionTerms(q)

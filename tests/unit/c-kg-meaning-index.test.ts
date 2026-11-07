@@ -11,7 +11,8 @@ import { DocumentIndex, headingOf } from '../../server/src/knowledge-graph/docum
 import { ensureModel, MODEL_FILES, openEmbedder, wrapModel, type LoadedModel } from '../../server/src/knowledge-graph/meaning/embedder'
 import { MeaningIndexer, startEmbedChild, embedWorkerScript, processMemoryMiB, BATCH, MIN_FREE_MIB, MAX_RSS_MIB, RESTARTS_MAX, type EmbedChild, type MeaningIndexerOptions } from '../../server/src/knowledge-graph/meaning/indexer'
 import { serveEmbed, type WorkerMessage } from '../../server/src/knowledge-graph/meaning/embed-worker'
-import { blobToVec, MEANING_DIMS, MEANING_MODEL, passageText, quantize, vecToBlob, type Embedder } from '../../server/src/knowledge-graph/meaning/vectors'
+import { blobToVec, MEANING_DIMS, MEANING_MODEL, PASSAGE_HEADING_MAX, PASSAGE_MAX, passageText, quantize, vecToBlob, type Embedder } from '../../server/src/knowledge-graph/meaning/vectors'
+import { TEXT_CHARS_MAX } from '../../server/src/knowledge-graph/meaning/embed-worker'
 import { Database } from 'bun:sqlite'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { knowledgeGraphOf, openDocumentIndex, setKnowledgeGraphForTests, type KnowledgeGraph } from '../../server/src/knowledge-graph/service'
@@ -144,6 +145,11 @@ describe('the vectors in documents.db', () => {
     expect(p.find((x) => x.name === 'plain.txt')!.heading).toBeNull()
     expect(passageText(refund.name, refund.heading, refund.text)).toBe(`refund-policy.docx · 환불 정책\n${refund.text}`)
     expect(passageText('plain.txt', null, 'x')).toBe('plain.txt\nx')
+    // a sheet name of thousands of characters, or a huge piece, never makes a passage the embedding process refuses
+    const huge = passageText('book.xlsx', 'S'.repeat(9000), 'T'.repeat(9000))
+    expect(huge.length).toBe(PASSAGE_MAX)
+    expect(huge.startsWith(`book.xlsx · ${'S'.repeat(PASSAGE_HEADING_MAX)}\n`)).toBe(true)
+    expect(huge.length).toBeLessThan(TEXT_CHARS_MAX - 'passage: '.length)
     // the place a sheet piece is embedded with is its sheet's name; a page or a slide number is not a heading
     expect(headingOf({ kind: 'sheet', sheet: '예산', range: 'A1:B3' })).toBe('예산')
     expect(headingOf({ kind: 'page', page: 3 })).toBeNull()
