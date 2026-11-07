@@ -180,8 +180,16 @@ export default function Sidebar() {
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
         <Link to="/" onClick={close} className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
-          {/* the team's logo (Admin › Team settings) when one is set, else the product's mark; object-cover crops a non-square logo as the settings previews do */}
-          <img src={me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'} alt="" aria-hidden className="size-5 shrink-0 rounded-md object-cover" data-testid="sidebar-logo" />
+          {/* the team's logo (Admin › Team settings) sits next to the team name, from md up; object-cover crops a non-square logo as the settings previews do.
+              Below md the header names the AI, not the team, so it keeps the product's mark. */}
+          {me.team.iconVersion ? (
+            <>
+              <img src={teamIconUrl(me.team.iconVersion)} alt="" aria-hidden className="size-5 shrink-0 rounded-md object-cover max-md:hidden" data-testid="sidebar-logo" />
+              <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md md:hidden" data-testid="sidebar-logo-phone" />
+            </>
+          ) : (
+            <img src="/favicon.svg" alt="" aria-hidden className="size-5 shrink-0 rounded-md" data-testid="sidebar-logo" />
+          )}
           {/* the phone's drawer is the AI's history: the AI's one name there, as on its tab */}
           <span className="truncate max-md:hidden" data-testid="sidebar-team">{me.team.name}</span>
           <span className="md:hidden">{aiName(t)}</span>

@@ -1737,8 +1737,9 @@ set its own logo as the tab icon; without one it is the product's icon.
   `/apple-touch-icon.png` and `/manifest.webmanifest` (installed PWA) follow it; index.html's links are rewritten on the
   server so the first load is right, `Me.team.iconVersion` keeps an open page right.
 - Native desktop and phone app icons stay the product's.
-- The sidebar header (and the phone drawer, which renders the same `Sidebar`) shows the logo too, at `/team-icon?v=<iconVersion>`
-  cropped square with `object-cover`, and the default mark when none is set (fix/sidebar-team-logo-main-focus, 2026-11-07).
+- The computer's sidebar header shows the logo next to the team name, at `/team-icon?v=<iconVersion>` cropped square with
+  `object-cover`, and the default mark when none is set. The phone drawer's header names the AI, not the team, so it keeps
+  the product's mark (fix/sidebar-team-logo-main-focus, 2026-11-07).
 - Tests: `tests/unit/a-team-icon.test.ts`, `web/test/unit/team-icon.test.ts`, `web/test/e2e/team-icon.spec.ts`, the
   a11y audit, `tests/security/lib/team-icon-cases.ts`.
 

@@ -161,3 +161,18 @@ test('main takes focus without an outline; a button inside it still shows its ri
   const inside = await page.evaluate(() => ({ in: !!document.activeElement?.closest('main'), style: getComputedStyle(document.activeElement!).outlineStyle }))
   expect(inside).toEqual({ in: true, style: 'solid' })
 })
+
+test('phone width: the menu header keeps the product mark next to the AI name, the logo shows on computers', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/admin/settings')
+  await page.getByTestId('team-icon-input').setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
+  await expect(page.getByTestId('team-icon')).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByRole('button', { name: '메뉴 열기' }).click()
+  const drawer = page.locator('[data-drawer]')
+  await expect(drawer.getByTestId('sidebar-logo-phone')).toBeVisible()
+  await expect(drawer.getByTestId('sidebar-logo-phone')).toHaveAttribute('src', '/favicon.svg')
+  await expect(drawer.getByTestId('sidebar-logo')).toBeHidden()
+})
