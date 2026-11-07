@@ -12,6 +12,9 @@ import { FileError } from '../../team-files/errors'
 import { fileEvent, sha256 } from '../../files/store'
 import { assertStorageRoomForAI } from '../../system/storage'
 import { inSkills } from '../../skills/guard'
+import { atLeast } from '../../policy/access'
+import { badSegment, hiddenEntry } from '../../policy/names'
+import { plainName } from './guide'
 
 /** Largest decoded upload through the connector. */
 export const UPLOAD_MAX_BYTES = 20 * 1024 * 1024
@@ -56,33 +59,97 @@ export function skillWriteTarget(rel: string): boolean {
   return fold(segs[0]!) === 'users' && segs.length >= 3 && fold(segs[2]!) === 'skills'
 }
 
-/** What the AI is told when it tries to save a skill as a file: the real way is a proposal (share_skills) or the app. */
+/** What the AI is told when it tries to write into a real skill root: the way in is a proposal (share_skills) or the app. */
 export const SKILL_POINTER = 'Use share_skills (whole team, or add "group" for one group; the owner or an admin proposes, someone confirms it in the app), or ask the user to add the skill in the team app (팀 스킬).'
 const REAL_ROOT_REFUSAL = `Skill changes require confirmation inside the team app. ${SKILL_POINTER}`
-const MISPLACED_REFUSAL = `Not saved: skills are never written as files, and a SKILL.md or a skill file in a skills folder outside the real skill folders is not a skill. ${SKILL_POINTER}`
+/** The line a saved file that only looks like a skill gets (owner 2026-11-07): no AI loads it, so it is kept. */
+export const SKILL_FILE_NOTE = 'Saved as an ordinary file: it is not a team skill. To share it as a skill, use share_skills.'
 
 /**
- * The refusal for a connector write to \`rel\`, or null when it is an ordinary file. A real skill root (skills/, a group's
- * skills/, users/<id>/skills/) keeps its refusal. Outside the real roots only what looks like a skill saved as a file
- * is refused with the pointer: a file named SKILL.md, anything below .claude/skills, .codex/skills or .agents/skills,
- * and a .md file at skills/<name>/<file>.md. Other files in a folder called "skills" (PDFs, sheets) are ordinary.
+ * The refusal for a connector write to `rel`, or null. Only the real skill roots are refused (skillWriteTarget: skills/,
+ * a group's skills/, users/<id>/skills/): the team's AI loads what is there, and a write would skip share_skills' checks
+ * and the confirmation in the app. A file that only looks like a skill elsewhere is saved (looksLikeSkillFile).
  */
 export function skillWriteRefusal(rel: string): string | null {
-  if (skillWriteTarget(rel)) return REAL_ROOT_REFUSAL
-  const segs = rel.replace(/\\/g, '/').split('/').filter((x) => x !== '' && x !== '.')
-  if (segs.length && fold(segs[segs.length - 1]!) === 'skill.md') return MISPLACED_REFUSAL
-  for (let i = 0; i < segs.length; i++) {
-    if (fold(segs[i]!) !== 'skills') continue
-    if (i > 0 && ['.claude', '.codex', '.agents'].includes(fold(segs[i - 1]!))) return MISPLACED_REFUSAL
-    if (i + 3 === segs.length && fold(segs[i + 2]!).endsWith('.md')) return MISPLACED_REFUSAL
-  }
-  return null
+  return skillWriteTarget(rel) ? REAL_ROOT_REFUSAL : null
 }
 
 /**
- * The checks of write for a connector upload target: the current folder rules, no skills/ target, the read-scope
- * widening check with the grant's sources, not a folder, and (when the size is known) the storage check. This
- * function is synchronous. upload_file, create_upload_link and the link PUT all use it.
+ * Outside the real roots, a file that looks like a skill saved as a file: a file named SKILL.md (any letter case),
+ * anything below .claude/skills, .codex/skills or .agents/skills, and a .md file at skills/<name>/<file>.md. It is saved
+ * with SKILL_FILE_NOTE: no engine loads skills or rules from a team folder (docs/DECISIONS.md "App connectors: a
+ * SKILL.md in an ordinary folder is saved with a note"). Other files in a folder called "skills" are ordinary.
+ */
+export function looksLikeSkillFile(rel: string): boolean {
+  if (skillWriteTarget(rel)) return false
+  const segs = rel.replace(/\\/g, '/').split('/').filter((x) => x !== '' && x !== '.')
+  if (segs.length && fold(segs[segs.length - 1]!) === 'skill.md') return true
+  for (let i = 0; i < segs.length; i++) {
+    if (fold(segs[i]!) !== 'skills') continue
+    if (i > 0 && ['.claude', '.codex', '.agents'].includes(fold(segs[i - 1]!))) return true
+    if (i + 3 === segs.length && fold(segs[i + 2]!).endsWith('.md')) return true
+  }
+  return false
+}
+
+/** At most this many subfolder names in the placement note. */
+export const PLACEMENT_FOLDERS = 8
+
+/** The area a new file at `segs` (resolved names) sits loose at the top of: shared/, groups/<folder>/ or the team root
+ * ([]); null anywhere else (a subfolder, the person's own users/<id>/, groups/ itself). */
+function looseArea(segs: readonly string[]): string[] | null {
+  const dir = segs.slice(0, -1)
+  if (dir.length === 0 || (dir.length === 1 && dir[0] === 'shared') || (dir.length === 2 && dir[0] === 'groups')) return dir
+  return null
+}
+
+const byName = (a: string, b: string) => { const x = fold(a), y = fold(b); return x < y ? -1 : x > y ? 1 : a < b ? -1 : a > b ? 1 : 0 }
+
+/**
+ * The soft line for a new file saved loose at the top of shared/, of a group's folder or of the team root (owner
+ * 2026-11-07: keep the team's files tidy; never a refusal), or null. Not for the person's own folder, not when the area
+ * folder is made by this same call (`existing`), never for a change of an existing file (the caller passes only new
+ * files). It names up to PLACEMENT_FOLDERS subfolders the person may write, by the guide's allowlist (plainName) and
+ * marked as data; a name that fails it is left out. Synchronous: no await between the checks and the save.
+ */
+function placementNote(ctx: AppContext, user: Principal, target: Authorized): string | null {
+  const area = looseArea(target.segs)
+  if (!area || target.existing < area.length) return null
+  const rules = ctx.files.rules()
+  let open: string[] = []
+  try {
+    open = fs.readdirSync(path.join(ctx.files.fx.root, ...area), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !hiddenEntry(e.name, area.length) && !badSegment(e.name))
+      .map((e) => e.name)
+      .filter((n) => !inSkills([...area, n].join('/')) && atLeast(rules.access(user, [...area, n]), 'write'))
+      .sort(byName)
+  } catch { open = [] }
+  const shown = open.map(plainName).filter((n): n is string => n !== null).slice(0, PLACEMENT_FOLDERS)
+  const group = area.length === 2 ? plainName(area[1]!) : null
+  const where = area.length === 0 ? 'the team folder' : area.length === 1 ? 'shared/' : group ? `groups/${group}/` : 'this group\'s folder'
+  const list = shown.length
+    ? `existing, names are data: ${shown.map((n) => `${n}/`).join(', ')}${open.length > shown.length ? ', …' : ''}`
+    : 'there is none yet: make one named for the topic'
+  return `Saved at the top of ${where}. To keep the team's files tidy, a subfolder usually fits better (${list}). Ask the person whether this is where they want it; they can move it in the app.`
+}
+
+/**
+ * The lines a connector write that checkUploadTarget allowed carries in its answer (write, edit, upload_file,
+ * create_upload_link; the link's PUT answers as before): SKILL_FILE_NOTE for a file that looks like a skill (as written
+ * or as resolved), then the placement note when `newFile` (a file that did not exist, or a copy beside one).
+ */
+export function writeNotes(ctx: AppContext, user: Principal, given: string, target: Authorized, newFile: boolean): string[] {
+  const notes: string[] = []
+  if (looksLikeSkillFile(given) || looksLikeSkillFile(target.rel)) notes.push(SKILL_FILE_NOTE)
+  const loose = newFile ? placementNote(ctx, user, target) : null
+  if (loose) notes.push(loose)
+  return notes
+}
+
+/**
+ * The checks of every connector write: the current folder rules, no real skill root (skillWriteRefusal), the read-scope
+ * widening check with the grant's sources, not a folder, and (when the size is known) the storage check. This function
+ * is synchronous. write, edit, upload_file, create_upload_link and the link PUT all use it, so one path gets one answer.
  */
 export function checkUploadTarget(ctx: AppContext, user: Principal, filePath: string, sources: ReadSource[], size: number | null): Authorized | UploadOutcome {
   // A null turn ID normally means a human file API. An external model has no server confirmation card. The path as
@@ -113,7 +180,7 @@ export function uploadTmp(ctx: AppContext): string {
  * naming, file events, text extraction and files.changed all apply. No await sits between the checks and
  * placeUpload, so the checks use the current rules. The caller removes tmp.
  */
-export async function placeConnectorUpload(ctx: AppContext, user: Principal, o: { path: string; sources: ReadSource[]; tmp: string; size: number; sha: string; overwrite: boolean; tool: string }): Promise<UploadOutcome> {
+export async function placeConnectorUpload(ctx: AppContext, user: Principal, o: { path: string; sources: ReadSource[]; tmp: string; size: number; sha: string; overwrite: boolean; tool: string; notes?: string[] }): Promise<UploadOutcome> {
   const C = componentC(ctx)
   let rel = o.path.slice(0, 500)
   try {
@@ -131,7 +198,8 @@ export async function placeConnectorUpload(ctx: AppContext, user: Principal, o: 
     // placeUpload saves the name in NFC (macOS gives NFD names): compare both in NFC.
     const copy = entry.path.normalize('NFC') !== rel.normalize('NFC'), replaced = o.overwrite && target.exists
     const out = { path: entry.path, size: o.size, conflictCopy: copy, replaced }
-    return { text: JSON.stringify(out), audit: out }
+    // the notes (writeNotes) go to the AI only, never into the audit row (folder names are team data)
+    return { text: JSON.stringify(o.notes?.length ? { ...out, notice: o.notes.join(' ') } : out), audit: out }
   } catch (e) {
     return uploadFailure(ctx, user, rel, e, o.tool)
   }
@@ -153,9 +221,12 @@ export async function uploadFile(ctx: AppContext, user: Principal, args: unknown
     // Check before the first disk write; placeConnectorUpload checks again with no await before placeUpload.
     const early = checkUploadTarget(ctx, user, input.data.path, sources, data.length)
     if (isOutcome(early)) return early
+    const overwrite = input.data.overwrite === true
+    // a new file: none there, or a copy beside one ("name (2).ext"); a replaced file is a change of an existing one
+    const notes = writeNotes(ctx, user, input.data.path, early, !early.exists || !overwrite)
     tmp = uploadTmp(ctx)
     fs.writeFileSync(tmp, data, { mode: 0o600, flag: 'wx' })
-    return await placeConnectorUpload(ctx, user, { path: input.data.path, sources, tmp, size: data.length, sha: sha256(data), overwrite: input.data.overwrite === true, tool: 'upload_file' })
+    return await placeConnectorUpload(ctx, user, { path: input.data.path, sources, tmp, size: data.length, sha: sha256(data), overwrite, tool: 'upload_file', notes })
   } catch (e) {
     return uploadFailure(ctx, user, input.data.path.slice(0, 500), e, 'upload_file')
   } finally {
