@@ -3,7 +3,11 @@
 // name is used. A new project on "Existing folder" needs a folder chosen (never the whole team folder: an older server
 // may already have a project there, and the 409 would only confuse). A 409 that names the project already on the
 // folder offers to open it.
-import { useEffect, useState } from 'react'
+// Editing a team project: "이 프로젝트의 채팅을 프로젝트 사람들과 공유" (shared project chats, docs/DECISIONS.md "Shared
+// project chats") with what turning it on or off does; not for a personal project, a project whose folder is in the
+// trash, or an older server; off while safe operations are on. An admin pointing a project with shared chats at another
+// folder hears how many people will see them there.
+import { useEffect, useId, useState } from 'react'
 import { parentPath } from '../lib/paths'
 import { Link } from 'react-router-dom'
 import type { Group, Project, ProjectParticipant, User } from '@mycel/shared/api'
@@ -13,7 +17,8 @@ import { useLocale, useT } from '../i18n'
 import { useProjects } from '../store/projects'
 import { isAdmin, useMe } from '../store/session'
 import FolderPicker from './FolderPicker'
-import { Button, Field, Modal, inputCls } from './ui'
+import { refusalKey } from '../lib/sharedChat'
+import { Button, Field, Modal, Switch, inputCls } from './ui'
 
 export function ProjectForm({ project, initialFolder, initialName, onClose, onSaved }: {
   project?: Project
@@ -48,6 +53,13 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
   /** the admin chose a folder in this dialog (also the same path again): only then does a save point the project at one */
   const [folderPicked, setFolderPicked] = useState(false)
   const [instructions, setInstructions] = useState(project?.instructions ?? '')
+  // shared project chats: a team project in place, on a server that knows them (it says the audience)
+  const canShare = !!project && project.audience !== undefined && !project.folderPath.startsWith('users/') && !project.inTrash
+  const safeOps = !!me?.server?.allChatsConfidential
+  const [shareChats, setShareChats] = useState(!!project?.shareChats)
+  const shareHint = useId()
+  // the folder changes in this dialog: the project's shared chats move with it, to whoever reads that folder
+  const repoint = !!project && folderPicked && (folder !== project.folderPath || !!project.inTrash)
   const [picking, setPicking] = useState(false)
   /** where the picker opens: the chosen folder, or for a project whose folder is in the trash the nearest folder above
    * its old path that is there (the old path itself is missing, and the picker would open on nothing) */
@@ -66,7 +78,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
    * (they all see the project and its instructions after the save); null while unknown */
   const [readers, setReaders] = useState<number | null>(null)
   useEffect(() => {
-    if (!project?.inTrash || !folderPicked) return
+    if (!(project?.inTrash || project?.sharedChats) || !folderPicked) return
     let live = true
     setReaders(null)
     api.call(API.explainFolderAccess, { query: { path: folder, limit: 1 } }).then(
@@ -94,7 +106,9 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
         // (also its old path: the folder now there). A save that only renames or edits the instructions keeps such a
         // project as it is (review round 4: sending the old path on every save made a folder there that opened the
         // instructions to everyone reading the folder above)
-        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...(folder !== project.folderPath || (project.inTrash && folderPicked) ? { folderPath: folder } : {}) } })
+        ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...(folder !== project.folderPath || (project.inTrash && folderPicked) ? { folderPath: folder } : {}),
+            // the setting goes only when it changed (and never while safe operations hold it)
+            ...(canShare && !safeOps && shareChats !== !!project.shareChats ? { shareChats } : {}) } })
         : await api.call(API.createProject, {
             body:
               mode === 'personal' ? { name: finalName, scope: 'personal', instructions, participants: [] }
@@ -105,7 +119,8 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
       onSaved(p)
       onClose()
     } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
+      const refused = refusalKey(e, 'project')
+      setError(refused ? t(refused) : errorText(e, locale, t('error.network')))
       const id = e instanceof ApiError && e.code === 'conflict' ? e.body.params?.projectId : undefined
       setTakenBy(typeof id === 'string' ? id : null)
     } finally {
@@ -177,9 +192,24 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
             {!folderLocked && <Button onClick={() => void openPicker()} data-testid="project-folder-choose">{t('common.choose')}</Button>}
           </div>
         </Field>}
+        {/* the shared chats go with the project to the folder chosen here: to everyone who reads it */}
+        {repoint && !!project?.sharedChats && readers !== null && (
+          <p role="status" className="rounded-lg border border-warn/40 bg-warn-soft px-3 py-2 text-sm break-keep text-warn" data-testid="project-form-repoint-shared">
+            {t('projects.repointShared', { n: project.sharedChats, m: readers })}
+          </p>
+        )}
         <Field label={t('projects.instructions')} hint={t('projects.instructionsHint')}>
           <textarea className={`${inputCls} h-40 resize-y py-2`} value={instructions} onChange={(e) => setInstructions(e.target.value)} maxLength={50_000} />
         </Field>
+        {canShare && (
+          <div data-testid="project-share-chats">
+            <Switch checked={shareChats} onChange={setShareChats} label={t('projects.shareChats')} disabled={safeOps} testId="project-share-chats-toggle" describedBy={shareHint} />
+            {/* what flipping it does now; under safe operations why it cannot (the switch's own width + gap: under its words) */}
+            <p id={shareHint} className="mt-1 pl-11 text-xs leading-5 break-keep text-faint" data-testid="project-share-chats-hint">
+              {safeOps ? t('projects.shareChatsSafeOps') : shareChats ? t('projects.shareChatsOn') : t('projects.shareChatsOff', { n: project?.audience ?? 0 })}
+            </p>
+          </div>
+        )}
         {error && (
           <p role="alert" className="text-sm text-danger">
             {error}

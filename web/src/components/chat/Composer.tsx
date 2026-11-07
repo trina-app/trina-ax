@@ -17,8 +17,12 @@
 // sent by themselves.
 // Text that looks like a key or password waits for "Send anyway" (SecretWarning): a message goes to the AI provider
 // and stays in the chat; a service's key belongs in the connect card the AI shows.
+// A shared project chat (docs/DECISIONS.md "Shared project chats"): nothing waits to be sent while an answer runs
+// (`queueing` off), someone else's turn holds the send with a line above the text (`hold`, the text stays), files come
+// from the team folder only (`teamFilesOnly`: no upload from this computer, and the menu says why), and a phone keeps
+// the line about who sees the chat under the box (`phoneFooter`).
 import clsx from 'clsx'
-import { ArrowUp, Camera, Clock, CornerDownLeft, FileAudio, FileText, FolderOpen, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Clock, CornerDownLeft, FileAudio, FileText, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { isUuid7, MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
@@ -86,7 +90,11 @@ export default function Composer({
   autoFocus,
   placeholder,
   footer,
+  phoneFooter,
   skill,
+  hold,
+  queueing = true,
+  teamFilesOnly,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -112,11 +120,20 @@ export default function Composer({
   autoFocus?: boolean
   /** the empty box's hint, when it is not the usual one (a project's page) */
   placeholder?: string
-  /** a short note in the row under the box (the chat's "AI can make mistakes"); under the row on a phone */
+  /** a short note in the row under the box (the chat's "AI can make mistakes"); computers only */
   footer?: string
+  /** a phone's own short note under the box (a shared chat: who sees it) */
+  phoneFooter?: string
   /** a skill chosen for the message (a member's first question from a team link): shown as a chip by its title, the
    * box holding only the question; sending puts "/<name> " in front, so the skill runs as from the "/" menu */
   skill?: { name: string; title: string } | null
+  /** someone else's question is being answered in this shared chat: this line above the text, and nothing is sent until
+   * it is done (the text stays) */
+  hold?: string
+  /** false: a message typed while an answer runs does not wait to be sent (a shared chat) */
+  queueing?: boolean
+  /** files of the team folder only (a shared chat): no upload from this computer, and this says why */
+  teamFilesOnly?: string
 }) {
   const t = useT()
   const locale = useLocale()
@@ -215,7 +232,7 @@ export default function Composer({
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
   useEffect(() => (files.some((f) => f.status === 'uploading') ? markBusy('upload') : undefined), [files])
 
-  const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
+  const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
   // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
   // person's text size changes (Settings > Profile, over this page)
@@ -241,6 +258,8 @@ export default function Composer({
 
   const addFiles = async (all: File[]) => {
     if (!all.length) return
+    // a shared chat takes no file from this computer (the server would refuse it: 409 shared_chat_upload)
+    if (teamFilesOnly) return setError(teamFilesOnly)
     setError(null)
     const list = all.slice(0, Math.max(0, room()))
     if (list.length < all.length) setError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
@@ -353,7 +372,7 @@ export default function Composer({
   // the AI's question is the text alone (an upload in progress does not hold it up).
   const canSend = answering
     ? !sending && !voice.busy && text.trim().length > 0
-    : !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
+    : !hold && !(running && !queueing) && !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
 
   // onClick hands submit the click event: "Send anyway" goes through send(true)
   const submit = () => send(false)
@@ -441,10 +460,10 @@ export default function Composer({
           <Plus size={19} />
         </IconButton>
         {attachMenu && (
+          <div className="absolute bottom-full left-0 z-30 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-1 shadow-lg">
           <div
             role="menu"
             aria-label={t('composer.attach')}
-            className="absolute bottom-full left-0 z-30 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-surface p-1 shadow-lg"
             onKeyDown={(e) => {
               const items = menuItems()
               const i = items.indexOf(document.activeElement as HTMLElement)
@@ -457,6 +476,9 @@ export default function Composer({
               } else if (e.key === 'Tab') setAttachMenu(false)
             }}
           >
+            {/* a shared chat: the team folder only (the note under the menu says why) */}
+            {!teamFilesOnly && (
+            <>
             <button
               type="button"
               role="menuitem"
@@ -483,6 +505,8 @@ export default function Composer({
             >
               <Camera size={16} className="text-muted" aria-hidden /> {t('composer.camera')}
             </button>
+            </>
+            )}
             <button
               type="button"
               role="menuitem"
@@ -494,10 +518,17 @@ export default function Composer({
                 setAttachMenu(false)
                 setPicker(true)
               }}
+              aria-describedby={teamFilesOnly ? `${answeringId}-team-only` : undefined}
               data-testid="attach-team"
             >
               <FolderOpen size={16} className="text-accent-text" aria-hidden /> {t('composer.fromTeam')}
             </button>
+          </div>
+          {teamFilesOnly && (
+            <p id={`${answeringId}-team-only`} className="px-2.5 pt-1 pb-2 text-xs leading-5 break-keep text-faint" data-testid="attach-team-only">
+              {teamFilesOnly}
+            </p>
+          )}
           </div>
         )}
       </div>
@@ -655,6 +686,13 @@ export default function Composer({
                 </p>
               </div>
             )}
+            {/* a shared chat: someone else's question is being answered (or its card waits for them); the text stays */}
+            {hold && !answering && (
+              <p id={`${answeringId}-hold`} role="status" className={clsx('flex items-start gap-1.5 pt-3 text-xs leading-5 break-keep text-muted', phone ? 'px-3' : 'px-5')} data-testid="composer-hold">
+                <Hourglass size={13} className="mt-1 shrink-0 text-faint" aria-hidden />
+                <span className="min-w-0">{hold}</span>
+              </p>
+            )}
             {chosen && !answering && (
               <div className="px-4 pt-3" data-testid="composer-skill">
                 <SkillChip title={chosen.title} name={chosen.name} onRemove={() => { setChosen(null); taRef.current?.focus() }} />
@@ -669,13 +707,13 @@ export default function Composer({
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
               <div className="relative min-w-0 flex-1">
-                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('pb-2 text-reading leading-reading', phone ? 'pl-1' : 'pl-5', answering ? 'pt-2' : 'pt-3')} />}
+                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('pb-2 text-reading leading-reading', phone ? 'pl-1' : 'pl-5', answering || hold ? 'pt-2' : 'pt-3')} />}
                 <textarea
                   ref={taRef}
                   rows={1}
                   value={text}
                   aria-label={t('composer.label')}
-                  aria-describedby={answering ? `${answeringId} ${answeringId}-secrets` : undefined}
+                  aria-describedby={answering ? `${answeringId} ${answeringId}-secrets` : hold ? `${answeringId}-hold` : undefined}
                   {...roomMenu.inputProps}
                   onChange={(e) => {
                     setText(e.target.value)
@@ -704,7 +742,7 @@ export default function Composer({
                   // not disabled: the focus stays in the box while the words are on their way
                   readOnly={voice.busy}
                   aria-busy={transcribing || undefined}
-                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-2 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-2' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-2 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering || hold ? 'pt-2' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
                   data-testid="composer-input"
                 />
               </div>
@@ -768,7 +806,7 @@ export default function Composer({
           {!phone && attachControls}
         </div>
         {/* the note under the box: computers only (a phone keeps the bottom for the box and the keyboard) */}
-        {footer && <p className="hidden min-w-0 text-center text-micro text-faint md:block">{footer}</p>}
+        {footer && <p className="hidden min-w-0 text-center text-micro break-keep text-faint md:block" data-testid="composer-footer">{footer}</p>}
         <div className="flex flex-1 basis-0 items-center justify-end">
           {onEngine && (
             <div className="relative">
@@ -792,6 +830,12 @@ export default function Composer({
           )}
         </div>
       </div>
+      )}
+      {/* phones: the note a computer has in the row above, when it matters there (who sees a shared chat) */}
+      {phone && phoneFooter && (
+        <p className="px-2 pt-1.5 text-center text-micro break-keep text-faint" data-testid="composer-phone-footer">
+          {phoneFooter}
+        </p>
       )}
       {error && (
         <p role="alert" className="mt-2 px-2 text-sm text-danger">

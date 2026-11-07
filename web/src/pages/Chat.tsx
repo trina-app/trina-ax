@@ -3,14 +3,21 @@
 // A message sent while an answer runs waits under the conversation and goes when the answer is done
 // (store/sendQueue.ts, components/chat/QueuedMessages.tsx); while the AI waits for the answer to its question, the
 // message box answers that question instead (lib/askAnswer.ts).
+// A shared project chat (Chat.shared, docs/DECISIONS.md "Shared project chats"): the people of its project see it and may
+// continue it. The header has its mark, the line under the box says how many see it, other people's messages carry
+// their names, and only what the person may do is offered (rename and the engine: its creator; delete: its creator or a
+// project editor; stop: whoever asked; edit and regenerate: their own messages; no move, no queued sends, team files
+// only). While someone else's question is answered the box holds the text with a line saying whose; the others get no
+// live text, so the messages are read again when that turn starts and ends. While safe operations are on it is read-only.
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
 import { ChevronLeft, Globe, Loader2, MessageSquarePlus, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { chatErrorReason, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
+import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
+import { refusalKey, refusalReason, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
@@ -35,6 +42,7 @@ import QueuedMessages from '../components/chat/QueuedMessages'
 import { ChatProjectCrumb, MoveToProjectDialog } from '../components/chat/ChatProject'
 import type { EnginePick } from '../components/chat/EngineMenu'
 import { ChatTitleMenu } from '../components/chat/ChatTitleMenu'
+import { SharedChatMark, SharedReadOnly } from '../components/chat/SharedChat'
 import { Button, EmptyState, ErrorNote, IconButton, Skeleton, confirmDialog, useAnnounce } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 
@@ -61,10 +69,11 @@ function ChatView({ chatId }: { chatId: string }) {
   const announce = useAnnounce()
   const navigate = useNavigate()
   const backLink = useBackLink()
-  const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId))
+  // my chat list, or a shared chat of someone else's that this screen shows (store/chats.ts `others`)
+  const chatFromList = useChats((s) => s.chats.find((c) => c.id === chatId) ?? s.others[chatId])
   const [chat, setChat] = useState<Chat | null>(chatFromList ?? null)
   const thread = useChats((s) => s.threads[chatId]) ?? emptyThread()
-  const { loadThread, loadOlder, send, stop, regenerate, edit, selectBranch, upsertChat } = useChats.getState()
+  const { loadThread, loadOlder, send, stop, regenerate, edit, selectBranch, upsertChat, discardLocal } = useChats.getState()
   const [loadError, setLoadError] = useState<unknown>(null)
   const [loading, setLoading] = useState(!useChats.getState().threads[chatId])
   const scroller = useRef<HTMLDivElement>(null)
@@ -79,6 +88,12 @@ function ChatView({ chatId }: { chatId: string }) {
   // "대화방에 보내기" only from a chat known not to be confidential (Safe operations 1A: every chat while the server says so)
   const shareable = !!chat && !chat.confidential && !me.server.allChatsConfidential
   const actions = useChatActions()
+  // a shared project chat: what this person may do in it, whose question is being answered (not mine), and read-only
+  // while safe operations are on
+  const shared = chat?.shared
+  const rights = sharedRights(chat, me.user.id)
+  const othersTurn = shared?.answering ?? null
+  const readOnly = !!shared && !!me.server.allChatsConfidential
   const title = chat?.title || t('chat.untitled')
   useEffect(() => {
     if (chatFromList) setChat(chatFromList)
@@ -103,6 +118,8 @@ function ChatView({ chatId }: { chatId: string }) {
     try {
       const [c] = await Promise.all([chatFromList ? Promise.resolve(chatFromList) : api.call(API.getChat, { params: { id: chatId } }), loadThread(chatId)])
       setChat(c)
+      // someone else's shared chat: kept up to date by chat.updated while it is on screen, without joining my list
+      if (c.shared && !c.shared.mine) upsertChat(c)
       // messages this browser kept waiting for an answer in this chat (a reload, the app reopened)
       useSendQueue.getState().restore(me.user.id, chatId)
     } catch (e) {
@@ -122,6 +139,23 @@ function ChatView({ chatId }: { chatId: string }) {
   const question = useChats((s) => composerQuestion(s.requests, chatId))
   const choosing = useChats((s) => choiceWaiting(s.requests, chatId))
   const busy = !!running || messages.some((m) => m.local?.state === 'sending')
+  /** who asked the question an answer answers (a shared chat: edit, regenerate and "send to a room" are for one's own) */
+  const askedBy = (m: { parentId: string | null }) => messages.find((x) => x.id === m.parentId)?.author?.id
+  const mine = (id: string | undefined) => !shared || id === me.user.id
+  // a shared chat: the running answer is mine to stop only when I asked; someone else's turn holds the box instead
+  const runningMine = shared ? (!!running && mine(askedBy(running))) || messages.some((m) => m.local?.state === 'sending') : busy
+
+  // a shared chat: someone else's turn started or ended. Its question and answer are not streamed to the others (phase
+  // 1): the messages are read again, so they appear
+  const othersTurnNow = !!othersTurn
+  const wasOthersTurn = useRef<boolean | null>(null)
+  useEffect(() => {
+    if (!chat) return
+    const before = wasOthersTurn.current
+    wasOthersTurn.current = othersTurnNow
+    if (before !== null && before !== othersTurnNow) void loadThread(chatId).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat, othersTurnNow])
 
   // screen readers: "answer in progress" → "answer done", never the streaming text itself
   const wasRunning = useRef<string | null>(null)
@@ -153,10 +187,15 @@ function ChatView({ chatId }: { chatId: string }) {
     return stickToBottom(s, c, () => stick.current)
   }, [])
 
+  // the reader leaves the bottom by scrolling up, not because something grew below between our scroll to the bottom
+  // and its scroll event (a card that opens a moment after the question was sent stayed behind the box)
+  const lastTop = useRef(0)
   const onScroll = async () => {
     const el = scroller.current
     if (!el) return
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    const up = el.scrollTop < lastTop.current
+    lastTop.current = el.scrollTop
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 || (stick.current && !up)
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       const before = el.scrollHeight
@@ -207,6 +246,7 @@ function ChatView({ chatId }: { chatId: string }) {
   const onSend = async (text: string, attachments: Attachment[]) => {
     stick.current = true
     const author = { id: me.user.id, name: me.user.name }
+    if (shared) return sendShared(text, attachments, author)
     const queue = useSendQueue.getState()
     const waiting = queue.queues[chatId]
     // an answer is running (or messages already wait): this one waits too and goes when the answer is done
@@ -223,6 +263,26 @@ function ChatView({ chatId }: { chatId: string }) {
       return
     }
     await send({ chatId, content: text, attachments, author })
+  }
+
+  /** A shared chat: nothing waits to be sent (the box holds the text while an answer runs). A refusal (someone else's
+   * question began a moment ago, safe operations, a computer file) takes the message back and keeps the text in the box
+   * with the reason; the chat is read again, so the box says whose turn it is. */
+  const sendShared = async (text: string, attachments: Attachment[], author: { id: string; name: string }) => {
+    // (the box does not send then; a suggestion's button might: the text stays with the line's words)
+    if (othersTurn) throw new Error(t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }))
+    const clientMessageId = uuidv7()
+    const r = await send({ chatId, content: text, attachments, author, clientMessageId })
+    try {
+      await r.sent
+    } catch (e) {
+      if (!refusalReason(e) && !isApiError(e, 'conflict')) return // shown on the message ("not sent", send again)
+      const local = useChats.getState().threads[chatId]?.messages.find((m) => m.local?.clientMessageId === clientMessageId)
+      if (local) discardLocal(chatId, local.id)
+      void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
+      const key = refusalKey(e, 'chat')
+      throw new Error(key ? t(key) : errorText(e, locale, t('error.network')))
+    }
   }
 
   /** Sent from the message box while the AI waits for the answer to its question: the text answers it, like the card's
@@ -288,15 +348,16 @@ function ChatView({ chatId }: { chatId: string }) {
             <ChatTitleMenu
               chat={chat}
               title={title}
-              onRename={() => void actions.rename(chat).then((c) => c && setChat(c))}
-              onMove={() => setMovingProject(true)}
-              onDelete={() => void actions.remove(chat)}
+              onRename={rights.creator ? () => void actions.rename(chat).then((c) => c && setChat(c)) : undefined}
+              onMove={rights.canMove ? () => setMovingProject(true) : undefined}
+              onDelete={rights.canDelete ? () => void actions.remove(chat) : undefined}
             />
           ) : (
             <h1 className="min-w-0 truncate px-1.5 font-medium text-ink" data-testid="chat-title">
               {title}
             </h1>
           )}
+          {shared && <SharedChatMark audience={shared.audience} />}
         </div>
         {isDesktop() && <BrowserToggle />}
         <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => navigate('/')} className="p-3! md:hidden" data-testid="chat-new">
@@ -309,10 +370,10 @@ function ChatView({ chatId }: { chatId: string }) {
           {loading && <Skeleton lines={6} />}
           {loadError && !loading ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
           {messages.map((m, i) => {
-            if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
+            if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} author={shared && m.author && m.author.id !== me.user.id ? m.author.name : undefined} canEdit={mine(m.author?.id)} />
             const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
             const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt ? undefined : onContinue} shareable={shareable} />
+            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
           })}
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>
@@ -320,6 +381,8 @@ function ChatView({ chatId }: { chatId: string }) {
       <div className="mx-auto w-full max-w-[780px] px-4 pb-[max(0.75rem,var(--safe-bottom))]" data-bottom-bar>
         {chat?.deletedAt ? (
           <TrashedBanner chat={chat} onRestored={(c) => { setChat(c); upsertChat(c) }} />
+        ) : readOnly ? (
+          <SharedReadOnly />
         ) : (
           <>
           {/* one suggestion under the newest answer: the welcome invite on the first result, else schedule or PPT */}
@@ -330,22 +393,26 @@ function ChatView({ chatId }: { chatId: string }) {
             ref={composer}
             draftId={chatId}
             ensureChat={async () => chatId}
-            running={busy}
+            running={runningMine}
             onSend={onSend}
             answering={question ? { question: question.request.question, onAnswer: (text) => onAnswer(question.request.requestId, text) } : undefined}
             choiceWaiting={choosing}
             onStop={() => stop(chatId)}
             engine={{ engine: chat?.engine, model: chat?.model }}
-            onEngine={choose ? onEngine : undefined}
+            onEngine={choose && rights.creator ? onEngine : undefined}
             engines={engines}
             models={models}
             placeholder={t('chat.reply')}
-            footer={t('chat.footer')}
+            footer={shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footer')}
+            phoneFooter={shared ? t('chat.sharedSeen', { n: shared.audience }) : undefined}
+            hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            queueing={!shared}
+            teamFilesOnly={shared ? t('chat.sharedTeamFiles') : undefined}
             autoFocus
           />
           </>
         )}
-        {chat?.deletedAt && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{t('chat.footer')}</p>}
+        {(chat?.deletedAt || readOnly) && <p className="pt-2 text-center text-micro text-faint max-md:hidden">{shared ? t('chat.footerShared', { n: shared.audience }) : t('chat.footer')}</p>}
       </div>
       {movingProject && chat && (
         <MoveToProjectDialog
