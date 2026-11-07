@@ -13052,3 +13052,26 @@ covers wave 1 (no embeddings yet).
   come before wave 2's quality test.
 - **How it was built.** Each phase of the plan is a wave. Five agents built wave 1 in parallel on separate files, around
   a contract commit that fixed `lookup()`'s signature first.
+- **Review fixes (same branch).** An independent review found two must-fix problems. Neither leaked a file to the wrong
+  person.
+  - **The deadline was not real.** The document search ran synchronously on the main thread, so the 200 ms race could
+    only fire after the search had finished. A 3,000-document index held the whole server for 260–720 ms per lookup,
+    on every message and every Files search.
+    - Searches now run in one worker with its own read-only connection (WAL mode).
+    - Each word adds a bounded number of pieces.
+    - One permission answer shares one folder listing. That listing, not the search, was most of the main thread's
+      cost.
+    - Rejected: only bounding the search. It still blocks, and a 2-core server is several times slower than the Mac it
+      was measured on.
+    - The worker is a separate bundle entry (`doc-search-worker.js`). `Bun.build` does not follow `new Worker()`.
+  - **The lookup widened the read scope.** Every file named in the block, even a weak, name-only one, joined the chat's
+    read scope, so a scheduled task's save to `shared/` could be refused (nobody answers its card).
+    - Scheduled runs now get no lookup.
+    - Weak blocks count as names shown, like `list`.
+    - Strong blocks still count as read, because their text reached the model.
+  - **Should-fix:**
+    - Budgets are in tokens (`knowledge-graph/tokens.ts`, an estimate that leans high: 4 ASCII characters or 0.8 of any
+      other character per token). A 10,000-character Korean block was 5,000–8,000 tokens against the planned 2,500.
+    - The tag guard catches spaces and zero-width characters.
+    - "감사" is a word again.
+    - The Files search keeps every typed word.

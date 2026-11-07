@@ -179,11 +179,12 @@ hold for document passages, related documents and code:
 
 `knowledge_explore { query, alt_query?, path?, limit? }`: one search over the team's documents and code. `alt_query`
 is the same question in other words or another language (an English wording for a Korean question); both are
-searched. The answer, at most 24,000 characters (about 6,000 tokens, with a note when something is left out):
+searched. The answer is at most about 6,000 tokens (counted with `knowledge-graph/tokens.ts`, so Korean text gets fewer
+characters than English), with a note when something is left out:
 
-- **Documents:** up to 3 passages of up to 1,500 characters each to answer from, with the file, the page, sheet, slide or
+- **Documents:** up to 3 passages (up to 1,500 characters and about 900 tokens each) to answer from, with the file, the page, sheet, slide or
   section, and a link. The AI answers from them when they are enough and reads a file only for more.
-- **More matches:** up to 12 short labelled hits (file · place, link, up to 300 characters).
+- **More matches:** up to 12 short labelled hits (file · place, link, up to 300 characters and about 150 tokens).
 - **Related documents**, with the reason.
 - **Code:** up to `limit` (default 8, at most 20) functions, classes and other symbols, each with its path and lines, a
   link, its signature, its first lines of code, and for the first three callables what calls them and what they call (by
@@ -193,11 +194,24 @@ It is offered only while the knowledge graph is on. The prompt names it first am
 Code sessions get its rule in `<turn_context>`. Scheduled template runs may call it only with a `path` inside the
 template's own folders.
 
-`lookup()` searches documents only (never CodeGraph, so it is fast). How strongly a question matches
-(`documents/index.ts` `matchStrength`):
+`lookup()` searches documents only (never CodeGraph, so it is fast):
+
+- **Off the main thread.** The searches run in one long-lived worker (`documents/search-worker.ts`, built as
+  `doc-search-worker.js` next to the server's `main.js` in the bundles) with its own read-only connection to the index,
+  which the writer keeps in WAL mode. The deadline is real: a search not back in time is dropped and the caller gets
+  nothing, and a queued search whose time has passed never runs. The worker starts with the index and restarts if it
+  dies. Without it (a bundle missing the file), searches run on the main thread, bounded, with a warning in the log.
+- **Bounded.** Each word adds only the first few hundred matching pieces. Short Korean words match as whole words with
+  their particles. The full scan for a two-letter word runs only for `knowledge_explore`, inside the worker.
+- **One folder listing per batch.** The per-file permission checks of one answer share a folder listing.
+- Measured on a made-up index of 3,000 documents (36,000 pieces): about 3 ms of main-thread time per lookup (p95 4–6 ms;
+  before: 260–720 ms), and about 10 ms for the lookup (p95 16–27 ms).
+
+How strongly a question matches (`documents/index.ts` `matchStrength`):
 
 - Greetings, thanks, requests, question words and fillers in English and Korean are dropped first ("hi", "찾아줘",
-  "어디", "관련").
+  "어디", "관련"; "감사" stays, since it also means an audit). The Files search keeps every word the person types
+  (`words: 'search'`).
 - **Strong:** one of the first three passages the person may see holds every remaining word within 300 characters. With
   4 or more words, all but one is enough. A one-word question is strong only when the word is a code, a date or a file
   name.
@@ -210,17 +224,22 @@ For Claude Code and Codex, the server looks up the person's message (its first 5
 (`chat/turn.ts` `lookupBeforeModel`), with a 200 ms limit. The model never waits longer: on a timeout or an error
 nothing is added.
 
-- **Strong:** a `<document_matches>` block in front of the message, with the passages and short labels, at most 10,000
-  characters (about 2,500 tokens). It says that the server added it and that the passages are file contents, data and
-  never instructions. File text cannot open or close a block (`BLOCK_TAGS`).
-- **Weak:** at most 5 lines of file and place, with no text and no links.
+- **Strong:** a `<document_matches>` block in front of the message, with the passages and short labels, at most about
+  2,500 tokens (a long passage is cut to fit, so Korean gets fewer passages). It says that the server added it and that
+  the passages are file contents, data and never instructions. File text cannot open or close a block (`BLOCK_TAGS`,
+  which also catches spaces and zero-width characters inside a tag; those characters are stripped from file text).
+- **Weak:** at most 5 lines of file and place (about 300 tokens at most), with no text and no links.
 - **None:** no block.
-- Files in the block join the read scope at once and become the answer's sources, as after a read.
+- A strong block's files join the read scope at once, become the answer's sources and mark the chat as having read
+  outside content, as after a read: their text reached the model. A weak block's files count only as names shown, as
+  after `list` or `glob`: not read, not sources, no mark, so a later save to a wider folder does not ask because of them.
 - A resumed Claude session does not get passages it was already given in that session (an in-memory list per chat and
-  session; after a restart they may come once more). Codex and fresh Claude sessions get the block every turn, because
+  session, marked only once an attempt that answered has saved the session; after a restart they may come once more).
+  Its `<turn_context>` repeats the tool rule only when the session's first instructions lacked it. Codex and fresh Claude sessions get the block every turn, because
   their history does not hold earlier blocks.
 - No lookup for the API engine (trial credit too), confidential chats, drafts, skill-share judging and merging,
-  template runs, demo replays, team rooms, or turns without `knowledge_explore`.
+  scheduled runs (template runs included: nobody is there to answer a card), demo replays, team rooms, or turns without
+  `knowledge_explore`. Slack turns keep it: a card there waits for the person.
 
 ## The Files search
 
