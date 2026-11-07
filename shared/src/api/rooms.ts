@@ -301,6 +301,11 @@ export const RoomMessage = z.object({
    * AI's answer"; its team-file links are checked in `openable` like an AI message's). The author is still me. cut: the
    * answer was longer than fits and ends with a line that says so. Never on a deleted message */
   sharedAnswer: z.object({ at: z.number().int().nonnegative(), cut: z.boolean() }).optional(),
+  /** a shared answer that went with copies of the files it links to ("첨부해서 보내기"): its links (as `answerFilePaths`
+   * names them, text its body has) whose file is one of `files`, with that file's id. The app opens the team file when
+   * the link is in `openable`, else this copy, and shows a lock only when there is neither. Only files of this message;
+   * never the path a copy was made from. Absent: nothing attached, or an older message */
+  attachedLinks: z.array(z.object({ path: z.string(), fileId: Uuid7 })).optional(),
   /** an old answer hidden from me (docs/DECISIONS.md "지난 대화"): I joined this team room or the everyone room after
    * it, and it used something I cannot open (or what it used is not known). Shown as one line in its place: body is ''
    * and nothing of it comes (no files, sources, links, reactions or thread); who asked it (askedBy) or shared it
@@ -514,7 +519,7 @@ export const ROOMS = {
   setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). It comes back by itself when something for me arrives.' }),
   leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
-  roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview.' }),
+  roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 to a download (503 quarantined otherwise).' }),
   getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),
   stopRoomAi: endpoint({ method: 'POST', path: '/api/rooms/:id/ai/:turnId/stop', auth: 'user', owner: 'B', response: z.object({ stopped: z.boolean() }), summary: 'Stop the AI answering my question (only the person who asked; anyone else gets 404).' }),
   shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', response: RoomMessage, summary: 'Post my private preview of an AI answer to the room: sources some member cannot read are left out; it notifies like a new message and is audited.' }),

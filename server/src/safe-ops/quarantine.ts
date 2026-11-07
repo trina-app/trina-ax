@@ -38,8 +38,13 @@ export class Quarantine {
   }
   assertDownload(abs: string, headers: Headers) {
     if (!this.hasFile(abs)) return
-    const mode = headers.get('sec-fetch-mode'), dest = headers.get('sec-fetch-dest')
-    if ((mode && mode !== 'navigate') || (dest && dest !== 'document' && dest !== 'empty'))
-      throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
+    if (fetchedByPage(headers)) throw new ToolError('Generated output is download-only.', 'safe_ops_quarantined')
   }
+}
+
+/** A request the browser says a page made (fetch, an <img>, a frame) rather than a download the person started: what a
+ * download-only file is never sent to (Fetch Metadata; a client without the headers is not a page). */
+export function fetchedByPage(headers: Headers): boolean {
+  const mode = headers.get('sec-fetch-mode'), dest = headers.get('sec-fetch-dest')
+  return (!!mode && mode !== 'navigate') || (!!dest && dest !== 'document' && dest !== 'empty')
 }
