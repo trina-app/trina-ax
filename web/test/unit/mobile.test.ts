@@ -475,4 +475,36 @@ test('the app hears signedOut on a sign-out, one person after another, and a sig
   win.dispatchEvent(new Event('mycel:mobile-ready'))
   await settle()
   expect(resets()).toEqual([true])
+  // a sign-out reset the app never answered (dropped, a new bridge) is told again at the next bridge-ready
+  await step('user:d')
+  messages = []
+  const replying = handler
+  handler = () => {}
+  setMobileSession(null, true)
+  await settle(() => resets().length > 0)
+  handler = replying
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => resets().length > 1)
+  expect(resets()).toEqual([true, true])
+})
+
+test('a registration answered after the session changed does not hand that device to the app', async () => {
+  const realFetch = globalThis.fetch
+  let answer!: () => void
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/push') && (init?.method ?? 'GET') === 'GET') return Response.json({ configured: false, enabled: false, publicKey: null, subscriptionId: null, native: { available: true, deviceId: null, gateway: 'push.example.test' }, optedOut: false })
+    if (url.endsWith('/api/push/devices')) { await new Promise<void>(r => { answer = r }); return Response.json({ id: 'device-late', removeKey: 'k'.repeat(43) }) }
+    return new Response('{}', { status: 404 })
+  }) as typeof fetch
+  try {
+    handler = withPermission('granted')
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('user:late-1')
+    await settle(() => typeof answer === 'function')
+    setMobilePushSession('user:late-2')
+    answer()
+    await settle()
+    expect(messages.find(m => m.type === 'push-registered' && m.deviceId === 'device-late')).toBeUndefined()
+  } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
 })

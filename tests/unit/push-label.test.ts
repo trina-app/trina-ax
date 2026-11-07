@@ -190,6 +190,13 @@ test('a stale device: push off, the session ended, the gateway moved, no label k
   expect(w.ask(id)).toEqual({})
   h.ctx.db.query('UPDATE push_preferences SET enabled=1 WHERE user_id=?').run(w.nora.id)
   expect(w.ask(id).title).toBe('MIA')
+  // the person disabled, or made to change the password first
+  h.ctx.db.query("UPDATE users SET status='disabled' WHERE id=?").run(w.nora.id)
+  expect(w.ask(id)).toEqual({})
+  h.ctx.db.query("UPDATE users SET status='active', must_change_password=1 WHERE id=?").run(w.nora.id)
+  expect(w.ask(id)).toEqual({})
+  h.ctx.db.query('UPDATE users SET must_change_password=0 WHERE id=?').run(w.nora.id)
+  expect(w.ask(id).title).toBe('MIA')
   // the session ended (sign-out removes the device with it; an expired one stays until the next sweep)
   h.ctx.db.query('UPDATE sessions SET expires_at=? WHERE id=?').run(new Date(w.clock.now - 1000).toISOString(), (h.ctx.db.query('SELECT session_id FROM push_subscriptions WHERE id=?').get(w.device.id) as { session_id: string }).session_id)
   expect(w.ask(id)).toEqual({})
@@ -214,10 +221,22 @@ test('the label key is the app\'s: registering again with it changes nothing; wi
   const again = p.registerDevice(w.nora.id, sessionOf(w.nora.id), iosDevice(hashOf(w.key), w.token))
   expect(again.id).toBe(w.device.id)
   expect(w.ask(id).title).toBe('MIA')
+  // a new key (after a sign-out on the phone and back): the old one stops working at once
+  const next = newKey()
+  p.registerDevice(w.nora.id, sessionOf(w.nora.id), iosDevice(hashOf(next), w.token))
+  expect(w.ask(id)).toEqual({})
+  expect(w.ask(id, next).title).toBe('MIA')
   // a registration without a hash (an app without the extension) leaves no key
   p.registerDevice(w.nora.id, sessionOf(w.nora.id), iosDevice(undefined, w.token))
   expect(stored()).toBeNull()
-  expect(w.ask(id)).toEqual({})
+  expect(w.ask(id, next)).toEqual({})
+  // the same phone signed in as someone else: the token moves, nora's row and its key go
+  const otherKey = newKey()
+  const moved = p.registerDevice(w.otto.id, sessionOf(w.otto.id), iosDevice(hashOf(otherKey), w.token))
+  expect(h.ctx.db.query('SELECT id FROM push_subscriptions WHERE id=?').get(w.device.id)).toBeNull()
+  expect(h.ctx.db.query('SELECT user_id,label_hash FROM push_subscriptions WHERE id=?').get(moved.id)).toEqual({ user_id: w.otto.id, label_hash: hashOf(otherKey) })
+  // nora's notice is not otto's to read, whatever key he has
+  expect(p.label(moved.id, { key: otherKey, notificationId: id })).toEqual({})
 })
 
 test(`at most ${LABEL_PER_MINUTE} answers a minute for a device; wrong keys do not use them up`, async () => {

@@ -12806,6 +12806,14 @@ name. Android stays generic in 1.0.1.
   every launch that finds it stale; deliveries tried at least once. Not taken: a per-address limit for wrong keys (the
   removal endpoint has none either; 256-bit keys), the room id from the payload's path for stacking when the request
   fails (a failure shows exactly what Apple delivered).
+- Independent code review (2026-11-07), no high or critical finding; fixed: the page marks the sign-out as told only
+  once the app answered the reset (a dropped one is told again at the next bridge-ready); a registration answered after
+  the session changed no longer hands that device to the app (an older gap, now also the label item's device id); the
+  extension invalidates its session at once when the system ended it before the request started; the stand-in hash for
+  a device without a key is random; the release script says which signed entitlements it could not read; a launch whose
+  device record could not be read leaves the label item alone. Release checks it asked for: an archive from a clean
+  prebuild, keychain sharing on a real phone, and the request through each hosted team's WAF (a challenge page means
+  the generic line).
 - Tests: `tests/unit/push-label.test.ts` (titles and bodies equal a browser push's, languages, names made plain, never the
   text, every failure `{}`, delivery and day bounds, level, hidden, left, deleted, private, stale device, the key's hash
   and no rotation, the rate limit, a thrown failure, HTTP and the log), `push-gateway.test.ts` and

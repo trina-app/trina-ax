@@ -27,8 +27,8 @@ const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
  * most 20 a minute per team); more get the empty answer. Counted only for the right key, so nobody else can use it up. */
 export const LABEL_PER_MINUTE=30
 const ID=/^[A-Za-z0-9_-]{1,100}$/,KEY=/^[A-Za-z0-9_-]{43}$/
-// compared against when a device has no label key, so the answer takes the same steps
-const NO_HASH=crypto.createHash('sha256').update('mycel-push-no-label').digest()
+// compared against when a device has no label key, so the answer takes the same steps (random: no key matches it)
+const NO_HASH=crypto.randomBytes(32)
 const sha256=(s:string)=>crypto.createHash('sha256').update(s).digest()
 const services=new WeakMap<AppContext,PushService>()
 /** Where push notices come from: an inbox table and its deliveries table. notification_inbox (migration 208) and room

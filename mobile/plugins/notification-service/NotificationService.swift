@@ -152,7 +152,9 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
     config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
     config.waitsForConnectivity = false
     let session = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
-    lock.lock(); self.session = session; lock.unlock()
+    // the system may have ended this already (serviceExtensionTimeWillExpire): then nothing is asked
+    lock.lock(); let open = handler != nil; if open { self.session = session }; lock.unlock()
+    guard open else { return session.invalidateAndCancel() }
     session.dataTask(with: ask) { data, response, _ in self.finish(Label.words(data: data, response: response)) }.resume()
     // the session's timeouts end the request; this is the last guard
     DispatchQueue.global().asyncAfter(deadline: .now() + Label.timeout + 1) { self.finish(nil) }

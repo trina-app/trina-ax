@@ -69,9 +69,10 @@ export function resetMobileSession(signedOut = false): void {
   abortPending(true)
   barrier = barrier.catch(() => {}).then(async () => {
     const config = mobileApp(); if (!config) return
-    if (signedOut && pageSignedOut) signedOutTold = true
     const reply = await request({ ...envelope(config), type: 'session-reset', ...(signedOut ? { signedOut: true } : {}) }, config)
     if (reply.nextGeneration !== config.generation + 1) throw new Error('mobile_protocol_mismatch')
+    // heard only once the app answered (a reset that was dropped is told again at the next bridge-ready)
+    if (signedOut && pageSignedOut && sessionKey === null) signedOutTold = true
     // Native also installs this config before delivering its acknowledgement.
     if (!mobileApp() || mobileApp()!.generation !== reply.nextGeneration) throw new Error('mobile_protocol_mismatch')
     void sendAppearance().catch(() => {})

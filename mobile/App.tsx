@@ -93,9 +93,10 @@ export default function App() {
       // the keychain outlived the deleted app: its notification extension names nobody until this install registers
       if (reinstalled) await labels?.forget().catch(() => {})
       if (reinstalled && origin) signOut.current = new ReinstallSignOut(origin, () => reinstallDone(deps), () => Crypto.randomUUID())
-      device.current = origin ? (await currentDevice(devices, origin).catch(() => null))?.deviceId ?? null : null
-      // what the extension may use belongs to this team and this device, or it goes
-      await labels?.tidy(origin, device.current).catch(() => {})
+      let deviceRead = true
+      device.current = origin ? (await currentDevice(devices, origin).catch(() => { deviceRead = false; return null }))?.deviceId ?? null : null
+      // what the extension may use belongs to this team and this device, or it goes (not when the device could not be read)
+      if (deviceRead) await labels?.tidy(origin, device.current).catch(() => {})
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
     })

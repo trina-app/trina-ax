@@ -83,8 +83,8 @@ if [[ -n "$edition_team" ]]; then
   for key in CFBundleShortVersionString CFBundleVersion; do
     [[ "$(plist_value "$key" "$appex/Info.plist")" == "$(plist_value "$key" "$app_dir/Info.plist")" ]] || { echo "the extension's $key differs from the app's" >&2; exit 1; }
   done
-  codesign -d --entitlements - --xml "$app_dir" > "$out/app-entitlements.plist" 2>/dev/null
-  codesign -d --entitlements - --xml "$appex" > "$out/extension-entitlements.plist" 2>/dev/null
+  codesign -d --entitlements - --xml "$app_dir" > "$out/app-entitlements.plist" 2>/dev/null || { echo "cannot read the app's signed entitlements" >&2; exit 1; }
+  codesign -d --entitlements - --xml "$appex" > "$out/extension-entitlements.plist" 2>/dev/null || { echo "cannot read the extension's signed entitlements" >&2; exit 1; }
   access_groups() { plutil -extract keychain-access-groups json -o - "$1" 2>/dev/null || echo null; }
   node -e "const [a,x,t,b]=process.argv.slice(1),eq=(v,w)=>JSON.stringify(JSON.parse(v))===JSON.stringify(w)
 if(!eq(a,[t+'.'+b,t+'.'+b+'.notifications'])){console.error('the app is signed with keychain groups '+a);process.exit(1)}

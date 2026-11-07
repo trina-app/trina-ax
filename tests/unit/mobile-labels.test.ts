@@ -93,6 +93,9 @@ test('a keychain that refuses (no entitlement) gives no hash, so nothing unusabl
   const store = new LabelStore(k.deps)
   expect(await store.keyHash(ORIGIN).catch(() => 'threw')).toBe('threw')
   // the bridge turns that into a token reply without a hash (below)
+  // a write that seems to work but is not there when read back (another group answered): no hash either
+  const lost: LabelDeps = { ...keychain().deps, slot: { async get() { return null }, async set() {} } }
+  expect(await new LabelStore(lost).keyHash(ORIGIN)).toBeNull()
 })
 
 test('base64url and the stored item: the server\'s key format, nothing else accepted', () => {
