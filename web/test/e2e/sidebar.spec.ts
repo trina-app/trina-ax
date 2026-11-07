@@ -104,6 +104,29 @@ test('short lists keep their entries: "모든 대화" opens the conversations pa
   await expect(page).toHaveURL(/\/rooms$/)
 })
 
+test('a hairline at the top of the scroll only while it is scrolled, the color of the one above the account row; nothing moves', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await reset(page)
+  await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(60) } }) : r.fallback()))
+  await signIn(page)
+  await someChats(page, 7)
+  await page.reload()
+  const s = side(page)
+  const scroll = s.getByTestId('sidebar-scroll')
+  await expect(s.getByTestId('sidebar-room')).toHaveCount(5)
+  const line = () => scroll.evaluate((e) => ({ width: getComputedStyle(e).borderTopWidth, color: getComputedStyle(e).borderTopColor }))
+  const account = await s.getByTestId('account-menu').evaluate((e) => getComputedStyle(e.closest('.border-t')!).borderTopColor)
+  const top0 = (await s.getByTestId('rooms-toggle').boundingBox())!.y
+  expect(await line()).toEqual({ width: '1px', color: 'rgba(0, 0, 0, 0)' })
+  await scroll.evaluate((e) => e.scrollTo({ top: 80 }))
+  await expect(scroll).toHaveAttribute('data-scrolled', '')
+  expect(await line()).toEqual({ width: '1px', color: account })
+  await scroll.evaluate((e) => e.scrollTo({ top: 0 }))
+  await expect(scroll).not.toHaveAttribute('data-scrolled')
+  expect(await line()).toEqual({ width: '1px', color: 'rgba(0, 0, 0, 0)' })
+  expect((await s.getByTestId('rooms-toggle').boundingBox())!.y).toBe(top0)
+})
+
 test('both groups fold and stay folded after a reload', async ({ page }) => {
   await reset(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(3) } }) : r.fallback()))

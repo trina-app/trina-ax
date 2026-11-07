@@ -11118,6 +11118,10 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - **Removed:** the product's name on top, the team name in the account line, 팀
   스킬's own count (the Inbox has the suggestion), the old cap of eight rooms that let every unread one through, the AI
   chats' date groups and filter in the default view (behind "모두 보기").
+- **A hairline at the top of the scroll while it is scrolled** (the owner, 2026-11-07: "스크롤 가능한 영역 위에 뭔가 선이라도
+  있어야 예상이 가능할 듯"). `border-line`, the same as the line above the account row, at the scroll's top edge only
+  when `scrollTop > 0` (the scroll handler it already had); none at the very top. The 1 px is always reserved
+  (transparent), so nothing moves; no animation. The phone's drawer has the same scroll and the same line.
 - The phone's drawer keeps its own layout ("Phone navigation: four tabs"); it gets the same dots.
 - Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
   case for the new route.
