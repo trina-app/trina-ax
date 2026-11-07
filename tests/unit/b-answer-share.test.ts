@@ -452,6 +452,82 @@ describe('linked files: a row each, the switch, attaching', () => {
     expect(audit(linkOnly.json.message.id)).toEqual({ roomId: rooms.all, people: 4, confirmed: true, cut: false, files: 0 })
   })
 
+  test('a link to an attached file names its copy (attachedLinks): every link of the text that names it, only files of the message, never the path it was copied from', async () => {
+    const db = h.ctx.db
+    const at = 'users/alice/deck-attach.html', other = 'users/alice/notes-link-only.md'
+    put(at, '<h1>acme</h1>')
+    put(other, '# notes\n')
+    // the file twice (the second link as an AI may write it) and a file that goes as a link only
+    const again = 'users/alice/./deck-attach.html'
+    const a = answer('alice', `덱: ${link(at)} · 다시: [덱](/api/files/download?path=${again}) · 메모: ${link(other)}`)
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    expect(ask.json.files.map((f: AnswerShareFile) => f.path)).toEqual([at, other])
+    const sent = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: [at] })
+    const m = sent.json.message as RoomMessage
+    const fileId = m.files[0]!.id
+    const links = [{ path: at, fileId }, { path: again, fileId }]
+    // bob cannot open either team file: both links name the copy, the link-only file has none (the app's lock)
+    const bobs = (await messagesAs('bob', rooms.all)).find((x) => x.id === m.id)!
+    expect(bobs.openable).toEqual([])
+    expect(bobs.attachedLinks).toEqual(links)
+    // alice may open the team file (openable: the app opens it, live) and gets the same links
+    const mine = (await messagesAs('alice', rooms.all)).find((x) => x.id === m.id)!
+    expect(mine.openable).toEqual([at, again, other])
+    expect(mine.attachedLinks).toEqual(links)
+    expect(m.attachedLinks).toEqual(links)
+    // kept with the message on the server: the copy, the path it was made from, the links
+    const scope = JSON.parse((db.query('SELECT source_scope FROM room_messages WHERE id = ?').get(m.id) as { source_scope: string }).source_scope)
+    expect(scope.attached).toEqual([{ file: fileId, path: at, links: [at, again] }])
+    // a scope that names a file of another message, or a link the text does not have, gives nothing more; an older
+    // message (no `attached`) and a scope that does not read give none: the lock stays as it was
+    const foreign = (await roomFilesOf(h.ctx).fromTeamFile('alice', rooms.all, other)).id
+    const forged = { ...scope, attached: [...scope.attached, { file: foreign, path: other, links: [other] }, { file: fileId, path: at, links: ['users/alice/never-linked.md'] }] }
+    db.query('UPDATE room_messages SET source_scope = ? WHERE id = ?').run(JSON.stringify(forged), m.id)
+    expect((await messagesAs('bob', rooms.all)).find((x) => x.id === m.id)!.attachedLinks).toEqual(links)
+    roomFilesOf(h.ctx).discardUnsent('alice', rooms.all, [foreign])
+    db.query('UPDATE room_messages SET source_scope = ? WHERE id = ?').run(JSON.stringify({ sources: scope.sources, unknown: scope.unknown }), m.id)
+    expect((await messagesAs('bob', rooms.all)).find((x) => x.id === m.id)!).not.toHaveProperty('attachedLinks')
+    db.query("UPDATE room_messages SET source_scope = '{not json' WHERE id = ?").run(m.id)
+    expect((await messagesAs('bob', rooms.all)).find((x) => x.id === m.id)!).not.toHaveProperty('attachedLinks')
+    db.query('UPDATE room_messages SET source_scope = ? WHERE id = ?').run(JSON.stringify(scope), m.id)
+    // hidden from someone (an old answer they cannot see, docs/DECISIONS.md "지난 대화"): no text, files or links for them
+    db.query('INSERT INTO room_hidden_answers (room_id, user_id, message_id, see_seq) VALUES (?, ?, ?, ?)').run(rooms.all, 'erin', m.id, m.seq)
+    try {
+      const erins = (await messagesAs('erin', rooms.all)).find((x) => x.id === m.id)!
+      expect(erins).toMatchObject({ withheld: true, body: '', files: [] })
+      expect(erins).not.toHaveProperty('attachedLinks')
+      expect(erins).not.toHaveProperty('openable')
+    } finally { db.query('DELETE FROM room_hidden_answers WHERE message_id = ?').run(m.id) }
+    // deleted: nothing of it
+    await h.api('alice').call(API.deleteRoomMessage, { params: { id: rooms.all, messageId: m.id } })
+    const gone = (await messagesAs('bob', rooms.all)).find((x) => x.id === m.id)!
+    expect(gone.files).toEqual([])
+    expect(gone).not.toHaveProperty('attachedLinks')
+  })
+
+  test('the copy is named only by the link as the text writes it: the path it was copied from never reaches anyone else', async () => {
+    const rel = 'users/alice/acme-quote-q4.html'
+    put(rel, '<p>quote</p>')
+    // the AI wrote the path another way (a "./" in it): the room gets that text, the server resolved the file
+    const written = 'users/alice/./acme-quote-q4.html'
+    const a = answer('alice', `견적: [견적서](/files/view?path=${written})`)
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    const sent = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: [rel] })
+    const m = sent.json.message as RoomMessage
+    const r = await h.req('bob', `/api/rooms/${rooms.all}/messages`)
+    const text = await r.text()
+    const bobs = (JSON.parse(text).items as RoomMessage[]).find((x) => x.id === m.id)!
+    expect(bobs.attachedLinks).toEqual([{ path: written, fileId: m.files[0]!.id }])
+    expect(text).toContain(written)
+    expect(text).not.toContain(rel)
+    // the realtime event erin gets carries the same, and no more
+    const ev = await erinWs.next('room.message', (f) => f.data.message.id === m.id)
+    expect(JSON.stringify(ev)).not.toContain(rel)
+    expect(ev.data.message.attachedLinks).toEqual([{ path: written, fileId: m.files[0]!.id }])
+  })
+
   test('an AI-made file in my folder is an ordinary row; attached, what its turn used counts too', async () => {
     // made by an answer of another chat that read the marketing brief
     const text = '# 요약본\n', at = 'users/alice/made-summary.md'

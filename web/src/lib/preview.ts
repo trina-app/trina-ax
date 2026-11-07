@@ -40,6 +40,16 @@ export function previewLimit(kind: PreviewKind): { max: number; truncate: boolea
 
 export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(name)] ?? null
 
+/** Whether the preview panel can show a file that is not in the team folder (a room file): a viewer for its type, not
+ * one of the server's team-file conversions (HEIC, Hangul: `serverPreview`), and within that viewer's limit (a text
+ * preview shows the start of any size). Otherwise it is downloaded. */
+export function opensWithoutServer(f: { name: string; size: number }): boolean {
+  const kind = previewKind(f.name)
+  if (!kind || serverPreview(f.name)) return false
+  const limit = previewLimit(kind)
+  return limit.truncate || f.size <= limit.max
+}
+
 /** Photos that browsers (other than Safari) cannot draw: the panel shows the server's JPEG (GET /api/files/preview)
  * instead of the file bytes. A local file (not uploaded yet) of this kind has no preview. */
 export const serverPreview = (name: string): boolean => ['heic', 'heif', 'hwp', 'hwpx'].includes(extOf(name))

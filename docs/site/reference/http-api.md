@@ -489,7 +489,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PUT` | `/api/rooms/:id/hidden` | Signed in | Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). It comes back by itself when something for me arrives. |
 | `POST` | `/api/rooms/:id/leave` | Signed in | Leave a group chat; the last one to leave closes it. Not audited. |
 | `POST` | `/api/rooms/:id/files` | Signed in | Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room's members once sent. |
-| `GET` | `/api/rooms/:id/files/:fileId` | Signed in | A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview. |
+| `GET` | `/api/rooms/:id/files/:fileId` | Signed in | A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check's download-only list is sent only with download=1 (503 quarantined otherwise). |
 | `GET` | `/api/rooms/:id/ai` | Signed in | How many questions the AI is answering in a room I am in, and my own of them with their steps. |
 | `POST` | `/api/rooms/:id/ai/:turnId/stop` | Signed in | Stop the AI answering my question (only the person who asked; anyone else gets 404). |
 | `POST` | `/api/rooms/:id/messages/:messageId/share` | Signed in | Post my private preview of an AI answer to the room: sources some member cannot read are left out; it notifies like a new message and is audited. |

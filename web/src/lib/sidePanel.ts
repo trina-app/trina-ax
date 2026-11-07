@@ -4,9 +4,11 @@ import { useSyncExternalStore } from 'react'
 import type { SourceLoc } from '@mycel/shared/api'
 
 /** A file to preview: a team file (by path; `at`: the page, sheet or slide to open it at, from an answer's sources or
- * a link), or bytes we already have (a picked file before sending). */
+ * a link), a file sent in a team chat room (read through the room, its members only), or bytes we already have (a
+ * picked file before sending). */
 export type PreviewFile =
   | { source: 'team'; path: string; name: string; at?: SourceLoc }
+  | { source: 'room'; roomId: string; fileId: string; name: string }
   | { source: 'local'; name: string; blob: Blob }
 
 export type SidePanel =
@@ -37,6 +39,8 @@ export function useSidePanel() {
 let seq = 0
 export const openFilePreview = (file: PreviewFile) => setSidePanel({ kind: 'file', file, key: ++seq })
 export const openTeamFile = (path: string, at?: SourceLoc | null) => openFilePreview({ source: 'team', path, name: path.slice(path.lastIndexOf('/') + 1), ...(at ? { at } : {}) })
+/** A file sent in a room, as the preview panel opens it. */
+export const roomPreview = (roomId: string, f: { id: string; name: string }): PreviewFile => ({ source: 'room', roomId, fileId: f.id, name: f.name })
 export const openArtifact = (chatId: string, artifactKey: string, versionId?: string) => setSidePanel({ kind: 'artifact', chatId, artifactKey, versionId })
 export const closeSidePanel = () => setSidePanel(null)
 
