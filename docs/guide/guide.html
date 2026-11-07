@@ -613,17 +613,17 @@ dl.kv dd{ color:var(--ink-2);}
   <h3>그룹</h3>
   <p><span class="ui">그룹</span> › <span class="ui">새 그룹</span>에서 이름과 멤버를 정해요. 그룹을 만들면 <span class="path">groups/그룹 이름</span> 폴더가 생기고, 그 그룹은 이 폴더를 읽고 쓸 수 있어요. 멤버는 <span class="ui">수정</span>에서 바꿔요. 그룹을 지우면 그 그룹에 걸린 폴더 권한도 함께 지워져요.</p>
   <h3>팀 스킬 관리 — 누가 스킬을 바꾸나</h3>
-  <p><span class="path">skills</span> 폴더의 스킬과 팀 규칙은 <b>팀 전체 AI가 따라요</b>. 그래서 바꿀 수 있는 사람을 따로 정해요. 팀장·관리자는 항상 바꿀 수 있고, 다른 사람은 <span class="ui">멤버·초대</span>나 <span class="ui">그룹</span> 화면의 <span class="ui">팀 스킬 관리</span> 스위치를 켜 준 경우에만 바꿀 수 있어요.</p>
+  <p><span class="path">skills</span> 폴더의 스킬과 팀 규칙은 <b>팀 전체 AI가 따라요</b>. 그래서 바꿀 수 있는 사람을 따로 정해요. 팀장·관리자는 항상 바꿀 수 있고, 다른 사람은 팀장·관리자가 맡긴 경우에만 바꿀 수 있어요. 누가 바꿀 수 있는지는 <span class="ui">팀 스킬</span> 화면 제목 아래 “고칠 수 있는 사람” 줄에 있어요(팀장·관리자에게만 보여요).</p>
   <div class="row">
     <div class="side">
       <ol class="steps">
-        <li><span class="n">1</span>사람(또는 그룹) 줄의 <span class="ui">팀 스킬 관리</span> 스위치를 켜요. 경고를 읽어 주세요.</li>
-        <li><span class="n">2</span><span class="ui">관리할 범위</span>에서 <span class="path">skills</span> 전체나 <span class="path">skills/재무</span> 같은 하위 폴더만 골라요(<span class="ui">새 하위 폴더…</span>로 만들 수도 있어요).</li>
-        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. 이 설정은 <span class="ui">폴더 권한</span>에서 “읽기·쓰기 · 팀 스킬 관리”로도 보여요. 끄면 쓰기 권한만 빠지고 만든 스킬은 남아요.</li>
+        <li><span class="n">1</span><span class="ui">팀 스킬</span> 화면의 “고칠 수 있는 사람” 줄에서 <span class="ui">바꾸기</span>를 눌러요.</li>
+        <li><span class="n">2</span><span class="ui">사람이나 그룹 추가</span>에서 이름으로 찾아 골라요. 경고를 읽어 주세요.</li>
+        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. <span class="path">skills</span> 전체를 고칠 수 있게 돼요. 이 설정은 <span class="ui">폴더 권한</span>에서 “읽기·쓰기 · 팀 스킬 관리”로도 보여요. <span class="ui">빼기</span>를 누르면 쓰기 권한만 빠지고 만든 스킬은 남아요. <span class="path">skills/재무</span> 같은 하위 폴더만 맡기려면 창 아래의 <span class="ui">폴더별로 맡기려면 폴더 권한에서</span>로 가서 그 폴더에 쓰기 권한을 줘요.</li>
       </ol>
       <p class="small">누가 바꾸든(AI 포함) 팀장·관리자에게 “팀 스킬이 바뀌었어요” 알림이 가요. <span class="ui">버전 기록 보기</span>를 누르면 그 파일의 예전 버전으로 되돌릴 수 있어요. 지난 변경은 왼쪽 <span class="ui">팀 스킬</span> › <span class="ui">최근 변경</span>에 있어요.</p>
     </div>
-    <figure class="shot" style="flex:1"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>Bob에게 <span class="path">skills/재무</span>만 맡기는 화면.</figcaption></figure>
+    <figure class="shot" style="flex:1"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>Bob에게 팀 스킬을 맡기는 화면.</figcaption></figure>
   </div>
   <div class="row">
     <figure class="shot" style="flex:1"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>AI가 <span class="path">skills</span>에 저장하기 전에 뜨는 서버의 확인 카드. 바뀌는 줄이 보여요.</figcaption></figure>

@@ -1,10 +1,11 @@
 // "Who may manage team skills" (docs/DECISIONS.md "팀 스킬 관리"): a skill manager is anyone with WRITE on skills/ or
-// one of its folders. The owner and admins always are (they write everywhere); Admin > 멤버 / 그룹 "팀 스킬 관리" adds or
-// removes a person's or a group's own write rule on skills/ (or skills/재무/ …) through the folder-rule machinery
-// (admin/folders.ts: same rows Admin > 폴더 권한 shows, same audit, same "access changed" handling). There is no
-// separate permission table: what the folder rules say is what the server enforces, for people and their AI alike.
-// A group's skills (groups/<folder>/skills/, docs/DECISIONS.md "Group skills") are managed by the members of that group
-// who may write the folder (every member by default: the group writes its own folder); the switch stays team-only.
+// one of its folders. The owner and admins always are (they write everywhere); the Team skills page's "who can edit"
+// dialog (web/src/pages/admin/SkillManagers.tsx) adds a person's or a group's own write rule on skills/ and removes one
+// on skills/ (or skills/재무/ …) through the folder-rule machinery (admin/folders.ts: same rows Admin > 폴더 권한
+// shows, same audit, same "access changed" handling). There is no separate permission table: what the folder rules say
+// is what the server enforces, for people and their AI alike. A group's skills (groups/<folder>/skills/,
+// docs/DECISIONS.md "Group skills") are managed by the members of that group who may write the folder (every member by
+// default: the group writes its own folder); the dialog stays team-only.
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locale, SkillManagersResponse } from '@mycel/shared/api'
@@ -25,7 +26,7 @@ import { st } from './text'
 const MAX_DEPTH = 3 // skills/a/b
 const GROUP_DEPTH = 5 // groups/<folder>/skills/a/b
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
-/** skills/ or one of its folders (two levels below): the team's skills folders (Admin's "팀 스킬 관리" switch). */
+/** skills/ or one of its folders (two levels below): the team's skills folders (the "who can edit" dialog's rules). */
 export const isSkillFolder = (p: string) => { const s = segsOf(p); return s[0] === SKILLS_DIR && s.length <= MAX_DEPTH }
 /** groups/<folder>/skills or one of its folders (two levels below): a group's skills folders (docs/DECISIONS.md
  * "Group skills"). */
@@ -115,7 +116,8 @@ export function listSkillManagers(ctx: AppContext): SkillManagersResponse {
 }
 
 /**
- * Turn "팀 스킬 관리" on or off for one person or group on one skills folder: their own write rule there is added or
+ * Turn "팀 스킬 관리" on or off for one person or group on one skills folder (the Team skills page's dialog turns it on
+ * for skills/ only; Folder permissions hands over a subfolder): their own write rule there is added or
  * removed (other rules of the folder stay). A new folder is created on disk. A folder row left without any rule by
  * this (a subfolder made only for this) is removed again, so it falls back to the rules of skills/.
  */
