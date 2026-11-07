@@ -288,7 +288,7 @@ describe('the desktop app', () => {
     return f
   }
   test('the Mac App Store app: [이 컴퓨터에서 찾기], its own window at .claude (data-open-at) with no key hint; the files it lists, filtered, go as "desktop"', async () => {
-    g.mycelDesktop = { bridgeVersion: 1, store: true }
+    g.mycelDesktop = { bridgeVersion: 1, platform: 'darwin', store: true }
     const m = await step()
     try {
       expect(text(m, 'skills-find')).toContain(ko('welcome.skills.findDesktop'))
@@ -307,8 +307,9 @@ describe('the desktop app', () => {
       expect(JSON.stringify(sent)).not.toContain('never')
     } finally { await m.unmount(); delete g.mycelDesktop }
   })
-  test('any other desktop build picks like a browser (the folder window, the key hint), and says "desktop"', async () => {
-    g.mycelDesktop = { bridgeVersion: 1 }
+  // the Microsoft Store build is a store build too, but only the Mac App Store one answers file inputs itself
+  for (const bridge of [{ bridgeVersion: 1 }, { bridgeVersion: 1, platform: 'win32', store: true }]) test(`any other desktop build picks like a browser (the folder window, the key hint), and says "desktop": ${JSON.stringify(bridge)}`, async () => {
+    g.mycelDesktop = bridge
     chrome()
     const m = await step()
     try {

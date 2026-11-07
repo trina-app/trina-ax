@@ -69,6 +69,8 @@ describe("a person's own Codex chat", () => {
     // a personal chat never gets the room session's own tools
     expect(enabled).not.toContain('save_room_file')
     expect(enabled).not.toContain('room_thread')
+    expect(enabled).not.toContain('project_chats')
+    expect(enabled).not.toContain('project_chat')
     const listed = await turn('alice', chat, fake({ echo: 'tools' }))
     for (const t of ['rooms', 'room_read', 'room_file']) expect(listed.done.content.split(',')).toContain(t)
     const read = await turn('alice', chat, fake({ tool: 'room_read', args: { room: roomId }, sayResult: true }))
@@ -116,7 +118,7 @@ describe("a room's session on Codex", () => {
       const a = (await answerTo('alice', roomId, q))!
       const [argv] = a.body.split(' | ') as [string]
       const enabled = enabledTools(argv)
-      for (const t of ['room_file', 'save_room_file', 'room_thread']) expect(enabled).toContain(t)
+      for (const t of ['room_file', 'save_room_file', 'room_thread', 'project_chats', 'project_chat']) expect(enabled).toContain(t)
       // the personal chats' tools that read any of the person's rooms stay out of a room
       for (const t of ['rooms', 'room_read']) expect(enabled).not.toContain(t)
       // the file listed with the question, the thread's first message, the asker's own earlier words, the file's text

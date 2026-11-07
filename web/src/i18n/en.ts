@@ -1428,6 +1428,7 @@ export const en: Record<MessageKey, string> = {
   'apps.macHow': 'Open the downloaded .dmg, drag {product} into the Applications folder, then open {product} from Applications.',
   'apps.macGatekeeper': 'If macOS says it cannot open the app, click Done, go to System Settings → Privacy & Security, click Open Anyway near the bottom, then Open Anyway once more.',
   'apps.macStore': 'This app is from the Mac App Store. It updates there.',
+  'apps.windowsStore': 'This app is from the Microsoft Store. It updates there.',
 
   'admin.title': 'Admin',
   'admin.members': 'Members & invites',
@@ -3610,6 +3611,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.room.archive": "Archived a chat room",
   "audit.act.room.rename": "Renamed a chat room",
   "audit.act.room.ai_share": "Posted an AI answer to a room",
+  "audit.act.room.ai_shared_chats": "The AI read shared project chats in a room",
   "audit.act.room.answer_share": "Sent an AI answer of their own chat to a room",
   "audit.act.room.ai_delete": "Deleted an AI answer in a room",
   "slack.state.off": "Off",
