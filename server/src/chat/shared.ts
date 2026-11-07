@@ -14,7 +14,7 @@ import type { Chat, Locale } from '@mycel/shared/api'
 import type { ChatRuntime } from './runtime'
 import type { ChatRow, MessageRow, MessageView, ProjectRow } from './store'
 import type { FileService } from '../files/service'
-import { atLeast, loadPrincipal, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { canSeeProject, isPersonalFolder, mayEditProject } from './projects'
 import { fail } from '../http/errors'
 import { tr } from './i18n'
@@ -51,13 +51,17 @@ export function activePrincipals(db: Database): Principal[] {
  */
 export class Audiences {
   private people: Principal[] | null = null
+  private rules: RuleSet | null = null
   private byProject = new Map<string, string[]>()
   constructor(private db: Database, private files: FileService) {}
   of(p: ProjectRow): string[] {
     let ids = this.byProject.get(p.id)
     if (!ids) {
       this.people ??= activePrincipals(this.db)
-      ids = this.people.filter((x) => canSeeProject(this.files, x, p)).map((x) => x.id)
+      // canSeeProject with the rules read once for every person and project of this request
+      const rules = (this.rules ??= this.files.rules())
+      const segs = p.folder_path === '' ? [] : p.folder_path.split('/')
+      ids = this.people.filter((x) => (p.trashed_with === null || x.role === 'owner' || x.role === 'admin') && atLeast(rules.access(x, segs), 'read')).map((x) => x.id)
       this.byProject.set(p.id, ids)
     }
     return ids
