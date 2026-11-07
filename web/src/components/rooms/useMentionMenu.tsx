@@ -159,6 +159,8 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
 
   return {
     list,
+    /** the list is shown */
+    open,
     onKeyDown,
     inputProps,
     /** the picked people and where they are (a draft keeps them) */

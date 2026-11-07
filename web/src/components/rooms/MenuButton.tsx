@@ -4,10 +4,15 @@
 // menu is a bottom sheet with 48px rows. `header`: something above the rows where there is no hover row to hold it (a
 // message's reactions on a touch screen); hidden where a mouse points. A menu of choices (a room's notifications): items
 // with `checked` are radio items (the chosen one ticked), `heading` names the menu above them and `icon` replaces the "…".
+// `openRequest`: opened from somewhere else as a click would (a right-click on a row, another menu's item), the keyboard
+// in it; `tip`: the tooltip's word when the button's name says more (a row's "⋯": "더 보기" for the eye, the room's name
+// for a screen reader); `sheetTitle`: what the menu is about, on a phone's sheet only (a row's long press: the room's
+// name, as the row is under the scrim); `focusBack`: where the keyboard goes when a menu without a button of its own
+// closes (a row's level menu: the row's "⋯").
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react'
 
 export interface MenuItem {
   label: string
@@ -56,10 +61,11 @@ export function useLongPress(onLong: () => void, ms = 500) {
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, muted, header, heading, icon }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode }) {
+export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip, sheetTitle, buttonRef, focusBack }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string; sheetTitle?: string; buttonRef?: RefObject<HTMLButtonElement | null>; focusBack?: () => void }) {
   const [open, setOpen] = useState<null | 'down' | 'up'>(null)
   const box = useRef<HTMLDivElement>(null)
-  const button = useRef<HTMLButtonElement>(null)
+  const own = useRef<HTMLButtonElement>(null)
+  const button = buttonRef ?? own
   const menu = useRef<HTMLDivElement>(null)
   /** when a long press opened it: the finger lifting right after is no choice of an item */
   const pressedAt = useRef(0)
@@ -83,13 +89,22 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
     navigator.vibrate?.(10)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openSignal])
+  useEffect(() => {
+    if (!openRequest) return
+    pressedAt.current = 0
+    setOpen(place())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest])
+  /** the keyboard back to the button, or where the caller says when there is none on screen */
+  const hiddenButton = () => button.current?.offsetParent === null
+  const giveBack = () => (hiddenButton() && focusBack ? focusBack() : button.current?.focus())
   const onKey = (e: KeyboardEvent) => {
     if (!open) return
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
       setOpen(null)
-      button.current?.focus()
+      giveBack()
       return
     }
     if (e.key === 'Tab') return setOpen(null)
@@ -107,7 +122,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
   return (
     <div ref={box} className={clsx(className?.includes('absolute') ? null : 'relative', className)} onKeyDown={onKey}>
       {/* its name as a tooltip (components/Tooltip.tsx), not while its menu is open */}
-      <Tooltip label={label}>
+      <Tooltip label={tip ?? label}>
         <button
           ref={button}
           type="button"
@@ -128,6 +143,10 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
         <div
           ref={menu}
           role="menu"
+          // a finger held on an item is no long press of the row or message under it (it would open the menu again and
+          // swallow the item), nor a right-click of it
+          onPointerDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
           aria-label={heading ?? label}
           className={clsx(
             'z-30 border border-line bg-surface shadow-lg md:absolute md:right-0 md:rounded-lg md:p-1',
@@ -139,6 +158,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           {header && <div className="mb-1 border-b border-line pb-1 md:pointer-fine:hidden">{header(() => setOpen(null))}</div>}
           {/* the menu's name (aria-label above), shown: not one of its items */}
           {heading && <p aria-hidden className="px-2 pt-1 pb-1.5 text-xs text-muted max-md:px-3 max-md:pt-2 max-md:pb-2 max-md:text-sm">{heading}</p>}
+          {sheetTitle && <p aria-hidden className="truncate px-3 pt-2 pb-2 text-sm text-muted md:hidden" data-testid="menu-sheet-title">{sheetTitle}</p>}
           {items.map((it) => (
             <button
               key={it.label}
@@ -148,6 +168,8 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
               onClick={() => {
                 if (Date.now() - pressedAt.current < 400) return
                 setOpen(null)
+                // a menu without a button on screen: the item is gone with it, the keyboard goes back where it came from
+                if (hiddenButton() && focusBack && menu.current?.contains(document.activeElement)) focusBack()
                 it.onSelect()
               }}
               className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover')}

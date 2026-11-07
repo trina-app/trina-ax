@@ -21,6 +21,12 @@
 // the thread, not in the room's timeline, unless sent to the room too (alsoInRoom); the root carries the thread's
 // summary (RoomMessage.thread). A thread follows its root: who cannot see the root (a later member) sees none of it.
 // Reactions are 8 fixed emoji (ROOM_REACTIONS); they never notify or count. Nobody is told who has read what.
+//
+// Hiding (docs/DECISIONS.md "대화 숨기기"): a member hides a DM, a team room or the everyone room from their own lists
+// (setRoomHidden; a group chat is left instead). Nobody else is told. It stays a room they are in: reachable from the
+// full list, and opening it brings it back. It comes back by itself when something for them arrives (the server decides
+// it when the message is stored: a DM's new message, a mention, a reply in a thread they follow, an answer to their own
+// question, a card of their question to the AI); a room still hidden notifies them of nothing.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
@@ -338,6 +344,9 @@ export const Room = z.object({
   /** the room's AI waits on me: a question I asked @트리나 there shows a card for my answer (docs/DECISIONS.md "Session
    * markers": the room's "?"). Absent = no. */
   aiWaits: z.literal(true).optional(),
+  /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my sidebar's rows, my counts and badges, and listed under
+   * "숨긴 대화" at the end of the full list. Absent = shown (older servers never hide). */
+  hidden: z.literal(true).optional(),
 })
 export type Room = z.infer<typeof Room>
 
@@ -358,6 +367,9 @@ export type CreateRoomBody = z.infer<typeof CreateRoomBody>
 export const UpdateRoomBody = z.object({ muted: z.boolean().optional(), notifyLevel: RoomNotifyLevel.nullable().optional(), name: RoomName.nullable().optional() }).strict()
   .refine((b) => b.muted !== undefined || b.notifyLevel !== undefined || b.name !== undefined, { message: 'nothing to change' })
   .refine((b) => b.muted === undefined || b.notifyLevel === undefined, { message: 'muted or notifyLevel, not both', path: ['muted'] })
+/** hide the room from my lists (true) or show it again (false). A DM, a team room or the everyone room; a group chat is
+ * left instead (hiding one: 403). The same again changes nothing. */
+export const SetRoomHiddenBody = z.object({ hidden: z.boolean() }).strict()
 /** people to add to a group chat (active people of this team; those already in it are skipped). They see the room from
  * now on, never what was said before. */
 export const InviteRoomBody = z.object({ userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
@@ -418,6 +430,7 @@ export const ROOMS = {
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
   inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited.' }),
   removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited.' }),
+  setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). It comes back by itself when something for me arrives.' }),
   leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview.' }),

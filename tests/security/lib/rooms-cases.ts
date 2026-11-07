@@ -110,6 +110,29 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (dm.status !== 403) throw new Error(`leaving a DM was not refused: ${dm.status}`)
     },
   },
+  // hiding a conversation from my own lists (docs/DECISIONS.md "대화 숨기기"): the DM's two people, each for themselves.
+  // The check shows it again first (the world stays as it was), then: the other person's view is untouched, a group
+  // chat is left rather than hidden (403 for its members), a body naming anyone or nothing is refused (strict)
+  setRoomHidden: {
+    build: (c, w) => c.put(`/api/rooms/${w.ids.dmRoom}/hidden`, { hidden: true }), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if (r.status !== 200) return
+      const me = w.as[who]
+      const back = await me.put(`/api/rooms/${w.ids.dmRoom}/hidden`, { hidden: false })
+      if (r.json?.id !== w.ids.dmRoom || r.json?.hidden !== true) throw new Error(`the DM was not hidden for the caller: ${r.text.slice(0, 200)}`)
+      if (back.status !== 200 || back.json?.hidden !== undefined) throw new Error(`the DM was not shown again: ${back.status} ${back.text.slice(0, 200)}`)
+      const peer = await w.as[who === 'memberIn' ? 'other' : 'memberIn'].get(`/api/rooms/${w.ids.dmRoom}`)
+      if (peer.status !== 200 || peer.json?.hidden !== undefined) throw new Error(`hiding changed the other person's view: ${peer.status} ${peer.text.slice(0, 200)}`)
+      const group = await me.put(`/api/rooms/${w.ids.groupRoom}/hidden`, { hidden: true })
+      if (group.status !== 403) throw new Error(`a group chat was hidden: ${group.status}`)
+      for (const body of [{ hidden: true, userId: 'dana' }, {}]) {
+        const bad = await me.put(`/api/rooms/${w.ids.dmRoom}/hidden`, body)
+        if (bad.status !== 400) throw new Error(`a body ${JSON.stringify(body)} was not refused: ${bad.status}`)
+      }
+      const still = await me.get(`/api/rooms/${w.ids.dmRoom}`)
+      if (still.json?.hidden !== undefined) throw new Error('the DM is left hidden for the caller')
+    },
+  },
   uploadRoomFile: { build: (c, w) => c.req('POST', `/api/rooms/${w.ids.dmRoom}/files`, undefined, { form: form(), headers: { [CSRF_HEADER]: '1' } }), scope: 'room-dm' },
   // the AI in rooms: the DM's count and my own runs (both people), alice's preview and her question's turn (alice only;
   // erin, in the DM, is refused like everyone else), the sources of a message (both)

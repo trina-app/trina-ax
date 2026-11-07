@@ -243,7 +243,7 @@ export class AuthService implements SessionService {
         ...profileOf(this.db, u.id),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,

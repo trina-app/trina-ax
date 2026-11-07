@@ -47,7 +47,7 @@ export interface RingInput {
   roomId: string
   message: RingMessage
   /** the room as this window knows it (null: not in my list yet); `notify` from the server (absent: an older one) */
-  room: { kind: string; muted: boolean; notify?: Room['notify'] } | null
+  room: { kind: string; muted: boolean; notify?: Room['notify']; hidden?: boolean } | null
   /** my thread-replies switch, quiet hours and the team's time zone (the rooms list's alerts; absent: an older server,
    * replies in threads I follow ring and there are no quiet hours) */
   alerts?: RoomAlertSettings | null
@@ -66,6 +66,8 @@ export interface RingInput {
 export function shouldRing(i: RingInput): boolean {
   const { message: m, room, meId } = i
   if (!meId || !room || i.replay || i.seen) return false
+  // a room I hid rings nothing: what is for me brings it back first (room.updated comes before its message)
+  if (room.hidden) return false
   // an event line (someone joined, the room was renamed …): not a message anyone wrote
   if (m.event !== undefined && m.event !== null) return false
   const level = room.notify?.level ?? roomLevel(room.kind, room.muted ? 'off' : null, 'direct')

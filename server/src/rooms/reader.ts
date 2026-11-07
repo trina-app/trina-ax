@@ -79,11 +79,11 @@ const strip = (s: string) => {
 /** The rooms I am in now (not archived), the most recent activity first. */
 export function myRooms(db: Database, userId: string): Mine[] {
   const rows = db.query(`SELECT r.id, r.kind, r.group_id, r.dm_key, r.created_by, r.created_at, r.last_seq, r.activity_at, r.archived_at, r.name,
-      m.room_id, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.muted
+      m.room_id, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.muted, m.hidden_at
     FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? AND r.archived_at IS NULL ORDER BY r.activity_at DESC, r.id`).all(userId) as (RoomRow & MemberRow)[]
   return rows.map((r) => ({
     room: { id: r.id, kind: r.kind, group_id: r.group_id, dm_key: r.dm_key, created_by: r.created_by, created_at: r.created_at, last_seq: r.last_seq, activity_at: r.activity_at, archived_at: r.archived_at, name: r.name },
-    me: { room_id: r.room_id, user_id: r.user_id, joined_at: r.joined_at, last_read_seq: r.last_read_seq, visible_from_seq: r.visible_from_seq, muted: r.muted },
+    me: { room_id: r.room_id, user_id: r.user_id, joined_at: r.joined_at, last_read_seq: r.last_read_seq, visible_from_seq: r.visible_from_seq, muted: r.muted, hidden_at: r.hidden_at },
   }))
 }
 
@@ -249,7 +249,7 @@ export function listRooms(db: Database, userId: string, tz: string, ref?: string
   const lines = shown.map(({ room, view }) => {
     const unread = view.unreadCount ? `, ${view.unreadCount} unread` : ''
     const threads = view.threadsUnread ? `, ${view.threadsUnread} followed thread${view.threadsUnread === 1 ? '' : 's'} with new replies` : ''
-    return `- ${neutralizeTags(kindLine(room.kind, attr(titleOf(view), 120)))} · ${view.memberCount} member${view.memberCount === 1 ? '' : 's'}${unread}${threads}${view.mentioned ? ', mentions the user' : ''}${view.muted ? ', muted' : ''} · last activity ${localTime(view.activityAt, tz)} · room_id=${room.id}`
+    return `- ${neutralizeTags(kindLine(room.kind, attr(titleOf(view), 120)))} · ${view.memberCount} member${view.memberCount === 1 ? '' : 's'}${unread}${threads}${view.mentioned ? ', mentions the user' : ''}${view.muted ? ', muted' : ''}${view.hidden ? ', hidden by the user' : ''} · last activity ${localTime(view.activityAt, tz)} · room_id=${room.id}`
   })
   const more = total - shown.length
   return {

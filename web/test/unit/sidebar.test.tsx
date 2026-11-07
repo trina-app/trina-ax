@@ -20,7 +20,8 @@ import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useWelcome } from '../../src/store/welcome'
-import { installDom, mount, removeDom } from './dom-host'
+import { TOOLTIP_DELAY_MS } from '../../src/components/Tooltip'
+import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { room } from './rooms-fixtures'
 
 const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
@@ -95,6 +96,30 @@ const order = (m: Awaited<ReturnType<typeof render>>) =>
   })
 
 describe('a computer', () => {
+  test("its icon buttons (the history's filter, a new conversation's +, a chat's \"…\") say what they do in the tooltip, not in the browser's title", async () => {
+    const plain = globalThis.matchMedia
+    // a mouse: tooltips may show
+    ;(globalThis as Record<string, unknown>).matchMedia = (q: string) => ({ ...plain(q), matches: q === '(any-pointer: fine)' || plain(q).matches })
+    const m = await render()
+    const pointer = (el: unknown, type: string) => (el as { dispatchEvent: (e: unknown) => void }).dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true }), { pointerType: 'mouse', relatedTarget: null }))
+    const tip = () => document.body.querySelector('[role="tooltip"]')?.textContent ?? null
+    try {
+      const more = m.get('recents-list').querySelector(`button[aria-label="${ko('chat.menu')}"]`)!
+      for (const [b, words] of [[m.get('recents-filter'), ko('sidebar.filter')], [m.get('rooms-new-dm'), ko('rooms.newChat')], [more, ko('chat.menu')]] as const) {
+        expect(b.getAttribute('title')).toBeNull()
+        pointer(b, 'pointerover')
+        await m.settle(TOOLTIP_DELAY_MS + 50)
+        expect(tip()).toBe(words)
+        pointer(b, 'pointerout')
+        await m.settle(10)
+        expect(tip()).toBeNull()
+      }
+    } finally {
+      await m.unmount()
+      ;(globalThis as Record<string, unknown>).matchMedia = plain
+    }
+  })
+
   test('in order: the team, one row each (a new chat, search, projects, scheduled, inbox, files, team skills), the rooms, then the AI chats', async () => {
     const m = await render()
     try {

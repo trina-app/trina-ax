@@ -8,7 +8,8 @@
 // plan.json field names are the linux runtime's (linux-runtime §3.8.5, the schema's owner). The control-plane spec
 // (3.5.6) called some of them planId / issuedAt / ramMB / diskGB / backup.localRetentionDays: those are the same
 // values under the runtime's names plan / updatedAt / memoryMiB / diskGiB / localBackupRetentionDays. The control plane
-// adds maxActiveMembers, display and links (all optional, so a plan.json written by the runtime alone still parses).
+// adds maxActiveMembers, display, links and speechFreeHours (all optional, so a plan.json written by the runtime alone
+// still parses).
 // This is THE plan.json schema: the team server reads plan.json with it (server/src/system/limits.ts), the control
 // plane writes it with it, and mycel-ctl apply-plan (Go, native/internal/plan) must accept everything it accepts
 // (same ranges; unknown keys are ignored by the server, never written by the control plane).
@@ -33,12 +34,16 @@ export const PlanLimits = z.object({
   resources: PlanResources,
   maxConcurrency: z.number().int().min(1).max(16),
   maxActiveMembers: z.number().int().min(1).nullable(),
+  /** PlanFile.speechFreeHours of the plan (absent: the server's default) */
+  speechFreeHours: z.number().int().min(1).max(1000).nullish(),
 })
 export type PlanLimits = z.infer<typeof PlanLimits>
 
 export const PlanFile = z.object({
   format: z.literal(1),
-  /** plan id: basic | team | pro | ... */
+  /** the control plane's plan id (trina-cloud src/teams/plans.ts: free, basic = Starter, team = Team, pro = Business).
+   * The server never branches on it: every per-plan value is a field of this file, and Admin > System shows
+   * `display.name` */
   plan: PlanId,
   maxConcurrency: z.number().int().min(1).max(16),
   memoryMiB: z.number().int().min(1024).max(262_144),
@@ -64,6 +69,15 @@ export const PlanFile = z.object({
   /** where "manage plan" (account: the billing page, also shown with every over-the-limit message), the status page
    * and support (a mail address or a URL) point */
   links: z.object({ account: HttpsUrl, status: HttpsUrl, support: z.string().min(3).max(200) }).nullable().default(null),
+  /** the hosting service's free speech-to-text hours a team a calendar month (Korea time), one pool for voice input and
+   * video and audio reads (server/src/credentials/hosted-speech.ts; docs/DECISIONS.md "Hosted speech-to-text hours per
+   * plan"); absent or null = the server's default, 10. Whole hours, 1–1000: the Go reader's range (native/internal/plan).
+   * A team without the hosting service's speech key has no free hours whatever this says.
+   * ORDER: an older mycel-ctl refuses a whole plan.json with this key, even as null (the Go reader refuses unknown
+   * keys). Leave the key out (no default here, so parsing never adds it) unless the tenant's kit is newer than
+   * 0.4.0-beta.10: TenantStatus.rootVersion for apply-plan, EnrollRequest.kitVersion for the enroll answer's plan
+   * ("unknown" counts as older). */
+  speechFreeHours: z.number().int().min(1).max(1000).nullish(),
 })
 export type PlanFile = z.infer<typeof PlanFile>
 export type PlanFileInput = z.input<typeof PlanFile>

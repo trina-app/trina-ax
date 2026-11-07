@@ -132,5 +132,6 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
     </div>
   ) : null
   const menu = list || dialog ? <>{list}{dialog}</> : null
-  return { menu, onKeyDown }
+  /** open: the list is shown (Space types into the command, it does not start voice input) */
+  return { menu, onKeyDown, open }
 }

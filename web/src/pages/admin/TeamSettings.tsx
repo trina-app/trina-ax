@@ -3,7 +3,8 @@
 // members may add their own external-service connections (Settings > External services), whether AI reads send images
 // and PDF pages to the AI (server/src/files/vision.ts), how many tool rounds one answer may take (Claude Code
 // --max-turns, docs/DECISIONS.md "Tool rounds per answer"), voice input (off, OpenRouter
-// with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter") and whether
+// with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"; a saved team key
+// turns it on while no provider is chosen, "Voice input on a team's own server: the key turns it on") and whether
 // the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
 // logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), the company profile every chat's AI is told
 // (components/onboarding/CompanyProfileCard.tsx), the dev environment (DevEnvTeam.tsx, hidden when the server has it
@@ -129,7 +130,7 @@ export default function TeamSettingsPage() {
                   <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
                 </SettingsSection>
                 <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
-                  onSaved={(r) => state.setData(r)} />
+                  onSaved={(r) => { state.setData(r); setF((x) => (x && x.speechProvider !== r.speechProvider ? { ...x, speechProvider: r.speechProvider, aiMediaTranscripts: r.aiMediaTranscripts } : x)) }} />
                 {/* one Save for the whole form, switches too, in a bar that shows only while something is not saved (or a
                     field needs a fix, with a button that goes to it). It stays at the bottom of the screen. The logo and
                     the voice input key save at once, on their own buttons. */}
@@ -440,16 +441,20 @@ export function MediaTranscriptsSwitch({ provider, value, host, hostedKey = fals
 export function SpeechSection({ provider, model, transcripts, saved, onChange, onSaved }: {
   provider: SpeechProvider; model: string; transcripts: boolean | null; saved: TeamSettings
   onChange: (p: { speechProvider?: SpeechProvider; speechModel?: string; aiMediaTranscripts?: boolean | null }) => void
-  /** the provider / model were saved together with the key */
+  /** the settings after the key was saved or removed. The provider may follow the key: then the form takes it, with the
+   * saved "Turn video sound into text" (picking OpenRouter to reach "Remove key" must not drop the admin's choice) */
   onSaved: (s: TeamSettings) => void
 }) {
   const t = useT()
+  const locale = useLocale()
   const act = useAction()
   const signedIn = useSession((s) => s.signedIn)
   const key = useLoad(() => api.call(API.speechKey))
   const host = useLoad(() => api.call(API.speechHost))
   // a hosted server's key from the hosting service, used while the team has none of its own (its free hours)
   const hostedKey = provider === 'openrouter' && !!key.data?.hosted && !key.data.set
+  // "this server" without the tools the mic's recordings need: voice input is off (Me.team.voiceInput), say which
+  const missing = provider === 'local' ? host.data?.localMissing ?? [] : []
   const [secret, setSecret] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -459,11 +464,12 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     const r = await act(async () => {
       const sealed = value === null ? null : await sealSecret(await api.call(API.sealingKey), value, 'speech.key')
       const out = await api.call(API.setSpeechKey, { body: { sealed, password } })
-      // "OpenRouter" picked but not saved yet: saving the key turns it on too (else the mic stays off)
+      // with no provider chosen, the server reads OpenRouter while the team's key is there (nothing stored: removing the
+      // key turns voice input off again). Write a choice only over another saved one, or for another model
+      const now = await api.call(API.settings)
       const m = model || DEFAULT_SPEECH_MODEL
-      if (value !== null && (saved.speechProvider !== 'openrouter' || saved.speechModel !== m)) {
-        onSaved(await api.call(API.updateSettings, { body: { speechProvider: 'openrouter', speechModel: m } }))
-      }
+      const patch = value === null ? {} : { ...(now.speechProvider !== 'openrouter' ? { speechProvider: 'openrouter' as const } : {}), ...(now.speechModel !== m ? { speechModel: m } : {}) }
+      onSaved(Object.keys(patch).length ? await api.call(API.updateSettings, { body: patch }) : now)
       return out
     }, value === null ? t('speech.keyRemoved') : t('speech.keySaved'))
     setBusy(false)
@@ -480,9 +486,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     <SettingsSection id="speech" testId="team-speech" title={t('speech.title')} desc={t('speech.desc')}>
       <SettingRow id="ts-speech-provider" title={t('speech.provider')}
         desc={provider === 'local' ? t('speech.localHint') : undefined}
-        below={provider === 'openrouter' ? <p className={`mt-1 text-sm ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p> : null}
+        below={provider === 'openrouter' ? <p className={`mt-1 text-sm ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p>
+          : missing.length > 0 ? <p id="ts-speech-local-missing" className="mt-1 text-sm text-warn" data-testid="team-speech-local-missing">{t('speech.localMissing', { tools: new Intl.ListFormat(locale, { type: 'conjunction' }).format(missing) })}</p> : null}
         control={
-          <select id="ts-speech-provider" aria-describedby={provider === 'local' ? 'ts-speech-provider-desc' : undefined} className={clsx(inputCls, 'sm:w-64')} value={provider}
+          <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'sm:w-64')} value={provider}
             onChange={(e) => { const next = e.target.value as SpeechProvider; onChange({ speechProvider: next, aiMediaTranscripts: transcriptsAfterProvider(next, saved) }) }} data-testid="team-speech-provider">
             {PROVIDERS.map((p) => <option key={p} value={p}>{t(`speech.${p}`)}</option>)}
           </select>
@@ -509,9 +516,13 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
                       {k.set ? t('speech.hostedOwnKey') : t('speech.hostedUsage', { used: speechHours(k.hosted.usedSec), free: speechHours(k.hosted.freeSec) })}
                     </p>
                   )}
-                  <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-accent-text hover:underline">
-                    {t('speech.getKey')} <ExternalLink size={12} aria-hidden />
-                  </a>
+                  <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-accent-text hover:underline">
+                      {t('speech.getKey')} <ExternalLink size={12} aria-hidden />
+                    </a>
+                    {/* what the team's own key costs (the owner's figure); a hosted team's free hours are above */}
+                    {!k.hosted && <span className="text-muted" data-testid="team-speech-price">{t('speech.price')}</span>}
+                  </p>
                   {!secure ? <p className="text-sm text-warn">{t('credentials.httpsOnly')}</p> : (
                     <div className="grid max-w-xl gap-3 sm:grid-cols-2">
                       <Field label={t('speech.key')}>

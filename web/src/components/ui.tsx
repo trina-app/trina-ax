@@ -55,16 +55,17 @@ export const noKeyRepeat = (e: React.KeyboardEvent) => {
   if (e.repeat) e.preventDefault()
 }
 
-/** danger: a destructive icon action (Delete) that turns red on hover. */
-/** An icon-only button: `label` is its name (aria-label). `tip`: its label as a tooltip on hover and keyboard focus
- * (components/Tooltip.tsx) instead of the browser's own title. */
-export function IconButton({ label, danger, className, children, tip = false, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean; tip?: boolean }) {
+/** An icon-only button: `label` is its name (aria-label) and its tooltip (components/Tooltip.tsx), shown on hover and
+ * keyboard focus. `tip`: other words for the tooltip, when the icon needs more than its name (they describe the button);
+ * `tip={false}` only inside a <Tooltip> of its own. `danger`: a destructive icon action (Delete) that turns red on hover. */
+export function IconButton({ label, danger, className, children, tip = true, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean; tip?: boolean | string }) {
   const button = (
-    <button type="button" aria-label={label} title={tip ? undefined : label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
+    <button type="button" aria-label={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
       {children}
     </button>
   )
-  return tip ? <Tooltip label={label}>{button}</Tooltip> : button
+  if (tip === false) return button
+  return typeof tip === 'string' ? <Tooltip label={tip} description>{button}</Tooltip> : <Tooltip label={label}>{button}</Tooltip>
 }
 
 export const inputCls =
@@ -459,9 +460,11 @@ export function Toaster() {
               {x.action.label}
             </button>
           )}
-          <button type="button" aria-label={t('common.close')} className="shrink-0 opacity-70 hover:opacity-100" onClick={() => dismiss(x.id)}>
-            <X size={15} />
-          </button>
+          <Tooltip label={t('common.close')}>
+            <button type="button" aria-label={t('common.close')} className="shrink-0 opacity-70 hover:opacity-100" onClick={() => dismiss(x.id)}>
+              <X size={15} />
+            </button>
+          </Tooltip>
         </div>
       ))}
     </div>
@@ -513,12 +516,14 @@ export function CopyButton({ text, html, label, className, showLabel }: { text: 
     try { rich = html?.() } catch { rich = undefined }
     void copy(plain, rich)
   }
-  return (
-    <button type="button" aria-label={l} title={l} onClick={click} className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', className)}>
+  const button = (
+    <button type="button" aria-label={l} onClick={click} className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-faint transition hover:bg-hover hover:text-ink', className)}>
       {copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
       {showLabel && <span>{l}</span>}
     </button>
   )
+  // with its words shown it needs no tip
+  return showLabel ? button : <Tooltip label={l}>{button}</Tooltip>
 }
 
 // ---------------- layout helpers ----------------

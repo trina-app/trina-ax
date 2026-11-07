@@ -105,9 +105,9 @@ export const ServerConfigPatch = z.strictObject({
 /** An OpenRouter API key ("sk-or-v1-…"). It is only ever in hosted-speech-key-set's and hosted-chat-key-set's stdin. */
 export const OpenRouterApiKey = z.string().regex(/^sk-or-[A-Za-z0-9_-]{16,200}$/)
 /** hosted-speech-key-set's stdin: the OpenRouter key the hosting service gives this team for speech-to-text (hosted
- * voice input and video sound, 10 free hours a team a month, counted by the app), or null to take it away. The app
- * keeps it encrypted with its credentials vault and never shows, logs or audits it; a key the team entered itself
- * always comes first. */
+ * voice input and video sound, the plan's free hours a team a month: PlanFile speechFreeHours, else 10, counted by
+ * the app), or null to take it away. The app keeps it encrypted with its credentials vault and never shows, logs or
+ * audits it; a key the team entered itself always comes first. */
 export const HostedSpeechKeyInput = z.strictObject({ key: OpenRouterApiKey.nullable() })
 export type HostedSpeechKeyInput = z.infer<typeof HostedSpeechKeyInput>
 

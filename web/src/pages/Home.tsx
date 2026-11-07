@@ -48,6 +48,7 @@ import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../componen
 import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
+import { Tooltip } from '../components/Tooltip'
 
 export default function Home() {
   const t = useT()
@@ -258,10 +259,12 @@ function Access({ write }: { write: boolean }) {
   const t = useT()
   const label = t(write ? 'files.canWrite' : 'files.readOnly')
   return (
-    <span className="inline-flex shrink-0 text-faint" title={label}>
-      {write ? <Pencil size={12} aria-hidden /> : <Lock size={12} aria-hidden />}
-      <span className="sr-only">{label}</span>
-    </span>
+    <Tooltip label={t(write ? 'files.canWriteTip' : 'files.readOnlyTip')} description>
+      <span className="inline-flex shrink-0 text-faint" title="">
+        {write ? <Pencil size={12} aria-hidden /> : <Lock size={12} aria-hidden />}
+        <span className="sr-only">{label}</span>
+      </span>
+    </Tooltip>
   )
 }
 

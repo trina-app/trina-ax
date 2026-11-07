@@ -13,6 +13,7 @@ import { buildMs, clock, deckRows, deckRunState, doneSlides, duration, slideUrl,
 import { useSidePanel } from '../../lib/sidePanel'
 import { useT } from '../../i18n'
 import { IconButton, useMediaQuery } from '../ui'
+import { Tooltip } from '../Tooltip'
 
 /** The time now, once a second while `on` (the block's clock). */
 function useNow(on: boolean) {
@@ -147,9 +148,11 @@ function Tile({ build, i, run, picked, onPick }: { build: DeckBuild; i: number; 
   if (state === 'done' && build.thumbs && broken !== s.rev) {
     const img = <img src={slideUrl(build, i)} alt={name} loading="lazy" onError={() => setBroken(s.rev)} className="block size-full object-cover" />
     return onPick ? (
-      <button type="button" onClick={() => onPick(i)} aria-current={picked || undefined} className={clsx(TILE, 'border', picked ? 'border-field-border' : 'border-line hover:border-field-border')}>
-        {img}
-      </button>
+      <Tooltip label={name}>
+        <button type="button" onClick={() => onPick(i)} aria-current={picked || undefined} className={clsx(TILE, 'border', picked ? 'border-field-border' : 'border-line hover:border-field-border')}>
+          {img}
+        </button>
+      </Tooltip>
     ) : (
       <div className={clsx(TILE, 'border border-line bg-subtle')}>{img}</div>
     )

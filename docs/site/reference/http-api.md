@@ -226,7 +226,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/admin/settings` | Admin | Change team settings (team name change also renames the relay address: owner only). |
 | `PUT` | `/api/admin/team-icon` | Admin | Set the team logo (tab icon, home-screen app icon): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited. |
 | `DELETE` | `/api/admin/team-icon` | Admin | Remove the team logo: back to the default icon; audited. |
-| `GET` | `/api/admin/speech-host` | Admin | How this server turns video and audio sound into text itself: its cores, piece length and measured speed. |
+| `GET` | `/api/admin/speech-host` | Admin | How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here. |
 | `GET` | `/api/admin/speech-key` | Admin | Whether the OpenRouter key for voice input is set (last 4 characters only, never the key). |
 | `PUT` | `/api/admin/speech-key` | Admin | Set (sealed in the browser) or remove (null) the OpenRouter key for voice input; asks for the password again. |
 | `GET` | `/api/admin/usage` | Admin | Usage and cost per person / engine / model / day / group / AI connection / skill. Skill rows attribute the entire turn and may overlap. |
@@ -482,6 +482,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/rooms/:id/members` | Signed in | Who is in a room I am in (names only; nobody's read position). |
 | `POST` | `/api/rooms/:id/members` | Signed in | Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited. |
 | `DELETE` | `/api/rooms/:id/members/:userId` | Signed in | Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited. |
+| `PUT` | `/api/rooms/:id/hidden` | Signed in | Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). It comes back by itself when something for me arrives. |
 | `POST` | `/api/rooms/:id/leave` | Signed in | Leave a group chat; the last one to leave closes it. Not audited. |
 | `POST` | `/api/rooms/:id/files` | Signed in | Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room's members once sent. |
 | `GET` | `/api/rooms/:id/files/:fileId` | Signed in | A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview. |

@@ -203,10 +203,15 @@ export function newestSeq(messages: RoomMessage[]): number {
  * thing to read). Thread replies never count otherwise (docs/DECISIONS.md "스레드와 반응"). */
 export const roomUnread = (r: Pick<Room, 'unreadCount'> & Partial<Pick<Room, 'threadsUnread'>>) => r.unreadCount + (r.threadsUnread ?? 0)
 
-/** The total for the 대화 tab: every room's own badge, added; a muted room's never (its badge is grey). */
-export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread'>>)[]): number {
-  return rooms.reduce((n, r) => n + (r.muted ? 0 : roomUnread(r)), 0)
+/** The total for the 대화 tab: every room's own badge, added; a muted room's never (its badge is grey), nor a hidden
+ * one's (docs/DECISIONS.md "대화 숨기기": what comes for me brings it back first, and then it counts). */
+export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'hidden'>>)[]): number {
+  return rooms.reduce((n, r) => n + (r.muted || r.hidden ? 0 : roomUnread(r)), 0)
 }
+
+/** The rooms my lists show: the ones I did not hide, and the room on screen whatever it is. */
+export const shownInLists = <R extends Pick<Room, 'id'> & Partial<Pick<Room, 'hidden'>>>(rooms: R[], openId: string | null = null): R[] =>
+  rooms.filter((r) => !r.hidden || r.id === openId)
 
 /** A room's one badge: "?" while its AI waits on me (docs/DECISIONS.md "Session markers"), else "@" when one of the
  * unread messages (or followed replies) mentions me (the count would read as a count of mentions), else the count. */
@@ -218,7 +223,9 @@ export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<P
  * a room at 모든 메시지 (by default: DMs and group chats). Nothing from a room at 끄기. Plain unread messages in a team
  * room or the everyone room at its default only make the row bold, as in Slack. Counted once in the one count n. An
  * older server without levels: muted is 끄기, DMs and group chats are 모든 메시지. */
-export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits' | 'notify'>>, threadReplies = true): boolean {
+export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits' | 'notify' | 'hidden'>>, threadReplies = true): boolean {
+  // a room I hid wants nothing of me: whatever is for me brings it back first (the server decides it)
+  if (r.hidden) return false
   if (r.aiWaits) return true
   const level = r.notify?.level ?? (r.muted ? 'off' : r.kind === 'team' || r.kind === 'all' ? 'mentions' : 'all')
   if (level === 'off' || roomUnread(r) <= 0) return false
