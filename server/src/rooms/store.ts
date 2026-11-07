@@ -36,6 +36,8 @@ export interface MessageRow {
   thread_root_id: string | null; thread_root_seq: number | null
   /** a thread reply also sent to the room's timeline */
   also_in_room: number
+  /** "@전체": it mentions every member who can see it (never its sender); absent from rows made in code */
+  mentions_all?: number
 }
 /** An event line as stored: user ids, never names (they are read when it is shown). */
 export type EventData =
@@ -46,7 +48,9 @@ export type EventData =
   | { type: 'removed'; userId: string }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string }
 
-export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room'
+export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all'
+/** Does the message on room_messages `m` mention the person `?` (picked by name, or "@전체" by someone else)? */
+export const MENTIONS_SQL = '(EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?) OR (m.mentions_all = 1 AND (m.author_id IS NULL OR m.author_id <> ?)))'
 
 export const roomRow = (db: Database, id: string): RoomRow | null => db.query('SELECT * FROM rooms WHERE id = ?').get(id) as RoomRow | null
 export const memberRow = (db: Database, roomId: string, userId: string): MemberRow | null =>
@@ -209,6 +213,7 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       body: r.deleted_at ? '' : r.body,
       replyTo,
       mentions: r.deleted_at ? [] : parseMentions(r.mentions),
+      ...(r.mentions_all && !r.deleted_at ? { mentionsAll: true } : {}),
       files: r.deleted_at ? [] : files.get(r.id) ?? [],
       createdAt: r.created_at, editedAt: r.edited_at, deletedAt: r.deleted_at,
       ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0, openable: openableFor(opens, r.body) } : {}),
@@ -295,9 +300,9 @@ function lastMessage(db: Database, roomId: string, viewer: MemberRow): RoomLastM
  * no event line, no reply that stays in its thread. */
 export function unreadCount(db: Database, roomId: string, viewer: MemberRow): { n: number; mentioned: boolean } {
   const from = Math.max(viewer.last_read_seq, viewer.visible_from_seq)
-  const r = db.query(`SELECT COUNT(*) n, MAX(EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?)) men FROM room_messages m
+  const r = db.query(`SELECT COUNT(*) n, MAX(${MENTIONS_SQL}) men FROM room_messages m
     WHERE m.room_id = ? AND m.seq > ? AND ${SEE_SQL} AND ${TIMELINE_SQL} AND m.deleted_at IS NULL AND m.event IS NULL AND (m.author_id IS NULL OR m.author_id <> ?)`)
-    .get(viewer.user_id, roomId, from, ...seeArgs(viewer), viewer.user_id) as { n: number; men: number | null }
+    .get(viewer.user_id, viewer.user_id, roomId, from, ...seeArgs(viewer), viewer.user_id) as { n: number; men: number | null }
   return { n: Math.min(MAX_UNREAD, r.n), mentioned: !!r.men }
 }
 
@@ -314,12 +319,12 @@ const THREADS_LOOKED_AT = 1000
  * A reply sent to the room too counts in the timeline (unreadCount), not here as well. CROSS JOIN keeps SQLite on the
  * follow rows first (room_thread_follows_user, then room_messages_thread), never a walk of the room's messages. */
 export function threadsUnread(db: Database, roomId: string, viewer: MemberRow): { n: number; next: string | null; mentioned: boolean } {
-  const rows = db.query(`SELECT f.root_id, MAX(m.seq) newest, MAX(EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?)) men
+  const rows = db.query(`SELECT f.root_id, MAX(m.seq) newest, MAX(${MENTIONS_SQL}) men
     FROM room_thread_follows f CROSS JOIN room_messages root ON root.id = f.root_id CROSS JOIN room_messages m ON m.thread_root_id = f.root_id AND m.seq > f.last_read_seq
     WHERE f.user_id = ? AND f.room_id = ? AND root.room_id = ? AND root.seq > ? AND m.room_id = ? AND m.also_in_room = 0
       AND m.deleted_at IS NULL AND m.event IS NULL AND (m.visibility = 'room' OR m.visible_to = ?) AND (m.author_id IS NULL OR m.author_id <> ?)
     GROUP BY f.root_id ORDER BY newest DESC LIMIT ${THREADS_LOOKED_AT}`)
-    .all(viewer.user_id, viewer.user_id, roomId, roomId, viewer.visible_from_seq, roomId, viewer.user_id, viewer.user_id) as { root_id: string; newest: number; men: number | null }[]
+    .all(viewer.user_id, viewer.user_id, viewer.user_id, roomId, roomId, viewer.visible_from_seq, roomId, viewer.user_id, viewer.user_id) as { root_id: string; newest: number; men: number | null }[]
   return { n: Math.min(MAX_UNREAD, rows.length), next: rows[0]?.root_id ?? null, mentioned: rows.some((r) => !!r.men) }
 }
 

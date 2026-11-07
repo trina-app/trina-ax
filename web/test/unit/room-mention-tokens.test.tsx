@@ -375,11 +375,8 @@ test('the edit form: the mentions a message has stand out as on the message, and
   const m = await mount(<RoomMessages roomId={r.id} messages={[mine]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
     // a long press opens the message's menu (as on a phone): 수정
-    const press = (type: string) => m.get('room-message').dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10 }))
-    press('pointerdown')
-    await m.settle(700)
-    // (the finger lifting right after the press is no choice of an item)
-    await m.settle(450)
+    // the message's ⋯ menu (the hover bar's), then 수정
+    await m.click('message-more')
     await m.click('message-edit')
     const box = m.get('room-edit-input') as Box
     await focus(box)
@@ -411,10 +408,8 @@ test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its
   }) as typeof fetch
   const m = await mount(<RoomMessages roomId={r.id} messages={[mine]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
-    const press = (type: string) => m.get('room-message').dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 10, clientY: 10 }))
-    press('pointerdown')
-    await m.settle(700)
-    await m.settle(450)
+    // the message's ⋯ menu (the hover bar's), then 수정
+    await m.click('message-more')
     await m.click('message-edit')
     const box = m.get('room-edit-input') as Box
     await focus(box)
