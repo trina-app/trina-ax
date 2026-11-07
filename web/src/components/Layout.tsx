@@ -26,7 +26,7 @@ import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
 import { Spinner } from './ui'
-
+import SidePanelFrame from './SidePanelFrame'
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
 const FilePanel = lazy(() => import('./FilePanel'))
 const BrowserPanel = lazy(() => import('./BrowserPanel'))
@@ -153,14 +153,7 @@ export default function Layout() {
           <BottomTabs />
         </main>
         {panel && (
-          <div
-            className={clsx(
-              'min-w-0 border-line bg-surface md:border-l',
-              // phones: a full-screen sheet over everything (no edge of its own)
-              'max-md:fixed max-md:inset-0 max-md:z-40 max-md:pt-[var(--safe-top)] max-md:pb-[var(--safe-bottom)]',
-              'md:w-[46%] md:max-w-[880px] md:min-w-[360px]',
-            )}
-          >
+          <SidePanelFrame>
             <ChunkErrorBoundary resetKey={panel.kind === 'file' ? `file:${panel.key}` : panel.kind === 'artifact' ? `artifact:${panel.chatId}:${panel.artifactKey}:${panel.versionId ?? ''}` : panel.kind}>
               <Suspense fallback={<Spinner className="p-6" />}>
                 {panel.kind === 'artifact' && <ArtifactPanel chatId={panel.chatId} artifactKey={panel.artifactKey} versionId={panel.versionId} onClose={closeSidePanel} />}
@@ -168,7 +161,7 @@ export default function Layout() {
                 {panel.kind === 'browser' && <BrowserPanel onClose={closeSidePanel} />}
               </Suspense>
             </ChunkErrorBoundary>
-          </div>
+          </SidePanelFrame>
         )}
       </div>
       <SearchDialog />

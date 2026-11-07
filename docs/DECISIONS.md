@@ -11118,6 +11118,10 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - **Removed:** the product's name on top, the team name in the account line, 팀
   스킬's own count (the Inbox has the suggestion), the old cap of eight rooms that let every unread one through, the AI
   chats' date groups and filter in the default view (behind "모두 보기").
+- **A hairline at the top of the scroll while it is scrolled** (the owner, 2026-11-07: "스크롤 가능한 영역 위에 뭔가 선이라도
+  있어야 예상이 가능할 듯"). `border-line`, the same as the line above the account row, at the scroll's top edge only
+  when `scrollTop > 0` (the scroll handler it already had); none at the very top. The 1 px is always reserved
+  (transparent), so nothing moves; no animation. The phone's drawer has the same scroll and the same line.
 - The phone's drawer keeps its own layout ("Phone navigation: four tabs"); it gets the same dots.
 - Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
   case for the new route.
@@ -12332,6 +12336,16 @@ Only the desktop app set one (`setBadgeCount` over its bridge); the web app neve
   (`display-mode: standalone`, or an iPhone's Home Screen) whose browser has the API: macOS 시스템 설정 › 알림 › Trina AX
   › "앱 아이콘에 배지 표시"; Windows 설정 › 개인 설정 › 작업 표시줄 › 작업 표시줄 동작 › "작업 표시줄 앱에 배지 표시";
   iPhone 설정 › 알림 › Trina AX › 배지; elsewhere the system's notification settings. Five languages, no box.
+## The mic on the right (feat/mic-right, 2026-11-07, product owner)
+넣을 곳: trina-ax `web/src/components/chat/Composer.tsx` and `web/src/components/rooms/RoomComposer.tsx`, 이유: the owner
+asked for the mic on the right, as in ChatGPT ("마이크 버튼은 오른쪽에 놔두자 chatgpt처럼").
+
+- Every message box reads: the clip (or "+") on the left, the text, then the mic and send on the right, the mic right
+  before send. That is a room's box and a thread's reply box (RoomComposer) and the AI chat's box (Composer, also on the
+  new-chat page); the edit form has no mic. On a computer the AI chat's "+" and the engine picker stay in the row under
+  the box; on a phone "+" stays inside the box on the left.
+- Only the place changed: the same VoiceMic (size, a 44 px tap area on phones, the admin's hint while voice input is
+  off), the same recording bar (VoiceBar) and keys (Space held to talk, Esc to cancel).
 
 
 ## AI 앱에서 대화 읽고 쓰기 — AI apps read and write my conversations (feat/mcp-rooms, 2026-11-07, product owner)
