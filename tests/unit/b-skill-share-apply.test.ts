@@ -65,16 +65,21 @@ describe('skill shares over the API', () => {
   }
   const create = (body: Record<string, unknown>, user = 'dana') => h.api(user).call(API.createSkillShare, { body: { source: 'browser', ...body } as never })
 
-  test('members: 403 on every endpoint, nothing made', async () => {
+  test('members: 403 on making one, none of their own to list, the rest 404 (a share to their group is theirs to review: group-skill-shares.test.ts)', async () => {
     const id = '01900000-0000-7000-8000-000000000000'
     for (const r of [
       await post('alice', '/api/skill-shares', { source: 'browser', skills: [] }),
-      await h.req('alice', '/api/skill-shares'),
+      await post('bob', '/api/skill-shares', { source: 'browser', skills: [] }),
+      await h.req('alice', `/api/skill-shares/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ group: null }) }),
+    ]) expect(r.status).toBe(403)
+    const list = await h.req('alice', '/api/skill-shares')
+    expect(list.status).toBe(200)
+    expect(await list.json()).toEqual({ items: [] })
+    for (const r of [
       await h.req('alice', `/api/skill-shares/${id}`),
       await post('alice', `/api/skill-shares/${id}/apply`, { skills: [] }),
       await post('alice', `/api/skill-shares/${id}/dismiss`, {}),
-      await post('bob', '/api/skill-shares', { source: 'browser', skills: [] }),
-    ]) expect(r.status).toBe(403)
+    ]) expect(r.status).toBe(404)
     expect(h.ctx.db.query('SELECT COUNT(*) n FROM skill_shares').get()).toEqual({ n: 0 })
   })
 

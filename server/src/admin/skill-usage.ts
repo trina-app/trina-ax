@@ -2,12 +2,13 @@
 import type { Database } from 'bun:sqlite'
 import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
-import { readSkill, SKILL_NAME_MAX, type SkillInfo } from '../chat/skills'
+import { isGroupSkill, readSkill, SKILL_NAME_MAX, type SkillInfo } from '../chat/skills'
 
-// Team skills only (skills/...). A personal skill (users/<id>/skills/...) is never recorded: Admin > Usage shows
-// skill paths and names to admins, and admins must not see personal files.
+// Team skills (skills/...) and group skills (groups/<folder>/skills/...). A personal skill (users/<id>/skills/...) is
+// never recorded: Admin > Usage shows skill paths and names to admins, and admins must not see personal files (a
+// group's folder they can read anyway).
 function skillPath(p: string): boolean {
-  return p.startsWith('skills/') && p.endsWith('.md') && !p.includes('\\')
+  return (p.startsWith('skills/') || isGroupSkill(p)) && p.endsWith('.md') && !p.includes('\\')
     && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..' && !/[\u0000-\u001f]/.test(s))
 }
 
@@ -25,7 +26,9 @@ export function recordSkillUse(db: Database, input: { turnId: string; userId: st
     SELECT t.id, ?, ?, ? FROM turns t JOIN users u ON u.id = t.user_id
     WHERE t.id = ? AND t.user_id = ? AND u.status = 'active'
     ON CONFLICT(turn_id, skill_path) DO NOTHING`).run(skill.path, skill.name, source === 'tool' ? 'read' : source, turnId, userId)
-  if (source === 'read') return
+  // a group skill counts for usage (the list's ranking, popular skills, Admin › Usage) but is no run: the 7-day team
+  // goal, the onboarding suggestions and the answer's "team skill" receipt stay about team skills
+  if (source === 'read' || isGroupSkill(skill.path)) return
   db.query(`INSERT INTO turn_skill_runs (turn_id, skill_path, skill_name, source)
     SELECT t.id, ?, ?, ? FROM turns t JOIN users u ON u.id = t.user_id
     WHERE t.id = ? AND t.user_id = ? AND u.status = 'active'

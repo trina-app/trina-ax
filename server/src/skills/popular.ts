@@ -3,8 +3,9 @@ import type { FileService } from '../files/service'
 import type { Principal } from '../policy/access'
 import { isPersonalSkill, listSkills } from '../chat/skills'
 
-/** Only aggregate counts of team skills the caller can read now; no user identity or prompt content. Personal skills
- * are never counted (admin/skill-usage.ts does not record them), and they are left out here too. */
+/** Only aggregate counts of the team and group skills the caller can use now (their own groups' skills: listSkills);
+ * no user identity or prompt content. Personal skills are never counted (admin/skill-usage.ts does not record them),
+ * and they are left out here too. */
 export function popularSkills(db: Database, files: FileService, user: Principal, now = new Date()) {
   const allowed = listSkills(files, user).filter((s) => !isPersonalSkill(s.path)), byPath = new Map(allowed.map(s => [s.path, s]))
   if (!allowed.length) return { items: [], days: 30 as const }

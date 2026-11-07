@@ -11735,6 +11735,173 @@ URL, and any credential kind that would carry a custom address.
 - **Rejected:** keeping a lighter re-auth for official accounts (no gain, as above); dropping the password from the API
   engine (it sets where conversations go).
 
+## Group skills (feat/group-skills, 2026-11-07, product owner)
+
+넣을 곳: trina-ax server/src/chat/skills + server/src/skills + web, 이유: each group gets its own skills, seen and used
+only by its members' AI, and skill sharing can target a group; skills, folder rules and sharing are core.
+
+Decided by the product owner: each group gets its own skills, seen and used only by its members' AI; a share proposal
+can go to a group. Folder rules already did the access part (a group folder `groups/<name>/` is made with "this group
+writes", Admin › Groups), so no permission table was added.
+
+### Phase 1: the skills of a group
+
+- **Where.** `groups/<folder>/skills/` is a skill root for every group the person belongs to (`Principal.groups`), the
+  folder being the group's folders row (`groups.folder_id`; fixed at creation, a rename changes only `groups.name`). Only
+  that top-level `skills/` counts (a `skills/` deeper in the group folder is nothing), only a folder that is
+  `groups/<one name>` (one moved elsewhere gives no root), with the same depth (3) and entry cap (1,000 a root, each
+  group its own) as `skills/` and `users/<id>/skills/`. Every step stays gated by `authorize`. Root detection goes by the
+  first segment (`skillRootLength`): depth 3 under `groups/` never reads as a person's folder.
+- **Who.** Members only. `readSkill` also refuses a group entry to anyone who is not in that group now: the owner and
+  admins read every group folder, but a group's skills are its members' (not in their list, their prompt, "/name",
+  `find_skills`, the skill tool, `skills_list` or popular skills). A member whose folder rule takes their group's
+  folder away sees nothing there (the rules still decide).
+- **Precedence: personal > group > team**, for that person only (`skillTier`; `scanSkills` keeps, for each name, the
+  skills of the best tier). A group skill hides a team skill of the same name for the group's members; a personal
+  skill hides both. Skills of one tier with one name all stay (two team skills, two groups' skills): the list gives
+  each its path, as before for team duplicates.
+- **"/name" tie-break (`invokedSkill`).** Longest name first, then the name before a file or folder alias, then
+  personal > group > team, then, between two groups' skills, **the group whose name comes first** (`groupOrder`: NFC,
+  letter case ignored, compared by Unicode code points, then the group id), then the path. A rename can change which
+  one "/name" runs; the skill tool says "ambiguous" with both paths and the AI picks by path. Alias resolution in the
+  skill tool keeps the best tier.
+- **`SkillInfo.group {id, name}`** (the group's current name, so a rename shows at once): `GET /api/skills`, the "/"
+  menu badge (the group's name), the connector's `skills_list` (its description says so), and the prompt: the line
+  "`- name [group: 영업팀]: …`" (the name one line, at most 40 characters, brackets dropped, tags neutralized), and one
+  note under the list: such entries are that group's, only its members see them, **any member may have written them**,
+  and one of them replaces a team skill of the same name. `skillBlock` says "the group (of "영업팀", written by its
+  members) skill". People who may write their group's skills folder are told where to save one (with the card); that
+  line is outside the list's budget, so it names at most 5 groups (`GROUP_SAVE_MAX`), each name cut at 40 characters,
+  then "… and N more" pointing at find_skills.
+- **Injection note.** A group skill is an instruction every member of the group's AI follows, written by any member
+  who may write the group folder (every member by default). So members steer each other's AI, as skill managers steer
+  the team's. Accepted (owner decision) and said to the AI (the note above), to the person (the card names the group:
+  "그룹 '영업팀'의 스킬로 저장할까요? 이 그룹 멤버의 AI가 따라요") and in the user docs. Skill bodies keep the trust level of
+  team rules; nothing grants tools.
+- **AI writes.** `skills/guard.ts` now checks the resolved skill root (`skillRootOf`): `skills/…` and any
+  `groups/<x>/skills/…` (each name without letter case or Unicode form; a folder of a deleted group too: fail closed).
+  So `requireSkillApproval` (the file layer), the card (`confirmSkillWrite`, naming the group and saying "new group
+  skill"/"changes the group skill"), the connector's refusal, `save_url`, `move_files`/`copy_files`/`rename_file`,
+  `generate_video` and the room change card all treat a group's skills folder like `skills/`. A group's skills folder
+  is usually not there until its first skill, so moves check the destination as well: `rename_file` to "skills",
+  `move_files` of a folder named "skills" into `groups/<g>/`, and in the file layer any AI move (a turn set) into or
+  out of a skill root, of a folder holding `skills/` into `groups/<g>/`, and of `groups/` or a `groups/<g>/` that
+  holds a `skills/` folder (an admin's AI moving a group folder out would take its skills along) are refused, and so
+  is any AI copy into a skill root (`TeamFiles.copy`) (the independent review made a group's skills folder by renaming
+  `groups/marketing/drafts`; a person on the Files screen still may do all of these). A file
+  without a header there is no team rule (`skillFileKind` "other"). Refusals (`skills.ai_write_refused`) and every change
+  (`skills.change`, by people and by the AI) carry `group {id, name}` (the name then; id null for a folder no group
+  has). The owner and admins get the change notice as for `skills/` ("그룹 '영업팀'의 스킬이 바뀌었어요"); Skills › 최근
+  변경 shows the group.
+- **Managers.** A group's skills are managed by its members who may write the folder (`managesSkillFolder`; the owner
+  and admins outside the group do not manage them). They count in `managedSkillFolders` (the group root even before it
+  exists on disk), `visibleSkillFolders` (where one may suggest) and `managersOf` (who is told of a suggestion), so
+  **스킬로 제안** can target a group's skills and only its members review and approve it (`SkillSuggestion.targetGroup`;
+  `SkillFolderPath` takes `groups/<folder>/skills[/a[/b]]`). Admin's "팀 스킬 관리" switch stays team-only. Members'
+  own skill folders (MC) still go to `skills/` and the owner and admins.
+- **Skill issues.** A group skill that does not load shows to the group's members who may write it; a group root over
+  the entry cap is a `too_many` for them.
+- **Usage and popular.** Group skills are recorded in `turn_skill_usage` (`recordSkillUse` takes `groups/<x>/skills/…`),
+  so the list's usage ranking, popular skills (only skills the caller can use, so only members see a group's count)
+  and Admin › Usage count them; admins can read the group folder anyway. They are **not** recorded as runs
+  (`turn_skill_runs`): the 7-day team goal, the onboarding suggestions and the answer's "팀 스킬" receipt stay about team
+  skills. Cheap: no new query, one path check.
+- **Index budget.** Group skills join the ranking (`descriptionOrder`: personal first, then group and team skills by
+  usage, a group's first on a tie; `listOrder`: personal, groups in `groupOrder`, team). The budget is unchanged
+  (8,000 characters): a person in many groups gets more names, fewer descriptions, then "… and N more" and
+  `find_skills`, never a bigger list (unit test: 40 groups × 25 skills).
+- **Web.** Team skills shows one section per group that has skills the person can use, titled "{group} 그룹 스킬" with
+  the group's current name, in the existing section style, between the team's and the personal section; a group with
+  no skill shows nothing. The "/" menu shows the group's name as a small badge (tooltip: only its members see it).
+- **Group rename and delete.** Rename: the folder stays, the name follows everywhere (it is read with the skill). Delete:
+  its rules and memberships go (`deleteGroupAs`), so its skills disappear for its former members; the folder stays on
+  disk as before (then only admins see it until new rules). A share proposal to a deleted group cannot be applied.
+
+### Phase 2: sharing to a group
+
+- **Target.** A share proposal (내 스킬 가져오기 and Claude Code / Codex `share_skills`) goes to the team or to **one
+  of the proposer's groups whose skills folder they may write**, stored with it: `skill_shares.target_group_id`
+  (migration **260**, additive, reader 1; NULL = the team; no foreign key: a deleted group leaves an id no group has,
+  read as "gone"; first 258, renumbered because `feat/room-leave-hide` has 258 and `feat/mention-all` 259). Set at create (`CreateSkillShare.group`; `share_skills` takes the group's name or id and lists the
+  person's groups when it does not match) or moved by the proposer on the share page (`PATCH /api/skill-shares/:id`,
+  audited `skills.share_target`) while it is open and before anything of it went in (409 after). No group: the team
+  (default everywhere). Making a proposal stays owners' and admins' (members keep 스킬로 제안).
+- **Checks and judge** run against the target. The AI's judgement reads the group's skills and the team's (it tells
+  what the group's members already have). Same name and merge (`targetRefs`: `sameName`, `similar`, "add" refused,
+  the merge chat) count **the group's own skills only**: a share to a group never changes a team skill (the
+  independent review found the first version merging a group proposal into `skills/quote`, and refusing "add"), and a
+  team skill of the same name is no conflict, because the group's copy replaces it for the group's members (personal >
+  group > team). This narrows the brief's "plus team skills, for duplicates and merges" to the judge. Moving re-runs
+  the same-name check; a `similar` the new target does not have is dropped with its detail, a reason that named it
+  falls back, and a recommended row with a same-name skill in the new target says so; an expired share expires first.
+- **Who reviews and applies.** The team's: its proposer, as before. A group's: the group's members who may write its
+  skills folder (`mayApply`), the proposer included while they are one. The list (`scope=review`), get, apply and
+  dismiss endpoints became `auth: 'user'`; the service answers 404 to anyone else (a non-member, an owner or admin
+  outside the group, a member who left), so the permission matrix keeps "nobody" for unknown ids. A proposer who is not
+  (any more) a writer of the group still sees their proposal but cannot apply it (403). Dismissing a group's proposal
+  by one of its members turns it down for the group.
+- **What a reviewer reads.** Only what goes to the group: no CLAUDE.md lines (`rule`), no tools (their addresses), no
+  excluded skill (a skill left on the proposer's computer, with its secret's kind), and a same-name or similar skill
+  only when the reviewer can read it themselves (`toShare` for a viewer who is not the proposer); nor where on the
+  proposer's computer it came from (`where`, `projects` and each candidate's `project` are null; the page then names
+  the app's folder, `.claude` or `.codex`). A merge chat's id (`applied.chatId`) goes only to the person whose chat it
+  is (the one who applied the merge). The audit label of `skills.share_apply` is neutral ("공유 제안의 스킬 넣기 (팀
+  또는 그룹)"), and `share_skills` answers who decides: the team lead, or for a group the user or another member of it.
+- **Notifications and the review list** follow the same rule: a live notice ("올가님이 '영업팀' 그룹에 스킬 3개를
+  공유하자고 했어요 · 확인", link `/skills/share/<id>`) to the group's writers but the proposer, at create and when moved
+  to the group; `SkillsOverview.sharesToReview` and Skills › 검토 ("그룹에 온 공유 제안": who, which group, how many)
+  list the open ones. No Inbox row (it would need its own notice table, as for SK).
+- **Apply** writes `groups/<folder>/skills/<name>/` (files first, SKILL.md last) as the applier (`humanSave`: folder
+  rules, versions, the change log with the group), with the same staging, idempotence, separate-name and merge chat
+  (restricted to the target skill path; the card names the group). A team rule (CLAUDE.md / AGENTS.md) and connection
+  templates are team-only: 400 for a group target, and the page hides them. A group's skills never become the invite's
+  landing skill; applying still marks the owner's 내 스킬 step done. Audited `skills.share_apply` with `group`.
+- **Welcome and onboarding.** The welcome step (내 스킬 가져오기) keeps the team: no target choice there (the step is
+  already full, and the invite opens a team skill), and it never takes up a proposal to a group (one Claude Code sent
+  with `group`, or one moved on its page: `shownShare`), which would otherwise mark 내 스킬 done with no team skill for
+  the invite. The share page offers **보낼 곳** (팀 전체 / {group} 그룹만) only to the proposer, outside the owner's
+  unfinished setup; a group that is no choice any more (gone, no longer theirs to write) shows as the current one, so
+  the team can still be picked.
+- **Rooms.** A room's AI is shown a group's skills only when everyone in the room is in that group (the owner and admins
+  read every group folder, so the folder check alone let a member's group skills reach a room with an admin; found by
+  the independent review). "/name" still runs a skill of the asker's own, as for personal skills.
+- **Web.** The share page is open to members (a proposal to their group); one not theirs reads "끝났어요" (404). A
+  reviewer reads "{who}님이 '{group}' 그룹에 공유하자고 했어요"; the primary says "{group}에 공유 · N개", the who line says
+  only the group's members' AI follows it and any member can change it.
+
+### Deferred
+
+- An Inbox row for a group proposal (live notice and the review tab only).
+- Members proposing their own folders to their group through 내 스킬 가져오기 / `share_skills` (they still suggest).
+- A group "rule" (header-less files in a group's skills are just files; team rules stay `skills/*.md`).
+- A group's connection templates from a share, and skill-manager switches for a group's subfolders.
+- The AI moving `users/<id>/` (a person's own folder with their personal skills) is unchanged: personal skills need
+  no card.
+- Two of a person's groups with a skill of one name: both are listed (with their paths, as two team skills of one name
+  were), and choosing either in the "/" menu or Team skills sends "/name", which runs the one whose group comes first.
+  The skill tool tells them apart by path; the menu does not yet.
+- The owner and admins outside a group still see a group skill's path and name where they saw team skills' before:
+  Admin › Usage by skill, the change notice and Skills › 최근 변경 (they can read the group folder anyway).
+- Going back to a build before migration 260 reads an open proposal to a group as a team proposal of its proposer
+  (an owner or admin, who could apply it into `skills/`); the reader level is not raised for this.
+
+### Tests
+
+`tests/unit/group-skills.test.ts` (discovery for members and non-members, the root depth, precedence, two groups and
+"/name", the prompt labels, the description order and the budget, usage and popular, the guard, managers, skill
+issues, GET /api/skills, rename, the card with its audit and the change notice, a member outside the group, a
+suggestion into a group's skills reviewed by its members only, delete, the connector's `skills_list`),
+`tests/unit/group-skill-shares.test.ts` (a group target stored and checked against the group's skills, a team skill of
+the same name added for the group and left as it was, the judge's material, notices, the review list and 404 for a
+member outside and an admin, what a reviewer reads, apply into the group folder with audit, rule and tools refused,
+the target refused, moved and fixed, `share_skills` by group name, a member who left, migration 260, a deleted
+group, a reviewer's merge chat), `c-file-moves.test.ts` (no group skills folder made by a rename or a move, none
+emptied, an admin's AI moving a group folder with skills, an AI copy into a skills folder), `b-rooms-ai.test.ts` (a
+group's skills, its list tag and its save line in a room only when everyone is in the group), web unit
+`skills-step.test.tsx` (the step skips a proposal to a group; a member on the share page), web e2e
+`group-skills.spec.ts` (the section, rename, the "/" badge, a non-member) and `group-skill-shares.spec.ts` (the target
+choice, a member reviews and applies).
+
 ## Reads reach every window and device (fix/read-sync, 2026-11-07)
 
 The owner: "다른 곳(앱, 다른 웹)에서는 읽었는데 여기서는 또 안 읽었다고 알림도 울리고 계속 1 떠 있네". Placement: Team AX

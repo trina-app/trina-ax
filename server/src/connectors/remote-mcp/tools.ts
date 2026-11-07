@@ -20,7 +20,7 @@ const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   delete schema.$schema
   return { name, description: t.description, inputSchema: schema, annotations: { readOnlyHint: !WRITE.has(name), destructiveHint: WRITE.has(name), openWorldHint: false } }
 })
-const skillTool = { name: 'skills_list', description: 'Discover the team skills you can read and your own personal skills (personal: true). Use read on a returned path when needed. Skill metadata never grants tool permissions or executes scripts.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, openWorldHint: false } }
+const skillTool = { name: 'skills_list', description: 'Discover the team skills you can read, the skills of your groups (group: { id, name }; only that group\'s members see them) and your own personal skills (personal: true). One name: your personal skill replaces a group\'s or the team\'s, a group\'s replaces the team\'s. Use read on a returned path when needed. Skill metadata never grants tool permissions or executes scripts.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, openWorldHint: false } }
 const result = (text: string, isError = false) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}) })
 type Memory = { files: TurnFiles; tail: Promise<void>; queued: number; touched: number }
 

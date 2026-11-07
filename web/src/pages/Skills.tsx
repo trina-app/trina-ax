@@ -9,10 +9,10 @@
 // skill of the same name) and is registered as skills/<folder name>/ with its files. /skills?batch=<id> (the Inbox
 // line of a batch) opens 검토 at that person.
 import clsx from 'clsx'
-import { Bot, History, Lightbulb, Search } from 'lucide-react'
+import { Bot, History, Lightbulb, Search, Users } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { skillLabel, type SkillChange, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
+import { Link, useSearchParams } from 'react-router-dom'
+import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { navigateTo } from '../lib/nav'
@@ -43,7 +43,10 @@ export default function Skills() {
   const [params, setParams] = useSearchParams()
   const [overview, setOverview] = useState<SkillsOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const manages = !!overview?.managedFolders.length
+  // a manager of a skills folder (the team's, or a group's: docs/DECISIONS.md "Group skills"), or someone with a share
+  // proposal to one of their groups to apply
+  const manages = !!overview?.managedFolders.length || !!overview?.sharesToReview
+  const [shares, setShares] = useState<SkillShare[] | null>(null)
   const [tab, setTab] = useState<Tab>(params.get('mine') ? 'mine' : params.get('review') || params.get('batch') ? 'review' : 'skills')
   // ?batch=<id>: the person whose batch the Inbox line named, once the review list is in
   const [batch, setBatch] = useState<string | null>(params.get('batch'))
@@ -66,6 +69,8 @@ export default function Skills() {
       setOverview(o)
       setMine((await api.call(API.listSkillSuggestions, { query: { scope: 'mine', limit: 100 } })).items)
       if (o.managedFolders.length) setReview((await api.call(API.listSkillSuggestions, { query: { scope: 'review', limit: 100 } })).items)
+      // share proposals to the person's groups that others made (the server lists only what they may apply)
+      setShares(o.sharesToReview ? (await api.call(API.listSkillShares, { query: { scope: 'review' } })).items : [])
       if (isAdmin(me)) setChanges((await api.call(API.listSkillChanges, { query: { limit: 100 } })).items)
       setError(null)
     } catch (e) {
@@ -81,7 +86,7 @@ export default function Skills() {
   const linkedMine = useRef(!!params.get('mine'))
   // first visit: managers land on what waits for them
   useEffect(() => {
-    if (overview && !linkedMine.current && overview.pendingReview > 0) setTab('review')
+    if (overview && !linkedMine.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview === null])
   // a banner's link while already on this page; ?mine= goes once applied, like ?review=, so the same link works again
@@ -113,10 +118,12 @@ export default function Skills() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [review, params])
 
+  // suggestions and share proposals to the person's groups, together
+  const waiting = (overview?.pendingReview ?? 0) + (overview?.sharesToReview ?? 0)
   const tabs: { id: Tab; label: string }[] = [
     // what everyone can use, members included (before: a member's page listed no skill at all)
     { id: 'skills', label: t('skills.tabSkills') },
-    ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${overview!.pendingReview ? ` (${overview!.pendingReview})` : ''}` }] : []),
+    ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${waiting ? ` (${waiting})` : ''}` }] : []),
     { id: 'mine', label: t('skills.tabMine') },
     ...(isAdmin(me) ? [{ id: 'changes' as const, label: t('skills.tabChanges') }] : []),
   ]
@@ -147,8 +154,9 @@ export default function Skills() {
             {current === 'review' && (
               <>
                 {/* phones: each row already says the folder it goes into */}
-                <p className="mb-3 text-xs text-muted max-md:hidden">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>
-                <SuggestionList items={review} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" grouped focusBatch={batch} />
+                {overview.managedFolders.length > 0 && <p className="mb-3 text-xs text-muted max-md:hidden">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>}
+                <ShareReviews items={shares} />
+                {(overview.managedFolders.length > 0 || !shares?.length) && <SuggestionList items={review ?? (overview.managedFolders.length ? null : [])} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" grouped focusBatch={batch} />}
               </>
             )}
             {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMine')} testId="mine-list" />}
@@ -169,6 +177,28 @@ export default function Skills() {
         />
       )}
     </div>
+  )
+}
+
+/** Share proposals (내 스킬 가져오기) that others made to one of the person's groups (docs/DECISIONS.md "Group skills"):
+ * one row each, who and which group, opening the share page where the person applies or leaves it. */
+function ShareReviews({ items }: { items: SkillShare[] | null }) {
+  const t = useT()
+  if (!items?.length) return null
+  return (
+    <section className="mb-5" aria-label={t('skills.sharesToReview')} data-testid="share-review-list">
+      <h2 className="mb-1 text-sm font-medium">{t('skills.sharesToReview')}</h2>
+      <ul className="-mx-2 divide-y divide-line">
+        {items.map((s) => (
+          <li key={s.id}>
+            <Link to={`/skills/share/${s.id}`} className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-hover" data-testid="share-review-row" data-id={s.id}>
+              <Users size={16} className="shrink-0 text-muted" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{t('skills.shareRow', { who: s.proposer?.name ?? '', group: s.targetGroup?.name ?? '', n: s.candidates.filter((c) => c.group !== 'excluded').length })}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -277,6 +307,7 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
             <span className="block text-xs text-faint">
               {c.actor?.name ?? '—'} · {formatDateTime(c.at, locale)}
               {c.from ? ` · ${t('skills.change.from', { path: c.from })}` : ''}
+              {c.group ? ` · ${t('skills.fromGroup', { group: c.group.name })}` : ''}
             </span>
           </span>
           {c.byAi && (

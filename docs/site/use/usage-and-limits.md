@@ -34,7 +34,7 @@ Admins open **Admin › Usage**. It is laid out like the Claude Console's usage 
 
 ![Admin › Usage: filter buttons, cards with the totals, the Token usage chart and the breakdown](../images/usage/team.webp "The team's usage, in Admin")
 
-Personal skills are never counted by name, so no admin sees what someone keeps privately.
+Personal skills are never counted by name, so no admin sees what someone keeps privately. Group skills are counted like team skills.
 
 ## Set limits
 
