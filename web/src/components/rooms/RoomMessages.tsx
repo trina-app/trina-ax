@@ -14,6 +14,9 @@
 // 있어요"), and above its one action (post it to the room, an outline button) who would see it then. An event line (a
 // rename, people invited, someone left or taken out: RoomMessage.event) is one quiet line in the middle, nothing more:
 // no avatar, menu, reaction or thread.
+// An answer someone sent here from their own AI chat ("대화방에 보내기", RoomMessage.sharedAnswer) is their message: their
+// note as plain text, then the answer as a quote headed "<AI> 답변", in Markdown like the AI's own answers (a team file
+// in it only as a link for those who may open it). It cannot be edited (copy and delete stay).
 import clsx from 'clsx'
 import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useMemo, useRef, useState } from 'react'
@@ -22,6 +25,7 @@ import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } fro
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
+import { aiName } from '../../lib/tabs'
 import { Markdown } from '../Markdown'
 import SourcesList from '../chat/SourcesList'
 import { openFilePreview } from '../../lib/sidePanel'
@@ -253,12 +257,16 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   const me = useMe()
   // an AI answer: the person who asked puts it (or their preview) away; an owner or admin any answer they see
   const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin'))
-  const openable = useMemo(() => (ai ? new Set(m.openable ?? []) : undefined), [ai, m.openable])
+  // an answer sent from someone's own AI chat: their note before `at`, the answer after it
+  const shared = !ai && !deleted ? m.sharedAnswer ?? null : null
+  const openable = useMemo(() => (ai || shared ? new Set(m.openable ?? []) : undefined), [ai, shared, m.openable])
   // a mention is the name as it was typed: the person's name now (the directory) and as the member list has it, so
   // "@Ben" still stands out after Ben renamed himself
   const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
-  // "@트리나" stands out like a person's name (the server asked the AI for it), "@전체" too (it mentions everyone)
-  const parts = useMemo(() => mentionParts(m.body, ai ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...aiMentionNames(m.body, mentioned)]), [m, mentioned, ai])
+  const text = shared ? m.body.slice(0, shared.at).trim() : m.body
+  // "@트리나" stands out like a person's name (the server asked the AI for it), "@전체" too (it mentions everyone); a
+  // shared answer's note mentions nobody (the server keeps no mention on it)
+  const parts = useMemo(() => mentionParts(text, ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS), ...aiMentionNames(text, mentioned)]), [text, m, mentioned, ai, shared])
   const [press, setPress] = useState(0)
   const pressedAt = useRef(0)
   const menuOn = !deleted && !editing && (m.visibility === 'room' || removable)
@@ -288,7 +296,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
   // an AI answer I asked for, any AI answer for an owner or admin), with the confirm
   const moreItems: MenuItem[] = [
     ...(m.body ? [{ label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copyText(), testId: 'message-copy' }] : []),
-    ...(mine && !ai ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
+    ...(mine && !ai && !m.sharedAnswer ? [{ label: t('common.edit'), icon: <Pencil size={14} aria-hidden />, onSelect: onEdit, testId: 'message-edit' }] : []),
     ...(removable ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, onSelect: () => void del(), danger: true, testId: 'message-delete' }] : []),
   ]
   return (
@@ -324,7 +332,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
         <p className="text-reading leading-reading text-faint">{t('rooms.deleted')}</p>
       ) : (
         <>
-          {m.body && (
+          {text && (
             <p className="text-reading leading-reading break-words whitespace-pre-wrap text-ink">
               {parts.map((p, i) =>
                 p.userId ? (
@@ -338,6 +346,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
               {meta}
             </p>
           )}
+          {shared && <SharedAnswer text={m.body.slice(shared.at)} openable={openable} />}
           {m.files.length > 0 && <Files roomId={roomId} files={m.files} />}
           {!m.body && m.editedAt && <p className="leading-5">{meta}</p>}
         </>
@@ -372,6 +381,22 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
         </>
       )}
     </div>
+  )
+}
+
+/** An answer someone sent from their own AI chat, under their note: a quiet quote headed "<AI> 답변", in Markdown like
+ * the AI's answers here (`openable`: the team files in it this viewer may open; the others are plain text). */
+function SharedAnswer({ text, openable }: { text: string; openable?: ReadonlySet<string> }) {
+  const t = useT()
+  return (
+    <figure className="mt-1 mb-0.5 rounded-r-lg border-l-2 border-line-strong bg-ink/[0.035] py-2 pr-3 pl-3" data-testid="room-shared-answer">
+      <figcaption className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted" data-testid="room-shared-answer-head">
+        <Sparkles size={12} className="shrink-0 text-accent-text" aria-hidden />
+        {t('shareRoom.quoteHead', { ai: aiName(t) })}
+      </figcaption>
+      {/* not a <blockquote>: the answer's own Markdown would take the quote marks a quote's paragraphs get */}
+      <Markdown text={text} className="min-w-0" openable={openable} />
+    </figure>
   )
 }
 

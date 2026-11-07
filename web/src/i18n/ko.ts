@@ -3567,6 +3567,7 @@ export const ko = {
   "audit.act.room.archive": "대화방 보관",
   "audit.act.room.rename": "대화방 이름 변경",
   "audit.act.room.ai_share": "트리나 답을 대화방에 올림",
+  "audit.act.room.answer_share": "대화방에 AI 답변 보냄",
   "audit.act.room.ai_delete": "트리나 답 삭제",
   "slack.state.off": "꺼짐",
   "slack.state.connecting": "연결 중",
@@ -4093,6 +4094,22 @@ export const ko = {
   "welcome.done.home": "홈으로",
   "notifications.event.skills.merge_waiting": "합칠 스킬 확인하기",
   "notifications.event.skills.merge_waitingN": "합칠 스킬 {n}개 확인하기",
+  // "대화방에 보내기" (components/chat/ShareToRoom.tsx): an answer of my own AI chat sent to a room
+  "chat.shareToRoom": "대화방에 보내기",
+  "shareRoom.search": "대화방 검색",
+  "shareRoom.noMatch": "맞는 대화방이 없어요",
+  "shareRoom.note": "한마디 덧붙이기",
+  "shareRoom.cut": "답변이 길어서 앞부분만 보내요 · 나머지는 내 {history}에 있어요",
+  "shareRoom.send": "보내기",
+  "shareRoom.confirm": "방 사람 중 {n}명은 이 답에 쓰인 파일을 열 수 없어요. 그래도 보낼까요?",
+  "shareRoom.sendAnyway": "그래도 보내기",
+  "shareRoom.placeRoom": "{name} 대화방",
+  "shareRoom.placeMine": "내 폴더",
+  "shareRoom.placeConversation": "1:1·그룹 대화",
+  "shareRoom.placeOther": "열 수 없는 다른 곳",
+  "shareRoom.sent": "{room}에 보냈어요",
+  "shareRoom.open": "열기",
+  "shareRoom.quoteHead": "{ai} 답변",
 } as const
 
 export type MessageKey = keyof typeof ko
