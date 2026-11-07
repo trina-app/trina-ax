@@ -1,0 +1,10 @@
+# HTML to PDF on Linux (server/src/files/html-pdf.ts, docs/DECISIONS.md "HTML to PDF"): Debian 13 with what a hosted
+# server made with the dev environment has (Debian's chromium, fonts-noto-cjk, bubblewrap), the headless shell too, and
+# poppler to look at the PDFs. Build from the repository root and run tests/linux/html-pdf.sh in it:
+#   docker build -f tests/linux/Dockerfile.html-pdf -t mycel-html-pdf .
+#   docker run --rm --privileged --cgroupns=private -v "$PWD":/w mycel-html-pdf sh /w/tests/linux/html-pdf.sh
+# (bun install and bash native/build.sh first, on the host: the tests use the repository's node_modules and the
+# linux mycel-sandbox helper.)
+FROM oven/bun:1.3.12-debian
+RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap chromium chromium-headless-shell fonts-noto-cjk poppler-utils procps \
+ && rm -rf /var/lib/apt/lists/*

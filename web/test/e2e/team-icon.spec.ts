@@ -44,6 +44,9 @@ test('team logo: refused files, upload with previews, the tab icon follows, remo
   const v = (await card.getAttribute('data-version'))!
   await expect(page.getByTestId('team-icon-status')).toHaveText('팀 로고를 쓰고 있어요.')
   await expect(page.getByTestId('team-icon-upload')).toHaveText('로고 바꾸기')
+  // the sidebar header shows the logo at once, without a reload (it showed the product's mark before)
+  await expect(page.getByTestId('sidebar-logo')).toHaveAttribute('src', `/team-icon?v=${v}`)
+  await expect.poll(() => page.getByTestId('sidebar-logo').evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(256)
   // the previews at each size sit behind "Show previews" (the row stays short)
   await page.getByTestId('team-icon-previews').click()
   for (const scheme of ['light', 'dark']) {
@@ -78,6 +81,7 @@ test('team logo: refused files, upload with previews, the tab icon follows, remo
   await expect(page.getByRole('dialog')).toContainText('팀 로고를 지울까요?')
   await page.getByRole('dialog').getByRole('button', { name: '지우기' }).click()
   await expect(page.getByText('기본 아이콘으로 되돌렸어요.')).toBeVisible()
+  await expect(page.getByTestId('sidebar-logo')).toHaveAttribute('src', '/favicon.svg')
   await expect(card).toHaveAttribute('data-version', '')
   await expect(page.getByTestId('team-icon-status')).toHaveText(`지금은 기본 ${PRODUCT.displayName} 아이콘을 쓰고 있어요.`)
   expect(await iconHrefs(page)).toEqual(DEFAULT_LINKS)
@@ -118,4 +122,57 @@ test('phone width: the previews keep their real sizes and the page does not scro
     for (const n of [16, 32, 180]) expect((await page.getByTestId(`team-icon-preview-${scheme}`).getByTestId(`team-icon-img-${n}`).boundingBox())!.width).toBe(n)
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0)
+})
+
+test('the sidebar header shows a non-square logo cropped, not stretched', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/admin/settings')
+  await page.getByTestId('team-icon-input').setInputFiles(file('wide.png', 'image/png', makePng(240, 120)))
+  await expect(page.getByTestId('team-icon')).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)
+  const logo = page.getByTestId('sidebar-logo')
+  await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(240)
+  const box = (await logo.boundingBox())!
+  expect([box.width, box.height]).toEqual([20, 20])
+  expect(await logo.evaluate((el) => getComputedStyle(el).objectFit)).toBe('cover')
+})
+
+// <main> is only a focus target (the skip link, the notification line giving focus back): it draws no ring of its own.
+// The ring used to be drawn around the whole page area, and its left edge showed as a full-height line over the
+// sidebar's border. What is inside <main> keeps its ring.
+test('main takes focus without an outline; a button inside it still shows its ring', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  const outline = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).outlineStyle)
+  // the skip link is the first stop of the keyboard; Enter moves focus to <main>
+  await page.keyboard.press('Tab')
+  await expect(page.locator('a[href="#main"]')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#main')).toBeFocused()
+  expect(await outline('#main')).toBe('none')
+  // a click on an empty spot in <main> and then a key: the case that showed the line
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+  await page.locator('#main').click({ position: { x: 4, y: 4 } })
+  await page.keyboard.press('Shift')
+  await page.evaluate(() => document.getElementById('main')!.focus())
+  expect(await outline('#main')).toBe('none')
+  // the next button inside <main> shows its ring (the message box's own frame takes the ring for the text field)
+  for (let i = 0; i < 8 && (await page.evaluate(() => document.activeElement?.tagName)) !== 'BUTTON'; i++) await page.keyboard.press('Tab')
+  const inside = await page.evaluate(() => ({ in: !!document.activeElement?.closest('main'), style: getComputedStyle(document.activeElement!).outlineStyle }))
+  expect(inside).toEqual({ in: true, style: 'solid' })
+})
+
+test('phone width: the menu header keeps the product mark next to the AI name, the logo shows on computers', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/admin/settings')
+  await page.getByTestId('team-icon-input').setInputFiles(file('logo.png', 'image/png', makePng(256, 256)))
+  await expect(page.getByTestId('team-icon')).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByRole('button', { name: '메뉴 열기' }).click()
+  const drawer = page.locator('[data-drawer]')
+  await expect(drawer.getByTestId('sidebar-logo-phone')).toBeVisible()
+  await expect(drawer.getByTestId('sidebar-logo-phone')).toHaveAttribute('src', '/favicon.svg')
+  await expect(drawer.getByTestId('sidebar-logo')).toBeHidden()
 })
