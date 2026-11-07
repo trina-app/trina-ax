@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { DEFAULT_LOCALE, type Locale, type TranscribeResult } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, type LocalSpeechTool, type Locale, type TranscribeResult } from '@mycel/shared/api'
 import { which } from '../config'
 import type { JobHandle } from '../services'
 import { readOutput, runIsolated } from '../tools/isolate'
@@ -58,6 +58,13 @@ export interface TranscribeConfig {
   meter?: SpeechMeter
 }
 export const OPENROUTER_STT_URL = 'https://openrouter.ai/api/v1/audio/transcriptions'
+
+/** What this server lacks for voice input with the 'local' provider: whisper-cli, and ffmpeg, because browsers record
+ * webm/opus (Safari mp4/aac), which whisper-cli cannot read. No Mac build ships either (Homebrew has both). With one
+ * missing, Me.team.voiceInput is false and Team settings names it (GET /api/admin/speech-host localMissing). */
+export function missingLocalTools(cfg: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin'>): LocalSpeechTool[] {
+  return [...(cfg.whisperBin ? [] : ['whisper.cpp' as const]), ...(cfg.ffmpegBin ? [] : ['ffmpeg' as const])]
+}
 
 export function transcribeConfig(dataDir: string, env: Record<string, string | undefined> = process.env): TranscribeConfig {
   const m = env.MYCEL_WHISPER_MODEL as WhisperModel | undefined
