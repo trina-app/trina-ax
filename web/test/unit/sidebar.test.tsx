@@ -1,8 +1,8 @@
 // The computer's sidebar (768 px and wider; docs/DECISIONS.md "Desktop sidebar: rooms first"), rendered and pressed:
-// - its order: the team's name, one row for a new chat and search, one row of icons (Admin only for owners and admins),
-//   then one scroll: 대화 (the five latest rooms and the room on screen, "더 보기 (N)" with what is unread behind it) and
+// - its order: the team's name, one labeled row each (트리나에게 묻기, 검색, 프로젝트, 예약 작업, 알림함, 파일, 팀 스킬; 관리자
+//   only for owners and admins), then one scroll: 대화 (the five latest rooms and the room on screen, "더 보기 (N)" with what is unread behind it) and
 //   트리나 기록 (the five latest and the chat on screen, "모두 보기" with what needs me behind it);
-// - the icons: links named by their label (the Inbox's with its count, so a screen reader says it), with a tooltip;
+// - the rows: their words and where they go, the shortcut hints, the Inbox's count on its row (in words for a screen reader);
 // - both groups fold, remembered in this browser;
 // - "답변 필요" and the new-answer dot come from the chat list itself (Chat.waiting / Chat.unseen), with no request per
 //   chat; the dot stays away from the chat on screen;
@@ -89,13 +89,13 @@ afterEach(() => {
 
 const render = (path = '/') => mount(<MemoryRouter initialEntries={[path]}><Sidebar /></MemoryRouter>)
 const order = (m: Awaited<ReturnType<typeof render>>) =>
-  ['sidebar-team', 'new-chat', 'nav-search', 'nav-icons', 'sidebar-rooms', 'recents-toggle'].map((id) => {
+  ['sidebar-team', 'new-chat', 'nav-search', 'nav-projects', 'nav-scheduled', 'nav-inbox', 'nav-files', 'nav-skills', 'sidebar-rooms', 'recents-toggle'].map((id) => {
     const el = m.find(id)
     return el ? m.html().indexOf(`data-testid="${id}"`) : -1
   })
 
 describe('a computer', () => {
-  test('in order: the team, a new chat and search, the icons, every room, then the AI chats', async () => {
+  test('in order: the team, one row each (a new chat, search, projects, scheduled, inbox, files, team skills), the rooms, then the AI chats', async () => {
     const m = await render()
     try {
       expect(m.get('sidebar-team').textContent).toBe('에이크미 마케팅본부')
@@ -107,7 +107,7 @@ describe('a computer', () => {
       expect(m.get('rooms-toggle').textContent).toBe(ko('rooms.title'))
       expect(ko('rooms.title')).toBe('대화')
       expect(m.get('new-chat').textContent?.trim()).toStartWith(ko('sidebar.askAi', { name: aiName }))
-      for (const id of ['new-chat', 'nav-search', 'nav-icons', 'rooms-toggle', 'recents-toggle', 'ai-chats-all']) expect(m.get(id).textContent).not.toMatch(/채팅/)
+      for (const id of ['nav-rows', 'rooms-toggle', 'recents-toggle', 'ai-chats-all']) expect(m.get(id).textContent).not.toMatch(/채팅/)
       // one scroll holds both sections (nothing pinned)
       const scroll = m.get('sidebar-scroll')
       expect(scroll.querySelector('[data-testid="sidebar-rooms"]')).not.toBeNull()
@@ -120,30 +120,37 @@ describe('a computer', () => {
     }
   })
 
-  test('the icons: files, projects, scheduled, team skills, inbox; Admin only for owners and admins', async () => {
+  test('one labeled row each, in the old order; Admin only for owners and admins; the shortcut hints', async () => {
     for (const [role, admin] of [['member', false], ['admin', true], ['owner', true]] as const) {
       useSession.setState({ status: { kind: 'signed-in', me: me(role) } } as never)
       const m = await render()
       try {
-        const links = m.get('nav-icons').querySelectorAll('a')
-        expect(links.map((a) => a.getAttribute('aria-label'))).toEqual([ko('sidebar.files'), ko('sidebar.projects'), ko('sidebar.scheduled'), ko('sidebar.skills'), ko('inbox.title'), ...(admin ? [ko('sidebar.admin')] : [])])
-        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/files', '/projects', '/scheduled', '/skills', '/settings/notifications', ...(admin ? ['/admin'] : [])])
-        // a tooltip with the same words in each, for the eye (on hover and on keyboard focus)
-        expect(links.map((a) => a.querySelector('[data-testid="nav-tip"]')?.textContent ?? null)).toEqual(links.map((a) => a.getAttribute('aria-label')))
-        expect(m.get('nav-search').getAttribute('aria-label')).toStartWith(ko('sidebar.search'))
+        const rows = m.get('nav-rows')
+        expect(rows.querySelectorAll('button').map((b) => b.getAttribute('data-testid'))).toEqual(['new-chat', 'nav-search'])
+        expect(m.get('new-chat').querySelector('span')?.textContent).toBe(ko('sidebar.askAi', { name: aiName }))
+        expect(m.get('new-chat').querySelector('kbd')?.textContent).toMatch(/^(⇧⌘O|Ctrl\+Shift\+O)$/)
+        expect(m.get('nav-search').textContent?.trim()).toStartWith(ko('sidebar.search'))
+        expect(m.get('nav-search').querySelector('kbd')?.textContent).toMatch(/^(⌘K|Ctrl\+K)$/)
+        const links = rows.querySelectorAll('a')
+        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/projects', '/scheduled', '/settings/notifications', '/files', '/skills', ...(admin ? ['/admin'] : [])])
+        expect(links.map((a) => a.textContent?.trim())).toEqual([ko('sidebar.projects'), ko('sidebar.scheduled'), ko('inbox.title'), ko('sidebar.files'), ko('sidebar.skills'), ...(admin ? [ko('sidebar.admin')] : [])])
+        // no icon row and no tooltips any more: each row says its name
+        expect(m.find('nav-icons')).toBeNull()
+        expect(m.find('nav-tip')).toBeNull()
       } finally {
         await m.unmount()
       }
     }
   })
 
-  test('the Inbox count is on the bell and in its name; team skills has no count of its own', async () => {
+  test('the Inbox count is on its row, in words for a screen reader; team skills has no count of its own', async () => {
     inboxCount = 3
     const m = await render()
     try {
       await m.until(() => m.find('inbox-unread'), 'the Inbox count')
-      expect(m.get('inbox-unread').textContent).toBe('3')
-      expect(m.get('nav-inbox').getAttribute('aria-label')).toBe(`${ko('inbox.title')}, ${ko('notifications.unread', { count: 3 })}`)
+      const count = m.get('inbox-unread').querySelectorAll('span')
+      expect(count.map((x) => [x.getAttribute('aria-hidden'), x.textContent])).toEqual([['true', '3'], [null, ko('notifications.unread', { count: 3 })]])
+      expect(m.get('nav-inbox').textContent?.trim()).toStartWith(ko('inbox.title'))
       expect(m.find('skills-pending')).toBeNull()
       expect(calls.some((c) => c.includes('/api/skills/overview'))).toBe(false)
     } finally {
@@ -383,7 +390,7 @@ describe('the phone drawer keeps its own layout', () => {
     wide = false
     const m = await render()
     try {
-      expect(m.find('nav-icons')).toBeNull()
+      expect(m.find('nav-rows')).toBeNull()
       expect(m.find('sidebar-rooms')).toBeNull()
       expect(m.find('ai-chats-all')).toBeNull()
       expect(m.get('recents-list').querySelectorAll('a[href^="/c/"]').length).toBe(8)
