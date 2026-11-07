@@ -23,7 +23,10 @@ service. It runs on Bun with its state in one SQLite file, behind a TLS terminat
   generic line picked from `code` and `locale` (`src/text.ts`).
 - Data the app reads:
   - iOS: the APNs payload is `{aps:{alert,sound}, body:{notificationId, code, path?, device?}}`. expo-notifications reads
-    remote data from `userInfo["body"]`.
+    remote data from `userInfo["body"]`. A room code (`room.*`) also gets `aps.mutable-content: 1`: the app's
+    notification service extension (1.0.1 and later) may ask its own team server for who and where and put that in the
+    title. The gateway never sees a name; the generic alert stays as the fallback (an app without the extension, or an
+    extension that gets no answer, shows it).
   - Android: FCM `data` is the same keys as flat strings, and never a key named `body` or `tag` (expo-notifications uses
     `data.tag` as the notification id, so the request's `tag` travels as `device`).
 - Logs: only `{evt, outcome, platform, status}`. Tokens, bodies, keys, signatures, client addresses and provider

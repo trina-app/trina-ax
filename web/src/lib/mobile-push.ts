@@ -144,8 +144,11 @@ async function register(turn: number): Promise<string> {
   if (turn !== epoch) throw new DOMException('Mobile operation cancelled', 'AbortError')
   write(GRANTED, '1'); write(DENIED, null)
   usePhonePush.setState({ permission: 'granted', ask: false })
+  // with the hash of the label key of an iPhone app that shows who and where in a room push (push-label-v1)
   const { id, removeKey } = await api.call(API.registerPushDevice, { body: { consent: true, ...token } })
   if (turn === epoch) { registered = key; usePhonePush.setState(s => ({ registered: s.registered + 1 })) }
+  // the session changed meanwhile (sign-out, another person): this device id and key are not the app's to keep now
+  if (turn !== epoch) throw new DOMException('Mobile operation cancelled', 'AbortError')
   // An app without push-registered-v1 (the first store build) still gets push; it only cannot remove itself on a team
   // switch or tell this team's taps from another's. confirmPushDevice does not even ask such an app.
   await confirmPushDevice(id, removeKey).catch(() => false)

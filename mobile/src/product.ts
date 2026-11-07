@@ -27,3 +27,11 @@ export function mobileProduct(value: unknown): MobileProduct {
     ...(typeof v.appleTeamId === 'string' && /^[A-Z0-9]{10}$/.test(v.appleTeamId) ? { appleTeamId: v.appleTeamId } : {}),
   }
 }
+
+/** iPhone: the keychain group the app shares with its notification service extension and the extension's bundle id
+ * (src/labels.ts), for an edition that names its Apple team (the group carries the team id). null: no extension (the
+ * neutral development app). Here, not in labels.ts: app.config.ts loads this file without a bundler. */
+export function labelSetup(p: Pick<MobileProduct, 'bundleId' | 'appleTeamId'>): { accessGroup: string; extensionId: string } | null {
+  if (!p.appleTeamId) return null
+  return { accessGroup: `${p.appleTeamId}.${p.bundleId}.notifications`, extensionId: `${p.bundleId}.NotificationService` }
+}

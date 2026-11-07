@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { initMobile, mobileApp, sendFileToApp, setMobileSession, openExternal, openAppSettings, downloadToApp, readMobileDownload, requestPushToken, confirmPushDevice, MobileFileTooLarge } from '../../src/lib/mobile'
 import { clientKind } from '../../src/lib/desktop'
 import { askLater, laterHides, LATER_MS, phonePushView, registerMobilePush, setMobilePushSession, usePhonePush } from '../../src/lib/mobile-push'
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission } from '../../../mobile/src/protocol'
 const config: MobileConfig = { protocol: 1, appVersion: '0.2.2', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
 const win = Object.assign(new EventTarget(), { self: null as unknown, top: null as unknown, mycelMobile: { ...config }, ReactNativeWebView: { postMessage: (_raw: string) => {} } })
 win.self = win; win.top = win
@@ -412,4 +412,99 @@ test('notifications turned off in the OS: a registered device does not make it "
     expect(messages.filter(m => m.type === 'push-token')).toHaveLength(0)
     expect(phonePushView({ permission: 'denied', on: true, canOpenSettings: true })).toEqual({ status: 'push.deniedPhone', action: 'open-settings' })
   } finally { server.restore() }
+})
+
+test('push-label-v1: the page registers the hash of the app\'s label key with the token; the key never crosses', async () => {
+  const realFetch = globalThis.fetch, bodies: Record<string, unknown>[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/push') && (init?.method ?? 'GET') === 'GET') return Response.json({ configured: false, enabled: false, publicKey: null, subscriptionId: null, native: { available: true, deviceId: null, gateway: 'push.example.test' }, optedOut: false })
+    if (url.endsWith('/api/push/devices')) { bodies.push(JSON.parse(String(init?.body))); return Response.json({ id: 'device-7', removeKey: 'k'.repeat(43) }) }
+    return new Response('{}', { status: 404 })
+  }) as typeof fetch
+  const labelHash = 'a'.repeat(64)
+  const iosToken = { platform: 'ios' as const, token: 'ab'.repeat(32), environment: 'production' as const }
+  try {
+    handler = m => { if (m.type === 'push-permission') reply(m, { permission: 'granted' }); else if (m.type === 'push-token') reply(m, { push: iosToken, labelHash }); else reply(m) }
+    win.mycelMobile = { ...config, capabilities: [...today, PUSH_LABEL_CAPABILITY] }
+    setMobilePushSession('user:labels-1')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(bodies.at(-1)).toEqual({ consent: true, ...iosToken, labelHash })
+    expect(messages.find(m => m.type === 'push-registered')).not.toHaveProperty('labelKey')
+    // an app without push-label-v1 (or anything that is no hash) registers without one
+    messages = []
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('user:labels-2')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(bodies.at(-1)).toEqual({ consent: true, ...iosToken })
+    messages = []
+    handler = m => { if (m.type === 'push-permission') reply(m, { permission: 'granted' }); else if (m.type === 'push-token') reply(m, { push: iosToken, labelHash: 'not-a-hash' }); else reply(m) }
+    win.mycelMobile = { ...config, capabilities: [...today, PUSH_LABEL_CAPABILITY] }
+    setMobilePushSession('user:labels-3')
+    await settle(() => messages.some(m => m.type === 'push-registered'))
+    expect(bodies.at(-1)).toEqual({ consent: true, ...iosToken })
+  } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
+})
+
+test('the app hears signedOut on a sign-out, one person after another, and a sign-in page at a cold start; not on loading or a reload', async () => {
+  const resets = () => messages.filter((m): m is Extract<MobileMessage, { type: 'session-reset' }> => m.type === 'session-reset').map(m => m.signedOut === true)
+  const step = async (key: string | null, signedOut = false) => { setMobileSession(key, signedOut); await settle() }
+  await step('user:a')
+  messages = []
+  await step(null) // loading or an error screen: no sign-out
+  await step('user:a') // the same person again (a reload of a signed-in page)
+  expect(resets()).toEqual([false, false])
+  messages = []
+  await step(null, true) // signed out
+  await step(null, true) // told once
+  expect(resets()).toEqual([true])
+  messages = []
+  await step('user:b')
+  await step('user:c') // another person's session took this one's place
+  expect(resets()).toEqual([false, true])
+  // a cold start on the sign-in page: the page knows before the bridge is there; the app hears it once the bridge is ready
+  messages = []
+  const bridge = win.mycelMobile
+  win.mycelMobile = undefined as unknown as MobileConfig
+  await step(null, true)
+  expect(resets()).toEqual([])
+  win.mycelMobile = bridge
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => resets().length > 0)
+  expect(resets()).toEqual([true])
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle()
+  expect(resets()).toEqual([true])
+  // a sign-out reset the app never answered (dropped, a new bridge) is told again at the next bridge-ready
+  await step('user:d')
+  messages = []
+  const replying = handler
+  handler = () => {}
+  setMobileSession(null, true)
+  await settle(() => resets().length > 0)
+  handler = replying
+  win.dispatchEvent(new Event('mycel:mobile-ready'))
+  await settle(() => resets().length > 1)
+  expect(resets()).toEqual([true, true])
+})
+
+test('a registration answered after the session changed does not hand that device to the app', async () => {
+  const realFetch = globalThis.fetch
+  let answer!: () => void
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/push') && (init?.method ?? 'GET') === 'GET') return Response.json({ configured: false, enabled: false, publicKey: null, subscriptionId: null, native: { available: true, deviceId: null, gateway: 'push.example.test' }, optedOut: false })
+    if (url.endsWith('/api/push/devices')) { await new Promise<void>(r => { answer = r }); return Response.json({ id: 'device-late', removeKey: 'k'.repeat(43) }) }
+    return new Response('{}', { status: 404 })
+  }) as typeof fetch
+  try {
+    handler = withPermission('granted')
+    win.mycelMobile = { ...config, capabilities: today }
+    setMobilePushSession('user:late-1')
+    await settle(() => typeof answer === 'function')
+    setMobilePushSession('user:late-2')
+    answer()
+    await settle()
+    expect(messages.find(m => m.type === 'push-registered' && m.deviceId === 'device-late')).toBeUndefined()
+  } finally { globalThis.fetch = realFetch; setMobilePushSession(null) }
 })
