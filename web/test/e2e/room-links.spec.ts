@@ -12,7 +12,7 @@ test.use({ serviceWorkers: 'block' })
 const SORA = { id: 'sora', name: '소라님' }
 const OLGA = { id: 'olga', name: 'Olga' }
 const id = (n: number) => `019a5f00-0000-7000-8000-0000000001${String(n).padStart(2, '0')}`
-const ARTIFACT = 'https://example.com/artifact/7A3N9vnbqnmBQiAeRtBPCx'
+const ARTIFACT = 'https://example.com/artifact/Q8xK2mTz5RwLp4HvNc7JdE'
 const MINE = 'https://example.com/a에서 확인했어요. javascript:alert(1)'
 
 async function openRoom(page: Page) {

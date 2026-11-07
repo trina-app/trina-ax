@@ -49,11 +49,11 @@ test('a mention and links in one message: the @name stays a mention, an address 
 })
 
 test("a link to this server's /api/ or to a path the router reads as another site stays text; a long address may break after its slashes", () => {
-  const html = render([message({ roomId: R, seq: 1, body: 'http://localhost/api/admin/users and http://localhost//evil.example/login and https://example.com/artifact/7A3N9vnbqnmBQiAeRtBPCx' })])
+  const html = render([message({ roomId: R, seq: 1, body: 'http://localhost/api/admin/users and http://localhost//evil.example/login and https://example.com/artifact/Q8xK2mTz5RwLp4HvNc7JdE' })])
   expect(anchors(html).length).toBe(1)
   expect(html).toContain('http://localhost/api/admin/users and http://localhost//evil.example/login and ')
   expect(html).not.toContain('evil.example/login"')
-  expect(html).toContain('>https://<wbr/>example.com/<wbr/>artifact/<wbr/>7A3N9vnbqnmBQiAeRtBPCx</a>')
+  expect(html).toContain('>https://<wbr/>example.com/<wbr/>artifact/<wbr/>Q8xK2mTz5RwLp4HvNc7JdE</a>')
   expect(html).toContain('[overflow-wrap:anywhere]')
 })
 

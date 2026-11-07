@@ -8,10 +8,10 @@ const links = (text: string, o?: { cut?: boolean }) => linkParts(text, o).filter
 const whole = (parts: LinkPart[]) => parts.map((p) => p.text).join('')
 
 test('an address in the middle of a sentence; the rest stays text, and the parts are the text', () => {
-  const text = 'https://claude.ai/artifact/7A3N9vnbqnmBQiAeRtBPCx this one report for the team'
+  const text = 'https://example.com/artifact/Q8xK2mTz5RwLp4HvNc7JdE this one report for the team'
   const parts = linkParts(text)
   expect(parts).toEqual([
-    { text: 'https://claude.ai/artifact/7A3N9vnbqnmBQiAeRtBPCx', href: 'https://claude.ai/artifact/7A3N9vnbqnmBQiAeRtBPCx' },
+    { text: 'https://example.com/artifact/Q8xK2mTz5RwLp4HvNc7JdE', href: 'https://example.com/artifact/Q8xK2mTz5RwLp4HvNc7JdE' },
     { text: ' this one report for the team' },
   ])
   expect(whole(parts)).toBe(text)
@@ -149,7 +149,7 @@ test('a quote cut short with "…": the address that runs into it stays text, th
 })
 
 test('a long address breaks after its slashes and before ? # &', () => {
-  expect(addressPieces('https://claude.ai/artifact/7A3N9vnbqnmBQiAeRtBPCx')).toEqual(['https://', 'claude.ai/', 'artifact/', '7A3N9vnbqnmBQiAeRtBPCx'])
+  expect(addressPieces('https://example.com/artifact/Q8xK2mTz5RwLp4HvNc7JdE')).toEqual(['https://', 'example.com/', 'artifact/', 'Q8xK2mTz5RwLp4HvNc7JdE'])
   expect(addressPieces('https://example.com/a?b=1&c=2#d')).toEqual(['https://', 'example.com/', 'a', '?b=1', '&c=2', '#d'])
   expect(addressPieces('www.example.com').join('')).toBe('www.example.com')
 })

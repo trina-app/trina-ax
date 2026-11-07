@@ -113,7 +113,7 @@ export function linkParts(text: string, o: { cut?: boolean } = {}): LinkPart[] {
 }
 
 /** An address as pieces a line may break between: after its slashes and before "?", "#" and "&" (not inside "://"), so
- * a long one wraps at a slash rather than in the middle of a word ("…/artifact/" | "7A3N9vnb…"). */
+ * a long one wraps at a slash rather than in the middle of a word ("…/artifact/" | "Q8xK2mTz…"). */
 export function addressPieces(address: string): string[] {
   return address.split(/(?<=\/)(?=[^/])|(?=[?#&])/).filter(Boolean)
 }
