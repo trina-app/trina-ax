@@ -15,7 +15,7 @@
 --     NULL: their own words. An AI answer's is room_ai_turns.scope (246).
 -- An older build ignores all of it: it shows every member the room from their join on, as before (visible_from_seq is
 -- unchanged, so nothing hidden is exposed), and the reader level stays.
--- Numbered 263: 262 is feat/inbox-room-notices'.
+-- Numbered 264: 262 is feat/inbox-room-notices', 263 feat/ios-notification-labels' (not on dev yet).
 ALTER TABLE room_members ADD COLUMN history_from_seq INTEGER;
 ALTER TABLE room_members ADD COLUMN history_recheck INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE room_messages ADD COLUMN source_scope TEXT;

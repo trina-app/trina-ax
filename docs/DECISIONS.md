@@ -12731,7 +12731,7 @@ reference; a product and privacy review cut the first plan down to this.
 
 ## 지난 대화 — a later member sees a team room's history (feat/room-history-for-later-members, 2026-11-07, product owner)
 넣을 곳: trina-ax `server/src/rooms` (history.ts, store.ts, service.ts, ai.ts, inbox.ts, reader.ts), `server/src/chat`
-(read-scope.ts, answer-share.ts, runtime.ts), `server/src/connectors/remote-mcp/rooms.ts`, migration 263,
+(read-scope.ts, answer-share.ts, runtime.ts), `server/src/connectors/remote-mcp/rooms.ts`, migration 264,
 `shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMessages.tsx`, 이유: rooms, permissions and the AI's share rule
 are core.
 
@@ -12816,9 +12816,9 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   from before 246 (reasons but no scope) is not posted in a team room or the everyone room where anything is hidden from
   someone (409 `room_ai_ask_again`). Someone's own message hidden from them since they joined again may still be deleted
   by them (not read or edited).
-- **Migration 263, additive (reader level stays 6).** `room_members.history_from_seq`, `history_recheck`,
-  `room_messages.source_scope`, `room_hidden_answers(room_id, user_id, message_id, see_seq)` with an index on
-  `(room_id, user_id, see_seq)`, and a partial index of the answers for the walk. Nothing is rewritten: existing later
+- **Migration 264, additive (reader level stays 6; 263 is feat/ios-notification-labels').** `history_from_seq`,
+  `history_recheck` on `room_members`, `room_messages.source_scope`, `room_hidden_answers(room_id, user_id, message_id,
+  see_seq)` with an index on `(room_id, user_id, see_seq)`, and a partial index of the answers for the walk. Nothing is rewritten: existing later
   members get the history at the first start of this version, through the same walk. Rejected: setting
   `visible_from_seq` to 0 with reader level 7: an older build after a rollback would then show every hidden answer; with
   the new column it keeps showing from the join on.

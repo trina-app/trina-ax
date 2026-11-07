@@ -295,7 +295,7 @@ describe('when it is worked out', () => {
     await send('alice', roomId, 'PRE-JOIN-TALK')
     await setMembers(groupId, ['alice', 'erin', 'bob'])
     const db = h.ctx.db
-    // as the database is after migration 263, or after an older build added him
+    // as the database is after migration 264, or after an older build added him
     db.query('UPDATE room_members SET history_from_seq = NULL WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
     db.query('DELETE FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
     expect(readRoom(db, 'bob', 'UTC', { room: roomId }).text).not.toContain('PRE-JOIN-TALK')
@@ -309,10 +309,10 @@ describe('when it is worked out', () => {
     expect(db.query("SELECT COUNT(*) n FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE r.kind IN ('team', 'all') AND m.history_from_seq IS NULL").get()).toEqual({ n: 0 })
   })
 
-  test('migration 263 is additive (reader level stays)', () => {
-    const m = readMigrations().find((x) => x.name === '263_b_room_history.sql')!
+  test('migration 264 is additive (reader level stays)', () => {
+    const m = readMigrations().find((x) => x.name === '264_b_room_history.sql')!
     expect(m.minCompatibleReader).toBe(1)
-    expect(readMigrations().filter((x) => x.version === 263)).toHaveLength(1)
+    expect(readMigrations().filter((x) => x.version === 264)).toHaveLength(1)
   })
 
   test('hidden answers only become fewer: access gained later shows them, access lost later hides nothing they could read', async () => {

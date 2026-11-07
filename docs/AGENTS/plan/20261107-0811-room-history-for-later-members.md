@@ -34,7 +34,7 @@ by re-joining).
 ## Steps
 
 1. Design and an independent product + security review (in the PR).
-2. Migration 263 (additive): `room_members.history_from_seq`, `room_messages.answer_scope`, `room_hidden_answers`.
+2. Migration 264 (additive): `room_members.history_from_seq`, `history_recheck`, `room_messages.source_scope`, `room_hidden_answers`.
 3. `rooms/history.ts`: work out a member's hidden answers at join; `Rooms.sync`, `list`, `syncFor`, `mine` run it.
 4. `rooms/store.ts`: `SEE_SQL`, `canSee(db, …)`, the listing form and stubs in `messagesOut`; every caller.
 5. Room AI `decide`, `readers`, `count`; `read-scope.ts` viewers; answer-share stores its scope; inbox; runtime history.
@@ -43,8 +43,8 @@ by re-joining).
 
 ## Risks
 
-- Migration number: 263 (262 is the highest on dev). Additive; the reader level stays 6: an older build still shows
-  later members the room from their join on.
+- Migration number: 264 (262 is the highest on dev; 263 is feat/ios-notification-labels'). Additive; the reader level
+  stays 6: an older build still shows later members the room from their join on.
 - Security: any reader that skips the per-member check would show a hidden answer. The check is in `SEE_SQL` /
   `canSee` (whose signature changes, so the compiler lists every caller) and again in `messagesOut`.
 - The AI share rule: an answer that read an old answer some member cannot see stays private.
@@ -64,5 +64,5 @@ that started before the join are judged whatever their own seq; a message an AI 
 had read (`room_messages.source_scope`, also used for shared answers); deleted answers are walked; hidden answers only
 become fewer after access changes (`history_recheck`), so an invite account that gets its groups later sees what they
 open; an answer private because it used a hidden answer cannot be posted; `has_hidden` skips the check for members with
-nothing hidden. Migration 263, additive, reader level 6. Known limits are in DECISIONS (rollback and forward again;
+nothing hidden. Migration 264, additive, reader level 6. Known limits are in DECISIONS (rollback and forward again;
 names in a room session's instructions). PR: see the pull request of this branch.
