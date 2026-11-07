@@ -5,6 +5,9 @@
 // - fusion order (reciprocal rank fusion), ties go to the keyword search, meaning-only pieces marked byMeaning
 // - meaning: false, no vectors in the folders asked, or a missing vec column: exactly the keyword search
 // - the deadline: a slow embedding is left out and the keyword result comes back in time; later searches fuse
+// - a cold model or cold vectors are never waited for: keyword only at once, loading starts, later searches fuse
+// - the top-k scan yields: a lookup queued in the worker behind a 100,000-vector scan answers first; the scan stops at
+//   its deadline
 // - the vector set picks up new, re-indexed and newly embedded pieces and drops deleted ones (per document, throttled)
 // - rootIds and prefix: neither the vectors nor a stale vector's piece ever bring a row of another folder
 // - the model and the vectors leave memory when idle; a worker thread warms meaning at its start and answers async
@@ -15,7 +18,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DocumentIndex, type DocHit, type SearchOptions } from '../../server/src/knowledge-graph/documents'
 import { DocSearchWorker, MEANING_MARGIN_MS, openSearchReader } from '../../server/src/knowledge-graph/documents/search-worker'
-import { MEANING_IDLE_MS, MEANING_REFRESH_MS, MeaningSearch, MeaningVectors } from '../../server/src/knowledge-graph/meaning/search'
+import { MEANING_IDLE_MS, MEANING_REFRESH_MS, MeaningSearch, MeaningVectors, SCAN_YIELD } from '../../server/src/knowledge-graph/meaning/search'
 import { MEANING_DIMS, passageText, quantize, vecToBlob, type Embedder } from '../../server/src/knowledge-graph/meaning/vectors'
 
 setDefaultTimeout(30_000)
@@ -197,7 +200,7 @@ describe('the combined search in the worker (openSearchReader, in this thread)',
       await v.refresh()
       expect(v.ready).toBe(true)
       expect(v.size).toBe(0)
-      expect(v.topK(new Int8Array(MEANING_DIMS), { rootIds: ['shared'], k: 5 })).toEqual([])
+      expect(await v.topK(new Int8Array(MEANING_DIMS), { rootIds: ['shared'], k: 5 })).toEqual([])
       // the meaning index adds the column and fills it: a look after the refresh time finds them
       embedAll(dir)
       await v.refresh()
@@ -210,6 +213,7 @@ describe('the combined search in the worker (openSearchReader, in this thread)',
     const log: string[] = []
     const r = openSearchReader(dir, () => [], fakeOpener({ log }))
     try {
+      await r.warm?.(true)
       const o: SearchOptions = { rootIds: ['shared'], meaning: true, passage: 1500 }
       // keyword: "report" in the template only; meaning: "outage" is the Korean incident report
       expect(rels(writer.search('report september outage', o))).toEqual(['report-template.md'])
@@ -236,6 +240,7 @@ describe('the combined search in the worker (openSearchReader, in this thread)',
     const { dir, writer } = await fixture('scope')
     const r = openSearchReader(dir, () => [], fakeOpener())
     try {
+      await r.warm?.(true)
       const shared = await r.search('outage', { rootIds: ['shared'], meaning: true }, Date.now() + 5000)
       expect(shared.length).toBeGreaterThan(0)
       expect(shared.every((h) => h.rootId === 'shared')).toBe(true)
@@ -248,14 +253,14 @@ describe('the combined search in the worker (openSearchReader, in this thread)',
       await v.refresh()
       const q = quantize(fakeVec('outage'))
       const secret = new Set(chunkIds(dir, 'outage.md'))
-      const all = v.topK(q, { rootIds: ['shared', 'projects/x', 'groups/secret'], k: 50 })
+      const all = (await v.topK(q, { rootIds: ['shared', 'projects/x', 'groups/secret'], k: 50 }))!
       expect(all.some((x) => secret.has(x.id))).toBe(true)
-      expect(v.topK(q, { rootIds: ['shared', 'projects/x'], k: 50 }).some((x) => secret.has(x.id))).toBe(false)
-      expect(v.topK(q, { rootIds: ['projects/x'], prefix: 'prices', k: 50 }).map((x) => x.id)).toEqual(chunkIds(dir, 'prices/price-list.md'))
-      expect(v.topK(q, { rootIds: ['nowhere'], k: 50 })).toEqual([])
+      expect((await v.topK(q, { rootIds: ['shared', 'projects/x'], k: 50 }))!.some((x) => secret.has(x.id))).toBe(false)
+      expect((await v.topK(q, { rootIds: ['projects/x'], prefix: 'prices', k: 50 }))!.map((x) => x.id)).toEqual(chunkIds(dir, 'prices/price-list.md'))
+      expect(await v.topK(q, { rootIds: ['nowhere'], k: 50 })).toEqual([])
       // best first, at most k
       expect(all[0]!.score).toBeGreaterThan(0.9)
-      expect(v.topK(q, { rootIds: ['shared', 'projects/x', 'groups/secret'], k: 2 })).toEqual(all.slice(0, 2))
+      expect(await v.topK(q, { rootIds: ['shared', 'projects/x', 'groups/secret'], k: 2 })).toEqual(all.slice(0, 2))
     } finally { r.close(); writer.close() }
   })
 
@@ -269,7 +274,7 @@ describe('the combined search in the worker (openSearchReader, in this thread)',
       expect(performance.now() - t0).toBeLessThan(120)
       expect(quick).toEqual(writer.search('report september outage', o))
       // the model went on opening meanwhile: a later search in time has the meaning part
-      await Bun.sleep(450)
+      await r.warm?.(true)
       expect(rels(await r.search('report september outage', o, Date.now() + 200))).toContain('incident-2026-09.md')
       // a deadline already inside the margin: keyword alone, at once
       expect(await r.search('report september outage', o, Date.now() + MEANING_MARGIN_MS - 5)).toEqual(writer.search('report september outage', o))
@@ -278,7 +283,7 @@ describe('the combined search in the worker (openSearchReader, in this thread)',
     const slow = openSearchReader(dir, () => [], fakeOpener({ embedMs: 300 }))
     try {
       const o: SearchOptions = { rootIds: ['shared'], meaning: true }
-      await slow.search('warm', o, Date.now() + 2000)
+      await slow.warm?.(true)
       const t0 = performance.now()
       expect(await slow.search('refund', o, Date.now() + 100)).toEqual(writer.search('refund', o))
       expect(performance.now() - t0).toBeLessThan(100)
@@ -291,11 +296,120 @@ describe('the combined search in the worker (openSearchReader, in this thread)',
     try {
       const o: SearchOptions = { rootIds: ['shared'], meaning: true }
       expect(await broken.search('refund', o, Date.now() + 2000)).toEqual(writer.search('refund', o))
+      await broken.warm?.(true)
       expect(await broken.search('refund', o, Date.now() + 2000)).toEqual(writer.search('refund', o))
+      await broken.warm?.(true)
       expect(log.filter((x) => x === 'open')).toHaveLength(1)
       expect(warnings).toHaveLength(1)
       expect(warnings[0]).toContain('keyword search only')
     } finally { broken.close(); writer.close() }
+  })
+
+  test('a cold model is never waited for: keyword only well before the deadline, its loading starts, a later search fuses', async () => {
+    const { dir, writer } = await fixture('cold')
+    const log: string[] = []
+    // the model takes 1.5 s to open (about what the real one takes on 2 cores)
+    const r = openSearchReader(dir, () => [], fakeOpener({ openMs: 1500, log }))
+    try {
+      const o: SearchOptions = { rootIds: ['shared'], meaning: true, passage: 1500 }
+      // the Files search's 500 ms: the keyword result at once, not just before the deadline
+      let t0 = performance.now()
+      expect(await r.search('report september outage', o, Date.now() + 500)).toEqual(writer.search('report september outage', o))
+      expect(performance.now() - t0).toBeLessThan(150)
+      // the AI's tool (the worker's 5 s): no wait through the model's opening either
+      t0 = performance.now()
+      expect(await r.search('report september outage', o, Date.now() + 5000)).toEqual(writer.search('report september outage', o))
+      expect(performance.now() - t0).toBeLessThan(300)
+      // the first search started the loading (once): later searches fuse
+      await r.warm?.(true)
+      expect(log.filter((x) => x === 'open')).toHaveLength(1)
+      const fused = await r.search('report september outage', o, Date.now() + 500)
+      expect(rels(fused)).toContain('incident-2026-09.md')
+      expect(fused.find((h) => h.relPath === 'incident-2026-09.md')!.byMeaning).toBe(true)
+    } finally { r.close() }
+
+    // the model in memory but the vectors not (a new MeaningSearch over the same index): keyword only at once, then fused
+    const reader = DocumentIndex.openReader(dir)
+    const m = new MeaningSearch(reader.readerDb(), { open: fakeOpener() })
+    try {
+      await m.embedder.warm()
+      expect(m.embedder.loaded()).toBe(true)
+      expect(m.vectors.ready).toBe(false)
+      expect(await m.topK('outage', { rootIds: ['shared'], at: Date.now() + 500 })).toBeNull()
+      for (let i = 0; i < 200 && !m.vectors.ready; i++) await Bun.sleep(5)
+      expect((await m.topK('outage', { rootIds: ['shared'], at: Date.now() + 500 }))!.length).toBeGreaterThan(0)
+    } finally { m.close(); reader.close(); writer.close() }
+  })
+})
+
+/** `n` more pieces with vectors (and empty text) in one new document of `root`, written straight into documents.db */
+function bulkVectors(dir: string, root: string, n: number) {
+  const db = new Database(path.join(dir, 'documents.db'))
+  try {
+    db.transaction(() => {
+      const doc = (db.query("INSERT INTO docs (root_id, rel, dir, name_lc, size, mtime, chunks, updated_at) VALUES (?, 'bulk.md', '', 'bulk.md', 1, 1, ?, 1) RETURNING id").get(root, n) as { id: number }).id
+      const ins = db.prepare("INSERT INTO chunks (doc_id, ord, text, vec) VALUES (?, ?, '', ?)")
+      let seed = 11
+      const v = new Int8Array(MEANING_DIMS)
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < MEANING_DIMS; j++) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; v[j] = (seed % 41) - 20 }
+        ins.run(doc, i, new Uint8Array(v.buffer.slice(0)))
+      }
+    })()
+  } finally { db.close() }
+}
+
+describe('the top-k scan over 100,000 vectors', () => {
+  test('it yields while it runs (a task queued meanwhile runs before it ends), stops at its deadline, and ranks as a plain scan', async () => {
+    const { dir, writer } = await fixture('scan-yield')
+    bulkVectors(dir, 'shared', 100_000)
+    const reader = DocumentIndex.openReader(dir)
+    const v = new MeaningVectors(reader.readerDb())
+    try {
+      await v.refresh()
+      expect(v.size).toBeGreaterThan(100_000)
+      const q = quantize(fakeVec('refund'))
+      let ran = false
+      setTimeout(() => { ran = true }, 0)
+      const top = (await v.topK(q, { rootIds: ['shared'], k: 50 }))!
+      expect(ran).toBe(true)
+      // the same as comparing every vector at once
+      const all = (reader.readerDb().query("SELECT c.id, c.vec FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE d.root_id = 'shared' AND c.vec IS NOT NULL").all() as { id: number; vec: Uint8Array }[])
+        .map((r) => { const b = new Int8Array(r.vec.buffer, r.vec.byteOffset, r.vec.byteLength); let s = 0; for (let i = 0; i < b.length; i++) s += b[i]! * q[i]!; return { id: r.id, s } })
+        .sort((a, b) => b.s - a.s || a.id - b.id).slice(0, 50)
+      expect(top.map((x) => x.id)).toEqual(all.map((x) => x.id))
+      expect(top[0]!.id).toBe(chunkIds(dir, 'refund.md')[0]!)
+      // a deadline that passes during the scan: nothing (the keyword result goes out alone)
+      expect(SCAN_YIELD).toBeLessThan(100_000)
+      expect(await v.topK(q, { rootIds: ['shared'], k: 50, at: Date.now() - 1 })).toBeNull()
+    } finally { reader.close(); writer.close() }
+  })
+
+  test('in the worker: a keyword lookup asked right after a combined search over 100,000 vectors answers first', async () => {
+    const { dir, writer } = await fixture('scan-worker')
+    bulkVectors(dir, 'shared', 100_000)
+    const SELF = path.join(import.meta.dir, '../../server/src/knowledge-graph/documents/search-worker.ts')
+    const script = path.join(tmp, 'scan-worker.ts')
+    fs.writeFileSync(script, `import { parentPort } from 'node:worker_threads'
+import { openSearchReader, serveDocSearch } from ${JSON.stringify(SELF)}
+import { fakeOpener } from ${JSON.stringify(path.join(tmp, 'fake-embedder.ts'))}
+serveDocSearch(parentPort, (dir, people) => openSearchReader(dir, people, fakeOpener()))
+`)
+    const w = new DocSearchWorker(dir, script, () => {}, { meaning: () => true })
+    try {
+      w.warm()
+      const o: SearchOptions = { rootIds: ['shared'], meaning: true, passage: 300 }
+      // warm: the vectors and the model loaded (a meaning-only Korean piece is in the answer)
+      for (let i = 0; i < 300; i++) { if (rels(await w.search('refund', { ...o, due: Date.now() + 5000 })).includes('환불.md')) break; await Bun.sleep(20) }
+      expect(rels(await w.search('refund', { ...o, due: Date.now() + 5000 }))).toContain('환불.md')
+      const order: string[] = []
+      const combined = w.search('refund', { ...o, due: Date.now() + 5000 }).then((h) => { order.push('combined'); return h })
+      const lookup = w.search('refund', { rootIds: ['shared'], due: Date.now() + 5000 }).then((h) => { order.push('lookup'); return h })
+      const [c, l] = await Promise.all([combined, lookup])
+      expect(order).toEqual(['lookup', 'combined'])
+      expect(rels(l)).toEqual(['refund.md'])
+      expect(rels(c)).toContain('환불.md')
+    } finally { w.close(); writer.close() }
   })
 })
 
@@ -308,8 +422,8 @@ describe('the vectors in memory (MeaningVectors)', () => {
     try {
       await v.refresh()
       const q = quantize(fakeVec('vacation'))
-      const top = () => v.topK(q, { rootIds: ['shared'], k: 3 }).map((x) => x.id)
-      expect(top()[0]).toBe(chunkIds(dir, 'leave.md')[0]!)
+      const top = async () => (await v.topK(q, { rootIds: ['shared'], k: 3 }))!.map((x) => x.id)
+      expect((await top())[0]).toBe(chunkIds(dir, 'leave.md')[0]!)
       const before = v.size
       // a new document, not embedded yet: not there; embedded: there (and a document not fully embedded is looked at again)
       await put(writer, 'shared', 'vacation-2027.md', '# Vacation plan 2027\nEveryone takes a vacation week in August.\n')
@@ -318,7 +432,7 @@ describe('the vectors in memory (MeaningVectors)', () => {
       embedAll(dir)
       await v.refresh()
       expect(v.size).toBe(before + 1)
-      expect(top()).toContain(chunkIds(dir, 'vacation-2027.md')[0]!)
+      expect(await top()).toContain(chunkIds(dir, 'vacation-2027.md')[0]!)
       // indexed again: new piece ids, the old ones gone
       const oldIds = chunkIds(dir, 'leave.md')
       await put(writer, 'shared', 'leave.md', '# 휴가 규정 v2\n연차는 16일이다. Annual leave policy, new.\n')
@@ -326,7 +440,7 @@ describe('the vectors in memory (MeaningVectors)', () => {
       await v.refresh()
       const newIds = chunkIds(dir, 'leave.md')
       expect(newIds).not.toEqual(oldIds)
-      const found = v.topK(q, { rootIds: ['shared'], k: 50 }).map((x) => x.id)
+      const found = (await v.topK(q, { rootIds: ['shared'], k: 50 }))!.map((x) => x.id)
       for (const id of newIds) expect(found).toContain(id)
       for (const id of oldIds.filter((x) => !newIds.includes(x))) expect(found).not.toContain(id)
       // removed: gone
@@ -334,11 +448,11 @@ describe('the vectors in memory (MeaningVectors)', () => {
       writer.remove('shared', 'vacation-2027.md')
       await v.refresh()
       expect(v.size).toBe(before)
-      expect(top()).not.toContain(vacation!)
+      expect(await top()).not.toContain(vacation!)
       // a whole folder dropped
       writer.dropRoot('projects/x')
       await v.refresh()
-      expect(v.topK(q, { rootIds: ['projects/x'], k: 5 })).toEqual([])
+      expect(await v.topK(q, { rootIds: ['projects/x'], k: 5 })).toEqual([])
     } finally { writer.close() }
   })
 
@@ -399,8 +513,7 @@ describe('the meaning part over time (MeaningSearch)', () => {
     const er = DocumentIndex.openReader(empty.dir)
     const elog: string[] = []
     const em = new MeaningSearch(er.readerDb(), { open: fakeOpener({ log: elog }), now: () => 1 })
-    em.warm()
-    await Bun.sleep(30)
+    await em.warm()
     expect(em.vectors.ready).toBe(true)
     expect(elog).toEqual([])
     em.close(); er.close(); empty.writer.close()
@@ -409,8 +522,7 @@ describe('the meaning part over time (MeaningSearch)', () => {
     const fr = DocumentIndex.openReader(full.dir)
     const flog: string[] = []
     const fm = new MeaningSearch(fr.readerDb(), { open: fakeOpener({ log: flog }), now: () => 1 })
-    fm.warm()
-    await Bun.sleep(30)
+    await fm.warm()
     expect(fm.embedder.loaded()).toBe(true)
     expect(flog).toEqual(['open'])
     fm.close(); fr.close(); full.writer.close()
@@ -438,10 +550,11 @@ serveDocSearch(parentPort, (dir, people) => openSearchReader(dir, people, fakeOp
       for (let i = 0; i < 100 && !said.includes('fake open'); i++) await Bun.sleep(10)
       expect(said[0]).toBe('fake open')
       const o: SearchOptions = { rootIds: ['shared'], meaning: true, passage: 1500 }
-      // the model takes 1.5 s to open: a lookup meanwhile gets the keyword result, in time
+      // the model takes 1.5 s to open: a search meanwhile gets the keyword result at once, not at its deadline (the
+      // Files search's 500 ms; before, it answered after about 485 ms)
       const t0 = performance.now()
-      const early = await w.search('report september outage', { ...o, due: Date.now() + 150 })
-      expect(performance.now() - t0).toBeLessThan(200)
+      const early = await w.search('report september outage', { ...o, due: Date.now() + 500 })
+      expect(performance.now() - t0).toBeLessThan(250)
       expect(early).toEqual(writer.search('report september outage', o))
       await Bun.sleep(1600)
       const later = await w.search('report september outage', { ...o, due: Date.now() + 200 })
@@ -474,13 +587,16 @@ describe('the embedder in its own thread (threadEmbedder)', () => {
     const { threadEmbedder } = await import('../../server/src/knowledge-graph/documents/search-worker')
     const SELF = path.join(import.meta.dir, '../../server/src/knowledge-graph/documents/search-worker.ts')
     const script = path.join(tmp, 'embed-thread.ts')
-    // a thread that blocks for 400 ms while "opening" (as ONNX does), then serves the stand-in; "die" ends it
+    // a thread that blocks for 400 ms while "opening" (as ONNX does), then serves the stand-in; "die" ends it; its
+    // model's dispose leaves a mark (in the thread, before the thread ends)
+    const freed = path.join(tmp, 'embed-thread-freed')
     fs.writeFileSync(script, `import { parentPort } from 'node:worker_threads'
+import fs from 'node:fs'
 import { serveEmbedder } from ${JSON.stringify(SELF)}
 import { fakeOpener } from ${JSON.stringify(path.join(tmp, 'fake-embedder.ts'))}
 const spin = (ms) => { const end = Date.now() + ms; while (Date.now() < end) {} }
-const open = fakeOpener()
-serveEmbedder({ on: (ev, f) => parentPort.on(ev, (m) => (m.texts[0] === 'die' ? process.exit(1) : f(m))), postMessage: (r) => parentPort.postMessage(r) }, async () => { spin(400); return open() })
+const open = fakeOpener({ embedMs: 50, log: { push: (x) => { if (x === 'dispose') fs.appendFileSync(${JSON.stringify(freed)}, 'freed\\n') } } })
+serveEmbedder({ on: (ev, f) => parentPort.on(ev, (m) => (m.texts?.[0] === 'die' ? process.exit(1) : f(m))), postMessage: (r) => parentPort.postMessage(r) }, async () => { spin(400); return open() })
 `)
     let ticks = 0
     const tick = setInterval(() => ticks++, 1)
@@ -491,7 +607,11 @@ serveEmbedder({ on: (ev, f) => parentPort.on(ev, (m) => (m.texts[0] === 'die' ? 
     expect(ticks).toBeGreaterThan(50)
     const [v] = await emb.embed(['the September outage'], 'query')
     expect(Array.from(v!)).toEqual(Array.from(fakeVec('the September outage')))
+    // an embedding still running when dispose is asked ends first; then the model is freed in the thread, then it ends
+    const running = emb.embed(['refund'], 'query')
     await emb.dispose()
+    expect(Array.from((await running)[0]!)).toEqual(Array.from(fakeVec('refund')))
+    expect(fs.readFileSync(freed, 'utf8')).toBe('freed\n')
     await expect(emb.embed(['again'], 'query')).rejects.toThrow('embedder closed')
 
     // a thread that dies: the waiting embedding is refused, and the meaning part drops it (keyword only, one line)

@@ -9,12 +9,18 @@
 //   with nothing to do.
 // - Memory: it starts only with MIN_FREE_MIB available (freeMemoryMiB); otherwise one log line, and nothing more until
 //   the service's nightly check (kick with `retry`). Its own memory (processMemoryMiB) is looked at every MEM_POLL_MS;
-//   once the model is loaded it is stopped above MAX_RSS_MIB and the batch is done again by a new one. After
-//   RESTARTS_MAX stops in a row it waits for the nightly check too. Loading peaks higher for a moment (the
-//   tokenizer's vocabulary is parsed and the model file read into memory, then dropped): stopping it there would only
-//   load it again. Measured on an M-series Mac with the real model, one thread, batches of 4 pieces of up to 512
-//   tokens: about 0.6 GB while it works, up to 0.7 GB for a moment while it loads; 3 pieces a second of full-size
-//   pieces at utility priority on a busy Mac.
+//   once the model is loaded it is stopped above MAX_RSS_MIB and the batch is done again by a new one. Loading peaks
+//   higher for a moment (the tokenizer's vocabulary is parsed and the model file read into memory, then dropped):
+//   stopping it there would only load it again. Measured on an M-series Mac with the real model, one thread, batches
+//   of 4 pieces of up to 512 tokens: about 0.6 GB while it works, up to 0.7 GB for a moment while it loads; 3 pieces a
+//   second of full-size pieces at utility priority on a busy Mac (before the CPU rest below).
+// - CPU: after each batch it rests REST_FACTOR times as long as the batch took, so it uses at most about a quarter of
+//   one core (background priority alone does not keep a small cloud server's CPU credits; see REST_FACTOR).
+// - A batch the process fails (it ended, went above its memory limit, refused it, or gave no answer within
+//   BATCH_TIMEOUT_MS) is done again by a new process; after BATCH_TRIES failures its pieces go one at a time. A piece
+//   that fails alone gets an empty vector (never asked again; no vector in the search), one log line, and the indexing
+//   goes on. When no piece of that batch works alone either, the process is the problem, not the pieces: it waits for
+//   the nightly check (a batch of one piece with nothing embedded before it in the run: it waits for the next run).
 // - Someone waiting for an answer (a running or queued chat turn): it pauses between batches, and ends after IDLE_MS of
 //   pause, so the memory goes back to people's work.
 // - Progress goes to the log only: no screen, no admin field (the owner's rule: admins see nothing about it).
@@ -42,9 +48,17 @@ export const IDLE_MS = 60_000
 const PAUSE_POLL_MS = 2_000
 /** how often the process's memory is looked at */
 const MEM_POLL_MS = 2_000
-/** stops in a row (memory, a crash, a failed batch) with no batch done in between, after which it waits for the
- * nightly check */
-export const RESTARTS_MAX = 3
+/** a batch is tried this many times (a new process each time); then its pieces go one at a time */
+export const BATCH_TRIES = 2
+/** a batch not answered after this long fails, and the process (stuck) is stopped */
+export const BATCH_TIMEOUT_MS = 2 * 60_000
+/**
+ * After each batch the indexing rests this many times as long as the batch took: busy 1 part in 1 + REST_FACTOR, at most
+ * about 25% of one core. nice and taskpolicy only order the work: on a burstable cloud server the indexing would still
+ * drain the CPU credits for hours, and then the whole server, people's answers included, runs at its baseline (20% per
+ * vCPU on 2-vCPU Lightsail plans).
+ */
+export const REST_FACTOR = 3
 /** a progress line at most this often */
 const PROGRESS_MS = 5 * 60_000
 const MIB = 1024 * 1024
@@ -87,7 +101,9 @@ export interface MeaningIndexerOptions {
   idleMs?: number
   pausePollMs?: number
   memPollMs?: number
-  restartsMax?: number
+  batchTries?: number
+  batchTimeoutMs?: number
+  restFactor?: number
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.() })
@@ -255,7 +271,8 @@ export class MeaningIndexer {
 
   constructor(o: MeaningIndexerOptions) {
     this.o = {
-      batch: BATCH, minFreeMiB: MIN_FREE_MIB, maxRssMiB: MAX_RSS_MIB, idleMs: IDLE_MS, pausePollMs: PAUSE_POLL_MS, memPollMs: MEM_POLL_MS, restartsMax: RESTARTS_MAX,
+      batch: BATCH, minFreeMiB: MIN_FREE_MIB, maxRssMiB: MAX_RSS_MIB, idleMs: IDLE_MS, pausePollMs: PAUSE_POLL_MS, memPollMs: MEM_POLL_MS,
+      batchTries: BATCH_TRIES, batchTimeoutMs: BATCH_TIMEOUT_MS, restFactor: REST_FACTOR,
       ...o, freeMemoryMiB: o.freeMemoryMiB ?? freeMemoryMiB,
     }
   }
@@ -299,8 +316,14 @@ export class MeaningIndexer {
     if (this.idle) { clearTimeout(this.idle); this.idle = null }
     const t0 = Date.now()
     const counts = store.vectorCounts?.()
-    if (counts && counts.pending > 100) this.o.log.info('knowledge graph: search by meaning: indexing', { pending: counts.pending, done: counts.done })
-    let done = 0, restarts = 0, inARow = 0, lastLog = t0, pausedAt = 0
+    if (counts && counts.pending > 100) this.o.log.info('knowledge graph: search by meaning: indexing', { pending: counts.pending, done: counts.done, restFactor: this.o.restFactor })
+    let done = 0, restarts = 0, lastLog = t0, pausedAt = 0, embedded = 0, skipped = 0
+    // the batch at the front of the page failed this many times
+    let fails = 0
+    // a batch that failed batchTries times, one piece at a time: what is left, what failed alone, what worked alone,
+    // how many pieces it had and whether this run embedded anything before it
+    let alone: PendingPiece[] = [], aloneFailed: { p: PendingPiece; err: string }[] = [], aloneOk = 0, aloneSize = 0, okBefore = false
+    let lastErr = ''
     try {
       while (!this.closed) {
         store = this.o.on() ? this.o.store() : null
@@ -313,41 +336,72 @@ export class MeaningIndexer {
           continue
         }
         pausedAt = 0
-        if (!page.length) { page = store.pendingVectors(PAGE); if (!page.length) break }
+        if (!alone.length && !page.length) { page = store.pendingVectors(PAGE); if (!page.length) break }
         const child = this.child ?? await this.startChild()
         if (!child) return
-        const batch = page.splice(0, this.o.batch)
+        const one = alone.length > 0
+        const batch = one ? [alone.shift()!] : page.splice(0, this.o.batch)
         const passages = batch.map((p) => passageText(p.name, p.heading, p.text))
-        let vecs: Uint8Array[]
-        try { vecs = await child.embed(passages) } catch (e) {
-          if (this.closed) return
-          // it ended, was stopped above the memory limit, or failed the batch: a new process does the batch again
+        const started = Date.now()
+        let vecs: Uint8Array[] | null = null
+        try { vecs = await this.embedWithin(child, passages) } catch (e) { lastErr = errText(e) }
+        if (this.closed) return
+        const took = Date.now() - started
+        if (vecs) {
+          embedded++
+          if (one) aloneOk++
+          else fails = 0
+          done += store.writeVectors(batch.map((p, i) => ({ id: p.id, passage: passages[i]!, vec: vecs[i]! })))
+          if (Date.now() - lastLog >= PROGRESS_MS) {
+            lastLog = Date.now()
+            this.o.log.info('knowledge graph: search by meaning: progress', { done, pending: store.vectorCounts?.().pending, perSecond: rate(done, t0) })
+          }
+        } else {
+          // it ended, was stopped (memory limit, no answer in time), or failed the batch: a new process goes on
           this.stopChild(true)
-          page.unshift(...batch)
           restarts++
-          if (++inARow >= this.o.restartsMax) {
-            this.o.log.warn('knowledge graph: search by meaning paused until the nightly check', { err: errText(e), restarts })
-            this.waitRetry = true
+          if (one) aloneFailed.push({ p: batch[0]!, err: lastErr })
+          else if (++fails < this.o.batchTries) page.unshift(...batch)
+          else { fails = 0; alone = batch; aloneFailed = []; aloneOk = 0; aloneSize = batch.length; okBefore = embedded > 0 }
+        }
+        // the last piece of a batch done one at a time: a piece that failed alone is the piece's fault when another one
+        // worked alone (for a batch of one piece: when this run embedded something before it)
+        if (one && !alone.length && aloneFailed.length) {
+          if (!aloneOk && !(aloneSize === 1 && okBefore)) {
+            if (aloneSize > 1) {
+              this.o.log.warn('knowledge graph: search by meaning paused until the nightly check', { err: lastErr, restarts })
+              this.waitRetry = true
+            } else {
+              // one piece and nothing to compare with: it comes again with the next pieces
+              this.o.log.info('knowledge graph: search by meaning: a piece failed; tried again with the next pieces', { piece: aloneFailed[0]!.p.id, err: lastErr })
+            }
             return
           }
-          continue
+          for (const { p, err } of aloneFailed) {
+            const n = store.writeVectors([{ id: p.id, passage: passageText(p.name, p.heading, p.text), vec: new Uint8Array(0) }])
+            skipped += n
+            if (n) this.o.log.warn('knowledge graph: search by meaning: a piece could not be embedded and is left out', { piece: p.id, err })
+          }
+          aloneFailed = []
         }
-        if (this.closed) return
-        inARow = 0
-        done += store.writeVectors(batch.map((p, i) => ({ id: p.id, passage: passages[i]!, vec: vecs[i]! })))
-        if (Date.now() - lastLog >= PROGRESS_MS) {
-          lastLog = Date.now()
-          this.o.log.info('knowledge graph: search by meaning: progress', { done, pending: store.vectorCounts?.().pending, perSecond: rate(done, t0) })
-        }
+        // the CPU rest (REST_FACTOR)
+        if (this.o.restFactor > 0) await sleep(took * this.o.restFactor)
       }
     } finally {
-      if (done) this.o.log.info('knowledge graph: search by meaning: indexed', { pieces: done, seconds: Math.round((Date.now() - t0) / 1000), perSecond: rate(done, t0), peakMiB: this.peakMiB, loadPeakMiB: this.loadPeakMiB, restarts })
+      if (done || skipped) this.o.log.info('knowledge graph: search by meaning: indexed', { pieces: done, skipped, seconds: Math.round((Date.now() - t0) / 1000), perSecond: rate(done, t0), peakMiB: this.peakMiB, loadPeakMiB: this.loadPeakMiB, restarts })
       // the process stays a while for the next upload, then ends
       if (this.child && !this.closed) {
         this.idle = setTimeout(() => { this.idle = null; if (!this.running) this.stopChild(false) }, this.o.idleMs)
         ;(this.idle as { unref?: () => void }).unref?.()
       }
     }
+  }
+
+  /** the batch's vectors, or a failure when the process gives no answer within batchTimeoutMs (it is stuck) */
+  private async embedWithin(c: EmbedChild, passages: string[]): Promise<Uint8Array[]> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error(`the embedding process gave no answer in ${Math.round(this.o.batchTimeoutMs / 1000)} s`)), this.o.batchTimeoutMs) })
+    try { return await Promise.race([c.embed(passages), late]) } finally { clearTimeout(timer) }
   }
 
   /** a new process, when there is memory for it; null (and one log line) when not */
@@ -390,7 +444,7 @@ export class MeaningIndexer {
         if (mib > this.peakMiB) this.peakMiB = mib
         if (mib > this.o.maxRssMiB) {
           this.o.log.info('knowledge graph: search by meaning: the embedding process went above its memory limit and is started again', { rssMiB: mib, limitMiB: this.o.maxRssMiB })
-          // its batch fails and the run starts a new process for it (RESTARTS_MAX)
+          // its batch fails and the run starts a new process for it (BATCH_TRIES)
           if (this.memTimer) { clearInterval(this.memTimer); this.memTimer = null }
           c.stop(true)
         }

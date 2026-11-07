@@ -61,7 +61,8 @@ export interface DocIndexPort {
 }
 /** a piece that needs its vector: what passageText (meaning/vectors.ts) makes its text from */
 export interface PendingPiece { id: number; name: string; heading: string | null; text: string }
-/** a piece's vector: the passage text it was made from and its int8 bytes (meaning/vectors.ts vecToBlob) */
+/** a piece's vector: the passage text it was made from and its int8 bytes (meaning/vectors.ts vecToBlob); empty for a
+ * piece that could not be embedded (never asked again, no vector in the search) */
 export interface PieceVector { id: number; passage: string; vec: Uint8Array }
 
 export interface DocIndexOptions {

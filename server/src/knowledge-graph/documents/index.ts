@@ -23,6 +23,7 @@ import { chunkDoc, type Piece } from '../../files/locations'
 import { ConverterStopped, extractText, TOO_BIG_IN_PROCESS } from '../../files/extract'
 import { inBackground } from '../../tools/isolate'
 import { MEANING_DIMS, passageText, rrf } from '../meaning/vectors'
+import type { PendingPiece, PieceVector } from '../docs-port'
 import { Matcher } from './matcher'
 import { acceptsName, docLinks, extOf, htmlText, mentionNames, nameIn, norm, queryTerms, snippetOf, stripKo, titleOf, topTerms, usableName } from './text'
 
@@ -160,7 +161,7 @@ function openDb(file: string): Database {
 
 /**
  * Search by meaning (meaning/vectors.ts): each piece's int8 vector in chunks.vec, NULL until the background indexing
- * (meaning/indexer.ts) has embedded it. Added to an index made before it on open (no server migration: the index is the
+ * (meaning/indexer.ts) has embedded it, empty when it could not. Added to an index made before it on open (no server migration: the index is the
  * knowledge graph's own file, and an older server ignores the column). A piece made again (its document changed) is a
  * new row with no vector, so its vector is made again. chunks_novec lists the pieces still without one, newest first.
  */
@@ -177,11 +178,6 @@ export function headingOf(loc: SourceLoc | null): string | null {
   return null
 }
 const parseLoc = (s: string | null): SourceLoc | null => { if (!s) return null; try { return JSON.parse(s) as SourceLoc } catch { return null } }
-
-/** A piece that still needs its vector: its id, its document's file name, its heading and its text. */
-export interface PendingPiece { id: number; name: string; heading: string | null; text: string }
-/** A vector to write: the piece, the passage text it was made from (passageText), and its int8 bytes (vecToBlob). */
-export interface PieceVector { id: number; passage: string; vec: Uint8Array }
 
 function removeDbFiles(dir: string) {
   for (const f of [DB_FILE, DB_FILE + '-wal', DB_FILE + '-shm', DB_FILE + '-journal']) fs.rmSync(path.join(dir, f), { force: true })
@@ -457,7 +453,9 @@ export class DocumentIndex {
   /**
    * Write pieces' vectors in one transaction. A piece is written only while it still has no vector and is still what
    * its vector was made from (the passage text of its file name, heading and text as they are now): a piece removed
-   * meanwhile, or whose row id a new piece took, keeps NULL and is embedded again. Returns how many were written.
+   * meanwhile, or whose row id a new piece took, keeps NULL and is embedded again. An empty vec marks a piece that
+   * could not be embedded (meaning/indexer.ts): not pending any more, and no vector in the search. Returns how many
+   * were written.
    */
   writeVectors(rows: readonly PieceVector[]): number {
     if (this.closed || !rows.length) return 0
@@ -466,7 +464,7 @@ export class DocumentIndex {
     const set = this.db.prepare('UPDATE chunks SET vec = ? WHERE id = ? AND vec IS NULL')
     this.db.transaction(() => {
       for (const r of rows) {
-        if (r.vec.byteLength !== MEANING_DIMS) continue
+        if (r.vec.byteLength !== MEANING_DIMS && r.vec.byteLength !== 0) continue
         const c = cur.get(r.id) as { loc: string | null; text: string; rel: string } | null
         if (!c || passageText(path.posix.basename(c.rel), headingOf(parseLoc(c.loc)), c.text) !== r.passage) continue
         n += set.run(r.vec, r.id).changes
