@@ -113,6 +113,36 @@ export interface ExplorePassage { path: string; loc: SourceLoc | null; snippet: 
 export interface ExploreRelated { path: string; from: string; reason: { kind: string; detail: string } }
 export interface ExploreResult { hits: ExploreHit[]; passages: ExplorePassage[]; related: ExploreRelated[]; pending: number; indexed: number; files: Set<string> }
 
+// ---- lookup: the one document search of the AI's tool, the lookup before the model starts and the Files search
+// (docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md, wave 1)
+/** passages to answer from, and their size in characters */
+export const LOOKUP_LONG = 3
+export const LOOKUP_LONG_CHARS = 1500
+/** short labelled hits after them (file, place and a short part of the text) */
+export const LOOKUP_SHORT = 12
+export const LOOKUP_SHORT_CHARS = 300
+/** One passage of a lookup. `long`: up to LOOKUP_LONG_CHARS of its piece, to answer from; otherwise a short label
+ * (up to LOOKUP_SHORT_CHARS). */
+export interface LookupPassage { path: string; loc: SourceLoc | null; text: string; score: number; long: boolean }
+export interface LookupResult {
+  /** best first; at most one entry per (path, loc) */
+  passages: LookupPassage[]
+  /** how well the best passages match the question: strong (enough to answer from), weak (worth naming the files),
+   * none (nothing found) */
+  strength: 'strong' | 'weak' | 'none'
+  /** every file named, for the read scope and the sources */
+  files: Set<string>
+}
+export interface LookupOptions {
+  /** only under this team path (actual names, already authorized by the caller) */
+  base?: string
+  /** how many long passages and short hits (defaults LOOKUP_LONG, LOOKUP_SHORT) */
+  long?: number
+  short?: number
+  /** give up on slower parts after this long and answer with what is ready (the keyword part always answers) */
+  deadlineMs?: number
+}
+
 const nowIso = () => new Date().toISOString()
 const rootId = (p: string) => createHash('sha256').update(p.normalize('NFC')).digest('hex').slice(0, 24)
 const under = (p: string, root: string) => p === root || p.startsWith(root + '/')
@@ -768,6 +798,33 @@ export class KnowledgeGraph {
       return (codeOn && waiting(s)) || (!!s.docs && waiting(s.docs))
     }).length
     return { hits, passages, related, pending, indexed: ready.length + docRoots.length, files }
+  }
+
+  /**
+   * Document passages for one question in one or two wordings (e.g. the person's Korean and an English one), for this
+   * person: the same access rule as explore (every file passes authorize(read) for them now; anything else is left out
+   * without a trace). The one search behind knowledge_explore, the lookup before the model starts (chat/turn.ts) and the
+   * Files search (team-files/content-search.ts).
+   *
+   * CONTRACT STUB (wave 1 setup): built on explore, so access is already right. The knowledge-graph agent replaces the
+   * inside (documents only, long passages, strength, deadline); wave 2 adds meaning by rank fusion. Callers rely only on
+   * the signature and the LookupResult fields above.
+   */
+  async lookup(user: Principal, queries: readonly string[], o: LookupOptions = {}): Promise<LookupResult> {
+    const long = o.long ?? LOOKUP_LONG
+    const short = o.short ?? LOOKUP_SHORT
+    const qs = [...new Set(queries.map((q) => q.trim()).filter((q) => q.length >= 2))].slice(0, 2)
+    const best = new Map<string, ExplorePassage>()
+    for (const q of qs) {
+      const r = await this.explore(user, q, { base: o.base, limit: long + short })
+      for (const x of r.passages) {
+        const k = `${x.path}\u0000${JSON.stringify(x.loc ?? null)}`
+        if ((best.get(k)?.score ?? -Infinity) < x.score) best.set(k, x)
+      }
+    }
+    const passages = [...best.values()].sort((a, b) => b.score - a.score).slice(0, long + short)
+      .map((x, i): LookupPassage => ({ path: x.path, loc: x.loc, text: x.snippet.slice(0, i < long ? LOOKUP_LONG_CHARS : LOOKUP_SHORT_CHARS), score: x.score, long: i < long }))
+    return { passages, strength: passages.length ? 'weak' : 'none', files: new Set(passages.map((x) => x.path)) }
   }
 
   close() {

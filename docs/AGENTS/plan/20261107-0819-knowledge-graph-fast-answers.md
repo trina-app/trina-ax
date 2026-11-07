@@ -45,9 +45,9 @@ In:
 - Claude Code and Codex on the team's own server, in every place the AI answers: personal chat, team rooms,
   sub-agents, Slack and scheduled turns, and scheduled template runs.
 - The search box on the Files screen, for people.
-- Phase 1: the AI and the Files search use the index.
-- Phase 2: search by meaning inside the same index.
-- Phase 3: search by meaning on by default, and the old `search` tool removed.
+- Wave 1: the AI and the Files search use the index.
+- Wave 2: search by meaning inside the same index.
+- Wave 3: search by meaning on by default, and the old `search` tool removed.
 
 Out:
 
@@ -63,7 +63,7 @@ Out:
 
 ## Steps
 
-Phase 1: the AI and the Files search use the index (no embeddings yet)
+Wave 1: the AI and the Files search use the index (no embeddings yet)
 
 1. Benchmark first. A script in `scripts/bench/` sends about 30 Korean and English questions about test documents to a
    server. Answer time comes from `turns` and the stored steps, tokens from `turns`. Record today's numbers on the
@@ -96,10 +96,10 @@ Phase 1: the AI and the Files search use the index (no embeddings yet)
      search, with the same per-person rate limit. Files are checked one by one with `authorize(read)`, which covers
      folder rules, other people's personal folders, hidden sub-folders inside a readable folder, links and
      quarantined files.
-   - After phase 2, the same box also finds by meaning, with no further change.
+   - After wave 2, the same box also finds by meaning, with no further change.
 8. Run the benchmark again on the dev server and write the numbers into this plan.
 
-Phase 2: search by meaning, off by default
+Wave 2: search by meaning, off by default
 
 9. Model: `multilingual-e5-small` (MIT). The server downloads it on first use, checks its pinned hashes and stores it in
    `<data>/models`, or uses the host's shared model folder, as the old search did. A server without internet stays on
@@ -113,7 +113,7 @@ Phase 2: search by meaning, off by default
 13. Indexing uses one worker, runs below people's work, pauses while someone is waiting for an answer, and uses about
     800 MB of memory at most. It starts only with about 1.5 GB of memory free. Otherwise it logs one line and tries
     again at the nightly check. A large folder's first pass can take hours; keyword search works in the meantime.
-14. Switch: `knowledgeGraph.meaning` in `server.json`. In this phase it is off unless set, and only the dev server sets
+14. Switch: `knowledgeGraph.meaning` in `server.json`. In this wave it is off unless set, and only the dev server sets
     it. Nothing in the admin screen.
 15. Quality test, written before any run:
     - 100–150 Korean and English questions: paraphrases, exact names, numbers in tables and CSV files,
@@ -122,7 +122,7 @@ Phase 2: search by meaning, off by default
     - Measure keyword-only against combined: is the right file in the top 8, and is it first?
     - The questions and expected files go into the repo; the documents never do.
 
-Phase 3: on by default
+Wave 3: on by default
 
 16. If the combined search beats keyword-only overall and is not worse on any type of question, search by meaning is
     on by default (`knowledgeGraph.meaning: false` turns it off). If it does not pass, it stays off and the result
@@ -131,7 +131,11 @@ Phase 3: on by default
     `<data>/semantic.db` on start. The bundled runtime and the downloaded model stay, because step 9 uses them.
 18. Update docs/KNOWLEDGE-GRAPH.md and docs/DECISIONS.md, including the tool description that still says "code only".
 
-Each step is a small PR into `dev` (minor), tested on the dev server.
+Each wave is one PR into `dev` (minor), tested on the dev server. Inside a wave, agents work in parallel on separate
+files. They share one search, `KnowledgeGraph.lookup()` in `server/src/knowledge-graph/service.ts`, which the
+knowledge-graph agent owns and the others call: the AI's tool, the lookup before the model starts and the Files
+search. Wave 1 agents: benchmark; knowledge graph (`lookup`, the tool); chat (prompt, the lookup before the model,
+template runs); MCP (parallel reads); Files search (route, screen, languages).
 
 ## Risks
 
@@ -172,7 +176,7 @@ Each step is a small PR into `dev` (minor), tested on the dev server.
   `tests/security/lib/cases.ts`. A file the person may not open must never appear in the prompt or in the Files search,
   whether it is in another person's folder, in a hidden sub-folder, behind a link or quarantined.
 - The full web e2e, because the Files screen changes.
-- The benchmark (phase 1) and the quality test (phase 2) on the dev server, with test data only.
+- The benchmark (wave 1) and the quality test (wave 2) on the dev server, with test data only.
 
 ## Result
 
