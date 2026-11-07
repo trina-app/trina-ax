@@ -192,7 +192,7 @@ export function ProjectHome() {
         </nav>
       </StickyHeader>
       <div className="mx-auto w-full max-w-[1080px] px-4 pt-8 pb-12 sm:px-6 sm:pt-10">
-        <h1 className="text-[26px] font-semibold tracking-tight break-words sm:text-[30px]">{p.name}</h1>
+        <h1 className="text-[1.625rem] font-semibold tracking-tight break-words sm:text-[1.875rem]">{p.name}</h1>
         {summary && (
           <p className="mt-1.5 line-clamp-2 max-w-3xl text-sm text-muted" data-testid="project-summary">
             {summary}

@@ -1,4 +1,4 @@
-// The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
+// The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language, theme and text size, password, signed-in devices, the in-app browser's site setting (desktop
 // app only: BrowserSettings.tsx), what the AI remembers, apps (the guide to add the app to the home
 // screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
 // Store build: only the App Store line),
@@ -10,7 +10,7 @@ import clsx from 'clsx'
 import { Brain, ChevronDown, Download, Laptop, LogOut, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { EngineId, Me, Memory, Session, Theme } from '@mycel/shared/api'
+import type { EngineId, Me, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
 import { PROFILE_TITLE_MAX, RELEASE_CHANNEL } from '@mycel/shared'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -27,6 +27,7 @@ import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
+import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
@@ -254,7 +255,84 @@ function Profile() {
           ))}
         </div>
       </Section>
+      <TextSizeSetting />
     </>
+  )
+}
+
+/** 글자 크기, like a phone's Text Size: a slider from a small to a large letter, five steps (lib/textSize.ts). The line
+ * under it reads at the chosen size. The whole app takes the size when the slider is let go, or at once with the keyboard
+ * or a tap (its change event): taking it during a drag would move the slider under the pointer. 기본 is the way back (no
+ * reset button). Saved to the account a moment after the last change, so a few quick steps are one save. */
+function TextSizeSetting() {
+  const t = useT()
+  const locale = useLocale()
+  const setTextSize = useSession((s) => s.setTextSize)
+  // what the app uses (also when the account's size arrives while this is open), and what the slider points at
+  const applied = useTextSize()
+  const [size, setSize] = useState<TextSize>(applied)
+  useEffect(() => setSize(applied), [applied])
+  const input = useRef<HTMLInputElement>(null)
+  const pending = useRef<{ size: TextSize; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const save = (s: TextSize) => void setTextSize(s).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+  const commit = (s: TextSize) => {
+    setSize(s)
+    pickTextSize(s)
+    if (pending.current) clearTimeout(pending.current.timer)
+    pending.current = { size: s, timer: setTimeout(() => { pending.current = null; save(s) }, 400) }
+  }
+  const latest = useRef(commit)
+  latest.current = commit
+  useEffect(() => {
+    const el = input.current
+    const onChange = () => latest.current(TEXT_SIZES[Number(el?.value)] ?? 'default')
+    el?.addEventListener('change', onChange)
+    return () => {
+      el?.removeEventListener('change', onChange)
+      // closing Settings right after a change still saves it
+      const p = pending.current
+      if (p) { clearTimeout(p.timer); save(p.size) }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const ticks = useId()
+  const glyph = t('settings.textSize.glyph')
+  // during a drag the line under the slider shows the size it points at
+  const ratio = TEXT_SIZE_PERCENT[size] / TEXT_SIZE_PERCENT[applied]
+  return (
+    <Section title={t('settings.textSize')}>
+      <div className="flex max-w-md items-center gap-3">
+        <span aria-hidden className="w-6 shrink-0 text-center text-xs text-muted">{glyph}</span>
+        <input
+          ref={input}
+          type="range"
+          min={0}
+          max={TEXT_SIZES.length - 1}
+          step={1}
+          value={TEXT_SIZES.indexOf(size)}
+          onChange={(e) => setSize(TEXT_SIZES[Number(e.target.value)] ?? 'default')}
+          // a touch that turned into a scroll ends with no change event: the slider goes back to the size in use
+          onPointerCancel={() => setSize(applied)}
+          list={ticks}
+          aria-label={t('settings.textSize')}
+          aria-valuetext={t(`settings.textSize.${size}`)}
+          className="h-8 min-w-0 flex-1 cursor-pointer accent-accent"
+          data-testid="text-size"
+        />
+        <datalist id={ticks}>
+          {TEXT_SIZES.map((x, i) => <option key={x} value={i} />)}
+        </datalist>
+        <span aria-hidden className="w-6 shrink-0 text-center text-xl text-muted">{glyph}</span>
+      </div>
+      <p
+        className="mt-2 text-reading leading-reading"
+        style={ratio === 1 ? undefined : { fontSize: `calc(var(--text-reading) * ${ratio})`, lineHeight: `calc(var(--leading-reading) * ${ratio})` }}
+        data-testid="text-size-sample"
+      >
+        <span className="font-medium">{t(`settings.textSize.${size}`)}</span>
+        <span className="text-muted"> · {t('settings.textSize.sample')}</span>
+      </p>
+    </Section>
   )
 }
 

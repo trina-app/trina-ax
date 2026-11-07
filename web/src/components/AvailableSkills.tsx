@@ -129,7 +129,7 @@ function MarketingPackLine() {
   const t = useT()
   const { busy, install } = usePackInstall()
   return (
-    <p className="text-[13px]">
+    <p className="text-[0.8125rem]">
       <button type="button" className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink disabled:opacity-50"
         title={t('skillPack.adminHint')} disabled={busy} onClick={() => void install()} data-testid="skill-pack-marketing">
         {t('skillPack.addMarketing', { n: WELCOME_PACK_SKILLS })}
@@ -143,7 +143,7 @@ function HrPackLine() {
   const t = useT()
   const { busy, install } = usePackInstall('hr')
   return (
-    <p className="text-[13px]">
+    <p className="text-[0.8125rem]">
       <button type="button" className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink disabled:opacity-50"
         title={t('skillPack.hrHint')} disabled={busy} onClick={() => void install()} data-testid="skill-pack-hr">
         {t('skillPack.addHr', { n: HR_PACK_SKILLS })}

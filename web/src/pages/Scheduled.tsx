@@ -302,7 +302,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
     <div data-testid="schedule-view" data-review={waiting ? 'waiting' : undefined}>
       <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         <div className="min-w-0 flex-[1_1_18rem]">
-          <h1 className="text-[26px] font-semibold tracking-tight break-words sm:text-[30px]">{name}</h1>
+          <h1 className="text-[1.625rem] font-semibold tracking-tight break-words sm:text-[1.875rem]">{name}</h1>
           {(status || badOutcome) && (
             <p className={clsx('mt-1.5 text-sm', waiting ? 'text-warn' : 'text-muted')} data-testid="schedule-status">
               {status}

@@ -9,6 +9,7 @@ import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
+import { MOBILE_CAPABILITIES } from '../../../mobile/src/protocol'
 
 const locale = useLocaleStore.getState().locale
 const status = useSession.getState().status
@@ -95,6 +96,38 @@ test('the end of the thread in sight marks it read once per position', async () 
     expect(calls.filter((c) => c.path.endsWith('/thread/read')).map((c) => c.body)).toEqual([{ seq: 2 }])
     expect(useRooms.getState().rooms[0]!.threadsUnread).toBe(0)
   } finally {
+    await m.unmount()
+  }
+})
+
+test('in the phone app the thread on screen is read though its WebView reports no focus; a browser window without focus reads nothing', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  const r = room({ threadsUnread: 1 })
+  const root = message({ roomId: r.id, seq: 1, author: ME, body: 'mine', thread: { replyCount: 1, lastReplyAt: at(2), repliers: [BEN], newReplies: true } })
+  routes = {
+    [`GET /api/rooms/${r.id}/messages/${root.id}/thread`]: { body: { root, items: [message({ roomId: r.id, seq: 2, body: 'reply', threadRootId: root.id })], nextCursor: null } },
+    [`POST /api/rooms/${r.id}/messages/${root.id}/thread/read`]: { body: { lastReadSeq: 2, room: { ...r, threadsUnread: 0 } } },
+  }
+  serve()
+  const g = globalThis as unknown as Record<string, unknown>
+  ;(document as unknown as { hasFocus: () => boolean }).hasFocus = () => false
+  ;(document as unknown as { visibilityState: string }).visibilityState = 'visible'
+  useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id })
+  const m = await mount(<ThreadPanel roomId={r.id} rootId={root.id} roomTitle="acme" members={[ME, BEN]} meId={ME.id} onClose={() => {}} />)
+  try {
+    await m.until(() => m.find('room-thread') && !useRooms.getState().threadView?.loading, 'the thread')
+    await m.settle(30)
+    expect(calls.filter((c) => c.path.endsWith('/thread/read'))).toEqual([])
+    // the same page inside the phone app (its bridge is there): on screen is looking at it
+    g.mycelMobile = { protocol: 1, appVersion: '0.4.0', platform: 'ios', nonce: 'c'.repeat(64), generation: 1, capabilities: MOBILE_CAPABILITIES }
+    g.ReactNativeWebView = { postMessage: () => {} }
+    document.dispatchEvent(new FakeEvent('visibilitychange') as never)
+    await m.until(() => calls.some((c) => c.path.endsWith('/thread/read')), 'the read')
+    await m.until(() => useRooms.getState().rooms[0]!.threadsUnread === 0, 'the badge')
+    expect(calls.filter((c) => c.path.endsWith('/thread/read')).map((c) => c.body)).toEqual([{ seq: 2 }])
+  } finally {
+    delete g.mycelMobile
+    delete g.ReactNativeWebView
     await m.unmount()
   }
 })

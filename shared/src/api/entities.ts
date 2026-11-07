@@ -2,7 +2,7 @@
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, RelPath, Role, Theme, UserStatus } from './common'
+import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, RelPath, Role, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
@@ -11,6 +11,9 @@ export type UserRef = z.infer<typeof UserRef>
 
 export const UserPrefs = z.object({
   theme: Theme.optional(),
+  /** the person's text size on every device they sign in on (Settings > Profile); absent = default. A stored value this
+   * version does not know (a later version's step) reads as absent instead of hiding the other preferences. */
+  textSize: TextSize.optional().catch(undefined),
   /** language for AI answers if different from the UI language */
   answerLocale: Locale.optional(),
   /** own default engine/model for new chats ("내 기본 엔진/모델"; only for people who may pick the engine) */
