@@ -41,6 +41,8 @@ import { listFiles, mirrorFolder, plainChain, readSeen } from './mirror'
 import { CodeGraphRunner, type GraphRef, type GraphRunner, type GraphSymbol } from './runner'
 import type { DocHit, DocIndexOptions, DocIndexPort, OpenDocIndex } from './docs-port'
 import { cutText, DocumentIndex, matchStrength, questionTerms } from './documents'
+import { queryTerms } from './documents/text'
+import { DocSearchWorker, docSearchWorkerScript } from './documents/search-worker'
 
 export const ENABLED_SETTING = 'knowledgeGraph.enabled'
 export const ADDED_SETTING = 'knowledgeGraph.added'
@@ -112,7 +114,6 @@ export interface ExploreHit {
 export interface ExploreRelated { path: string; from: string; reason: { kind: string; detail: string } }
 /** passages: the lookup's (LOOKUP_LONG long ones, then LOOKUP_SHORT short ones); strength: theirs */
 export interface ExploreResult { hits: ExploreHit[]; passages: LookupPassage[]; strength: LookupResult['strength']; related: ExploreRelated[]; pending: number; indexed: number; files: Set<string> }
-export type ExplorePassage = LookupPassage
 
 // ---- lookup: the one document search of the AI's tool, the lookup before the model starts and the Files search
 // (docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md, wave 1)
@@ -140,8 +141,12 @@ export interface LookupOptions {
   /** how many long passages and short hits (defaults LOOKUP_LONG, LOOKUP_SHORT) */
   long?: number
   short?: number
-  /** give up on slower parts after this long and answer with what is ready (the keyword part always answers) */
+  /** answer within this long with what is ready by then: a search not back in time is left out (nothing, when it is
+   * the only one), and the server is never held while it runs (documents/search-worker.ts) */
   deadlineMs?: number
+  /** which words of a query are searched: 'message' (default), a chat message's words without greetings, requests,
+   * question words and fillers (questionTerms); 'search', every word typed into a search box (queryTerms) */
+  words?: 'message' | 'search'
 }
 
 const nowIso = () => new Date().toISOString()
@@ -160,21 +165,28 @@ const newDocState = (): DocState => ({ status: 'pending', documents: 0, failed: 
  * the defaults */
 let testOptions: KgOptions | undefined
 export function setKnowledgeGraphForTests(o: KgOptions | undefined) { testOptions = o }
-/** The document index (knowledge-graph/documents/) behind the port. */
+/** The document index (knowledge-graph/documents/) behind the port: its writes on this thread's connection, its reads
+ * (search, related) in the search worker (documents/search-worker.ts), so a search never holds the server. Without the
+ * worker's script (a bundle built without it) the reads run here, with the slow full scan left out. */
 export function openDocumentIndex(dir: string, o: DocIndexOptions): DocIndexPort {
   const idx = DocumentIndex.open(dir, o)
+  const script = docSearchWorkerScript()
+  if (!script) o.warn?.('knowledge graph: the document search worker is missing; searches run on the main thread')
+  const reader = script ? new DocSearchWorker(dir, script, (err) => o.warn?.('knowledge graph: ' + err)) : null
+  reader?.warm()
+  const people = () => { try { return o.people() } catch { return [] } }
   return {
     accepts: (name) => DocumentIndex.accepts(name),
     files: (r) => idx.files(r),
     update: (r, rel, f, x) => idx.update(r, rel, f, { ...x, background: true }),
     remove: (r, rel) => idx.remove(r, rel),
     dropRoot: (r) => idx.dropRoot(r),
-    search: (q, x) => idx.search(q, x),
-    related: (r, rel, x) => idx.related(r, rel, x),
+    search: (q, x) => reader ? reader.search(q, x) : idx.search(q, { ...x, scan: false }),
+    related: (r, rel, x) => reader ? reader.related(r, rel, x, people()) : idx.related(r, rel, x),
     stats: (r) => idx.stats(r),
     diskBytes: () => idx.diskBytes(),
-    close: () => idx.close(),
-    destroy: () => idx.destroy(),
+    close: () => { reader?.close(); idx.close() },
+    destroy: () => { reader?.close(); idx.destroy() },
   }
 }
 /** the document index the server opens */
@@ -327,6 +339,7 @@ export class KnowledgeGraph {
       // the converters the AI's reads use, isolated (tools/isolate.ts), below people's work
       extract: (name, bytes, signal) => inBackground(() => true, () => extractText(name, bytes, tools, signal)),
       people: () => (this.ctx.db.query("SELECT name FROM users WHERE status = 'active'").all() as { name: string }[]).map((r) => r.name).filter((n) => n && n.length >= 2),
+      warn: (msg, x) => this.ctx.log.warn(msg, x),
     })
     return this.docs
   }
@@ -682,12 +695,13 @@ export class KnowledgeGraph {
     const fx = this.ctx.files.fx
     const rules = this.ctx.files.rules()
     const seen = new Map<string, { abs: string } | null>()
+    const acc: Access = { base } as Access
     /** the person may read this file now (anywhere, whatever `base` says): authorize(read), and one link to it, as the
      * read tool requires (files/store.ts refuses a hard-linked file) */
     const readable = (teamPath: string) => {
       if (seen.has(teamPath)) return seen.get(teamPath)!
       let v: { abs: string } | null = null
-      try { const a = authorize(fx, rules, user, teamPath, 'read'); if (a.st?.isFile() && a.st.nlink === 1) v = { abs: a.abs } } catch { v = null }
+      try { const a = authorize(fx, rules, user, teamPath, 'read', acc.dirs ? { dirs: acc.dirs } : {}); if (a.st?.isFile() && a.st.nlink === 1) v = { abs: a.abs } } catch { v = null }
       seen.set(teamPath, v)
       return v
     }
@@ -700,20 +714,22 @@ export class KnowledgeGraph {
     const idx = this.docIndex()
     const docRoots = idx ? mine.filter((p) => !!this.state.roots[p]!.docs) : []
     const inDocRoot = (root: string, rel: string) => docRoots.includes(root) && plainRel(rel) ? `${root}/${rel}` : null
-    return { base, readable, visible, mine, idx, docRoots, inDocRoot }
+    return Object.assign(acc, { readable, visible, mine, idx, docRoots, inDocRoot })
   }
 
   /**
    * The document passages of one question in one or two wordings, for the person `a` was made for: each wording's
-   * distinctive words (questionTerms) searched in the folders they can see, every hit's file checked (a.visible), a hit
+   * distinctive words (questionTerms; `words: 'search'`: every word, queryTerms) searched in the folders they can see,
+   * every hit's file checked (a.visible), a hit
    * that holds none of the words as words left out, the wordings merged by best score with one entry per (path,
    * place), best first; the first `long` with up to LOOKUP_LONG_CHARS of their piece, the next `short` with up to
    * LOOKUP_SHORT_CHARS. Strength (matchStrength): the best of each wording's first LOOKUP_LONG passages.
    *
-   * Time: the first wording's keyword search always answers; once `due` has passed nothing slower starts or is waited
-   * for (in wave 1 the second wording; search by meaning in wave 2).
+   * Time: the searches run in the search worker, never on this thread, all wordings at once; what is not back by `due`
+   * is left out (the worker does not even start a request whose deadline has passed). `scan` (the AI's tool): also the
+   * slow full scan for short words.
    */
-  private async docPassages(a: Access, queries: readonly string[], o: { long: number; short: number; due: number }): Promise<{ passages: LookupPassage[]; strength: LookupResult['strength'] }> {
+  private async docPassages(a: Access, queries: readonly string[], o: { long: number; short: number; due: number; words?: LookupOptions['words']; scan?: boolean }): Promise<{ passages: LookupPassage[]; strength: LookupResult['strength'] }> {
     const long = clampInt(o.long, 0, 10), short = clampInt(o.short, 0, 50)
     const none = { passages: [] as LookupPassage[], strength: 'none' as const }
     if ((!long && !short) || !a.idx || !a.docRoots.length) return none
@@ -725,16 +741,20 @@ export class KnowledgeGraph {
     const limit = Math.min(100, Math.max(40, (long + short) * 3))
     let strength: LookupResult['strength'] = 'none'
     const best = new Map<string, { path: string; loc: SourceLoc | null; score: number; long: string; short: string }>()
-    for (const [i, q] of wordings.entries()) {
-      if (i > 0 && Date.now() >= o.due) break
-      const terms = questionTerms(q)
-      if (!terms.length) continue
-      let hits: DocHit[] | null = null
-      try {
-        const run = Promise.resolve().then(() => idx.search(terms.join(' '), { rootIds: a.docRoots, limit, passage: LOOKUP_LONG_CHARS, ...(prefix ? { prefix } : {}) }))
-        hits = i === 0 ? await run : await beforeDue(run, o.due)
-      } catch (e) { this.ctx.log.warn('knowledge graph: document search failed', { err: String(e).slice(0, 200) }) }
+    const due = Number.isFinite(o.due) ? o.due : undefined
+    // every wording at once; each one's answer only if it is back by the deadline (the worker drops a late one too)
+    const asked = wordings.map((q) => {
+      const terms = o.words === 'search' ? queryTerms(q) : questionTerms(q)
+      if (!terms.length) return { terms, hits: Promise.resolve(null as DocHit[] | null) }
+      const run = Promise.resolve().then(() => idx.search(terms.join(' '), { rootIds: a.docRoots, limit, passage: LOOKUP_LONG_CHARS, ...(prefix ? { prefix } : {}), ...(o.scan ? { scan: true } : {}), ...(due !== undefined ? { due } : {}) }))
+      return { terms, hits: beforeDue(run, o.due).catch((e) => { this.ctx.log.warn('knowledge graph: document search failed', { err: String(e).slice(0, 200) }); return null }) }
+    })
+    for (const { terms, hits: pending } of asked) {
+      const hits = await pending
       if (!hits) continue
+      // the hits' files are checked in one synchronous pass: a folder's names are read once for all of them (on a
+      // case-insensitive disk every check lists the folder; 45 checks of a folder of 3,000 files took 30–90 ms)
+      a.dirs = new Map()
       let shown = 0
       for (const h of hits) {
         const tp = a.inDocRoot(h.rootId, h.relPath)
@@ -749,6 +769,7 @@ export class KnowledgeGraph {
         if ((best.get(k)?.score ?? -Infinity) >= score) continue
         best.set(k, { path: tp, loc, score, long: cutText(text, LOOKUP_LONG_CHARS), short: cutText(String(h.snippet || text).replace(/\s+/g, ' ').trim(), LOOKUP_SHORT_CHARS) })
       }
+      a.dirs = undefined
     }
     const passages = [...best.values()].sort((x, y) => y.score - x.score || (x.path < y.path ? -1 : x.path > y.path ? 1 : 0)).slice(0, long + short)
       .map((x, i): LookupPassage => ({ path: x.path, loc: x.loc, text: i < long ? x.long : x.short, score: x.score, long: i < long }))
@@ -767,7 +788,7 @@ export class KnowledgeGraph {
     const { readable, visible, mine, idx, docRoots, inDocRoot } = acc
     const files = new Set<string>()
     // ---- documents
-    const { passages, strength } = await this.docPassages(acc, [query, o.alt ?? ''], { long: LOOKUP_LONG, short: LOOKUP_SHORT, due: Infinity })
+    const { passages, strength } = await this.docPassages(acc, [query, o.alt ?? ''], { long: LOOKUP_LONG, short: LOOKUP_SHORT, due: Infinity, scan: true })
     const related: ExploreRelated[] = []
     if (idx && docRoots.length) {
       // the documents linked to the first few, each named only when the person may read it too
@@ -868,12 +889,14 @@ export class KnowledgeGraph {
    *   of the first passages holds all the words close together (four words or more: all but one; one word: only a code,
    *   a date or a file name), weak when passages hold some of them, none when nothing is found. Greetings, thanks,
    *   requests and question words do not count as words, so "hi", "thanks" or "write me an email" are none or weak.
-   * - `deadlineMs`: the keyword search of the first wording always answers; after the deadline nothing slower starts or
-   *   is waited for (the second wording; in wave 2, search by meaning).
+   * - `deadlineMs`: it answers by then with what is ready: a search not back in time is left out, and with one wording
+   *   that means nothing (none). The searches run in the search worker (documents/search-worker.ts), so the server is
+   *   never held while they run; the search is bounded too (no full scan, a few hundred pieces per word).
+   * - `words: 'search'` (the Files search box): every word typed counts, not only a chat message's distinctive ones.
    */
   async lookup(user: Principal, queries: readonly string[], o: LookupOptions = {}): Promise<LookupResult> {
     const due = o.deadlineMs !== undefined && Number.isFinite(o.deadlineMs) ? Date.now() + Math.max(0, o.deadlineMs) : Infinity
-    const r = await this.docPassages(this.access(user, o.base), queries, { long: o.long ?? LOOKUP_LONG, short: o.short ?? LOOKUP_SHORT, due })
+    const r = await this.docPassages(this.access(user, o.base), queries, { long: o.long ?? LOOKUP_LONG, short: o.short ?? LOOKUP_SHORT, due, words: o.words })
     return { passages: r.passages, strength: r.strength, files: new Set(r.passages.map((x) => x.path)) }
   }
 
@@ -902,6 +925,8 @@ async function inBatches<T>(items: T[], n: number, f: (x: T) => Promise<void>) {
 /** what a question may look at for one person (KnowledgeGraph.access) */
 interface Access {
   base: string | undefined
+  /** folder listings read in the current synchronous pass of checks (authorize's `dirs`), none outside one */
+  dirs?: Map<string, string[]>
   /** the person may read this file now */
   readable: (teamPath: string) => { abs: string } | null
   /** an answer may name this file: readable, and under `base` */
@@ -916,7 +941,7 @@ interface Access {
 }
 const STRENGTH_RANK = { none: 0, weak: 1, strong: 2 } as const
 const clampInt = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(Number.isFinite(n) ? n : lo)))
-/** the promise's value, or null once `due` (a Date.now() time) has passed */
+/** the promise's value, or null once `due` (a Date.now() time) has passed: the deadline holds whatever index answers */
 async function beforeDue<T>(p: Promise<T>, due: number): Promise<T | null> {
   if (due === Infinity) return p
   // one that fails after the deadline fails unheard (nobody waits for it any more)

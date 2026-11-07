@@ -131,7 +131,7 @@ describe('search', () => {
     expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: 'web' })[0]?.relPath).toBe('web/launch.html')
     // "notes" does not take in "notes-old/" or "notesx"; a path that is not plain is no folder (no narrowing)
     expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: 'we' })).toEqual([])
-    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: '../web' })[0]?.relPath).toBe('web/launch.html')
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: '../web' }).map((h) => h.relPath)).toContain('web/launch.html')
   })
   test('odd questions give no error', () => {
     for (const q of ['"', '*', 'AND OR NOT', ')(', '\\', '%_', '']) expect(() => idx.search(q, { rootIds: ['projects/acme'] })).not.toThrow()

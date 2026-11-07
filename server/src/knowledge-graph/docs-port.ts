@@ -17,6 +17,11 @@ export interface DocSearchOptions {
   /** only files under this folder of the root (relative to it); only given when rootIds is that one root. A narrowing
    * for speed: the caller still filters every hit by its own path. */
   prefix?: string
+  /** also find a word of one or two characters inside longer words by reading the text (slow on a large index): the
+   * AI's tool only */
+  scan?: boolean
+  /** a Date.now() time: an answer not ready by then is not waited for ([] instead), and one not started is not run */
+  due?: number
 }
 /** why two documents are linked: kind is folder · mention · link · terms · people · code; detail is made only from the
  * two documents' own names and text */
@@ -33,6 +38,7 @@ export interface DocIndexPort {
   update(rootId: string, relPath: string, file: { bytes: Uint8Array | null; size: number; mtimeMs: number }, o?: { signal?: AbortSignal }): Promise<{ ok: true; chunks: number } | { ok: false; reason: string }>
   remove(rootId: string, relPath: string): void
   dropRoot(rootId: string): void
+  /** off the main thread when it can be (documents/search-worker.ts): a search must never hold the server */
   search(query: string, o: DocSearchOptions): Promise<DocHit[]> | DocHit[]
   related(rootId: string, relPath: string, o: { rootIds: string[]; limit: number }): Promise<DocLink[]> | DocLink[]
   stats(rootId: string): DocStats
@@ -47,5 +53,7 @@ export interface DocIndexOptions {
   extract: (name: string, bytes: Uint8Array, signal?: AbortSignal) => Promise<string>
   /** names of the team's members, for "people" links */
   people: () => string[]
+  /** a problem worth a log line (the search worker died, or could not start) */
+  warn?: (msg: string, x?: Record<string, unknown>) => void
 }
 export type OpenDocIndex = (dir: string, o: DocIndexOptions) => DocIndexPort

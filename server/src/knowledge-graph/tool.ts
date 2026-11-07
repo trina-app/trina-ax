@@ -9,8 +9,9 @@
 // answer's sources.
 //
 // The answer: up to LOOKUP_LONG passages of about LOOKUP_LONG_CHARS to answer from, then about LOOKUP_SHORT short
-// labelled matches, the related documents and the code, at most TOOL_TEXT_MAX characters in all (about 6,000 tokens),
-// so the AI can answer from the passages without reading and searching again.
+// labelled matches, the related documents and the code, at most TOOL_TOKENS_MAX estimated tokens in all (tokens.ts:
+// Korean takes about a token per character, English about a quarter), so the AI can answer from the passages without
+// reading and searching again.
 import { z } from 'zod'
 import type { AppContext } from '../context'
 import { authorize } from '../policy/authorize'
@@ -18,6 +19,7 @@ import type { ToolRegistry } from '../tools/registry'
 import { locLabel, sourceLink } from '../files/locations'
 import { personLocale } from '../files/media-text'
 import { knowledgeGraphOf, type ExploreHit, type ExploreRelated, type ExploreResult, type LookupPassage } from './service'
+import { estimateTokens, fitTokens } from './tokens'
 
 export const KNOWLEDGE_EXPLORE = 'knowledge_explore'
 
@@ -31,8 +33,13 @@ export const KnowledgeExploreInput = z.object({
 /** the answer when nothing is found, the same whether or not anything is indexed (F1) */
 export const NOTHING_FOUND = 'Nothing in the indexed documents or code matches, or nothing is indexed there yet. Use grep and read.'
 
-/** the whole answer's size in characters (about 6,000 tokens) */
-export const TOOL_TEXT_MAX = 24_000
+/** the whole answer's size in estimated tokens */
+export const TOOL_TOKENS_MAX = 6_000
+/** one passage to answer from, and one short match, in estimated tokens: an English passage of LOOKUP_LONG_CHARS is
+ * about 400 and stays whole; a Korean one is cut to about 1,100 characters, so three of them and the short matches
+ * still leave room for the rest */
+export const LONG_TOKENS = 900
+export const SHORT_TOKENS = 150
 
 export const KNOWLEDGE_EXPLORE_DESCRIPTION =
   "Search the team's documents and code in one call. Give the question in words or names (any language), and alt_query: " +
@@ -46,12 +53,14 @@ type Lang = Parameters<typeof locLabel>[1]
 const where = (x: LookupPassage, lang: Lang) => (x.loc ? ` · ${locLabel(x.loc, lang)}` : '')
 const indent = (s: string) => s.split('\n').map((l) => (l ? `   ${l}` : '')).join('\n')
 
+/** `text` within `budget` estimated tokens, with a mark when it was cut */
+const fit = (text: string, budget: number) => { const t = fitTokens(text, budget - 1); return t.length < text.length ? t.trimEnd() + ' …' : t }
 /** a passage to answer from: its lines as they are in the document */
 const longText = (x: LookupPassage, n: number, lang: Lang, link: string) =>
-  [`${n}. ${x.path}${where(x, lang)}`, `   link: ${link}`, indent(x.text.replace(/[^\S\n]+\n/g, '\n').trim())].join('\n')
+  [`${n}. ${x.path}${where(x, lang)}`, `   link: ${link}`, indent(fit(x.text.replace(/[^\S\n]+\n/g, '\n').trim(), LONG_TOKENS))].join('\n')
 /** a short labelled match: one line of text */
 const shortText = (x: LookupPassage, n: number, lang: Lang, link: string) =>
-  [`${n}. ${x.path}${where(x, lang)}`, `   link: ${link}`, `   ${x.text.replace(/\s+/g, ' ').trim()}`].join('\n')
+  [`${n}. ${x.path}${where(x, lang)}`, `   link: ${link}`, `   ${fit(x.text.replace(/\s+/g, ' ').trim(), SHORT_TOKENS)}`].join('\n')
 const relatedLine = (r: ExploreRelated) => `- ${r.path} — ${r.reason.kind}${r.reason.detail ? `: ${r.reason.detail}` : ''} (linked to ${r.from})`
 
 const refLine = (r: { name: string; filePath: string; startLine: number }) => `${r.name} (${r.filePath}:${r.startLine})`
@@ -66,15 +75,15 @@ function hitText(h: ExploreHit, i: number, link: string): string {
 }
 
 /**
- * The tool's text for an explore result, at most `max` characters: the passages to answer from, the short matches,
- * the related documents and the code, in that order, each item whole or not at all (a note says when some were left
- * out). Returns what it shows, for the sources.
+ * The tool's text for an explore result, at most `max` estimated tokens (tokens.ts): the passages to answer from (each
+ * at most LONG_TOKENS), the short matches (SHORT_TOKENS), the related documents and the code, in that order, each item
+ * whole or not at all (a note says when some were left out). Returns what it shows, for the sources.
  */
-export function exploreText(r: Pick<ExploreResult, 'passages' | 'related' | 'hits' | 'pending'>, lang: Lang, max = TOOL_TEXT_MAX):
+export function exploreText(r: Pick<ExploreResult, 'passages' | 'related' | 'hits' | 'pending'>, lang: Lang, max = TOOL_TOKENS_MAX):
   { text: string; passages: LookupPassage[]; related: ExploreRelated[]; hits: ExploreHit[] } {
   const note = r.pending ? `\n(${r.pending} folders are still being indexed; grep finds exact text in them now)` : ''
   const CUT = '\n\n(More matches were left out to keep this short: ask again with path or a narrower question.)'
-  const room = max - note.length - CUT.length
+  const room = max - estimateTokens(note) - estimateTokens(CUT)
   const shown = { passages: [] as LookupPassage[], related: [] as ExploreRelated[], hits: [] as ExploreHit[] }
   const sections: string[] = []
   let used = 0, cut = false
@@ -84,7 +93,7 @@ export function exploreText(r: Pick<ExploreResult, 'passages' | 'related' | 'hit
     const parts: string[] = []
     for (const [i, x] of items.entries()) {
       const s = render(x, i)
-      const add = (parts.length ? sep.length : (sections.length ? 2 : 0) + head.length + 1) + s.length
+      const add = estimateTokens((parts.length ? sep : (sections.length ? '\n\n' : '') + head + '\n') + s)
       if (used + add > room) { cut = true; break }
       used += add
       parts.push(s)
@@ -100,7 +109,7 @@ export function exploreText(r: Pick<ExploreResult, 'passages' | 'related' | 'hit
   // one wording whether or not anything is indexed: which of the two it was could tell the person that a folder they
   // can only partly see holds documents or code in the part hidden from them (security review F1)
   const text = sections.length ? sections.join('\n\n') + (cut ? CUT : '') + note : `${NOTHING_FOUND}${note}`
-  return { text, ...shown }
+  return { text: fitTokens(text, max), ...shown }
 }
 
 /** Registers knowledge_explore. Offered while the knowledge graph is on. */

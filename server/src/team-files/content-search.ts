@@ -121,15 +121,17 @@ const under = (p: string, root: string) => !root || p === root || p.startsWith(r
  * or is not back in time, gives no rows: the line search answers as it always did.
  */
 async function documentMatches(files: TeamFiles, user: Principal, rules: RuleSet, query: string, base: string, signal: AbortSignal): Promise<FileContentDocument[] | undefined> {
-  const kg = knowledgeGraphOf(files.ctx)
-  if (!kg.docsOn()) return undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    // inside the try: nothing of the knowledge graph may fail the line search
+    const kg = knowledgeGraphOf(files.ctx)
+    if (!kg.docsOn()) return undefined
     const late = new Promise<null>((resolve) => {
       timer = setTimeout(() => resolve(null), CONTENT_SEARCH_DOCS_DEADLINE_MS * 2)
       signal.addEventListener('abort', () => resolve(null), { once: true })
     })
-    const r = await Promise.race([kg.lookup(user, [query], { base: base || undefined, long: 0, short: CONTENT_SEARCH_DOCS, deadlineMs: CONTENT_SEARCH_DOCS_DEADLINE_MS }), late])
+    // every word typed counts in a search box (a chat message's filter would drop "검토", "자료", "review")
+    const r = await Promise.race([kg.lookup(user, [query], { base: base || undefined, long: 0, short: CONTENT_SEARCH_DOCS, deadlineMs: CONTENT_SEARCH_DOCS_DEADLINE_MS, words: 'search' }), late])
     if (!r) return []
     const words = queryWords(query)
     const out: FileContentDocument[] = []
