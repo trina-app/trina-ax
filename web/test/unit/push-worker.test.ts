@@ -206,6 +206,30 @@ test('a room notice opens its room; the room id comes from the signed-in notice,
   expect(read.shown).toHaveLength(0)
 })
 
+test('a room notice says who and where in its title (from the signed-in notice, one plain line), never the text; an older server: the product\'s name', async () => {
+  const roomId = '0190f5a0-0000-7000-8000-000000000001'
+  const messages = { title: 'Team', bodies: { 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }
+  const shown = async (room: Record<string, unknown>, link: string | null = 'room') => {
+    const w = worker()
+    w.configure({ messages: messages as any })
+    w.item({ id: 'event-1', code: 'room.mention', readAt: null, link, room: { id: roomId, from: 'Ben', ...room } })
+    await w.push({ ...payload, code: 'room.mention', title: 'PRIVATE PROMPT' })
+    return w.shown[0]!
+  }
+  const n = await shown({ label: 'Ben · #design › Thread', preview: 'SECRET TEXT' })
+  expect(n.title).toBe('Ben · #design › Thread')
+  expect(n.options.body).toBe('You were mentioned')
+  expect(JSON.stringify(n)).not.toContain('SECRET')
+  // control and bidirectional characters, line breaks and length: one plain line of at most 120 characters
+  expect((await shown({ label: 'Be\u202En\n · #de\u2066sign\u200b' })).title).toBe('Ben · #design')
+  expect([...(await shown({ label: 'x'.repeat(300) })).title]).toHaveLength(120)
+  // an older server (no label), an empty or odd one, or a notice with no room any more: the product's name
+  expect((await shown({})).title).toBe('Team')
+  expect((await shown({ label: '\u202E\n' })).title).toBe('Team')
+  expect((await shown({ label: 42 })).title).toBe('Team')
+  expect((await shown({ label: 'Ben' }, null)).title).toBe('Team')
+})
+
 test('a room notice is silent when an open page takes care of the sound; otherwise, and for other notices, it is not', async () => {
   const roomId = '0190f5a0-0000-7000-8000-000000000001'
   const messages = { title: 'Team', bodies: { ...pushMessages('en').bodies, 'room.dm': 'New direct message', 'room.mention': 'You were mentioned' } }

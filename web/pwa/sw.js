@@ -64,6 +64,15 @@ const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': '
 const ROOM_CODES = new Set(['room.dm', 'room.mention'])
 const pushWanted = (preferences, code) => ROOM_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
+// A room notice's title: who and where ("민준 · #마케팅 › 스레드", a DM "민준"; names only, never the message's text), from
+// the signed-in fetch of the notice (shared plainLabel's rule again: one plain line, no control or bidirectional
+// characters, at most 120 characters). '' when the server does not say (an older one): the product's name then.
+const roomTitle = value => {
+  if (typeof value !== 'string') return ''
+  const line = value.replace(/(?!\u200d)\p{Cf}/gu, '').replace(/[\p{Cc}\u2028\u2029]/gu, ' ').replace(/\s+/g, ' ').trim()
+  const chars = [...line]
+  return chars.length > 120 ? chars.slice(0, 119).join('').trimEnd() + '…' : line
+}
 
 // Store opaque deduplication receipts, never notification text, prompts, file names or tokens.
 // IndexedDB is separate from the static-only asset cache. Keep at most 512 receipts for 24h.
@@ -161,7 +170,9 @@ self.addEventListener('push', event => {
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
       const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
       if (generation !== pushEpoch) return
-      await self.registration.showNotification(title, { body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}) } : { notificationId: payload.notificationId } })
+      // a room notice says who and where in its title; the body stays the generic line
+      const shownTitle = (roomId && roomTitle(item.room?.label)) || title
+      await self.registration.showNotification(shownTitle, { body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}) } : { notificationId: payload.notificationId } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return

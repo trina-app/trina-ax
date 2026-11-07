@@ -8250,7 +8250,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   20, then one a second, all rooms together; 429 with the seconds to wait; a resend of the same clientMessageId is
   free). They live in `room_notices` (notification_inbox has a fixed event_type
   list and is never rebuilt) and are part of the one inbox; the inbox entry names the room and who wrote it, never the
-  text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
+  text (amended 2026-11-07: the Inbox's list shows the first line of a message the person may read, never a push or a
+  lock screen, see "알림함의 대화 알림"). Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
   `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
   notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
   (`roomMessages`), turns both off; per room there is mute (amended 2026-11-06: a default of three, thread replies,
@@ -8275,7 +8276,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   a room and inside an AI chat there is no tab bar (their message box needs the bottom), and inside a room the room's
   header with its back arrow replaces the phone top bar. Rows are separated by hairlines, no cards near the edge. The
   desktop sidebar keeps the AI chats where they were.
-- **Notices on a device.** The service worker shows a room push with the generic text, and a click opens `/rooms/<id>`
+- **Notices on a device.** The service worker shows a room push with the generic text (amended 2026-11-07: its title
+  says who and where, never the text, see "알림함의 대화 알림"), and a click opens `/rooms/<id>`
   with the room id taken from the signed-in fetch of the notice at show time, never from the payload (the room page
   checks membership again); other pushes still open Settings › Notifications.
 
@@ -8431,7 +8433,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     one 더 보기 row. The room's one setting is the bell in its header (no menu of one item).
   - The pinned AI row is "트리나" (rooms.aiName) where the product is named after its AI (`PRODUCT_NAMED_AFTER_AI`); the
     core edition keeps the product's name. Room DMs and mentions still push and still count on the 대화 tab but are not
-    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id). The profile no
+    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id; amended
+    2026-11-07: mentions and replies in threads I follow are listed and counted again, one row per place, see "알림함의
+    대화 알림"). The profile no
     longer shows or asks for the one-line status (the column stays). Letter avatars are on a neutral tile; an AI answer
     is one plain line in the rooms list; a muted room's badge is grey and not in the tab's count; a mention shows "@"
     alone; an AI answer's unread number sits by its time.
@@ -11344,7 +11348,7 @@ the settings do too. Naming (the owner's rule): the people's side is **대화** 
   device's: the server decides the pushes and the people of one team share one clock. `inQuietHours(q, tz, now)` is the
   one function; an unknown zone reads as UTC; start = end is refused (400). Inside them: the notice is kept
   (`room_notices.quiet = 1`; the room's badge and the notice by id as before; room notices are not listed in the Inbox,
-  "대화방의 트리나") but never queued for a push, and the web app does not ring. One quiet notice per unread run; once
+  "대화방의 트리나"; since 2026-11-07 a quiet mention or reply is a row like any, "알림함의 대화 알림") but never queued for a push, and the web app does not ring. One quiet notice per unread run; once
   the quiet hours are over, the next message makes a new notice that pushes, even while the quiet one is unread (it no
   longer holds the run back). Nothing that waited is pushed when they end (Slack does the same). Only room alerts are
   quiet: a scheduled task's result or a connection that needs a sign-in still pushes at night (they are rare and the
@@ -12436,3 +12440,64 @@ reading is part of a new connection's normal access, writing is its own box, no 
   quarantine list while its text is being extracted is still returned, as in the app's own room_file and file reads.
   The client name on the consent page is the app's own (as for Claude's callback); the return address under it is
   what the server checks.
+
+## 알림함의 대화 알림 — who, where and why in the Inbox (feat/inbox-room-notices, 2026-11-07, product owner)
+넣을 곳: trina-ax `server/src/rooms/inbox.ts` (with `notifications/service.ts`, `notifications/text.ts`, migration 262),
+`shared/src/api/notifications.ts`, `web/src/components/settings/RoomNoticeRow.tsx` and `web/pwa/sw.js`, 이유: the
+Inbox and pushes are core, and one rule has to serve the Inbox's rows, its count and a push's title.
+
+The owner: "쓰레드에 글을 누가 보낸게 어디에 보냈는지 안보여." A reply in a thread pushed the generic "새 메시지가 왔어요",
+and the Inbox listed no room notice at all (2026-11-05, "대화방의 트리나": one place for unread). Slack's Activity is the
+reference; a product and privacy review cut the first plan down to this.
+
+- **What the Inbox lists and counts (amends 2026-11-05).** Mentions (picked by name, "@전체") and replies in threads I
+  follow. A message of a DM, a group chat or a room at 모든 메시지 still makes its notice and its push exactly as before,
+  but no row: the 대화 tab counts it. The rule is in one place (`rooms/inbox.ts` `LISTED_SQL`, `COUNTED_SQL`): listing
+  DMs too is `OR n.event_type = 'room.dm'` there, and they would be listed, not counted. A room I hid has no rows and
+  counts nothing (they come back with the room).
+- **A row is a place.** One room's timeline or one thread, and what is unread there for me: a mention and a reply in one
+  thread, a run split by quiet hours, two people's mentions in a timeline are one row (one notice per unread run and kind
+  stays as it was). The newest notice's id is the row's; reading the row (`POST /api/notifications/:id/read`, the click)
+  reads every notice in it at one time, and notices read together (one `read_at`) stay one row. The count is rows, not
+  messages.
+- **What a row says.** The newest writer's photo (the AI's mark for an AI answer); "민준 외 2명 · #마케팅 › 스레드" (a DM
+  "1:1", the everyone room by its word, a group chat by its name or, without one, its people as the rooms list names
+  it); the time of its newest message; that message's first line, after a small "@" when the row mentions me or everyone;
+  while unread the count's pill, as on the 대화 list. No "새 메시지" or "스레드 답글" label: "› 스레드" says it. Counted: in
+  a thread I follow every reply by someone else after my place in it; elsewhere what mentions me after my place in the
+  room (both from the row's first notice on); once read, what its notices stood for. For that a notice now keeps the
+  newest message it held back (`room_notices.last_seq`, `last_at`; migration 262, additive, reader level stays 6; an
+  older build ignores them and a row there is its own message). The row sits in the Inbox where its newest message is
+  (the list merges the rooms' rows into the other notices' order; its cursor is that time and the id).
+- **The click** opens the thread (`/rooms/<id>/t/<root>`) or the room at my first unread message (`?m=<message>`: the
+  room or thread scrolls it to the middle and marks it for a moment when it is among the messages loaded; no new API
+  that loads around a message) and reads the row. The older line (a server from before this) opens a reply's thread now
+  too.
+- **The message's text, in the Inbox's list only (reverses "never the text" of "대화방 v1" for the Inbox).** The first
+  line of the newest message, at most 200 characters, for a member who may read it in the room anyway. Never in
+  `GET /api/notifications/:id` (what a push opens), never in a push's payload or on a lock screen.
+- **Nothing of a message I may no longer read.** A notice is a row only while I am in the room, it is not archived or
+  hidden by me, and its message is there and mine to see (after my join, not someone else's private preview); otherwise
+  it is no row at all and not counted (leaving or being taken out already deleted my notices, a deleted message its
+  own). A deleted message that started a run moves the run's notice to the next message of it I may read (for a mention:
+  the next that mentions me), so the rest keeps its row.
+- **Names are people's words.** A person's or a room's name and the line are one plain line (shared `plainLabel`: no
+  control or format characters, so no bidirectional overrides or isolates and no zero-width spaces, the emoji joiner
+  kept; no line breaks; capped) and the app shows them inside `<bdi>`. The desktop app's room notice title is cleaned the
+  same way.
+- **A browser push's title (the owner approved who and where, never the text).** The payload is unchanged (ids and the
+  code). The service worker already reads the notice signed in; that answer now carries `room.label` ("민준 · #마케팅 ›
+  스레드", a DM "민준", in the person's language: `notifications/text.ts` `ROOM_WORDS`, the app's own words), and the worker
+  shows it as the title (cleaned again, at most 120 characters) over the generic line; without one (an older server)
+  the product's name, as before. An older worker ignores the field. The phone app's own notices are not in this step.
+- **Older clients and servers.** Every new field of `InboxNotification.room` is optional and the event codes are the
+  same. An older page shows the rows with the line it had; this page shows an older server's notices with that line.
+- Rejected: a new event code for replies (the enum is shared with older apps); grouping only by notice (a mention and a
+  reply in one thread were two rows); listing every message notice (the 대화 tab already has them; the owner decides).
+- Tests: `tests/unit/b-rooms-inbox.test.ts` (what is listed and counted, pushes untouched, hidden rooms, what a row says,
+  no text and the title in the notice a push opens, one row per place and reading it, quiet hours, leaving, archived and
+  deleted messages, a later member, an AI answer, names made plain), `b-rooms.test.ts`, `b-rooms-threads.test.ts` and
+  `b-rooms-group.test.ts` updated, `web/test/unit/inbox-rooms.test.tsx` (the words of every kind and reason, the link,
+  older servers, the rows in the Inbox and the click), `web/test/unit/push-worker.test.ts` (the title), and the e2e
+  `inbox-rooms.spec.ts` (the rows, and a click that opens the thread at the first unread reply in sight).
+- Version impact: **minor** (the Inbox lists conversation notices, new optional fields, an additive migration).

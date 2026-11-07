@@ -11,9 +11,9 @@ import { BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
-import { PRODUCT_NAMED_AFTER_AI, type Locale, type Room } from '@mycel/shared/api'
+import { PRODUCT_NAMED_AFTER_AI, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
-import { dateBucket, formatDate, intlTag } from '../lib/format'
+import { listTime } from '../lib/format'
 import { plainLine, roomUnread } from '../lib/rooms'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
@@ -27,13 +27,7 @@ import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 import { useNameOf } from '../store/people'
 import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
 
-/** today: the time; yesterday: the word; before: the date */
-export function listTime(iso: string, locale: Locale, yesterday: string): string {
-  const b = dateBucket(iso)
-  if (b === 'today') return new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
-  if (b === 'yesterday') return yesterday
-  return formatDate(iso, locale)
-}
+export { listTime } from '../lib/format'
 
 export default function Rooms() {
   const t = useT()

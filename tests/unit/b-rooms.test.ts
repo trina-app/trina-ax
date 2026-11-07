@@ -287,15 +287,17 @@ test('a failure while recording notices never holds a new message back from anyo
   }
 })
 
-test('notices: a DM or an @mention, one unread notice of each per room (pushed, never listed in the Inbox); muted rooms are quiet; reading clears them; no text', async () => {
+test('notices: a DM or an @mention, one unread notice of each per room (pushed; the Inbox lists the mentions); muted rooms are quiet; reading clears them; no text in what a push opens', async () => {
   const { mia, nora, teamRoom, send } = await setup()
   const n = notificationsOf(h.ctx)
-  // the room notices a push opens by id (GET /api/notifications/:id); the Inbox's own list leaves them out (the 대화
-  // tab's badge is where unread room messages are)
+  // the room notices a push opens by id (GET /api/notifications/:id); the Inbox lists and counts the mentions (and
+  // replies in threads I follow), never a DM's message (docs/DECISIONS.md "알림함의 대화 알림")
   const notices = (uid: string) => {
     const rows = h.ctx.db.query('SELECT id FROM room_notices WHERE user_id = ? AND suppressed = 0 ORDER BY created_at DESC, id DESC').all(uid) as { id: string }[]
     const items = rows.map((r) => n.get(uid, r.id))
-    expect(n.list(uid, {}).items.some((x) => x.code === 'room.dm' || x.code === 'room.mention')).toBe(false)
+    const listed = n.list(uid, {})
+    expect(listed.items.filter((x) => x.code === 'room.dm' || x.code === 'room.mention').map((x) => x.id).sort()).toEqual(items.filter((x) => x.code === 'room.mention').map((x) => x.id).sort())
+    expect(listed.unreadCount).toBe(items.filter((x) => x.readAt === null && x.code === 'room.mention').length)
     return { items, unreadCount: items.filter((x) => x.readAt === null).length }
   }
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })

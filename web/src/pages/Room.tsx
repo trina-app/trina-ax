@@ -95,6 +95,9 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const [focusThread, setFocusThread] = useState(false)
   const location = useLocation()
   const fromRoom = !!(location.state as { fromRoom?: boolean } | null)?.fromRoom
+  // ?m=<message>: the message a link points at (an Inbox row: components/settings/RoomNoticeRow.tsx), picked out in the
+  // thread when one is open, else in the timeline
+  const target = useMemo(() => { const m = new URLSearchParams(location.search).get('m'); return m && isUuid7(m) ? m : null }, [location.search])
   // a thread opened from this room is one step back from it (the back arrow, the browser's back, a phone's back
   // gesture all close it); one thread replaces another and keeps how the first was reached; a thread opened from a link
   // or a notice closes to its room
@@ -269,7 +272,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             </div>
           )}
           {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
-          <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} />
+          <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} highlight={threadId ? null : target} />
           <RoomAiStatus roomId={roomId} />
         </div>
       </div>
@@ -295,7 +298,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
     </div>
-    {threadId && <ThreadPanel key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} focusBox={focusThread} />}
+    {threadId && <ThreadPanel key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} focusBox={focusThread} highlight={target} />}
     </div>
   )
 }

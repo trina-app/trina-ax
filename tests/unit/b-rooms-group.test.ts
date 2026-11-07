@@ -314,7 +314,7 @@ test('event lines count nowhere: no unread, badge, list line, notice or push; no
   expect((await nora.client.try('POST', `/api/rooms/${g.id}/messages`, { body: 'x', replyToId: line.id, clientMessageId: cm() })).status).toBe(400)
   expect((await mia.client.try('POST', `/api/rooms/${g.id}/messages/${line.id}/share`)).status).toBe(404)
   expect(h.ctx.db.query('SELECT body, deleted_at FROM room_messages WHERE id = ?').get(line.id)).toEqual({ body: '', deleted_at: null })
-  // nothing in the inbox or a push queue for a line
+  // nothing in the inbox or a push queue for a line (a group chat's message is no Inbox row either: the 대화 tab has it)
   for (const u of [nora.id, otto.id]) expect(notificationsOf(h.ctx).list(u, {}).items).toHaveLength(0)
   expect((h.ctx.db.query('SELECT COUNT(*) n FROM room_notices WHERE source_id IN (SELECT id FROM room_messages WHERE event IS NOT NULL)').get() as { n: number }).n).toBe(0)
 })

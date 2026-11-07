@@ -20,7 +20,7 @@
 //    own (native) badge.
 import { create } from 'zustand'
 import { useMemo } from 'react'
-import { API, type Chat, type Room, type ServerEvent } from '@mycel/shared/api'
+import { API, plainLabel, type Chat, type Room, type ServerEvent } from '@mycel/shared/api'
 import { api } from '../lib/api'
 import { desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
@@ -186,7 +186,8 @@ function tellRoom(roomId: string, why: RoomWhy) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
   // read meanwhile (here or on another device), its AI no longer waiting, or on screen here: nothing
   if (!r || viewingHere(roomId) || (why === 'ai' ? !r.aiWaits : !roomWantsMe(r, useRooms.getState().alerts?.threadReplies ?? true))) return
-  const title = titleOf(r)
+  // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
+  const title = plainLabel(titleOf(r), 120)
   const body = t(ROOM_WHY[why])
   desktop()?.notify({ title, body, tag: `room-${roomId}`, open: `/rooms/${roomId}` })
   // a message rings the room sound here and the phone's own notification there; only the AI's "?" gets a toast

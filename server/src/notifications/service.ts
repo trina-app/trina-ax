@@ -17,6 +17,9 @@ import { cancelPushUser, cancelDisabledPushDeliveries } from './push-events'
 import { goalSkillTitle } from '../onboarding/goal-names'
 import { contributionOf } from '../skills/suggestions'
 import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
+import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
+import { getUser } from '../auth/users'
+import { teamDefaultLocale } from '../admin/settings'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -28,7 +31,7 @@ export const NOTIFICATION_RETENTION_MS = 30 * 86400_000
 const REVIEW_SOURCE = 'schedule-review-'
 const reviewSource = (userId: string, since: string) => `${REVIEW_SOURCE}${userId}-${Date.parse(since) || 0}`
 const services = new WeakMap<AppContext, Notifications>()
-type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null }
+type Row = { id: string; user_id: string; event_type: NotificationEventType; source_id: string; created_at: string; read_at: string | null; sort_at?: string }
 type Terminal = { id: string; user_id: string; status: string; ended_at: string; run_outcome: string | null }
 export type SkillNoticeEvent = Extract<NotificationEventType, 'skill.suggested' | 'skill.reviewed'>
 export type DevEnvNoticeEvent = Extract<NotificationEventType, 'dev_env.job' | 'dev_env.box'>
@@ -52,10 +55,10 @@ const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' 
 const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
-/** What the Inbox lists and counts: every notice but the rooms' (a DM message, an @mention). Those still push, and a
- * push opens its notice by id (get/read below); the unread room messages themselves are the 대화 tab's badge and the
- * rooms list's, one place for them (docs/DECISIONS.md "대화방의 트리나", UX review). */
-const LISTED = union(NOTICE_TABLES.filter((t) => t !== 'room_notices'))
+/** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
+ * make rows of their own (rooms/inbox.ts roomRows: mentions and replies in threads I follow, one row per place; from
+ * 2026-11-05 to then none were listed, docs/DECISIONS.md "알림함의 대화 알림"), merged into the same order by `sort_at`. */
+const LISTED = `(${NOTICE_TABLES.filter((t) => t !== 'room_notices').map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed,created_at AS sort_at FROM ${t}`).join(' UNION ALL ')})`
 export class Notifications {
   constructor(readonly ctx: AppContext) {}
   private active(userId: string) { return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(userId) }
@@ -85,11 +88,17 @@ export class Notifications {
    * 설정"): kept, never pushed (room_notices.quiet), and it does not hold back the room's next notice once the quiet
    * hours are over (that one pushes); while they last, any unread notice of the run holds the next one back. True when
    * a notice that may ring was recorded now (not a quiet one): the room.message to the person says so, and the desktop
-   * app tells the same ones (docs/DECISIONS.md "Session markers"). */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false): boolean {
+   * app tells the same ones (docs/DECISIONS.md "Session markers"). A notice that holds a message back records it as the
+   * newest of its run (`seq`; last_seq / last_at): the Inbox's row shows the run and sits where it ends (rooms/inbox.ts). */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number): boolean {
     if (!this.active(userId) || at < this.cutoff()) return false
-    if (this.ctx.db.query(`SELECT 1 FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1)`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0)) return false
+    const open = this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null
+    if (open) {
+      // no signal: the Inbox's count is the same, and an open Inbox reads its rows again as the rooms change
+      if (seq !== undefined) this.ctx.db.query('UPDATE room_notices SET last_seq=?, last_at=? WHERE id=? AND COALESCE(last_seq, 0) < ?').run(seq, at, open.id, seq)
+      return false
+    }
     const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed,quiet) VALUES(?,?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
       .run(newId(), userId, event, messageId, roomId, at, quiet ? 1 : 0)
     if (r.changes) this.signal(userId)
@@ -296,6 +305,7 @@ export class Notifications {
     return Math.max(rows.length, skips.length, reviews.length, needs.length)
   }
   preferences(userId: string) { return getPreferences(this.ctx.db, userId) }
+  private locale(userId: string) { return getUser(this.ctx.db, userId)?.locale ?? teamDefaultLocale(this.ctx.db) }
   setPreferences(userId: string, patch: Partial<NotificationPreferences>) {
     if (!this.active(userId)) throw new HttpError('not_found')
     // Process previous terminal events with the old preferences before committing a change.
@@ -356,7 +366,9 @@ export class Notifications {
     const job = { name: run.name, exitCode: run.exit_code, note: run.end_note, tail: run.log_tail, ...(run.end_reason && run.end_reason !== 'exit' ? { reason: run.end_reason } : {}) }
     return { ...base, chatId: chat?.id ?? null, link: chat ? 'chat' : project ? 'project' : null, devEnv: { projectId: project ? run.project_id! : '', projectName: project?.name ?? '', job } }
   }
-  private out(row: Row): InboxNotification {
+  /** `rows`: the Inbox's list, whose room notices are rows (roomRows) with the first line of their newest message; a
+   * single notice (what a push opens) has no text. */
+  private out(row: Row | RoomRow): InboxNotification {
     let chatId: string | null = null, outcome: ScheduleRunOutcome | null = null
     if (isSkillEvent(row.event_type)) {
       // The Skills screen checks access again when it opens the suggestion (?review= only when the viewer may review).
@@ -366,17 +378,12 @@ export class Notifications {
         ...(contribution ? { contribution } : {}) }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
-    // a room notice links to the room and names who wrote it while the person is still in the room and may see the
-    // message; never its text
+    // a room notice links to the room (a reply: its thread) and says who wrote what where while the person is still in
+    // the room and may read the message (rooms/inbox.ts); the first line of the message only in the Inbox's list
     if (isRoomEvent(row.event_type)) {
       const base = { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, outcome: null }
-      // a reply in a thread is seen by whoever sees its root (thread_root_seq), and opens that thread
-      const m = this.ctx.db.query(`SELECT m.room_id, m.author_id, m.seq, m.thread_root_id, m.thread_root_seq, m.visibility, m.visible_to, m.deleted_at, rm.visible_from_seq FROM room_messages m
-        JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = ? JOIN rooms r ON r.id = m.room_id AND r.archived_at IS NULL WHERE m.id = ?`)
-        .get(row.user_id, row.source_id) as { room_id: string; author_id: string | null; seq: number; thread_root_id: string | null; thread_root_seq: number | null; visibility: string; visible_to: string | null; deleted_at: string | null; visible_from_seq: number } | null
-      if (!m || m.deleted_at || (m.thread_root_seq ?? m.seq) <= m.visible_from_seq || (m.visibility !== 'room' && m.visible_to !== row.user_id)) return { ...base, link: null }
-      const from = m.author_id ? (this.ctx.db.query('SELECT name FROM users WHERE id=?').get(m.author_id) as { name: string } | null)?.name ?? null : null
-      return { ...base, link: 'room', room: { id: m.room_id, from, ...(m.thread_root_id ? { thread: m.thread_root_id } : {}) } }
+      const room = 'group' in row ? roomRowOut(this.ctx.db, row) : roomNoticeOut(this.ctx.db, row, this.locale(row.user_id))
+      return room ? { ...base, link: 'room', room } : { ...base, link: null }
     }
     // Settings › External services opens the request (?request=<sourceId>) and says if it is no longer waiting. The
     // service's name with the host of its address (where the member's key would go), while the request is there.
@@ -496,12 +503,16 @@ export class Notifications {
     if (o.cursor && (!cur || !Number.isFinite(Date.parse(cur.t!)))) throw new HttpError('validation')
     if (!this.active(userId)) return { items: [], nextCursor: null, unreadCount: 0 }
     const limit = Math.min(100, Math.max(1, o.limit ?? 30)), db = this.ctx.db, cutoff = this.cutoff()
+    // newest first by sort_at: a notice's own time, a room row's its newest message's
     const rows = db.query(`SELECT * FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND created_at>=?
-      ${cur ? 'AND (created_at<? OR (created_at=? AND id<?))' : ''} ORDER BY created_at DESC,id DESC LIMIT ?`)
-      .all(...(cur ? [userId, cutoff, cur.t!, cur.t!, cur.id!, limit + 1] : [userId, cutoff, limit + 1])) as Row[]
-    const selected = rows.slice(0, limit), last = selected.at(-1)
+      ${cur ? 'AND (sort_at<? OR (sort_at=? AND id<?))' : ''} ORDER BY sort_at DESC,id DESC LIMIT ?`)
+      .all(...(cur ? [userId, cutoff, cur.t!, cur.t!, cur.id!, limit + 1] : [userId, cutoff, limit + 1])) as (Row & { sort_at: string })[]
+    const rooms = roomRows(db, userId, cutoff)
+    const after = (r: { sort_at: string; id: string }) => !cur || r.sort_at < cur.t! || (r.sort_at === cur.t! && r.id < cur.id!)
+    const merged = [...rows, ...rooms.filter(after)].sort((a, b) => (a.sort_at === b.sort_at ? (a.id < b.id ? 1 : -1) : a.sort_at < b.sort_at ? 1 : -1)).slice(0, limit + 1)
+    const selected = merged.slice(0, limit), last = selected.at(-1)
     const { n } = db.query(`SELECT COUNT(*) n FROM ${LISTED} WHERE user_id=? AND suppressed=0 AND read_at IS NULL AND created_at>=?`).get(userId, cutoff) as { n: number }
-    return { items: selected.map(r => this.out(r)), nextCursor: rows.length > limit && last ? encodeCursor({ t: last.created_at, id: last.id }) : null, unreadCount: n }
+    return { items: selected.map(r => this.out(r)), nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + rooms.filter((r) => r.counted).length }
   }
   get(userId: string, id: string): InboxNotification {
     if (!this.active(userId)) throw new HttpError('not_found')
@@ -513,10 +524,14 @@ export class Notifications {
     if (!this.active(userId)) throw new HttpError('not_found')
     const db = this.ctx.db
     const args = [new Date().toISOString(), id, userId, this.cutoff()]
+    // a room notice's row in the Inbox is every unread notice of its place (rooms/inbox.ts): read together, at one time,
+    // so they stay one row
+    const row = roomRowOf(db, userId, id, this.cutoff())
     const update = (table: string) => db.query(`UPDATE ${table} SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? RETURNING *`).get(...args) as Row | null
     let r: Row | null = null
     for (const table of NOTICE_TABLES) if ((r = update(table))) break
     if (!r) throw new HttpError('not_found')
+    if (row && !row.read_at && row.group.ids.length > 1) db.query(`UPDATE room_notices SET read_at=? WHERE user_id=? AND read_at IS NULL AND id IN (${row.group.ids.map(() => '?').join(',')})`).run(args[0] as string, userId, ...row.group.ids)
     this.signal(userId)
     return this.out(r)
   }
