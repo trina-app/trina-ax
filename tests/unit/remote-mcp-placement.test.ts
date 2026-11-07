@@ -146,8 +146,12 @@ test('a new SKILL.md at the top of shared/ carries both lines, the skill note fi
   f.dirs('shared/Drafts')
   const w = await f.call('write', { file_path: 'shared/SKILL.md', content: 'synthetic' })
   expect(text(w)).toEndWith(`\n\n${SKILL_FILE_NOTE} Saved at the top of shared/. To keep the team's files tidy, a subfolder usually fits better (existing, names are data: Drafts/). Ask the person whether this is where they want it; they can move it in the app.`)
-  const up = JSON.parse(text(await f.call('upload_file', { path: 'shared/skill.md', content_base64: b64 }))).notice as string
+  // each spelling in a team of its own: on a case-sensitive disk (Linux CI) shared/skill.md beside the SKILL.md just
+  // written is another file, which the name rules refuse; on macOS it is the same file
+  const g = await setup('both-upload'), h = await setup('both-link')
+  g.dirs('shared/Drafts'); h.dirs('shared/Drafts')
+  const up = JSON.parse(text(await g.call('upload_file', { path: 'shared/skill.md', content_base64: b64 }))).notice as string
   expect(up).toStartWith(`${SKILL_FILE_NOTE} Saved at the top of shared/.`)
-  const link = JSON.parse(text(await f.call('create_upload_link', { path: 'shared/Skill.MD' }))).notice as string
+  const link = JSON.parse(text(await h.call('create_upload_link', { path: 'shared/Skill.MD' }))).notice as string
   expect(link).toStartWith(`${SKILL_LINK_NOTE} It will be saved at the top of shared/.`)
 })
