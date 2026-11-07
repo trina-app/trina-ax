@@ -160,7 +160,8 @@ if (meaning.asked) {
   try {
     meaning.modelDownloadMs = (await readyModel(MODEL_DIR, DOWNLOAD)).downloadedMs
     log(meaning.modelDownloadMs ? `model downloaded in ${(meaning.modelDownloadMs / 1000).toFixed(1)} s` : 'model files present and checked')
-    if (EMBED_SAMPLE > 0) {
+    if (EMBED_SAMPLE > 0 && !REUSE) log('--embed-sample is for --reuse-index (the full embedding below measures the pace otherwise); ignored')
+    if (EMBED_SAMPLE > 0 && REUSE) {
       // the pace on this machine, on a copy: EMBED_SAMPLE pieces spread over the index lose their vector and are
       // embedded again through the same loop and process
       enter('embed-sample')
