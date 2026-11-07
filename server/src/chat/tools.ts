@@ -34,7 +34,7 @@ import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { ROOM_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
-import { roomReadTools, roomSessionFileTools } from './room-tools'
+import { roomReadTools, roomSessionTools } from './room-tools'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
@@ -122,8 +122,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
   // in a confidential or draft chat (add() above keeps those to their own tools)
   // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway). A room's own session
-  // gets its room's files instead (the asking message's and earlier ones: room_file, save_room_file)
-  if (!exec.templateRun) for (const t of exec.room ? roomSessionFileTools(exec) : roomReadTools(exec)) add(t)
+  // gets its room's files instead (the asking message's and earlier ones: room_file, save_room_file) and its threads
+  // (room_thread: one thread of that room)
+  if (!exec.templateRun) for (const t of exec.room ? roomSessionTools(exec) : roomReadTools(exec)) add(t)
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
