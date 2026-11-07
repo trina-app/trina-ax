@@ -32,7 +32,7 @@ worse on any type of question.
 
 ```bash
 bun scripts/bench/quality/check.ts                 # the questions against the documents, no search
-bun scripts/bench/quality/fetch.ts                 # once: about 45 minutes, two wikis side by side, one request at a time each
+bun scripts/bench/quality/fetch.ts                 # once: 22 minutes on 2026-11-07 (about 3,800 requests, 46 MB)
 bun scripts/bench/quality/run.ts --modes keyword --out 2026-11-07-keyword-mac
 ```
 
@@ -77,6 +77,15 @@ Runs `run.ts` in `oven/bun:1.3.12` (the bun of CI and the release bundles) with 
 checkout (`git archive HEAD`) and `.cache/wiki` (and `.cache/models`, when present) go in on stdin, because colima does
 not mount `/private/tmp`; the results come back on stdout. Commit first. A Lightsail 2-core plan guarantees only about
 20% of each core, so this is the best case of such a server, not its average.
+
+## Results so far
+
+| Run | Recall@8 | First | MRR | exact / table / filename R@8 | Index | Query p50 / p95 |
+|---|---|---|---|---|---|---|
+| [keyword, this Mac](results/2026-11-07-keyword-mac.md) | 47.3% | 38.7% | 0.419 | 83% / 90% / 63% | 547 pieces/s | 15.6 / 32.8 ms |
+| [keyword, Docker 2 CPUs 4 GB](results/2026-11-07-keyword-docker-2cpu.md) | 47.3% | 38.7% | 0.419 | 83% / 90% / 63% | 465 pieces/s | 14.6 / 30.4 ms |
+
+Paraphrase and cross are 0% for keyword-only, as built. Combined: not run yet (wave 2 not merged).
 
 ## Metrics
 
